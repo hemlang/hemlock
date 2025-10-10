@@ -232,6 +232,18 @@ Value eval_expr(Expr *expr, Environment *env) {
                 return val_bool(right_bool);
             }
 
+            // Handle string concatenation
+            if (expr->as.binary.op == OP_ADD) {
+                Value left = eval_expr(expr->as.binary.left, env);
+                Value right = eval_expr(expr->as.binary.right, env);
+
+                if (left.type == VAL_STRING && right.type == VAL_STRING) {
+                    String *result = string_concat(left.as.as_string, right.as.as_string);
+                    return (Value){ .type = VAL_STRING, .as.as_string = result };
+                }
+                // TODO: throw error if types are incompatible
+            }
+
             // Regular binary operations:
             Value left = eval_expr(expr->as.binary.left, env);
             Value right = eval_expr(expr->as.binary.right, env);
@@ -241,7 +253,7 @@ Value eval_expr(Expr *expr, Environment *env) {
                 fprintf(stderr, "Runtime error: Binary operation requires integers\n");
                 exit(1);
             }
-            
+
             int l = left.as.as_int;
             int r = right.as.as_int;
             

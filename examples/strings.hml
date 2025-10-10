@@ -1,3 +1,7 @@
 let name = "Alice";
+let greeting = "Hello, ";
+let message = greeting + name;
 
 print(name);
+print(greeting);
+print(message);
