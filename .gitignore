@@ -1,0 +1,78 @@
+# Compiled Object files
+*.o
+*.obj
+*.ko
+*.elf
+
+# Compiled executables
+hemlock
+hemlock.exe
+*.out
+*.app
+*.exe
+
+# Debug symbols
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Build directories
+build/
+bin/
+obj/
+out/
+
+# Static and dynamic libraries
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Core dumps
+core
+core.*
+*.core
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+.DS_Store
+Thumbs.db
+
+# Compiler generated files
+*.d
+*.s
+*.i
+*.ii
+
+# Valgrind output
+vgcore.*
+*.log
+
+# Test output
+test_results/
+*.test
+
+# CMake (if you ever switch to CMake)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# ctags/cscope
+tags
+TAGS
+cscope.*
