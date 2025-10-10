@@ -7,8 +7,16 @@
 typedef enum {
     VAL_INT,
     VAL_BOOL,
+    VAL_STRING,
     VAL_NULL,
 } ValueType;
+
+// String struct
+typedef struct {
+    char *data;
+    int length;
+    int capacity;
+} String;
 
 // Runtime value
 typedef struct {
@@ -16,6 +24,7 @@ typedef struct {
     union {
         int as_int;
         int as_bool;
+        String *as_string;
     } as;
 } Value;
 
@@ -41,9 +50,16 @@ void eval_program(Stmt **stmts, int count, Environment *env);
 // Value constructors
 Value val_int(int value);
 Value val_bool(int value);
+Value val_string(const char *str);
+Value val_string_take(char *str, int length, int capacity);
 Value val_null(void);
 
 // Value operations
 void print_value(Value val);
+
+// String operations
+void string_free(String *str);
+String* string_concat(String *a, String *b);
+String* string_copy(String *str);
 
 #endif // HEMLOCK_INTERPRETER_H

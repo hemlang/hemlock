@@ -15,6 +15,7 @@ typedef enum {
     EXPR_CALL,
     EXPR_ASSIGN,
     EXPR_BOOL,
+    EXPR_STRING,
 } ExprType;
 
 typedef enum {
@@ -43,6 +44,7 @@ struct Expr {
     union {
         int number;
         int boolean;
+        char *string;
         char *ident;
         struct {
             Expr *left;
@@ -105,6 +107,7 @@ struct Stmt {
 // Expression constructors
 Expr* expr_number(int value);
 Expr* expr_bool(int value);
+Expr* expr_string(const char *str);
 Expr* expr_ident(const char *name);
 Expr* expr_binary(Expr *left, BinaryOp op, Expr *right);
 Expr* expr_unary(UnaryOp op, Expr *operand);

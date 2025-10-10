@@ -100,6 +100,13 @@ static Expr* primary(Parser *p) {
     if (match(p, TOK_NUMBER)) {
         return expr_number(p->previous.int_value);
     }
+
+    if (match(p, TOK_STRING)) {
+        char *str = p->previous.string_value;
+        Expr *expr = expr_string(str);
+        free(str);  // Parser owns this memory from lexer
+        return expr;
+    }
     
     if (match(p, TOK_IDENT)) {
         char *name = token_text(&p->previous);

@@ -3,6 +3,67 @@
 #include <stdlib.h>
 #include <string.h>
 
+// ========== STRING OPERATIONS ==========
+
+void string_free(String *str) {
+    if (str) {
+        free(str->data);
+        free(str);
+    }
+}
+
+String* string_new(const char *cstr) {
+    int len = strlen(cstr);
+    String *str = malloc(sizeof(String));
+    str->length = len;
+    str->capacity = len + 1;
+    str->data = malloc(str->capacity);
+    memcpy(str->data, cstr, len);
+    str->data[len] = '\0';
+    return str;
+}
+
+String* string_copy(String *str) {
+    String *copy = malloc(sizeof(String));
+    copy->length = str->length;
+    copy->capacity = str->capacity;
+    copy->data = malloc(copy->capacity);
+    memcpy(copy->data, str->data, str->length + 1);
+    return copy;
+}
+
+String* string_concat(String *a, String *b) {
+    int new_len = a->length + b->length;
+    String *result = malloc(sizeof(String));
+    result->length = new_len;
+    result->capacity = new_len + 1;
+    result->data = malloc(result->capacity);
+    
+    memcpy(result->data, a->data, a->length);
+    memcpy(result->data + a->length, b->data, b->length);
+    result->data[new_len] = '\0';
+    
+    return result;
+}
+
+Value val_string(const char *str) {
+    Value v;
+    v.type = VAL_STRING;
+    v.as.as_string = string_new(str);
+    return v;
+}
+
+Value val_string_take(char *data, int length, int capacity) {
+    Value v;
+    v.type = VAL_STRING;
+    String *str = malloc(sizeof(String));
+    str->data = data;
+    str->length = length;
+    str->capacity = capacity;
+    v.as.as_string = str;
+    return v;
+}
+
 // ========== VALUE OPERATIONS ==========
 
 Value val_int(int value) {
@@ -32,6 +93,9 @@ void print_value(Value val) {
             break;
         case VAL_BOOL:
             printf(val.as.as_bool ? "true" : "false");
+            break;
+        case VAL_STRING:
+            printf("%s", val.as.as_string->data);
             break;
         case VAL_NULL:
             printf("null");
@@ -110,10 +174,13 @@ Value eval_expr(Expr *expr, Environment *env) {
         case EXPR_NUMBER:
             return val_int(expr->as.number);
 
-        case EXPR_BOOL:    // ← ADD
+        case EXPR_BOOL:
             return val_bool(expr->as.boolean);
-            
-        case EXPR_UNARY: {  // ← ADD
+
+        case EXPR_STRING:
+            return val_string(expr->as.string);
+
+        case EXPR_UNARY: {
             Value operand = eval_expr(expr->as.unary.operand, env);
             
             switch (expr->as.unary.op) {

@@ -18,6 +18,13 @@ Expr* expr_bool(int value) {
     return expr;
 }
 
+Expr* expr_string(const char *str) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_STRING;
+    expr->as.string = strdup(str);
+    return expr;
+}
+
 Expr* expr_ident(const char *name) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_IDENT;
@@ -109,6 +116,9 @@ void expr_free(Expr *expr) {
     switch (expr->type) {
         case EXPR_IDENT:
             free(expr->as.ident);
+            break;
+        case EXPR_STRING:
+            free(expr->as.string);
             break;
         case EXPR_BINARY:
             expr_free(expr->as.binary.left);

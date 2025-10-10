@@ -88,6 +88,31 @@ static Token number(Lexer *lex) {
     return token;
 }
 
+static Token string(Lexer *lex) {
+    // Consume characters until closing quote
+    while (peek(lex) != '"' && !is_at_end(lex)) {
+        if (peek(lex) == '\n') lex->line++;
+        advance(lex);
+    }
+    
+    if (is_at_end(lex)) {
+        return error_token(lex, "Unterminated string");
+    }
+    
+    // Closing quote
+    advance(lex);
+    
+    Token token = make_token(lex, TOK_STRING);
+    
+    // Extract string content (without quotes)
+    int str_len = token.length - 2;  // Exclude opening and closing quotes
+    token.string_value = malloc(str_len + 1);
+    memcpy(token.string_value, token.start + 1, str_len);
+    token.string_value[str_len] = '\0';
+    
+    return token;
+}
+
 static TokenType check_keyword(const char *start, int length, 
                                const char *rest, TokenType type) {
     if (strncmp(start, rest, length) == 0) {
@@ -163,6 +188,7 @@ Token lexer_next(Lexer *lex) {
     
     if (isdigit(c)) return number(lex);
     if (isalpha(c) || c == '_') return identifier(lex);
+    if (c == '"') return string(lex);
     
     switch (c) {
         case '+': return make_token(lex, TOK_PLUS);

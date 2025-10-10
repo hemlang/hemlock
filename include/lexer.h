@@ -5,6 +5,7 @@
 typedef enum {
     // Literals
     TOK_NUMBER,
+    TOK_STRING,
     TOK_IDENT,
     TOK_TRUE,
     TOK_FALSE,
@@ -52,6 +53,9 @@ typedef struct {
     
     // For numbers
     int int_value;
+
+    // For strings
+    char *string_value; // Must be freed
 } Token;
 
 // Lexer state
