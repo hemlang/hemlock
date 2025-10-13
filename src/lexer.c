@@ -78,13 +78,29 @@ static Token number(Lexer *lex) {
         advance(lex);
     }
     
+    // Look for decimal point
+    int is_float = 0;
+    if (peek(lex) == '.' && isdigit(peek_next(lex))) {
+        is_float = 1;
+        advance(lex);  // consume '.'
+        
+        while (isdigit(peek(lex))) {
+            advance(lex);
+        }
+    }
+    
     Token token = make_token(lex, TOK_NUMBER);
+    token.is_float = is_float;
     
-    // Parse the number
     char *text = token_text(&token);
-    token.int_value = atoi(text);
-    free(text);
     
+    if (is_float) {
+        token.float_value = atof(text);
+    } else {
+        token.int_value = atoi(text);
+    }
+    
+    free(text);
     return token;
 }
 
@@ -122,36 +138,60 @@ static TokenType check_keyword(const char *start, int length,
 }
 
 static TokenType identifier_type(Lexer *lex) {
+    int len = lex->current - lex->start;
+    
     switch (lex->start[0]) {
+        case 'b':
+            if (len == 4) return check_keyword(lex->start, 4, "bool", TOK_TYPE_BOOL);
+            break;
+        case 'c':
+            if (len == 4) return check_keyword(lex->start, 4, "char", TOK_TYPE_CHAR);
+            break;
         case 'e':
-            if (lex->current - lex->start == 4) {
-                return check_keyword(lex->start, 4, "else", TOK_ELSE);
-            }
+            if (len == 4) return check_keyword(lex->start, 4, "else", TOK_ELSE);
             break;
         case 'f':
-            if (lex->current - lex->start == 5) {
-                return check_keyword(lex->start, 5, "false", TOK_FALSE);
+            if (len == 3) {
+                if (strncmp(lex->start, "f16", 3) == 0) return TOK_TYPE_F16;
+                if (strncmp(lex->start, "f32", 3) == 0) return TOK_TYPE_F32;
+                if (strncmp(lex->start, "f64", 3) == 0) return TOK_TYPE_F64;
             }
+            if (len == 5) return check_keyword(lex->start, 5, "false", TOK_FALSE);
             break;
         case 'i':
-            if (lex->current - lex->start == 2) {
-                return check_keyword(lex->start, 2, "if", TOK_IF);
+            if (len == 2) {
+                if (strncmp(lex->start, "if", 2) == 0) return TOK_IF;
+                if (strncmp(lex->start, "i8", 2) == 0) return TOK_TYPE_I8;
             }
+            if (len == 3) {
+                if (strncmp(lex->start, "i16", 3) == 0) return TOK_TYPE_I16;
+                if (strncmp(lex->start, "i32", 3) == 0) return TOK_TYPE_I32;
+            }
+            if (len == 7) return check_keyword(lex->start, 7, "integer", TOK_TYPE_INTEGER);
             break;
         case 'l':
-            if (lex->current - lex->start == 3) {
-                return check_keyword(lex->start, 3, "let", TOK_LET);
-            }
+            if (len == 3) return check_keyword(lex->start, 3, "let", TOK_LET);
+            break;
+        case 'n':
+            if (len == 6) return check_keyword(lex->start, 6, "number", TOK_TYPE_NUMBER);
+            break;
+        case 's':
+            if (len == 6) return check_keyword(lex->start, 6, "string", TOK_TYPE_STRING);
             break;
         case 't':
-            if (lex->current - lex->start == 4) {
-                return check_keyword(lex->start, 4, "true", TOK_TRUE);
+            if (len == 4) return check_keyword(lex->start, 4, "true", TOK_TRUE);
+            break;
+        case 'u':
+            if (len == 2) {
+                if (strncmp(lex->start, "u8", 2) == 0) return TOK_TYPE_U8;
+            }
+            if (len == 3) {
+                if (strncmp(lex->start, "u16", 3) == 0) return TOK_TYPE_U16;
+                if (strncmp(lex->start, "u32", 3) == 0) return TOK_TYPE_U32;
             }
             break;
         case 'w':
-            if (lex->current - lex->start == 5) {
-                return check_keyword(lex->start, 5, "while", TOK_WHILE);
-            }
+            if (len == 5) return check_keyword(lex->start, 5, "while", TOK_WHILE);
             break;
     }
     
@@ -196,6 +236,7 @@ Token lexer_next(Lexer *lex) {
         case '*': return make_token(lex, TOK_STAR);
         case '/': return make_token(lex, TOK_SLASH);
         case ';': return make_token(lex, TOK_SEMICOLON);
+        case ':': return make_token(lex, TOK_COLON);
         case '(': return make_token(lex, TOK_LPAREN);
         case ')': return make_token(lex, TOK_RPAREN);
         case '{': return make_token(lex, TOK_LBRACE);

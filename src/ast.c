@@ -4,11 +4,24 @@
 
 // ========== EXPRESSION CONSTRUCTORS ==========
 
-Expr* expr_number(int value) {
+Expr* expr_number_int(int value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
-    expr->as.number = value;
+    expr->as.number.int_value = value;
+    expr->as.number.is_float = 0;
     return expr;
+}
+
+Expr* expr_number_float(double value) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_NUMBER;
+    expr->as.number.float_value = value;
+    expr->as.number.is_float = 1;
+    return expr;
+}
+
+Expr* expr_number(int value) {
+    return expr_number_int(value);
 }
 
 Expr* expr_bool(int value) {
@@ -66,14 +79,31 @@ Expr* expr_assign(const char *name, Expr *value) {
     return expr;
 }
 
+// ========== TYPE CONSTRUCTORS ==========
+
+Type* type_new(TypeKind kind) {
+    Type *type = malloc(sizeof(Type));
+    type->kind = kind;
+    return type;
+}
+
+void type_free(Type *type) {
+    free(type);
+}
+
 // ========== STATEMENT CONSTRUCTORS ==========
 
-Stmt* stmt_let(const char *name, Expr *value) {
+Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_LET;
     stmt->as.let.name = strdup(name);
+    stmt->as.let.type_annotation = type_annotation;  // Can be NULL
     stmt->as.let.value = value;
     return stmt;
+}
+
+Stmt* stmt_let(const char *name, Expr *value) {
+    return stmt_let_typed(name, NULL, value);
 }
 
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
@@ -153,6 +183,7 @@ void stmt_free(Stmt *stmt) {
     switch (stmt->type) {
         case STMT_LET:
             free(stmt->as.let.name);
+            type_free(stmt->as.let.type_annotation);
             expr_free(stmt->as.let.value);
             break;
         case STMT_EXPR:

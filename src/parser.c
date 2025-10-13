@@ -98,7 +98,11 @@ static Expr* primary(Parser *p) {
     }
 
     if (match(p, TOK_NUMBER)) {
-        return expr_number(p->previous.int_value);
+        if (p->previous.is_float) {
+            return expr_number_float(p->previous.float_value);
+        } else {
+            return expr_number_int(p->previous.int_value);
+        }
     }
 
     if (match(p, TOK_STRING)) {
@@ -251,6 +255,33 @@ static Expr* expression(Parser *p) {
     return assignment(p);
 }
 
+static Type* parse_type(Parser *p) {
+    TypeKind kind;
+    
+    switch (p->current.type) {
+        case TOK_TYPE_I8: kind = TYPE_I8; break;
+        case TOK_TYPE_I16: kind = TYPE_I16; break;
+        case TOK_TYPE_I32: kind = TYPE_I32; break;
+        case TOK_TYPE_INTEGER: kind = TYPE_I32; break;  // alias
+        case TOK_TYPE_U8: kind = TYPE_U8; break;
+        case TOK_TYPE_CHAR: kind = TYPE_U8; break;  // alias
+        case TOK_TYPE_U16: kind = TYPE_U16; break;
+        case TOK_TYPE_U32: kind = TYPE_U32; break;
+        case TOK_TYPE_F16: kind = TYPE_F16; break;
+        case TOK_TYPE_F32: kind = TYPE_F32; break;
+        case TOK_TYPE_F64: kind = TYPE_F64; break;
+        case TOK_TYPE_NUMBER: kind = TYPE_F64; break;  // alias
+        case TOK_TYPE_BOOL: kind = TYPE_BOOL; break;
+        case TOK_TYPE_STRING: kind = TYPE_STRING; break;
+        default:
+            error_at_current(p, "Expect type name");
+            return type_new(TYPE_INFER);
+    }
+    
+    advance(p);
+    return type_new(kind);
+}
+
 // ========== STATEMENT PARSING ==========
 
 static Stmt* statement(Parser *p);
@@ -259,13 +290,20 @@ static Stmt* let_statement(Parser *p) {
     consume(p, TOK_IDENT, "Expect variable name");
     char *name = token_text(&p->previous);
     
+    Type *type_annotation = NULL;
+    
+    // Check for optional type annotation
+    if (match(p, TOK_COLON)) {
+        type_annotation = parse_type(p);
+    }
+    
     consume(p, TOK_EQUAL, "Expect '=' after variable name");
     
     Expr *value = expression(p);
     
     consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
     
-    Stmt *stmt = stmt_let(name, value);
+    Stmt *stmt = stmt_let_typed(name, type_annotation, value);
     free(name);
     return stmt;
 }

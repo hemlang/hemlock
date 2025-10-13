@@ -15,7 +15,23 @@ typedef enum {
     TOK_IF,
     TOK_ELSE,
     TOK_WHILE,
-    
+
+    // Type keywords
+    TOK_TYPE_I8,
+    TOK_TYPE_I16,
+    TOK_TYPE_I32,
+    TOK_TYPE_U8,
+    TOK_TYPE_U16,
+    TOK_TYPE_U32,
+    TOK_TYPE_F16,
+    TOK_TYPE_F32,
+    TOK_TYPE_F64,
+    TOK_TYPE_INTEGER,  // alias for i32
+    TOK_TYPE_NUMBER,   // alias for f64
+    TOK_TYPE_CHAR,     // alias for u8
+    TOK_TYPE_BOOL,
+    TOK_TYPE_STRING,
+
     // Operators
     TOK_PLUS,
     TOK_MINUS,
@@ -34,10 +50,14 @@ typedef enum {
     
     // Punctuation
     TOK_SEMICOLON,
+    TOK_COLON,
     TOK_LPAREN,
     TOK_RPAREN,
     TOK_LBRACE,
     TOK_RBRACE,
+    TOK_DOT,
+    TOK_LBRACKET,
+    TOK_RBRACKET,
     
     // Special
     TOK_EOF,
@@ -53,6 +73,8 @@ typedef struct {
     
     // For numbers
     int int_value;
+    double float_value;
+    int is_float;
 
     // For strings
     char *string_value; // Must be freed

@@ -6,6 +6,7 @@
 // Value types that can exist at runtime
 typedef enum {
     VAL_INT,
+    VAL_FLOAT,
     VAL_BOOL,
     VAL_STRING,
     VAL_NULL,
@@ -23,6 +24,7 @@ typedef struct {
     ValueType type;
     union {
         int as_int;
+        double as_float;
         int as_bool;
         String *as_string;
     } as;
@@ -49,6 +51,7 @@ void eval_program(Stmt **stmts, int count, Environment *env);
 
 // Value constructors
 Value val_int(int value);
+Value val_float(double value);
 Value val_bool(int value);
 Value val_string(const char *str);
 Value val_string_take(char *str, int length, int capacity);

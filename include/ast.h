@@ -42,7 +42,11 @@ typedef enum {
 struct Expr {
     ExprType type;
     union {
-        int number;
+        struct {           // ← Number can be int or float
+            int int_value;
+            double float_value;
+            int is_float;  // flag: which one to use
+        } number;
         int boolean;
         char *string;
         char *ident;
@@ -67,6 +71,27 @@ struct Expr {
     } as;
 };
 
+// Type representation
+typedef enum {
+    TYPE_I8,
+    TYPE_I16,
+    TYPE_I32,
+    TYPE_U8,
+    TYPE_U16,
+    TYPE_U32,
+    TYPE_F16,
+    TYPE_F32,
+    TYPE_F64,
+    TYPE_BOOL,
+    TYPE_STRING,
+    TYPE_NULL,
+    TYPE_INFER,      // No annotation, infer from value
+} TypeKind;
+
+typedef struct {
+    TypeKind kind;
+} Type;
+
 // ========== STATEMENT TYPES ==========
 
 typedef enum {
@@ -83,6 +108,7 @@ struct Stmt {
     union {
         struct {
             char *name;
+            Type *type_annotation;
             Expr *value;
         } let;
         Expr *expr;
@@ -106,6 +132,8 @@ struct Stmt {
 
 // Expression constructors
 Expr* expr_number(int value);
+Expr* expr_number_int(int value);
+Expr* expr_number_float(double value);
 Expr* expr_bool(int value);
 Expr* expr_string(const char *str);
 Expr* expr_ident(const char *name);
@@ -116,10 +144,13 @@ Expr* expr_assign(const char *name, Expr *value);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);
+Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value);
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch);
 Stmt* stmt_while(Expr *condition, Stmt *body);
 Stmt* stmt_block(Stmt **statements, int count);
 Stmt* stmt_expr(Expr *expr);
+Type* type_new(TypeKind kind);
+void type_free(Type *type);
 
 // Cleanup
 void expr_free(Expr *expr);

@@ -73,6 +73,13 @@ Value val_int(int value) {
     return v;
 }
 
+Value val_float(double value) {
+    Value v;
+    v.type = VAL_FLOAT;
+    v.as.as_float = value;
+    return v;
+}
+
 Value val_bool(int value) {
     Value v;
     v.type = VAL_BOOL;
@@ -90,6 +97,9 @@ void print_value(Value val) {
     switch (val.type) {
         case VAL_INT:
             printf("%d", val.as.as_int);
+            break;
+        case VAL_FLOAT:
+            printf("%g", val.as.as_float);  // %g removes trailing zeros
             break;
         case VAL_BOOL:
             printf(val.as.as_bool ? "true" : "false");
@@ -172,7 +182,12 @@ Value env_get(Environment *env, const char *name) {
 Value eval_expr(Expr *expr, Environment *env) {
     switch (expr->type) {
         case EXPR_NUMBER:
-            return val_int(expr->as.number);
+            if (expr->as.number.is_float) {
+                return val_float(expr->as.number.float_value);
+            } else {
+                return val_int(expr->as.number.int_value);
+            }
+            break;
 
         case EXPR_BOOL:
             return val_bool(expr->as.boolean);
