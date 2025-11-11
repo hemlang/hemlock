@@ -13,6 +13,7 @@ typedef enum {
 
     // Keywords
     TOK_LET,
+    TOK_CONST,
     TOK_IF,
     TOK_ELSE,
     TOK_WHILE,

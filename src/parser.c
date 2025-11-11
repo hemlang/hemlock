@@ -481,21 +481,43 @@ static Stmt* statement(Parser *p);
 static Stmt* let_statement(Parser *p) {
     consume(p, TOK_IDENT, "Expect variable name");
     char *name = token_text(&p->previous);
-    
+
     Type *type_annotation = NULL;
-    
+
     // Check for optional type annotation
     if (match(p, TOK_COLON)) {
         type_annotation = parse_type(p);
     }
-    
+
     consume(p, TOK_EQUAL, "Expect '=' after variable name");
-    
+
     Expr *value = expression(p);
-    
+
     consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
-    
+
     Stmt *stmt = stmt_let_typed(name, type_annotation, value);
+    free(name);
+    return stmt;
+}
+
+static Stmt* const_statement(Parser *p) {
+    consume(p, TOK_IDENT, "Expect variable name");
+    char *name = token_text(&p->previous);
+
+    Type *type_annotation = NULL;
+
+    // Check for optional type annotation
+    if (match(p, TOK_COLON)) {
+        type_annotation = parse_type(p);
+    }
+
+    consume(p, TOK_EQUAL, "Expect '=' after variable name");
+
+    Expr *value = expression(p);
+
+    consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
+
+    Stmt *stmt = stmt_const_typed(name, type_annotation, value);
     free(name);
     return stmt;
 }
@@ -660,6 +682,10 @@ static Stmt* return_statement(Parser *p) {
 static Stmt* statement(Parser *p) {
     if (match(p, TOK_LET)) {
         return let_statement(p);
+    }
+
+    if (match(p, TOK_CONST)) {
+        return const_statement(p);
     }
 
     // Object type definition: define TypeName { ... }
@@ -861,6 +887,11 @@ static Stmt* statement(Parser *p) {
         Expr *value = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after throw statement");
         return stmt_throw(value);
+    }
+
+    // Bare block statement
+    if (match(p, TOK_LBRACE)) {
+        return block_statement(p);
     }
 
     return expression_statement(p);

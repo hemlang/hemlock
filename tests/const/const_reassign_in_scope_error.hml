@@ -1,0 +1,7 @@
+// Test that reassigning const in nested scope causes error
+const x = 10;
+
+{
+    print(x);
+    x = 20;  // Should error: Cannot assign to const variable 'x'
+}

@@ -180,6 +180,19 @@ Stmt* stmt_let(const char *name, Expr *value) {
     return stmt_let_typed(name, NULL, value);
 }
 
+Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_CONST;
+    stmt->as.const_stmt.name = strdup(name);
+    stmt->as.const_stmt.type_annotation = type_annotation;  // Can be NULL
+    stmt->as.const_stmt.value = value;
+    return stmt;
+}
+
+Stmt* stmt_const(const char *name, Expr *value) {
+    return stmt_const_typed(name, NULL, value);
+}
+
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_IF;
@@ -380,6 +393,11 @@ void stmt_free(Stmt *stmt) {
             free(stmt->as.let.name);
             type_free(stmt->as.let.type_annotation);
             expr_free(stmt->as.let.value);
+            break;
+        case STMT_CONST:
+            free(stmt->as.const_stmt.name);
+            type_free(stmt->as.const_stmt.type_annotation);
+            expr_free(stmt->as.const_stmt.value);
             break;
         case STMT_EXPR:
             expr_free(stmt->as.expr);

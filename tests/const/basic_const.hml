@@ -1,0 +1,5 @@
+// Test basic const declaration
+const x = 42;
+print(x);
+
+// Expected output: 42

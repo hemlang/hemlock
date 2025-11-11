@@ -1,0 +1,13 @@
+// Test const captured in closure
+const x = 10;
+
+fn makeAdder() {
+    return fn(y) {
+        return x + y;
+    };
+}
+
+let add = makeAdder();
+print(add(5));
+
+// Expected output: 15

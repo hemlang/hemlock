@@ -1,0 +1,14 @@
+// Test const in nested scopes
+const x = 10;
+print(x);
+
+{
+    const y = 20;
+    print(y);
+    print(x);
+}
+
+// Expected output:
+// 10
+// 20
+// 10

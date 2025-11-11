@@ -1,0 +1,13 @@
+// Test const in function
+fn test() {
+    const x = 42;
+    print(x);
+    return x;
+}
+
+let result = test();
+print(result);
+
+// Expected output:
+// 42
+// 42

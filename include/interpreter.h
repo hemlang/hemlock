@@ -115,6 +115,7 @@ typedef struct Value {
 typedef struct Environment {
     char **names;
     Value *values;
+    int *is_const;  // 1 if const, 0 if mutable (let)
     int count;
     int capacity;
     struct Environment *parent;  // for nested scopes later
@@ -123,6 +124,7 @@ typedef struct Environment {
 // Public interface
 Environment* env_new(Environment *parent);
 void env_free(Environment *env);
+void env_define(Environment *env, const char *name, Value value, int is_const);
 void env_set(Environment *env, const char *name, Value value);
 Value env_get(Environment *env, const char *name);
 

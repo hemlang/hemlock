@@ -1,0 +1,14 @@
+// Test that let variables can still be reassigned
+let x = 10;
+print(x);
+
+x = 20;
+print(x);
+
+x = 30;
+print(x);
+
+// Expected output:
+// 10
+// 20
+// 30

@@ -147,7 +147,10 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 'c':
             if (len == 4) return check_keyword(lex->start, 4, "char", TOK_TYPE_CHAR);
-            if (len == 5) return check_keyword(lex->start, 5, "catch", TOK_CATCH);
+            if (len == 5) {
+                if (strncmp(lex->start, "const", 5) == 0) return TOK_CONST;
+                if (strncmp(lex->start, "catch", 5) == 0) return TOK_CATCH;
+            }
             if (len == 8) return check_keyword(lex->start, 8, "continue", TOK_CONTINUE);
             break;
         case 'd':

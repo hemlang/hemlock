@@ -1,0 +1,3 @@
+// Test that redeclaring a variable in the same scope causes error
+const x = 10;
+const x = 20;  // Should error: Variable 'x' already defined in this scope

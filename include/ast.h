@@ -144,6 +144,7 @@ struct Type {
 
 typedef enum {
     STMT_LET,
+    STMT_CONST,
     STMT_EXPR,
     STMT_IF,
     STMT_WHILE,
@@ -167,6 +168,11 @@ struct Stmt {
             Type *type_annotation;
             Expr *value;
         } let;
+        struct {
+            char *name;
+            Type *type_annotation;
+            Expr *value;
+        } const_stmt;
         Expr *expr;
         struct {
             Expr *condition;
@@ -242,6 +248,8 @@ Expr* expr_object_literal(char **field_names, Expr **field_values, int num_field
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);
 Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value);
+Stmt* stmt_const(const char *name, Expr *value);
+Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value);
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch);
 Stmt* stmt_while(Expr *condition, Stmt *body);
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);

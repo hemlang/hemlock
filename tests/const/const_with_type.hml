@@ -1,0 +1,14 @@
+// Test const with type annotation
+const x: i32 = 100;
+print(x);
+
+const y: f64 = 3.14;
+print(y);
+
+const z: string = "hello";
+print(z);
+
+// Expected output:
+// 100
+// 3.14
+// hello
