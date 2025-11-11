@@ -26,6 +26,10 @@ typedef enum {
     EXPR_FUNCTION,
     EXPR_ARRAY_LITERAL,
     EXPR_OBJECT_LITERAL,
+    EXPR_PREFIX_INC,
+    EXPR_PREFIX_DEC,
+    EXPR_POSTFIX_INC,
+    EXPR_POSTFIX_DEC,
 } ExprType;
 
 typedef enum {
@@ -117,6 +121,18 @@ struct Expr {
             Expr **field_values;
             int num_fields;
         } object_literal;
+        struct {
+            Expr *operand;
+        } prefix_inc;
+        struct {
+            Expr *operand;
+        } prefix_dec;
+        struct {
+            Expr *operand;
+        } postfix_inc;
+        struct {
+            Expr *operand;
+        } postfix_dec;
     } as;
 };
 
@@ -251,6 +267,10 @@ Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
 Expr* expr_function(char **param_names, Type **param_types, int num_params, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);
+Expr* expr_prefix_inc(Expr *operand);
+Expr* expr_prefix_dec(Expr *operand);
+Expr* expr_postfix_inc(Expr *operand);
+Expr* expr_postfix_dec(Expr *operand);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);

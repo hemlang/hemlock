@@ -10,6 +10,38 @@ ReturnState return_state = {0};
 LoopState loop_state = {0};
 ExceptionState exception_state = {0};
 
+// ========== HELPER FUNCTIONS ==========
+
+// Helper to add two values (for increment operations)
+static Value value_add_one(Value val) {
+    if (is_float(val)) {
+        double v = value_to_float(val);
+        return (val.type == VAL_F32) ? val_f32((float)(v + 1.0)) : val_f64(v + 1.0);
+    } else if (is_integer(val)) {
+        int64_t v = value_to_int(val);
+        ValueType result_type = val.type;
+        return promote_value(val_i32((int32_t)(v + 1)), result_type);
+    } else {
+        fprintf(stderr, "Runtime error: Can only increment numeric values\n");
+        exit(1);
+    }
+}
+
+// Helper to subtract one from a value (for decrement operations)
+static Value value_sub_one(Value val) {
+    if (is_float(val)) {
+        double v = value_to_float(val);
+        return (val.type == VAL_F32) ? val_f32((float)(v - 1.0)) : val_f64(v - 1.0);
+    } else if (is_integer(val)) {
+        int64_t v = value_to_int(val);
+        ValueType result_type = val.type;
+        return promote_value(val_i32((int32_t)(v - 1)), result_type);
+    } else {
+        fprintf(stderr, "Runtime error: Can only decrement numeric values\n");
+        exit(1);
+    }
+}
+
 // ========== EXPRESSION EVALUATION ==========
 
 Value eval_expr(Expr *expr, Environment *env) {
@@ -557,6 +589,217 @@ Value eval_expr(Expr *expr, Environment *env) {
             obj->num_fields++;
 
             return value;
+        }
+
+        case EXPR_PREFIX_INC: {
+            // ++x: increment then return new value
+            Expr *operand = expr->as.prefix_inc.operand;
+
+            if (operand->type == EXPR_IDENT) {
+                // Simple variable: ++x
+                Value old_val = env_get(env, operand->as.ident);
+                Value new_val = value_add_one(old_val);
+                env_set(env, operand->as.ident, new_val);
+                return new_val;
+            } else if (operand->type == EXPR_INDEX) {
+                // Array/buffer/string index: ++arr[i]
+                Value object = eval_expr(operand->as.index.object, env);
+                Value index_val = eval_expr(operand->as.index.index, env);
+
+                if (!is_integer(index_val)) {
+                    fprintf(stderr, "Runtime error: Index must be an integer\n");
+                    exit(1);
+                }
+                int32_t index = value_to_int(index_val);
+
+                if (object.type == VAL_ARRAY) {
+                    Value old_val = array_get(object.as.as_array, index);
+                    Value new_val = value_add_one(old_val);
+                    array_set(object.as.as_array, index, new_val);
+                    return new_val;
+                } else {
+                    fprintf(stderr, "Runtime error: Can only use ++ on array elements\n");
+                    exit(1);
+                }
+            } else if (operand->type == EXPR_GET_PROPERTY) {
+                // Object property: ++obj.field
+                Value object = eval_expr(operand->as.get_property.object, env);
+                const char *property = operand->as.get_property.property;
+                if (object.type != VAL_OBJECT) {
+                    fprintf(stderr, "Runtime error: Can only increment object properties\n");
+                    exit(1);
+                }
+                Object *obj = object.as.as_object;
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (strcmp(obj->field_names[i], property) == 0) {
+                        Value old_val = obj->field_values[i];
+                        Value new_val = value_add_one(old_val);
+                        obj->field_values[i] = new_val;
+                        return new_val;
+                    }
+                }
+                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
+                exit(1);
+            } else {
+                fprintf(stderr, "Runtime error: Invalid operand for ++\n");
+                exit(1);
+            }
+        }
+
+        case EXPR_PREFIX_DEC: {
+            // --x: decrement then return new value
+            Expr *operand = expr->as.prefix_dec.operand;
+
+            if (operand->type == EXPR_IDENT) {
+                Value old_val = env_get(env, operand->as.ident);
+                Value new_val = value_sub_one(old_val);
+                env_set(env, operand->as.ident, new_val);
+                return new_val;
+            } else if (operand->type == EXPR_INDEX) {
+                Value object = eval_expr(operand->as.index.object, env);
+                Value index_val = eval_expr(operand->as.index.index, env);
+
+                if (!is_integer(index_val)) {
+                    fprintf(stderr, "Runtime error: Index must be an integer\n");
+                    exit(1);
+                }
+                int32_t index = value_to_int(index_val);
+
+                if (object.type == VAL_ARRAY) {
+                    Value old_val = array_get(object.as.as_array, index);
+                    Value new_val = value_sub_one(old_val);
+                    array_set(object.as.as_array, index, new_val);
+                    return new_val;
+                } else {
+                    fprintf(stderr, "Runtime error: Can only use -- on array elements\n");
+                    exit(1);
+                }
+            } else if (operand->type == EXPR_GET_PROPERTY) {
+                Value object = eval_expr(operand->as.get_property.object, env);
+                const char *property = operand->as.get_property.property;
+                if (object.type != VAL_OBJECT) {
+                    fprintf(stderr, "Runtime error: Can only decrement object properties\n");
+                    exit(1);
+                }
+                Object *obj = object.as.as_object;
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (strcmp(obj->field_names[i], property) == 0) {
+                        Value old_val = obj->field_values[i];
+                        Value new_val = value_sub_one(old_val);
+                        obj->field_values[i] = new_val;
+                        return new_val;
+                    }
+                }
+                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
+                exit(1);
+            } else {
+                fprintf(stderr, "Runtime error: Invalid operand for --\n");
+                exit(1);
+            }
+        }
+
+        case EXPR_POSTFIX_INC: {
+            // x++: return old value then increment
+            Expr *operand = expr->as.postfix_inc.operand;
+
+            if (operand->type == EXPR_IDENT) {
+                Value old_val = env_get(env, operand->as.ident);
+                Value new_val = value_add_one(old_val);
+                env_set(env, operand->as.ident, new_val);
+                return old_val;  // Return old value!
+            } else if (operand->type == EXPR_INDEX) {
+                Value object = eval_expr(operand->as.index.object, env);
+                Value index_val = eval_expr(operand->as.index.index, env);
+
+                if (!is_integer(index_val)) {
+                    fprintf(stderr, "Runtime error: Index must be an integer\n");
+                    exit(1);
+                }
+                int32_t index = value_to_int(index_val);
+
+                if (object.type == VAL_ARRAY) {
+                    Value old_val = array_get(object.as.as_array, index);
+                    Value new_val = value_add_one(old_val);
+                    array_set(object.as.as_array, index, new_val);
+                    return old_val;
+                } else {
+                    fprintf(stderr, "Runtime error: Can only use ++ on array elements\n");
+                    exit(1);
+                }
+            } else if (operand->type == EXPR_GET_PROPERTY) {
+                Value object = eval_expr(operand->as.get_property.object, env);
+                const char *property = operand->as.get_property.property;
+                if (object.type != VAL_OBJECT) {
+                    fprintf(stderr, "Runtime error: Can only increment object properties\n");
+                    exit(1);
+                }
+                Object *obj = object.as.as_object;
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (strcmp(obj->field_names[i], property) == 0) {
+                        Value old_val = obj->field_values[i];
+                        Value new_val = value_add_one(old_val);
+                        obj->field_values[i] = new_val;
+                        return old_val;
+                    }
+                }
+                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
+                exit(1);
+            } else {
+                fprintf(stderr, "Runtime error: Invalid operand for ++\n");
+                exit(1);
+            }
+        }
+
+        case EXPR_POSTFIX_DEC: {
+            // x--: return old value then decrement
+            Expr *operand = expr->as.postfix_dec.operand;
+
+            if (operand->type == EXPR_IDENT) {
+                Value old_val = env_get(env, operand->as.ident);
+                Value new_val = value_sub_one(old_val);
+                env_set(env, operand->as.ident, new_val);
+                return old_val;
+            } else if (operand->type == EXPR_INDEX) {
+                Value object = eval_expr(operand->as.index.object, env);
+                Value index_val = eval_expr(operand->as.index.index, env);
+
+                if (!is_integer(index_val)) {
+                    fprintf(stderr, "Runtime error: Index must be an integer\n");
+                    exit(1);
+                }
+                int32_t index = value_to_int(index_val);
+
+                if (object.type == VAL_ARRAY) {
+                    Value old_val = array_get(object.as.as_array, index);
+                    Value new_val = value_sub_one(old_val);
+                    array_set(object.as.as_array, index, new_val);
+                    return old_val;
+                } else {
+                    fprintf(stderr, "Runtime error: Can only use -- on array elements\n");
+                    exit(1);
+                }
+            } else if (operand->type == EXPR_GET_PROPERTY) {
+                Value object = eval_expr(operand->as.get_property.object, env);
+                const char *property = operand->as.get_property.property;
+                if (object.type != VAL_OBJECT) {
+                    fprintf(stderr, "Runtime error: Can only decrement object properties\n");
+                    exit(1);
+                }
+                Object *obj = object.as.as_object;
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (strcmp(obj->field_names[i], property) == 0) {
+                        Value old_val = obj->field_values[i];
+                        Value new_val = value_sub_one(old_val);
+                        obj->field_values[i] = new_val;
+                        return old_val;
+                    }
+                }
+                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
+                exit(1);
+            } else {
+                fprintf(stderr, "Runtime error: Invalid operand for --\n");
+                exit(1);
+            }
         }
     }
 

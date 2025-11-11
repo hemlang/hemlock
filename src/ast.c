@@ -156,6 +156,34 @@ Expr* expr_object_literal(char **field_names, Expr **field_values, int num_field
     return expr;
 }
 
+Expr* expr_prefix_inc(Expr *operand) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_PREFIX_INC;
+    expr->as.prefix_inc.operand = operand;
+    return expr;
+}
+
+Expr* expr_prefix_dec(Expr *operand) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_PREFIX_DEC;
+    expr->as.prefix_dec.operand = operand;
+    return expr;
+}
+
+Expr* expr_postfix_inc(Expr *operand) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_POSTFIX_INC;
+    expr->as.postfix_inc.operand = operand;
+    return expr;
+}
+
+Expr* expr_postfix_dec(Expr *operand) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_POSTFIX_DEC;
+    expr->as.postfix_dec.operand = operand;
+    return expr;
+}
+
 // ========== TYPE CONSTRUCTORS ==========
 
 Type* type_new(TypeKind kind) {
@@ -421,6 +449,18 @@ Expr* expr_clone(const Expr *expr) {
                 expr->as.object_literal.num_fields
             );
         }
+
+        case EXPR_PREFIX_INC:
+            return expr_prefix_inc(expr_clone(expr->as.prefix_inc.operand));
+
+        case EXPR_PREFIX_DEC:
+            return expr_prefix_dec(expr_clone(expr->as.prefix_dec.operand));
+
+        case EXPR_POSTFIX_INC:
+            return expr_postfix_inc(expr_clone(expr->as.postfix_inc.operand));
+
+        case EXPR_POSTFIX_DEC:
+            return expr_postfix_dec(expr_clone(expr->as.postfix_dec.operand));
     }
 
     return NULL;
@@ -511,6 +551,18 @@ void expr_free(Expr *expr) {
             }
             free(expr->as.object_literal.field_names);
             free(expr->as.object_literal.field_values);
+            break;
+        case EXPR_PREFIX_INC:
+            expr_free(expr->as.prefix_inc.operand);
+            break;
+        case EXPR_PREFIX_DEC:
+            expr_free(expr->as.prefix_dec.operand);
+            break;
+        case EXPR_POSTFIX_INC:
+            expr_free(expr->as.postfix_inc.operand);
+            break;
+        case EXPR_POSTFIX_DEC:
+            expr_free(expr->as.postfix_dec.operand);
             break;
         case EXPR_NUMBER:
         case EXPR_BOOL:

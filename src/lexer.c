@@ -259,12 +259,20 @@ Token lexer_next(Lexer *lex) {
     
     switch (c) {
         case '+':
+            if (peek(lex) == '+') {
+                advance(lex);
+                return make_token(lex, TOK_PLUS_PLUS);
+            }
             if (peek(lex) == '=') {
                 advance(lex);
                 return make_token(lex, TOK_PLUS_EQUAL);
             }
             return make_token(lex, TOK_PLUS);
         case '-':
+            if (peek(lex) == '-') {
+                advance(lex);
+                return make_token(lex, TOK_MINUS_MINUS);
+            }
             if (peek(lex) == '=') {
                 advance(lex);
                 return make_token(lex, TOK_MINUS_EQUAL);

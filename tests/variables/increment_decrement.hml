@@ -1,0 +1,62 @@
+// Test prefix increment
+let x = 10;
+print(x);
+print(++x);
+print(x);
+
+// Test prefix decrement
+let y = 20;
+print(y);
+print(--y);
+print(y);
+
+// Test postfix increment
+let a = 5;
+print(a);
+print(a++);
+print(a);
+
+// Test postfix decrement
+let b = 15;
+print(b);
+print(b--);
+print(b);
+
+// Test prefix vs postfix difference
+let i = 0;
+let j = ++i;  // i becomes 1, j = 1
+print(i);
+print(j);
+
+let k = 0;
+let m = k++;  // m = 0, then k becomes 1
+print(k);
+print(m);
+
+// Test on arrays
+let arr = [10, 20, 30];
+print(arr[0]);
+arr[0]++;
+print(arr[0]);
+++arr[1];
+print(arr[1]);
+print(arr[2]--);
+print(arr[2]);
+
+// Test on objects
+let obj = { count: 100, value: 50 };
+print(obj.count);
+obj.count++;
+print(obj.count);
+++obj.value;
+print(obj.value);
+print(obj.count--);
+print(obj.count);
+
+// Test with floats
+let f = 3.5;
+print(f);
+f++;
+print(f);
+--f;
+print(f);

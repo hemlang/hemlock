@@ -244,7 +244,7 @@ static Expr* primary(Parser *p) {
 static Expr* postfix(Parser *p) {
     Expr *expr = primary(p);
 
-    // Handle chained property access, indexing, and method calls
+    // Handle chained property access, indexing, method calls, and postfix operators
     for (;;) {
         if (match(p, TOK_DOT)) {
             // Property access: obj.property
@@ -273,6 +273,12 @@ static Expr* postfix(Parser *p) {
 
             consume(p, TOK_RPAREN, "Expect ')' after arguments");
             expr = expr_call(expr, args, num_args);
+        } else if (match(p, TOK_PLUS_PLUS)) {
+            // Postfix increment: x++
+            expr = expr_postfix_inc(expr);
+        } else if (match(p, TOK_MINUS_MINUS)) {
+            // Postfix decrement: x--
+            expr = expr_postfix_dec(expr);
         } else {
             break;
         }
@@ -286,12 +292,22 @@ static Expr* unary(Parser *p) {
         Expr *operand = unary(p);  // Recursive for multiple unary ops
         return expr_unary(UNARY_NOT, operand);
     }
-    
+
     if (match(p, TOK_MINUS)) {
         Expr *operand = unary(p);
         return expr_unary(UNARY_NEGATE, operand);
     }
-    
+
+    if (match(p, TOK_PLUS_PLUS)) {
+        Expr *operand = unary(p);
+        return expr_prefix_inc(operand);
+    }
+
+    if (match(p, TOK_MINUS_MINUS)) {
+        Expr *operand = unary(p);
+        return expr_prefix_dec(operand);
+    }
+
     return postfix(p);
 }
 
