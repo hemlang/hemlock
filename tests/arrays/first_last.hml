@@ -1,0 +1,12 @@
+// Test array first and last methods
+let arr = [1, 2, 3, 4, 5];
+print(arr.first());
+print(arr.last());
+
+let single = [42];
+print(single.first());
+print(single.last());
+
+let empty = [];
+print(empty.first());
+print(empty.last());

@@ -1,0 +1,14 @@
+// Test array join method
+let arr = ["a", "b", "c"];
+print(arr.join(","));
+print(arr.join(" "));
+print(arr.join(""));
+
+let numbers = [1, 2, 3, 4, 5];
+print(numbers.join(", "));
+
+let mixed = [1, "hello", true, null];
+print(mixed.join(" | "));
+
+let empty = [];
+print(empty.join(","));

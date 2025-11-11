@@ -1,0 +1,13 @@
+// Test array remove method
+let arr = [1, 2, 3, 4, 5];
+let removed = arr.remove(2);
+print(removed);
+print(arr);
+
+let first = arr.remove(0);
+print(first);
+print(arr);
+
+let last = arr.remove(2);
+print(last);
+print(arr);

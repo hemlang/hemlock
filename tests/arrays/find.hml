@@ -1,0 +1,10 @@
+// Test array find method
+let arr = [1, 2, 3, 4, 5];
+print(arr.find(3));
+print(arr.find(1));
+print(arr.find(5));
+print(arr.find(10));
+
+let strings = ["hello", "world", "foo"];
+print(strings.find("world"));
+print(strings.find("bar"));

@@ -1,0 +1,8 @@
+// Test array contains method
+let arr = [1, 2, 3, 4, 5];
+print(arr.contains(3));
+print(arr.contains(10));
+
+let strings = ["hello", "world", "foo"];
+print(strings.contains("world"));
+print(strings.contains("bar"));

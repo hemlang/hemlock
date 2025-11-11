@@ -1,0 +1,13 @@
+// Test array slice method
+let arr = [1, 2, 3, 4, 5];
+let sub1 = arr.slice(1, 4);
+print(sub1);
+
+let sub2 = arr.slice(0, 2);
+print(sub2);
+
+let sub3 = arr.slice(3, 5);
+print(sub3);
+
+let empty = arr.slice(2, 2);
+print(empty);

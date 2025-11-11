@@ -1,0 +1,12 @@
+// Test array reverse method
+let arr = [1, 2, 3, 4, 5];
+arr.reverse();
+print(arr);
+
+let strings = ["hello", "world", "foo"];
+strings.reverse();
+print(strings);
+
+let single = [42];
+single.reverse();
+print(single);

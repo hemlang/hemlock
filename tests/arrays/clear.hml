@@ -1,0 +1,8 @@
+// Test array clear method
+let arr = [1, 2, 3, 4, 5];
+print(arr);
+print(typeof(arr.length));
+
+arr.clear();
+print(arr);
+print(typeof(arr.length));

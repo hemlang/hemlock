@@ -1,0 +1,10 @@
+// Test array insert method
+let arr = [1, 2, 4, 5];
+arr.insert(2, 3);
+print(arr);
+
+arr.insert(0, 0);
+print(arr);
+
+arr.insert(6, 6);
+print(arr);

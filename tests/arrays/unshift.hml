@@ -1,0 +1,8 @@
+// Test array unshift method
+let arr = [2, 3, 4];
+arr.unshift(1);
+print(arr);
+
+arr.unshift(0);
+print(arr);
+print(typeof(arr.length));

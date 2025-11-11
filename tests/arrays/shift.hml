@@ -1,0 +1,10 @@
+// Test array shift method
+let arr = [1, 2, 3, 4, 5];
+let first = arr.shift();
+print(first);
+print(arr);
+print(typeof(arr.length));
+
+let empty = [];
+let result = empty.shift();
+print(result);

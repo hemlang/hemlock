@@ -1,0 +1,11 @@
+// Test array concat method
+let arr1 = [1, 2, 3];
+let arr2 = [4, 5, 6];
+let combined = arr1.concat(arr2);
+print(combined);
+print(typeof(combined.length));
+
+let arr3 = ["a", "b"];
+let arr4 = ["c", "d"];
+let combined2 = arr3.concat(arr4);
+print(combined2);
