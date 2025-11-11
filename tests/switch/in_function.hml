@@ -1,0 +1,25 @@
+// Test switch inside function with return
+
+fn get_day_name(day: i32): string {
+    switch (day) {
+        case 1:
+            return "Monday";
+        case 2:
+            return "Tuesday";
+        case 3:
+            return "Wednesday";
+        case 4:
+            return "Thursday";
+        case 5:
+            return "Friday";
+        default:
+            return "Weekend";
+    }
+}
+
+print(get_day_name(1));
+print(get_day_name(3));
+print(get_day_name(5));
+print(get_day_name(7));
+
+// Expected: Monday, Wednesday, Friday, Weekend

@@ -115,7 +115,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 // ========== ARRAY METHOD HANDLING ==========
 
 // Helper: Compare two values for equality
-static int values_equal(Value a, Value b) {
+int values_equal(Value a, Value b) {
     if (a.type != b.type) {
         return 0;
     }

@@ -1211,6 +1211,52 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             ctx->exception_state.is_throwing = 1;
             break;
         }
+
+        case STMT_SWITCH: {
+            // Evaluate the switch expression
+            Value switch_value = eval_expr(stmt->as.switch_stmt.expr, env, ctx);
+
+            // Find matching case or default
+            int matched_case = -1;
+            int default_case = -1;
+
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (stmt->as.switch_stmt.case_values[i] == NULL) {
+                    // This is the default case
+                    default_case = i;
+                } else {
+                    // Evaluate case value and compare
+                    Value case_value = eval_expr(stmt->as.switch_stmt.case_values[i], env, ctx);
+
+                    if (values_equal(switch_value, case_value)) {
+                        matched_case = i;
+                        break;
+                    }
+                }
+            }
+
+            // If no case matched, use default if available
+            if (matched_case == -1 && default_case != -1) {
+                matched_case = default_case;
+            }
+
+            // Execute from matched case onwards (fall-through behavior)
+            if (matched_case != -1) {
+                for (int i = matched_case; i < stmt->as.switch_stmt.num_cases; i++) {
+                    eval_stmt(stmt->as.switch_stmt.case_bodies[i], env, ctx);
+
+                    // Check for break, return, or exception
+                    if (ctx->loop_state.is_breaking) {
+                        ctx->loop_state.is_breaking = 0;
+                        break;
+                    }
+                    if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
+                        break;
+                    }
+                }
+            }
+            break;
+        }
     }
 }
 

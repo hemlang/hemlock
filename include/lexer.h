@@ -31,6 +31,9 @@ typedef enum {
     TOK_CATCH,
     TOK_FINALLY,
     TOK_THROW,
+    TOK_SWITCH,
+    TOK_CASE,
+    TOK_DEFAULT,
 
     // Type keywords
     TOK_TYPE_I8,

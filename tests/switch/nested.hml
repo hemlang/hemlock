@@ -1,0 +1,23 @@
+// Test nested switch statements
+
+let x = 1;
+let y = 2;
+
+switch (x) {
+    case 1:
+        print("x is 1");
+        switch (y) {
+            case 1:
+                print("y is 1");
+                break;
+            case 2:
+                print("y is 2");
+                break;
+        }
+        break;
+    case 2:
+        print("x is 2");
+        break;
+}
+
+// Expected: x is 1, y is 2

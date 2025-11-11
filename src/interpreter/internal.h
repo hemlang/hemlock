@@ -157,6 +157,9 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
 
 // ========== I/O (io.c) ==========
 
+// Value comparison
+int values_equal(Value a, Value b);
+
 Value call_file_method(FileHandle *file, const char *method, Value *args, int num_args);
 Value call_array_method(Array *arr, const char *method, Value *args, int num_args);
 Value call_string_method(String *str, const char *method, Value *args, int num_args);

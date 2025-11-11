@@ -1,0 +1,27 @@
+// Test multiple cases with same behavior using fall-through
+
+let grade = 85;
+let letter = "";
+
+switch (grade) {
+    case 100:
+    case 95:
+    case 90:
+        letter = "A";
+        break;
+    case 85:
+    case 80:
+        letter = "B";
+        break;
+    case 75:
+    case 70:
+        letter = "C";
+        break;
+    default:
+        letter = "F";
+        break;
+}
+
+print(letter);
+
+// Expected: B

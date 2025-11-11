@@ -179,6 +179,7 @@ typedef enum {
     STMT_DEFINE_OBJECT,
     STMT_TRY,
     STMT_THROW,
+    STMT_SWITCH,
 } StmtType;
 
 // Statement node
@@ -242,6 +243,12 @@ struct Stmt {
         struct {
             Expr *value;
         } throw_stmt;
+        struct {
+            Expr *expr;              // Expression to switch on
+            Expr **case_values;      // Array of case values (NULL for default)
+            Stmt **case_bodies;      // Array of case body statements
+            int num_cases;
+        } switch_stmt;
     } as;
 };
 
@@ -290,6 +297,7 @@ Stmt* stmt_define_object(const char *name, char **field_names, Type **field_type
                          int *field_optional, Expr **field_defaults, int num_fields);
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);
 Stmt* stmt_throw(Expr *value);
+Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_cases);
 Type* type_new(TypeKind kind);
 void type_free(Type *type);
 

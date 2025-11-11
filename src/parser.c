@@ -681,6 +681,59 @@ static Stmt* while_statement(Parser *p) {
     return stmt_while(condition, body);
 }
 
+static Stmt* switch_statement(Parser *p) {
+    consume(p, TOK_LPAREN, "Expect '(' after 'switch'");
+    Expr *expr = expression(p);
+    consume(p, TOK_RPAREN, "Expect ')' after switch expression");
+    consume(p, TOK_LBRACE, "Expect '{' after switch expression");
+
+    // Parse cases
+    Expr **case_values = malloc(sizeof(Expr*) * 128);
+    Stmt **case_bodies = malloc(sizeof(Stmt*) * 128);
+    int num_cases = 0;
+
+    while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        if (match(p, TOK_CASE)) {
+            // Parse case value
+            case_values[num_cases] = expression(p);
+            consume(p, TOK_COLON, "Expect ':' after case value");
+
+            // Parse case body statements until we hit another case/default/closing brace
+            Stmt **statements = malloc(sizeof(Stmt*) * 128);
+            int count = 0;
+
+            while (!check(p, TOK_CASE) && !check(p, TOK_DEFAULT) && !check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+                statements[count++] = statement(p);
+            }
+
+            case_bodies[num_cases] = stmt_block(statements, count);
+            num_cases++;
+        } else if (match(p, TOK_DEFAULT)) {
+            consume(p, TOK_COLON, "Expect ':' after 'default'");
+
+            // NULL value indicates default case
+            case_values[num_cases] = NULL;
+
+            // Parse default body statements
+            Stmt **statements = malloc(sizeof(Stmt*) * 128);
+            int count = 0;
+
+            while (!check(p, TOK_CASE) && !check(p, TOK_DEFAULT) && !check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+                statements[count++] = statement(p);
+            }
+
+            case_bodies[num_cases] = stmt_block(statements, count);
+            num_cases++;
+        } else {
+            error(p, "Expect 'case' or 'default' in switch body");
+            break;
+        }
+    }
+
+    consume(p, TOK_RBRACE, "Expect '}' after switch body");
+    return stmt_switch(expr, case_values, case_bodies, num_cases);
+}
+
 static Stmt* for_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
@@ -1005,6 +1058,10 @@ static Stmt* statement(Parser *p) {
         Expr *value = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after throw statement");
         return stmt_throw(value);
+    }
+
+    if (match(p, TOK_SWITCH)) {
+        return switch_statement(p);
     }
 
     // Bare block statement

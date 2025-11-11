@@ -146,7 +146,10 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 5) return check_keyword(lex->start, 5, "break", TOK_BREAK);
             break;
         case 'c':
-            if (len == 4) return check_keyword(lex->start, 4, "char", TOK_TYPE_CHAR);
+            if (len == 4) {
+                if (strncmp(lex->start, "char", 4) == 0) return TOK_TYPE_CHAR;
+                if (strncmp(lex->start, "case", 4) == 0) return TOK_CASE;
+            }
             if (len == 5) {
                 if (strncmp(lex->start, "const", 5) == 0) return TOK_CONST;
                 if (strncmp(lex->start, "catch", 5) == 0) return TOK_CATCH;
@@ -155,6 +158,7 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 'd':
             if (len == 6) return check_keyword(lex->start, 6, "define", TOK_DEFINE);
+            if (len == 7) return check_keyword(lex->start, 7, "default", TOK_DEFAULT);
             break;
         case 'e':
             if (len == 4) return check_keyword(lex->start, 4, "else", TOK_ELSE);
@@ -201,7 +205,10 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 's':
             if (len == 4) return check_keyword(lex->start, 4, "self", TOK_SELF);
-            if (len == 6) return check_keyword(lex->start, 6, "string", TOK_TYPE_STRING);
+            if (len == 6) {
+                if (strncmp(lex->start, "string", 6) == 0) return TOK_TYPE_STRING;
+                if (strncmp(lex->start, "switch", 6) == 0) return TOK_SWITCH;
+            }
             break;
         case 't':
             if (len == 3) return check_keyword(lex->start, 3, "try", TOK_TRY);

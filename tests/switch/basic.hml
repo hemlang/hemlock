@@ -1,0 +1,17 @@
+// Test basic switch statement with integers
+
+let x = 2;
+
+switch (x) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    case 3:
+        print("three");
+        break;
+}
+
+// Expected: two

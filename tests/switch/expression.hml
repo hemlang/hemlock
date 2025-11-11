@@ -1,0 +1,18 @@
+// Test switch with expression
+
+let a = 5;
+let b = 3;
+
+switch (a + b) {
+    case 5:
+        print("five");
+        break;
+    case 8:
+        print("eight");
+        break;
+    case 10:
+        print("ten");
+        break;
+}
+
+// Expected: eight

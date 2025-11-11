@@ -285,6 +285,7 @@ let result = "  Hello World  "
 - `if`/`else`/`else if` with mandatory braces
 - `while` loops
 - `for` loops (C-style and for-in iteration)
+- `switch` statements with case/default
 - `break`/`continue`
 - Boolean operators: `&&`, `||`, `!`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
@@ -317,6 +318,90 @@ if (x > 100) {
 - Braces are always required for all branches
 - Conditions must be enclosed in parentheses
 - `else if` is supported for cleaner chaining (syntactic sugar for nested if statements)
+
+### Switch Statements
+
+**Basic switch:**
+```hemlock
+let x = 2;
+
+switch (x) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    case 3:
+        print("three");
+        break;
+}
+```
+
+**Switch with default:**
+```hemlock
+let color = "blue";
+
+switch (color) {
+    case "red":
+        print("stop");
+        break;
+    case "yellow":
+        print("slow");
+        break;
+    case "green":
+        print("go");
+        break;
+    default:
+        print("unknown color");
+        break;
+}
+```
+
+**Fall-through behavior:**
+```hemlock
+let grade = 85;
+
+switch (grade) {
+    case 100:
+    case 95:
+    case 90:
+        print("A");
+        break;
+    case 85:
+    case 80:
+        print("B");
+        break;
+    default:
+        print("C or below");
+        break;
+}
+```
+
+**Switch with return (in functions):**
+```hemlock
+fn get_day_name(day: i32): string {
+    switch (day) {
+        case 1:
+            return "Monday";
+        case 2:
+            return "Tuesday";
+        case 3:
+            return "Wednesday";
+        default:
+            return "Unknown";
+    }
+}
+```
+
+**Notes:**
+- Supports any value type (integers, strings, booleans, etc.)
+- Cases are compared using value equality
+- Fall-through is supported (C-style) - cases without `break` continue to next case
+- `break` exits the switch statement
+- `default` case matches when no other case matches
+- `default` can appear anywhere in the switch body
+- Expressions are allowed in both switch value and case values
 
 ---
 

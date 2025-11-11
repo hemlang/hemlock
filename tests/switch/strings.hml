@@ -1,0 +1,20 @@
+// Test switch with string values
+
+let color = "blue";
+
+switch (color) {
+    case "red":
+        print("stop");
+        break;
+    case "yellow":
+        print("slow");
+        break;
+    case "blue":
+        print("go");
+        break;
+    default:
+        print("unknown");
+        break;
+}
+
+// Expected: go

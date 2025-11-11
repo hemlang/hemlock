@@ -331,6 +331,16 @@ Stmt* stmt_throw(Expr *value) {
     return stmt;
 }
 
+Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_cases) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_SWITCH;
+    stmt->as.switch_stmt.expr = expr;
+    stmt->as.switch_stmt.case_values = case_values;
+    stmt->as.switch_stmt.case_bodies = case_bodies;
+    stmt->as.switch_stmt.num_cases = num_cases;
+    return stmt;
+}
+
 // ========== CLONING ==========
 
 Expr* expr_clone(const Expr *expr) {
@@ -649,6 +659,15 @@ void stmt_free(Stmt *stmt) {
             break;
         case STMT_THROW:
             expr_free(stmt->as.throw_stmt.value);
+            break;
+        case STMT_SWITCH:
+            expr_free(stmt->as.switch_stmt.expr);
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                expr_free(stmt->as.switch_stmt.case_values[i]);  // NULL for default is OK
+                stmt_free(stmt->as.switch_stmt.case_bodies[i]);
+            }
+            free(stmt->as.switch_stmt.case_values);
+            free(stmt->as.switch_stmt.case_bodies);
             break;
     }
 
