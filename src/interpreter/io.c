@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 
 // ========== FILE METHOD HANDLING ==========
 
@@ -1256,6 +1257,10 @@ Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
 // ========== CHANNEL METHODS ==========
 
 Value call_channel_method(Channel *ch, const char *method, Value *args, int num_args) {
+    pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
+    pthread_cond_t *not_empty = (pthread_cond_t*)ch->not_empty;
+    pthread_cond_t *not_full = (pthread_cond_t*)ch->not_full;
+
     // send(value) - send a message to the channel
     if (strcmp(method, "send") == 0) {
         if (num_args != 1) {
@@ -1263,30 +1268,44 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             exit(1);
         }
 
+        Value msg = args[0];
+
+        pthread_mutex_lock(mutex);
+
+        // Check if channel is closed
         if (ch->closed) {
+            pthread_mutex_unlock(mutex);
             fprintf(stderr, "Runtime error: cannot send to closed channel\n");
             exit(1);
         }
 
-        Value msg = args[0];
-
         if (ch->capacity == 0) {
-            // Unbuffered channel - synchronous handoff
-            // For MVP: we can't block, so this is an error
+            // Unbuffered channel - would need rendezvous
+            pthread_mutex_unlock(mutex);
             fprintf(stderr, "Runtime error: unbuffered channels not yet supported (use buffered channel)\n");
             exit(1);
-        } else {
-            // Buffered channel
-            if (ch->count >= ch->capacity) {
-                fprintf(stderr, "Runtime error: channel buffer full (blocking not yet supported)\n");
-                exit(1);
-            }
-
-            // Add message to buffer
-            ch->buffer[ch->tail] = msg;
-            ch->tail = (ch->tail + 1) % ch->capacity;
-            ch->count++;
         }
+
+        // Wait while buffer is full
+        while (ch->count >= ch->capacity && !ch->closed) {
+            pthread_cond_wait(not_full, mutex);
+        }
+
+        // Check again if closed after waking up
+        if (ch->closed) {
+            pthread_mutex_unlock(mutex);
+            fprintf(stderr, "Runtime error: cannot send to closed channel\n");
+            exit(1);
+        }
+
+        // Add message to buffer
+        ch->buffer[ch->tail] = msg;
+        ch->tail = (ch->tail + 1) % ch->capacity;
+        ch->count++;
+
+        // Signal that buffer is not empty
+        pthread_cond_signal(not_empty);
+        pthread_mutex_unlock(mutex);
 
         return val_null();
     }
@@ -1298,23 +1317,27 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             exit(1);
         }
 
-        if (ch->count == 0) {
-            // No messages available
-            if (ch->closed) {
-                // Closed and empty - return null
-                return val_null();
-            } else {
-                // Not closed but empty - would block
-                // For MVP: error
-                fprintf(stderr, "Runtime error: channel empty (blocking not yet supported)\n");
-                exit(1);
-            }
+        pthread_mutex_lock(mutex);
+
+        // Wait while buffer is empty and channel not closed
+        while (ch->count == 0 && !ch->closed) {
+            pthread_cond_wait(not_empty, mutex);
+        }
+
+        // If channel is closed and empty, return null
+        if (ch->count == 0 && ch->closed) {
+            pthread_mutex_unlock(mutex);
+            return val_null();
         }
 
         // Get message from buffer
         Value msg = ch->buffer[ch->head];
         ch->head = (ch->head + 1) % ch->capacity;
         ch->count--;
+
+        // Signal that buffer is not full
+        pthread_cond_signal(not_full);
+        pthread_mutex_unlock(mutex);
 
         return msg;
     }
@@ -1326,7 +1349,13 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             exit(1);
         }
 
+        pthread_mutex_lock(mutex);
         ch->closed = 1;
+        // Wake up all waiting threads
+        pthread_cond_broadcast(not_empty);
+        pthread_cond_broadcast(not_full);
+        pthread_mutex_unlock(mutex);
+
         return val_null();
     }
 

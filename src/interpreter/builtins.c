@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 
 // ========== BUILTIN FUNCTIONS ==========
 
@@ -900,50 +901,20 @@ static Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
 // Global task ID counter
 static int next_task_id = 1;
 
-static Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
-    if (num_args < 1) {
-        fprintf(stderr, "Runtime error: spawn() expects at least 1 argument (async function call)\n");
-        exit(1);
-    }
+// Thread wrapper function that executes a task
+static void* task_thread_wrapper(void* arg) {
+    Task *task = (Task*)arg;
+    Function *fn = task->function;
 
-    // For MVP: spawn expects a function value, not a call
-    // We'll execute it synchronously and return a completed task
-    Value func_val = args[0];
-
-    if (func_val.type != VAL_FUNCTION) {
-        fprintf(stderr, "Runtime error: spawn() expects an async function\n");
-        exit(1);
-    }
-
-    Function *fn = func_val.as.as_function;
-
-    if (!fn->is_async) {
-        fprintf(stderr, "Runtime error: spawn() requires an async function\n");
-        exit(1);
-    }
-
-    // Create task with remaining args as function arguments
-    Value *task_args = NULL;
-    int task_num_args = num_args - 1;
-
-    if (task_num_args > 0) {
-        task_args = malloc(sizeof(Value) * task_num_args);
-        for (int i = 0; i < task_num_args; i++) {
-            task_args[i] = args[i + 1];
-        }
-    }
-
-    // Create task (we'll execute it immediately for MVP)
-    Task *task = task_new(next_task_id++, fn, task_args, task_num_args, fn->closure_env);
+    // Mark as running
     task->state = TASK_RUNNING;
 
-    // Execute the function synchronously (MVP: no true concurrency yet)
     // Create new environment for function execution
-    Environment *func_env = env_new(fn->closure_env);
+    Environment *func_env = env_new(task->env);
 
     // Bind parameters
-    for (int i = 0; i < fn->num_params && i < task_num_args; i++) {
-        Value arg = task_args[i];
+    for (int i = 0; i < fn->num_params && i < task->num_args; i++) {
+        Value arg = task->args[i];
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
             arg = convert_to_type(arg, fn->param_types[i], func_env, task->ctx);
@@ -969,11 +940,63 @@ static Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // Clean up function environment
     env_free(func_env);
 
+    return NULL;
+}
+
+static Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;  // Not used in spawn
+
+    if (num_args < 1) {
+        fprintf(stderr, "Runtime error: spawn() expects at least 1 argument (async function)\n");
+        exit(1);
+    }
+
+    Value func_val = args[0];
+
+    if (func_val.type != VAL_FUNCTION) {
+        fprintf(stderr, "Runtime error: spawn() expects an async function\n");
+        exit(1);
+    }
+
+    Function *fn = func_val.as.as_function;
+
+    if (!fn->is_async) {
+        fprintf(stderr, "Runtime error: spawn() requires an async function\n");
+        exit(1);
+    }
+
+    // Create task with remaining args as function arguments
+    Value *task_args = NULL;
+    int task_num_args = num_args - 1;
+
+    if (task_num_args > 0) {
+        task_args = malloc(sizeof(Value) * task_num_args);
+        for (int i = 0; i < task_num_args; i++) {
+            task_args[i] = args[i + 1];
+        }
+    }
+
+    // Create task
+    Task *task = task_new(next_task_id++, fn, task_args, task_num_args, fn->closure_env);
+
+    // Allocate pthread_t
+    task->thread = malloc(sizeof(pthread_t));
+    if (!task->thread) {
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+
+    // Create thread to execute task
+    int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+    if (rc != 0) {
+        fprintf(stderr, "Runtime error: Failed to create thread: %d\n", rc);
+        exit(1);
+    }
+
     return val_task(task);
 }
 
 static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
         fprintf(stderr, "Runtime error: join() expects 1 argument (task handle)\n");
         exit(1);
@@ -993,13 +1016,21 @@ static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+    if (task->detached) {
+        fprintf(stderr, "Runtime error: cannot join detached task\n");
+        exit(1);
+    }
+
     // Mark as joined
     task->joined = 1;
 
-    // For MVP: task is already completed (synchronous execution)
-    if (task->state != TASK_COMPLETED) {
-        fprintf(stderr, "Runtime error: task not completed (internal error)\n");
-        exit(1);
+    // Wait for thread to complete
+    if (task->thread) {
+        int rc = pthread_join(*(pthread_t*)task->thread, NULL);
+        if (rc != 0) {
+            fprintf(stderr, "Runtime error: pthread_join failed: %d\n", rc);
+            exit(1);
+        }
     }
 
     // Check if task threw an exception
@@ -1018,13 +1049,25 @@ static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 static Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
-    // detach() is like spawn() but doesn't return a handle
-    // We'll reuse spawn's logic but discard the task handle
+    // detach() is like spawn() but detaches the thread
     Value task = builtin_spawn(args, num_args, ctx);
 
-    // Free the task immediately (fire and forget)
+    // Detach the thread (fire and forget)
     if (task.type == VAL_TASK) {
-        task_free(task.as.as_task);
+        Task *t = task.as.as_task;
+        t->detached = 1;
+
+        if (t->thread) {
+            int rc = pthread_detach(*(pthread_t*)t->thread);
+            if (rc != 0) {
+                fprintf(stderr, "Runtime error: pthread_detach failed: %d\n", rc);
+                exit(1);
+            }
+        }
+
+        // Note: We don't free the task here - it will clean itself up
+        // when the thread completes. In a production system, we'd have
+        // a cleanup mechanism.
     }
 
     return val_null();

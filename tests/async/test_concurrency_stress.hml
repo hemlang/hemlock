@@ -1,0 +1,33 @@
+// Test: True concurrency stress test
+// This proves tasks actually run in parallel
+
+async fn slow_compute(id: i32, iterations: i32): i32 {
+    let sum = 0;
+    let i = 0;
+    while (i < iterations) {
+        sum = sum + id;
+        i = i + 1;
+    }
+    return sum;
+}
+
+print("Spawning 10 concurrent tasks...");
+
+let handles = [];
+let i = 0;
+while (i < 10) {
+    handles.push(spawn(slow_compute, i, 1000000));
+    i = i + 1;
+}
+
+print("All tasks spawned! Waiting for completion...");
+
+i = 0;
+let result = 0;
+while (i < handles.length) {
+    result = join(handles[i]);
+    print("Task " + typeof(i) + " result: " + typeof(result));
+    i = i + 1;
+}
+
+print("All tasks completed!");

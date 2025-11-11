@@ -17,7 +17,7 @@ $(BUILD_DIR)/interpreter:
 	mkdir -p $(BUILD_DIR)/interpreter
 
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) -lm
+	$(CC) $(OBJS) -o $(TARGET) -lm -lpthread
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)

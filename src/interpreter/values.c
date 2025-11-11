@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <pthread.h>
 
 // ========== STRING OPERATIONS ==========
 
@@ -296,6 +297,8 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     task->env = env;
     task->ctx = exec_context_new();
     task->waiting_on = NULL;
+    task->thread = NULL;
+    task->detached = 0;
     return task;
 }
 
@@ -309,6 +312,9 @@ void task_free(Task *task) {
         }
         if (task->ctx) {
             exec_context_free(task->ctx);
+        }
+        if (task->thread) {
+            free(task->thread);
         }
         free(task);
     }
@@ -346,6 +352,25 @@ Channel* channel_new(int capacity) {
         ch->buffer = NULL;
     }
 
+    // Initialize pthread mutex and condition variables
+    ch->mutex = malloc(sizeof(pthread_mutex_t));
+    ch->not_empty = malloc(sizeof(pthread_cond_t));
+    ch->not_full = malloc(sizeof(pthread_cond_t));
+
+    if (!ch->mutex || !ch->not_empty || !ch->not_full) {
+        if (ch->buffer) free(ch->buffer);
+        if (ch->mutex) free(ch->mutex);
+        if (ch->not_empty) free(ch->not_empty);
+        if (ch->not_full) free(ch->not_full);
+        free(ch);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+
+    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
+
     return ch;
 }
 
@@ -353,6 +378,18 @@ void channel_free(Channel *ch) {
     if (ch) {
         if (ch->buffer) {
             free(ch->buffer);
+        }
+        if (ch->mutex) {
+            pthread_mutex_destroy((pthread_mutex_t*)ch->mutex);
+            free(ch->mutex);
+        }
+        if (ch->not_empty) {
+            pthread_cond_destroy((pthread_cond_t*)ch->not_empty);
+            free(ch->not_empty);
+        }
+        if (ch->not_full) {
+            pthread_cond_destroy((pthread_cond_t*)ch->not_full);
+            free(ch->not_full);
         }
         free(ch);
     }

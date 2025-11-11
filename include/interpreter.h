@@ -105,6 +105,8 @@ typedef struct Task {
     Environment *env;           // Task's environment
     ExecutionContext *ctx;      // Task's execution context
     struct Task *waiting_on;    // Task we're blocked on (for join)
+    void *thread;               // pthread_t (opaque pointer)
+    int detached;               // Flag: task is detached (fire-and-forget)
 } Task;
 
 // Channel struct (communication channel)
@@ -115,7 +117,9 @@ typedef struct {
     int tail;                   // Write position
     int count;                  // Number of messages in buffer
     int closed;                 // Flag: channel is closed
-    // TODO: waiting senders/receivers for blocking
+    void *mutex;                // pthread_mutex_t (opaque pointer)
+    void *not_empty;            // pthread_cond_t (opaque pointer)
+    void *not_full;             // pthread_cond_t (opaque pointer)
 } Channel;
 
 // Forward declare TypeKind from ast.h
