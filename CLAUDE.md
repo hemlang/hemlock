@@ -801,20 +801,34 @@ fn main() {
 ### Project Structure
 ```
 hemlock/
-├── include/          # Public headers
+├── include/              # Public headers
 │   ├── ast.h
 │   ├── lexer.h
 │   ├── parser.h
 │   └── interpreter.h
-├── src/              # Implementation
-│   ├── ast.c
-│   ├── lexer.c
-│   ├── parser.c
-│   ├── interpreter.c
-│   └── main.c
-├── tests/            # Test suite, ran by tests/run_tests.sh
-└── examples/         # Example programs
+├── src/                  # Implementation
+│   ├── ast.c             # AST node constructors and cleanup
+│   ├── lexer.c           # Tokenization
+│   ├── parser.c          # Parsing (tokens → AST)
+│   ├── main.c            # CLI entry point, REPL
+│   └── interpreter/      # Interpreter subsystem (modular)
+│       ├── internal.h        # Internal API shared between modules
+│       ├── environment.c     # Variable scoping (121 lines)
+│       ├── values.c          # Value constructors, data structures (394 lines)
+│       ├── types.c           # Type system, conversions, duck typing (440 lines)
+│       ├── builtins.c        # Builtin functions, registration (955 lines)
+│       ├── io.c              # File I/O, serialization (449 lines)
+│       └── runtime.c         # eval_expr, eval_stmt, control flow (865 lines)
+├── tests/                # Test suite, ran by tests/run_tests.sh
+└── examples/             # Example programs
 ```
+
+**Modular Design Benefits:**
+- **Separation of concerns** - Each module has a single, clear responsibility
+- **Faster incremental builds** - Only modified modules recompile
+- **Easier navigation** - Find features quickly by module name
+- **Testable** - Modules can be tested in isolation
+- **Scalable** - New features can be added to specific modules without growing monolithic files
 
 ### Compilation Pipeline
 1. **Lexer** → tokens
@@ -1013,7 +1027,8 @@ When adding features to Hemlock:
   - Error handling: try/catch/finally/throw
   - File I/O: open, read, write, close, seek, tell, file_exists
   - Command-line arguments: built-in `args` array
-  - 136 passing tests (128 + 8 expected error tests)
+  - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime)
+  - 147 tests (136 passing + 11 expected errors)
 - **v0.2** - Async/await, channels, structured concurrency (planned)
 - **v0.3** - FFI, C interop (planned)
 - **v0.4** - Compiler backend, optimization (planned)

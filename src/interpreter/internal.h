@@ -137,6 +137,17 @@ void register_builtins(Environment *env, int argc, char **argv);
 Value call_file_method(FileHandle *file, const char *method, Value *args, int num_args);
 Value call_array_method(Array *arr, const char *method, Value *args, int num_args);
 
+// I/O builtin functions
+Value builtin_read_file(Value *args, int num_args);
+Value builtin_write_file(Value *args, int num_args);
+Value builtin_append_file(Value *args, int num_args);
+Value builtin_read_bytes(Value *args, int num_args);
+Value builtin_write_bytes(Value *args, int num_args);
+Value builtin_file_exists(Value *args, int num_args);
+Value builtin_read_line(Value *args, int num_args);
+Value builtin_eprint(Value *args, int num_args);
+Value builtin_open(Value *args, int num_args);
+
 // ========== RUNTIME (runtime.c) ==========
 
 Value eval_expr(Expr *expr, Environment *env);
