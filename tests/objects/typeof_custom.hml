@@ -1,0 +1,10 @@
+// Test: typeof() returns custom type name for typed objects
+define Person {
+    name: string,
+    age: i32,
+}
+
+let p = { name: "Alice", age: 30 };
+let typed_p: Person = p;
+
+print(typeof(typed_p));

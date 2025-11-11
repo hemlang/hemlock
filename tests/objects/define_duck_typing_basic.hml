@@ -1,0 +1,11 @@
+// Test: Basic duck typing - object matches type definition
+define Person {
+    name: string,
+    age: i32,
+}
+
+let p = { name: "Alice", age: 30 };
+let typed_p: Person = p;
+
+print(typed_p.name);
+print(typed_p.age);

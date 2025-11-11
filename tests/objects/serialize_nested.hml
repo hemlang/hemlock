@@ -1,0 +1,4 @@
+// Test: Nested object serialization
+let inner = { a: 1, b: 2 };
+let outer = { x: inner, y: 3 };
+print(serialize(outer));

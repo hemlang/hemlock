@@ -45,6 +45,12 @@ Expr* expr_ident(const char *name) {
     return expr;
 }
 
+Expr* expr_null(void) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_NULL;
+    return expr;
+}
+
 Expr* expr_binary(Expr *left, BinaryOp op, Expr *right) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_BINARY;
@@ -138,11 +144,17 @@ Expr* expr_object_literal(char **field_names, Expr **field_values, int num_field
 Type* type_new(TypeKind kind) {
     Type *type = malloc(sizeof(Type));
     type->kind = kind;
+    type->type_name = NULL;
     return type;
 }
 
 void type_free(Type *type) {
-    free(type);
+    if (type) {
+        if (type->type_name) {
+            free(type->type_name);
+        }
+        free(type);
+    }
 }
 
 // ========== STATEMENT CONSTRUCTORS ==========
@@ -288,6 +300,7 @@ void expr_free(Expr *expr) {
             break;
         case EXPR_NUMBER:
         case EXPR_BOOL:
+        case EXPR_NULL:
             // Nothing to free
             break;
     }

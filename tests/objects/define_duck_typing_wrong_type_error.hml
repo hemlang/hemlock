@@ -1,0 +1,8 @@
+// Test: Duck typing fails when field has wrong type
+define Person {
+    name: string,
+    age: i32,
+}
+
+let p = { name: "Alice", age: "thirty" };
+let typed_p: Person = p;  // Should error: age is string not i32

@@ -1,0 +1,3 @@
+// Test: Basic object serialization
+let obj = { x: 10, y: 20, name: "test" };
+print(serialize(obj));

@@ -13,6 +13,7 @@ typedef enum {
     EXPR_BOOL,
     EXPR_STRING,
     EXPR_IDENT,
+    EXPR_NULL,
     EXPR_BINARY,
     EXPR_UNARY,
     EXPR_CALL,
@@ -124,11 +125,14 @@ typedef enum {
     TYPE_PTR,
     TYPE_BUFFER,
     TYPE_NULL,
-    TYPE_INFER,      // No annotation, infer from value
+    TYPE_INFER,          // No annotation, infer from value
+    TYPE_CUSTOM_OBJECT,  // Custom object type (Person, User, etc.)
+    TYPE_GENERIC_OBJECT, // Generic 'object' keyword
 } TypeKind;
 
 struct Type {
     TypeKind kind;
+    char *type_name;  // For TYPE_CUSTOM_OBJECT (e.g., "Person")
 };
 
 // ========== STATEMENT TYPES ==========
@@ -189,6 +193,7 @@ Expr* expr_number_float(double value);
 Expr* expr_bool(int value);
 Expr* expr_string(const char *str);
 Expr* expr_ident(const char *name);
+Expr* expr_null(void);
 Expr* expr_binary(Expr *left, BinaryOp op, Expr *right);
 Expr* expr_unary(UnaryOp op, Expr *operand);
 Expr* expr_call(Expr *func, Expr **args, int num_args);

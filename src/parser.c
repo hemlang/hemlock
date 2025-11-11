@@ -102,9 +102,13 @@ static Expr* primary(Parser *p) {
     if (match(p, TOK_TRUE)) {
         return expr_bool(1);
     }
-    
+
     if (match(p, TOK_FALSE)) {
         return expr_bool(0);
+    }
+
+    if (match(p, TOK_NULL)) {
+        return expr_null();
     }
 
     if (match(p, TOK_NUMBER)) {
@@ -409,12 +413,21 @@ static Expr* expression(Parser *p) {
 static Type* parse_type(Parser *p) {
     TypeKind kind;
 
-    // Check for custom object type name (identifier)
-    if (p->current.type == TOK_IDENT || p->current.type == TOK_OBJECT) {
-        // For now, treat custom types and 'object' keyword as TYPE_INFER
-        // We'll handle runtime type checking in the interpreter
+    // Check for 'object' keyword (generic object type)
+    if (p->current.type == TOK_OBJECT) {
         advance(p);
-        return type_new(TYPE_INFER);
+        Type *type = type_new(TYPE_GENERIC_OBJECT);
+        type->type_name = NULL;
+        return type;
+    }
+
+    // Check for custom object type name (identifier)
+    if (p->current.type == TOK_IDENT) {
+        char *type_name = token_text(&p->current);
+        advance(p);
+        Type *type = type_new(TYPE_CUSTOM_OBJECT);
+        type->type_name = type_name;
+        return type;
     }
 
     switch (p->current.type) {
@@ -440,7 +453,9 @@ static Type* parse_type(Parser *p) {
     }
 
     advance(p);
-    return type_new(kind);
+    Type *type = type_new(kind);
+    type->type_name = NULL;
+    return type;
 }
 
 // ========== STATEMENT PARSING ==========
@@ -551,25 +566,53 @@ static Stmt* statement(Parser *p) {
             consume(p, TOK_IDENT, "Expect field name");
             field_names[num_fields] = token_text(&p->previous);
 
-            // Check for optional marker
+            // Check for optional marker followed by colon (?: syntax)
             if (match(p, TOK_QUESTION)) {
                 field_optional[num_fields] = 1;
+
+                if (match(p, TOK_COLON)) {
+                    // ?: could mean:
+                    // 1. Optional with type: name?: string
+                    // 2. Optional with default: name?: true
+                    // Check if current token is a type keyword
+                    if (check(p, TOK_TYPE_I8) || check(p, TOK_TYPE_I16) || check(p, TOK_TYPE_I32) ||
+                        check(p, TOK_TYPE_U8) || check(p, TOK_TYPE_U16) || check(p, TOK_TYPE_U32) ||
+                        check(p, TOK_TYPE_F32) || check(p, TOK_TYPE_F64) ||
+                        check(p, TOK_TYPE_INTEGER) || check(p, TOK_TYPE_NUMBER) || check(p, TOK_TYPE_CHAR) ||
+                        check(p, TOK_TYPE_BOOL) || check(p, TOK_TYPE_STRING) ||
+                        check(p, TOK_TYPE_PTR) || check(p, TOK_TYPE_BUFFER) ||
+                        check(p, TOK_OBJECT) || check(p, TOK_IDENT)) {
+                        // It's a type
+                        field_types[num_fields] = parse_type(p);
+                        // Optional type with no default (defaults to null)
+                        field_defaults[num_fields] = NULL;
+                    } else {
+                        // It's a default value expression
+                        field_types[num_fields] = NULL;  // infer type from default
+                        field_defaults[num_fields] = expression(p);
+                    }
+                } else {
+                    // Just ? with no :, means optional with no type or default
+                    field_types[num_fields] = NULL;
+                    field_defaults[num_fields] = NULL;
+                }
             } else {
+                // Not optional
                 field_optional[num_fields] = 0;
-            }
 
-            // Check for type annotation
-            if (match(p, TOK_COLON)) {
-                field_types[num_fields] = parse_type(p);
-            } else {
-                field_types[num_fields] = NULL;  // dynamic field
-            }
+                // Check for type annotation
+                if (match(p, TOK_COLON)) {
+                    field_types[num_fields] = parse_type(p);
+                } else {
+                    field_types[num_fields] = NULL;  // dynamic field
+                }
 
-            // Check for default value
-            if (match(p, TOK_EQUAL)) {
-                field_defaults[num_fields] = expression(p);
-            } else {
-                field_defaults[num_fields] = NULL;
+                // Check for default value
+                if (match(p, TOK_EQUAL)) {
+                    field_defaults[num_fields] = expression(p);
+                } else {
+                    field_defaults[num_fields] = NULL;
+                }
             }
 
             num_fields++;

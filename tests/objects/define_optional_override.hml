@@ -1,0 +1,13 @@
+// Test: Optional fields can be overridden
+define Person {
+    name: string,
+    age: i32,
+    active?: false,
+}
+
+let p = { name: "Alice", age: 30, active: true };
+let typed_p: Person = p;
+
+print(typed_p.name);
+print(typed_p.age);
+print(typed_p.active);  // Should be true (overridden, not default)

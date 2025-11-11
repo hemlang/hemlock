@@ -1,0 +1,13 @@
+// Test: Duck typing allows extra fields
+define Person {
+    name: string,
+    age: i32,
+}
+
+let p = { name: "Alice", age: 30, city: "NYC", active: true };
+let typed_p: Person = p;
+
+print(typed_p.name);
+print(typed_p.age);
+print(typed_p.city);  // Extra fields are preserved
+print(typed_p.active);

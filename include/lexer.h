@@ -9,7 +9,8 @@ typedef enum {
     TOK_IDENT,
     TOK_TRUE,
     TOK_FALSE,
-    
+    TOK_NULL,
+
     // Keywords
     TOK_LET,
     TOK_IF,

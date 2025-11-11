@@ -1,0 +1,3 @@
+// Test: typeof() returns "object" for anonymous objects
+let obj = { x: 10, y: 20 };
+print(typeof(obj));

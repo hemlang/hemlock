@@ -1,0 +1,9 @@
+// Test: Round-trip serialization/deserialization
+let original = { x: 10, y: 20, name: "test", active: true };
+let json = serialize(original);
+print(json);
+let restored = deserialize(json);
+print(restored.x);
+print(restored.y);
+print(restored.name);
+print(restored.active);

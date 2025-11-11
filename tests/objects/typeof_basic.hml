@@ -1,0 +1,5 @@
+// Test: typeof() returns basic type names
+print(typeof(42));
+print(typeof(3.14));
+print(typeof(true));
+print(typeof("hello"));

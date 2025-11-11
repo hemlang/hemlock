@@ -1,0 +1,4 @@
+// Test: Cycle detection in serialization
+let obj = { x: 10 };
+obj.me = obj;  // Create circular reference
+print(serialize(obj));  // Should error

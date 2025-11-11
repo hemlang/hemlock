@@ -177,6 +177,7 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 3) return check_keyword(lex->start, 3, "let", TOK_LET);
             break;
         case 'n':
+            if (len == 4) return check_keyword(lex->start, 4, "null", TOK_NULL);
             if (len == 6) return check_keyword(lex->start, 6, "number", TOK_TYPE_NUMBER);
             break;
         case 'o':

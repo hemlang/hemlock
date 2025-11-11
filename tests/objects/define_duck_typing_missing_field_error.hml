@@ -1,0 +1,8 @@
+// Test: Duck typing fails when required field is missing
+define Person {
+    name: string,
+    age: i32,
+}
+
+let p = { name: "Alice" };
+let typed_p: Person = p;  // Should error: missing 'age'

@@ -1,0 +1,4 @@
+// Test: null keyword
+let x = null;
+print(x);
+print(typeof(null));
