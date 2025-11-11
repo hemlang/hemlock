@@ -1,0 +1,27 @@
+// Test switch with only default case
+
+let x = 42;
+
+switch (x) {
+    default:
+        print("always executes");
+        break;
+}
+
+// Test that it works with any value
+switch ("hello") {
+    default:
+        print("works with strings too");
+        break;
+}
+
+switch (null) {
+    default:
+        print("works with null");
+        break;
+}
+
+// Expected output:
+// always executes
+// works with strings too
+// works with null

@@ -1,0 +1,29 @@
+// Test switch with null value
+
+fn check_value(x) {
+    switch (x) {
+        case null:
+            print("value is null");
+            break;
+        case 0:
+            print("value is zero");
+            break;
+        case 1:
+            print("value is one");
+            break;
+        default:
+            print("value is something else");
+            break;
+    }
+}
+
+check_value(null);
+check_value(0);
+check_value(1);
+check_value(42);
+
+// Expected output:
+// value is null
+// value is zero
+// value is one
+// value is something else

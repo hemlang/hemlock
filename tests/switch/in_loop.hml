@@ -1,0 +1,36 @@
+// Test switch inside loop - break should exit switch, not loop
+
+let count = 0;
+
+for (let i = 0; i < 3; i = i + 1) {
+    print("Loop iteration: " + typeof(i));
+
+    switch (i) {
+        case 0:
+            print("  zero");
+            break;
+        case 1:
+            print("  one");
+            break;
+        case 2:
+            print("  two");
+            break;
+    }
+
+    print("  after switch");
+    count = count + 1;
+}
+
+print("Total iterations: " + typeof(count));
+
+// Expected output:
+// Loop iteration: 0
+//   zero
+//   after switch
+// Loop iteration: 1
+//   one
+//   after switch
+// Loop iteration: 2
+//   two
+//   after switch
+// Total iterations: 3

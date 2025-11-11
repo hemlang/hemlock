@@ -1,0 +1,26 @@
+// Test continue in switch when inside loop - should skip to next iteration
+
+for (let i = 0; i < 5; i = i + 1) {
+    switch (i) {
+        case 1:
+            print("skipping 1");
+            continue;  // Skip to next loop iteration
+        case 3:
+            print("skipping 3");
+            continue;  // Skip to next loop iteration
+        default:
+            print("processing: " + typeof(i));
+            break;
+    }
+    print("  after switch for: " + typeof(i));
+}
+
+// Expected output:
+// processing: 0
+//   after switch for: 0
+// skipping 1
+// processing: 2
+//   after switch for: 2
+// skipping 3
+// processing: 4
+//   after switch for: 4

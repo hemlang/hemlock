@@ -1,0 +1,32 @@
+// Test exception thrown from switch case
+
+fn test_exception(x: i32) {
+    try {
+        switch (x) {
+            case 1:
+                print("case 1");
+                break;
+            case 2:
+                print("case 2 - about to throw");
+                throw "error in case 2";
+            case 3:
+                print("case 3 - should not reach");
+                break;
+        }
+        print("after switch - should not reach if exception thrown");
+    } catch (e) {
+        print("Caught: " + e);
+    }
+}
+
+test_exception(1);
+test_exception(2);
+test_exception(3);
+
+// Expected output:
+// case 1
+// after switch - should not reach if exception thrown
+// case 2 - about to throw
+// Caught: error in case 2
+// case 3 - should not reach
+// after switch - should not reach if exception thrown

@@ -1,0 +1,34 @@
+// Test switch with floating point values
+
+let pi = 3.14;
+
+switch (pi) {
+    case 2.71:
+        print("euler");
+        break;
+    case 3.14:
+        print("pi");
+        break;
+    default:
+        print("other");
+        break;
+}
+
+// Test with other float values
+let x = 1.5;
+
+switch (x) {
+    case 1.0:
+        print("one");
+        break;
+    case 1.5:
+        print("one and a half");
+        break;
+    case 2.0:
+        print("two");
+        break;
+}
+
+// Expected output:
+// pi
+// one and a half

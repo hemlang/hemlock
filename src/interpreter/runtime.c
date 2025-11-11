@@ -1245,9 +1245,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 for (int i = matched_case; i < stmt->as.switch_stmt.num_cases; i++) {
                     eval_stmt(stmt->as.switch_stmt.case_bodies[i], env, ctx);
 
-                    // Check for break, return, or exception
+                    // Check for break, return, continue, or exception
                     if (ctx->loop_state.is_breaking) {
                         ctx->loop_state.is_breaking = 0;
+                        break;
+                    }
+                    if (ctx->loop_state.is_continuing) {
+                        // Continue propagates up to enclosing loop, exit switch
                         break;
                     }
                     if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {

@@ -1,0 +1,40 @@
+// Test that default case can appear anywhere in switch body
+
+let x = 99;
+
+switch (x) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    default:
+        print("default case in middle");
+        break;
+    case 3:
+        print("three");
+        break;
+    case 4:
+        print("four");
+        break;
+}
+
+// Test with matching case after default
+let y = 3;
+
+switch (y) {
+    case 1:
+        print("one");
+        break;
+    default:
+        print("should not print - case 3 should match");
+        break;
+    case 3:
+        print("three matched");
+        break;
+}
+
+// Expected output:
+// default case in middle
+// three matched

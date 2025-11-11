@@ -1,0 +1,31 @@
+// Test switch with boolean values
+
+fn check_condition(flag: bool) {
+    switch (flag) {
+        case true:
+            print("condition is true");
+            break;
+        case false:
+            print("condition is false");
+            break;
+    }
+}
+
+check_condition(true);
+check_condition(false);
+
+// Test boolean expressions
+let x = 10;
+switch (x > 5) {
+    case true:
+        print("x is greater than 5");
+        break;
+    case false:
+        print("x is not greater than 5");
+        break;
+}
+
+// Expected output:
+// condition is true
+// condition is false
+// x is greater than 5
