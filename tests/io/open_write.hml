@@ -1,10 +1,10 @@
 // Test: Open file and write
-let f = open("test_write.txt", "w");
+let f = open("tests/temp/test_write.txt", "w");
 let bytes1 = f.write("Hello, ");
 print("Wrote bytes:");
 print(bytes1);
 let bytes2 = f.write("Hemlock!");
 print(bytes2);
 f.close();
-let content = read_file("test_write.txt");
+let content = read_file("tests/temp/test_write.txt");
 print(content);

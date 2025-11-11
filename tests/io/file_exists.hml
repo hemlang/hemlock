@@ -1,4 +1,4 @@
 // Test: File exists
-write_file("exists.txt", "test");
-print(file_exists("exists.txt"));
-print(file_exists("nonexistent.txt"));
+write_file("tests/temp/exists.txt", "test");
+print(file_exists("tests/temp/exists.txt"));
+print(file_exists("tests/temp/nonexistent.txt"));

@@ -1,6 +1,6 @@
 // Test: Append to file
-write_file("test_append.txt", "First line\n");
-append_file("test_append.txt", "Second line\n");
-append_file("test_append.txt", "Third line\n");
-let content = read_file("test_append.txt");
+write_file("tests/temp/test_append.txt", "First line\n");
+append_file("tests/temp/test_append.txt", "Second line\n");
+append_file("tests/temp/test_append.txt", "Third line\n");
+let content = read_file("tests/temp/test_append.txt");
 print(content);

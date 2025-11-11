@@ -1,6 +1,6 @@
 // Test: Seek and tell
-write_file("test_seek.txt", "ABCDEFGHIJ");
-let f = open("test_seek.txt", "r");
+write_file("tests/temp/test_seek.txt", "ABCDEFGHIJ");
+let f = open("tests/temp/test_seek.txt", "r");
 print("Position:");
 print(f.tell());
 f.seek(5);

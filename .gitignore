@@ -59,8 +59,8 @@ vgcore.*
 # Test output
 test_results/
 *.test
-test_*.txt
-test_*.dat
+tests/temp/*
+!tests/temp/.gitkeep
 
 # CMake files
 CMakeCache.txt
