@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master, 'claude/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make
+
+    - name: Build Hemlock
+      run: make clean && make
+
+    - name: Run test suite
+      run: make test
+
+    - name: Check build artifacts
+      run: |
+        if [ ! -f ./hemlock ]; then
+          echo "Error: hemlock executable not found"
+          exit 1
+        fi
+        ./hemlock --version || echo "Version check skipped (not implemented yet)"

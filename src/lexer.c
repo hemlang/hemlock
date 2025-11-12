@@ -142,6 +142,7 @@ static TokenType identifier_type(Lexer *lex) {
     
     switch (lex->start[0]) {
         case 'a':
+            if (len == 2) return check_keyword(lex->start, 2, "as", TOK_AS);
             if (len == 5) {
                 if (strncmp(lex->start, "async", 5) == 0) return TOK_ASYNC;
                 if (strncmp(lex->start, "await", 5) == 0) return TOK_AWAIT;
@@ -168,6 +169,7 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 'e':
             if (len == 4) return check_keyword(lex->start, 4, "else", TOK_ELSE);
+            if (len == 6) return check_keyword(lex->start, 6, "export", TOK_EXPORT);
             break;
         case 'f':
             if (len == 2) return check_keyword(lex->start, 2, "fn", TOK_FN);
@@ -177,6 +179,7 @@ static TokenType identifier_type(Lexer *lex) {
                 if (strncmp(lex->start, "f32", 3) == 0) return TOK_TYPE_F32;
                 if (strncmp(lex->start, "f64", 3) == 0) return TOK_TYPE_F64;
             }
+            if (len == 4) return check_keyword(lex->start, 4, "from", TOK_FROM);
             if (len == 5) return check_keyword(lex->start, 5, "false", TOK_FALSE);
             if (len == 7) return check_keyword(lex->start, 7, "finally", TOK_FINALLY);
             break;
@@ -190,6 +193,7 @@ static TokenType identifier_type(Lexer *lex) {
                 if (strncmp(lex->start, "i16", 3) == 0) return TOK_TYPE_I16;
                 if (strncmp(lex->start, "i32", 3) == 0) return TOK_TYPE_I32;
             }
+            if (len == 6) return check_keyword(lex->start, 6, "import", TOK_IMPORT);
             if (len == 7) return check_keyword(lex->start, 7, "integer", TOK_TYPE_INTEGER);
             break;
         case 'l':

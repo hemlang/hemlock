@@ -1292,6 +1292,20 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             }
             break;
         }
+
+        case STMT_IMPORT:
+            // Import statements are handled by the module system during module loading
+            // If we encounter one here, it's a no-op (module has already been loaded)
+            break;
+
+        case STMT_EXPORT:
+            // Export statements are handled by the module system during module loading
+            // During normal execution, just execute the declaration if present
+            if (stmt->as.export_stmt.is_declaration) {
+                eval_stmt(stmt->as.export_stmt.declaration, env, ctx);
+            }
+            // Export lists and re-exports are no-ops during execution
+            break;
     }
 }
 

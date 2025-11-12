@@ -867,6 +867,170 @@ static Stmt* return_statement(Parser *p) {
     return stmt_return(value);
 }
 
+static Stmt* import_statement(Parser *p) {
+    // Check for namespace import: import * as name from "module"
+    if (match(p, TOK_STAR)) {
+        consume(p, TOK_AS, "Expect 'as' after '*' in namespace import");
+        consume(p, TOK_IDENT, "Expect identifier for namespace name");
+        char *namespace_name = token_text(&p->previous);
+
+        consume(p, TOK_FROM, "Expect 'from' in import statement");
+        consume(p, TOK_STRING, "Expect module path string");
+        char *module_path = p->previous.string_value;
+
+        consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
+
+        Stmt *stmt = stmt_import_namespace(namespace_name, module_path);
+        free(namespace_name);
+        free(module_path);
+        return stmt;
+    }
+
+    // Named imports: import { name1, name2 as alias } from "module"
+    consume(p, TOK_LBRACE, "Expect '{' or '*' after 'import'");
+
+    char **import_names = malloc(sizeof(char*) * 32);
+    char **import_aliases = malloc(sizeof(char*) * 32);
+    int num_imports = 0;
+
+    do {
+        consume(p, TOK_IDENT, "Expect import name");
+        import_names[num_imports] = token_text(&p->previous);
+
+        // Check for alias: name as alias
+        if (match(p, TOK_AS)) {
+            consume(p, TOK_IDENT, "Expect alias name after 'as'");
+            import_aliases[num_imports] = token_text(&p->previous);
+        } else {
+            import_aliases[num_imports] = NULL;
+        }
+
+        num_imports++;
+    } while (match(p, TOK_COMMA));
+
+    consume(p, TOK_RBRACE, "Expect '}' after import list");
+    consume(p, TOK_FROM, "Expect 'from' in import statement");
+    consume(p, TOK_STRING, "Expect module path string");
+    char *module_path = p->previous.string_value;
+
+    consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
+
+    Stmt *stmt = stmt_import_named(import_names, import_aliases, num_imports, module_path);
+    free(module_path);
+    return stmt;
+}
+
+static Stmt* export_statement(Parser *p) {
+    // Check for re-export: export { name1, name2 } from "module"
+    if (match(p, TOK_LBRACE)) {
+        char **export_names = malloc(sizeof(char*) * 32);
+        char **export_aliases = malloc(sizeof(char*) * 32);
+        int num_exports = 0;
+
+        do {
+            consume(p, TOK_IDENT, "Expect export name");
+            export_names[num_exports] = token_text(&p->previous);
+
+            // Check for alias: name as alias
+            if (match(p, TOK_AS)) {
+                consume(p, TOK_IDENT, "Expect alias name after 'as'");
+                export_aliases[num_exports] = token_text(&p->previous);
+            } else {
+                export_aliases[num_exports] = NULL;
+            }
+
+            num_exports++;
+        } while (match(p, TOK_COMMA));
+
+        consume(p, TOK_RBRACE, "Expect '}' after export list");
+
+        // Check for re-export
+        if (match(p, TOK_FROM)) {
+            consume(p, TOK_STRING, "Expect module path string");
+            char *module_path = p->previous.string_value;
+            consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
+
+            Stmt *stmt = stmt_export_reexport(export_names, export_aliases, num_exports, module_path);
+            free(module_path);
+            return stmt;
+        } else {
+            // Regular export list
+            consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
+            return stmt_export_list(export_names, export_aliases, num_exports);
+        }
+    }
+
+    // Export declaration: export fn/const/let
+    if (match(p, TOK_CONST)) {
+        Stmt *decl = const_statement(p);
+        return stmt_export_declaration(decl);
+    }
+
+    if (match(p, TOK_LET)) {
+        Stmt *decl = let_statement(p);
+        return stmt_export_declaration(decl);
+    }
+
+    // Named function: export fn name(...) or export async fn name(...)
+    int is_async = 0;
+    if (match(p, TOK_ASYNC)) {
+        is_async = 1;
+        consume(p, TOK_FN, "Expect 'fn' after 'async'");
+    } else if (match(p, TOK_FN)) {
+        is_async = 0;
+    } else {
+        error(p, "Expected declaration or export list after 'export'");
+        return stmt_expr(expr_number(0));
+    }
+
+    // Must be a named function
+    consume(p, TOK_IDENT, "Expect function name after 'export fn'");
+    char *name = token_text(&p->previous);
+
+    // Parse function (same as in statement())
+    consume(p, TOK_LPAREN, "Expect '(' after function name");
+
+    char **param_names = malloc(sizeof(char*) * 32);
+    Type **param_types = malloc(sizeof(Type*) * 32);
+    int num_params = 0;
+
+    if (!check(p, TOK_RPAREN)) {
+        do {
+            consume(p, TOK_IDENT, "Expect parameter name");
+            param_names[num_params] = token_text(&p->previous);
+
+            if (match(p, TOK_COLON)) {
+                param_types[num_params] = parse_type(p);
+            } else {
+                param_types[num_params] = NULL;
+            }
+
+            num_params++;
+        } while (match(p, TOK_COMMA));
+    }
+
+    consume(p, TOK_RPAREN, "Expect ')' after parameters");
+
+    // Optional return type
+    Type *return_type = NULL;
+    if (match(p, TOK_COLON)) {
+        return_type = parse_type(p);
+    }
+
+    // Parse body
+    consume(p, TOK_LBRACE, "Expect '{' before function body");
+    Stmt *body = block_statement(p);
+
+    // Create function expression
+    Expr *fn_expr = expr_function(is_async, param_names, param_types, num_params, return_type, body);
+
+    // Create let statement
+    Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
+    free(name);
+
+    return stmt_export_declaration(decl);
+}
+
 static Stmt* statement(Parser *p) {
     if (match(p, TOK_LET)) {
         return let_statement(p);
@@ -1090,6 +1254,14 @@ not_function:
 
     if (match(p, TOK_SWITCH)) {
         return switch_statement(p);
+    }
+
+    if (match(p, TOK_IMPORT)) {
+        return import_statement(p);
+    }
+
+    if (match(p, TOK_EXPORT)) {
+        return export_statement(p);
     }
 
     // Bare block statement

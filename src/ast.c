@@ -349,6 +349,69 @@ Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_ca
     return stmt;
 }
 
+Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_imports, const char *module_path) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_IMPORT;
+    stmt->as.import_stmt.is_namespace = 0;
+    stmt->as.import_stmt.namespace_name = NULL;
+    stmt->as.import_stmt.import_names = import_names;
+    stmt->as.import_stmt.import_aliases = import_aliases;
+    stmt->as.import_stmt.num_imports = num_imports;
+    stmt->as.import_stmt.module_path = strdup(module_path);
+    return stmt;
+}
+
+Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_IMPORT;
+    stmt->as.import_stmt.is_namespace = 1;
+    stmt->as.import_stmt.namespace_name = strdup(namespace_name);
+    stmt->as.import_stmt.import_names = NULL;
+    stmt->as.import_stmt.import_aliases = NULL;
+    stmt->as.import_stmt.num_imports = 0;
+    stmt->as.import_stmt.module_path = strdup(module_path);
+    return stmt;
+}
+
+Stmt* stmt_export_declaration(Stmt *declaration) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_EXPORT;
+    stmt->as.export_stmt.is_declaration = 1;
+    stmt->as.export_stmt.is_reexport = 0;
+    stmt->as.export_stmt.declaration = declaration;
+    stmt->as.export_stmt.export_names = NULL;
+    stmt->as.export_stmt.export_aliases = NULL;
+    stmt->as.export_stmt.num_exports = 0;
+    stmt->as.export_stmt.module_path = NULL;
+    return stmt;
+}
+
+Stmt* stmt_export_list(char **export_names, char **export_aliases, int num_exports) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_EXPORT;
+    stmt->as.export_stmt.is_declaration = 0;
+    stmt->as.export_stmt.is_reexport = 0;
+    stmt->as.export_stmt.declaration = NULL;
+    stmt->as.export_stmt.export_names = export_names;
+    stmt->as.export_stmt.export_aliases = export_aliases;
+    stmt->as.export_stmt.num_exports = num_exports;
+    stmt->as.export_stmt.module_path = NULL;
+    return stmt;
+}
+
+Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_exports, const char *module_path) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_EXPORT;
+    stmt->as.export_stmt.is_declaration = 0;
+    stmt->as.export_stmt.is_reexport = 1;
+    stmt->as.export_stmt.declaration = NULL;
+    stmt->as.export_stmt.export_names = export_names;
+    stmt->as.export_stmt.export_aliases = export_aliases;
+    stmt->as.export_stmt.num_exports = num_exports;
+    stmt->as.export_stmt.module_path = strdup(module_path);
+    return stmt;
+}
+
 // ========== CLONING ==========
 
 Expr* expr_clone(const Expr *expr) {
@@ -682,6 +745,34 @@ void stmt_free(Stmt *stmt) {
             }
             free(stmt->as.switch_stmt.case_values);
             free(stmt->as.switch_stmt.case_bodies);
+            break;
+        case STMT_IMPORT:
+            free(stmt->as.import_stmt.namespace_name);
+            free(stmt->as.import_stmt.module_path);
+            if (stmt->as.import_stmt.import_names) {
+                for (int i = 0; i < stmt->as.import_stmt.num_imports; i++) {
+                    free(stmt->as.import_stmt.import_names[i]);
+                    if (stmt->as.import_stmt.import_aliases && stmt->as.import_stmt.import_aliases[i]) {
+                        free(stmt->as.import_stmt.import_aliases[i]);
+                    }
+                }
+                free(stmt->as.import_stmt.import_names);
+                free(stmt->as.import_stmt.import_aliases);
+            }
+            break;
+        case STMT_EXPORT:
+            stmt_free(stmt->as.export_stmt.declaration);
+            free(stmt->as.export_stmt.module_path);
+            if (stmt->as.export_stmt.export_names) {
+                for (int i = 0; i < stmt->as.export_stmt.num_exports; i++) {
+                    free(stmt->as.export_stmt.export_names[i]);
+                    if (stmt->as.export_stmt.export_aliases && stmt->as.export_stmt.export_aliases[i]) {
+                        free(stmt->as.export_stmt.export_aliases[i]);
+                    }
+                }
+                free(stmt->as.export_stmt.export_names);
+                free(stmt->as.export_stmt.export_aliases);
+            }
             break;
     }
 

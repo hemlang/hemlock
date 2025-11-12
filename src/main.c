@@ -5,6 +5,7 @@
 #include "parser.h"
 #include "ast.h"
 #include "interpreter.h"
+#include "module.h"
 
 // Read entire file into a string (caller must free)
 static char* read_file(const char *path) {
@@ -76,14 +77,58 @@ static void run_source(const char *source, int argc, char **argv) {
     free(statements);
 }
 
+// Check if source contains import or export statements
+static int has_modules(const char *source) {
+    // Simple check: look for "import " or "export " keywords
+    // This is a heuristic - not perfect but good enough
+    const char *p = source;
+    while (*p) {
+        // Skip whitespace
+        while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
+
+        // Check for import or export at start of line or after whitespace
+        if (strncmp(p, "import ", 7) == 0 || strncmp(p, "import{", 7) == 0 ||
+            strncmp(p, "export ", 7) == 0 || strncmp(p, "export{", 7) == 0) {
+            return 1;
+        }
+
+        // Skip to next line
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
+    }
+    return 0;
+}
+
 static void run_file(const char *path, int argc, char **argv) {
     char *source = read_file(path);
     if (source == NULL) {
         exit(1);
     }
 
-    run_source(source, argc, argv);
-    free(source);
+    // Check if file uses modules
+    if (has_modules(source)) {
+        // Use module system
+        ExecutionContext *ctx = exec_context_new();
+
+        // Need to set up builtins in a global environment first
+        Environment *global_env = env_new(NULL);
+        register_builtins(global_env, argc, argv, ctx);
+
+        // Execute with module system
+        int result = execute_file_with_modules(path, global_env, argc, argv, ctx);
+
+        env_free(global_env);
+        exec_context_free(ctx);
+        free(source);
+
+        if (result != 0) {
+            exit(1);
+        }
+    } else {
+        // Use traditional execution
+        run_source(source, argc, argv);
+        free(source);
+    }
 }
 
 static void run_repl(void) {

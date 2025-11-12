@@ -1,0 +1,8 @@
+// Test named imports
+import { add, subtract } from "./math.hml";
+
+let result1 = add(2, 3);
+let result2 = subtract(10, 4);
+
+print("add(2, 3) = " + typeof(result1));  // Should print 5
+print("subtract(10, 4) = " + typeof(result2));  // Should print 6

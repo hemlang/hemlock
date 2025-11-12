@@ -36,6 +36,10 @@ typedef enum {
     TOK_DEFAULT,
     TOK_ASYNC,
     TOK_AWAIT,
+    TOK_IMPORT,
+    TOK_EXPORT,
+    TOK_FROM,
+    TOK_AS,
 
     // Type keywords
     TOK_TYPE_I8,

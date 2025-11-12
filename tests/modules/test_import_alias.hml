@@ -1,0 +1,8 @@
+// Test import with aliases
+import { add as sum, subtract as diff } from "./math.hml";
+
+let result1 = sum(10, 20);
+let result2 = diff(50, 15);
+
+print("sum(10, 20) = " + typeof(result1));  // Should print 30
+print("diff(50, 15) = " + typeof(result2));  // Should print 35

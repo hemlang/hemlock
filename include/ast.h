@@ -185,6 +185,8 @@ typedef enum {
     STMT_TRY,
     STMT_THROW,
     STMT_SWITCH,
+    STMT_IMPORT,
+    STMT_EXPORT,
 } StmtType;
 
 // Statement node
@@ -254,6 +256,23 @@ struct Stmt {
             Stmt **case_bodies;      // Array of case body statements
             int num_cases;
         } switch_stmt;
+        struct {
+            int is_namespace;        // 1 for "import * as", 0 for named imports
+            char *namespace_name;    // Name for namespace import (NULL if not namespace)
+            char **import_names;     // Array of imported names (NULL if namespace)
+            char **import_aliases;   // Array of aliases (NULL for no alias)
+            int num_imports;         // Number of named imports
+            char *module_path;       // Path to module file
+        } import_stmt;
+        struct {
+            int is_declaration;      // 1 for "export fn/const/let", 0 for export list
+            int is_reexport;         // 1 for "export {...} from", 0 otherwise
+            Stmt *declaration;       // Declaration to export (NULL if list)
+            char **export_names;     // Array of exported names (NULL if declaration)
+            char **export_aliases;   // Array of aliases (NULL for no alias)
+            int num_exports;         // Number of named exports
+            char *module_path;       // Path for re-exports (NULL if not re-export)
+        } export_stmt;
     } as;
 };
 
@@ -304,6 +323,11 @@ Stmt* stmt_define_object(const char *name, char **field_names, Type **field_type
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);
 Stmt* stmt_throw(Expr *value);
 Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_cases);
+Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_imports, const char *module_path);
+Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path);
+Stmt* stmt_export_declaration(Stmt *declaration);
+Stmt* stmt_export_list(char **export_names, char **export_aliases, int num_exports);
+Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_exports, const char *module_path);
 Type* type_new(TypeKind kind);
 void type_free(Type *type);
 

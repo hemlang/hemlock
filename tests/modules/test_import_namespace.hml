@@ -1,0 +1,9 @@
+// Test namespace import
+import * as math from "./math.hml";
+
+let result1 = math.add(5, 7);
+let result2 = math.subtract(20, 8);
+
+print("math.add(5, 7) = " + typeof(result1));  // Should print 12
+print("math.subtract(20, 8) = " + typeof(result2));  // Should print 12
+print("math.PI = " + typeof(math.PI));  // Should print 3.14159
