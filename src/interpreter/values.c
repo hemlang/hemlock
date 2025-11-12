@@ -425,6 +425,13 @@ Value val_i32(int32_t value) {
     return v;
 }
 
+Value val_i64(int64_t value) {
+    Value v;
+    v.type = VAL_I64;
+    v.as.as_i64 = value;
+    return v;
+}
+
 Value val_u8(uint8_t value) {
     Value v;
     v.type = VAL_U8;
@@ -443,6 +450,13 @@ Value val_u32(uint32_t value) {
     Value v;
     v.type = VAL_U32;
     v.as.as_u32 = value;
+    return v;
+}
+
+Value val_u64(uint64_t value) {
+    Value v;
+    v.type = VAL_U64;
+    v.as.as_u64 = value;
     return v;
 }
 
@@ -513,6 +527,9 @@ void print_value(Value val) {
         case VAL_I32:
             printf("%d", val.as.as_i32);
             break;
+        case VAL_I64:
+            printf("%ld", val.as.as_i64);
+            break;
         case VAL_U8:
             printf("%u", val.as.as_u8);
             break;
@@ -521,6 +538,9 @@ void print_value(Value val) {
             break;
         case VAL_U32:
             printf("%u", val.as.as_u32);
+            break;
+        case VAL_U64:
+            printf("%lu", val.as.as_u64);
             break;
         case VAL_F32:
             printf("%g", val.as.as_f32);
@@ -674,9 +694,11 @@ void value_free(Value val) {
         case VAL_I8:
         case VAL_I16:
         case VAL_I32:
+        case VAL_I64:
         case VAL_U8:
         case VAL_U16:
         case VAL_U32:
+        case VAL_U64:
         case VAL_F32:
         case VAL_F64:
         case VAL_BOOL:

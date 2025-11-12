@@ -1,6 +1,8 @@
 #ifndef HEMLOCK_LEXER_H
 #define HEMLOCK_LEXER_H
 
+#include <stdint.h>  // For int64_t
+
 // Token types
 typedef enum {
     // Literals
@@ -46,9 +48,11 @@ typedef enum {
     TOK_TYPE_I8,
     TOK_TYPE_I16,
     TOK_TYPE_I32,
+    TOK_TYPE_I64,
     TOK_TYPE_U8,
     TOK_TYPE_U16,
     TOK_TYPE_U32,
+    TOK_TYPE_U64,
     //TOK_TYPE_F16,
     TOK_TYPE_F32,
     TOK_TYPE_F64,
@@ -107,9 +111,9 @@ typedef struct {
     const char *start;  // Points into source (don't free!)
     int length;
     int line;
-    
+
     // For numbers
-    int int_value;
+    int64_t int_value;  // Changed to int64_t to support 64-bit literals
     double float_value;
     int is_float;
 

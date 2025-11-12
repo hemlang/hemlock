@@ -1,0 +1,3 @@
+// Should fail: u64 cannot be negative
+let a: u64 = -1;
+print(a);

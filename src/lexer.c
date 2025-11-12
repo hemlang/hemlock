@@ -77,29 +77,32 @@ static Token number(Lexer *lex) {
     while (isdigit(peek(lex))) {
         advance(lex);
     }
-    
+
     // Look for decimal point
     int is_float = 0;
     if (peek(lex) == '.' && isdigit(peek_next(lex))) {
         is_float = 1;
         advance(lex);  // consume '.'
-        
+
         while (isdigit(peek(lex))) {
             advance(lex);
         }
     }
-    
+
     Token token = make_token(lex, TOK_NUMBER);
     token.is_float = is_float;
-    
+
     char *text = token_text(&token);
-    
+
     if (is_float) {
         token.float_value = atof(text);
     } else {
-        token.int_value = atoi(text);
+        // Use strtoll to parse 64-bit integers
+        char *endptr;
+        token.int_value = strtoll(text, &endptr, 10);
+        // Note: strtoll will handle negative numbers correctly
     }
-    
+
     free(text);
     return token;
 }
@@ -195,6 +198,7 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 3) {
                 if (strncmp(lex->start, "i16", 3) == 0) return TOK_TYPE_I16;
                 if (strncmp(lex->start, "i32", 3) == 0) return TOK_TYPE_I32;
+                if (strncmp(lex->start, "i64", 3) == 0) return TOK_TYPE_I64;
             }
             if (len == 6) return check_keyword(lex->start, 6, "import", TOK_IMPORT);
             if (len == 7) return check_keyword(lex->start, 7, "integer", TOK_TYPE_INTEGER);
@@ -235,6 +239,7 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 3) {
                 if (strncmp(lex->start, "u16", 3) == 0) return TOK_TYPE_U16;
                 if (strncmp(lex->start, "u32", 3) == 0) return TOK_TYPE_U32;
+                if (strncmp(lex->start, "u64", 3) == 0) return TOK_TYPE_U64;
             }
             break;
         case 'v':

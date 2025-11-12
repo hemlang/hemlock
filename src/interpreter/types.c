@@ -88,8 +88,8 @@ Value check_object_type(Value value, ObjectType *object_type, Environment *env, 
             // Just verify basic types
             int type_ok = 0;
             switch (field_type->kind) {
-                case TYPE_I8: case TYPE_I16: case TYPE_I32:
-                case TYPE_U8: case TYPE_U16: case TYPE_U32:
+                case TYPE_I8: case TYPE_I16: case TYPE_I32: case TYPE_I64:
+                case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
                     type_ok = is_integer(field_value);
                     break;
                 case TYPE_F32: case TYPE_F64:
@@ -131,8 +131,8 @@ Value check_object_type(Value value, ObjectType *object_type, Environment *env, 
 
 // Helper: Check if a value is any integer type
 int is_integer(Value val) {
-    return val.type == VAL_I8 || val.type == VAL_I16 || val.type == VAL_I32 ||
-           val.type == VAL_U8 || val.type == VAL_U16 || val.type == VAL_U32;
+    return val.type == VAL_I8 || val.type == VAL_I16 || val.type == VAL_I32 || val.type == VAL_I64 ||
+           val.type == VAL_U8 || val.type == VAL_U16 || val.type == VAL_U32 || val.type == VAL_U64;
 }
 
 // Helper: Check if a value is any float type
@@ -151,9 +151,11 @@ int32_t value_to_int(Value val) {
         case VAL_I8: return val.as.as_i8;
         case VAL_I16: return val.as.as_i16;
         case VAL_I32: return val.as.as_i32;
+        case VAL_I64: return (int32_t)val.as.as_i64;  // potential overflow
         case VAL_U8: return val.as.as_u8;
         case VAL_U16: return val.as.as_u16;
         case VAL_U32: return (int32_t)val.as.as_u32;  // potential overflow
+        case VAL_U64: return (int32_t)val.as.as_u64;  // potential overflow
         case VAL_BOOL: return val.as.as_bool;
         default:
             fprintf(stderr, "Runtime error: Cannot convert to int\n");
@@ -167,9 +169,11 @@ double value_to_float(Value val) {
         case VAL_I8: return (double)val.as.as_i8;
         case VAL_I16: return (double)val.as.as_i16;
         case VAL_I32: return (double)val.as.as_i32;
+        case VAL_I64: return (double)val.as.as_i64;
         case VAL_U8: return (double)val.as.as_u8;
         case VAL_U16: return (double)val.as.as_u16;
         case VAL_U32: return (double)val.as.as_u32;
+        case VAL_U64: return (double)val.as.as_u64;
         case VAL_F32: return (double)val.as.as_f32;
         case VAL_F64: return val.as.as_f64;
         default:
@@ -203,8 +207,10 @@ int type_rank(ValueType type) {
         case VAL_U16: return 3;
         case VAL_I32: return 4;
         case VAL_U32: return 5;
-        case VAL_F32: return 6;
-        case VAL_F64: return 7;
+        case VAL_I64: return 6;
+        case VAL_U64: return 7;
+        case VAL_F32: return 8;
+        case VAL_F64: return 9;
         default: return -1;
     }
 }
@@ -243,9 +249,31 @@ Value promote_value(Value val, ValueType target_type) {
         case VAL_I8: return val_i8((int8_t)value_to_int(val));
         case VAL_I16: return val_i16((int16_t)value_to_int(val));
         case VAL_I32: return val_i32(value_to_int(val));
+        case VAL_I64:
+            // For i64, need to handle full range
+            if (is_float(val)) {
+                return val_i64((int64_t)value_to_float(val));
+            } else if (val.type == VAL_I64) {
+                return val;
+            } else if (val.type == VAL_U64) {
+                return val_i64((int64_t)val.as.as_u64);
+            } else {
+                return val_i64((int64_t)value_to_int(val));
+            }
         case VAL_U8: return val_u8((uint8_t)value_to_int(val));
         case VAL_U16: return val_u16((uint16_t)value_to_int(val));
         case VAL_U32: return val_u32((uint32_t)value_to_int(val));
+        case VAL_U64:
+            // For u64, need to handle full range
+            if (is_float(val)) {
+                return val_u64((uint64_t)value_to_float(val));
+            } else if (val.type == VAL_U64) {
+                return val;
+            } else if (val.type == VAL_I64) {
+                return val_u64((uint64_t)val.as.as_i64);
+            } else {
+                return val_u64((uint64_t)value_to_int(val));
+            }
         case VAL_F32:
             if (is_float(val)) {
                 return val_f32((float)value_to_float(val));
@@ -350,6 +378,14 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             }
             return val_i32((int32_t)int_val);
 
+        case TYPE_I64:
+            if (is_source_float) {
+                int_val = (int64_t)float_val;
+            }
+            // i64 can hold full int64_t range, no additional check needed for int_val
+            // For float values, precision loss may occur but that's expected
+            return val_i64(int_val);
+
         case TYPE_U8:
             if (is_source_float) {
                 int_val = (int64_t)float_val;
@@ -379,6 +415,16 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 exit(1);
             }
             return val_u32((uint32_t)int_val);
+
+        case TYPE_U64:
+            if (is_source_float) {
+                int_val = (int64_t)float_val;
+            }
+            if (int_val < 0) {
+                fprintf(stderr, "Runtime error: Value %ld out of range for u64 [0, 18446744073709551615]\n", int_val);
+                exit(1);
+            }
+            return val_u64((uint64_t)int_val);
 
         case TYPE_F32:
             if (is_source_float) {

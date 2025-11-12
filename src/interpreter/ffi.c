@@ -77,9 +77,11 @@ ffi_type* hemlock_type_to_ffi_type(Type *type) {
         case TYPE_I8:     return &ffi_type_sint8;
         case TYPE_I16:    return &ffi_type_sint16;
         case TYPE_I32:    return &ffi_type_sint32;
+        case TYPE_I64:    return &ffi_type_sint64;
         case TYPE_U8:     return &ffi_type_uint8;
         case TYPE_U16:    return &ffi_type_uint16;
         case TYPE_U32:    return &ffi_type_uint32;
+        case TYPE_U64:    return &ffi_type_uint64;
         case TYPE_F32:    return &ffi_type_float;
         case TYPE_F64:    return &ffi_type_double;
         case TYPE_PTR:    return &ffi_type_pointer;
@@ -102,6 +104,7 @@ void* hemlock_to_c_value(Value val, Type *type) {
     if (ffi_t == &ffi_type_sint8 || ffi_t == &ffi_type_uint8) size = 1;
     else if (ffi_t == &ffi_type_sint16 || ffi_t == &ffi_type_uint16) size = 2;
     else if (ffi_t == &ffi_type_sint32 || ffi_t == &ffi_type_uint32) size = 4;
+    else if (ffi_t == &ffi_type_sint64 || ffi_t == &ffi_type_uint64) size = 8;
     else if (ffi_t == &ffi_type_sint || ffi_t == &ffi_type_uint) size = sizeof(int);
     else if (ffi_t == &ffi_type_float) size = sizeof(float);
     else if (ffi_t == &ffi_type_double) size = sizeof(double);
@@ -123,6 +126,9 @@ void* hemlock_to_c_value(Value val, Type *type) {
         case TYPE_I32:
             *(int32_t*)storage = val.as.as_i32;
             break;
+        case TYPE_I64:
+            *(int64_t*)storage = val.as.as_i64;
+            break;
         case TYPE_U8:
             *(uint8_t*)storage = val.as.as_u8;
             break;
@@ -131,6 +137,9 @@ void* hemlock_to_c_value(Value val, Type *type) {
             break;
         case TYPE_U32:
             *(uint32_t*)storage = val.as.as_u32;
+            break;
+        case TYPE_U64:
+            *(uint64_t*)storage = val.as.as_u64;
             break;
         case TYPE_F32:
             *(float*)storage = val.as.as_f32;
@@ -167,12 +176,16 @@ Value c_to_hemlock_value(void *c_value, Type *type) {
             return val_i16(*(int16_t*)c_value);
         case TYPE_I32:
             return val_i32(*(int32_t*)c_value);
+        case TYPE_I64:
+            return val_i64(*(int64_t*)c_value);
         case TYPE_U8:
             return val_u8(*(uint8_t*)c_value);
         case TYPE_U16:
             return val_u16(*(uint16_t*)c_value);
         case TYPE_U32:
             return val_u32(*(uint32_t*)c_value);
+        case TYPE_U64:
+            return val_u64(*(uint64_t*)c_value);
         case TYPE_F32:
             return val_f32(*(float*)c_value);
         case TYPE_F64:

@@ -1,0 +1,13 @@
+// Test i64 type annotation and typeof
+let a: i64 = 2147483647;
+let b: i64 = -2147483648;
+let c: i64 = 0;
+let d: i64 = 1000000;
+print(a);
+print(b);
+print(c);
+print(d);
+print(typeof(a));
+print(typeof(b));
+print(typeof(c));
+print(typeof(d));

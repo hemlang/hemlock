@@ -20,6 +20,8 @@ static int get_type_size(TypeKind kind) {
         case TYPE_U32:
         case TYPE_F32:
             return 4;
+        case TYPE_I64:
+        case TYPE_U64:
         case TYPE_F64:
             return 8;
         case TYPE_PTR:
@@ -336,6 +338,9 @@ static char* serialize_value(Value val, VisitedSet *visited) {
         case VAL_I32:
             snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
             return strdup(buffer);
+        case VAL_I64:
+            snprintf(buffer, sizeof(buffer), "%ld", val.as.as_i64);
+            return strdup(buffer);
         case VAL_U8:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
             return strdup(buffer);
@@ -344,6 +349,9 @@ static char* serialize_value(Value val, VisitedSet *visited) {
             return strdup(buffer);
         case VAL_U32:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
+            return strdup(buffer);
+        case VAL_U64:
+            snprintf(buffer, sizeof(buffer), "%lu", val.as.as_u64);
             return strdup(buffer);
         case VAL_F32:
             snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
@@ -763,16 +771,32 @@ static Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
     const char *type_name;
     switch (args[0].type) {
         case VAL_I8:
+            type_name = "i8";
+            break;
         case VAL_I16:
+            type_name = "i16";
+            break;
         case VAL_I32:
             type_name = "i32";
             break;
+        case VAL_I64:
+            type_name = "i64";
+            break;
         case VAL_U8:
+            type_name = "u8";
+            break;
         case VAL_U16:
+            type_name = "u16";
+            break;
         case VAL_U32:
             type_name = "u32";
             break;
+        case VAL_U64:
+            type_name = "u64";
+            break;
         case VAL_F32:
+            type_name = "f32";
+            break;
         case VAL_F64:
             type_name = "f64";
             break;

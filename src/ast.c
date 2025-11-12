@@ -4,7 +4,7 @@
 
 // ========== EXPRESSION CONSTRUCTORS ==========
 
-Expr* expr_number_int(int value) {
+Expr* expr_number_int(int64_t value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
     expr->as.number.int_value = value;

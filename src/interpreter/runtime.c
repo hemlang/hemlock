@@ -129,7 +129,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.number.is_float) {
                 return val_float(expr->as.number.float_value);
             } else {
-                return val_int(expr->as.number.int_value);
+                int64_t value = expr->as.number.int_value;
+                // Use i32 for values that fit in 32-bit range, otherwise i64
+                if (value >= INT32_MIN && value <= INT32_MAX) {
+                    return val_int((int32_t)value);
+                } else {
+                    return val_i64(value);
+                }
             }
             break;
 
@@ -153,7 +159,28 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     if (is_float(operand)) {
                         return val_f64(-value_to_float(operand));
                     } else if (is_integer(operand)) {
-                        return val_i32(-value_to_int(operand));
+                        // Preserve the original type when negating
+                        switch (operand.type) {
+                            case VAL_I8: return val_i8(-operand.as.as_i8);
+                            case VAL_I16: return val_i16(-operand.as.as_i16);
+                            case VAL_I32: return val_i32(-operand.as.as_i32);
+                            case VAL_I64: return val_i64(-operand.as.as_i64);
+                            case VAL_U8: return val_i16(-(int16_t)operand.as.as_u8);  // promote to i16
+                            case VAL_U16: return val_i32(-(int32_t)operand.as.as_u16); // promote to i32
+                            case VAL_U32: return val_i64(-(int64_t)operand.as.as_u32); // promote to i64
+                            case VAL_U64: {
+                                // Special case: u64 negation - check if value fits in i64
+                                if (operand.as.as_u64 <= INT64_MAX) {
+                                    return val_i64(-(int64_t)operand.as.as_u64);
+                                } else {
+                                    fprintf(stderr, "Runtime error: Cannot negate u64 value larger than INT64_MAX\n");
+                                    exit(1);
+                                }
+                            }
+                            default:
+                                fprintf(stderr, "Runtime error: Cannot negate non-integer value\n");
+                                exit(1);
+                        }
                     }
                     fprintf(stderr, "Runtime error: Cannot negate non-numeric value\n");
                     exit(1);
@@ -267,29 +294,166 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     default: break;
                 }
             } else {
-                // Integer operation - use the promoted type
-                int64_t l = value_to_int(left);
-                int64_t r = value_to_int(right);
-
+                // Integer operation - handle each result type properly to avoid truncation
                 switch (expr->as.binary.op) {
                     case OP_ADD:
-                        return promote_value(val_i32((int32_t)(l + r)), result_type);
                     case OP_SUB:
-                        return promote_value(val_i32((int32_t)(l - r)), result_type);
                     case OP_MUL:
-                        return promote_value(val_i32((int32_t)(l * r)), result_type);
-                    case OP_DIV:
-                        if (r == 0) {
-                            fprintf(stderr, "Runtime error: Division by zero\n");
-                            exit(1);
+                    case OP_DIV: {
+                        // Extract values according to the promoted type
+                        switch (result_type) {
+                            case VAL_I8: {
+                                int8_t l = left.as.as_i8;
+                                int8_t r = right.as.as_i8;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                int8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                               (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                               (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_i8(result);
+                            }
+                            case VAL_I16: {
+                                int16_t l = left.as.as_i16;
+                                int16_t r = right.as.as_i16;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                int16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_i16(result);
+                            }
+                            case VAL_I32: {
+                                int32_t l = left.as.as_i32;
+                                int32_t r = right.as.as_i32;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                int32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_i32(result);
+                            }
+                            case VAL_I64: {
+                                int64_t l = left.as.as_i64;
+                                int64_t r = right.as.as_i64;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                int64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_i64(result);
+                            }
+                            case VAL_U8: {
+                                uint8_t l = left.as.as_u8;
+                                uint8_t r = right.as.as_u8;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                uint8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_u8(result);
+                            }
+                            case VAL_U16: {
+                                uint16_t l = left.as.as_u16;
+                                uint16_t r = right.as.as_u16;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                uint16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                 (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_u16(result);
+                            }
+                            case VAL_U32: {
+                                uint32_t l = left.as.as_u32;
+                                uint32_t r = right.as.as_u32;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                uint32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                 (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_u32(result);
+                            }
+                            case VAL_U64: {
+                                uint64_t l = left.as.as_u64;
+                                uint64_t r = right.as.as_u64;
+                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                    fprintf(stderr, "Runtime error: Division by zero\n");
+                                    exit(1);
+                                }
+                                uint64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
+                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
+                                                 (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                return val_u64(result);
+                            }
+                            default:
+                                fprintf(stderr, "Runtime error: Invalid integer type for arithmetic\n");
+                                exit(1);
                         }
-                        return promote_value(val_i32((int32_t)(l / r)), result_type);
-                    case OP_EQUAL: return val_bool(l == r);
-                    case OP_NOT_EQUAL: return val_bool(l != r);
-                    case OP_LESS: return val_bool(l < r);
-                    case OP_LESS_EQUAL: return val_bool(l <= r);
-                    case OP_GREATER: return val_bool(l > r);
-                    case OP_GREATER_EQUAL: return val_bool(l >= r);
+                    }
+
+                    // Comparison operations - can use wider types for comparison
+                    case OP_EQUAL:
+                    case OP_NOT_EQUAL:
+                    case OP_LESS:
+                    case OP_LESS_EQUAL:
+                    case OP_GREATER:
+                    case OP_GREATER_EQUAL: {
+                        // For comparisons, we need to handle signed vs unsigned properly
+                        int is_signed = (result_type == VAL_I8 || result_type == VAL_I16 ||
+                                        result_type == VAL_I32 || result_type == VAL_I64);
+
+                        if (is_signed) {
+                            int64_t l, r;
+                            switch (result_type) {
+                                case VAL_I8: l = left.as.as_i8; r = right.as.as_i8; break;
+                                case VAL_I16: l = left.as.as_i16; r = right.as.as_i16; break;
+                                case VAL_I32: l = left.as.as_i32; r = right.as.as_i32; break;
+                                case VAL_I64: l = left.as.as_i64; r = right.as.as_i64; break;
+                                default: l = r = 0; break;
+                            }
+                            switch (expr->as.binary.op) {
+                                case OP_EQUAL: return val_bool(l == r);
+                                case OP_NOT_EQUAL: return val_bool(l != r);
+                                case OP_LESS: return val_bool(l < r);
+                                case OP_LESS_EQUAL: return val_bool(l <= r);
+                                case OP_GREATER: return val_bool(l > r);
+                                case OP_GREATER_EQUAL: return val_bool(l >= r);
+                                default: break;
+                            }
+                        } else {
+                            uint64_t l, r;
+                            switch (result_type) {
+                                case VAL_U8: l = left.as.as_u8; r = right.as.as_u8; break;
+                                case VAL_U16: l = left.as.as_u16; r = right.as.as_u16; break;
+                                case VAL_U32: l = left.as.as_u32; r = right.as.as_u32; break;
+                                case VAL_U64: l = left.as.as_u64; r = right.as.as_u64; break;
+                                default: l = r = 0; break;
+                            }
+                            switch (expr->as.binary.op) {
+                                case OP_EQUAL: return val_bool(l == r);
+                                case OP_NOT_EQUAL: return val_bool(l != r);
+                                case OP_LESS: return val_bool(l < r);
+                                case OP_LESS_EQUAL: return val_bool(l <= r);
+                                case OP_GREATER: return val_bool(l > r);
+                                case OP_GREATER_EQUAL: return val_bool(l >= r);
+                                default: break;
+                            }
+                        }
+                        break;
+                    }
                     default: break;
                 }
             }

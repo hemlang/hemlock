@@ -1,0 +1,10 @@
+// Test u64 type annotation and typeof
+let a: u64 = 0;
+let b: u64 = 2147483647;
+let c: u64 = 1000000;
+print(a);
+print(b);
+print(c);
+print(typeof(a));
+print(typeof(b));
+print(typeof(c));

@@ -10,9 +10,11 @@ typedef enum {
     VAL_I8,
     VAL_I16,
     VAL_I32,
+    VAL_I64,
     VAL_U8,
     VAL_U16,
     VAL_U32,
+    VAL_U64,
     //VAL_F16,
     VAL_F32,
     VAL_F64,
@@ -133,9 +135,11 @@ typedef struct Value {
         int8_t as_i8;
         int16_t as_i16;
         int32_t as_i32;
+        int64_t as_i64;
         uint8_t as_u8;
         uint16_t as_u16;
         uint32_t as_u32;
+        uint64_t as_u64;
         float as_f32;
         double as_f64;
         int as_bool;
@@ -185,9 +189,11 @@ Value val_float(double value); // creates f64
 Value val_i8(int8_t value);
 Value val_i16(int16_t value);
 Value val_i32(int32_t value);
+Value val_i64(int64_t value);
 Value val_u8(uint8_t value);
 Value val_u16(uint16_t value);
 Value val_u32(uint32_t value);
+Value val_u64(uint64_t value);
 Value val_f32(float value);
 Value val_f64(double value);
 Value val_bool(int value);

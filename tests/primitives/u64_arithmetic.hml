@@ -1,0 +1,13 @@
+// Test type promotion: smaller types promote to u64
+let small: u32 = 100;
+let large: u64 = 5000;
+let result = small + large;
+print(result);
+print(typeof(result));
+
+// Test that u64 is higher rank than u32
+let a: u32 = 42;
+let b: u64 = 58;
+let c = a + b;
+print(c);
+print(typeof(c));
