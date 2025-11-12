@@ -1,11 +1,14 @@
 // Test: Seek and tell
-write_file("tests/temp/test_seek.txt", "ABCDEFGHIJ");
+let fw = open("tests/temp/test_seek.txt", "w");
+fw.write("ABCDEFGHIJ");
+fw.close();
+
 let f = open("tests/temp/test_seek.txt", "r");
 print("Position:");
 print(f.tell());
 f.seek(5);
 print("After seek(5):");
 print(f.tell());
-let data = f.read_text(3);
+let data = f.read();
 print(data);
 f.close();

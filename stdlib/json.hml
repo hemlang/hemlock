@@ -1,0 +1,53 @@
+// stdlib/json.hml
+// JSON parsing and serialization module
+
+/**
+ * Parses a JSON string into a Hemlock object.
+ */
+export fn parse(json_str: string): object {
+    return deserialize(json_str);
+}
+
+/**
+ * Converts a Hemlock object to a JSON string.
+ */
+export fn stringify(obj: object): string {
+    return serialize(obj);
+}
+
+/**
+ * Parses a JSON file.
+ */
+export fn parse_file(path: string): object {
+    let f = open(path, "r");
+    try {
+        let content = f.read();
+        return parse(content);
+    } finally {
+        f.close();
+    }
+}
+
+/**
+ * Writes an object to a JSON file.
+ */
+export fn stringify_file(obj: object, path: string) {
+    let f = open(path, "w");
+    try {
+        let json = stringify(obj);
+        f.write(json);
+    } finally {
+        f.close();
+    }
+}
+
+/**
+ * Attempts to parse JSON, returns null on error instead of throwing.
+ */
+export fn try_parse(json_str: string): object {
+    try {
+        return parse(json_str);
+    } catch (e) {
+        return null;
+    }
+}

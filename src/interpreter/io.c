@@ -13,78 +13,84 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         exit(1);
     }
 
-    if (strcmp(method, "read_text") == 0) {
-        // Read up to N bytes as string
-        if (num_args != 1 || !is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: read_text() expects 1 integer argument (size)\n");
+    // read() - read entire file from current position
+    if (strcmp(method, "read") == 0) {
+        if (num_args != 0) {
+            fprintf(stderr, "Runtime error: read() expects no arguments\n");
             exit(1);
         }
 
-        int size = value_to_int(args[0]);
+        // Get current position
+        long start_pos = ftell(file->fp);
+
+        // Seek to end to get remaining size
+        fseek(file->fp, 0, SEEK_END);
+        long end_pos = ftell(file->fp);
+
+        // Calculate size from current position to end
+        long size = end_pos - start_pos;
+
+        // Seek back to start position
+        fseek(file->fp, start_pos, SEEK_SET);
+
+        if (size == 0) {
+            return val_string("");
+        }
+
+        // Read entire file from current position
         char *buffer = malloc(size + 1);
-        size_t read = fread(buffer, 1, size, file->fp);
-        buffer[read] = '\0';
+        if (!buffer) {
+            fprintf(stderr, "Runtime error: Memory allocation failed in read()\n");
+            exit(1);
+        }
+
+        size_t bytes_read = fread(buffer, 1, size, file->fp);
+        buffer[bytes_read] = '\0';
 
         String *str = malloc(sizeof(String));
         str->data = buffer;
-        str->length = read;
+        str->length = bytes_read;
         str->capacity = size + 1;
 
         return (Value){ .type = VAL_STRING, .as.as_string = str };
     }
 
-    if (strcmp(method, "read_bytes") == 0) {
-        // Read up to N bytes as buffer
-        if (num_args != 1 || !is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: read_bytes() expects 1 integer argument (size)\n");
-            exit(1);
-        }
-
-        int size = value_to_int(args[0]);
-        void *data = malloc(size);
-        size_t read = fread(data, 1, size, file->fp);
-
-        Buffer *buf = malloc(sizeof(Buffer));
-        buf->data = data;
-        buf->length = read;
-        buf->capacity = size;
-
-        return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
-    }
-
+    // write(data) - write string to file
     if (strcmp(method, "write") == 0) {
-        // Write string or buffer
         if (num_args != 1) {
             fprintf(stderr, "Runtime error: write() expects 1 argument (data)\n");
             exit(1);
         }
 
-        size_t written = 0;
-        if (args[0].type == VAL_STRING) {
-            String *str = args[0].as.as_string;
-            written = fwrite(str->data, 1, str->length, file->fp);
-        } else if (args[0].type == VAL_BUFFER) {
-            Buffer *buf = args[0].as.as_buffer;
-            written = fwrite(buf->data, 1, buf->length, file->fp);
-        } else {
-            fprintf(stderr, "Runtime error: write() expects string or buffer\n");
+        if (args[0].type != VAL_STRING) {
+            fprintf(stderr, "Runtime error: write() expects string argument\n");
             exit(1);
         }
+
+        String *str = args[0].as.as_string;
+        size_t written = fwrite(str->data, 1, str->length, file->fp);
 
         return val_i32((int32_t)written);
     }
 
+    // seek(position) - move file pointer to position
     if (strcmp(method, "seek") == 0) {
         if (num_args != 1 || !is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: seek() expects 1 integer argument (offset)\n");
+            fprintf(stderr, "Runtime error: seek() expects 1 integer argument (position)\n");
             exit(1);
         }
 
-        int offset = value_to_int(args[0]);
-        fseek(file->fp, offset, SEEK_SET);
-        return val_null();
+        int position = value_to_int(args[0]);
+        if (fseek(file->fp, position, SEEK_SET) != 0) {
+            fprintf(stderr, "Runtime error: Seek error\n");
+            exit(1);
+        }
+
+        long new_pos = ftell(file->fp);
+        return val_i32((int32_t)new_pos);
     }
 
+    // tell() - return current file position
     if (strcmp(method, "tell") == 0) {
         if (num_args != 0) {
             fprintf(stderr, "Runtime error: tell() expects no arguments\n");
@@ -95,6 +101,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         return val_i32((int32_t)pos);
     }
 
+    // close() - close the file
     if (strcmp(method, "close") == 0) {
         if (num_args != 0) {
             fprintf(stderr, "Runtime error: close() expects no arguments\n");
@@ -934,183 +941,6 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 }
 
 // ========== I/O BUILTIN FUNCTIONS ==========
-
-Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
-    if (num_args != 1 || args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: read_file() expects 1 string argument (path)\n");
-        exit(1);
-    }
-
-    const char *path = args[0].as.as_string->data;
-
-    FILE *fp = fopen(path, "rb");
-    if (!fp) {
-        fprintf(stderr, "Runtime error: Failed to open '%s': %s\n",
-                path, strerror(errno));
-        exit(1);
-    }
-
-    // Get file size
-    fseek(fp, 0, SEEK_END);
-    long size = ftell(fp);
-    rewind(fp);
-
-    // Read entire file
-    char *buffer = malloc(size + 1);
-    size_t read = fread(buffer, 1, size, fp);
-    buffer[read] = '\0';
-    fclose(fp);
-
-    String *str = malloc(sizeof(String));
-    str->data = buffer;
-    str->length = read;
-    str->capacity = size + 1;
-
-    return (Value){ .type = VAL_STRING, .as.as_string = str };
-}
-
-Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
-    if (num_args != 2) {
-        fprintf(stderr, "Runtime error: write_file() expects 2 arguments (path, content)\n");
-        exit(1);
-    }
-
-    if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: write_file() path must be a string\n");
-        exit(1);
-    }
-
-    const char *path = args[0].as.as_string->data;
-
-    FILE *fp = fopen(path, "wb");
-    if (!fp) {
-        fprintf(stderr, "Runtime error: Failed to open '%s': %s\n",
-                path, strerror(errno));
-        exit(1);
-    }
-
-    // Write string or buffer
-    if (args[1].type == VAL_STRING) {
-        String *str = args[1].as.as_string;
-        fwrite(str->data, 1, str->length, fp);
-    } else if (args[1].type == VAL_BUFFER) {
-        Buffer *buf = args[1].as.as_buffer;
-        fwrite(buf->data, 1, buf->length, fp);
-    } else {
-        fclose(fp);
-        fprintf(stderr, "Runtime error: write_file() content must be string or buffer\n");
-        exit(1);
-    }
-
-    fclose(fp);
-    return val_null();
-}
-
-Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
-    if (num_args != 2) {
-        fprintf(stderr, "Runtime error: append_file() expects 2 arguments (path, content)\n");
-        exit(1);
-    }
-
-    if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: append_file() path must be a string\n");
-        exit(1);
-    }
-
-    const char *path = args[0].as.as_string->data;
-
-    FILE *fp = fopen(path, "ab");
-    if (!fp) {
-        fprintf(stderr, "Runtime error: Failed to open '%s': %s\n",
-                path, strerror(errno));
-        exit(1);
-    }
-
-    // Write string or buffer
-    if (args[1].type == VAL_STRING) {
-        String *str = args[1].as.as_string;
-        fwrite(str->data, 1, str->length, fp);
-    } else if (args[1].type == VAL_BUFFER) {
-        Buffer *buf = args[1].as.as_buffer;
-        fwrite(buf->data, 1, buf->length, fp);
-    } else {
-        fclose(fp);
-        fprintf(stderr, "Runtime error: append_file() content must be string or buffer\n");
-        exit(1);
-    }
-
-    fclose(fp);
-    return val_null();
-}
-
-Value builtin_read_bytes(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
-    if (num_args != 1 || args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: read_bytes() expects 1 string argument (path)\n");
-        exit(1);
-    }
-
-    const char *path = args[0].as.as_string->data;
-
-    FILE *fp = fopen(path, "rb");
-    if (!fp) {
-        fprintf(stderr, "Runtime error: Failed to open '%s': %s\n",
-                path, strerror(errno));
-        exit(1);
-    }
-
-    // Get file size
-    fseek(fp, 0, SEEK_END);
-    long size = ftell(fp);
-    rewind(fp);
-
-    // Read entire file into buffer
-    void *data = malloc(size);
-    size_t read = fread(data, 1, size, fp);
-    fclose(fp);
-
-    Buffer *buf = malloc(sizeof(Buffer));
-    buf->data = data;
-    buf->length = read;
-    buf->capacity = size;
-
-    return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
-}
-
-Value builtin_write_bytes(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
-    if (num_args != 2) {
-        fprintf(stderr, "Runtime error: write_bytes() expects 2 arguments (path, data)\n");
-        exit(1);
-    }
-
-    if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: write_bytes() path must be a string\n");
-        exit(1);
-    }
-
-    if (args[1].type != VAL_BUFFER) {
-        fprintf(stderr, "Runtime error: write_bytes() data must be a buffer\n");
-        exit(1);
-    }
-
-    const char *path = args[0].as.as_string->data;
-    Buffer *buf = args[1].as.as_buffer;
-
-    FILE *fp = fopen(path, "wb");
-    if (!fp) {
-        fprintf(stderr, "Runtime error: Failed to open '%s': %s\n",
-                path, strerror(errno));
-        exit(1);
-    }
-
-    fwrite(buf->data, 1, buf->length, fp);
-    fclose(fp);
-    return val_null();
-}
 
 Value builtin_file_exists(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;  // Unused

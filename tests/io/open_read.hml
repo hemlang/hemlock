@@ -1,15 +1,18 @@
-// Test: Open file and read in chunks
-write_file("tests/temp/test_chunks.txt", "Hello, World!");
+// Test: Open file and read
+let fw = open("tests/temp/test_chunks.txt", "w");
+fw.write("Hello, World!");
+fw.close();
+
 let f = open("tests/temp/test_chunks.txt", "r");
 print(f);
 print("Mode:");
 print(f.mode);
 print("Closed:");
 print(f.closed);
-let chunk1 = f.read_text(5);
-print(chunk1);
-let chunk2 = f.read_text(8);
-print(chunk2);
+print("Path:");
+print(f.path);
+let content = f.read();
+print(content);
 f.close();
 print("After close:");
 print(f.closed);

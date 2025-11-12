@@ -1,4 +1,9 @@
 // Test: Write and read file
-write_file("tests/temp/test_output.txt", "Hello, Hemlock!");
-let content = read_file("tests/temp/test_output.txt");
+let fw = open("tests/temp/test_output.txt", "w");
+fw.write("Hello, Hemlock!");
+fw.close();
+
+let fr = open("tests/temp/test_output.txt", "r");
+let content = fr.read();
 print(content);
+fr.close();

@@ -501,7 +501,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 exit(1);
             } else if (object.type == VAL_FILE) {
                 FileHandle *file = object.as.as_file;
-                if (strcmp(property, "mode") == 0) {
+                if (strcmp(property, "path") == 0) {
+                    return val_string(file->path);
+                } else if (strcmp(property, "mode") == 0) {
                     return val_string(file->mode);
                 } else if (strcmp(property, "closed") == 0) {
                     return val_bool(file->closed);

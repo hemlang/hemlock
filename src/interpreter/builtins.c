@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
+#include <dirent.h>
 
 // ========== BUILTIN FUNCTIONS ==========
 
@@ -1095,6 +1096,93 @@ static Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx) {
     return val_channel(ch);
 }
 
+// ========== HELPER BUILTINS (for stdlib) ==========
+
+// __read_u32(ptr) - Read 32-bit unsigned integer from pointer
+static Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: __read_u32() expects 1 argument (ptr)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_PTR) {
+        fprintf(stderr, "Runtime error: __read_u32() expects ptr argument\n");
+        exit(1);
+    }
+
+    void *ptr = args[0].as.as_ptr;
+    uint32_t value = *(uint32_t*)ptr;
+    return val_u32(value);
+}
+
+// __read_u64(ptr) - Read 64-bit unsigned integer from pointer
+static Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: __read_u64() expects 1 argument (ptr)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_PTR) {
+        fprintf(stderr, "Runtime error: __read_u64() expects ptr argument\n");
+        exit(1);
+    }
+
+    void *ptr = args[0].as.as_ptr;
+    uint64_t value = *(uint64_t*)ptr;
+    // Note: Hemlock doesn't have u64 type yet, so return as i32 (truncated)
+    // This is a limitation - we may need to add u64/i64 types in future
+    return val_i32((int32_t)value);
+}
+
+// __dirent_name(dirent_ptr) - Extract name from dirent struct
+static Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: __dirent_name() expects 1 argument (dirent_ptr)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_PTR) {
+        fprintf(stderr, "Runtime error: __dirent_name() expects ptr argument\n");
+        exit(1);
+    }
+
+    struct dirent *entry = (struct dirent*)args[0].as.as_ptr;
+    if (entry == NULL) {
+        return val_null();
+    }
+
+    return val_string(entry->d_name);
+}
+
+// __string_to_cstr(str) - Convert string to null-terminated C string pointer (malloc'd)
+static Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: __string_to_cstr() expects 1 argument (string)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_STRING) {
+        fprintf(stderr, "Runtime error: __string_to_cstr() expects string argument\n");
+        exit(1);
+    }
+
+    String *str = args[0].as.as_string;
+    char *cstr = malloc(str->length + 1);
+    if (!cstr) {
+        fprintf(stderr, "Runtime error: Memory allocation failed in __string_to_cstr()\n");
+        exit(1);
+    }
+
+    memcpy(cstr, str->data, str->length);
+    cstr[str->length] = '\0';
+
+    return val_ptr(cstr);
+}
+
 // Structure to hold builtin function info
 typedef struct {
     const char *name;
@@ -1114,11 +1202,6 @@ static BuiltinInfo builtins[] = {
     {"typeof", builtin_typeof},
     {"serialize", builtin_serialize},
     {"deserialize", builtin_deserialize},
-    {"read_file", builtin_read_file},
-    {"write_file", builtin_write_file},
-    {"append_file", builtin_append_file},
-    {"read_bytes", builtin_read_bytes},
-    {"write_bytes", builtin_write_bytes},
     {"file_exists", builtin_file_exists},
     {"read_line", builtin_read_line},
     {"eprint", builtin_eprint},
@@ -1128,6 +1211,10 @@ static BuiltinInfo builtins[] = {
     {"join", builtin_join},
     {"detach", builtin_detach},
     {"channel", builtin_channel},
+    {"__read_u32", builtin_read_u32},
+    {"__read_u64", builtin_read_u64},
+    {"__dirent_name", builtin_dirent_name},
+    {"__string_to_cstr", builtin_string_to_cstr},
     {NULL, NULL}  // Sentinel
 };
 

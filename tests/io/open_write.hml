@@ -6,5 +6,8 @@ print(bytes1);
 let bytes2 = f.write("Hemlock!");
 print(bytes2);
 f.close();
-let content = read_file("tests/temp/test_write.txt");
+
+let fr = open("tests/temp/test_write.txt", "r");
+let content = fr.read();
 print(content);
+fr.close();

@@ -1,4 +1,7 @@
 // Test: File exists
-write_file("tests/temp/exists.txt", "test");
+let f = open("tests/temp/exists.txt", "w");
+f.write("test");
+f.close();
+
 print(file_exists("tests/temp/exists.txt"));
 print(file_exists("tests/temp/nonexistent.txt"));

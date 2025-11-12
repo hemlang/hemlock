@@ -1,0 +1,187 @@
+// stdlib/fs.hml
+// Filesystem operations module
+
+// FFI declarations for filesystem operations
+import "libc.so.6";
+
+extern fn mkdir(path: ptr, mode: u32): i32;
+extern fn rmdir(path: ptr): i32;
+extern fn stat(path: ptr, buf: ptr): i32;
+extern fn opendir(path: ptr): ptr;
+extern fn readdir(dir: ptr): ptr;
+extern fn closedir(dir: ptr): i32;
+
+/**
+ * Checks if a file or directory exists.
+ */
+export fn exists(path: string): bool {
+    return file_exists(path);
+}
+
+/**
+ * Reads entire file contents as string.
+ */
+export fn read_file(path: string): string {
+    let f = open(path, "r");
+    try {
+        return f.read();
+    } finally {
+        f.close();
+    }
+}
+
+/**
+ * Writes string to file (overwrites if exists).
+ */
+export fn write_file(path: string, content: string) {
+    let f = open(path, "w");
+    try {
+        f.write(content);
+    } finally {
+        f.close();
+    }
+}
+
+/**
+ * Appends string to file.
+ */
+export fn append_file(path: string, content: string) {
+    let f = open(path, "a");
+    try {
+        f.write(content);
+    } finally {
+        f.close();
+    }
+}
+
+/**
+ * Creates a directory.
+ * Default permissions: 0755 (rwxr-xr-x)
+ */
+export fn make_dir(path: string, mode: u32) {
+    let path_cstr = __string_to_cstr(path);
+    let result = mkdir(path_cstr, mode);
+    free(path_cstr);
+
+    if (result != 0) {
+        throw "Failed to create directory: " + path;
+    }
+}
+
+/**
+ * Removes an empty directory.
+ */
+export fn remove_dir(path: string) {
+    let path_cstr = __string_to_cstr(path);
+    let result = rmdir(path_cstr);
+    free(path_cstr);
+
+    if (result != 0) {
+        throw "Failed to remove directory: " + path;
+    }
+}
+
+/**
+ * Lists files and directories in a directory.
+ * Returns array of filenames (not full paths).
+ */
+export fn list_dir(path: string): array {
+    let path_cstr = __string_to_cstr(path);
+    let dir = opendir(path_cstr);
+    free(path_cstr);
+
+    if (dir == null) {
+        throw "Failed to open directory: " + path;
+    }
+
+    let files = [];
+    while (true) {
+        let entry = readdir(dir);
+        if (entry == null) {
+            break;
+        }
+        let name = __dirent_name(entry);
+        if (name != "." && name != "..") {
+            files.push(name);
+        }
+    }
+
+    closedir(dir);
+    return files;
+}
+
+/**
+ * Checks if path is a regular file.
+ */
+export fn is_file(path: string): bool {
+    let path_cstr = __string_to_cstr(path);
+    let stat_buf = alloc(144);  // sizeof(struct stat) on Linux x86_64
+    let result = stat(path_cstr, stat_buf);
+    free(path_cstr);
+
+    if (result != 0) {
+        free(stat_buf);
+        return false;
+    }
+
+    let mode = __read_u32(stat_buf + 24);  // st_mode offset
+    free(stat_buf);
+
+    return (mode & 0o170000) == 0o100000;  // S_ISREG
+}
+
+/**
+ * Checks if path is a directory.
+ */
+export fn is_dir(path: string): bool {
+    let path_cstr = __string_to_cstr(path);
+    let stat_buf = alloc(144);
+    let result = stat(path_cstr, stat_buf);
+    free(path_cstr);
+
+    if (result != 0) {
+        free(stat_buf);
+        return false;
+    }
+
+    let mode = __read_u32(stat_buf + 24);
+    free(stat_buf);
+
+    return (mode & 0o170000) == 0o040000;  // S_ISDIR
+}
+
+/**
+ * Gets file information.
+ * Returns object with: size, atime, mtime, ctime, mode, is_file, is_dir
+ */
+export fn file_stat(path: string): object {
+    let path_cstr = __string_to_cstr(path);
+    let stat_buf = alloc(144);
+    let result = stat(path_cstr, stat_buf);
+    free(path_cstr);
+
+    if (result != 0) {
+        free(stat_buf);
+        throw "Failed to stat file: " + path;
+    }
+
+    // Extract fields from struct stat (x86_64 Linux offsets)
+    // Note: Using __read_u32 for all fields due to lack of u64 support
+    let size = __read_u32(stat_buf + 48);     // st_size (truncated)
+    let atime = __read_u32(stat_buf + 72);    // st_atime (truncated)
+    let mtime = __read_u32(stat_buf + 88);    // st_mtime (truncated)
+    let ctime = __read_u32(stat_buf + 104);   // st_ctime (truncated)
+    let mode = __read_u32(stat_buf + 24);     // st_mode
+
+    free(stat_buf);
+
+    return {
+        size: size,
+        atime: atime,
+        mtime: mtime,
+        ctime: ctime,
+        mode: mode,
+        is_file: (mode & 0o170000) == 0o100000,
+        is_dir: (mode & 0o170000) == 0o040000,
+    };
+}
