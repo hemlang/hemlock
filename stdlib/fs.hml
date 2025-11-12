@@ -10,12 +10,17 @@ extern fn stat(path: ptr, buf: ptr): i32;
 extern fn opendir(path: ptr): ptr;
 extern fn readdir(dir: ptr): ptr;
 extern fn closedir(dir: ptr): i32;
+extern fn unlink(path: ptr): i32;
+extern fn __c_rename(oldpath: ptr, newpath: ptr): i32;
+extern fn getcwd(buf: ptr, size: u32): ptr;
+extern fn __c_chdir(path: ptr): i32;
+extern fn realpath(path: ptr, resolved: ptr): ptr;
 
 /**
  * Checks if a file or directory exists.
  */
 export fn exists(path: string): bool {
-    return file_exists(path);
+    return __file_exists(path);
 }
 
 /**
@@ -184,4 +189,105 @@ export fn file_stat(path: string): object {
         is_file: (mode & 0o170000) == 0o100000,
         is_dir: (mode & 0o170000) == 0o040000,
     };
+}
+
+/**
+ * Deletes a file.
+ */
+export fn remove_file(path: string) {
+    let path_cstr = __string_to_cstr(path);
+    let result = unlink(path_cstr);
+    free(path_cstr);
+
+    if (result != 0) {
+        throw "Failed to remove file '" + path + "': " + __strerror();
+    }
+}
+
+/**
+ * Renames or moves a file/directory.
+ */
+export fn rename(old_path: string, new_path: string) {
+    let old_cstr = __string_to_cstr(old_path);
+    let new_cstr = __string_to_cstr(new_path);
+    let result = __c_rename(old_cstr, new_cstr);
+    free(old_cstr);
+    free(new_cstr);
+
+    if (result != 0) {
+        throw "Failed to rename '" + old_path + "' to '" + new_path + "': " + __strerror();
+    }
+}
+
+/**
+ * Copies a file (reads source and writes to destination).
+ */
+export fn copy_file(src: string, dest: string) {
+    let f_src = open(src, "r");
+    try {
+        let f_dest = open(dest, "w");
+        try {
+            // Copy in 4KB chunks
+            while (true) {
+                let chunk = f_src.read(4096);
+                if (chunk.length == 0) {
+                    break;
+                }
+                f_dest.write(chunk);
+            }
+        } finally {
+            f_dest.close();
+        }
+    } finally {
+        f_src.close();
+    }
+}
+
+/**
+ * Gets the current working directory.
+ */
+export fn cwd(): string {
+    let buf = alloc(4096);
+    let result = getcwd(buf, 4096);
+
+    if (result == null) {
+        free(buf);
+        throw "Failed to get current directory: " + __strerror();
+    }
+
+    let path = __cstr_to_string(result);
+    free(buf);
+    return path;
+}
+
+/**
+ * Changes the current working directory.
+ */
+export fn chdir(path: string) {
+    let path_cstr = __string_to_cstr(path);
+    let result = __c_chdir(path_cstr);
+    free(path_cstr);
+
+    if (result != 0) {
+        throw "Failed to change directory to '" + path + "': " + __strerror();
+    }
+}
+
+/**
+ * Gets the absolute path of a file or directory.
+ */
+export fn absolute_path(path: string): string {
+    let path_cstr = __string_to_cstr(path);
+    let resolved = alloc(4096);
+    let result = realpath(path_cstr, resolved);
+    free(path_cstr);
+
+    if (result == null) {
+        free(resolved);
+        throw "Failed to resolve path '" + path + "': " + __strerror();
+    }
+
+    let abs_path = __cstr_to_string(result);
+    free(resolved);
+    return abs_path;
 }

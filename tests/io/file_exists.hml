@@ -1,7 +1,7 @@
-// Test: File exists
+// Test: File exists (using internal __file_exists)
 let f = open("tests/temp/exists.txt", "w");
 f.write("test");
 f.close();
 
-print(file_exists("tests/temp/exists.txt"));
-print(file_exists("tests/temp/nonexistent.txt"));
+print(__file_exists("tests/temp/exists.txt"));
+print(__file_exists("tests/temp/nonexistent.txt"));

@@ -13,44 +13,61 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         exit(1);
     }
 
-    // read() - read entire file from current position
+    // read(size?) - read file from current position
+    // If size is provided, read up to size bytes
+    // If no size, read entire file from current position
     if (strcmp(method, "read") == 0) {
-        if (num_args != 0) {
-            fprintf(stderr, "Runtime error: read() expects no arguments\n");
+        if (num_args > 1) {
+            fprintf(stderr, "Runtime error: read() expects 0 or 1 arguments (size)\n");
             exit(1);
         }
 
-        // Get current position
-        long start_pos = ftell(file->fp);
+        long size_to_read = -1;  // -1 means read entire file
 
-        // Seek to end to get remaining size
-        fseek(file->fp, 0, SEEK_END);
-        long end_pos = ftell(file->fp);
+        // If size argument provided
+        if (num_args == 1) {
+            if (!is_integer(args[0])) {
+                fprintf(stderr, "Runtime error: read() size must be an integer\n");
+                exit(1);
+            }
+            size_to_read = value_to_int(args[0]);
+            if (size_to_read < 0) {
+                fprintf(stderr, "Runtime error: read() size cannot be negative\n");
+                exit(1);
+            }
+        }
 
-        // Calculate size from current position to end
-        long size = end_pos - start_pos;
+        // Determine how much to read
+        long actual_size;
+        if (size_to_read == -1) {
+            // Read entire file from current position
+            long start_pos = ftell(file->fp);
+            fseek(file->fp, 0, SEEK_END);
+            long end_pos = ftell(file->fp);
+            actual_size = end_pos - start_pos;
+            fseek(file->fp, start_pos, SEEK_SET);
+        } else {
+            actual_size = size_to_read;
+        }
 
-        // Seek back to start position
-        fseek(file->fp, start_pos, SEEK_SET);
-
-        if (size == 0) {
+        if (actual_size == 0) {
             return val_string("");
         }
 
-        // Read entire file from current position
-        char *buffer = malloc(size + 1);
+        // Allocate buffer and read
+        char *buffer = malloc(actual_size + 1);
         if (!buffer) {
             fprintf(stderr, "Runtime error: Memory allocation failed in read()\n");
             exit(1);
         }
 
-        size_t bytes_read = fread(buffer, 1, size, file->fp);
+        size_t bytes_read = fread(buffer, 1, actual_size, file->fp);
         buffer[bytes_read] = '\0';
 
         String *str = malloc(sizeof(String));
         str->data = buffer;
         str->length = bytes_read;
-        str->capacity = size + 1;
+        str->capacity = actual_size + 1;
 
         return (Value){ .type = VAL_STRING, .as.as_string = str };
     }
@@ -69,6 +86,68 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
         String *str = args[0].as.as_string;
         size_t written = fwrite(str->data, 1, str->length, file->fp);
+
+        return val_i32((int32_t)written);
+    }
+
+    // read_bytes(size) - read binary data as buffer
+    if (strcmp(method, "read_bytes") == 0) {
+        if (num_args != 1) {
+            fprintf(stderr, "Runtime error: read_bytes() expects 1 argument (size)\n");
+            exit(1);
+        }
+
+        if (!is_integer(args[0])) {
+            fprintf(stderr, "Runtime error: read_bytes() size must be an integer\n");
+            exit(1);
+        }
+
+        int size = value_to_int(args[0]);
+        if (size < 0) {
+            fprintf(stderr, "Runtime error: read_bytes() size cannot be negative\n");
+            exit(1);
+        }
+
+        if (size == 0) {
+            Buffer *empty_buf = malloc(sizeof(Buffer));
+            empty_buf->data = NULL;
+            empty_buf->length = 0;
+            empty_buf->capacity = 0;
+            return (Value){ .type = VAL_BUFFER, .as.as_buffer = empty_buf };
+        }
+
+        // Allocate buffer
+        void *data = malloc(size);
+        if (!data) {
+            fprintf(stderr, "Runtime error: Memory allocation failed in read_bytes()\n");
+            exit(1);
+        }
+
+        // Read binary data
+        size_t bytes_read = fread(data, 1, size, file->fp);
+
+        Buffer *buf = malloc(sizeof(Buffer));
+        buf->data = data;
+        buf->length = bytes_read;
+        buf->capacity = size;
+
+        return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
+    }
+
+    // write_bytes(data) - write binary data from buffer
+    if (strcmp(method, "write_bytes") == 0) {
+        if (num_args != 1) {
+            fprintf(stderr, "Runtime error: write_bytes() expects 1 argument (buffer)\n");
+            exit(1);
+        }
+
+        if (args[0].type != VAL_BUFFER) {
+            fprintf(stderr, "Runtime error: write_bytes() expects buffer argument\n");
+            exit(1);
+        }
+
+        Buffer *buf = args[0].as.as_buffer;
+        size_t written = fwrite(buf->data, 1, buf->length, file->fp);
 
         return val_i32((int32_t)written);
     }

@@ -1183,6 +1183,39 @@ static Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext 
     return val_ptr(cstr);
 }
 
+// __cstr_to_string(ptr) - Convert null-terminated C string pointer to Hemlock string
+static Value builtin_cstr_to_string(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: __cstr_to_string() expects 1 argument (ptr)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_PTR) {
+        fprintf(stderr, "Runtime error: __cstr_to_string() expects ptr argument\n");
+        exit(1);
+    }
+
+    char *cstr = (char*)args[0].as.as_ptr;
+    if (cstr == NULL) {
+        return val_string("");
+    }
+
+    return val_string(cstr);
+}
+
+// __strerror() - Get error message for current errno
+static Value builtin_strerror(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    (void)args;
+    if (num_args != 0) {
+        fprintf(stderr, "Runtime error: __strerror() expects no arguments\n");
+        exit(1);
+    }
+
+    return val_string(strerror(errno));
+}
+
 // Structure to hold builtin function info
 typedef struct {
     const char *name;
@@ -1202,7 +1235,7 @@ static BuiltinInfo builtins[] = {
     {"typeof", builtin_typeof},
     {"serialize", builtin_serialize},
     {"deserialize", builtin_deserialize},
-    {"file_exists", builtin_file_exists},
+    {"__file_exists", builtin_file_exists},
     {"read_line", builtin_read_line},
     {"eprint", builtin_eprint},
     {"open", builtin_open},
@@ -1215,6 +1248,8 @@ static BuiltinInfo builtins[] = {
     {"__read_u64", builtin_read_u64},
     {"__dirent_name", builtin_dirent_name},
     {"__string_to_cstr", builtin_string_to_cstr},
+    {"__cstr_to_string", builtin_cstr_to_string},
+    {"__strerror", builtin_strerror},
     {NULL, NULL}  // Sentinel
 };
 
