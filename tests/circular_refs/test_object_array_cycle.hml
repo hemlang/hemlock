@@ -1,0 +1,13 @@
+// Test: Object and array circular reference
+// Object contains array, array contains object
+
+let obj = { name: "test" };
+let arr = [1, 2, 3];
+
+obj.items = arr;
+arr.push(obj);
+
+// Free obj - this recursively frees the array without stack overflow!
+free(obj);
+
+print("PASS: Object-array cycle handled correctly");

@@ -97,7 +97,7 @@ static Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
 static Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: free() expects 1 argument (pointer or buffer)\n");
+        fprintf(stderr, "Runtime error: free() expects 1 argument (pointer, buffer, object, or array)\n");
         exit(1);
     }
 
@@ -107,8 +107,16 @@ static Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     } else if (args[0].type == VAL_BUFFER) {
         buffer_free(args[0].as.as_buffer);
         return val_null();
+    } else if (args[0].type == VAL_OBJECT) {
+        // Free object with cycle detection
+        object_free(args[0].as.as_object);
+        return val_null();
+    } else if (args[0].type == VAL_ARRAY) {
+        // Free array with cycle detection
+        array_free(args[0].as.as_array);
+        return val_null();
     } else {
-        fprintf(stderr, "Runtime error: free() requires a pointer or buffer\n");
+        fprintf(stderr, "Runtime error: free() requires a pointer, buffer, object, or array\n");
         exit(1);
     }
 }

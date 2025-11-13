@@ -1,0 +1,21 @@
+// Test: Complex nested circular references
+// Multiple objects and arrays with various circular paths
+
+let root = { name: "root" };
+let child1 = { name: "child1", parent: root };
+let child2 = { name: "child2", parent: root };
+
+root.children = [child1, child2];
+child1.sibling = child2;
+child2.sibling = child1;
+
+// Add array with self-reference
+let arr = [root, child1, child2];
+arr.push(arr);
+root.allNodes = arr;
+
+// Free root - this recursively frees everything without stack overflow!
+// The cycle detection ensures that circular references don't cause infinite recursion
+free(root);
+
+print("PASS: Complex nested cycles handled correctly");

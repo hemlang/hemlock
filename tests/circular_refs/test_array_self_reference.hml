@@ -1,0 +1,10 @@
+// Test: Array containing itself
+// Should not cause stack overflow when freed
+
+let arr = [1, 2, 3];
+arr.push(arr);
+
+// Free should work without crashing
+free(arr);
+
+print("PASS: Array self-reference handled correctly");

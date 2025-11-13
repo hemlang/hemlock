@@ -1,0 +1,10 @@
+// Test: Simple self-reference - object points to itself
+// Should not cause stack overflow when freed
+
+let obj = {};
+obj.me = obj;
+
+// Manual free should work without crashing
+free(obj);
+
+print("PASS: Self-reference handled correctly");

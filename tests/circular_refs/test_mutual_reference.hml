@@ -1,0 +1,14 @@
+// Test: Mutual references - two objects point to each other
+// Should not cause stack overflow when freed
+
+let obj1 = { name: "obj1" };
+let obj2 = { name: "obj2" };
+
+obj1.other = obj2;
+obj2.other = obj1;
+
+// Free obj1 - this will recursively free obj2 as well (without stack overflow!)
+// Note: Don't free obj2 separately as it's already freed via obj1
+free(obj1);
+
+print("PASS: Mutual references handled correctly");

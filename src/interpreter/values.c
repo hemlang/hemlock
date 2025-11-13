@@ -4,6 +4,20 @@
 #include <stdio.h>
 #include <pthread.h>
 
+// ========== FORWARD DECLARATIONS FOR CYCLE DETECTION ==========
+
+// Internal structure for tracking visited objects/arrays during deallocation
+typedef struct {
+    void **pointers;
+    int count;
+    int capacity;
+} VisitedSet;
+
+static VisitedSet* visited_set_new(void);
+static void visited_set_free(VisitedSet *set);
+static void object_free_internal(Object *obj, VisitedSet *visited);
+static void array_free_internal(Array *arr, VisitedSet *visited);
+
 // ========== STRING OPERATIONS ==========
 
 void string_free(String *str) {
@@ -171,11 +185,19 @@ Array* array_new(void) {
     return arr;
 }
 
+// Public API for array_free - handles circular references
 void array_free(Array *arr) {
-    if (arr) {
-        free(arr->elements);
-        free(arr);
+    if (!arr) return;
+
+    // Create visited set for cycle detection
+    VisitedSet *visited = visited_set_new();
+    if (!visited) {
+        fprintf(stderr, "Runtime error: Failed to allocate visited set for array_free\n");
+        exit(1);
     }
+
+    array_free_internal(arr, visited);
+    visited_set_free(visited);
 }
 
 static void array_grow(Array *arr) {
@@ -247,19 +269,19 @@ void file_free(FileHandle *file) {
 
 // ========== OBJECT OPERATIONS ==========
 
+// Public API for object_free - handles circular references
 void object_free(Object *obj) {
-    if (obj) {
-        if (obj->type_name) free(obj->type_name);
-        for (int i = 0; i < obj->num_fields; i++) {
-            free(obj->field_names[i]);
-            // Recursively free field values
-            // WARNING: This will cause infinite recursion on circular references
-            value_free(obj->field_values[i]);
-        }
-        free(obj->field_names);
-        free(obj->field_values);
-        free(obj);
+    if (!obj) return;
+
+    // Create visited set for cycle detection
+    VisitedSet *visited = visited_set_new();
+    if (!visited) {
+        fprintf(stderr, "Runtime error: Failed to allocate visited set for object_free\n");
+        exit(1);
     }
+
+    object_free_internal(obj, visited);
+    visited_set_free(visited);
 }
 
 Object* object_new(char *type_name, int initial_capacity) {
@@ -643,9 +665,100 @@ void print_value(Value val) {
 
 // ========== VALUE CLEANUP ==========
 
-// Recursively free a Value and all its heap-allocated contents
-// WARNING: Does not handle circular references - will cause infinite recursion
-void value_free(Value val) {
+// ========== CYCLE DETECTION FOR DEALLOCATION ==========
+
+// Implementation of visited set functions (declared at top of file)
+static VisitedSet* visited_set_new(void) {
+    VisitedSet *set = malloc(sizeof(VisitedSet));
+    if (!set) return NULL;
+    set->capacity = 16;
+    set->count = 0;
+    set->pointers = malloc(sizeof(void*) * set->capacity);
+    if (!set->pointers) {
+        free(set);
+        return NULL;
+    }
+    return set;
+}
+
+static void visited_set_free(VisitedSet *set) {
+    if (set) {
+        free(set->pointers);
+        free(set);
+    }
+}
+
+static int visited_set_contains(VisitedSet *set, void *ptr) {
+    for (int i = 0; i < set->count; i++) {
+        if (set->pointers[i] == ptr) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void visited_set_add(VisitedSet *set, void *ptr) {
+    if (set->count >= set->capacity) {
+        set->capacity *= 2;
+        void **new_pointers = realloc(set->pointers, sizeof(void*) * set->capacity);
+        if (!new_pointers) {
+            fprintf(stderr, "Runtime error: Memory allocation failed during visited set growth\n");
+            exit(1);
+        }
+        set->pointers = new_pointers;
+    }
+    set->pointers[set->count++] = ptr;
+}
+
+// Forward declarations for internal versions
+static void value_free_internal(Value val, VisitedSet *visited);
+
+// Internal version of object_free with cycle detection
+static void object_free_internal(Object *obj, VisitedSet *visited) {
+    if (!obj) return;
+
+    // Check if already visited (cycle detected)
+    if (visited_set_contains(visited, obj)) {
+        return;  // Already freeing this object - skip to prevent infinite recursion
+    }
+
+    // Mark as visited
+    visited_set_add(visited, obj);
+
+    // Free object contents
+    if (obj->type_name) free(obj->type_name);
+    for (int i = 0; i < obj->num_fields; i++) {
+        free(obj->field_names[i]);
+        // Recursively free field values with cycle detection
+        value_free_internal(obj->field_values[i], visited);
+    }
+    free(obj->field_names);
+    free(obj->field_values);
+    free(obj);
+}
+
+// Internal version of array cleanup with cycle detection
+static void array_free_internal(Array *arr, VisitedSet *visited) {
+    if (!arr) return;
+
+    // Check if already visited (cycle detected)
+    if (visited_set_contains(visited, arr)) {
+        return;  // Already freeing this array - skip to prevent infinite recursion
+    }
+
+    // Mark as visited
+    visited_set_add(visited, arr);
+
+    // Recursively free each element
+    for (int i = 0; i < arr->length; i++) {
+        value_free_internal(arr->elements[i], visited);
+    }
+    free(arr->elements);
+    free(arr);
+}
+
+// Internal version of value_free with cycle detection
+static void value_free_internal(Value val, VisitedSet *visited) {
     switch (val.type) {
         case VAL_STRING:
             if (val.as.as_string) {
@@ -662,12 +775,7 @@ void value_free(Value val) {
             break;
         case VAL_ARRAY:
             if (val.as.as_array) {
-                Array *arr = val.as.as_array;
-                // Recursively free each element
-                for (int i = 0; i < arr->length; i++) {
-                    value_free(arr->elements[i]);
-                }
-                array_free(arr);
+                array_free_internal(val.as.as_array, visited);
             }
             break;
         case VAL_FILE:
@@ -677,8 +785,7 @@ void value_free(Value val) {
             break;
         case VAL_OBJECT:
             if (val.as.as_object) {
-                // object_free will handle field values recursively
-                object_free(val.as.as_object);
+                object_free_internal(val.as.as_object, visited);
             }
             break;
         case VAL_FUNCTION:
@@ -739,4 +846,16 @@ void value_free(Value val) {
             // These types have no heap allocation
             break;
     }
+}
+
+// Public API - recursively free a Value and all its heap-allocated contents
+// Now handles circular references safely
+void value_free(Value val) {
+    VisitedSet *visited = visited_set_new();
+    if (!visited) {
+        fprintf(stderr, "Runtime error: Failed to allocate visited set for value_free\n");
+        exit(1);
+    }
+    value_free_internal(val, visited);
+    visited_set_free(visited);
 }

@@ -1,0 +1,15 @@
+// Test: Circular chain - A -> B -> C -> A
+// Should not cause stack overflow when freed
+
+let objA = { name: "A" };
+let objB = { name: "B" };
+let objC = { name: "C" };
+
+objA.next = objB;
+objB.next = objC;
+objC.next = objA;
+
+// Free objA - this recursively frees objB and objC without stack overflow!
+free(objA);
+
+print("PASS: Circular chain handled correctly");
