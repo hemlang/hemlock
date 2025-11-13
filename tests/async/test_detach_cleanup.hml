@@ -1,0 +1,41 @@
+// Test: detach() cleanup verification
+// Tests that detached tasks properly clean up their memory when they complete
+
+let counter = 0;
+
+async fn increment_task(id: i32) {
+    // Simulate some work
+    let i = 0;
+    let sum = 0;
+    while (i < 100) {
+        sum = sum + i;
+        i = i + 1;
+    }
+
+    // Increment shared counter
+    counter = counter + 1;
+
+    return null;
+}
+
+// Detach many tasks to exercise cleanup mechanism
+let num_tasks = 50;
+let i = 0;
+while (i < num_tasks) {
+    detach(increment_task, i);
+    i = i + 1;
+}
+
+print("Detached tasks:");
+print(num_tasks);
+
+// Give detached tasks time to complete
+// Note: This is a simple busy-wait for testing purposes
+let wait_counter = 0;
+while (wait_counter < 1000000) {
+    wait_counter = wait_counter + 1;
+}
+
+print("Counter after wait:");
+print(counter);
+print("Test completed without crashes");

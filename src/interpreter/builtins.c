@@ -569,6 +569,11 @@ static void* task_thread_wrapper(void* arg) {
     // Release function environment (reference counted)
     env_release(func_env);
 
+    // Clean up detached tasks (they're never joined, so free here)
+    if (task->detached) {
+        task_free(task);
+    }
+
     return NULL;
 }
 
@@ -695,8 +700,7 @@ static Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         // Note: We don't free the task here - it will clean itself up
-        // when the thread completes. In a production system, we'd have
-        // a cleanup mechanism.
+        // when the thread completes (see task_thread_wrapper cleanup).
     }
 
     return val_null();
