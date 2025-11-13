@@ -704,6 +704,10 @@ static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
 
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
+    // Release the task (decrement ref count, will free if reaches 0)
+    // After join(), the task is consumed and should be cleaned up
+    task_release(task);
+
     return result;
 }
 
