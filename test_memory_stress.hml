@@ -1,0 +1,50 @@
+// Stress test for reference counting - create many closures
+
+fn makeClosureChain(depth, value) {
+    if (depth <= 0) {
+        return fn() {
+            return value;
+        };
+    }
+
+    let inner = makeClosureChain(depth - 1, value);
+    return fn() {
+        return inner() + 1;
+    };
+}
+
+// Create and call many closures
+let c = null;
+let r = null;
+for (let i = 0; i < 100; i = i + 1) {
+    c = makeClosureChain(10, i);
+    r = c();
+}
+
+print("Stress test completed - created 100 nested closure chains");
+
+// Test async tasks with closures
+async fn asyncTest(x) {
+    let innerClosure = fn() {
+        return x * 2;
+    };
+    return innerClosure();
+}
+
+// Spawn multiple async tasks
+let tasks = [];
+let task = null;
+for (let j = 0; j < 10; j = j + 1) {
+    task = spawn(asyncTest, j);
+    tasks.push(task);
+}
+
+// Join all tasks
+let result = null;
+for (let k = 0; k < 10; k = k + 1) {
+    result = join(tasks[k]);
+}
+
+print("Async stress test completed - spawned and joined 10 tasks");
+
+print("All memory stress tests passed!");

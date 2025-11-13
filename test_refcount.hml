@@ -1,0 +1,76 @@
+// Test reference counting with closures
+
+// Test 1: Simple closure
+fn makeAdder(x) {
+    return fn(y) {
+        return x + y;
+    };
+}
+
+let add5 = makeAdder(5);
+let result1 = add5(3);
+print("Test 1 - Simple closure: " + typeof(result1));
+
+// Test 2: Multiple closures sharing environment
+fn makeCounter() {
+    let count = 0;
+
+    let increment = fn() {
+        count = count + 1;
+        return count;
+    };
+
+    let get = fn() {
+        return count;
+    };
+
+    return [increment, get];
+}
+
+let counter = makeCounter();
+let inc = counter[0];
+let get = counter[1];
+
+inc();
+inc();
+inc();
+let result2 = get();
+print("Test 2 - Shared environment: " + typeof(result2));
+
+// Test 3: Nested closures
+fn outer(x) {
+    return fn(y) {
+        return fn(z) {
+            return x + y + z;
+        };
+    };
+}
+
+let f = outer(1)(2)(3);
+print("Test 3 - Nested closures: " + typeof(f));
+
+// Test 4: Recursive function
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+let result4 = factorial(5);
+print("Test 4 - Recursion: " + typeof(result4));
+
+// Test 5: Closure returned from function
+fn makeClosure(val) {
+    return fn() {
+        return val;
+    };
+}
+
+let f1 = makeClosure(10);
+let f2 = makeClosure(20);
+let f3 = makeClosure(30);
+
+print("Test 5 - Multiple closures: " + typeof(f1()) + ", " + typeof(f2()) + ", " + typeof(f3()));
+
+print("All reference counting tests passed!");
