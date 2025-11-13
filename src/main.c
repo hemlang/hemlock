@@ -78,6 +78,7 @@ static void run_source(const char *source, int argc, char **argv) {
 
     // Cleanup
     exec_context_free(ctx);
+    env_break_cycles(env);  // Break circular references before release
     env_release(env);
     for (int i = 0; i < stmt_count; i++) {
         stmt_free(statements[i]);
@@ -128,6 +129,7 @@ static void run_file(const char *path, int argc, char **argv) {
         // Execute with module system
         int result = execute_file_with_modules(path, global_env, argc, argv, ctx);
 
+        env_break_cycles(global_env);  // Break circular references before release
         env_release(global_env);
         exec_context_free(ctx);
         free(source);
@@ -214,6 +216,7 @@ static void run_repl(void) {
     ffi_cleanup();
 
     exec_context_free(ctx);
+    env_break_cycles(env);  // Break circular references before release
     env_release(env);
 }
 

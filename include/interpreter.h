@@ -183,6 +183,7 @@ Environment* env_new(Environment *parent);
 void env_free(Environment *env);
 void env_retain(Environment *env);
 void env_release(Environment *env);
+void env_break_cycles(Environment *env);  // Break circular references before final release
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);

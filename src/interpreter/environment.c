@@ -43,6 +43,21 @@ Environment* env_new(Environment *parent) {
     return env;
 }
 
+// Break circular references by releasing closure environments from functions
+// This should be called on global/top-level environments before final env_release
+void env_break_cycles(Environment *env) {
+    for (int i = 0; i < env->count; i++) {
+        Value val = env->values[i];
+        if (val.type == VAL_FUNCTION && val.as.as_function) {
+            Function *fn = val.as.as_function;
+            if (fn->closure_env) {
+                env_release(fn->closure_env);
+                fn->closure_env = NULL;  // Prevent double-release in value_free
+            }
+        }
+    }
+}
+
 void env_free(Environment *env) {
     // Free all variable names and release values
     for (int i = 0; i < env->count; i++) {
