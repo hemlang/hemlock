@@ -249,7 +249,7 @@ not_fn_expr:
     if (match(p, TOK_TYPE_U16)) return expr_ident("u16");
     if (match(p, TOK_TYPE_U32)) return expr_ident("u32");
     if (match(p, TOK_TYPE_U64)) return expr_ident("u64");
-    if (match(p, TOK_TYPE_CHAR)) return expr_ident("char");
+    if (match(p, TOK_TYPE_BYTE)) return expr_ident("byte");
     if (match(p, TOK_TYPE_F32)) return expr_ident("f32");
     if (match(p, TOK_TYPE_F64)) return expr_ident("f64");
     if (match(p, TOK_TYPE_NUMBER)) return expr_ident("number");
@@ -591,7 +591,7 @@ static Type* parse_type(Parser *p) {
         case TOK_TYPE_I64: kind = TYPE_I64; break;
         case TOK_TYPE_INTEGER: kind = TYPE_I32; break;  // alias
         case TOK_TYPE_U8: kind = TYPE_U8; break;
-        case TOK_TYPE_CHAR: kind = TYPE_U8; break;  // alias
+        case TOK_TYPE_BYTE: kind = TYPE_U8; break;  // alias
         case TOK_TYPE_U16: kind = TYPE_U16; break;
         case TOK_TYPE_U32: kind = TYPE_U32; break;
         case TOK_TYPE_U64: kind = TYPE_U64; break;
@@ -1132,7 +1132,7 @@ static Stmt* statement(Parser *p) {
                     if (check(p, TOK_TYPE_I8) || check(p, TOK_TYPE_I16) || check(p, TOK_TYPE_I32) ||
                         check(p, TOK_TYPE_U8) || check(p, TOK_TYPE_U16) || check(p, TOK_TYPE_U32) ||
                         check(p, TOK_TYPE_F32) || check(p, TOK_TYPE_F64) ||
-                        check(p, TOK_TYPE_INTEGER) || check(p, TOK_TYPE_NUMBER) || check(p, TOK_TYPE_CHAR) ||
+                        check(p, TOK_TYPE_INTEGER) || check(p, TOK_TYPE_NUMBER) || check(p, TOK_TYPE_BYTE) ||
                         check(p, TOK_TYPE_BOOL) || check(p, TOK_TYPE_STRING) || check(p, TOK_TYPE_RUNE) ||
                         check(p, TOK_TYPE_PTR) || check(p, TOK_TYPE_BUFFER) ||
                         check(p, TOK_OBJECT) || check(p, TOK_IDENT)) {

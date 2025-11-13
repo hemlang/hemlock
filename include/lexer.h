@@ -59,7 +59,7 @@ typedef enum {
     TOK_TYPE_F64,
     TOK_TYPE_INTEGER,  // alias for i32
     TOK_TYPE_NUMBER,   // alias for f64
-    TOK_TYPE_CHAR,     // alias for u8
+    TOK_TYPE_BYTE,     // alias for u8
     TOK_TYPE_BOOL,
     TOK_TYPE_STRING,
     TOK_TYPE_RUNE,     // Unicode codepoint type

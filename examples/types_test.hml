@@ -1,6 +1,6 @@
 let a: i32 = 42;
 let b: u8 = 255;
-let c: char = 65;
+let c: byte = 65;
 let d: f64 = 3.14159;
 let e: number = 2.71828;
 let f: integer = 100;

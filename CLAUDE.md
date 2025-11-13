@@ -94,7 +94,7 @@ let q = p + 100;  // Way past allocation - allowed but dangerous
 - **Signed integers:** `i8`, `i16`, `i32`, `i64`
 - **Unsigned integers:** `u8`, `u16`, `u32`, `u64`
 - **Floats:** `f32`, `f64`
-- **Aliases:** `integer` (i32), `number` (f64), `char` (u8)
+- **Aliases:** `integer` (i32), `number` (f64), `byte` (u8)
 
 ### Other Primitives
 - **bool:** `true`, `false`

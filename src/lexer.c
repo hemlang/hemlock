@@ -273,12 +273,14 @@ static TokenType identifier_type(Lexer *lex) {
             }
             break;
         case 'b':
-            if (len == 4) return check_keyword(lex->start, 4, "bool", TOK_TYPE_BOOL);
+            if (len == 4) {
+                if (strncmp(lex->start, "byte", 4) == 0) return TOK_TYPE_BYTE;
+                if (strncmp(lex->start, "bool", 4) == 0) return TOK_TYPE_BOOL;
+            }
             if (len == 5) return check_keyword(lex->start, 5, "break", TOK_BREAK);
             break;
         case 'c':
             if (len == 4) {
-                if (strncmp(lex->start, "char", 4) == 0) return TOK_TYPE_CHAR;
                 if (strncmp(lex->start, "case", 4) == 0) return TOK_CASE;
             }
             if (len == 5) {
