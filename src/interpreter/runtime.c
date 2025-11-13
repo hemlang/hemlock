@@ -1298,6 +1298,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Execute initializer
             if (stmt->as.for_loop.initializer) {
                 eval_stmt(stmt->as.for_loop.initializer, loop_env, ctx);
+                // Check for exception/return after initializer
+                if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
+                    env_release(loop_env);
+                    break;
+                }
             }
 
             // Loop
@@ -1305,6 +1310,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 // Check condition
                 if (stmt->as.for_loop.condition) {
                     Value cond = eval_expr(stmt->as.for_loop.condition, loop_env, ctx);
+                    // Check for exception after condition evaluation
+                    if (ctx->exception_state.is_throwing) {
+                        break;
+                    }
                     if (!value_is_truthy(cond)) {
                         break;
                     }
@@ -1329,6 +1338,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 // Execute increment
                 if (stmt->as.for_loop.increment) {
                     eval_expr(stmt->as.for_loop.increment, loop_env, ctx);
+                    // Check for exception after increment
+                    if (ctx->exception_state.is_throwing) {
+                        break;
+                    }
                 }
             }
 
@@ -1339,6 +1352,18 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         case STMT_FOR_IN: {
             Value iterable = eval_expr(stmt->as.for_in.iterable, env, ctx);
 
+            // Check for exception after evaluating iterable
+            if (ctx->exception_state.is_throwing) {
+                break;
+            }
+
+            // Validate iterable type before creating loop environment
+            if (iterable.type != VAL_ARRAY && iterable.type != VAL_OBJECT) {
+                ctx->exception_state.exception_value = val_string("for-in requires array or object");
+                ctx->exception_state.is_throwing = 1;
+                break;
+            }
+
             Environment *loop_env = env_new(env);
 
             if (iterable.type == VAL_ARRAY) {
@@ -1348,8 +1373,16 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     // Bind variables
                     if (stmt->as.for_in.key_var) {
                         env_set(loop_env, stmt->as.for_in.key_var, val_i32(i), ctx);
+                        // Check for exception from env_set
+                        if (ctx->exception_state.is_throwing) {
+                            break;
+                        }
                     }
                     env_set(loop_env, stmt->as.for_in.value_var, arr->elements[i], ctx);
+                    // Check for exception from env_set
+                    if (ctx->exception_state.is_throwing) {
+                        break;
+                    }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, loop_env, ctx);
@@ -1374,8 +1407,16 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     // Bind variables
                     if (stmt->as.for_in.key_var) {
                         env_set(loop_env, stmt->as.for_in.key_var, val_string(obj->field_names[i]), ctx);
+                        // Check for exception from env_set
+                        if (ctx->exception_state.is_throwing) {
+                            break;
+                        }
                     }
                     env_set(loop_env, stmt->as.for_in.value_var, obj->field_values[i], ctx);
+                    // Check for exception from env_set
+                    if (ctx->exception_state.is_throwing) {
+                        break;
+                    }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, loop_env, ctx);
@@ -1393,9 +1434,6 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         break;
                     }
                 }
-            } else {
-                fprintf(stderr, "Runtime error: for-in requires array or object\n");
-                exit(1);
             }
 
             env_release(loop_env);

@@ -1,0 +1,83 @@
+// Test: Exception in for loop initializer should be caught
+print("Test 1: Exception in for initializer");
+try {
+    fn bad_init() {
+        throw "error in init";
+    }
+    for (let i = bad_init(); i < 10; i = i + 1) {
+        print("Should not reach here");
+    }
+} catch (e) {
+    print("Caught: " + e);
+}
+
+// Test: Exception in for loop condition should be caught
+print("\nTest 2: Exception in for condition");
+try {
+    fn bad_condition() {
+        throw "error in condition";
+    }
+    for (let i = 0; bad_condition(); i = i + 1) {
+        print("Should not reach here");
+    }
+} catch (e) {
+    print("Caught: " + e);
+}
+
+// Test: Exception in for loop body should be caught
+print("\nTest 3: Exception in for body");
+try {
+    for (let i = 0; i < 5; i = i + 1) {
+        if (i == 2) {
+            throw "error at i=2";
+        }
+        print("i = " + typeof(i));
+    }
+} catch (e) {
+    print("Caught: " + e);
+}
+
+// Test: Exception in for loop increment should be caught
+print("\nTest 4: Exception in for increment");
+try {
+    fn bad_increment(x) {
+        if (x == 2) {
+            throw "error in increment at i=2";
+        }
+        return x + 1;
+    }
+    for (let i = 0; i < 5; i = bad_increment(i)) {
+        print("i = " + typeof(i));
+    }
+} catch (e) {
+    print("Caught: " + e);
+}
+
+// Test: Exception in for-in iterable evaluation
+print("\nTest 5: Exception in for-in iterable");
+try {
+    fn bad_iterable() {
+        throw "error evaluating iterable";
+    }
+    for (let val in bad_iterable()) {
+        print("Should not reach here");
+    }
+} catch (e) {
+    print("Caught: " + e);
+}
+
+// Test: Exception in for-in body
+print("\nTest 6: Exception in for-in body");
+try {
+    let arr = [1, 2, 3, 4, 5];
+    for (let val in arr) {
+        if (val == 3) {
+            throw "error at val=3";
+        }
+        print("val = " + typeof(val));
+    }
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("\nAll tests completed");

@@ -1,0 +1,20 @@
+Test 1: Exception in for initializer
+Caught: error in init
+\nTest 2: Exception in for condition
+Caught: error in condition
+\nTest 3: Exception in for body
+i = i32
+i = i32
+Caught: error at i=2
+\nTest 4: Exception in for increment
+i = i32
+i = i32
+i = i32
+Caught: error in increment at i=2
+\nTest 5: Exception in for-in iterable
+Caught: error evaluating iterable
+\nTest 6: Exception in for-in body
+val = i32
+val = i32
+Caught: error at val=3
+\nAll tests completed
