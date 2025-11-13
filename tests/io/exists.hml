@@ -1,5 +1,5 @@
 // Test exists() function
-import { exists, write_file, remove_file } from "../../stdlib/fs";
+import { exists, write_file, remove_file } from "@stdlib/fs";
 
 let test_file = "/tmp/test_exists.txt";
 

@@ -474,28 +474,42 @@ Token lexer_next(Lexer *lex) {
                 advance(lex);
                 return make_token(lex, TOK_LESS_EQUAL);
             }
+            if (peek(lex) == '<') {
+                advance(lex);
+                return make_token(lex, TOK_LESS_LESS);
+            }
             return make_token(lex, TOK_LESS);
-            
+
         case '>':
             if (peek(lex) == '=') {
                 advance(lex);
                 return make_token(lex, TOK_GREATER_EQUAL);
             }
+            if (peek(lex) == '>') {
+                advance(lex);
+                return make_token(lex, TOK_GREATER_GREATER);
+            }
             return make_token(lex, TOK_GREATER);
-            
+
         case '&':
             if (peek(lex) == '&') {
                 advance(lex);
                 return make_token(lex, TOK_AMP_AMP);
             }
-            return error_token(lex, "Unexpected character '&'");
-            
+            return make_token(lex, TOK_AMP);
+
         case '|':
             if (peek(lex) == '|') {
                 advance(lex);
                 return make_token(lex, TOK_PIPE_PIPE);
             }
-            return error_token(lex, "Unexpected character '|'");
+            return make_token(lex, TOK_PIPE);
+
+        case '^':
+            return make_token(lex, TOK_CARET);
+
+        case '~':
+            return make_token(lex, TOK_TILDE);
     }
     
     return error_token(lex, "Unexpected character");

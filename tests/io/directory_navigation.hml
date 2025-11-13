@@ -1,5 +1,5 @@
 // Test directory navigation: cwd(), chdir(), absolute_path()
-import { cwd, make_dir, chdir, absolute_path, remove_dir } from "../../stdlib/fs";
+import { cwd, make_dir, chdir, absolute_path, remove_dir } from "@stdlib/fs";
 
 let original_dir = cwd();
 assert(typeof(original_dir) == "string", "cwd() should return a string");

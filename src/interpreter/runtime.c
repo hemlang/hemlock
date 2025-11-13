@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdarg.h>
 
 // ========== EXECUTION CONTEXT IMPLEMENTATION ==========
 
@@ -89,10 +90,29 @@ void call_stack_free(CallStack *stack) {
     stack->capacity = 0;
 }
 
+// Runtime error with stack trace
+void runtime_error(ExecutionContext *ctx, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    fprintf(stderr, "Runtime error: ");
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+
+    va_end(args);
+
+    // Print stack trace if available
+    if (ctx && ctx->call_stack.count > 0) {
+        call_stack_print(&ctx->call_stack);
+    }
+
+    exit(1);
+}
+
 // ========== HELPER FUNCTIONS ==========
 
 // Helper to add two values (for increment operations)
-static Value value_add_one(Value val) {
+static Value value_add_one(Value val, ExecutionContext *ctx) {
     if (is_float(val)) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v + 1.0)) : val_f64(v + 1.0);
@@ -101,13 +121,13 @@ static Value value_add_one(Value val) {
         ValueType result_type = val.type;
         return promote_value(val_i32((int32_t)(v + 1)), result_type);
     } else {
-        fprintf(stderr, "Runtime error: Can only increment numeric values\n");
-        exit(1);
+        runtime_error(ctx, "Can only increment numeric values");
+        return val_null();  // Unreachable
     }
 }
 
 // Helper to subtract one from a value (for decrement operations)
-static Value value_sub_one(Value val) {
+static Value value_sub_one(Value val, ExecutionContext *ctx) {
     if (is_float(val)) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v - 1.0)) : val_f64(v - 1.0);
@@ -116,8 +136,8 @@ static Value value_sub_one(Value val) {
         ValueType result_type = val.type;
         return promote_value(val_i32((int32_t)(v - 1)), result_type);
     } else {
-        fprintf(stderr, "Runtime error: Can only decrement numeric values\n");
-        exit(1);
+        runtime_error(ctx, "Can only decrement numeric values");
+        return val_null();  // Unreachable
     }
 }
 
@@ -186,6 +206,26 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
                     fprintf(stderr, "Runtime error: Cannot negate non-numeric value\n");
+                    exit(1);
+
+                case UNARY_BIT_NOT:
+                    if (is_integer(operand)) {
+                        // Bitwise NOT - preserve the original type
+                        switch (operand.type) {
+                            case VAL_I8: return val_i8(~operand.as.as_i8);
+                            case VAL_I16: return val_i16(~operand.as.as_i16);
+                            case VAL_I32: return val_i32(~operand.as.as_i32);
+                            case VAL_I64: return val_i64(~operand.as.as_i64);
+                            case VAL_U8: return val_u8(~operand.as.as_u8);
+                            case VAL_U16: return val_u16(~operand.as.as_u16);
+                            case VAL_U32: return val_u32(~operand.as.as_u32);
+                            case VAL_U64: return val_u64(~operand.as.as_u64);
+                            default:
+                                fprintf(stderr, "Runtime error: Cannot apply bitwise NOT to non-integer value\n");
+                                exit(1);
+                        }
+                    }
+                    fprintf(stderr, "Runtime error: Cannot apply bitwise NOT to non-integer value\n");
                     exit(1);
             }
             break;
@@ -515,6 +555,78 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                         break;
                     }
+
+                    // Bitwise operations - only for integers
+                    case OP_BIT_AND:
+                    case OP_BIT_OR:
+                    case OP_BIT_XOR:
+                    case OP_BIT_LSHIFT:
+                    case OP_BIT_RSHIFT: {
+                        // Bitwise operations require both operands to be integers
+                        int is_signed = (result_type == VAL_I8 || result_type == VAL_I16 ||
+                                        result_type == VAL_I32 || result_type == VAL_I64);
+
+                        if (is_signed) {
+                            // Signed integer bitwise operations
+                            int64_t l, r;
+                            switch (result_type) {
+                                case VAL_I8: l = left.as.as_i8; r = right.as.as_i8; break;
+                                case VAL_I16: l = left.as.as_i16; r = right.as.as_i16; break;
+                                case VAL_I32: l = left.as.as_i32; r = right.as.as_i32; break;
+                                case VAL_I64: l = left.as.as_i64; r = right.as.as_i64; break;
+                                default: l = r = 0; break;
+                            }
+
+                            int64_t result;
+                            switch (expr->as.binary.op) {
+                                case OP_BIT_AND: result = l & r; break;
+                                case OP_BIT_OR: result = l | r; break;
+                                case OP_BIT_XOR: result = l ^ r; break;
+                                case OP_BIT_LSHIFT: result = l << r; break;
+                                case OP_BIT_RSHIFT: result = l >> r; break;
+                                default: result = 0; break;
+                            }
+
+                            // Return with the original type
+                            switch (result_type) {
+                                case VAL_I8: return val_i8((int8_t)result);
+                                case VAL_I16: return val_i16((int16_t)result);
+                                case VAL_I32: return val_i32((int32_t)result);
+                                case VAL_I64: return val_i64(result);
+                                default: break;
+                            }
+                        } else {
+                            // Unsigned integer bitwise operations
+                            uint64_t l, r;
+                            switch (result_type) {
+                                case VAL_U8: l = left.as.as_u8; r = right.as.as_u8; break;
+                                case VAL_U16: l = left.as.as_u16; r = right.as.as_u16; break;
+                                case VAL_U32: l = left.as.as_u32; r = right.as.as_u32; break;
+                                case VAL_U64: l = left.as.as_u64; r = right.as.as_u64; break;
+                                default: l = r = 0; break;
+                            }
+
+                            uint64_t result;
+                            switch (expr->as.binary.op) {
+                                case OP_BIT_AND: result = l & r; break;
+                                case OP_BIT_OR: result = l | r; break;
+                                case OP_BIT_XOR: result = l ^ r; break;
+                                case OP_BIT_LSHIFT: result = l << r; break;
+                                case OP_BIT_RSHIFT: result = l >> r; break;
+                                default: result = 0; break;
+                            }
+
+                            // Return with the original type
+                            switch (result_type) {
+                                case VAL_U8: return val_u8((uint8_t)result);
+                                case VAL_U16: return val_u16((uint16_t)result);
+                                case VAL_U32: return val_u32((uint32_t)result);
+                                case VAL_U64: return val_u64(result);
+                                default: break;
+                            }
+                        }
+                        break;
+                    }
                     default: break;
                 }
             }
@@ -651,9 +763,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Check argument count
                 if (expr->as.call.num_args != fn->num_params) {
-                    fprintf(stderr, "Runtime error: Function expects %d arguments, got %d\n",
+                    runtime_error(ctx, "Function expects %d arguments, got %d",
                             fn->num_params, expr->as.call.num_args);
-                    exit(1);
                 }
 
                 // Determine function name for stack trace
@@ -697,8 +808,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Check return type if specified
                 if (fn->return_type) {
                     if (!ctx->return_state.is_returning) {
-                        fprintf(stderr, "Runtime error: Function with return type must return a value\n");
-                        exit(1);
+                        runtime_error(ctx, "Function with return type must return a value");
                     }
                     result = convert_to_type(result, fn->return_type, call_env, ctx);
                 }
@@ -718,8 +828,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 FFIFunction *ffi_func = (FFIFunction*)func.as.as_ffi_function;
                 result = ffi_call_function(ffi_func, args, expr->as.call.num_args, ctx);
             } else {
-                fprintf(stderr, "Runtime error: Value is not a function\n");
-                exit(1);
+                runtime_error(ctx, "Value is not a function");
             }
 
             if (args) free(args);
@@ -1014,7 +1123,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (operand->type == EXPR_IDENT) {
                 // Simple variable: ++x
                 Value old_val = env_get(env, operand->as.ident, ctx);
-                Value new_val = value_add_one(old_val);
+                Value new_val = value_add_one(old_val, ctx);
                 env_set(env, operand->as.ident, new_val, ctx);
                 return new_val;
             } else if (operand->type == EXPR_INDEX) {
@@ -1023,42 +1132,37 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Value index_val = eval_expr(operand->as.index.index, env, ctx);
 
                 if (!is_integer(index_val)) {
-                    fprintf(stderr, "Runtime error: Index must be an integer\n");
-                    exit(1);
+                    runtime_error(ctx, "Index must be an integer");
                 }
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
                     Value old_val = array_get(object.as.as_array, index);
-                    Value new_val = value_add_one(old_val);
+                    Value new_val = value_add_one(old_val, ctx);
                     array_set(object.as.as_array, index, new_val);
                     return new_val;
                 } else {
-                    fprintf(stderr, "Runtime error: Can only use ++ on array elements\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only use ++ on array elements");
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 // Object property: ++obj.field
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
-                    fprintf(stderr, "Runtime error: Can only increment object properties\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only increment object properties");
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
                     if (strcmp(obj->field_names[i], property) == 0) {
                         Value old_val = obj->field_values[i];
-                        Value new_val = value_add_one(old_val);
+                        Value new_val = value_add_one(old_val, ctx);
                         obj->field_values[i] = new_val;
                         return new_val;
                     }
                 }
-                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
-                exit(1);
+                runtime_error(ctx, "Property '%s' not found", property);
             } else {
-                fprintf(stderr, "Runtime error: Invalid operand for ++\n");
-                exit(1);
+                runtime_error(ctx, "Invalid operand for ++");
             }
         }
 
@@ -1068,7 +1172,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             if (operand->type == EXPR_IDENT) {
                 Value old_val = env_get(env, operand->as.ident, ctx);
-                Value new_val = value_sub_one(old_val);
+                Value new_val = value_sub_one(old_val, ctx);
                 env_set(env, operand->as.ident, new_val, ctx);
                 return new_val;
             } else if (operand->type == EXPR_INDEX) {
@@ -1076,41 +1180,36 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Value index_val = eval_expr(operand->as.index.index, env, ctx);
 
                 if (!is_integer(index_val)) {
-                    fprintf(stderr, "Runtime error: Index must be an integer\n");
-                    exit(1);
+                    runtime_error(ctx, "Index must be an integer");
                 }
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
                     Value old_val = array_get(object.as.as_array, index);
-                    Value new_val = value_sub_one(old_val);
+                    Value new_val = value_sub_one(old_val, ctx);
                     array_set(object.as.as_array, index, new_val);
                     return new_val;
                 } else {
-                    fprintf(stderr, "Runtime error: Can only use -- on array elements\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only use -- on array elements");
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
-                    fprintf(stderr, "Runtime error: Can only decrement object properties\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only decrement object properties");
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
                     if (strcmp(obj->field_names[i], property) == 0) {
                         Value old_val = obj->field_values[i];
-                        Value new_val = value_sub_one(old_val);
+                        Value new_val = value_sub_one(old_val, ctx);
                         obj->field_values[i] = new_val;
                         return new_val;
                     }
                 }
-                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
-                exit(1);
+                runtime_error(ctx, "Property '%s' not found", property);
             } else {
-                fprintf(stderr, "Runtime error: Invalid operand for --\n");
-                exit(1);
+                runtime_error(ctx, "Invalid operand for --");
             }
         }
 
@@ -1120,7 +1219,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             if (operand->type == EXPR_IDENT) {
                 Value old_val = env_get(env, operand->as.ident, ctx);
-                Value new_val = value_add_one(old_val);
+                Value new_val = value_add_one(old_val, ctx);
                 env_set(env, operand->as.ident, new_val, ctx);
                 return old_val;  // Return old value!
             } else if (operand->type == EXPR_INDEX) {
@@ -1128,41 +1227,36 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Value index_val = eval_expr(operand->as.index.index, env, ctx);
 
                 if (!is_integer(index_val)) {
-                    fprintf(stderr, "Runtime error: Index must be an integer\n");
-                    exit(1);
+                    runtime_error(ctx, "Index must be an integer");
                 }
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
                     Value old_val = array_get(object.as.as_array, index);
-                    Value new_val = value_add_one(old_val);
+                    Value new_val = value_add_one(old_val, ctx);
                     array_set(object.as.as_array, index, new_val);
                     return old_val;
                 } else {
-                    fprintf(stderr, "Runtime error: Can only use ++ on array elements\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only use ++ on array elements");
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
-                    fprintf(stderr, "Runtime error: Can only increment object properties\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only increment object properties");
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
                     if (strcmp(obj->field_names[i], property) == 0) {
                         Value old_val = obj->field_values[i];
-                        Value new_val = value_add_one(old_val);
+                        Value new_val = value_add_one(old_val, ctx);
                         obj->field_values[i] = new_val;
                         return old_val;
                     }
                 }
-                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
-                exit(1);
+                runtime_error(ctx, "Property '%s' not found", property);
             } else {
-                fprintf(stderr, "Runtime error: Invalid operand for ++\n");
-                exit(1);
+                runtime_error(ctx, "Invalid operand for ++");
             }
         }
 
@@ -1172,7 +1266,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             if (operand->type == EXPR_IDENT) {
                 Value old_val = env_get(env, operand->as.ident, ctx);
-                Value new_val = value_sub_one(old_val);
+                Value new_val = value_sub_one(old_val, ctx);
                 env_set(env, operand->as.ident, new_val, ctx);
                 return old_val;
             } else if (operand->type == EXPR_INDEX) {
@@ -1180,41 +1274,36 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Value index_val = eval_expr(operand->as.index.index, env, ctx);
 
                 if (!is_integer(index_val)) {
-                    fprintf(stderr, "Runtime error: Index must be an integer\n");
-                    exit(1);
+                    runtime_error(ctx, "Index must be an integer");
                 }
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
                     Value old_val = array_get(object.as.as_array, index);
-                    Value new_val = value_sub_one(old_val);
+                    Value new_val = value_sub_one(old_val, ctx);
                     array_set(object.as.as_array, index, new_val);
                     return old_val;
                 } else {
-                    fprintf(stderr, "Runtime error: Can only use -- on array elements\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only use -- on array elements");
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
-                    fprintf(stderr, "Runtime error: Can only decrement object properties\n");
-                    exit(1);
+                    runtime_error(ctx, "Can only decrement object properties");
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
                     if (strcmp(obj->field_names[i], property) == 0) {
                         Value old_val = obj->field_values[i];
-                        Value new_val = value_sub_one(old_val);
+                        Value new_val = value_sub_one(old_val, ctx);
                         obj->field_values[i] = new_val;
                         return old_val;
                     }
                 }
-                fprintf(stderr, "Runtime error: Property '%s' not found\n", property);
-                exit(1);
+                runtime_error(ctx, "Property '%s' not found", property);
             } else {
-                fprintf(stderr, "Runtime error: Invalid operand for --\n");
-                exit(1);
+                runtime_error(ctx, "Invalid operand for --");
             }
         }
 

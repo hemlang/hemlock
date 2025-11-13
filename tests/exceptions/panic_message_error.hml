@@ -1,0 +1,4 @@
+// Test: panic() with custom message
+print("before panic");
+panic("something went wrong");
+print("after panic");  // Should never execute

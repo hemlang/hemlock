@@ -6,12 +6,14 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <limits.h>
 #include <math.h>
 #include <time.h>
 #include <sys/time.h>
+#include <signal.h>
 
 // Define math constants if not available
 #ifndef M_PI
@@ -20,6 +22,45 @@
 #ifndef M_E
 #define M_E 2.71828182845904523536
 #endif
+
+// ========== SIGNAL HANDLING ==========
+
+// Maximum signal number we'll support (NSIG is typically 32 or 64)
+#define MAX_SIGNAL 64
+
+// Global signal handler table (signal number -> Hemlock function)
+static Function *signal_handlers[MAX_SIGNAL] = {NULL};
+
+// C signal handler that invokes Hemlock functions
+static void hemlock_signal_handler(int signum) {
+    if (signum < 0 || signum >= MAX_SIGNAL) {
+        return;
+    }
+
+    Function *handler = signal_handlers[signum];
+    if (handler == NULL) {
+        return;
+    }
+
+    // Create execution context for signal handler
+    ExecutionContext *ctx = exec_context_new();
+
+    // Create environment for handler (use handler's closure environment as parent)
+    Environment *func_env = env_new(handler->closure_env);
+
+    // Signal handlers take one argument: the signal number
+    Value sig_val = val_i32(signum);
+    if (handler->num_params > 0) {
+        env_define(func_env, handler->param_names[0], sig_val, 0, ctx);
+    }
+
+    // Execute handler body
+    eval_stmt(handler->body, func_env, ctx);
+
+    // Cleanup
+    env_release(func_env);
+    exec_context_free(ctx);
+}
 
 // ========== BUILTIN FUNCTIONS ==========
 
@@ -435,6 +476,34 @@ static Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_null();
+}
+
+static Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args > 1) {
+        fprintf(stderr, "Runtime error: panic() expects 0 or 1 argument (message)\n");
+        call_stack_print(&ctx->call_stack);
+        exit(1);
+    }
+
+    // Get panic message
+    const char *message = "panic!";
+    if (num_args == 1) {
+        if (args[0].type == VAL_STRING) {
+            message = args[0].as.as_string->data;
+        } else {
+            // Convert non-string to string representation
+            fprintf(stderr, "panic: ");
+            print_value(args[0]);
+            fprintf(stderr, "\n");
+            call_stack_print(&ctx->call_stack);
+            exit(1);
+        }
+    }
+
+    // Print panic message, stack trace, and exit
+    fprintf(stderr, "panic: %s\n", message);
+    call_stack_print(&ctx->call_stack);
+    exit(1);
 }
 
 // ========== ASYNC/CONCURRENCY BUILTINS ==========
@@ -1879,6 +1948,190 @@ static Value builtin_get_pid(Value *args, int num_args, ExecutionContext *ctx) {
     return val_i32((int32_t)getpid());
 }
 
+static Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: exec() expects 1 argument (command string)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_STRING) {
+        fprintf(stderr, "Runtime error: exec() argument must be a string\n");
+        exit(1);
+    }
+
+    String *command = args[0].as.as_string;
+    char *ccmd = malloc(command->length + 1);
+    if (!ccmd) {
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        exit(1);
+    }
+    memcpy(ccmd, command->data, command->length);
+    ccmd[command->length] = '\0';
+
+    // Open pipe to read command output
+    FILE *pipe = popen(ccmd, "r");
+    if (!pipe) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to execute command '%s': %s", ccmd, strerror(errno));
+        free(ccmd);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    // Read output into buffer
+    char *output_buffer = NULL;
+    size_t output_size = 0;
+    size_t output_capacity = 4096;
+    output_buffer = malloc(output_capacity);
+    if (!output_buffer) {
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        pclose(pipe);
+        free(ccmd);
+        exit(1);
+    }
+
+    char chunk[4096];
+    size_t bytes_read;
+    while ((bytes_read = fread(chunk, 1, sizeof(chunk), pipe)) > 0) {
+        // Grow buffer if needed
+        while (output_size + bytes_read > output_capacity) {
+            output_capacity *= 2;
+            char *new_buffer = realloc(output_buffer, output_capacity);
+            if (!new_buffer) {
+                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                free(output_buffer);
+                pclose(pipe);
+                free(ccmd);
+                exit(1);
+            }
+            output_buffer = new_buffer;
+        }
+        memcpy(output_buffer + output_size, chunk, bytes_read);
+        output_size += bytes_read;
+    }
+
+    // Get exit code
+    int status = pclose(pipe);
+    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    free(ccmd);
+
+    // Ensure string is null-terminated
+    if (output_size >= output_capacity) {
+        output_capacity = output_size + 1;
+        char *new_buffer = realloc(output_buffer, output_capacity);
+        if (!new_buffer) {
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            free(output_buffer);
+            exit(1);
+        }
+        output_buffer = new_buffer;
+    }
+    output_buffer[output_size] = '\0';
+
+    // Create result object with output and exit_code
+    Object *result = object_new(NULL, 2);
+    result->field_names[0] = strdup("output");
+    result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
+    result->num_fields++;
+
+    result->field_names[1] = strdup("exit_code");
+    result->field_values[1] = val_i32(exit_code);
+    result->num_fields++;
+
+    return val_object(result);
+}
+
+// ========== SIGNAL HANDLING BUILTINS ==========
+
+static Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 2) {
+        fprintf(stderr, "Runtime error: signal() expects 2 arguments (signum, handler)\n");
+        exit(1);
+    }
+
+    if (!is_integer(args[0])) {
+        fprintf(stderr, "Runtime error: signal() signum must be an integer\n");
+        exit(1);
+    }
+
+    int32_t signum = value_to_int(args[0]);
+
+    if (signum < 0 || signum >= MAX_SIGNAL) {
+        fprintf(stderr, "Runtime error: signal() signum %d out of range [0, %d)\n", signum, MAX_SIGNAL);
+        exit(1);
+    }
+
+    // Check if handler is null (reset to default) or a function
+    Function *new_handler = NULL;
+    if (args[1].type != VAL_NULL) {
+        if (args[1].type != VAL_FUNCTION) {
+            fprintf(stderr, "Runtime error: signal() handler must be a function or null\n");
+            exit(1);
+        }
+        new_handler = args[1].as.as_function;
+    }
+
+    // Get previous handler (for return value)
+    Function *prev_handler = signal_handlers[signum];
+    Value prev_val = prev_handler ? val_function(prev_handler) : val_null();
+
+    // Update handler table
+    signal_handlers[signum] = new_handler;
+
+    // Install C signal handler or reset to default
+    if (new_handler != NULL) {
+        struct sigaction sa;
+        sa.sa_handler = hemlock_signal_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;  // Restart syscalls if possible
+        if (sigaction(signum, &sa, NULL) != 0) {
+            fprintf(stderr, "Runtime error: signal() failed to install handler for signal %d: %s\n", signum, strerror(errno));
+            exit(1);
+        }
+    } else {
+        // Reset to default handler
+        struct sigaction sa;
+        sa.sa_handler = SIG_DFL;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        if (sigaction(signum, &sa, NULL) != 0) {
+            fprintf(stderr, "Runtime error: signal() failed to reset handler for signal %d: %s\n", signum, strerror(errno));
+            exit(1);
+        }
+    }
+
+    return prev_val;
+}
+
+static Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: raise() expects 1 argument (signum)\n");
+        exit(1);
+    }
+
+    if (!is_integer(args[0])) {
+        fprintf(stderr, "Runtime error: raise() signum must be an integer\n");
+        exit(1);
+    }
+
+    int32_t signum = value_to_int(args[0]);
+
+    if (signum < 0 || signum >= MAX_SIGNAL) {
+        fprintf(stderr, "Runtime error: raise() signum %d out of range [0, %d)\n", signum, MAX_SIGNAL);
+        exit(1);
+    }
+
+    if (raise(signum) != 0) {
+        fprintf(stderr, "Runtime error: raise() failed for signal %d: %s\n", signum, strerror(errno));
+        exit(1);
+    }
+
+    return val_null();
+}
+
 // Structure to hold builtin function info
 typedef struct {
     const char *name;
@@ -1900,10 +2153,14 @@ static BuiltinInfo builtins[] = {
     {"eprint", builtin_eprint},
     {"open", builtin_open},
     {"assert", builtin_assert},
+    {"panic", builtin_panic},
+    {"exec", builtin_exec},
     {"spawn", builtin_spawn},
     {"join", builtin_join},
     {"detach", builtin_detach},
     {"channel", builtin_channel},
+    {"signal", builtin_signal},
+    {"raise", builtin_raise},
     // Math functions (use stdlib/math.hml module for public API)
     {"__sin", builtin_sin},
     {"__cos", builtin_cos},
@@ -2002,6 +2259,23 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "__TAU", val_f64(2.0 * M_PI), ctx);
     env_set(env, "__INF", val_f64(INFINITY), ctx);
     env_set(env, "__NAN", val_f64(NAN), ctx);
+
+    // Signal constants
+    env_set(env, "SIGINT", val_i32(SIGINT), ctx);      // Interrupt (Ctrl+C)
+    env_set(env, "SIGTERM", val_i32(SIGTERM), ctx);    // Termination request
+    env_set(env, "SIGHUP", val_i32(SIGHUP), ctx);      // Hangup
+    env_set(env, "SIGQUIT", val_i32(SIGQUIT), ctx);    // Quit (Ctrl+\)
+    env_set(env, "SIGABRT", val_i32(SIGABRT), ctx);    // Abort
+    env_set(env, "SIGUSR1", val_i32(SIGUSR1), ctx);    // User-defined signal 1
+    env_set(env, "SIGUSR2", val_i32(SIGUSR2), ctx);    // User-defined signal 2
+    env_set(env, "SIGALRM", val_i32(SIGALRM), ctx);    // Alarm clock
+    env_set(env, "SIGCHLD", val_i32(SIGCHLD), ctx);    // Child process status change
+    env_set(env, "SIGPIPE", val_i32(SIGPIPE), ctx);    // Broken pipe
+    env_set(env, "SIGCONT", val_i32(SIGCONT), ctx);    // Continue if stopped
+    env_set(env, "SIGSTOP", val_i32(SIGSTOP), ctx);    // Stop process (cannot be caught)
+    env_set(env, "SIGTSTP", val_i32(SIGTSTP), ctx);    // Terminal stop (Ctrl+Z)
+    env_set(env, "SIGTTIN", val_i32(SIGTTIN), ctx);    // Background read from terminal
+    env_set(env, "SIGTTOU", val_i32(SIGTTOU), ctx);    // Background write to terminal
 
     // Register builtin functions (may overwrite some type names if there are conflicts)
     for (int i = 0; builtins[i].name != NULL; i++) {

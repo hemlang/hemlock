@@ -11,12 +11,62 @@
 
 // ========== MODULE CACHE ==========
 
+// Find the stdlib directory path
+static char* find_stdlib_path() {
+    char exe_path[PATH_MAX];
+    char resolved[PATH_MAX];
+
+    // Try to get the executable path
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len != -1) {
+        exe_path[len] = '\0';
+
+        // Get directory of executable
+        char *dir = dirname(exe_path);
+
+        // Try: executable_dir/stdlib
+        snprintf(resolved, PATH_MAX, "%s/stdlib", dir);
+        if (access(resolved, F_OK) == 0) {
+            return realpath(resolved, NULL);
+        }
+
+        // Try: executable_dir/../stdlib (for build directory structure)
+        snprintf(resolved, PATH_MAX, "%s/../stdlib", dir);
+        if (access(resolved, F_OK) == 0) {
+            return realpath(resolved, NULL);
+        }
+    }
+
+    // Fallback: try current working directory + stdlib
+    if (getcwd(resolved, sizeof(resolved))) {
+        char stdlib_path[PATH_MAX];
+        snprintf(stdlib_path, PATH_MAX, "%s/stdlib", resolved);
+        if (access(stdlib_path, F_OK) == 0) {
+            return realpath(stdlib_path, NULL);
+        }
+    }
+
+    // Last resort: use /usr/local/lib/hemlock/stdlib (for installed version)
+    if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
+        return strdup("/usr/local/lib/hemlock/stdlib");
+    }
+
+    // Not found - return NULL
+    return NULL;
+}
+
 ModuleCache* module_cache_new(const char *initial_dir) {
     ModuleCache *cache = malloc(sizeof(ModuleCache));
     cache->modules = malloc(sizeof(Module*) * 32);
     cache->count = 0;
     cache->capacity = 32;
     cache->current_dir = strdup(initial_dir);
+    cache->stdlib_path = find_stdlib_path();
+
+    if (!cache->stdlib_path) {
+        fprintf(stderr, "Warning: Could not locate stdlib directory. @stdlib imports will not work.\n");
+    }
+
     return cache;
 }
 
@@ -49,6 +99,9 @@ void module_cache_free(ModuleCache *cache) {
 
     free(cache->modules);
     free(cache->current_dir);
+    if (cache->stdlib_path) {
+        free(cache->stdlib_path);
+    }
     free(cache);
 }
 
@@ -58,8 +111,20 @@ void module_cache_free(ModuleCache *cache) {
 char* resolve_module_path(ModuleCache *cache, const char *importer_path, const char *import_path) {
     char resolved[PATH_MAX];
 
+    // Check for @stdlib alias
+    if (strncmp(import_path, "@stdlib/", 8) == 0) {
+        // Handle @stdlib alias
+        if (!cache->stdlib_path) {
+            fprintf(stderr, "Error: @stdlib alias used but stdlib directory not found\n");
+            return NULL;
+        }
+
+        // Replace @stdlib with actual stdlib path
+        const char *module_subpath = import_path + 8;  // Skip "@stdlib/"
+        snprintf(resolved, PATH_MAX, "%s/%s", cache->stdlib_path, module_subpath);
+    }
     // If import_path is absolute, use it directly
-    if (import_path[0] == '/') {
+    else if (import_path[0] == '/') {
         // Already absolute
         strncpy(resolved, import_path, PATH_MAX);
     } else {

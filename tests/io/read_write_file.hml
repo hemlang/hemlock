@@ -1,5 +1,5 @@
 // Test read_file() and write_file() functions
-import { read_file, write_file, remove_file } from "../../stdlib/fs";
+import { read_file, write_file, remove_file } from "@stdlib/fs";
 
 let test_file = "/tmp/test_read_write.txt";
 let content = "Hello, World!\nThis is a test.";

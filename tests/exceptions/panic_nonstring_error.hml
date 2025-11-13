@@ -1,0 +1,4 @@
+// Test: panic() with non-string value (integer)
+print("before panic");
+panic(42);
+print("after panic");  // Should never execute

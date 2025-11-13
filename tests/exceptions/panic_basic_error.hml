@@ -1,0 +1,4 @@
+// Test: panic() with no arguments
+print("before panic");
+panic();
+print("after panic");  // Should never execute

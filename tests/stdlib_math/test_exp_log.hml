@@ -1,6 +1,6 @@
 // Test math module exponential and logarithmic functions
 
-import * as math from "../../stdlib/math";
+import * as math from "@stdlib/math";
 
 // Test sqrt
 assert(math.sqrt(4.0) == 4.0 / 2.0, "sqrt(4) should be 2");

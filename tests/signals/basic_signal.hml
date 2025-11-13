@@ -1,0 +1,17 @@
+// Test basic signal handling
+let caught = false;
+
+fn handler(sig) {
+    print("Caught signal: " + typeof(sig));
+    caught = true;
+}
+
+// Register handler for SIGUSR1
+signal(SIGUSR1, handler);
+
+// Raise the signal
+raise(SIGUSR1);
+
+// Check that handler was called
+assert(caught);
+print("PASS: basic_signal");

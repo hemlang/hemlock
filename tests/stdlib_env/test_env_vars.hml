@@ -1,6 +1,6 @@
 // Test env module environment variable functions
 
-import * as env from "../../stdlib/env";
+import * as env from "@stdlib/env";
 
 // Test getenv for existing variable (PATH should exist on all systems)
 let path = env.getenv("PATH");

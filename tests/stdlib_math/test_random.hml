@@ -1,6 +1,6 @@
 // Test math module random functions
 
-import * as math from "../../stdlib/math";
+import * as math from "@stdlib/math";
 
 // Seed for reproducibility
 math.seed(42);

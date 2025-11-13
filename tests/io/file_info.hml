@@ -1,5 +1,5 @@
 // Test file info functions: is_file(), is_dir(), file_stat()
-import { write_file, make_dir, is_file, is_dir, file_stat, remove_file, remove_dir } from "../../stdlib/fs";
+import { write_file, make_dir, is_file, is_dir, file_stat, remove_file, remove_dir } from "@stdlib/fs";
 
 let test_file = "/tmp/test_file_info.txt";
 let test_dir = "/tmp/test_dir_info";

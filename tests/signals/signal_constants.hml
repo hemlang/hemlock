@@ -1,0 +1,12 @@
+// Test that signal constants are defined
+assert(SIGINT == 2);
+assert(SIGTERM == 15);
+assert(SIGHUP == 1);
+assert(SIGQUIT == 3);
+assert(SIGABRT == 6);
+assert(SIGUSR1 == 10);
+assert(SIGUSR2 == 12);
+assert(SIGALRM == 14);
+assert(SIGPIPE == 13);
+
+print("PASS: signal_constants");

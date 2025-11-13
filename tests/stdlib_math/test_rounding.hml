@@ -1,6 +1,6 @@
 // Test math module rounding functions
 
-import * as math from "../../stdlib/math";
+import * as math from "@stdlib/math";
 
 // Test floor
 assert(math.floor(3.7) == 3.0, "floor(3.7) should be 3");

@@ -1,5 +1,5 @@
 // Test directory operations: make_dir(), remove_dir(), list_dir()
-import { make_dir, exists, is_dir, write_file, list_dir, remove_file, remove_dir } from "../../stdlib/fs";
+import { make_dir, exists, is_dir, write_file, list_dir, remove_file, remove_dir } from "@stdlib/fs";
 
 let test_dir = "/tmp/test_hemlock_dir";
 

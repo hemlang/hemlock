@@ -49,11 +49,17 @@ typedef enum {
     OP_GREATER_EQUAL,
     OP_AND,
     OP_OR,
+    OP_BIT_AND,
+    OP_BIT_OR,
+    OP_BIT_XOR,
+    OP_BIT_LSHIFT,
+    OP_BIT_RSHIFT,
 } BinaryOp;
 
 typedef enum {
     UNARY_NOT,
     UNARY_NEGATE,
+    UNARY_BIT_NOT,
 } UnaryOp;
 
 // Expression node

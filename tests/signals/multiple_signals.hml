@@ -1,0 +1,26 @@
+// Test handling multiple different signals
+let usr1_count = 0;
+let usr2_count = 0;
+
+fn handler1(sig) {
+    usr1_count = usr1_count + 1;
+}
+
+fn handler2(sig) {
+    usr2_count = usr2_count + 1;
+}
+
+// Register different handlers for different signals
+signal(SIGUSR1, handler1);
+signal(SIGUSR2, handler2);
+
+// Raise signals
+raise(SIGUSR1);
+raise(SIGUSR2);
+raise(SIGUSR1);
+
+// Check counts
+assert(usr1_count == 2);
+assert(usr2_count == 1);
+
+print("PASS: multiple_signals");

@@ -1,6 +1,6 @@
 // Test env module process functions
 
-import * as env from "../../stdlib/env";
+import * as env from "@stdlib/env";
 
 // Test get_pid
 let pid = env.get_pid();

@@ -508,6 +508,7 @@ print(a == 65);                 // true (implicit conversion)
 - `break`/`continue`
 - Boolean operators: `&&`, `||`, `!`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Bitwise operators: `&`, `|`, `^`, `<<`, `>>`, `~` (integer types only)
 
 ### If Statements
 
@@ -622,6 +623,82 @@ fn get_day_name(day: i32): string {
 - `default` can appear anywhere in the switch body
 - Expressions are allowed in both switch value and case values
 
+### Bitwise Operators
+
+Hemlock provides bitwise operators for integer manipulation at the bit level. These operators work **only with integer types** (i8-i64, u8-u64) and preserve the original type of the operands.
+
+**Binary bitwise operators:**
+- `&` - Bitwise AND
+- `|` - Bitwise OR
+- `^` - Bitwise XOR (exclusive OR)
+- `<<` - Left shift
+- `>>` - Right shift
+
+**Unary bitwise operator:**
+- `~` - Bitwise NOT (complement)
+
+**Basic operations:**
+```hemlock
+let a = 12;  // 1100 in binary
+let b = 10;  // 1010 in binary
+
+print(a & b);   // 8  (1000) - AND
+print(a | b);   // 14 (1110) - OR
+print(a ^ b);   // 6  (0110) - XOR
+print(a << 2);  // 48 (110000) - left shift by 2
+print(a >> 1);  // 6  (110) - right shift by 1
+print(~a);      // -13 (two's complement)
+```
+
+**With unsigned types:**
+```hemlock
+let c: u8 = 15;   // 00001111 in binary
+let d: u8 = 7;    // 00000111 in binary
+
+print(c & d);     // 7  (00000111)
+print(c | d);     // 15 (00001111)
+print(c ^ d);     // 8  (00001000)
+print(~c);        // 240 (11110000) - in u8
+```
+
+**Type preservation:**
+```hemlock
+// Bitwise operations preserve the type of operands
+let x: u8 = 255;
+let result = ~x;  // result is u8 with value 0
+
+let y: i32 = 100;
+let result2 = y << 2;  // result2 is i32 with value 400
+```
+
+**Operator precedence:**
+Bitwise operators follow C-style precedence:
+1. `~` (unary NOT) - highest, same level as `!` and `-`
+2. `<<`, `>>` (shifts) - higher than comparisons, lower than `+`/`-`
+3. `&` (bitwise AND) - higher than `^` and `|`
+4. `^` (bitwise XOR) - between `&` and `|`
+5. `|` (bitwise OR) - lower than `&` and `^`, higher than `&&`
+6. `&&`, `||` (logical) - lowest precedence
+
+**Precedence examples:**
+```hemlock
+// & has higher precedence than |
+let result1 = 12 | 10 & 8;  // (10 & 8) | 12 = 8 | 12 = 12
+
+// Shift has higher precedence than bitwise operators
+let result2 = 8 | 1 << 2;   // 8 | (1 << 2) = 8 | 4 = 12
+
+// Use parentheses for clarity
+let result3 = (5 & 3) | (2 << 1);  // 1 | 4 = 5
+```
+
+**Important notes:**
+- Bitwise operators only work with integer types (not floats, strings, etc.)
+- Type promotion follows standard rules (smaller types promote to larger)
+- Right shift (`>>`) is arithmetic for signed types, logical for unsigned
+- Shift amounts are not range-checked (behavior is platform-dependent for large shifts)
+- Bitwise NOT (`~`) returns the one's complement (all bits flipped)
+
 ---
 
 ## Error Handling
@@ -735,6 +812,71 @@ fn foo() {
 foo();  // Crashes with: Runtime error: uncaught!
 ```
 
+### Panic - Unrecoverable Errors
+
+Hemlock provides `panic(message?)` for **unrecoverable errors** that should immediately terminate the program.
+
+**Syntax:**
+```hemlock
+panic();                    // Default message: "panic!"
+panic("custom message");    // Custom message
+panic(42);                  // Non-string values are printed
+```
+
+**Semantics:**
+- `panic()` **immediately exits** the program with exit code 1
+- Prints error message to stderr in format: `panic: <message>`
+- **NOT catchable** with try/catch (unlike `throw`)
+- Use for bugs and unrecoverable errors (e.g., invalid state, unreachable code)
+
+**Panic vs Throw:**
+```hemlock
+// throw - Recoverable error (can be caught)
+try {
+    throw "recoverable error";
+} catch (e) {
+    print("Caught: " + e);  // ✅ Caught successfully
+}
+
+// panic - Unrecoverable error (cannot be caught)
+try {
+    panic("unrecoverable error");  // ❌ Program exits immediately
+} catch (e) {
+    print("This never runs");       // ❌ Never executes
+}
+```
+
+**When to use panic:**
+- **Bugs**: Unreachable code was reached
+- **Invalid state**: Data structure corruption detected
+- **Unrecoverable errors**: Critical resource unavailable
+- **Assertion failures**: When `assert()` isn't sufficient
+
+**Examples:**
+```hemlock
+// Unreachable code
+fn process_state(state: i32) {
+    if (state == 1) {
+        return "ready";
+    } else if (state == 2) {
+        return "running";
+    } else if (state == 3) {
+        return "stopped";
+    } else {
+        panic("invalid state: " + typeof(state));  // Should never happen
+    }
+}
+
+// Critical resource check
+fn init_system() {
+    let config = read_file("config.json");
+    if (config == null) {
+        panic("config.json not found - cannot start");
+    }
+    // ...
+}
+```
+
 ### Control Flow Interactions
 
 **Return inside try/catch/finally:**
@@ -844,7 +986,7 @@ try {
 ### Current Limitations
 
 - No stack trace on uncaught exceptions (planned)
-- Some built-in functions still `exit()` instead of throwing (to be updated)
+- Some built-in functions still `exit()` instead of throwing exceptions (intentional for unrecoverable errors like `panic()`, to be reviewed for others)
 - No custom exception types yet (any value can be thrown)
 
 ---
@@ -1307,6 +1449,186 @@ while (i < args.length) {
 
 ---
 
+## Command Execution
+
+Hemlock provides the **`exec()` builtin function** to execute shell commands and capture their output.
+
+### The `exec()` Function
+
+```hemlock
+let result = exec("echo hello");
+print(result.output);      // "hello\n"
+print(result.exit_code);   // 0
+```
+
+**Signature:**
+- `exec(command: string): object`
+
+**Returns:** An object with two fields:
+- `output` (string): The command's stdout output (as a string)
+- `exit_code` (i32): The command's exit status code
+
+### Basic Usage
+
+```hemlock
+// Simple command
+let r = exec("ls -la");
+print(r.output);
+print("Exit code: " + typeof(r.exit_code));
+
+// Check exit status
+let r2 = exec("grep pattern file.txt");
+if (r2.exit_code == 0) {
+    print("Found: " + r2.output);
+} else {
+    print("Pattern not found");
+}
+
+// Commands with pipes
+let r3 = exec("ps aux | grep hemlock");
+print(r3.output);
+```
+
+### Result Object
+
+The object returned by `exec()` has the following structure:
+
+```hemlock
+{
+    output: string,      // Command stdout (captured output)
+    exit_code: i32       // Process exit status (0 = success)
+}
+```
+
+**Field details:**
+- **`output`**: Contains all text written to stdout by the command
+  - Empty string if command produces no output
+  - Includes newlines and whitespace as-is
+  - Multi-line output preserved
+  - Not limited in size (dynamically allocated)
+
+- **`exit_code`**: The command's exit status
+  - `0` typically indicates success
+  - Non-zero values indicate errors (convention: 1-255)
+  - `-1` if command could not be executed or terminated abnormally
+
+### Advanced Examples
+
+**Handling failures:**
+```hemlock
+let r = exec("ls /nonexistent");
+if (r.exit_code != 0) {
+    print("Command failed with code: " + typeof(r.exit_code));
+    print("Error output: " + r.output);  // Note: stderr not captured
+}
+```
+
+**Processing multi-line output:**
+```hemlock
+let r = exec("cat file.txt");
+let lines = r.output.split("\n");
+let i = 0;
+while (i < lines.length) {
+    print("Line " + typeof(i) + ": " + lines[i]);
+    i = i + 1;
+}
+```
+
+**Command chaining:**
+```hemlock
+// Multiple commands with && and ||
+let r1 = exec("mkdir -p /tmp/test && touch /tmp/test/file.txt");
+if (r1.exit_code == 0) {
+    print("Setup complete");
+}
+
+// Pipes and redirections work
+let r2 = exec("echo 'data' | base64");
+print("Base64: " + r2.output);
+```
+
+**Exit code patterns:**
+```hemlock
+// Different exit codes indicate different conditions
+let r = exec("test -f myfile.txt");
+if (r.exit_code == 0) {
+    print("File exists");
+} else if (r.exit_code == 1) {
+    print("File does not exist");
+} else {
+    print("Test command failed: " + typeof(r.exit_code));
+}
+```
+
+### Error Handling
+
+The `exec()` function throws an exception if the command cannot be executed:
+
+```hemlock
+try {
+    let r = exec("nonexistent_command_xyz");
+} catch (e) {
+    print("Failed to execute: " + e);
+}
+```
+
+**When exceptions are thrown:**
+- `popen()` fails (e.g., cannot create pipe)
+- System resource limits exceeded
+- Memory allocation failures
+
+**When exceptions are NOT thrown:**
+- Command runs but returns non-zero exit code (check `exit_code` field)
+- Command produces no output (returns empty string in `output`)
+- Command not found by shell (returns non-zero `exit_code`)
+
+### Implementation Details
+
+**How it works:**
+- Uses `popen()` to execute commands via `/bin/sh`
+- Captures stdout only (stderr is not captured)
+- Output buffered dynamically (starts at 4KB, grows as needed)
+- Exit status extracted using `WIFEXITED()` and `WEXITSTATUS()` macros
+- Output string is properly null-terminated
+
+**Performance considerations:**
+- Creates a new shell process for each call
+- Output stored entirely in memory
+- No streaming support (waits for command completion)
+- Suitable for commands with reasonable output sizes
+
+**Security considerations:**
+- ⚠️ **Shell injection risk**: The command is executed by the shell (`/bin/sh`)
+- ⚠️ Always validate/sanitize user input before passing to `exec()`
+- Commands have full shell access (pipes, redirects, variables, etc.)
+- Runs with the same permissions as the Hemlock process
+
+### Limitations
+
+- **No stderr capture**: Only stdout is captured, stderr goes to terminal
+- **No streaming**: Must wait for command completion
+- **No timeout**: Commands can run indefinitely
+- **No signal handling**: Cannot send signals to running commands
+- **No process control**: Cannot interact with command after starting
+
+### Use Cases
+
+**Good use cases:**
+- Running system utilities (ls, grep, find, etc.)
+- Quick data processing with Unix tools
+- Checking system state or file existence
+- Generating reports from command-line tools
+- Automation scripts
+
+**Not recommended for:**
+- Long-running services or daemons
+- Interactive commands requiring input
+- Commands producing gigabytes of output
+- Real-time streaming data processing
+- Mission-critical error handling (stderr not captured)
+
+---
+
 ## Async/Concurrency
 
 Hemlock provides **structured concurrency** with async/await syntax, task spawning, and channels for communication. The implementation uses POSIX threads (pthreads) for **TRUE multi-threaded parallelism**.
@@ -1622,6 +1944,232 @@ try {
 
 ---
 
+## Signal Handling
+
+Hemlock provides **POSIX signal handling** for managing system signals like SIGINT (Ctrl+C), SIGTERM, and custom signals. This enables low-level process control and inter-process communication.
+
+### Signal API
+
+**Register Signal Handler:**
+```hemlock
+signal(signum, handler_fn)
+```
+- `signum` - Signal number (i32 constant like SIGINT, SIGTERM)
+- `handler_fn` - Function to call when signal is received (or `null` to reset to default)
+- Returns the previous handler function (or `null` if none)
+
+**Raise Signal:**
+```hemlock
+raise(signum)
+```
+- `signum` - Signal number to send to current process
+- Returns `null`
+
+### Signal Constants
+
+Hemlock provides standard POSIX signal constants as i32 values:
+
+**Interrupt & Termination:**
+- `SIGINT` (2) - Interrupt from keyboard (Ctrl+C)
+- `SIGTERM` (15) - Termination request
+- `SIGQUIT` (3) - Quit from keyboard (Ctrl+\)
+- `SIGHUP` (1) - Hangup detected on controlling terminal
+- `SIGABRT` (6) - Abort signal
+
+**User-Defined:**
+- `SIGUSR1` (10) - User-defined signal 1
+- `SIGUSR2` (12) - User-defined signal 2
+
+**Process Control:**
+- `SIGALRM` (14) - Alarm clock timer
+- `SIGCHLD` (17) - Child process status change
+- `SIGCONT` (18) - Continue if stopped
+- `SIGSTOP` (19) - Stop process (cannot be caught)
+- `SIGTSTP` (20) - Terminal stop (Ctrl+Z)
+
+**I/O:**
+- `SIGPIPE` (13) - Broken pipe
+- `SIGTTIN` (21) - Background read from terminal
+- `SIGTTOU` (22) - Background write to terminal
+
+### Basic Signal Handling
+
+**Catch Ctrl+C:**
+```hemlock
+let interrupted = false;
+
+fn handle_interrupt(sig) {
+    print("Caught SIGINT!");
+    interrupted = true;
+}
+
+signal(SIGINT, handle_interrupt);
+
+// Program continues running...
+// User presses Ctrl+C -> handle_interrupt() is called
+```
+
+**Handler Arguments:**
+Signal handlers receive one argument: the signal number (i32)
+```hemlock
+fn my_handler(signum) {
+    print("Received signal: " + typeof(signum));
+    // signum contains the signal number (e.g., 2 for SIGINT)
+}
+```
+
+### Multiple Signals
+
+Different handlers for different signals:
+```hemlock
+fn handle_int(sig) {
+    print("SIGINT received");
+}
+
+fn handle_term(sig) {
+    print("SIGTERM received");
+}
+
+signal(SIGINT, handle_int);
+signal(SIGTERM, handle_term);
+```
+
+### Resetting to Default
+
+Pass `null` as the handler to reset to default behavior:
+```hemlock
+// Register custom handler
+signal(SIGINT, my_handler);
+
+// Later, reset to default (terminate on SIGINT)
+signal(SIGINT, null);
+```
+
+### Raising Signals
+
+Send signals to your own process:
+```hemlock
+let count = 0;
+
+fn increment(sig) {
+    count = count + 1;
+}
+
+signal(SIGUSR1, increment);
+
+// Trigger handler manually
+raise(SIGUSR1);
+raise(SIGUSR1);
+
+print(count);  // 2
+```
+
+### Graceful Shutdown Pattern
+
+Common pattern for cleanup on termination:
+```hemlock
+let should_exit = false;
+
+fn handle_shutdown(sig) {
+    print("Shutting down gracefully...");
+    should_exit = true;
+}
+
+signal(SIGINT, handle_shutdown);
+signal(SIGTERM, handle_shutdown);
+
+// Main loop
+while (!should_exit) {
+    // Do work...
+    // Check should_exit flag periodically
+}
+
+print("Cleanup complete");
+```
+
+### Signal Handler Behavior
+
+**Important notes:**
+- Handlers are called **synchronously** when the signal is received
+- Handlers execute in the current process context
+- Signal handlers share the closure environment of the function they're defined in
+- Handlers can access and modify outer scope variables (like globals or captured variables)
+- Keep handlers simple and quick - avoid long-running operations
+
+**What signals can be caught:**
+- Most signals can be caught and handled (SIGINT, SIGTERM, SIGUSR1, etc.)
+- **Cannot catch:** SIGKILL (9), SIGSTOP (19) - these always terminate/stop
+- Some signals have default behaviors that may differ by system
+
+### Safety Considerations
+
+Signal handling is **inherently unsafe** in Hemlock's philosophy:
+- Handlers can be called at any time, interrupting normal execution
+- No async-signal-safety guarantees (handlers can call any Hemlock code)
+- Race conditions are possible if handler modifies shared state
+- The user is responsible for proper synchronization
+
+**Example of potential issues:**
+```hemlock
+let counter = 0;
+
+fn increment(sig) {
+    counter = counter + 1;  // Race condition if called during counter update
+}
+
+signal(SIGUSR1, increment);
+
+// Main code also modifies counter
+counter = counter + 1;  // Could be interrupted by signal handler
+```
+
+**Best practices:**
+- Keep handlers simple and fast
+- Use atomic flags (simple boolean assignments)
+- Avoid complex logic in handlers
+- Be aware that handlers can interrupt any operation
+
+### Complete Example
+
+```hemlock
+let running = true;
+let signal_count = 0;
+
+fn handle_signal(signum) {
+    signal_count = signal_count + 1;
+
+    if (signum == SIGINT) {
+        print("Interrupt detected (Ctrl+C)");
+        running = false;
+    }
+
+    if (signum == SIGUSR1) {
+        print("User signal 1 received");
+    }
+}
+
+// Register handlers
+signal(SIGINT, handle_signal);
+signal(SIGUSR1, handle_signal);
+
+// Simulate some work
+let i = 0;
+while (running && i < 100) {
+    print("Working... " + typeof(i));
+
+    // Trigger SIGUSR1 every 10 iterations
+    if (i == 10 || i == 20) {
+        raise(SIGUSR1);
+    }
+
+    i = i + 1;
+}
+
+print("Total signals received: " + typeof(signal_count));
+```
+
+---
+
 ## Implementation Details
 
 ### Project Structure
@@ -1844,7 +2392,7 @@ When adding features to Hemlock:
 
 ## Version History
 
-- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, command-line arguments, async/await, structured concurrency, FFI (current)
+- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, signal handling, command-line arguments, async/await, structured concurrency, FFI (current)
   - Type system: i8-i64, u8-u64, f32/f64, bool, string, rune, null, ptr, buffer, array, object, file, task, channel, void
   - **64-bit integer support:** i64 and u64 types with full type promotion, conversion, and FFI support
   - **UTF-8 first-class strings:** Full Unicode support (U+0000 to U+10FFFF), codepoint-based indexing and operations, `.length` (codepoints) and `.byte_length` (bytes) properties
@@ -1853,14 +2401,15 @@ When adding features to Hemlock:
   - Objects: literals, methods, duck typing, optional fields, serialize/deserialize
   - **Strings:** 18 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, byte_at, chars, bytes, to_bytes
   - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
-  - Control flow: if/else, while, for, for-in, break, continue, switch
+  - Control flow: if/else, while, for, for-in, break, continue, switch, bitwise operators (&, |, ^, <<, >>, ~)
   - Error handling: try/catch/finally/throw
   - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
+  - **Signal Handling:** POSIX signal handling with signal(signum, handler) and raise(signum), 15 signal constants (SIGINT, SIGTERM, SIGUSR1, SIGUSR2, etc.)
   - Command-line arguments: built-in `args` array
   - **Async/Concurrency:** async/await syntax, spawn/join/detach, channels with send/recv/close, pthread-based true parallelism, exception propagation
   - **FFI (Foreign Function Interface):** Call C functions from shared libraries using libffi, support for all primitive types, automatic type conversion
   - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime, ffi)
-  - 220 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, and 5 i64/u64 tests)
+  - 251 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, 5 i64/u64 tests, and 5 signal handling tests)
 - **v0.2** - Compiler backend, optimization (planned)
 - **v0.3** - Advanced features (planned)
 

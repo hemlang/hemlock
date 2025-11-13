@@ -1,0 +1,44 @@
+// Test exec functionality
+
+// Test 1: Simple command output
+let r1 = exec("echo 'test123'");
+print("Test 1: Basic echo");
+print("  Output: [" + r1.output + "]");
+print("  Exit code: " + typeof(r1.exit_code));
+assert(r1.exit_code == 0, "exit code should be 0");
+print("  PASSED");
+
+// Test 2: Command with non-zero exit code
+let r2 = exec("exit 5");
+print("Test 2: Exit code");
+assert(r2.exit_code == 5, "exit code should be 5");
+print("  PASSED");
+
+// Test 3: Command that fails
+let r3 = exec("ls /nonexistent_12345_test");
+print("Test 3: Failed command");
+assert(r3.exit_code != 0, "failed command should have non-zero exit code");
+print("  PASSED");
+
+// Test 4: Empty output
+let r4 = exec("true");
+print("Test 4: Empty output");
+assert(r4.output == "", "true should produce no output");
+assert(r4.exit_code == 0, "true should succeed");
+print("  PASSED");
+
+// Test 5: Command with pipe
+let r5 = exec("echo hello | cat");
+print("Test 5: Piped command");
+assert(r5.exit_code == 0, "piped command should succeed");
+print("  PASSED");
+
+// Test 6: Multi-line output
+let r6 = exec("echo line1 && echo line2");
+print("Test 6: Multi-line output");
+assert(r6.exit_code == 0, "should succeed");
+let lines = r6.output.split("\n");
+print("  Line count: " + typeof(lines.length));
+print("  PASSED");
+
+print("\nAll exec tests passed!");

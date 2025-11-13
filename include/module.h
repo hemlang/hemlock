@@ -32,6 +32,7 @@ typedef struct ModuleCache {
     int count;
     int capacity;
     char *current_dir;           // Current working directory for relative imports
+    char *stdlib_path;           // Path to standard library directory
 } ModuleCache;
 
 // Public interface

@@ -1,0 +1,10 @@
+// Test: panic() is NOT catchable with try/catch
+print("before try");
+try {
+    print("in try");
+    panic("uncatchable");
+    print("after panic in try");  // Should never execute
+} catch (e) {
+    print("caught: " + e);  // Should never execute
+}
+print("after catch");  // Should never execute

@@ -1,5 +1,5 @@
 // Test file management: remove_file(), rename(), copy_file()
-import { write_file, exists, remove_file, rename, copy_file, read_file } from "../../stdlib/fs";
+import { write_file, exists, remove_file, rename, copy_file, read_file } from "@stdlib/fs";
 
 let test_file1 = "/tmp/test_file1.txt";
 let test_file2 = "/tmp/test_file2.txt";

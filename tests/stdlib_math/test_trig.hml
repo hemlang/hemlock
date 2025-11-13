@@ -1,6 +1,6 @@
 // Test math module trigonometric functions
 
-import * as math from "../../stdlib/math";
+import * as math from "@stdlib/math";
 
 // Test sin
 let s = math.sin(0.0);

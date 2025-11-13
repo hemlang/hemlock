@@ -1,6 +1,6 @@
 // Test time.sleep() function
 
-import * as time from "../../stdlib/time";
+import * as time from "@stdlib/time";
 
 // Test short sleep
 let t1 = time.time_ms();

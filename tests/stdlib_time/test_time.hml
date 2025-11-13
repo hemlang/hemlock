@@ -1,6 +1,6 @@
 // Test time module functions
 
-import * as time from "../../stdlib/time";
+import * as time from "@stdlib/time";
 
 // Test now - should return a positive timestamp
 let t1 = time.now();
