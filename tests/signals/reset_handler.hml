@@ -1,0 +1,23 @@
+// Test resetting signal handler to default
+let count = 0;
+
+fn handler(sig) {
+    count = count + 1;
+}
+
+// Register handler
+signal(SIGUSR1, handler);
+
+// Raise signal - should call handler
+raise(SIGUSR1);
+assert(count == 1);
+
+// Reset to default handler (null)
+signal(SIGUSR1, null);
+
+// Raise signal again - handler should NOT be called
+// (Note: default handler for SIGUSR1 is to terminate, but since we reset it,
+//  the process will get the default behavior which we can't easily test here.
+//  So we'll just verify the signal() call works with null.)
+
+print("PASS: reset_handler");

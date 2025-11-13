@@ -1687,6 +1687,232 @@ try {
 
 ---
 
+## Signal Handling
+
+Hemlock provides **POSIX signal handling** for managing system signals like SIGINT (Ctrl+C), SIGTERM, and custom signals. This enables low-level process control and inter-process communication.
+
+### Signal API
+
+**Register Signal Handler:**
+```hemlock
+signal(signum, handler_fn)
+```
+- `signum` - Signal number (i32 constant like SIGINT, SIGTERM)
+- `handler_fn` - Function to call when signal is received (or `null` to reset to default)
+- Returns the previous handler function (or `null` if none)
+
+**Raise Signal:**
+```hemlock
+raise(signum)
+```
+- `signum` - Signal number to send to current process
+- Returns `null`
+
+### Signal Constants
+
+Hemlock provides standard POSIX signal constants as i32 values:
+
+**Interrupt & Termination:**
+- `SIGINT` (2) - Interrupt from keyboard (Ctrl+C)
+- `SIGTERM` (15) - Termination request
+- `SIGQUIT` (3) - Quit from keyboard (Ctrl+\)
+- `SIGHUP` (1) - Hangup detected on controlling terminal
+- `SIGABRT` (6) - Abort signal
+
+**User-Defined:**
+- `SIGUSR1` (10) - User-defined signal 1
+- `SIGUSR2` (12) - User-defined signal 2
+
+**Process Control:**
+- `SIGALRM` (14) - Alarm clock timer
+- `SIGCHLD` (17) - Child process status change
+- `SIGCONT` (18) - Continue if stopped
+- `SIGSTOP` (19) - Stop process (cannot be caught)
+- `SIGTSTP` (20) - Terminal stop (Ctrl+Z)
+
+**I/O:**
+- `SIGPIPE` (13) - Broken pipe
+- `SIGTTIN` (21) - Background read from terminal
+- `SIGTTOU` (22) - Background write to terminal
+
+### Basic Signal Handling
+
+**Catch Ctrl+C:**
+```hemlock
+let interrupted = false;
+
+fn handle_interrupt(sig) {
+    print("Caught SIGINT!");
+    interrupted = true;
+}
+
+signal(SIGINT, handle_interrupt);
+
+// Program continues running...
+// User presses Ctrl+C -> handle_interrupt() is called
+```
+
+**Handler Arguments:**
+Signal handlers receive one argument: the signal number (i32)
+```hemlock
+fn my_handler(signum) {
+    print("Received signal: " + typeof(signum));
+    // signum contains the signal number (e.g., 2 for SIGINT)
+}
+```
+
+### Multiple Signals
+
+Different handlers for different signals:
+```hemlock
+fn handle_int(sig) {
+    print("SIGINT received");
+}
+
+fn handle_term(sig) {
+    print("SIGTERM received");
+}
+
+signal(SIGINT, handle_int);
+signal(SIGTERM, handle_term);
+```
+
+### Resetting to Default
+
+Pass `null` as the handler to reset to default behavior:
+```hemlock
+// Register custom handler
+signal(SIGINT, my_handler);
+
+// Later, reset to default (terminate on SIGINT)
+signal(SIGINT, null);
+```
+
+### Raising Signals
+
+Send signals to your own process:
+```hemlock
+let count = 0;
+
+fn increment(sig) {
+    count = count + 1;
+}
+
+signal(SIGUSR1, increment);
+
+// Trigger handler manually
+raise(SIGUSR1);
+raise(SIGUSR1);
+
+print(count);  // 2
+```
+
+### Graceful Shutdown Pattern
+
+Common pattern for cleanup on termination:
+```hemlock
+let should_exit = false;
+
+fn handle_shutdown(sig) {
+    print("Shutting down gracefully...");
+    should_exit = true;
+}
+
+signal(SIGINT, handle_shutdown);
+signal(SIGTERM, handle_shutdown);
+
+// Main loop
+while (!should_exit) {
+    // Do work...
+    // Check should_exit flag periodically
+}
+
+print("Cleanup complete");
+```
+
+### Signal Handler Behavior
+
+**Important notes:**
+- Handlers are called **synchronously** when the signal is received
+- Handlers execute in the current process context
+- Signal handlers share the closure environment of the function they're defined in
+- Handlers can access and modify outer scope variables (like globals or captured variables)
+- Keep handlers simple and quick - avoid long-running operations
+
+**What signals can be caught:**
+- Most signals can be caught and handled (SIGINT, SIGTERM, SIGUSR1, etc.)
+- **Cannot catch:** SIGKILL (9), SIGSTOP (19) - these always terminate/stop
+- Some signals have default behaviors that may differ by system
+
+### Safety Considerations
+
+Signal handling is **inherently unsafe** in Hemlock's philosophy:
+- Handlers can be called at any time, interrupting normal execution
+- No async-signal-safety guarantees (handlers can call any Hemlock code)
+- Race conditions are possible if handler modifies shared state
+- The user is responsible for proper synchronization
+
+**Example of potential issues:**
+```hemlock
+let counter = 0;
+
+fn increment(sig) {
+    counter = counter + 1;  // Race condition if called during counter update
+}
+
+signal(SIGUSR1, increment);
+
+// Main code also modifies counter
+counter = counter + 1;  // Could be interrupted by signal handler
+```
+
+**Best practices:**
+- Keep handlers simple and fast
+- Use atomic flags (simple boolean assignments)
+- Avoid complex logic in handlers
+- Be aware that handlers can interrupt any operation
+
+### Complete Example
+
+```hemlock
+let running = true;
+let signal_count = 0;
+
+fn handle_signal(signum) {
+    signal_count = signal_count + 1;
+
+    if (signum == SIGINT) {
+        print("Interrupt detected (Ctrl+C)");
+        running = false;
+    }
+
+    if (signum == SIGUSR1) {
+        print("User signal 1 received");
+    }
+}
+
+// Register handlers
+signal(SIGINT, handle_signal);
+signal(SIGUSR1, handle_signal);
+
+// Simulate some work
+let i = 0;
+while (running && i < 100) {
+    print("Working... " + typeof(i));
+
+    // Trigger SIGUSR1 every 10 iterations
+    if (i == 10 || i == 20) {
+        raise(SIGUSR1);
+    }
+
+    i = i + 1;
+}
+
+print("Total signals received: " + typeof(signal_count));
+```
+
+---
+
 ## Implementation Details
 
 ### Project Structure
@@ -1909,7 +2135,7 @@ When adding features to Hemlock:
 
 ## Version History
 
-- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, command-line arguments, async/await, structured concurrency, FFI (current)
+- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, signal handling, command-line arguments, async/await, structured concurrency, FFI (current)
   - Type system: i8-i64, u8-u64, f32/f64, bool, string, rune, null, ptr, buffer, array, object, file, task, channel, void
   - **64-bit integer support:** i64 and u64 types with full type promotion, conversion, and FFI support
   - **UTF-8 first-class strings:** Full Unicode support (U+0000 to U+10FFFF), codepoint-based indexing and operations, `.length` (codepoints) and `.byte_length` (bytes) properties
@@ -1921,11 +2147,12 @@ When adding features to Hemlock:
   - Control flow: if/else, while, for, for-in, break, continue, switch
   - Error handling: try/catch/finally/throw
   - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
+  - **Signal Handling:** POSIX signal handling with signal(signum, handler) and raise(signum), 15 signal constants (SIGINT, SIGTERM, SIGUSR1, SIGUSR2, etc.)
   - Command-line arguments: built-in `args` array
   - **Async/Concurrency:** async/await syntax, spawn/join/detach, channels with send/recv/close, pthread-based true parallelism, exception propagation
   - **FFI (Foreign Function Interface):** Call C functions from shared libraries using libffi, support for all primitive types, automatic type conversion
   - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime, ffi)
-  - 220 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, and 5 i64/u64 tests)
+  - 251 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, 5 i64/u64 tests, and 5 signal handling tests)
 - **v0.2** - Compiler backend, optimization (planned)
 - **v0.3** - Advanced features (planned)
 

@@ -1,0 +1,18 @@
+// Test that signal handler receives the signal number
+let received_sig = 0;
+
+fn handler(sig) {
+    received_sig = sig;
+}
+
+// Register handler for SIGUSR2
+signal(SIGUSR2, handler);
+
+// Raise the signal
+raise(SIGUSR2);
+
+// Check that handler received the correct signal number
+assert(received_sig == SIGUSR2);
+assert(received_sig == 12);
+
+print("PASS: handler_argument");
