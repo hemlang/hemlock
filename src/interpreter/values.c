@@ -52,7 +52,7 @@ String* string_new(const char *cstr) {
     str->length = len;
     str->char_length = -1;  // Cache not yet computed
     str->capacity = len + 1;
-    str->ref_count = 1;  // Initialize reference count
+    str->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     str->data = malloc(str->capacity);
     if (!str->data) {
         free(str);
@@ -73,7 +73,7 @@ String* string_copy(String *str) {
     copy->length = str->length;
     copy->char_length = str->char_length;  // Copy cached value
     copy->capacity = str->capacity;
-    copy->ref_count = 1;  // Initialize reference count
+    copy->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     copy->data = malloc(copy->capacity);
     if (!copy->data) {
         free(copy);
@@ -94,7 +94,7 @@ String* string_concat(String *a, String *b) {
     result->length = new_len;
     result->char_length = -1;  // Cache invalidated after concatenation
     result->capacity = new_len + 1;
-    result->ref_count = 1;  // Initialize reference count
+    result->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     result->data = malloc(result->capacity);
     if (!result->data) {
         free(result);
@@ -128,7 +128,7 @@ Value val_string_take(char *data, int length, int capacity) {
     str->length = length;
     str->char_length = -1;  // Cache not yet computed
     str->capacity = capacity;
-    str->ref_count = 1;  // Initialize reference count
+    str->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     v.as.as_string = str;
     return v;
 }
@@ -189,7 +189,7 @@ Value val_buffer(int size) {
     }
     buf->length = size;
     buf->capacity = size;
-    buf->ref_count = 1;  // Initialize reference count
+    buf->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     v.as.as_buffer = buf;
     return v;
 }
@@ -211,7 +211,7 @@ Array* array_new(void) {
     }
     arr->capacity = 8;
     arr->length = 0;
-    arr->ref_count = 1;  // Initialize reference count
+    arr->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     arr->elements = malloc(sizeof(Value) * arr->capacity);
     if (!arr->elements) {
         free(arr);
@@ -243,7 +243,10 @@ void array_retain(Array *arr) {
 }
 
 void array_release(Array *arr) {
-    if (arr && arr->ref_count > 0) {
+    if (!arr) return;
+    // Skip if already manually freed via builtin_free()
+    if (is_manually_freed_pointer(arr)) return;
+    if (arr->ref_count > 0) {
         arr->ref_count--;
         if (arr->ref_count == 0) {
             array_free(arr);
@@ -265,6 +268,8 @@ void array_push(Array *arr, Value val) {
     if (arr->length >= arr->capacity) {
         array_grow(arr);
     }
+    // Retain value being stored in array (reference counting)
+    value_retain(val);
     arr->elements[arr->length++] = val;
 }
 
@@ -295,6 +300,9 @@ void array_set(Array *arr, int index, Value val) {
         array_push(arr, val_null());
     }
 
+    // Release old value, retain new value (reference counting)
+    value_release(arr->elements[index]);
+    value_retain(val);
     arr->elements[index] = val;
 }
 
@@ -342,10 +350,57 @@ void object_retain(Object *obj) {
 }
 
 void object_release(Object *obj) {
-    if (obj && obj->ref_count > 0) {
+    if (!obj) return;
+    // Skip if already manually freed via builtin_free()
+    if (is_manually_freed_pointer(obj)) return;
+    if (obj->ref_count > 0) {
         obj->ref_count--;
         if (obj->ref_count == 0) {
             object_free(obj);
+        }
+    }
+}
+
+// ========== FUNCTION OPERATIONS ==========
+
+void function_free(Function *fn) {
+    if (!fn) return;
+
+    // Free parameter names
+    if (fn->param_names) {
+        for (int i = 0; i < fn->num_params; i++) {
+            if (fn->param_names[i]) free(fn->param_names[i]);
+        }
+        free(fn->param_names);
+    }
+
+    // Free parameter types (Type structs are owned by AST, just free the array)
+    if (fn->param_types) {
+        free(fn->param_types);
+    }
+
+    // Release closure environment (reference counted)
+    if (fn->closure_env) {
+        env_release(fn->closure_env);
+    }
+
+    // Note: body (Stmt*) is not freed - owned by AST
+    // Note: return_type (Type*) is not freed - owned by AST
+
+    free(fn);
+}
+
+void function_retain(Function *fn) {
+    if (fn) {
+        fn->ref_count++;
+    }
+}
+
+void function_release(Function *fn) {
+    if (fn && fn->ref_count > 0) {
+        fn->ref_count--;
+        if (fn->ref_count == 0) {
+            function_free(fn);
         }
     }
 }
@@ -372,7 +427,7 @@ Object* object_new(char *type_name, int initial_capacity) {
     }
     obj->num_fields = 0;
     obj->capacity = initial_capacity;
-    obj->ref_count = 1;  // Initialize reference count
+    obj->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
     return obj;
 }
 
@@ -394,16 +449,18 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     task->id = id;
     task->state = TASK_READY;
     task->function = function;
+    function_retain(function);  // Retain function since task holds a reference
     task->args = args;
     task->num_args = num_args;
     task->result = NULL;
     task->joined = 0;
     task->env = env;
+    // Note: Don't retain env - it's owned by the function which we already retained
     task->ctx = exec_context_new();
     task->waiting_on = NULL;
     task->thread = NULL;
     task->detached = 0;
-    task->ref_count = 1;  // Initialize reference count to 1
+    task->ref_count = 0;  // Initialize reference count (first retain will bring to 1) to 1
 
     // Initialize task mutex for thread-safe state access
     task->task_mutex = malloc(sizeof(pthread_mutex_t));
@@ -419,6 +476,12 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
 
 void task_free(Task *task) {
     if (task) {
+        // Release function (reference counted)
+        // This will indirectly release the environment since function owns it
+        if (task->function) {
+            function_release(task->function);
+        }
+        // Note: Don't release env - it's owned by the function
         if (task->args) {
             free(task->args);
         }
@@ -816,6 +879,9 @@ static void value_free_internal(Value val, VisitedSet *visited);
 static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (!obj) return;
 
+    // Check if manually freed via builtin_free()
+    if (is_manually_freed_pointer(obj)) return;
+
     // Check if already visited (cycle detected)
     if (visited_set_contains(visited, obj)) {
         return;  // Already freeing this object - skip to prevent infinite recursion
@@ -828,8 +894,8 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (obj->type_name) free(obj->type_name);
     for (int i = 0; i < obj->num_fields; i++) {
         free(obj->field_names[i]);
-        // Recursively free field values with cycle detection
-        value_free_internal(obj->field_values[i], visited);
+        // Release field values (decrements ref_counts)
+        value_release(obj->field_values[i]);
     }
     free(obj->field_names);
     free(obj->field_values);
@@ -840,6 +906,9 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
 static void array_free_internal(Array *arr, VisitedSet *visited) {
     if (!arr) return;
 
+    // Check if manually freed via builtin_free()
+    if (is_manually_freed_pointer(arr)) return;
+
     // Check if already visited (cycle detected)
     if (visited_set_contains(visited, arr)) {
         return;  // Already freeing this array - skip to prevent infinite recursion
@@ -848,9 +917,9 @@ static void array_free_internal(Array *arr, VisitedSet *visited) {
     // Mark as visited
     visited_set_add(visited, arr);
 
-    // Recursively free each element
+    // Release each element (decrements ref_counts)
     for (int i = 0; i < arr->length; i++) {
-        value_free_internal(arr->elements[i], visited);
+        value_release(arr->elements[i]);
     }
     free(arr->elements);
     free(arr);
@@ -981,6 +1050,16 @@ void value_retain(Value val) {
                 object_retain(val.as.as_object);
             }
             break;
+        case VAL_FUNCTION:
+            if (val.as.as_function) {
+                function_retain(val.as.as_function);
+            }
+            break;
+        case VAL_TASK:
+            if (val.as.as_task) {
+                task_retain(val.as.as_task);
+            }
+            break;
         // Other types don't need reference counting
         default:
             break;
@@ -1008,6 +1087,16 @@ void value_release(Value val) {
         case VAL_OBJECT:
             if (val.as.as_object) {
                 object_release(val.as.as_object);
+            }
+            break;
+        case VAL_FUNCTION:
+            if (val.as.as_function) {
+                function_release(val.as.as_function);
+            }
+            break;
+        case VAL_TASK:
+            if (val.as.as_task) {
+                task_release(val.as.as_task);
             }
             break;
         // Other types don't need reference counting

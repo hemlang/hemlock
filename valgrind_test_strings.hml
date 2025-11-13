@@ -1,0 +1,6 @@
+// String operations test
+let s = "hello";
+let s2 = s.to_upper();
+let s3 = s2 + " world";
+let parts = s3.split(" ");
+print(parts[0]);

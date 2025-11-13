@@ -92,6 +92,7 @@ typedef struct {
     Type *return_type;
     Stmt *body;
     Environment *closure_env;  // CAPTURED ENVIRONMENT
+    int ref_count;             // Reference count for memory management
 } Function;
 
 // Task states

@@ -1,0 +1,5 @@
+// Basic test - variables and arithmetic
+let x = 10;
+let y = 20;
+let z = x + y;
+print("Sum: " + typeof(z));

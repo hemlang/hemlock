@@ -77,31 +77,34 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         }
         return val_null();
     } else if (args[0].type == VAL_OBJECT) {
-        // Manually free and set ref_count to 0 to prevent double-free
-        if (args[0].as.as_object->ref_count > 0) {
-            // Register this pointer as manually freed before freeing it
-            // This allows env_break_cycles() to skip it safely
-            register_manually_freed_pointer(args[0].as.as_object);
-            args[0].as.as_object->ref_count = 0;
-            // Need to free object contents manually here
-            if (args[0].as.as_object->type_name) free(args[0].as.as_object->type_name);
-            for (int i = 0; i < args[0].as.as_object->num_fields; i++) {
-                free(args[0].as.as_object->field_names[i]);
+        // Manually free object while respecting ref_counts of nested values
+        Object *obj = args[0].as.as_object;
+        if (obj && obj->ref_count > 0) {
+            register_manually_freed_pointer(obj);
+            // Release all field values (decrements their ref_counts)
+            for (int i = 0; i < obj->num_fields; i++) {
+                value_release(obj->field_values[i]);
+                free(obj->field_names[i]);
             }
-            free(args[0].as.as_object->field_names);
-            free(args[0].as.as_object->field_values);
-            free(args[0].as.as_object);
+            // Free object structure
+            free(obj->field_names);
+            free(obj->field_values);
+            if (obj->type_name) free(obj->type_name);
+            free(obj);
         }
         return val_null();
     } else if (args[0].type == VAL_ARRAY) {
-        // Manually free and set ref_count to 0 to prevent double-free
-        if (args[0].as.as_array->ref_count > 0) {
-            // Register this pointer as manually freed before freeing it
-            // This allows env_break_cycles() to skip it safely
-            register_manually_freed_pointer(args[0].as.as_array);
-            args[0].as.as_array->ref_count = 0;
-            free(args[0].as.as_array->elements);
-            free(args[0].as.as_array);
+        // For reference-counted arrays, use array_free which handles cycles
+        Array *arr = args[0].as.as_array;
+        if (arr && arr->ref_count > 0) {
+            register_manually_freed_pointer(arr);
+            // Release all elements (decrements their ref_counts)
+            for (int i = 0; i < arr->length; i++) {
+                value_release(arr->elements[i]);
+            }
+            // Free array structure
+            free(arr->elements);
+            free(arr);
         }
         return val_null();
     } else {

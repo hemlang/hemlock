@@ -138,6 +138,11 @@ Object* object_new(char *type_name, int initial_capacity);
 void object_free(Object *obj);
 Value val_object(Object *obj);
 
+// Function operations
+void function_free(Function *fn);
+void function_retain(Function *fn);
+void function_release(Function *fn);
+
 // File operations
 Value val_file(FileHandle *file);
 void file_free(FileHandle *file);

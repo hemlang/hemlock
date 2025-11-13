@@ -750,6 +750,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Reset return state
                 ctx->return_state.is_returning = 0;
 
+                // Retain result for the caller (so it survives call_env cleanup)
+                // The caller now owns this reference
+                value_retain(result);
+
                 // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
                 if (!ctx->exception_state.is_throwing) {
                     call_stack_pop(&ctx->call_stack);
@@ -961,6 +965,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             fn->closure_env = env;
             env_retain(env);  // Increment ref count since closure captures env
 
+            // Initialize reference count (first retain will bring to 1)
+            fn->ref_count = 0;
+
             return val_function(fn);
         }
 
@@ -984,6 +991,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
                 obj->field_names[i] = strdup(expr->as.object_literal.field_names[i]);
                 obj->field_values[i] = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                // Retain field values (objects own their field values)
+                value_retain(obj->field_values[i]);
                 obj->num_fields++;
             }
 
@@ -1004,6 +1013,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Look for existing field
             for (int i = 0; i < obj->num_fields; i++) {
                 if (strcmp(obj->field_names[i], property) == 0) {
+                    // Release old value, retain new value (reference counting)
+                    value_release(obj->field_values[i]);
+                    value_retain(value);
                     obj->field_values[i] = value;
                     return value;
                 }
@@ -1023,6 +1035,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             obj->field_names[obj->num_fields] = strdup(property);
+            // Retain new value (reference counting)
+            value_retain(value);
             obj->field_values[obj->num_fields] = value;
             obj->num_fields++;
 

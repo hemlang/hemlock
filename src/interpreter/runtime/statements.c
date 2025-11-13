@@ -298,7 +298,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     Environment *catch_env = env_new(env);
                     env_set(catch_env, stmt->as.try_stmt.catch_param, ctx->exception_state.exception_value, ctx);
 
-                    // Clear exception state
+                    // Clear exception state and release the exception value
+                    // (env_set retained it, so we can release the context's reference)
+                    value_release(ctx->exception_state.exception_value);
                     ctx->exception_state.is_throwing = 0;
 
                     // Execute catch block
@@ -342,8 +344,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_THROW: {
-            // Evaluate the value to throw
+            // Evaluate the value to throw and retain it
+            // (so it survives past environment cleanups during unwinding)
             ctx->exception_state.exception_value = eval_expr(stmt->as.throw_stmt.value, env, ctx);
+            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             break;
         }
@@ -442,6 +446,8 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             call_stack_print(&ctx->call_stack);
             // Clear stack for next execution (REPL mode)
             call_stack_free(&ctx->call_stack);
+            // Release exception value before exiting
+            value_release(ctx->exception_state.exception_value);
             exit(1);
         }
     }
