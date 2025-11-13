@@ -81,6 +81,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         for (int i = arr->length; i > 0; i--) {
             arr->elements[i] = arr->elements[i - 1];
         }
+        value_retain(args[0]);
         arr->elements[0] = args[0];
         arr->length++;
         return val_null();
@@ -110,6 +111,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         for (int i = arr->length; i > index; i--) {
             arr->elements[i] = arr->elements[i - 1];
         }
+        value_retain(args[1]);
         arr->elements[index] = args[1];
         arr->length++;
         return val_null();
