@@ -1,0 +1,70 @@
+// Test: Large object/array serialization (buffer overflow regression test)
+// This tests the fix for Issue #15 - buffer overflow in serialize()
+
+// Test 1: Object with a very long string value (exceeds initial 256 byte buffer)
+let long_string = "a".repeat(500);
+let obj = {
+    field1: long_string,
+    field2: "short",
+    field3: long_string
+};
+
+let json = obj.serialize();
+print("Test 1: Large object serialization");
+print(json.contains("field1"));  // Should contain field1
+print(json.contains("field2"));  // Should contain field2
+print(json.contains("field3"));  // Should contain field3
+
+// Test 2: Deserialize and verify
+let restored = json.deserialize();
+print(restored.field1.length);  // Should be 500
+print(restored.field2);         // Should be "short"
+print(restored.field3.length);  // Should be 500
+
+// Test 3: Object containing array with large string elements
+let obj_with_arr = {
+    arr: [long_string, "middle", long_string, long_string]
+};
+let arr_json = obj_with_arr.serialize();
+print("Test 2: Large array serialization");
+
+// Deserialize and verify
+let arr_restored = arr_json.deserialize();
+print(arr_restored.arr.length);     // Should be 4
+print(arr_restored.arr[0].length);  // Should be 500
+print(arr_restored.arr[1]);         // Should be "middle"
+print(arr_restored.arr[2].length);  // Should be 500
+print(arr_restored.arr[3].length);  // Should be 500
+
+// Test 4: Nested structure with large values
+let nested = {
+    outer: {
+        inner: {
+            deep: long_string
+        }
+    },
+    array: [long_string, long_string]
+};
+
+let nested_json = nested.serialize();
+print("Test 3: Nested structure with large values");
+let nested_restored = nested_json.deserialize();
+print(nested_restored.outer.inner.deep.length);  // Should be 500
+print(nested_restored.array[0].length);          // Should be 500
+
+// Test 5: Object with many fields (stress test)
+let many_fields = {
+    f1: long_string, f2: long_string, f3: long_string,
+    f4: long_string, f5: long_string, f6: long_string,
+    f7: long_string, f8: long_string, f9: long_string,
+    f10: long_string
+};
+
+let many_json = many_fields.serialize();
+print("Test 4: Object with many large fields");
+let many_restored = many_json.deserialize();
+print(many_restored.f1.length);   // Should be 500
+print(many_restored.f5.length);   // Should be 500
+print(many_restored.f10.length);  // Should be 500
+
+print("All tests passed!");

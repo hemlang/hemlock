@@ -463,7 +463,10 @@ static char* serialize_value(Value val, VisitedSet *visited) {
                 // Calculate space needed
                 size_t needed = len + strlen(escaped_name) + strlen(value_str) + 10;
                 if (needed > capacity) {
-                    capacity *= 2;
+                    // Ensure capacity is at least needed, not just doubled once
+                    while (capacity < needed) {
+                        capacity *= 2;
+                    }
                     json = realloc(json, capacity);
                 }
 
@@ -509,7 +512,10 @@ static char* serialize_value(Value val, VisitedSet *visited) {
                 // Calculate space needed
                 size_t needed = len + strlen(elem_str) + 2;
                 if (needed > capacity) {
-                    capacity *= 2;
+                    // Ensure capacity is at least needed, not just doubled once
+                    while (capacity < needed) {
+                        capacity *= 2;
+                    }
                     json = realloc(json, capacity);
                 }
 

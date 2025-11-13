@@ -1,0 +1,21 @@
+Test 1: Large object serialization
+true
+true
+true
+500
+short
+500
+Test 2: Large array serialization
+4
+500
+middle
+500
+500
+Test 3: Nested structure with large values
+500
+500
+Test 4: Object with many large fields
+500
+500
+500
+All tests passed!
