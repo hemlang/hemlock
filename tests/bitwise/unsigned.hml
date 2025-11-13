@@ -1,0 +1,28 @@
+// Test: Bitwise operations with unsigned types
+// Expect: 7
+// Expect: 15
+// Expect: 8
+// Expect: 60
+// Expect: 3
+// Expect: 240
+
+let c: u8 = 15;
+let d: u8 = 7;
+
+// AND
+print(c & d);   // 15 & 7 = 7
+
+// OR
+print(c | d);   // 15 | 7 = 15
+
+// XOR
+print(c ^ d);   // 15 ^ 7 = 8
+
+// Left shift
+print(c << 2);  // 15 << 2 = 60
+
+// Right shift
+print(c >> 2);  // 15 >> 2 = 3
+
+// Bitwise NOT
+print(~c);      // ~15 = 240 (in u8)

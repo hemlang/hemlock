@@ -187,6 +187,26 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
                     fprintf(stderr, "Runtime error: Cannot negate non-numeric value\n");
                     exit(1);
+
+                case UNARY_BIT_NOT:
+                    if (is_integer(operand)) {
+                        // Bitwise NOT - preserve the original type
+                        switch (operand.type) {
+                            case VAL_I8: return val_i8(~operand.as.as_i8);
+                            case VAL_I16: return val_i16(~operand.as.as_i16);
+                            case VAL_I32: return val_i32(~operand.as.as_i32);
+                            case VAL_I64: return val_i64(~operand.as.as_i64);
+                            case VAL_U8: return val_u8(~operand.as.as_u8);
+                            case VAL_U16: return val_u16(~operand.as.as_u16);
+                            case VAL_U32: return val_u32(~operand.as.as_u32);
+                            case VAL_U64: return val_u64(~operand.as.as_u64);
+                            default:
+                                fprintf(stderr, "Runtime error: Cannot apply bitwise NOT to non-integer value\n");
+                                exit(1);
+                        }
+                    }
+                    fprintf(stderr, "Runtime error: Cannot apply bitwise NOT to non-integer value\n");
+                    exit(1);
             }
             break;
         }
@@ -510,6 +530,78 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 case OP_LESS_EQUAL: return val_bool(l <= r);
                                 case OP_GREATER: return val_bool(l > r);
                                 case OP_GREATER_EQUAL: return val_bool(l >= r);
+                                default: break;
+                            }
+                        }
+                        break;
+                    }
+
+                    // Bitwise operations - only for integers
+                    case OP_BIT_AND:
+                    case OP_BIT_OR:
+                    case OP_BIT_XOR:
+                    case OP_BIT_LSHIFT:
+                    case OP_BIT_RSHIFT: {
+                        // Bitwise operations require both operands to be integers
+                        int is_signed = (result_type == VAL_I8 || result_type == VAL_I16 ||
+                                        result_type == VAL_I32 || result_type == VAL_I64);
+
+                        if (is_signed) {
+                            // Signed integer bitwise operations
+                            int64_t l, r;
+                            switch (result_type) {
+                                case VAL_I8: l = left.as.as_i8; r = right.as.as_i8; break;
+                                case VAL_I16: l = left.as.as_i16; r = right.as.as_i16; break;
+                                case VAL_I32: l = left.as.as_i32; r = right.as.as_i32; break;
+                                case VAL_I64: l = left.as.as_i64; r = right.as.as_i64; break;
+                                default: l = r = 0; break;
+                            }
+
+                            int64_t result;
+                            switch (expr->as.binary.op) {
+                                case OP_BIT_AND: result = l & r; break;
+                                case OP_BIT_OR: result = l | r; break;
+                                case OP_BIT_XOR: result = l ^ r; break;
+                                case OP_BIT_LSHIFT: result = l << r; break;
+                                case OP_BIT_RSHIFT: result = l >> r; break;
+                                default: result = 0; break;
+                            }
+
+                            // Return with the original type
+                            switch (result_type) {
+                                case VAL_I8: return val_i8((int8_t)result);
+                                case VAL_I16: return val_i16((int16_t)result);
+                                case VAL_I32: return val_i32((int32_t)result);
+                                case VAL_I64: return val_i64(result);
+                                default: break;
+                            }
+                        } else {
+                            // Unsigned integer bitwise operations
+                            uint64_t l, r;
+                            switch (result_type) {
+                                case VAL_U8: l = left.as.as_u8; r = right.as.as_u8; break;
+                                case VAL_U16: l = left.as.as_u16; r = right.as.as_u16; break;
+                                case VAL_U32: l = left.as.as_u32; r = right.as.as_u32; break;
+                                case VAL_U64: l = left.as.as_u64; r = right.as.as_u64; break;
+                                default: l = r = 0; break;
+                            }
+
+                            uint64_t result;
+                            switch (expr->as.binary.op) {
+                                case OP_BIT_AND: result = l & r; break;
+                                case OP_BIT_OR: result = l | r; break;
+                                case OP_BIT_XOR: result = l ^ r; break;
+                                case OP_BIT_LSHIFT: result = l << r; break;
+                                case OP_BIT_RSHIFT: result = l >> r; break;
+                                default: result = 0; break;
+                            }
+
+                            // Return with the original type
+                            switch (result_type) {
+                                case VAL_U8: return val_u8((uint8_t)result);
+                                case VAL_U16: return val_u16((uint16_t)result);
+                                case VAL_U32: return val_u32((uint32_t)result);
+                                case VAL_U64: return val_u64(result);
                                 default: break;
                             }
                         }

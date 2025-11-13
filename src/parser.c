@@ -91,10 +91,18 @@ static int match(Parser *p, TokenType type) {
 static Expr* expression(Parser *p);
 static Expr* assignment(Parser *p);
 static Expr* ternary(Parser *p);
+static Expr* logical_or(Parser *p);
+static Expr* logical_and(Parser *p);
+static Expr* bitwise_or(Parser *p);
+static Expr* bitwise_xor(Parser *p);
+static Expr* bitwise_and(Parser *p);
 static Expr* equality(Parser *p);
 static Expr* comparison(Parser *p);
+static Expr* shift(Parser *p);
 static Expr* term(Parser *p);
 static Expr* factor(Parser *p);
+static Expr* unary(Parser *p);
+static Expr* postfix(Parser *p);
 static Expr* primary(Parser *p);
 static Type* parse_type(Parser *p);
 static Stmt* block_statement(Parser *p);
@@ -325,6 +333,11 @@ static Expr* unary(Parser *p) {
         return expr_unary(UNARY_NEGATE, operand);
     }
 
+    if (match(p, TOK_TILDE)) {
+        Expr *operand = unary(p);
+        return expr_unary(UNARY_BIT_NOT, operand);
+    }
+
     if (match(p, TOK_PLUS_PLUS)) {
         Expr *operand = unary(p);
         return expr_prefix_inc(operand);
@@ -364,14 +377,27 @@ static Expr* term(Parser *p) {
     return expr;
 }
 
-static Expr* comparison(Parser *p) {
+static Expr* shift(Parser *p) {
     Expr *expr = term(p);
-    
+
+    while (match(p, TOK_LESS_LESS) || match(p, TOK_GREATER_GREATER)) {
+        TokenType op_type = p->previous.type;
+        BinaryOp op = (op_type == TOK_LESS_LESS) ? OP_BIT_LSHIFT : OP_BIT_RSHIFT;
+        Expr *right = term(p);
+        expr = expr_binary(expr, op, right);
+    }
+
+    return expr;
+}
+
+static Expr* comparison(Parser *p) {
+    Expr *expr = shift(p);
+
     while (match(p, TOK_GREATER) || match(p, TOK_GREATER_EQUAL) ||
            match(p, TOK_LESS) || match(p, TOK_LESS_EQUAL)) {
         TokenType op_type = p->previous.type;
         BinaryOp op;
-        
+
         switch (op_type) {
             case TOK_GREATER: op = OP_GREATER; break;
             case TOK_GREATER_EQUAL: op = OP_GREATER_EQUAL; break;
@@ -379,35 +405,68 @@ static Expr* comparison(Parser *p) {
             case TOK_LESS_EQUAL: op = OP_LESS_EQUAL; break;
             default: op = OP_ADD; break;
         }
-        
-        Expr *right = term(p);
+
+        Expr *right = shift(p);
         expr = expr_binary(expr, op, right);
     }
-    
+
     return expr;
 }
 
 static Expr* equality(Parser *p) {
     Expr *expr = comparison(p);
-    
+
     while (match(p, TOK_EQUAL_EQUAL) || match(p, TOK_BANG_EQUAL)) {
         TokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_EQUAL_EQUAL) ? OP_EQUAL : OP_NOT_EQUAL;
         Expr *right = comparison(p);
         expr = expr_binary(expr, op, right);
     }
-    
+
+    return expr;
+}
+
+static Expr* bitwise_and(Parser *p) {
+    Expr *expr = equality(p);
+
+    while (match(p, TOK_AMP)) {
+        Expr *right = equality(p);
+        expr = expr_binary(expr, OP_BIT_AND, right);
+    }
+
+    return expr;
+}
+
+static Expr* bitwise_xor(Parser *p) {
+    Expr *expr = bitwise_and(p);
+
+    while (match(p, TOK_CARET)) {
+        Expr *right = bitwise_and(p);
+        expr = expr_binary(expr, OP_BIT_XOR, right);
+    }
+
+    return expr;
+}
+
+static Expr* bitwise_or(Parser *p) {
+    Expr *expr = bitwise_xor(p);
+
+    while (match(p, TOK_PIPE)) {
+        Expr *right = bitwise_xor(p);
+        expr = expr_binary(expr, OP_BIT_OR, right);
+    }
+
     return expr;
 }
 
 static Expr* logical_and(Parser *p) {
-    Expr *expr = equality(p);
-    
+    Expr *expr = bitwise_or(p);
+
     while (match(p, TOK_AMP_AMP)) {
-        Expr *right = equality(p);
+        Expr *right = bitwise_or(p);
         expr = expr_binary(expr, OP_AND, right);
     }
-    
+
     return expr;
 }
 

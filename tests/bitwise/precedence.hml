@@ -1,0 +1,31 @@
+// Test: Bitwise operator precedence
+// Expect: 12
+// Expect: 6
+// Expect: 12
+// Expect: 1
+// Expect: 1
+
+// & has higher precedence than |
+// 12 | 10 & 8 = 12 | (10 & 8) = 12 | 8 = 12
+let result1 = 12 | 10 & 8;
+print(result1);
+
+// & has higher precedence than ^
+// 2 ^ 4 & 6 = 2 ^ (4 & 6) = 2 ^ 4 = 6
+let result2 = 2 ^ 4 & 6;
+print(result2);
+
+// Shift has higher precedence than bitwise
+// 8 | 1 << 2 = 8 | (1 << 2) = 8 | 4 = 12
+let result3 = 8 | 1 << 2;
+print(result3);
+
+// Parentheses override precedence
+// (5 & 3) = 1
+let result4 = (5 & 3);
+print(result4);
+
+// Multiple operators
+// 0 ^ 1 & 1 = 0 ^ (1 & 1) = 0 ^ 1 = 1
+let result5 = 0 ^ 1 & 1;
+print(result5);

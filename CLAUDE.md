@@ -508,6 +508,7 @@ print(a == 65);                 // true (implicit conversion)
 - `break`/`continue`
 - Boolean operators: `&&`, `||`, `!`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Bitwise operators: `&`, `|`, `^`, `<<`, `>>`, `~` (integer types only)
 
 ### If Statements
 
@@ -621,6 +622,82 @@ fn get_day_name(day: i32): string {
 - `default` case matches when no other case matches
 - `default` can appear anywhere in the switch body
 - Expressions are allowed in both switch value and case values
+
+### Bitwise Operators
+
+Hemlock provides bitwise operators for integer manipulation at the bit level. These operators work **only with integer types** (i8-i64, u8-u64) and preserve the original type of the operands.
+
+**Binary bitwise operators:**
+- `&` - Bitwise AND
+- `|` - Bitwise OR
+- `^` - Bitwise XOR (exclusive OR)
+- `<<` - Left shift
+- `>>` - Right shift
+
+**Unary bitwise operator:**
+- `~` - Bitwise NOT (complement)
+
+**Basic operations:**
+```hemlock
+let a = 12;  // 1100 in binary
+let b = 10;  // 1010 in binary
+
+print(a & b);   // 8  (1000) - AND
+print(a | b);   // 14 (1110) - OR
+print(a ^ b);   // 6  (0110) - XOR
+print(a << 2);  // 48 (110000) - left shift by 2
+print(a >> 1);  // 6  (110) - right shift by 1
+print(~a);      // -13 (two's complement)
+```
+
+**With unsigned types:**
+```hemlock
+let c: u8 = 15;   // 00001111 in binary
+let d: u8 = 7;    // 00000111 in binary
+
+print(c & d);     // 7  (00000111)
+print(c | d);     // 15 (00001111)
+print(c ^ d);     // 8  (00001000)
+print(~c);        // 240 (11110000) - in u8
+```
+
+**Type preservation:**
+```hemlock
+// Bitwise operations preserve the type of operands
+let x: u8 = 255;
+let result = ~x;  // result is u8 with value 0
+
+let y: i32 = 100;
+let result2 = y << 2;  // result2 is i32 with value 400
+```
+
+**Operator precedence:**
+Bitwise operators follow C-style precedence:
+1. `~` (unary NOT) - highest, same level as `!` and `-`
+2. `<<`, `>>` (shifts) - higher than comparisons, lower than `+`/`-`
+3. `&` (bitwise AND) - higher than `^` and `|`
+4. `^` (bitwise XOR) - between `&` and `|`
+5. `|` (bitwise OR) - lower than `&` and `^`, higher than `&&`
+6. `&&`, `||` (logical) - lowest precedence
+
+**Precedence examples:**
+```hemlock
+// & has higher precedence than |
+let result1 = 12 | 10 & 8;  // (10 & 8) | 12 = 8 | 12 = 12
+
+// Shift has higher precedence than bitwise operators
+let result2 = 8 | 1 << 2;   // 8 | (1 << 2) = 8 | 4 = 12
+
+// Use parentheses for clarity
+let result3 = (5 & 3) | (2 << 1);  // 1 | 4 = 5
+```
+
+**Important notes:**
+- Bitwise operators only work with integer types (not floats, strings, etc.)
+- Type promotion follows standard rules (smaller types promote to larger)
+- Right shift (`>>`) is arithmetic for signed types, logical for unsigned
+- Shift amounts are not range-checked (behavior is platform-dependent for large shifts)
+- Bitwise NOT (`~`) returns the one's complement (all bits flipped)
 
 ---
 
@@ -2144,7 +2221,7 @@ When adding features to Hemlock:
   - Objects: literals, methods, duck typing, optional fields, serialize/deserialize
   - **Strings:** 18 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, byte_at, chars, bytes, to_bytes
   - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
-  - Control flow: if/else, while, for, for-in, break, continue, switch
+  - Control flow: if/else, while, for, for-in, break, continue, switch, bitwise operators (&, |, ^, <<, >>, ~)
   - Error handling: try/catch/finally/throw
   - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
   - **Signal Handling:** POSIX signal handling with signal(signum, handler) and raise(signum), 15 signal constants (SIGINT, SIGTERM, SIGUSR1, SIGUSR2, etc.)

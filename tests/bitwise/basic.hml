@@ -1,0 +1,28 @@
+// Test: Basic bitwise operations
+// Expect: 8
+// Expect: 14
+// Expect: 6
+// Expect: 48
+// Expect: 6
+// Expect: -13
+
+let a = 12;
+let b = 10;
+
+// Bitwise AND
+print(a & b);  // 12 & 10 = 8
+
+// Bitwise OR
+print(a | b);  // 12 | 10 = 14
+
+// Bitwise XOR
+print(a ^ b);  // 12 ^ 10 = 6
+
+// Left shift
+print(a << 2);  // 12 << 2 = 48
+
+// Right shift
+print(a >> 1);  // 12 >> 1 = 6
+
+// Bitwise NOT
+print(~a);  // ~12 = -13

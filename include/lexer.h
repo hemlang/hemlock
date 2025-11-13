@@ -88,7 +88,13 @@ typedef enum {
     TOK_GREATER_EQUAL,
     TOK_AMP_AMP,
     TOK_PIPE_PIPE,
-    
+    TOK_AMP,
+    TOK_PIPE,
+    TOK_CARET,
+    TOK_TILDE,
+    TOK_LESS_LESS,
+    TOK_GREATER_GREATER,
+
     // Punctuation
     TOK_SEMICOLON,
     TOK_COLON,
