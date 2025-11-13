@@ -46,6 +46,7 @@ typedef struct {
     int length;          // Length in bytes (for backward compatibility, renamed to byte_length conceptually)
     int char_length;     // Length in Unicode codepoints (cached, -1 if unknown)
     int capacity;        // Allocated capacity in bytes
+    int ref_count;       // Reference count for memory management
 } String;
 
 // Buffer struct (safe pointer wrapper)
@@ -53,6 +54,7 @@ typedef struct {
     void *data;
     int length;
     int capacity;
+    int ref_count;       // Reference count for memory management
 } Buffer;
 
 // Array struct (dynamic array)
@@ -60,6 +62,7 @@ typedef struct {
     Value *elements;
     int length;
     int capacity;
+    int ref_count;       // Reference count for memory management
 } Array;
 
 // File handle struct
@@ -77,6 +80,7 @@ typedef struct {
     Value *field_values;
     int num_fields;
     int capacity;
+    int ref_count;       // Reference count for memory management
 } Object;
 
 // Function struct (user-defined function)

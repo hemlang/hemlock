@@ -1,0 +1,131 @@
+// Test: Environment value cleanup
+// Verifies that values are properly freed when environments go out of scope
+// and when variables are reassigned
+
+// Test 1: Basic scope cleanup
+{
+    let s = "This string should be freed when scope exits";
+    let arr = [1, 2, 3, 4, 5];
+    let obj = {name: "test", value: 42};
+    print("Scope 1: Variables created");
+}
+print("Scope 1 exited - values should be freed");
+
+// Test 2: Nested scopes
+{
+    let outer = "outer scope string";
+    {
+        let inner = "inner scope string";
+        let nested_arr = [10, 20, 30];
+        print("Inner scope");
+    }
+    print("Inner scope exited - inner values freed");
+}
+print("Outer scope exited - outer values freed");
+
+// Test 3: Variable reassignment should free old values
+{
+    let x = "original string";
+    print(x);
+    x = "reassigned string";  // Old value should be freed
+    print(x);
+    x = "third value";  // Second value should be freed
+    print(x);
+}
+print("Reassignment test completed");
+
+// Test 4: Array reassignment
+{
+    let arr2 = [1, 2, 3];
+    print("Original array created");
+    arr2 = [4, 5, 6, 7, 8];  // Old array should be freed
+    print("Array reassigned");
+}
+print("Array reassignment test completed");
+
+// Test 5: Object reassignment
+{
+    let obj2 = {x: 10, y: 20};
+    print("Original object created");
+    obj2 = {a: 100, b: 200, c: 300};  // Old object should be freed
+    print("Object reassigned");
+}
+print("Object reassignment test completed");
+
+// Test 6: Mixed types with nested data
+{
+    let data = {
+        name: "Test",
+        values: [1, 2, 3],
+        nested: {x: 10, y: 20}
+    };
+    print("Complex nested structure created");
+}
+print("Nested structure freed");
+
+// Test 7: String concatenation creates new strings
+{
+    let str1 = "Hello";
+    let str2 = "World";
+    let str3 = str1 + " " + str2;
+    print(str3);
+}
+print("String concatenation test completed");
+
+// Test 8: Buffer cleanup
+{
+    let buf = buffer(1024);
+    print("Buffer allocated");
+}
+print("Buffer freed");
+
+// Test 9: Function with local variables
+fn test_function() {
+    let local1 = "local string 1";
+    let local2 = [100, 200, 300];
+    let local3 = {msg: "local object"};
+    print("Function locals created");
+    return "function result";
+}
+
+let result = test_function();
+print(result);
+print("Function exited - local variables freed");
+
+// Test 10: Loop with reassignment (variables persist across iterations in Hemlock)
+let loop_counter = 0;
+let loop_var = "initial";
+let loop_arr = [0];
+while (loop_counter < 3) {
+    loop_var = "iteration";  // Reassigns, old value freed
+    loop_arr = [loop_counter, loop_counter+1, loop_counter+2];  // Old array freed
+    print(loop_var);
+    loop_counter = loop_counter + 1;
+}
+print("Loop completed - loop variables will be freed when scope exits");
+
+// Test 11: Parent scope variable reassignment
+{
+    let outer_var = "outer value";
+    {
+        // Reassign outer scope variable - old value should be freed
+        outer_var = "modified from inner scope";
+        print(outer_var);
+    }
+    print(outer_var);
+}
+print("Parent scope reassignment test completed");
+
+// Test 12: Closure environment cleanup (closures keep reference)
+fn make_closure() {
+    let captured = "captured value";
+    return fn() {
+        return captured;
+    };
+}
+
+let closure = make_closure();
+print(closure());  // captured value still accessible
+print("Closure test completed");
+
+print("All environment cleanup tests passed!");

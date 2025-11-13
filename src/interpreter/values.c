@@ -27,6 +27,21 @@ void string_free(String *str) {
     }
 }
 
+void string_retain(String *str) {
+    if (str) {
+        str->ref_count++;
+    }
+}
+
+void string_release(String *str) {
+    if (str && str->ref_count > 0) {
+        str->ref_count--;
+        if (str->ref_count == 0) {
+            string_free(str);
+        }
+    }
+}
+
 String* string_new(const char *cstr) {
     int len = strlen(cstr);
     String *str = malloc(sizeof(String));
@@ -37,6 +52,7 @@ String* string_new(const char *cstr) {
     str->length = len;
     str->char_length = -1;  // Cache not yet computed
     str->capacity = len + 1;
+    str->ref_count = 1;  // Initialize reference count
     str->data = malloc(str->capacity);
     if (!str->data) {
         free(str);
@@ -57,6 +73,7 @@ String* string_copy(String *str) {
     copy->length = str->length;
     copy->char_length = str->char_length;  // Copy cached value
     copy->capacity = str->capacity;
+    copy->ref_count = 1;  // Initialize reference count
     copy->data = malloc(copy->capacity);
     if (!copy->data) {
         free(copy);
@@ -77,6 +94,7 @@ String* string_concat(String *a, String *b) {
     result->length = new_len;
     result->char_length = -1;  // Cache invalidated after concatenation
     result->capacity = new_len + 1;
+    result->ref_count = 1;  // Initialize reference count
     result->data = malloc(result->capacity);
     if (!result->data) {
         free(result);
@@ -110,6 +128,7 @@ Value val_string_take(char *data, int length, int capacity) {
     str->length = length;
     str->char_length = -1;  // Cache not yet computed
     str->capacity = capacity;
+    str->ref_count = 1;  // Initialize reference count
     v.as.as_string = str;
     return v;
 }
@@ -134,6 +153,21 @@ void buffer_free(Buffer *buf) {
     }
 }
 
+void buffer_retain(Buffer *buf) {
+    if (buf) {
+        buf->ref_count++;
+    }
+}
+
+void buffer_release(Buffer *buf) {
+    if (buf && buf->ref_count > 0) {
+        buf->ref_count--;
+        if (buf->ref_count == 0) {
+            buffer_free(buf);
+        }
+    }
+}
+
 Value val_buffer(int size) {
     if (size <= 0) {
         fprintf(stderr, "Runtime error: buffer size must be positive\n");
@@ -155,6 +189,7 @@ Value val_buffer(int size) {
     }
     buf->length = size;
     buf->capacity = size;
+    buf->ref_count = 1;  // Initialize reference count
     v.as.as_buffer = buf;
     return v;
 }
@@ -176,6 +211,7 @@ Array* array_new(void) {
     }
     arr->capacity = 8;
     arr->length = 0;
+    arr->ref_count = 1;  // Initialize reference count
     arr->elements = malloc(sizeof(Value) * arr->capacity);
     if (!arr->elements) {
         free(arr);
@@ -198,6 +234,21 @@ void array_free(Array *arr) {
 
     array_free_internal(arr, visited);
     visited_set_free(visited);
+}
+
+void array_retain(Array *arr) {
+    if (arr) {
+        arr->ref_count++;
+    }
+}
+
+void array_release(Array *arr) {
+    if (arr && arr->ref_count > 0) {
+        arr->ref_count--;
+        if (arr->ref_count == 0) {
+            array_free(arr);
+        }
+    }
 }
 
 static void array_grow(Array *arr) {
@@ -284,6 +335,21 @@ void object_free(Object *obj) {
     visited_set_free(visited);
 }
 
+void object_retain(Object *obj) {
+    if (obj) {
+        obj->ref_count++;
+    }
+}
+
+void object_release(Object *obj) {
+    if (obj && obj->ref_count > 0) {
+        obj->ref_count--;
+        if (obj->ref_count == 0) {
+            object_free(obj);
+        }
+    }
+}
+
 Object* object_new(char *type_name, int initial_capacity) {
     Object *obj = malloc(sizeof(Object));
     if (!obj) {
@@ -306,6 +372,7 @@ Object* object_new(char *type_name, int initial_capacity) {
     }
     obj->num_fields = 0;
     obj->capacity = initial_capacity;
+    obj->ref_count = 1;  // Initialize reference count
     return obj;
 }
 
@@ -858,4 +925,62 @@ void value_free(Value val) {
     }
     value_free_internal(val, visited);
     visited_set_free(visited);
+}
+
+// Public API - increment reference count for heap-allocated values
+void value_retain(Value val) {
+    switch (val.type) {
+        case VAL_STRING:
+            if (val.as.as_string) {
+                string_retain(val.as.as_string);
+            }
+            break;
+        case VAL_BUFFER:
+            if (val.as.as_buffer) {
+                buffer_retain(val.as.as_buffer);
+            }
+            break;
+        case VAL_ARRAY:
+            if (val.as.as_array) {
+                array_retain(val.as.as_array);
+            }
+            break;
+        case VAL_OBJECT:
+            if (val.as.as_object) {
+                object_retain(val.as.as_object);
+            }
+            break;
+        // Other types don't need reference counting
+        default:
+            break;
+    }
+}
+
+// Public API - decrement reference count and free if reaches 0
+void value_release(Value val) {
+    switch (val.type) {
+        case VAL_STRING:
+            if (val.as.as_string) {
+                string_release(val.as.as_string);
+            }
+            break;
+        case VAL_BUFFER:
+            if (val.as.as_buffer) {
+                buffer_release(val.as.as_buffer);
+            }
+            break;
+        case VAL_ARRAY:
+            if (val.as.as_array) {
+                array_release(val.as.as_array);
+            }
+            break;
+        case VAL_OBJECT:
+            if (val.as.as_object) {
+                object_release(val.as.as_object);
+            }
+            break;
+        // Other types don't need reference counting
+        default:
+            break;
+    }
 }

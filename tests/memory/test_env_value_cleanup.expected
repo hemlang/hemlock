@@ -1,0 +1,34 @@
+Scope 1: Variables created
+Scope 1 exited - values should be freed
+Inner scope
+Inner scope exited - inner values freed
+Outer scope exited - outer values freed
+original string
+reassigned string
+third value
+Reassignment test completed
+Original array created
+Array reassigned
+Array reassignment test completed
+Original object created
+Object reassigned
+Object reassignment test completed
+Complex nested structure created
+Nested structure freed
+Hello World
+String concatenation test completed
+Buffer allocated
+Buffer freed
+Function locals created
+function result
+Function exited - local variables freed
+iteration
+iteration
+iteration
+Loop completed - loop variables will be freed when scope exits
+modified from inner scope
+modified from inner scope
+Parent scope reassignment test completed
+captured value
+Closure test completed
+All environment cleanup tests passed!

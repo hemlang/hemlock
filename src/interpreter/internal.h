@@ -128,8 +128,10 @@ Value val_object(Object *obj);
 Value val_file(FileHandle *file);
 void file_free(FileHandle *file);
 
-// Value cleanup
+// Value cleanup and reference counting
 void value_free(Value val);
+void value_retain(Value val);
+void value_release(Value val);
 
 // Printing
 void print_value(Value val);

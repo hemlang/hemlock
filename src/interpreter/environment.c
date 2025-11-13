@@ -44,9 +44,10 @@ Environment* env_new(Environment *parent) {
 }
 
 void env_free(Environment *env) {
-    // Free all variable names
+    // Free all variable names and release values
     for (int i = 0; i < env->count; i++) {
         free(env->names[i]);
+        value_release(env->values[i]);  // Decrement reference count
     }
     free(env->names);
     free(env->values);
@@ -125,6 +126,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
     }
 
     env->names[env->count] = strdup(name);
+    value_retain(value);  // Retain the value
     env->values[env->count] = value;
     env->is_const[env->count] = is_const;
     env->count++;
@@ -144,6 +146,9 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
                 ctx->exception_state.is_throwing = 1;
                 return;
             }
+            // Release old value, retain new value
+            value_release(env->values[i]);
+            value_retain(value);
             env->values[i] = value;
             return;
         }
@@ -165,6 +170,9 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
                         ctx->exception_state.is_throwing = 1;
                         return;
                     }
+                    // Release old value, retain new value
+                    value_release(search_env->values[i]);
+                    value_retain(value);
                     // Update parent scope variable
                     search_env->values[i] = value;
                     return;
@@ -181,6 +189,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
     }
 
     env->names[env->count] = strdup(name);
+    value_retain(value);  // Retain the value
     env->values[env->count] = value;
     env->is_const[env->count] = 0;  // Always mutable for implicit variables
     env->count++;
