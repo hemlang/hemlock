@@ -479,10 +479,9 @@ static Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 static Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused - panic exits immediately, doesn't throw
-
     if (num_args > 1) {
         fprintf(stderr, "Runtime error: panic() expects 0 or 1 argument (message)\n");
+        call_stack_print(&ctx->call_stack);
         exit(1);
     }
 
@@ -496,12 +495,14 @@ static Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx) {
             fprintf(stderr, "panic: ");
             print_value(args[0]);
             fprintf(stderr, "\n");
+            call_stack_print(&ctx->call_stack);
             exit(1);
         }
     }
 
-    // Print panic message and exit
+    // Print panic message, stack trace, and exit
     fprintf(stderr, "panic: %s\n", message);
+    call_stack_print(&ctx->call_stack);
     exit(1);
 }
 

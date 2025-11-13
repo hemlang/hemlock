@@ -228,4 +228,7 @@ void call_stack_pop(CallStack *stack);
 void call_stack_print(CallStack *stack);
 void call_stack_free(CallStack *stack);
 
+// Runtime error with stack trace (printf-style)
+void runtime_error(ExecutionContext *ctx, const char *format, ...);
+
 #endif // HEMLOCK_INTERPRETER_INTERNAL_H
