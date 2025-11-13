@@ -5,8 +5,15 @@ while (i < 10) {
     buf[i] = 65 + i;
     i = i + 1;
 }
-write_bytes("tests/temp/test_binary.dat", buf);
-let data = read_bytes("tests/temp/test_binary.dat");
+
+let fw = open("tests/temp/test_binary.dat", "w");
+fw.write_bytes(buf);
+fw.close();
+
+let fr = open("tests/temp/test_binary.dat", "r");
+let data = fr.read_bytes(10);
+fr.close();
+
 print("Length:");
 print(data.length);
 print("First byte:");

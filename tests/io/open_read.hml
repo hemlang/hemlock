@@ -1,5 +1,8 @@
 // Test: Open file and read in chunks
-write_file("tests/temp/test_chunks.txt", "Hello, World!");
+let fw = open("tests/temp/test_chunks.txt", "w");
+fw.write("Hello, World!");
+fw.close();
+
 let f = open("tests/temp/test_chunks.txt", "r");
 print(f);
 print("Mode:");

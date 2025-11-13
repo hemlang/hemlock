@@ -1463,6 +1463,157 @@ try {
 
 ---
 
+## File I/O
+
+Hemlock provides a **File object API** for file operations with proper error handling and resource management.
+
+### Opening Files
+
+Use `open(path, mode?)` to open a file:
+
+```hemlock
+let f = open("data.txt", "r");     // Read mode (default)
+let f2 = open("output.txt", "w");  // Write mode (truncate)
+let f3 = open("log.txt", "a");     // Append mode
+let f4 = open("data.bin", "r+");   // Read/write mode
+```
+
+**Modes:**
+- `"r"` - Read (default)
+- `"w"` - Write (truncate existing file)
+- `"a"` - Append
+- `"r+"` - Read and write
+- `"w+"` - Read and write (truncate)
+- `"a+"` - Read and append
+
+**Important:** Files must be manually closed with `f.close()` to avoid file descriptor leaks.
+
+### File Methods
+
+**Reading:**
+```hemlock
+let f = open("data.txt", "r");
+
+// Read entire file
+let all = f.read();              // Read from current position to EOF
+
+// Read specific number of bytes
+let chunk = f.read(1024);        // Read up to 1024 bytes
+
+// Read binary data
+let binary = f.read_bytes(256);  // Returns buffer with 256 bytes
+
+f.close();
+```
+
+**Writing:**
+```hemlock
+let f = open("output.txt", "w");
+
+// Write text (returns bytes written)
+let written = f.write("Hello, World!\n");  // Returns i32
+
+// Write binary data
+let buf = buffer(10);
+buf[0] = 65;  // 'A'
+let bytes = f.write_bytes(buf);  // Returns i32
+
+f.close();
+```
+
+**Seeking:**
+```hemlock
+let f = open("data.txt", "r");
+
+// Get current position
+let pos = f.tell();  // Returns i32
+
+// Move to specific position
+f.seek(100);         // Move to byte 100
+f.seek(0);           // Reset to beginning
+
+f.close();
+```
+
+**Closing:**
+```hemlock
+let f = open("data.txt", "r");
+f.close();
+f.close();  // Safe - idempotent, can call multiple times
+```
+
+### File Properties (Read-Only)
+
+```hemlock
+let f = open("/path/to/file.txt", "r");
+
+print(f.path);    // "/path/to/file.txt" - file path
+print(f.mode);    // "r" - open mode
+print(f.closed);  // false - whether file is closed
+
+f.close();
+print(f.closed);  // true
+```
+
+### Error Handling
+
+All file operations include proper error messages with context:
+
+```hemlock
+// Errors include filename for better debugging
+let f = open("missing.txt", "r");
+// Error: Failed to open 'missing.txt': No such file or directory
+
+let f2 = open("data.txt", "r");
+f2.close();
+f2.read();
+// Error: Cannot read from closed file 'data.txt'
+
+let f3 = open("readonly.txt", "r");
+f3.write("data");
+// Error: Cannot write to file 'readonly.txt' opened in read-only mode
+```
+
+### Resource Management Pattern
+
+**Always close files explicitly:**
+
+```hemlock
+// Basic pattern
+let f = open("data.txt", "r");
+let content = f.read();
+f.close();
+
+// With error handling
+let f = open("data.txt", "r");
+try {
+    let content = f.read();
+    process(content);
+} finally {
+    f.close();  // Always close, even on error
+}
+```
+
+### Complete File API
+
+**Methods:**
+- `read(size?: i32): string` - Read text (optional size parameter)
+- `read_bytes(size: i32): buffer` - Read binary data
+- `write(data: string): i32` - Write text, returns bytes written
+- `write_bytes(data: buffer): i32` - Write binary data, returns bytes written
+- `seek(position: i32): i32` - Seek to position, returns new position
+- `tell(): i32` - Get current position
+- `close()` - Close file (idempotent)
+
+**Properties (read-only):**
+- `file.path: string` - File path
+- `file.mode: string` - Open mode
+- `file.closed: bool` - Whether file is closed
+
+**Note:** The old global functions (`read_file()`, `write_file()`, `append_file()`, `read_bytes()`, `write_bytes()`, `file_exists()`) have been removed in favor of the File object API. Use `open()` and file methods instead.
+
+---
+
 ## Implementation Details
 
 ### Project Structure
@@ -1696,12 +1847,12 @@ When adding features to Hemlock:
   - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
   - Control flow: if/else, while, for, for-in, break, continue, switch
   - Error handling: try/catch/finally/throw
-  - File I/O: open, read, write, close, seek, tell, file_exists
+  - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
   - Command-line arguments: built-in `args` array
   - **Async/Concurrency:** async/await syntax, spawn/join/detach, channels with send/recv/close, pthread-based true parallelism, exception propagation
   - **FFI (Foreign Function Interface):** Call C functions from shared libraries using libffi, support for all primitive types, automatic type conversion
   - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime, ffi)
-  - 221 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, and 5 i64/u64 tests)
+  - 220 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, and 5 i64/u64 tests)
 - **v0.2** - Compiler backend, optimization (planned)
 - **v0.3** - Advanced features (planned)
 

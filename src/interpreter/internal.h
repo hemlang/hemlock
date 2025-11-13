@@ -180,12 +180,6 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 Value call_channel_method(Channel *ch, const char *method, Value *args, int num_args);
 
 // I/O builtin functions
-Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx);
-Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx);
-Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx);
-Value builtin_read_bytes(Value *args, int num_args, ExecutionContext *ctx);
-Value builtin_write_bytes(Value *args, int num_args, ExecutionContext *ctx);
-Value builtin_file_exists(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_open(Value *args, int num_args, ExecutionContext *ctx);
