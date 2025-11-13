@@ -1,0 +1,42 @@
+// Test: Exception handling with many concurrent tasks
+// Some tasks throw exceptions, verify they're properly caught
+
+async fn maybe_fail(id: i32): i32 {
+    // Tasks with even IDs throw exceptions
+    if (id == 2 || id == 4 || id == 6 || id == 8) {
+        throw "Task failed";
+    }
+    return id * 10;
+}
+
+// Spawn 10 tasks (half will fail)
+let tasks = [];
+let i = 0;
+while (i < 10) {
+    tasks.push(spawn(maybe_fail, i));
+    i = i + 1;
+}
+
+// Join tasks and handle exceptions
+let successful = 0;
+let failed = 0;
+let sum = 0;
+
+i = 0;
+while (i < tasks.length) {
+    try {
+        let result = join(tasks[i]);
+        sum = sum + result;
+        successful = successful + 1;
+    } catch (e) {
+        failed = failed + 1;
+    }
+    i = i + 1;
+}
+
+print("Successful:");
+print(successful);
+print("Failed:");
+print(failed);
+print("Sum:");
+print(sum);

@@ -65,18 +65,18 @@ void env_free(Environment *env) {
     }
 }
 
-// Increment reference count
+// Increment reference count (thread-safe using atomic operations)
 void env_retain(Environment *env) {
     if (env) {
-        env->ref_count++;
+        __atomic_add_fetch(&env->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
-// Decrement reference count and free if it reaches 0
+// Decrement reference count and free if it reaches 0 (thread-safe using atomic operations)
 void env_release(Environment *env) {
     if (env) {
-        env->ref_count--;
-        if (env->ref_count == 0) {
+        int old_count = __atomic_sub_fetch(&env->ref_count, 1, __ATOMIC_SEQ_CST);
+        if (old_count == 0) {
             env_free(env);
         }
     }

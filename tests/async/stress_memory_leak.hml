@@ -1,0 +1,42 @@
+// Test: Memory leak detection with many spawn/join cycles
+// Spawns and joins many tasks to verify no memory leaks
+
+async fn simple_task(id: i32): i32 {
+    return id * 2;
+}
+
+// Run multiple batches of tasks
+let num_batches = 50;
+let tasks_per_batch = 20;
+let batch = 0;
+let total_sum = 0;
+
+while (batch < num_batches) {
+    let tasks = [];
+    let i = 0;
+
+    // Spawn batch of tasks
+    while (i < tasks_per_batch) {
+        tasks.push(spawn(simple_task, batch * tasks_per_batch + i));
+        i = i + 1;
+    }
+
+    // Join all tasks in this batch
+    i = 0;
+    while (i < tasks.length) {
+        let result = join(tasks[i]);
+        total_sum = total_sum + result;
+        i = i + 1;
+    }
+
+    batch = batch + 1;
+}
+
+print("Batches:");
+print(num_batches);
+print("Tasks per batch:");
+print(tasks_per_batch);
+print("Total tasks:");
+print(num_batches * tasks_per_batch);
+print("Total sum:");
+print(total_sum);

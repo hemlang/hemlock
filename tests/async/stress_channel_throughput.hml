@@ -1,0 +1,70 @@
+// Test: Channel stress test with multiple producers and consumers
+// Tests channel thread safety under high load
+
+async fn producer(ch, start: i32, count: i32): i32 {
+    let i = 0;
+    while (i < count) {
+        ch.send(start + i);
+        i = i + 1;
+    }
+    return count;
+}
+
+async fn consumer(ch, count: i32): i32 {
+    let sum = 0;
+    let i = 0;
+    while (i < count) {
+        let val = ch.recv();
+        sum = sum + val;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Create channel with buffer
+let ch = channel(100);
+
+// Spawn 10 producers (each sends 100 messages)
+let num_producers = 10;
+let messages_per_producer = 100;
+let producers = [];
+let i = 0;
+
+while (i < num_producers) {
+    let task = spawn(producer, ch, i * messages_per_producer, messages_per_producer);
+    producers.push(task);
+    i = i + 1;
+}
+
+// Spawn 10 consumers (each receives 100 messages)
+let num_consumers = 10;
+let messages_per_consumer = 100;
+let consumers = [];
+i = 0;
+
+while (i < num_consumers) {
+    let task = spawn(consumer, ch, messages_per_consumer);
+    consumers.push(task);
+    i = i + 1;
+}
+
+// Wait for all producers
+let produced = 0;
+i = 0;
+while (i < producers.length) {
+    produced = produced + join(producers[i]);
+    i = i + 1;
+}
+
+// Wait for all consumers
+let consumed_sum = 0;
+i = 0;
+while (i < consumers.length) {
+    consumed_sum = consumed_sum + join(consumers[i]);
+    i = i + 1;
+}
+
+print("Produced messages:");
+print(produced);
+print("Consumer sum:");
+print(consumed_sum);

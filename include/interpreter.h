@@ -116,6 +116,8 @@ typedef struct Task {
     struct Task *waiting_on;    // Task we're blocked on (for join)
     void *thread;               // pthread_t (opaque pointer)
     int detached;               // Flag: task is detached (fire-and-forget)
+    void *task_mutex;           // pthread_mutex_t for thread-safe state access
+    int ref_count;              // Reference count for memory management (atomic)
 } Task;
 
 // Channel struct (communication channel)
@@ -251,6 +253,8 @@ Object* object_new(char *type_name, int initial_capacity);
 // Task operations
 void task_free(Task *task);
 Task* task_new(int id, Function *function, Value *args, int num_args, Environment *env);
+void task_retain(Task *task);
+void task_release(Task *task);
 
 // Channel operations
 void channel_free(Channel *channel);

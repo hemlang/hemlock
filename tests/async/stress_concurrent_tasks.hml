@@ -1,0 +1,37 @@
+// Test: High concurrency stress test
+// Spawns 100 concurrent tasks to test thread safety
+
+async fn compute_sum(start: i32, count: i32): i32 {
+    let sum = 0;
+    let i = 0;
+    while (i < count) {
+        sum = sum + (start + i);
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Spawn 100 tasks
+let num_tasks = 100;
+let tasks = [];
+let i = 0;
+
+while (i < num_tasks) {
+    let task = spawn(compute_sum, i * 100, 100);
+    tasks.push(task);
+    i = i + 1;
+}
+
+// Join all tasks and compute total
+let total = 0;
+i = 0;
+while (i < tasks.length) {
+    let result = join(tasks[i]);
+    total = total + result;
+    i = i + 1;
+}
+
+print("Completed:");
+print(num_tasks);
+print("Total sum:");
+print(total);
