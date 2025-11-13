@@ -16,13 +16,18 @@ Hemlock is a systems scripting language that combines the power of C with the er
 ## Features
 
 - **Familiar syntax** - C-like with modern improvements
-- **Rich type system** - i8/i16/i32, u8/u16/u32, f32/f64, bool, string, ptr, buffer, null
+- **Rich type system** - i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, null
 - **First-class functions** - Closures, recursion, higher-order functions
-- **Objects** - JavaScript-style objects with methods, duck typing, and JSON serialization
+- **Objects** - JavaScript-style objects with methods, duck typing, optional fields, and JSON serialization
 - **Two pointer types** - Raw `ptr` for experts, safe `buffer` with bounds checking
 - **Memory API** - alloc, free, memset, memcpy, realloc, talloc, sizeof
-- **Mutable strings** - First-class UTF-8 strings with indexing and concatenation
-- **Error handling** - try/catch/finally/throw for exception-based error handling
+- **UTF-8 strings** - First-class mutable strings with 18 methods (substr, slice, find, split, trim, to_upper, etc.)
+- **Dynamic arrays** - 15 array methods (push, pop, shift, unshift, insert, remove, slice, join, etc.)
+- **Rune type** - Unicode codepoints as distinct 32-bit type with full escape sequence support
+- **Error handling** - try/catch/finally/throw + panic() for unrecoverable errors
+- **File I/O** - File object API with methods and properties
+- **Signal handling** - POSIX signals with signal() and raise() functions
+- **Command execution** - exec() function to run shell commands and capture output
 - **Command-line arguments** - Access program arguments via built-in `args` array
 - **Structured concurrency** - async/await syntax, real OS threads via pthreads, thread-safe channels
 - **Foreign Function Interface** - Call C functions from shared libraries directly
@@ -50,18 +55,37 @@ free(buf);
 
 ### Type System
 ```hemlock
-let x = 42;              // i32 inferred
-let y: u8 = 255;         // explicit u8
-let z = x + y;           // promotes to i32
-let pi: f64 = 3.14159;   // explicit precision
+let x = 42;                   // i32 inferred (small value)
+let big = 5000000000;         // i64 inferred (large value)
+let y: u8 = 255;              // explicit u8
+let z = x + y;                // promotes to i32
+let pi: f64 = 3.14159;        // explicit precision
+
+// Rune type - Unicode codepoints
+let ch = 'A';                 // ASCII character
+let emoji = '🚀';             // Multi-byte emoji
+let unicode = '\u{1F680}';    // Unicode escape
 ```
 
 ### String Operations
 ```hemlock
+// Mutable UTF-8 strings
 let s = "hello";
-s[0] = 72;              // mutate to "Hello"
-print(s.length);        // 5
-let msg = s + " world"; // "Hello world"
+s[0] = 'H';                      // Mutate with rune
+print(s.length);                 // 5 (codepoint count)
+
+// Rich string methods (18 total)
+let upper = s.to_upper();        // "HELLO"
+let slice = s.slice(1, 4);       // "ell"
+let parts = "a,b,c".split(",");  // ["a", "b", "c"]
+let trimmed = "  text  ".trim(); // "text"
+let replaced = s.replace("lo", "p"); // "help"
+let idx = s.find("ll");          // 2
+
+// Unicode support
+let emoji = "🚀";
+print(emoji.length);             // 1 (one codepoint)
+print(emoji.byte_length);        // 4 (UTF-8 bytes)
 ```
 
 ### Functions and Closures
@@ -113,9 +137,29 @@ let typed_p: Person = p;  // Duck typing validates structure
 print(typeof(typed_p));   // "Person"
 
 // JSON serialization
-let json = serialize(person);
+let json = person.serialize();
 print(json);  // {"name":"Alice","age":30}
-let restored = deserialize(json);
+let restored = json.deserialize();
+```
+
+### Dynamic Arrays
+```hemlock
+// Dynamic arrays with 15 methods
+let arr = [1, 2, 3];
+arr.push(4);                    // [1, 2, 3, 4]
+let last = arr.pop();           // 4
+arr.unshift(0);                 // [0, 1, 2, 3]
+
+// Array manipulation
+arr.insert(2, 99);              // Insert at index
+let removed = arr.remove(0);    // Remove at index
+arr.reverse();                  // Reverse in-place
+
+// Search and slicing
+let idx = arr.find(99);         // Find index
+let sub = arr.slice(1, 3);      // Extract subarray
+let joined = arr.join(", ");    // "3, 99, 1"
+let combined = arr.concat([5, 6]); // Combine arrays
 ```
 
 ### Command-Line Arguments
@@ -192,6 +236,9 @@ try {
 } catch (e) {
     print("Outer: " + e);
 }
+
+// Unrecoverable errors
+panic("critical error");  // Exits program immediately
 ```
 
 ### Async/Concurrency (TRUE Multi-Threading!)
@@ -275,10 +322,65 @@ print("Process ID: " + typeof(pid));     // e.g., 5086
 ```
 
 **Supported types:**
-- Primitive types: i8, i16, i32, u8, u16, u32, f32, f64
+- Primitive types: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64
 - Special types: bool, string, ptr, void
 - Automatic type conversion between Hemlock and C
 - Thread-safe library loading
+
+### File I/O
+```hemlock
+// File object API
+let f = open("data.txt", "r");
+let content = f.read();
+print(content);
+f.close();
+
+// Write to file
+let out = open("output.txt", "w");
+out.write("Hello, World!\n");
+out.close();
+
+// File properties
+print(f.path);    // "/path/to/file"
+print(f.mode);    // "r"
+print(f.closed);  // false
+```
+
+### Signal Handling
+```hemlock
+// Handle Ctrl+C gracefully
+let running = true;
+
+fn handle_interrupt(sig) {
+    print("Caught SIGINT!");
+    running = false;
+}
+
+signal(SIGINT, handle_interrupt);
+
+// User-defined signals
+signal(SIGUSR1, fn(sig) {
+    print("Received SIGUSR1");
+});
+
+raise(SIGUSR1);  // Trigger handler
+```
+
+### Command Execution
+```hemlock
+// Execute shell commands and capture output
+let result = exec("ls -la");
+print(result.output);
+print("Exit code: " + typeof(result.exit_code));
+
+// Handle command failures
+let r = exec("grep pattern file.txt");
+if (r.exit_code == 0) {
+    print("Found: " + r.output);
+} else {
+    print("Not found");
+}
+```
 
 ## Building
 
@@ -318,20 +420,52 @@ make test
 
 ## Project Status
 
-Hemlock is currently in early development (v0.1). The following features are implemented:
+Hemlock is currently in early development (v0.1). All 251 tests passing! The following features are implemented:
 
-- ✅ Primitives and type system (i8-i32, u8-u32, f32/f64, bool, string, null)
-- ✅ Memory management (ptr, buffer, alloc, free, talloc, realloc, memset, memcpy)
-- ✅ String operations (mutable, indexing, concatenation, length)
-- ✅ Control flow (if/else, while, for, break, continue)
-- ✅ Functions and closures (first-class, recursion, lexical scoping)
-- ✅ Objects (literals, methods, duck typing, optional fields, JSON serialization)
-- ✅ Arrays (dynamic arrays with push/pop operations)
-- ✅ Error handling (try/catch/finally/throw)
-- ✅ File I/O (open, read, write, close, seek, tell)
+**Type System:**
+- ✅ Primitives: i8-i64, u8-u64, f32/f64, bool, string, rune, null
+- ✅ Complex types: ptr, buffer, array, object, file, task, channel
+- ✅ 64-bit integer support (i64/u64) with full type promotion
+- ✅ Rune type for Unicode codepoints (U+0000 to U+10FFFF)
+
+**Memory Management:**
+- ✅ Manual allocation (alloc, free, talloc, realloc, memset, memcpy, sizeof)
+- ✅ Two pointer types: raw `ptr` and safe `buffer`
+
+**Data Structures:**
+- ✅ UTF-8 strings with 18 methods (mutable, codepoint-based indexing)
+- ✅ Dynamic arrays with 15 methods (push, pop, slice, join, etc.)
+- ✅ Objects with methods, duck typing, optional fields, JSON serialization
+
+**Control Flow:**
+- ✅ if/else, while, for, for-in, break, continue, switch
+- ✅ Bitwise operators (&, |, ^, <<, >>, ~)
+
+**Functions:**
+- ✅ First-class functions, closures, recursion, lexical scoping
+
+**Error Handling:**
+- ✅ try/catch/finally/throw exception handling
+- ✅ panic() for unrecoverable errors
+
+**I/O & System:**
+- ✅ File object API (read, write, seek, tell, close)
+- ✅ Signal handling (POSIX signals with 15 constants)
+- ✅ Command execution (exec() with output capture)
 - ✅ Command-line arguments (built-in `args` array)
-- ✅ Async/await and structured concurrency (real OS threads via pthreads, channels, spawn/join/detach)
-- ✅ Foreign Function Interface (FFI) for calling C functions from shared libraries
+
+**Concurrency:**
+- ✅ async/await syntax, structured concurrency
+- ✅ Real OS threads via pthreads (true parallelism)
+- ✅ Thread-safe channels (send/recv/close)
+- ✅ Task management (spawn/join/detach)
+- ✅ Exception propagation across threads
+
+**Foreign Function Interface:**
+- ✅ Call C functions from shared libraries (libffi)
+- ✅ Full primitive type support (including i64/u64)
+- ✅ Automatic type conversion
+- ✅ Thread-safe library loading
 
 ## Why Hemlock?
 
