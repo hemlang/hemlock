@@ -1,0 +1,34 @@
+// Test array find() and contains() with i64/u64 values
+// This tests the fix for Issue #4
+
+// Test with i64 values
+let arr = [1, 2, 5000000000, 4, 5];
+
+// find() should locate i64 values
+let idx = arr.find(5000000000);
+print(idx);  // Expected: 2
+
+// find() should return -1 for non-existent i64
+let idx2 = arr.find(9000000000);
+print(idx2);  // Expected: -1
+
+// contains() should find i64 values
+let has = arr.contains(5000000000);
+print(has);  // Expected: true
+
+// contains() should return false for non-existent i64
+let has2 = arr.contains(9000000000);
+print(has2);  // Expected: false
+
+// Test with u64 values
+let val1: u64 = 100;
+let val2: u64 = 200;
+let val3: u64 = 5000000000;
+let val4: u64 = 400;
+let arr2 = [val1, val2, val3, val4];
+
+// find() should locate u64 values
+print(arr2.find(val3));  // Expected: 2
+
+// contains() should find u64 values
+print(arr2.contains(val3));  // Expected: true

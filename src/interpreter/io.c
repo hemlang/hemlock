@@ -787,9 +787,11 @@ int values_equal(Value a, Value b) {
         case VAL_I8: return a.as.as_i8 == b.as.as_i8;
         case VAL_I16: return a.as.as_i16 == b.as.as_i16;
         case VAL_I32: return a.as.as_i32 == b.as.as_i32;
+        case VAL_I64: return a.as.as_i64 == b.as.as_i64;
         case VAL_U8: return a.as.as_u8 == b.as.as_u8;
         case VAL_U16: return a.as.as_u16 == b.as.as_u16;
         case VAL_U32: return a.as.as_u32 == b.as.as_u32;
+        case VAL_U64: return a.as.as_u64 == b.as.as_u64;
         case VAL_F32: return a.as.as_f32 == b.as.as_f32;
         case VAL_F64: return a.as.as_f64 == b.as.as_f64;
         case VAL_BOOL: return a.as.as_bool == b.as.as_bool;
