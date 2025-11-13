@@ -1,0 +1,40 @@
+// Test: Basic await functionality
+// Tests that await automatically joins task handles
+
+async fn compute_sum(n: i32): i32 {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Test 1: await on spawned task
+print("Test 1: await on spawned task");
+let task1 = spawn(compute_sum, 10);
+let result1 = await task1;
+print(result1);  // Should print 45
+
+// Test 2: Multiple awaits
+print("Test 2: Multiple awaits");
+let task2 = spawn(compute_sum, 5);
+let task3 = spawn(compute_sum, 6);
+let result2 = await task2;  // 10
+let result3 = await task3;  // 15
+print(result2);
+print(result3);
+
+// Test 3: await on non-task value (should just return the value)
+print("Test 3: await on non-task value");
+let x = 42;
+let result4 = await x;
+print(result4);  // Should print 42
+
+// Test 4: await on expression that evaluates to task
+print("Test 4: await on expression");
+let result5 = await spawn(compute_sum, 7);
+print(result5);  // Should print 21
+
+print("All tests passed!");
