@@ -1954,6 +1954,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
 // ========== OBJECT METHOD HANDLING ==========
 
 Value call_object_method(Object *obj, const char *method, Value *args, int num_args) {
+    (void)args;  // Currently no object methods use args
     // serialize() - convert object to JSON string
     if (strcmp(method, "serialize") == 0) {
         if (num_args != 0) {

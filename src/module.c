@@ -40,9 +40,12 @@ static char* find_stdlib_path() {
     // Fallback: try current working directory + stdlib
     if (getcwd(resolved, sizeof(resolved))) {
         char stdlib_path[PATH_MAX];
-        snprintf(stdlib_path, PATH_MAX, "%s/stdlib", resolved);
-        if (access(stdlib_path, F_OK) == 0) {
-            return realpath(stdlib_path, NULL);
+        int ret = snprintf(stdlib_path, sizeof(stdlib_path), "%s/stdlib", resolved);
+        // Check if snprintf succeeded without truncation
+        if (ret > 0 && ret < (int)sizeof(stdlib_path)) {
+            if (access(stdlib_path, F_OK) == 0) {
+                return realpath(stdlib_path, NULL);
+            }
         }
     }
 

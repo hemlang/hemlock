@@ -1728,6 +1728,7 @@ static Value builtin_clamp(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 static Value builtin_rand(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
     (void)ctx;
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: rand() expects no arguments\n");
@@ -1770,6 +1771,7 @@ static Value builtin_seed(Value *args, int num_args, ExecutionContext *ctx) {
 // ========== TIME BUILTIN FUNCTIONS ==========
 
 static Value builtin_now(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
     (void)ctx;
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: now() expects no arguments\n");
@@ -1779,6 +1781,7 @@ static Value builtin_now(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 static Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
     (void)ctx;
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: time_ms() expects no arguments\n");
@@ -1814,6 +1817,7 @@ static Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 static Value builtin_clock(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
     (void)ctx;
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: clock() expects no arguments\n");
@@ -1940,6 +1944,7 @@ static Value builtin_exit(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 static Value builtin_get_pid(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
     (void)ctx;
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: get_pid() expects no arguments\n");
