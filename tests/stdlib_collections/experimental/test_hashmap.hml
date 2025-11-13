@@ -1,6 +1,6 @@
 // Test HashMap collection
 
-import { HashMap } from "../../stdlib/collections";
+import { HashMap } from "@stdlib/collections";
 
 let map = HashMap();
 

@@ -1,6 +1,6 @@
 // Basic collections tests - demonstrating core functionality
 
-import { HashMap, Queue, Stack, Set } from "../../stdlib/collections";
+import { HashMap, Queue, Stack, Set } from "@stdlib/collections";
 
 print("=== Testing Queue ===");
 let q = Queue();

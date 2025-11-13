@@ -1,6 +1,6 @@
 // Test LinkedList collection
 
-import { LinkedList } from "../../stdlib/collections";
+import { LinkedList } from "@stdlib/collections";
 
 let list = LinkedList();
 

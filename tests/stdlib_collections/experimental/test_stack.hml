@@ -1,6 +1,6 @@
 // Test Stack collection
 
-import { Stack } from "../../stdlib/collections";
+import { Stack } from "@stdlib/collections";
 
 let s = Stack();
 

@@ -1,6 +1,6 @@
 // Test Set collection
 
-import { Set } from "../../stdlib/collections";
+import { Set } from "@stdlib/collections";
 
 let s = Set();
 

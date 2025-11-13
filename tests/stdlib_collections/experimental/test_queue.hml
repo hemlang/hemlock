@@ -1,6 +1,6 @@
 // Test Queue collection
 
-import { Queue } from "../../stdlib/collections";
+import { Queue } from "@stdlib/collections";
 
 let q = Queue();
 
