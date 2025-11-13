@@ -243,7 +243,10 @@ void array_retain(Array *arr) {
 }
 
 void array_release(Array *arr) {
-    if (arr && arr->ref_count > 0) {
+    if (!arr) return;
+    // Skip if already manually freed via builtin_free()
+    if (is_manually_freed_pointer(arr)) return;
+    if (arr->ref_count > 0) {
         arr->ref_count--;
         if (arr->ref_count == 0) {
             array_free(arr);
@@ -265,6 +268,8 @@ void array_push(Array *arr, Value val) {
     if (arr->length >= arr->capacity) {
         array_grow(arr);
     }
+    // Retain value being stored in array (reference counting)
+    value_retain(val);
     arr->elements[arr->length++] = val;
 }
 
@@ -295,6 +300,9 @@ void array_set(Array *arr, int index, Value val) {
         array_push(arr, val_null());
     }
 
+    // Release old value, retain new value (reference counting)
+    value_release(arr->elements[index]);
+    value_retain(val);
     arr->elements[index] = val;
 }
 
@@ -342,7 +350,10 @@ void object_retain(Object *obj) {
 }
 
 void object_release(Object *obj) {
-    if (obj && obj->ref_count > 0) {
+    if (!obj) return;
+    // Skip if already manually freed via builtin_free()
+    if (is_manually_freed_pointer(obj)) return;
+    if (obj->ref_count > 0) {
         obj->ref_count--;
         if (obj->ref_count == 0) {
             object_free(obj);
@@ -868,6 +879,9 @@ static void value_free_internal(Value val, VisitedSet *visited);
 static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (!obj) return;
 
+    // Check if manually freed via builtin_free()
+    if (is_manually_freed_pointer(obj)) return;
+
     // Check if already visited (cycle detected)
     if (visited_set_contains(visited, obj)) {
         return;  // Already freeing this object - skip to prevent infinite recursion
@@ -891,6 +905,9 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
 // Internal version of array cleanup with cycle detection
 static void array_free_internal(Array *arr, VisitedSet *visited) {
     if (!arr) return;
+
+    // Check if manually freed via builtin_free()
+    if (is_manually_freed_pointer(arr)) return;
 
     // Check if already visited (cycle detected)
     if (visited_set_contains(visited, arr)) {

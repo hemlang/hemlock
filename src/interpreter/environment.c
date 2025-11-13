@@ -218,8 +218,9 @@ void env_break_cycles(Environment *env) {
 
     visited_set_free(visited);
 
-    // Clear the manually freed pointers set after breaking cycles
-    clear_manually_freed_pointers();
+    // NOTE: Do NOT clear manually_freed_pointers here!
+    // It needs to persist until after env_free() is called
+    // The set will be cleared by the caller after env_release()
 }
 
 void env_free(Environment *env) {
