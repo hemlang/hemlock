@@ -1,6 +1,10 @@
 #ifndef BUILTINS_INTERNAL_H
 #define BUILTINS_INTERNAL_H
 
+// Define feature test macros before including system headers
+#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
+
 #include "../internal.h"
 #include <stdio.h>
 #include <stdlib.h>
