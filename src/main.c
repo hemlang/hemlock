@@ -7,6 +7,9 @@
 #include "interpreter.h"
 #include "module.h"
 
+#define HEMLOCK_VERSION "0.1.0"
+#define HEMLOCK_BUILD_DATE __DATE__
+
 // FFI functions (from interpreter/ffi.c)
 extern void ffi_init(void);
 extern void ffi_cleanup(void);
@@ -156,7 +159,7 @@ static void run_repl(void) {
 
     register_builtins(env, 0, NULL, ctx);
 
-    printf("Hemlock v0.1 REPL\n");
+    printf("Hemlock v%s REPL\n", HEMLOCK_VERSION);
     printf("Type 'exit' to quit\n\n");
 
     for (;;) {
@@ -213,27 +216,95 @@ static void run_repl(void) {
     env_free(env);
 }
 
-static void print_usage(const char *program) {
-    fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "  %s [file.hml] [args...]    Run a hemlock file with optional arguments\n", program);
-    fprintf(stderr, "  %s                          Start REPL\n", program);
+static void print_version(void) {
+    printf("Hemlock version %s (built %s)\n", HEMLOCK_VERSION, HEMLOCK_BUILD_DATE);
+    printf("A small, unsafe language for writing unsafe things safely.\n");
+}
+
+static void print_help(const char *program) {
+    printf("Hemlock - A systems scripting language\n\n");
+    printf("USAGE:\n");
+    printf("    %s [OPTIONS] [FILE] [ARGS...]\n\n", program);
+    printf("ARGUMENTS:\n");
+    printf("    <FILE>       Hemlock script file to execute (.hml)\n");
+    printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
+    printf("OPTIONS:\n");
+    printf("    -h, --help       Display this help message\n");
+    printf("    -v, --version    Display version information\n");
+    printf("    -i, --interactive    Start REPL after executing file\n");
+    printf("    -c, --command <CODE>    Execute code string directly\n\n");
+    printf("EXAMPLES:\n");
+    printf("    %s                     # Start interactive REPL\n", program);
+    printf("    %s script.hml          # Run script.hml\n", program);
+    printf("    %s script.hml arg1 arg2    # Run script with arguments\n", program);
+    printf("    %s -c 'print(\"Hello\");'    # Execute code string\n", program);
+    printf("    %s -i script.hml       # Run script then start REPL\n\n", program);
+    printf("For more information, visit: https://github.com/nbeerbower/hemlock\n");
 }
 
 int main(int argc, char **argv) {
-    if (argc == 1) {
-        // No arguments - start REPL
-        run_repl();
+    int interactive_mode = 0;
+    const char *file_to_run = NULL;
+    const char *command_to_run = NULL;
+    int first_script_arg = 0;  // Index of first argument to pass to script
+
+    // Parse command-line flags
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_help(argv[0]);
+            return 0;
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            print_version();
+            return 0;
+        } else if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interactive") == 0) {
+            interactive_mode = 1;
+        } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--command") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: -c/--command requires a code argument\n");
+                fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
+                return 1;
+            }
+            command_to_run = argv[i + 1];
+            i++;  // Skip the code argument
+        } else if (argv[i][0] == '-') {
+            // Unknown flag
+            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
+            return 1;
+        } else {
+            // First non-flag argument is the file to run
+            file_to_run = argv[i];
+            first_script_arg = i;
+            break;  // Everything after this is passed to the script
+        }
+    }
+
+    // Execute based on what was specified
+    if (command_to_run != NULL) {
+        // Execute code string
+        ffi_init();
+        run_source(command_to_run, 0, NULL);
+        ffi_cleanup();
+
+        if (interactive_mode) {
+            run_repl();
+        }
         return 0;
     }
 
-    if (argc >= 2) {
+    if (file_to_run != NULL) {
         // Run file with arguments
-        // Pass script name and all following args to the Hemlock program
-        run_file(argv[1], argc - 1, &argv[1]);
-        exit(0);  // Explicitly exit with success code after file execution
+        int script_argc = argc - first_script_arg;
+        char **script_argv = &argv[first_script_arg];
+        run_file(file_to_run, script_argc, script_argv);
+
+        if (interactive_mode) {
+            run_repl();
+        }
+        return 0;
     }
 
-    // Should never reach here, but keep for safety
-    print_usage(argv[0]);
-    return 1;
+    // No file or command specified - start REPL
+    run_repl();
+    return 0;
 }
