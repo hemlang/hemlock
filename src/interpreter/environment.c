@@ -13,6 +13,7 @@ Environment* env_new(Environment *parent) {
     }
     env->capacity = 16;
     env->count = 0;
+    env->ref_count = 1;  // Initialize reference count to 1
     env->names = malloc(sizeof(char*) * env->capacity);
     if (!env->names) {
         free(env);
@@ -35,17 +36,49 @@ Environment* env_new(Environment *parent) {
         exit(1);
     }
     env->parent = parent;
+    // Retain parent environment if it exists
+    if (parent) {
+        env_retain(parent);
+    }
     return env;
 }
 
 void env_free(Environment *env) {
+    // Free all variable names
     for (int i = 0; i < env->count; i++) {
         free(env->names[i]);
     }
     free(env->names);
     free(env->values);
     free(env->is_const);
+
+    // Release parent environment (may trigger cascade of frees)
+    Environment *parent = env->parent;
+
+    // Free the environment itself
     free(env);
+
+    // Release parent after freeing this environment to avoid use-after-free
+    if (parent) {
+        env_release(parent);
+    }
+}
+
+// Increment reference count
+void env_retain(Environment *env) {
+    if (env) {
+        env->ref_count++;
+    }
+}
+
+// Decrement reference count and free if it reaches 0
+void env_release(Environment *env) {
+    if (env) {
+        env->ref_count--;
+        if (env->ref_count == 0) {
+            env_free(env);
+        }
+    }
 }
 
 static void env_grow(Environment *env) {

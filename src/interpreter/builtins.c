@@ -470,8 +470,8 @@ static void* task_thread_wrapper(void* arg) {
     *task->result = result;
     task->state = TASK_COMPLETED;
 
-    // Clean up function environment
-    env_free(func_env);
+    // Release function environment (reference counted)
+    env_release(func_env);
 
     return NULL;
 }

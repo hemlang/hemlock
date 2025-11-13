@@ -711,10 +711,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     call_stack_pop(&ctx->call_stack);
                 }
 
-                // Cleanup
-                // NOTE: We don't free call_env here because closures might reference it
-                // This is a known memory leak in v0.1, to be fixed with refcounting in v0.2
-                // env_free(call_env);
+                // Release call environment (reference counted - will be freed when no longer used)
+                env_release(call_env);
             } else if (func.type == VAL_FFI_FUNCTION) {
                 // Call FFI function
                 FFIFunction *ffi_func = (FFIFunction*)func.as.as_ffi_function;
@@ -935,8 +933,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Store body AST (shared, not copied)
             fn->body = expr->as.function.body;
 
-            // CRITICAL: Capture current environment
+            // CRITICAL: Capture current environment and retain it
             fn->closure_env = env;
+            env_retain(env);  // Increment ref count since closure captures env
 
             return val_function(fn);
         }
@@ -1333,7 +1332,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            env_free(loop_env);
+            env_release(loop_env);
             break;
         }
 
@@ -1399,7 +1398,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 exit(1);
             }
 
-            env_free(loop_env);
+            env_release(loop_env);
             break;
         }
 
@@ -1476,7 +1475,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     // Execute catch block
                     eval_stmt(stmt->as.try_stmt.catch_block, catch_env, ctx);
 
-                    env_free(catch_env);
+                    env_release(catch_env);
                 }
             }
 

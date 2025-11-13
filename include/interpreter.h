@@ -168,12 +168,15 @@ typedef struct Environment {
     int *is_const;  // 1 if const, 0 if mutable (let)
     int count;
     int capacity;
+    int ref_count;  // Reference count for memory management
     struct Environment *parent;  // for nested scopes later
 } Environment;
 
 // Public interface
 Environment* env_new(Environment *parent);
 void env_free(Environment *env);
+void env_retain(Environment *env);
+void env_release(Environment *env);
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);

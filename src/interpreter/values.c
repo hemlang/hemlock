@@ -695,8 +695,11 @@ void value_free(Value val) {
                     // Note: Type structs are not freed (shared/owned by AST)
                     free(fn->param_types);
                 }
-                // Note: closure_env and body are not freed (shared/owned by AST)
-                // This is a known limitation in v0.1
+                // Release closure environment (reference counted)
+                if (fn->closure_env) {
+                    env_release(fn->closure_env);
+                }
+                // Note: body is not freed (shared/owned by AST)
                 free(fn);
             }
             break;

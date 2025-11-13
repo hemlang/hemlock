@@ -33,9 +33,9 @@ void module_cache_free(ModuleCache *cache) {
         }
         free(mod->statements);
 
-        // Free exports environment
+        // Release exports environment
         if (mod->exports_env) {
-            env_free(mod->exports_env);
+            env_release(mod->exports_env);
         }
 
         // Free export names
