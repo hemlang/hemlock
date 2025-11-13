@@ -227,6 +227,7 @@ void exec_context_free(ExecutionContext *ctx);
 // Call stack helpers
 void call_stack_init(CallStack *stack);
 void call_stack_push(CallStack *stack, const char *function_name);
+void call_stack_push_line(CallStack *stack, const char *function_name, int line);
 void call_stack_pop(CallStack *stack);
 void call_stack_print(CallStack *stack);
 void call_stack_free(CallStack *stack);
