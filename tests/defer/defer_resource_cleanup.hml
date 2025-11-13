@@ -12,11 +12,11 @@ fn process_file(filename: string) {
     // File automatically closed when function returns
 }
 
-// Create a test file
-let test_file = open("test_defer.txt", "w");
+// Create a test file in tests/temp/
+let test_file = open("tests/temp/test_defer.txt", "w");
 test_file.write("Hello, defer!");
 test_file.close();
 
 // Process it
-process_file("test_defer.txt");
+process_file("tests/temp/test_defer.txt");
 print("Done!");
