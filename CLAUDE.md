@@ -1797,11 +1797,11 @@ try {
 
 Hemlock provides **structured concurrency** with `async fn` syntax, task spawning, and channels for communication. The implementation uses POSIX threads (pthreads) for **TRUE multi-threaded parallelism**.
 
-**Important: Current Implementation Status**
+**Implementation Status**
 - ✅ `async fn` - Fully implemented, functions can be spawned as tasks
-- ✅ `spawn()` / `join()` - Fully implemented with true parallelism
-- ⚠️ `await` - Currently a no-op (just evaluates expression synchronously, no automatic task joining)
-- Use explicit `join(task)` to wait for task results
+- ✅ `spawn()` / `join()` / `detach()` - Fully implemented with true parallelism
+- ✅ `await` - Automatically joins task handles, returns result
+- ✅ Channels - Thread-safe communication with `send()` / `recv()` / `close()`
 
 **What this means:**
 - ✅ **Real OS threads** - Each spawned task runs on a separate pthread (POSIX thread)
@@ -1837,8 +1837,8 @@ async fn compute(n: i32): i32 {
 - Async functions can be spawned as concurrent tasks using `spawn()`
 - Async functions can also be called directly (runs synchronously in current thread)
 - When spawned, each task runs on its **own OS thread** (not a coroutine!)
-- `await` keyword exists but currently just evaluates expressions synchronously (no automatic task joining yet)
-- Use explicit `join(task)` to wait for task completion
+- `await task_handle` automatically joins the task and returns its result
+- Can use either `await task` or explicit `join(task)` - both are equivalent
 
 ### Task Spawning
 
@@ -1867,6 +1867,43 @@ let f7 = join(t3);  // 5040
 - `spawn(async_fn, arg1, arg2, ...)` - Create a new task on a new pthread, returns task handle
 - `join(task)` - Wait for task completion (blocks until thread finishes), returns result
 - `detach(task)` - Fire-and-forget execution (thread runs independently, no join allowed)
+
+### Await Syntax
+
+The `await` keyword provides convenient syntax for waiting on task results:
+
+```hemlock
+async fn compute(n: i32): i32 {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Spawn multiple tasks
+let task1 = spawn(compute, 10);
+let task2 = spawn(compute, 20);
+let task3 = spawn(compute, 30);
+
+// Await results (automatically joins tasks)
+let result1 = await task1;  // Equivalent to join(task1)
+let result2 = await task2;  // Equivalent to join(task2)
+let result3 = await task3;  // Equivalent to join(task3)
+
+print(result1 + result2 + result3);
+
+// Can also await inline
+let result4 = await spawn(compute, 40);
+```
+
+**How `await` works:**
+- If the expression evaluates to a task handle, `await` automatically calls `join()` on it
+- If the expression is any other value, `await` just returns that value unchanged
+- `await task` and `join(task)` are functionally equivalent
+- Exceptions thrown in awaited tasks are propagated to the caller
 
 ### Channels
 
@@ -1986,7 +2023,6 @@ The ratio indicates how many cores were utilized: 3.6x means ~3-4 CPU cores were
 - Channels are reference-counted and freed when no longer used
 
 **Current limitations:**
-- `await` keyword parses but doesn't do automatic task joining (use explicit `join()`)
 - No `select()` for multiplexing multiple channels (planned)
 - No work-stealing scheduler (uses 1 thread per task, can be inefficient for many short tasks)
 - No async I/O integration yet (file/network operations still block)

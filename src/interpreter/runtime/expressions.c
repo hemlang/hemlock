@@ -1225,12 +1225,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
 
         case EXPR_AWAIT: {
-            // For MVP: await just evaluates the expression synchronously
-            // TODO: Implement proper async/await scheduling
+            // Evaluate the expression
             Value awaited = eval_expr(expr->as.await_expr.awaited_expr, env, ctx);
 
-            // If it's a task, we should join it
-            // For now, just return the value as-is
+            // If it's a task handle, automatically join it
+            if (awaited.type == VAL_TASK) {
+                Value args[1] = { awaited };
+                return builtin_join(args, 1, ctx);
+            }
+
+            // For other values (including direct async function calls),
+            // just return the value as-is (already evaluated)
             return awaited;
         }
     }

@@ -1,0 +1,41 @@
+// Test: await with parallel tasks
+// Demonstrates that spawn+await allows parallelism while direct call doesn't
+
+async fn cpu_task(id: i32, iterations: i32): i32 {
+    print("Task " + typeof(id) + " started");
+    let sum = 0;
+    let i = 0;
+    while (i < iterations) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    print("Task " + typeof(id) + " finished");
+    return sum;
+}
+
+// Test 1: Spawn multiple tasks, then await them (parallel execution)
+print("Test 1: Parallel execution with spawn+await");
+let t1 = spawn(cpu_task, 1, 10000);
+let t2 = spawn(cpu_task, 2, 10000);
+let t3 = spawn(cpu_task, 3, 10000);
+
+// All three tasks are running in parallel NOW
+
+let r1 = await t1;
+let r2 = await t2;
+let r3 = await t3;
+
+print("Results: " + typeof(r1) + ", " + typeof(r2) + ", " + typeof(r3));
+
+// Test 2: await on spawn expression (still parallel if we spawn multiple)
+print("Test 2: await spawn expression");
+let task4 = spawn(cpu_task, 4, 5000);
+let task5 = spawn(cpu_task, 5, 5000);
+
+// Can await in any order
+let r5 = await task5;
+let r4 = await task4;
+
+print("Results: " + typeof(r4) + ", " + typeof(r5));
+
+print("All tests passed!");

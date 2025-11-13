@@ -1,0 +1,31 @@
+// Test: await with exception propagation
+// Tests that exceptions from awaited tasks are properly propagated
+
+async fn task_that_throws(should_throw: i32): i32 {
+    if (should_throw == 1) {
+        throw "Task error!";
+    }
+    return 42;
+}
+
+// Test 1: Exception propagation through await
+print("Test 1: Exception propagation through await");
+try {
+    let task = spawn(task_that_throws, 1);
+    let result = await task;
+    print("ERROR: Should not reach here");
+} catch (e) {
+    print("Caught: " + e);  // Should print "Caught: Task error!"
+}
+
+// Test 2: Successful task with await
+print("Test 2: Successful task with await");
+let task2 = spawn(task_that_throws, 0);
+let result2 = await task2;
+if (result2 == 42) {
+    print("Success: got 42");
+} else {
+    print("ERROR: Wrong result");
+}
+
+print("All tests passed!");
