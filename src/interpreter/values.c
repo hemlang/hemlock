@@ -894,8 +894,8 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (obj->type_name) free(obj->type_name);
     for (int i = 0; i < obj->num_fields; i++) {
         free(obj->field_names[i]);
-        // Recursively free field values with cycle detection
-        value_free_internal(obj->field_values[i], visited);
+        // Release field values (decrements ref_counts)
+        value_release(obj->field_values[i]);
     }
     free(obj->field_names);
     free(obj->field_values);
@@ -917,9 +917,9 @@ static void array_free_internal(Array *arr, VisitedSet *visited) {
     // Mark as visited
     visited_set_add(visited, arr);
 
-    // Recursively free each element
+    // Release each element (decrements ref_counts)
     for (int i = 0; i < arr->length; i++) {
-        value_free_internal(arr->elements[i], visited);
+        value_release(arr->elements[i]);
     }
     free(arr->elements);
     free(arr);
