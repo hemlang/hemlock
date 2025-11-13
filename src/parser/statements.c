@@ -1,685 +1,10 @@
-#include "parser.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-// ========== ERROR HANDLING ==========
-
-static void error_at(Parser *p, Token *token, const char *message) {
-    if (p->panic_mode) return;
-    p->panic_mode = 1;
-    
-    fprintf(stderr, "[line %d] Error", token->line);
-    
-    if (token->type == TOK_EOF) {
-        fprintf(stderr, " at end");
-    } else if (token->type == TOK_ERROR) {
-        // Nothing
-    } else {
-        fprintf(stderr, " at '%.*s'", token->length, token->start);
-    }
-    
-    fprintf(stderr, ": %s\n", message);
-    p->had_error = 1;
-}
-
-static void error(Parser *p, const char *message) {
-    error_at(p, &p->previous, message);
-}
-
-static void error_at_current(Parser *p, const char *message) {
-    error_at(p, &p->current, message);
-}
-
-// Forward declaration
-static void advance(Parser *p);
-
-static void synchronize(Parser *p) {
-    p->panic_mode = 0;
-
-    while (p->current.type != TOK_EOF) {
-        if (p->previous.type == TOK_SEMICOLON) return;
-
-        switch (p->current.type) {
-            case TOK_LET:
-            case TOK_IF:
-            case TOK_WHILE:
-                return;
-            default:
-                ; // Do nothing
-        }
-
-        advance(p);
-    }
-}
-
-// ========== TOKEN MANAGEMENT ==========
-
-static void advance(Parser *p) {
-    p->previous = p->current;
-    
-    for (;;) {
-        p->current = lexer_next(p->lexer);
-        if (p->current.type != TOK_ERROR) break;
-        
-        error_at_current(p, p->current.start);
-    }
-}
-
-static void consume(Parser *p, TokenType type, const char *message) {
-    if (p->current.type == type) {
-        advance(p);
-        return;
-    }
-    
-    error_at_current(p, message);
-}
-
-static int check(Parser *p, TokenType type) {
-    return p->current.type == type;
-}
-
-static int match(Parser *p, TokenType type) {
-    if (!check(p, type)) return 0;
-    advance(p);
-    return 1;
-}
-
-// ========== EXPRESSION PARSING ==========
-
-// Forward declarations
-static Expr* expression(Parser *p);
-static Expr* assignment(Parser *p);
-static Expr* ternary(Parser *p);
-static Expr* logical_or(Parser *p);
-static Expr* logical_and(Parser *p);
-static Expr* bitwise_or(Parser *p);
-static Expr* bitwise_xor(Parser *p);
-static Expr* bitwise_and(Parser *p);
-static Expr* equality(Parser *p);
-static Expr* comparison(Parser *p);
-static Expr* shift(Parser *p);
-static Expr* term(Parser *p);
-static Expr* factor(Parser *p);
-static Expr* unary(Parser *p);
-static Expr* postfix(Parser *p);
-static Expr* primary(Parser *p);
-static Type* parse_type(Parser *p);
-static Stmt* block_statement(Parser *p);
-
-static Expr* primary(Parser *p) {
-    if (match(p, TOK_TRUE)) {
-        return expr_bool(1);
-    }
-
-    if (match(p, TOK_FALSE)) {
-        return expr_bool(0);
-    }
-
-    if (match(p, TOK_NULL)) {
-        return expr_null();
-    }
-
-    if (match(p, TOK_NUMBER)) {
-        if (p->previous.is_float) {
-            return expr_number_float(p->previous.float_value);
-        } else {
-            return expr_number_int(p->previous.int_value);
-        }
-    }
-
-    if (match(p, TOK_STRING)) {
-        char *str = p->previous.string_value;
-        Expr *expr = expr_string(str);
-        free(str);  // Parser owns this memory from lexer
-        return expr;
-    }
-
-    if (match(p, TOK_RUNE)) {
-        return expr_rune(p->previous.rune_value);
-    }
-
-    if (match(p, TOK_IDENT)) {
-        char *name = token_text(&p->previous);
-        Expr *ident = expr_ident(name);
-        free(name);
-        return ident;
-    }
-
-    if (match(p, TOK_SELF)) {
-        return expr_ident("self");
-    }
-
-    if (match(p, TOK_LPAREN)) {
-        Expr *expr = expression(p);
-        consume(p, TOK_RPAREN, "Expect ')' after expression");
-        return expr;
-    }
-
-    // Object literal: { field: value, ... }
-    if (match(p, TOK_LBRACE)) {
-        char **field_names = malloc(sizeof(char*) * 32);
-        Expr **field_values = malloc(sizeof(Expr*) * 32);
-        int num_fields = 0;
-
-        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
-            consume(p, TOK_IDENT, "Expect field name");
-            field_names[num_fields] = token_text(&p->previous);
-
-            consume(p, TOK_COLON, "Expect ':' after field name");
-            field_values[num_fields] = expression(p);
-
-            num_fields++;
-
-            if (!match(p, TOK_COMMA)) break;
-        }
-
-        consume(p, TOK_RBRACE, "Expect '}' after object fields");
-
-        return expr_object_literal(field_names, field_values, num_fields);
-    }
-
-    // Array literal: [elem1, elem2, ...]
-    if (match(p, TOK_LBRACKET)) {
-        Expr **elements = malloc(sizeof(Expr*) * 256);
-        int num_elements = 0;
-
-        if (!check(p, TOK_RBRACKET)) {
-            do {
-                elements[num_elements++] = expression(p);
-            } while (match(p, TOK_COMMA));
-        }
-
-        consume(p, TOK_RBRACKET, "Expect ']' after array elements");
-
-        return expr_array_literal(elements, num_elements);
-    }
-
-    // Function expression: fn(...) { ... } or async fn(...) { ... }
-    int is_async_fn = 0;
-    if (match(p, TOK_ASYNC)) {
-        is_async_fn = 1;
-        consume(p, TOK_FN, "Expect 'fn' after 'async'");
-    } else if (match(p, TOK_FN)) {
-        is_async_fn = 0;
-    } else {
-        // Not a function expression, continue to other cases
-        goto not_fn_expr;
-    }
-
-    // Parse function expression
-    consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
-
-    // Parse parameters
-    char **param_names = malloc(sizeof(char*) * 32);  // max 32 params
-    Type **param_types = malloc(sizeof(Type*) * 32);
-    int num_params = 0;
-
-    if (!check(p, TOK_RPAREN)) {
-        do {
-            consume(p, TOK_IDENT, "Expect parameter name");
-            param_names[num_params] = token_text(&p->previous);
-
-            // Optional type annotation
-            if (match(p, TOK_COLON)) {
-                param_types[num_params] = parse_type(p);
-            } else {
-                param_types[num_params] = NULL;
-            }
-
-            num_params++;
-        } while (match(p, TOK_COMMA));
-    }
-
-    consume(p, TOK_RPAREN, "Expect ')' after parameters");
-
-    // Optional return type
-    Type *return_type = NULL;
-    if (match(p, TOK_COLON)) {
-        return_type = parse_type(p);
-    }
-
-    // Parse body (must be a block)
-    consume(p, TOK_LBRACE, "Expect '{' before function body");
-    Stmt *body = block_statement(p);
-
-    return expr_function(is_async_fn, param_names, param_types, num_params, return_type, body);
-
-not_fn_expr:
-
-    // Allow type keywords to be used as identifiers (for sizeof, talloc, etc.)
-    if (match(p, TOK_TYPE_I8)) return expr_ident("i8");
-    if (match(p, TOK_TYPE_I16)) return expr_ident("i16");
-    if (match(p, TOK_TYPE_I32)) return expr_ident("i32");
-    if (match(p, TOK_TYPE_I64)) return expr_ident("i64");
-    if (match(p, TOK_TYPE_INTEGER)) return expr_ident("integer");
-    if (match(p, TOK_TYPE_U8)) return expr_ident("u8");
-    if (match(p, TOK_TYPE_U16)) return expr_ident("u16");
-    if (match(p, TOK_TYPE_U32)) return expr_ident("u32");
-    if (match(p, TOK_TYPE_U64)) return expr_ident("u64");
-    if (match(p, TOK_TYPE_BYTE)) return expr_ident("byte");
-    if (match(p, TOK_TYPE_F32)) return expr_ident("f32");
-    if (match(p, TOK_TYPE_F64)) return expr_ident("f64");
-    if (match(p, TOK_TYPE_NUMBER)) return expr_ident("number");
-    if (match(p, TOK_TYPE_PTR)) return expr_ident("ptr");
-    if (match(p, TOK_TYPE_BUFFER)) return expr_ident("buffer");
-    if (match(p, TOK_TYPE_STRING)) return expr_ident("string");
-    if (match(p, TOK_TYPE_RUNE)) return expr_ident("rune");
-    if (match(p, TOK_TYPE_BOOL)) return expr_ident("bool");
-
-    error(p, "Expect expression");
-    return expr_number(0);
-}
-
-static Expr* postfix(Parser *p) {
-    Expr *expr = primary(p);
-
-    // Handle chained property access, indexing, method calls, and postfix operators
-    for (;;) {
-        if (match(p, TOK_DOT)) {
-            // Property access: obj.property
-            consume(p, TOK_IDENT, "Expect property name after '.'");
-            char *property = token_text(&p->previous);
-            expr = expr_get_property(expr, property);
-            free(property);
-        } else if (match(p, TOK_LBRACKET)) {
-            // Indexing: obj[index]
-            Expr *index = expression(p);
-            consume(p, TOK_RBRACKET, "Expect ']' after index");
-            expr = expr_index(expr, index);
-        } else if (match(p, TOK_LPAREN)) {
-            // Function call: func(...) or obj.method(...)
-            Expr **args = NULL;
-            int num_args = 0;
-
-            if (!check(p, TOK_RPAREN)) {
-                args = malloc(sizeof(Expr*) * 8);
-                args[num_args++] = expression(p);
-
-                while (match(p, TOK_COMMA)) {
-                    args[num_args++] = expression(p);
-                }
-            }
-
-            consume(p, TOK_RPAREN, "Expect ')' after arguments");
-            expr = expr_call(expr, args, num_args);
-        } else if (match(p, TOK_PLUS_PLUS)) {
-            // Postfix increment: x++
-            expr = expr_postfix_inc(expr);
-        } else if (match(p, TOK_MINUS_MINUS)) {
-            // Postfix decrement: x--
-            expr = expr_postfix_dec(expr);
-        } else {
-            break;
-        }
-    }
-
-    return expr;
-}
-
-static Expr* unary(Parser *p) {
-    if (match(p, TOK_AWAIT)) {
-        Expr *operand = unary(p);  // Recursive for multiple await/unary ops
-        return expr_await(operand);
-    }
-
-    if (match(p, TOK_BANG)) {
-        Expr *operand = unary(p);  // Recursive for multiple unary ops
-        return expr_unary(UNARY_NOT, operand);
-    }
-
-    if (match(p, TOK_MINUS)) {
-        Expr *operand = unary(p);
-        return expr_unary(UNARY_NEGATE, operand);
-    }
-
-    if (match(p, TOK_TILDE)) {
-        Expr *operand = unary(p);
-        return expr_unary(UNARY_BIT_NOT, operand);
-    }
-
-    if (match(p, TOK_PLUS_PLUS)) {
-        Expr *operand = unary(p);
-        return expr_prefix_inc(operand);
-    }
-
-    if (match(p, TOK_MINUS_MINUS)) {
-        Expr *operand = unary(p);
-        return expr_prefix_dec(operand);
-    }
-
-    return postfix(p);
-}
-
-static Expr* factor(Parser *p) {
-    Expr *expr = unary(p);
-    
-    while (match(p, TOK_STAR) || match(p, TOK_SLASH)) {
-        TokenType op_type = p->previous.type;
-        BinaryOp op = (op_type == TOK_STAR) ? OP_MUL : OP_DIV;
-        Expr *right = unary(p);
-        expr = expr_binary(expr, op, right);
-    }
-    
-    return expr;
-}
-
-static Expr* term(Parser *p) {
-    Expr *expr = factor(p);
-    
-    while (match(p, TOK_PLUS) || match(p, TOK_MINUS)) {
-        TokenType op_type = p->previous.type;
-        BinaryOp op = (op_type == TOK_PLUS) ? OP_ADD : OP_SUB;
-        Expr *right = factor(p);
-        expr = expr_binary(expr, op, right);
-    }
-    
-    return expr;
-}
-
-static Expr* shift(Parser *p) {
-    Expr *expr = term(p);
-
-    while (match(p, TOK_LESS_LESS) || match(p, TOK_GREATER_GREATER)) {
-        TokenType op_type = p->previous.type;
-        BinaryOp op = (op_type == TOK_LESS_LESS) ? OP_BIT_LSHIFT : OP_BIT_RSHIFT;
-        Expr *right = term(p);
-        expr = expr_binary(expr, op, right);
-    }
-
-    return expr;
-}
-
-static Expr* comparison(Parser *p) {
-    Expr *expr = shift(p);
-
-    while (match(p, TOK_GREATER) || match(p, TOK_GREATER_EQUAL) ||
-           match(p, TOK_LESS) || match(p, TOK_LESS_EQUAL)) {
-        TokenType op_type = p->previous.type;
-        BinaryOp op;
-
-        switch (op_type) {
-            case TOK_GREATER: op = OP_GREATER; break;
-            case TOK_GREATER_EQUAL: op = OP_GREATER_EQUAL; break;
-            case TOK_LESS: op = OP_LESS; break;
-            case TOK_LESS_EQUAL: op = OP_LESS_EQUAL; break;
-            default: op = OP_ADD; break;
-        }
-
-        Expr *right = shift(p);
-        expr = expr_binary(expr, op, right);
-    }
-
-    return expr;
-}
-
-static Expr* equality(Parser *p) {
-    Expr *expr = comparison(p);
-
-    while (match(p, TOK_EQUAL_EQUAL) || match(p, TOK_BANG_EQUAL)) {
-        TokenType op_type = p->previous.type;
-        BinaryOp op = (op_type == TOK_EQUAL_EQUAL) ? OP_EQUAL : OP_NOT_EQUAL;
-        Expr *right = comparison(p);
-        expr = expr_binary(expr, op, right);
-    }
-
-    return expr;
-}
-
-static Expr* bitwise_and(Parser *p) {
-    Expr *expr = equality(p);
-
-    while (match(p, TOK_AMP)) {
-        Expr *right = equality(p);
-        expr = expr_binary(expr, OP_BIT_AND, right);
-    }
-
-    return expr;
-}
-
-static Expr* bitwise_xor(Parser *p) {
-    Expr *expr = bitwise_and(p);
-
-    while (match(p, TOK_CARET)) {
-        Expr *right = bitwise_and(p);
-        expr = expr_binary(expr, OP_BIT_XOR, right);
-    }
-
-    return expr;
-}
-
-static Expr* bitwise_or(Parser *p) {
-    Expr *expr = bitwise_xor(p);
-
-    while (match(p, TOK_PIPE)) {
-        Expr *right = bitwise_xor(p);
-        expr = expr_binary(expr, OP_BIT_OR, right);
-    }
-
-    return expr;
-}
-
-static Expr* logical_and(Parser *p) {
-    Expr *expr = bitwise_or(p);
-
-    while (match(p, TOK_AMP_AMP)) {
-        Expr *right = bitwise_or(p);
-        expr = expr_binary(expr, OP_AND, right);
-    }
-
-    return expr;
-}
-
-static Expr* logical_or(Parser *p) {
-    Expr *expr = logical_and(p);
-
-    while (match(p, TOK_PIPE_PIPE)) {
-        Expr *right = logical_and(p);
-        expr = expr_binary(expr, OP_OR, right);
-    }
-
-    return expr;
-}
-
-static Expr* ternary(Parser *p) {
-    Expr *expr = logical_or(p);
-
-    if (match(p, TOK_QUESTION)) {
-        Expr *true_expr = expression(p);
-        consume(p, TOK_COLON, "Expect ':' after true expression in ternary operator");
-        Expr *false_expr = ternary(p);  // Right-associative
-        return expr_ternary(expr, true_expr, false_expr);
-    }
-
-    return expr;
-}
-
-static Expr* assignment(Parser *p) {
-    Expr *expr = ternary(p);
-
-    // Check for compound assignment operators (+=, -=, *=, /=)
-    BinaryOp compound_op;
-    int is_compound = 0;
-
-    if (match(p, TOK_PLUS_EQUAL)) {
-        compound_op = OP_ADD;
-        is_compound = 1;
-    } else if (match(p, TOK_MINUS_EQUAL)) {
-        compound_op = OP_SUB;
-        is_compound = 1;
-    } else if (match(p, TOK_STAR_EQUAL)) {
-        compound_op = OP_MUL;
-        is_compound = 1;
-    } else if (match(p, TOK_SLASH_EQUAL)) {
-        compound_op = OP_DIV;
-        is_compound = 1;
-    }
-
-    if (is_compound) {
-        // Desugar compound assignment: x += 5 becomes x = x + 5
-        Expr *rhs = assignment(p);
-
-        if (expr->type == EXPR_IDENT) {
-            // Variable compound assignment: x += 5
-            char *name = strdup(expr->as.ident);
-            Expr *lhs_copy = expr_ident(name);
-            Expr *binary = expr_binary(lhs_copy, compound_op, rhs);
-            expr_free(expr);
-            return expr_assign(name, binary);
-        } else if (expr->type == EXPR_INDEX) {
-            // Index compound assignment: arr[i] += 5
-            // Desugar to: arr[i] = arr[i] + 5
-            // We clone the object and index expressions to avoid evaluating twice
-            Expr *object = expr->as.index.object;
-            Expr *index = expr->as.index.index;
-
-            // Clone for the RHS
-            Expr *object_clone = expr_clone(object);
-            Expr *index_clone = expr_clone(index);
-
-            // Create the read expression: arr[i]
-            Expr *read_expr = expr_index(object_clone, index_clone);
-
-            // Create the binary operation: arr[i] + 5
-            Expr *binary = expr_binary(read_expr, compound_op, rhs);
-
-            // Steal the object and index from the EXPR_INDEX for the assignment
-            expr->as.index.object = NULL;
-            expr->as.index.index = NULL;
-            expr_free(expr);
-
-            // Create the assignment: arr[i] = arr[i] + 5
-            return expr_index_assign(object, index, binary);
-        } else if (expr->type == EXPR_GET_PROPERTY) {
-            // Property compound assignment: obj.field += 5
-            // Desugar to: obj.field = obj.field + 5
-            Expr *object = expr->as.get_property.object;
-            char *property = strdup(expr->as.get_property.property);
-
-            // Clone the object for the RHS
-            Expr *object_clone = expr_clone(object);
-
-            // Create the read expression: obj.field
-            Expr *read_expr = expr_get_property(object_clone, property);
-
-            // Create the binary operation: obj.field + 5
-            Expr *binary = expr_binary(read_expr, compound_op, rhs);
-
-            // Steal the object from the EXPR_GET_PROPERTY for the assignment
-            expr->as.get_property.object = NULL;
-            expr_free(expr);
-
-            // Create the assignment: obj.field = obj.field + 5
-            return expr_set_property(object, property, binary);
-        } else {
-            error(p, "Invalid compound assignment target");
-            expr_free(expr);
-            return expr_null();
-        }
-    }
-
-    if (match(p, TOK_EQUAL)) {
-        // Check what kind of assignment target we have
-        if (expr->type == EXPR_IDENT) {
-            // Regular variable assignment
-            char *name = strdup(expr->as.ident);
-            Expr *value = assignment(p);
-            expr_free(expr);
-            return expr_assign(name, value);
-        } else if (expr->type == EXPR_INDEX) {
-            // Index assignment: obj[index] = value
-            Expr *object = expr->as.index.object;
-            Expr *index = expr->as.index.index;
-            Expr *value = assignment(p);
-
-            // Steal the object and index from the EXPR_INDEX
-            // (so we don't double-free them)
-            expr->as.index.object = NULL;
-            expr->as.index.index = NULL;
-            expr_free(expr);
-
-            return expr_index_assign(object, index, value);
-        } else if (expr->type == EXPR_GET_PROPERTY) {
-            // Property assignment: obj.field = value
-            Expr *object = expr->as.get_property.object;
-            char *property = strdup(expr->as.get_property.property);
-            Expr *value = assignment(p);
-
-            // Steal the object from the EXPR_GET_PROPERTY
-            expr->as.get_property.object = NULL;
-            expr_free(expr);
-
-            return expr_set_property(object, property, value);
-        } else {
-            error(p, "Invalid assignment target");
-            return expr;
-        }
-    }
-
-    return expr;
-}
-
-static Expr* expression(Parser *p) {
-    return assignment(p);
-}
-
-static Type* parse_type(Parser *p) {
-    TypeKind kind;
-
-    // Check for 'object' keyword (generic object type)
-    if (p->current.type == TOK_OBJECT) {
-        advance(p);
-        Type *type = type_new(TYPE_GENERIC_OBJECT);
-        type->type_name = NULL;
-        return type;
-    }
-
-    // Check for custom object type name (identifier)
-    if (p->current.type == TOK_IDENT) {
-        char *type_name = token_text(&p->current);
-        advance(p);
-        Type *type = type_new(TYPE_CUSTOM_OBJECT);
-        type->type_name = type_name;
-        return type;
-    }
-
-    switch (p->current.type) {
-        case TOK_TYPE_I8: kind = TYPE_I8; break;
-        case TOK_TYPE_I16: kind = TYPE_I16; break;
-        case TOK_TYPE_I32: kind = TYPE_I32; break;
-        case TOK_TYPE_I64: kind = TYPE_I64; break;
-        case TOK_TYPE_INTEGER: kind = TYPE_I32; break;  // alias
-        case TOK_TYPE_U8: kind = TYPE_U8; break;
-        case TOK_TYPE_BYTE: kind = TYPE_U8; break;  // alias
-        case TOK_TYPE_U16: kind = TYPE_U16; break;
-        case TOK_TYPE_U32: kind = TYPE_U32; break;
-        case TOK_TYPE_U64: kind = TYPE_U64; break;
-        //case TOK_TYPE_F16: kind = TYPE_F16; break;
-        case TOK_TYPE_F32: kind = TYPE_F32; break;
-        case TOK_TYPE_F64: kind = TYPE_F64; break;
-        case TOK_TYPE_NUMBER: kind = TYPE_F64; break;  // alias
-        case TOK_TYPE_BOOL: kind = TYPE_BOOL; break;
-        case TOK_TYPE_STRING: kind = TYPE_STRING; break;
-        case TOK_TYPE_RUNE: kind = TYPE_RUNE; break;
-        case TOK_TYPE_PTR: kind = TYPE_PTR; break;
-        case TOK_TYPE_BUFFER: kind = TYPE_BUFFER; break;
-        case TOK_TYPE_VOID: kind = TYPE_VOID; break;
-        default:
-            error_at_current(p, "Expect type name");
-            return type_new(TYPE_INFER);
-    }
-
-    advance(p);
-    Type *type = type_new(kind);
-    type->type_name = NULL;
-    return type;
-}
+#include "internal.h"
 
 // ========== STATEMENT PARSING ==========
 
-static Stmt* statement(Parser *p);
+Stmt* statement(Parser *p);
 
-static Stmt* let_statement(Parser *p) {
+Stmt* let_statement(Parser *p) {
     consume(p, TOK_IDENT, "Expect variable name");
     char *name = token_text(&p->previous);
 
@@ -701,7 +26,7 @@ static Stmt* let_statement(Parser *p) {
     return stmt;
 }
 
-static Stmt* const_statement(Parser *p) {
+Stmt* const_statement(Parser *p) {
     consume(p, TOK_IDENT, "Expect variable name");
     char *name = token_text(&p->previous);
 
@@ -723,7 +48,7 @@ static Stmt* const_statement(Parser *p) {
     return stmt;
 }
 
-static Stmt* block_statement(Parser *p) {
+Stmt* block_statement(Parser *p) {
     Stmt **statements = malloc(sizeof(Stmt*) * 256);
     int count = 0;
     
@@ -736,7 +61,7 @@ static Stmt* block_statement(Parser *p) {
     return stmt_block(statements, count);
 }
 
-static Stmt* if_statement(Parser *p) {
+Stmt* if_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'if'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -760,7 +85,7 @@ static Stmt* if_statement(Parser *p) {
     return stmt_if(condition, then_branch, else_branch);
 }
 
-static Stmt* while_statement(Parser *p) {
+Stmt* while_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'while'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -771,7 +96,7 @@ static Stmt* while_statement(Parser *p) {
     return stmt_while(condition, body);
 }
 
-static Stmt* switch_statement(Parser *p) {
+Stmt* switch_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'switch'");
     Expr *expr = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after switch expression");
@@ -824,7 +149,7 @@ static Stmt* switch_statement(Parser *p) {
     return stmt_switch(expr, case_values, case_bodies, num_cases);
 }
 
-static Stmt* for_statement(Parser *p) {
+Stmt* for_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
     // Check if this is a for-in loop by looking ahead
@@ -922,13 +247,13 @@ static Stmt* for_statement(Parser *p) {
     return stmt_for(initializer, condition, increment, body);
 }
 
-static Stmt* expression_statement(Parser *p) {
+Stmt* expression_statement(Parser *p) {
     Expr *expr = expression(p);
     consume(p, TOK_SEMICOLON, "Expect ';' after expression");
     return stmt_expr(expr);
 }
 
-static Stmt* return_statement(Parser *p) {
+Stmt* return_statement(Parser *p) {
     Expr *value = NULL;
 
     // Check if there's a return value
@@ -940,7 +265,7 @@ static Stmt* return_statement(Parser *p) {
     return stmt_return(value);
 }
 
-static Stmt* import_statement(Parser *p) {
+Stmt* import_statement(Parser *p) {
     // Check for FFI import: import "library.so"
     if (check(p, TOK_STRING)) {
         advance(p);
@@ -1004,7 +329,7 @@ static Stmt* import_statement(Parser *p) {
     return stmt;
 }
 
-static Stmt* export_statement(Parser *p) {
+Stmt* export_statement(Parser *p) {
     // Check for re-export: export { name1, name2 } from "module"
     if (match(p, TOK_LBRACE)) {
         char **export_names = malloc(sizeof(char*) * 32);
@@ -1115,7 +440,7 @@ static Stmt* export_statement(Parser *p) {
     return stmt_export_declaration(decl);
 }
 
-static Stmt* extern_fn_statement(Parser *p) {
+Stmt* extern_fn_statement(Parser *p) {
     // extern fn name(param1: type1, param2: type2): return_type;
     consume(p, TOK_FN, "Expect 'fn' after 'extern'");
     consume(p, TOK_IDENT, "Expect function name");
@@ -1152,7 +477,7 @@ static Stmt* extern_fn_statement(Parser *p) {
     return stmt;
 }
 
-static Stmt* statement(Parser *p) {
+Stmt* statement(Parser *p) {
     if (match(p, TOK_LET)) {
         return let_statement(p);
     }
@@ -1403,26 +728,3 @@ not_function:
     return expression_statement(p);
 }
 
-// ========== PUBLIC INTERFACE ==========
-
-void parser_init(Parser *parser, Lexer *lexer) {
-    parser->lexer = lexer;
-    parser->had_error = 0;
-    parser->panic_mode = 0;
-    
-    advance(parser);  // Prime the pump
-}
-
-Stmt** parse_program(Parser *parser, int *stmt_count) {
-    Stmt **statements = malloc(sizeof(Stmt*) * 256);  // max 256 statements
-    *stmt_count = 0;
-
-    while (!match(parser, TOK_EOF)) {
-        if (parser->panic_mode) {
-            synchronize(parser);
-        }
-        statements[(*stmt_count)++] = statement(parser);
-    }
-
-    return statements;
-}
