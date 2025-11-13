@@ -1175,7 +1175,7 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     // Type aliases
     env_set(env, "integer", val_type(TYPE_I32), ctx);
     env_set(env, "number", val_type(TYPE_F64), ctx);
-    env_set(env, "char", val_type(TYPE_U8), ctx);
+    env_set(env, "byte", val_type(TYPE_U8), ctx);
 
     // Register builtin functions (may overwrite some type names if there are conflicts)
     for (int i = 0; builtins[i].name != NULL; i++) {
