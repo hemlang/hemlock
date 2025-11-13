@@ -286,6 +286,36 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
+            // Boolean comparisons
+            if (left.type == VAL_BOOL && right.type == VAL_BOOL) {
+                if (expr->as.binary.op == OP_EQUAL) {
+                    return val_bool(left.as.as_bool == right.as.as_bool);
+                } else if (expr->as.binary.op == OP_NOT_EQUAL) {
+                    return val_bool(left.as.as_bool != right.as.as_bool);
+                }
+            }
+
+            // String comparisons
+            if (left.type == VAL_STRING && right.type == VAL_STRING) {
+                if (expr->as.binary.op == OP_EQUAL) {
+                    String *left_str = left.as.as_string;
+                    String *right_str = right.as.as_string;
+                    if (left_str->length != right_str->length) {
+                        return val_bool(0);
+                    }
+                    int cmp = memcmp(left_str->data, right_str->data, left_str->length);
+                    return val_bool(cmp == 0);
+                } else if (expr->as.binary.op == OP_NOT_EQUAL) {
+                    String *left_str = left.as.as_string;
+                    String *right_str = right.as.as_string;
+                    if (left_str->length != right_str->length) {
+                        return val_bool(1);
+                    }
+                    int cmp = memcmp(left_str->data, right_str->data, left_str->length);
+                    return val_bool(cmp != 0);
+                }
+            }
+
             // Numeric operations
             if (!is_numeric(left) || !is_numeric(right)) {
                 fprintf(stderr, "Runtime error: Binary operation requires numeric operands\n");

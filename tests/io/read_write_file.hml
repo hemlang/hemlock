@@ -1,0 +1,17 @@
+// Test read_file() and write_file() functions
+let test_file = "/tmp/test_read_write.txt";
+let content = "Hello, World!\nThis is a test.";
+
+// Write to file
+write_file(test_file, content);
+
+// Read from file
+let read_content = read_file(test_file);
+
+// Verify content matches
+assert(read_content == content, "read_file() should return the same content as written");
+
+// Clean up
+remove_file(test_file);
+
+print("All read_file() and write_file() tests passed!");

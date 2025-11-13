@@ -1,0 +1,19 @@
+// Test append_file() function
+let test_file = "/tmp/test_append.txt";
+
+// Write initial content
+write_file(test_file, "Line 1\n");
+
+// Append more content
+append_file(test_file, "Line 2\n");
+append_file(test_file, "Line 3\n");
+
+// Read and verify
+let content = read_file(test_file);
+let expected = "Line 1\nLine 2\nLine 3\n";
+assert(content == expected, "append_file() should append content correctly");
+
+// Clean up
+remove_file(test_file);
+
+print("All append_file() tests passed!");

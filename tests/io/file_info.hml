@@ -1,0 +1,38 @@
+// Test file info functions: is_file(), is_dir(), file_stat()
+let test_file = "/tmp/test_file_info.txt";
+let test_dir = "/tmp/test_dir_info";
+let content = "Test content";
+
+// Create test file and directory
+write_file(test_file, content);
+make_dir(test_dir);
+
+// Test is_file()
+assert(is_file(test_file) == true, "is_file() should return true for regular file");
+assert(is_file(test_dir) == false, "is_file() should return false for directory");
+assert(is_file("/tmp/nonexistent") == false, "is_file() should return false for non-existent path");
+
+// Test is_dir()
+assert(is_dir(test_dir) == true, "is_dir() should return true for directory");
+assert(is_dir(test_file) == false, "is_dir() should return false for regular file");
+assert(is_dir("/tmp/nonexistent") == false, "is_dir() should return false for non-existent path");
+
+// Test file_stat()
+let stat = file_stat(test_file);
+assert(typeof(stat) == "object", "file_stat() should return an object");
+assert(typeof(stat.size) == "i64", "stat.size should be i64");
+assert(stat.size == 12, "stat.size should match content length");
+assert(typeof(stat.is_file) == "bool", "stat.is_file should be bool");
+assert(stat.is_file == true, "stat.is_file should be true for regular file");
+assert(stat.is_dir == false, "stat.is_dir should be false for regular file");
+
+// Test file_stat() for directory
+let dir_stat = file_stat(test_dir);
+assert(dir_stat.is_dir == true, "stat.is_dir should be true for directory");
+assert(dir_stat.is_file == false, "stat.is_file should be false for directory");
+
+// Clean up
+remove_file(test_file);
+remove_dir(test_dir);
+
+print("All file info tests passed!");

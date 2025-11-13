@@ -1,0 +1,19 @@
+// Test exists() function
+let test_file = "/tmp/test_exists.txt";
+
+// Create a test file
+write_file(test_file, "test content");
+
+// Test that file exists
+assert(exists(test_file) == true, "exists() should return true for existing file");
+
+// Test that non-existent file returns false
+assert(exists("/tmp/nonexistent_file_12345.txt") == false, "exists() should return false for non-existent file");
+
+// Clean up
+remove_file(test_file);
+
+// Verify file no longer exists
+assert(exists(test_file) == false, "exists() should return false after file removal");
+
+print("All exists() tests passed!");

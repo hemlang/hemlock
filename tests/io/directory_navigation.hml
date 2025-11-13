@@ -1,0 +1,28 @@
+// Test directory navigation: cwd(), chdir(), absolute_path()
+let original_dir = cwd();
+assert(typeof(original_dir) == "string", "cwd() should return a string");
+print("Current directory: " + original_dir);
+
+// Create test directory
+let test_dir = "/tmp/test_nav_dir";
+make_dir(test_dir);
+
+// Test chdir()
+chdir(test_dir);
+let new_dir = cwd();
+assert(new_dir == test_dir, "cwd() should return new directory after chdir()");
+
+// Change back to original directory
+chdir(original_dir);
+let back_dir = cwd();
+assert(back_dir == original_dir, "Should be back to original directory");
+
+// Test absolute_path()
+let abs = absolute_path(".");
+assert(typeof(abs) == "string", "absolute_path() should return a string");
+assert(abs == original_dir, "absolute_path('.') should return current directory");
+
+// Clean up
+remove_dir(test_dir);
+
+print("All directory navigation tests passed!");

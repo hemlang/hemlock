@@ -1,0 +1,42 @@
+// Test directory operations: make_dir(), remove_dir(), list_dir()
+let test_dir = "/tmp/test_hemlock_dir";
+
+// Create directory
+make_dir(test_dir);
+assert(exists(test_dir) == true, "make_dir() should create directory");
+assert(is_dir(test_dir) == true, "is_dir() should return true for directory");
+
+// Create files in directory
+write_file(test_dir + "/file1.txt", "content 1");
+write_file(test_dir + "/file2.txt", "content 2");
+write_file(test_dir + "/file3.txt", "content 3");
+
+// List directory
+let entries = list_dir(test_dir);
+assert(entries.length == 3, "list_dir() should return 3 entries");
+
+// Verify entries contain expected files
+let found_file1 = false;
+let found_file2 = false;
+let found_file3 = false;
+let i = 0;
+while (i < entries.length) {
+    if (entries[i] == "file1.txt") { found_file1 = true; }
+    if (entries[i] == "file2.txt") { found_file2 = true; }
+    if (entries[i] == "file3.txt") { found_file3 = true; }
+    i = i + 1;
+}
+assert(found_file1 == true, "list_dir() should find file1.txt");
+assert(found_file2 == true, "list_dir() should find file2.txt");
+assert(found_file3 == true, "list_dir() should find file3.txt");
+
+// Clean up files
+remove_file(test_dir + "/file1.txt");
+remove_file(test_dir + "/file2.txt");
+remove_file(test_dir + "/file3.txt");
+
+// Remove directory
+remove_dir(test_dir);
+assert(exists(test_dir) == false, "remove_dir() should remove directory");
+
+print("All directory operation tests passed!");

@@ -1,0 +1,35 @@
+// Test file management: remove_file(), rename(), copy_file()
+let test_file1 = "/tmp/test_file1.txt";
+let test_file2 = "/tmp/test_file2.txt";
+let test_file3 = "/tmp/test_file3.txt";
+let content = "Test content for file management";
+
+// Test remove_file()
+write_file(test_file1, content);
+assert(exists(test_file1) == true, "File should exist after write");
+remove_file(test_file1);
+assert(exists(test_file1) == false, "File should not exist after remove");
+
+// Test rename()
+write_file(test_file1, content);
+rename(test_file1, test_file2);
+assert(exists(test_file1) == false, "Original file should not exist after rename");
+assert(exists(test_file2) == true, "New file should exist after rename");
+let renamed_content = read_file(test_file2);
+assert(renamed_content == content, "Content should be preserved after rename");
+
+// Test copy_file()
+copy_file(test_file2, test_file3);
+assert(exists(test_file3) == true, "Copied file should exist");
+let copied_content = read_file(test_file3);
+assert(copied_content == content, "Content should match after copy");
+
+// Verify both files exist
+assert(exists(test_file2) == true, "Original file should still exist after copy");
+assert(exists(test_file3) == true, "Copied file should exist");
+
+// Clean up
+remove_file(test_file2);
+remove_file(test_file3);
+
+print("All file management tests passed!");
