@@ -535,8 +535,10 @@ static void* task_thread_wrapper(void* arg) {
     Task *task = (Task*)arg;
     Function *fn = task->function;
 
-    // Mark as running
+    // Mark as running (thread-safe)
+    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
     task->state = TASK_RUNNING;
+    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
     // Create new environment for function execution
     Environment *func_env = env_new(task->env);
@@ -561,15 +563,18 @@ static void* task_thread_wrapper(void* arg) {
         task->ctx->return_state.is_returning = 0;
     }
 
-    // Store result in task
+    // Store result and mark as completed (thread-safe)
+    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
     task->result = malloc(sizeof(Value));
     *task->result = result;
     task->state = TASK_COMPLETED;
+    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
     // Release function environment (reference counted)
     env_release(func_env);
 
     // Clean up detached tasks (they're never joined, so free here)
+    // Note: We don't need to lock here because detached tasks are never joined
     if (task->detached) {
         task_free(task);
     }
@@ -645,12 +650,17 @@ static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
 
     Task *task = task_val.as.as_task;
 
+    // Check if task is already joined or detached (thread-safe)
+    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+
     if (task->joined) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
         fprintf(stderr, "Runtime error: task handle already joined\n");
         exit(1);
     }
 
     if (task->detached) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
         fprintf(stderr, "Runtime error: cannot join detached task\n");
         exit(1);
     }
@@ -658,7 +668,9 @@ static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     // Mark as joined
     task->joined = 1;
 
-    // Wait for thread to complete
+    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+
+    // Wait for thread to complete (outside of mutex to avoid deadlock)
     if (task->thread) {
         int rc = pthread_join(*(pthread_t*)task->thread, NULL);
         if (rc != 0) {
@@ -667,19 +679,26 @@ static Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
         }
     }
 
+    // Access exception state and result (thread-safe)
+    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+
     // Check if task threw an exception
     if (task->ctx->exception_state.is_throwing) {
         // Re-throw the exception in the current context
         ctx->exception_state = task->ctx->exception_state;
+        pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
         return val_null();
     }
 
-    // Return the result
+    // Get the result
+    Value result = val_null();
     if (task->result) {
-        return *task->result;
+        result = *task->result;
     }
 
-    return val_null();
+    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+
+    return result;
 }
 
 static Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {

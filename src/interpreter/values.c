@@ -403,6 +403,16 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     task->waiting_on = NULL;
     task->thread = NULL;
     task->detached = 0;
+
+    // Initialize task mutex for thread-safe state access
+    task->task_mutex = malloc(sizeof(pthread_mutex_t));
+    if (!task->task_mutex) {
+        free(task);
+        fprintf(stderr, "Runtime error: Memory allocation failed for task mutex\n");
+        exit(1);
+    }
+    pthread_mutex_init((pthread_mutex_t*)task->task_mutex, NULL);
+
     return task;
 }
 
@@ -419,6 +429,10 @@ void task_free(Task *task) {
         }
         if (task->thread) {
             free(task->thread);
+        }
+        if (task->task_mutex) {
+            pthread_mutex_destroy((pthread_mutex_t*)task->task_mutex);
+            free(task->task_mutex);
         }
         free(task);
     }

@@ -116,6 +116,7 @@ typedef struct Task {
     struct Task *waiting_on;    // Task we're blocked on (for join)
     void *thread;               // pthread_t (opaque pointer)
     int detached;               // Flag: task is detached (fire-and-forget)
+    void *task_mutex;           // pthread_mutex_t for thread-safe state access
 } Task;
 
 // Channel struct (communication channel)
