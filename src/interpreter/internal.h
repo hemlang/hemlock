@@ -85,6 +85,11 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 
+// Tracking for manually freed objects/arrays (for compatibility with builtin_free)
+void register_manually_freed_pointer(void *ptr);
+int is_manually_freed_pointer(void *ptr);
+void clear_manually_freed_pointers(void);
+
 // ========== VALUES (values.c) ==========
 
 // Value constructors

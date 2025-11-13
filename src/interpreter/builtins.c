@@ -156,6 +156,9 @@ static Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     } else if (args[0].type == VAL_OBJECT) {
         // Manually free and set ref_count to 0 to prevent double-free
         if (args[0].as.as_object->ref_count > 0) {
+            // Register this pointer as manually freed before freeing it
+            // This allows env_break_cycles() to skip it safely
+            register_manually_freed_pointer(args[0].as.as_object);
             args[0].as.as_object->ref_count = 0;
             // Need to free object contents manually here
             if (args[0].as.as_object->type_name) free(args[0].as.as_object->type_name);
@@ -170,6 +173,9 @@ static Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     } else if (args[0].type == VAL_ARRAY) {
         // Manually free and set ref_count to 0 to prevent double-free
         if (args[0].as.as_array->ref_count > 0) {
+            // Register this pointer as manually freed before freeing it
+            // This allows env_break_cycles() to skip it safely
+            register_manually_freed_pointer(args[0].as.as_array);
             args[0].as.as_array->ref_count = 0;
             free(args[0].as.as_array->elements);
             free(args[0].as.as_array);
