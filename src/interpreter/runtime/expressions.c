@@ -987,6 +987,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
                 obj->field_names[i] = strdup(expr->as.object_literal.field_names[i]);
                 obj->field_values[i] = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                // Retain field values (objects own their field values)
+                value_retain(obj->field_values[i]);
                 obj->num_fields++;
             }
 
