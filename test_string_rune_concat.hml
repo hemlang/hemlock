@@ -1,0 +1,35 @@
+// Test string + rune concatenation
+
+// String + ASCII rune
+let hello = "Hello";
+let exclaim = hello + '!';
+print("String + ASCII rune:");
+print(exclaim);
+
+// String + emoji rune
+let rocket = "Rocket ";
+let rocket_emoji = rocket + '🚀';
+print("\nString + emoji rune:");
+print(rocket_emoji);
+
+// Rune + string
+let prefix = '>' + " Message";
+print("\nRune + string:");
+print(prefix);
+
+// Emoji rune + string
+let smile = '😊' + " Happy!";
+print("\nEmoji rune + string:");
+print(smile);
+
+// Chain concatenation
+let chain = "Hi " + '👋' + " World " + '🌍';
+print("\nChained concatenation:");
+print(chain);
+
+// Unicode escape rune
+let heart = "Love " + '\u{2764}';
+print("\nWith Unicode escape:");
+print(heart);
+
+print("\nString + rune concatenation working!");

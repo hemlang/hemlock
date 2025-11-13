@@ -126,7 +126,11 @@ static Expr* primary(Parser *p) {
         free(str);  // Parser owns this memory from lexer
         return expr;
     }
-    
+
+    if (match(p, TOK_RUNE)) {
+        return expr_rune(p->previous.rune_value);
+    }
+
     if (match(p, TOK_IDENT)) {
         char *name = token_text(&p->previous);
         Expr *ident = expr_ident(name);
@@ -252,6 +256,7 @@ not_fn_expr:
     if (match(p, TOK_TYPE_PTR)) return expr_ident("ptr");
     if (match(p, TOK_TYPE_BUFFER)) return expr_ident("buffer");
     if (match(p, TOK_TYPE_STRING)) return expr_ident("string");
+    if (match(p, TOK_TYPE_RUNE)) return expr_ident("rune");
     if (match(p, TOK_TYPE_BOOL)) return expr_ident("bool");
 
     error(p, "Expect expression");
@@ -596,6 +601,7 @@ static Type* parse_type(Parser *p) {
         case TOK_TYPE_NUMBER: kind = TYPE_F64; break;  // alias
         case TOK_TYPE_BOOL: kind = TYPE_BOOL; break;
         case TOK_TYPE_STRING: kind = TYPE_STRING; break;
+        case TOK_TYPE_RUNE: kind = TYPE_RUNE; break;
         case TOK_TYPE_PTR: kind = TYPE_PTR; break;
         case TOK_TYPE_BUFFER: kind = TYPE_BUFFER; break;
         case TOK_TYPE_VOID: kind = TYPE_VOID; break;
@@ -1127,7 +1133,7 @@ static Stmt* statement(Parser *p) {
                         check(p, TOK_TYPE_U8) || check(p, TOK_TYPE_U16) || check(p, TOK_TYPE_U32) ||
                         check(p, TOK_TYPE_F32) || check(p, TOK_TYPE_F64) ||
                         check(p, TOK_TYPE_INTEGER) || check(p, TOK_TYPE_NUMBER) || check(p, TOK_TYPE_CHAR) ||
-                        check(p, TOK_TYPE_BOOL) || check(p, TOK_TYPE_STRING) ||
+                        check(p, TOK_TYPE_BOOL) || check(p, TOK_TYPE_STRING) || check(p, TOK_TYPE_RUNE) ||
                         check(p, TOK_TYPE_PTR) || check(p, TOK_TYPE_BUFFER) ||
                         check(p, TOK_OBJECT) || check(p, TOK_IDENT)) {
                         // It's a type

@@ -336,12 +336,17 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     } else if (value.type == VAL_BOOL) {
         // Allow bool -> int conversions
         int_val = value.as.as_bool;
+    } else if (value.type == VAL_RUNE) {
+        // Allow rune -> int conversions (get codepoint value)
+        int_val = value.as.as_rune;
     } else if (value.type == VAL_STRING && target_kind == TYPE_STRING) {
         return value;  // String to string, ok
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
     } else if (value.type == VAL_NULL && target_kind == TYPE_NULL) {
         return value;  // Null to null, ok
+    } else if (value.type == VAL_RUNE && target_kind == TYPE_RUNE) {
+        return value;  // Rune to rune, ok
     } else {
         fprintf(stderr, "Runtime error: Cannot convert type to target type\n");
         exit(1);
@@ -450,6 +455,13 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         case TYPE_STRING:
             if (value.type == VAL_STRING) {
                 return value;
+            }
+            // Allow conversion from rune to string
+            if (value.type == VAL_RUNE) {
+                char rune_bytes[5];  // Max 4 bytes + null terminator
+                int rune_len = utf8_encode(value.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+                return val_string(rune_bytes);
             }
             fprintf(stderr, "Runtime error: Cannot convert to string\n");
             exit(1);

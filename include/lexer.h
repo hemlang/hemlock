@@ -8,6 +8,7 @@ typedef enum {
     // Literals
     TOK_NUMBER,
     TOK_STRING,
+    TOK_RUNE,
     TOK_IDENT,
     TOK_TRUE,
     TOK_FALSE,
@@ -61,6 +62,7 @@ typedef enum {
     TOK_TYPE_CHAR,     // alias for u8
     TOK_TYPE_BOOL,
     TOK_TYPE_STRING,
+    TOK_TYPE_RUNE,     // Unicode codepoint type
     TOK_TYPE_PTR,
     TOK_TYPE_BUFFER,
     TOK_TYPE_VOID,
@@ -119,6 +121,9 @@ typedef struct {
 
     // For strings
     char *string_value; // Must be freed
+
+    // For runes
+    uint32_t rune_value; // Unicode codepoint
 } Token;
 
 // Lexer state

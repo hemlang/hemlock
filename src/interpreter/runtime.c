@@ -237,6 +237,34 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return (Value){ .type = VAL_STRING, .as.as_string = result };
             }
 
+            // String + rune concatenation
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_RUNE) {
+                // Encode rune to UTF-8
+                char rune_bytes[5];  // Max 4 bytes + null terminator
+                int rune_len = utf8_encode(right.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+
+                // Create temporary string from rune
+                String *rune_str = string_new(rune_bytes);
+                String *result = string_concat(left.as.as_string, rune_str);
+                free(rune_str);  // Free temporary string
+                return (Value){ .type = VAL_STRING, .as.as_string = result };
+            }
+
+            // Rune + string concatenation
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_RUNE && right.type == VAL_STRING) {
+                // Encode rune to UTF-8
+                char rune_bytes[5];
+                int rune_len = utf8_encode(left.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+
+                // Create temporary string from rune
+                String *rune_str = string_new(rune_bytes);
+                String *result = string_concat(rune_str, right.as.as_string);
+                free(rune_str);  // Free temporary string
+                return (Value){ .type = VAL_STRING, .as.as_string = result };
+            }
+
             // Pointer arithmetic
             if (left.type == VAL_PTR && is_integer(right)) {
                 if (expr->as.binary.op == OP_ADD) {
