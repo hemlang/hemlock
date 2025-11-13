@@ -1,0 +1,30 @@
+// Basic UTF-8 string test
+
+// ASCII string
+let ascii = "Hello";
+print("ASCII string: ");
+print(ascii);
+print("Length (codepoints): ");
+print(ascii.length);
+print("Byte length: ");
+print(ascii.byte_length);
+
+// Emoji string
+let emoji = "🚀";
+print("\nEmoji string: ");
+print(emoji);
+print("Length (codepoints): ");
+print(emoji.length);
+print("Byte length: ");
+print(emoji.byte_length);
+
+// Mixed content
+print("\nMixed string: ");
+let mixed = "Hi 🚀!";
+print(mixed);
+print("Length (codepoints): ");
+print(mixed.length);
+print("Byte length: ");
+print(mixed.byte_length);
+
+print("\nUTF-8 strings working!");

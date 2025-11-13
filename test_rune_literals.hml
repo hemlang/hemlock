@@ -1,0 +1,47 @@
+// Test rune literal parsing
+
+// Basic ASCII characters
+let a = 'A';
+let b = 'B';
+let zero = '0';
+
+print("ASCII runes:");
+print(a);
+print(b);
+print(zero);
+
+// Escape sequences
+let newline = '\n';
+let tab = '\t';
+let backslash = '\\';
+let quote = '\'';
+
+print("\nEscape sequences:");
+print(tab);
+print(backslash);
+print(quote);
+
+// Multi-byte UTF-8 characters
+let rocket = '🚀';
+let heart = '❤';
+let smile = '😊';
+
+print("\nEmoji runes:");
+print(rocket);
+print(heart);
+print(smile);
+
+// Unicode escapes
+let rocket2 = '\u{1F680}';
+let heart2 = '\u{2764}';
+
+print("\nUnicode escapes:");
+print(rocket2);
+print(heart2);
+
+// Type annotations
+let typed_rune: rune = 'X';
+print("\nTyped rune:");
+print(typed_rune);
+
+print("\nRune literals working!");

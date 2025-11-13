@@ -806,6 +806,9 @@ static Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
         case VAL_STRING:
             type_name = "string";
             break;
+        case VAL_RUNE:
+            type_name = "rune";
+            break;
         case VAL_PTR:
             type_name = "ptr";
             break;

@@ -1,0 +1,56 @@
+// Test rune type conversions
+
+// Integer to rune
+let code: rune = 65;
+print("Integer to rune:");
+print(code);  // 'A'
+
+let emoji_code: rune = 128640;  // U+1F680 (rocket)
+print(emoji_code);
+
+// Rune to integer
+let r = 'Z';
+let int_val: i32 = r;
+print("\nRune to integer:");
+print(int_val);  // 90
+
+let rocket = '🚀';
+let rocket_val: i32 = rocket;
+print(rocket_val);  // 128640
+
+// Rune to string
+let ch = 'H';
+let str: string = ch;
+print("\nRune to string:");
+print(str);  // "H"
+
+let heart: string = '❤';
+print(heart);  // "❤"
+
+// u8 (char) to rune
+let byte: u8 = 72;
+let byte_rune: rune = byte;
+print("\nu8 to rune:");
+print(byte_rune);  // 'H'
+
+// Rune to u8 (will work for ASCII range)
+let ascii_rune = 'A';
+let ascii_byte: u8 = ascii_rune;
+print("\nRune to u8:");
+print(ascii_byte);  // 65
+
+// Multiple conversions
+let x: i32 = 128512;
+let r2: rune = x;
+let s: string = r2;
+print("\nChained conversions (i32 -> rune -> string):");
+print(s);  // "😀"
+
+// Range checking (should work)
+let min_rune: rune = 0;
+let max_rune: rune = 1114111;  // 0x10FFFF
+print("\nRange checking:");
+print(min_rune);
+print(max_rune);
+
+print("\nRune type conversions working!");

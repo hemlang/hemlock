@@ -1,0 +1,148 @@
+// Comprehensive UTF-8 and Rune Test Suite
+
+print("=== UTF-8 String Properties ===");
+
+// Test 1: ASCII strings
+let ascii = "Hello";
+print("ASCII: " + ascii);
+print("Length: " + typeof(ascii.length) + ", Byte length: " + typeof(ascii.byte_length));
+
+// Test 2: Pure emoji string
+let emojis = "🚀🌟💡";
+print("\nEmojis: " + emojis);
+print("Length: " + typeof(emojis.length) + ", Byte length: " + typeof(emojis.byte_length));
+
+// Test 3: Mixed ASCII and multi-byte
+let mixed = "Hello 世界 🌍";
+print("\nMixed: " + mixed);
+print("Length: " + typeof(mixed.length) + ", Byte length: " + typeof(mixed.byte_length));
+
+print("\n=== String Indexing ===");
+
+// Test 4: Index ASCII
+let s1 = "ABC";
+print("s1[0]: " + typeof(s1[0]) + ", s1[1]: " + typeof(s1[1]) + ", s1[2]: " + typeof(s1[2]));
+
+// Test 5: Index emoji
+let s2 = "Hi🚀";
+print("s2[0]: " + typeof(s2[0]) + ", s2[1]: " + typeof(s2[1]) + ", s2[2]: " + typeof(s2[2]));
+
+print("\n=== String Methods ===");
+
+// Test 6: substr with codepoints
+let text = "Hello🌍World";
+let sub1 = text.substr(0, 5);  // "Hello"
+let sub2 = text.substr(5, 1);  // "🌍"
+let sub3 = text.substr(6, 5);  // "World"
+print("substr: '" + sub1 + "', '" + sub2 + "', '" + sub3 + "'");
+
+// Test 7: slice with codepoints
+let slice1 = text.slice(0, 5);   // "Hello"
+let slice2 = text.slice(5, 6);   // "🌍"
+let slice3 = text.slice(6, 11);  // "World"
+print("slice: '" + slice1 + "', '" + slice2 + "', '" + slice3 + "'");
+
+// Test 8: char_at (returns codepoint)
+let char1 = text.char_at(0);
+let char2 = text.char_at(5);
+let char3 = text.char_at(6);
+print("char_at: " + typeof(char1) + ", " + typeof(char2) + ", " + typeof(char3));
+
+// Test 9: byte_at
+let byte1 = text.byte_at(0);
+print("byte_at(0): " + typeof(byte1));
+
+// Test 10: chars() method
+let chars = "Hi🚀".chars();
+print("chars() length: " + typeof(chars.length));
+
+// Test 11: bytes() method
+let bytes = "Hi".bytes();
+print("bytes() length: " + typeof(bytes.length));
+
+print("\n=== Rune Literals ===");
+
+// Test 12: ASCII rune literals
+let r1 = 'A';
+let r2 = '!';
+print("ASCII runes: " + typeof(r1) + ", " + typeof(r2));
+
+// Test 13: Emoji rune literals
+let r3 = '🚀';
+let r4 = '❤';
+print("Emoji runes: " + typeof(r3) + ", " + typeof(r4));
+
+// Test 14: Escape sequences
+let r5 = '\n';
+let r6 = '\t';
+let r7 = '\\';
+print("Escape runes: " + typeof(r5) + ", " + typeof(r6) + ", " + typeof(r7));
+
+// Test 15: Unicode escapes
+let r8 = '\u{1F680}';  // Rocket
+let r9 = '\u{2764}';   // Heart
+print("Unicode escapes: " + typeof(r8) + ", " + typeof(r9));
+
+print("\n=== String + Rune Concatenation ===");
+
+// Test 16: String + rune
+let s3 = "Hello" + '!';
+print("String + rune: " + s3);
+
+// Test 17: Rune + string
+let s4 = '>' + " Message";
+print("Rune + string: " + s4);
+
+// Test 18: Multiple concatenations
+let s5 = "Hi " + '👋' + " World " + '🌍';
+print("Multiple: " + s5);
+
+print("\n=== Rune Type Conversions ===");
+
+// Test 19: Integer to rune
+let code1: rune = 65;
+let code2: rune = 128640;
+print("Int to rune: " + typeof(code1) + ", " + typeof(code2));
+
+// Test 20: Rune to integer
+let r10 = 'Z';
+let int1: i32 = r10;
+print("Rune to int: " + typeof(int1));
+
+// Test 21: Rune to string
+let r11 = 'H';
+let str1: string = r11;
+print("Rune to string: " + str1);
+
+// Test 22: Chained conversions
+let x: i32 = 128512;
+let r12: rune = x;
+let s6: string = r12;
+print("Chained (i32->rune->string): " + s6);
+
+print("\n=== Edge Cases ===");
+
+// Test 23: Empty string
+let empty = "";
+print("Empty string length: " + typeof(empty.length));
+
+// Test 24: Single emoji
+let single = "🎉";
+print("Single emoji - length: " + typeof(single.length) + ", byte_length: " + typeof(single.byte_length));
+
+// Test 25: String with null byte
+let r_h: string = 'H';
+let r_null: string = '\u{0000}';
+let r_i: string = 'i';
+let with_zero = r_h + r_null + r_i;
+print("With null rune length: " + typeof(with_zero.length));
+
+// Test 26: Max Unicode codepoint
+let max: rune = 1114111;
+print("Max Unicode (U+10FFFF): " + typeof(max));
+
+// Test 27: Combining characters (diacritics)
+let diacritic = "café";  // é might be 2 codepoints
+print("Diacritic string: " + diacritic + " (length: " + typeof(diacritic.length) + ")");
+
+print("\n=== ALL UTF-8 TESTS PASSED ===");

@@ -1,0 +1,26 @@
+// Test UTF-8 string indexing
+
+let s = "Hi 🚀!";
+
+print("String: ");
+print(s);
+print("Length: ");
+print(s.length);
+
+print("\nIndexing:");
+print("s[0] = ");
+print(s[0]);  // Should be 'H'
+
+print("s[1] = ");
+print(s[1]);  // Should be 'i'
+
+print("s[2] = ");
+print(s[2]);  // Should be ' ' (space)
+
+print("s[3] = ");
+print(s[3]);  // Should be rocket emoji
+
+print("s[4] = ");
+print(s[4]);  // Should be '!'
+
+print("\nIndexing works!");

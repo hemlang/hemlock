@@ -14,6 +14,7 @@ typedef enum {
     EXPR_NUMBER,
     EXPR_BOOL,
     EXPR_STRING,
+    EXPR_RUNE,       // Rune literal 'x'
     EXPR_IDENT,
     EXPR_NULL,
     EXPR_BINARY,
@@ -66,6 +67,7 @@ struct Expr {
         } number;
         int boolean;
         char *string;
+        uint32_t rune;     // Unicode codepoint
         char *ident;
         struct {
             Expr *left;
@@ -158,6 +160,7 @@ typedef enum {
     TYPE_F64,
     TYPE_BOOL,
     TYPE_STRING,
+    TYPE_RUNE,           // Unicode codepoint (U+0000 to U+10FFFF)
     TYPE_PTR,
     TYPE_BUFFER,
     TYPE_NULL,
@@ -300,6 +303,7 @@ Expr* expr_number_int(int64_t value);  // Changed to int64_t to support 64-bit l
 Expr* expr_number_float(double value);
 Expr* expr_bool(int value);
 Expr* expr_string(const char *str);
+Expr* expr_rune(uint32_t codepoint);
 Expr* expr_ident(const char *name);
 Expr* expr_null(void);
 Expr* expr_binary(Expr *left, BinaryOp op, Expr *right);

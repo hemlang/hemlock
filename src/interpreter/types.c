@@ -336,12 +336,17 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     } else if (value.type == VAL_BOOL) {
         // Allow bool -> int conversions
         int_val = value.as.as_bool;
+    } else if (value.type == VAL_RUNE) {
+        // Allow rune -> int conversions (get codepoint value)
+        int_val = value.as.as_rune;
     } else if (value.type == VAL_STRING && target_kind == TYPE_STRING) {
         return value;  // String to string, ok
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
     } else if (value.type == VAL_NULL && target_kind == TYPE_NULL) {
         return value;  // Null to null, ok
+    } else if (value.type == VAL_RUNE && target_kind == TYPE_RUNE) {
+        return value;  // Rune to rune, ok
     } else {
         fprintf(stderr, "Runtime error: Cannot convert type to target type\n");
         exit(1);
@@ -451,7 +456,30 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (value.type == VAL_STRING) {
                 return value;
             }
+            // Allow conversion from rune to string
+            if (value.type == VAL_RUNE) {
+                char rune_bytes[5];  // Max 4 bytes + null terminator
+                int rune_len = utf8_encode(value.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+                return val_string(rune_bytes);
+            }
             fprintf(stderr, "Runtime error: Cannot convert to string\n");
+            exit(1);
+
+        case TYPE_RUNE:
+            if (value.type == VAL_RUNE) {
+                return value;
+            }
+            // Allow conversion from integers to rune
+            if (is_integer(value)) {
+                int64_t codepoint = value_to_int(value);
+                if (codepoint < 0 || codepoint > 0x10FFFF) {
+                    fprintf(stderr, "Runtime error: Value %ld out of range for rune [0, 0x10FFFF]\n", codepoint);
+                    exit(1);
+                }
+                return val_rune((uint32_t)codepoint);
+            }
+            fprintf(stderr, "Runtime error: Cannot convert to rune\n");
             exit(1);
 
         case TYPE_PTR:

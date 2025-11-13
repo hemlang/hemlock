@@ -98,7 +98,8 @@ let q = p + 100;  // Way past allocation - allowed but dangerous
 
 ### Other Primitives
 - **bool:** `true`, `false`
-- **string:** UTF-8, mutable, heap-allocated with `.length` property (see [Strings](#strings) section for 15 methods)
+- **string:** UTF-8, mutable, heap-allocated with `.length` property (see [Strings](#strings) section for 18 methods)
+- **rune:** Unicode codepoint (U+0000 to U+10FFFF), 32-bit value (see [Runes](#runes) section)
 - **array:** Dynamic arrays with mixed types, `.length` property (see [Arrays](#arrays) section for 15 methods)
 - **ptr:** Raw pointer (8 bytes, no bounds checking)
 - **buffer:** Safe wrapper (ptr + length + capacity, bounds checked)
@@ -213,30 +214,44 @@ free(b);                // still manual
 
 ## Strings
 
-Strings are **first-class mutable sequences** with a rich set of methods for text processing:
+Strings are **UTF-8 first-class mutable sequences** with full Unicode support and a rich set of methods for text processing:
 
 ```hemlock
 let s = "hello";
-s[0] = 72;              // mutate to "Hello"
-print(s.length);        // 5
-let c = s[0];           // returns u8 (byte value)
+s[0] = 'H';             // mutate with rune (now "Hello")
+print(s.length);        // 5 (codepoint count)
+let c = s[0];           // returns rune (Unicode codepoint)
 let msg = s + " world"; // concatenation
+let emoji = "🚀";
+print(emoji.length);    // 1 (one codepoint)
+print(emoji.byte_length); // 4 (four UTF-8 bytes)
 ```
 
 **Properties:**
-- Mutable (unlike Python/JS/Java)
-- Indexing returns `u8` (byte value, not substring)
-- UTF-8 encoded
-- `.length` is a property, not a method
-- Heap-allocated with internal capacity tracking
+- **UTF-8 encoded** - Full Unicode support (U+0000 to U+10FFFF)
+- **Mutable** (unlike Python/JS/Java)
+- **Indexing returns `rune`** (Unicode codepoint, not byte)
+- **`.length`** - Codepoint count (number of characters)
+- **`.byte_length`** - Byte count (UTF-8 encoding size)
+- **Heap-allocated** with internal capacity tracking
+
+**UTF-8 Behavior:**
+- All string operations work with **codepoints** (characters), not bytes
+- Multi-byte characters (emojis, CJK, etc.) count as 1 character
+- `"Hello".length` → 5, `"🚀".length` → 1
+- Indexing, slicing, and substring operations use codepoint positions
 
 ### String Methods
 
-**Substring & Slicing:**
+**Substring & Slicing (codepoint-based):**
 ```hemlock
 let s = "hello world";
-let sub = s.substr(6, 5);       // "world" (start, length)
-let slice = s.slice(0, 5);      // "hello" (start, end exclusive)
+let sub = s.substr(6, 5);       // "world" (start, length in codepoints)
+let slice = s.slice(0, 5);      // "hello" (start, end exclusive, codepoints)
+
+// UTF-8 example
+let text = "Hi🚀!";
+let emoji = text.substr(2, 1);  // "🚀" (position 2, length 1)
 ```
 
 **Search & Find:**
@@ -277,8 +292,19 @@ let repeated = "ha".repeat(3);  // "hahaha"
 
 **Character & Byte Access:**
 ```hemlock
-let byte = s.char_at(0);        // 104 (u8)
-let buf = s.to_bytes();         // Convert to buffer
+// Character-level access (codepoints)
+let char = s.char_at(0);        // Returns rune (Unicode codepoint)
+let chars = s.chars();          // Array of runes ['h', 'e', 'l', 'l', 'o']
+
+// Byte-level access (UTF-8 bytes)
+let byte = s.byte_at(0);        // Returns u8 (byte value)
+let bytes = s.bytes();          // Array of u8 bytes [104, 101, 108, 108, 111]
+let buf = s.to_bytes();         // Convert to buffer (legacy)
+
+// UTF-8 example
+let emoji = "🚀";
+print(emoji.char_at(0));        // U+1F680 (rocket rune)
+print(emoji.byte_at(0));        // 240 (first UTF-8 byte)
 ```
 
 **Method Chaining:**
@@ -290,9 +316,9 @@ let result = "  Hello World  "
 ```
 
 **Available String Methods:**
-- `substr(start, length)` - Extract substring by position and length
-- `slice(start, end)` - Extract substring by range (end exclusive)
-- `find(needle)` - Find first occurrence, returns index or -1
+- `substr(start, length)` - Extract substring by codepoint position and length
+- `slice(start, end)` - Extract substring by codepoint range (end exclusive)
+- `find(needle)` - Find first occurrence, returns codepoint index or -1
 - `contains(needle)` - Check if string contains substring
 - `split(delimiter)` - Split into array of strings
 - `trim()` - Remove leading/trailing whitespace
@@ -303,8 +329,172 @@ let result = "  Hello World  "
 - `replace(old, new)` - Replace first occurrence
 - `replace_all(old, new)` - Replace all occurrences
 - `repeat(count)` - Repeat string n times
-- `char_at(index)` - Get byte value at index (returns u8)
+- `char_at(index)` - Get Unicode codepoint at index (returns rune)
+- `byte_at(index)` - Get byte value at index (returns u8)
+- `chars()` - Convert to array of runes (codepoints)
+- `bytes()` - Convert to array of bytes (u8 values)
 - `to_bytes()` - Convert to buffer for low-level access
+
+---
+
+## Runes
+
+Runes represent **Unicode codepoints** (U+0000 to U+10FFFF) as a distinct type for character manipulation:
+
+```hemlock
+let ch = 'A';           // Rune literal
+let emoji = '🚀';       // Multi-byte character as single rune
+print(ch);              // 'A'
+print(emoji);           // U+1F680
+
+let s = "Hello " + '!'; // String + rune concatenation
+let r = '>' + " msg";   // Rune + string concatenation
+```
+
+**Properties:**
+- **32-bit value** representing a Unicode codepoint
+- **Range:** 0 to 0x10FFFF (1,114,111)
+- **Not a numeric type** - used for character representation
+- **Distinct from u8/char** - runes are Unicode, u8 is bytes
+
+### Rune Literals
+
+**Basic Syntax:**
+```hemlock
+let a = 'A';            // ASCII character
+let b = '0';            // Digit character
+let c = '!';            // Punctuation
+```
+
+**Multi-byte UTF-8 Characters:**
+```hemlock
+let rocket = '🚀';      // Emoji (U+1F680)
+let heart = '❤';        // Heart (U+2764)
+let chinese = '中';     // CJK character (U+4E2D)
+```
+
+**Escape Sequences:**
+```hemlock
+let newline = '\n';     // Newline (U+000A)
+let tab = '\t';         // Tab (U+0009)
+let backslash = '\\';   // Backslash (U+005C)
+let quote = '\'';       // Single quote (U+0027)
+let dquote = '"';       // Double quote (U+0022)
+let null = '\0';        // Null character (U+0000)
+let cr = '\r';          // Carriage return (U+000D)
+```
+
+**Unicode Escapes:**
+```hemlock
+let rocket = '\u{1F680}';   // Emoji via Unicode escape
+let heart = '\u{2764}';     // Up to 6 hex digits
+let ascii = '\u{41}';       // 'A' via escape
+let max = '\u{10FFFF}';     // Maximum Unicode codepoint
+```
+
+### String + Rune Concatenation
+
+Runes can be concatenated with strings:
+
+```hemlock
+// String + rune
+let greeting = "Hello" + '!';       // "Hello!"
+let decorated = "Text" + '✓';       // "Text✓"
+
+// Rune + string
+let prefix = '>' + " Message";      // "> Message"
+let bullet = '•' + " Item";         // "• Item"
+
+// Multiple concatenations
+let msg = "Hi " + '👋' + " World " + '🌍';  // "Hi 👋 World 🌍"
+
+// Method chaining
+let result = ('>' + " Important").to_upper();  // "> IMPORTANT"
+```
+
+**Implementation:** Runes are automatically encoded to UTF-8 and converted to strings during concatenation.
+
+### Rune Type Conversions
+
+**Integer ↔ Rune:**
+```hemlock
+// Integer to rune (codepoint value)
+let code: rune = 65;            // 'A'
+let emoji_code: rune = 128640;  // U+1F680 (🚀)
+
+// Rune to integer (get codepoint)
+let r = 'Z';
+let value: i32 = r;             // 90
+```
+
+**Rune → String:**
+```hemlock
+// Explicit conversion
+let ch: string = 'H';           // "H"
+let emoji: string = '🚀';       // "🚀"
+
+// Automatic during concatenation
+let s = "" + 'A';               // "A"
+```
+
+**u8 (char) → Rune:**
+```hemlock
+// Any u8 value 0-255 can convert to rune
+let byte: u8 = 65;
+let rune_val: rune = byte;      // 'A'
+
+// Note: Values 0-127 are ASCII, 128-255 are Latin-1
+let extended: u8 = 200;
+let r: rune = extended;         // U+00C8 (È)
+```
+
+**Chained Conversions:**
+```hemlock
+// i32 → rune → string
+let code: i32 = 128512;         // Grinning face codepoint
+let r: rune = code;             // 😀
+let s: string = r;              // "😀"
+```
+
+**Range Checking:**
+- Integer to rune: Must be in range [0, 0x10FFFF]
+- Out of range values cause runtime error
+- Rune to integer: Always succeeds (returns codepoint)
+
+### Rune Operations
+
+**Printing:**
+```hemlock
+let ascii = 'A';
+print(ascii);                   // 'A' (quoted, printable ASCII)
+
+let emoji = '🚀';
+print(emoji);                   // U+1F680 (Unicode notation)
+
+let tab = '\t';
+print(tab);                     // U+0009 (non-printable as hex)
+```
+
+**Type Checking:**
+```hemlock
+let r = '🚀';
+print(typeof(r));               // "rune"
+
+let s = "text";
+let ch = s[0];
+print(typeof(ch));              // "rune" (indexing returns runes)
+```
+
+**Comparison:**
+```hemlock
+let a = 'A';
+let b = 'B';
+print(a == a);                  // true
+print(a == b);                  // false
+
+// Runes can be compared with integers (codepoint values)
+print(a == 65);                 // true (implicit conversion)
+```
 
 ---
 
@@ -1495,12 +1685,14 @@ When adding features to Hemlock:
 
 ## Version History
 
-- **v0.1** - Primitives, memory management, strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, command-line arguments, async/await, structured concurrency, FFI (current)
-  - Type system: i8-i64, u8-u64, f32/f64, bool, string, null, ptr, buffer, array, object, file, task, channel, void
+- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, command-line arguments, async/await, structured concurrency, FFI (current)
+  - Type system: i8-i64, u8-u64, f32/f64, bool, string, rune, null, ptr, buffer, array, object, file, task, channel, void
   - **64-bit integer support:** i64 and u64 types with full type promotion, conversion, and FFI support
+  - **UTF-8 first-class strings:** Full Unicode support (U+0000 to U+10FFFF), codepoint-based indexing and operations, `.length` (codepoints) and `.byte_length` (bytes) properties
+  - **Rune type:** Unicode codepoints as distinct 32-bit type, rune literals with escape sequences and Unicode escapes ('\u{XXXX}'), string + rune concatenation, integer ↔ rune conversions
   - Memory: alloc, free, memset, memcpy, realloc, talloc, sizeof
   - Objects: literals, methods, duck typing, optional fields, serialize/deserialize
-  - **Strings:** 15 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, to_bytes
+  - **Strings:** 18 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, byte_at, chars, bytes, to_bytes
   - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
   - Control flow: if/else, while, for, for-in, break, continue, switch
   - Error handling: try/catch/finally/throw

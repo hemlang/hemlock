@@ -148,6 +148,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         case EXPR_STRING:
             return val_string(expr->as.string);
 
+        case EXPR_RUNE:
+            return val_rune(expr->as.rune);
+
         case EXPR_UNARY: {
             Value operand = eval_expr(expr->as.unary.operand, env, ctx);
 
@@ -231,6 +234,34 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // String concatenation
             if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_STRING) {
                 String *result = string_concat(left.as.as_string, right.as.as_string);
+                return (Value){ .type = VAL_STRING, .as.as_string = result };
+            }
+
+            // String + rune concatenation
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_RUNE) {
+                // Encode rune to UTF-8
+                char rune_bytes[5];  // Max 4 bytes + null terminator
+                int rune_len = utf8_encode(right.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+
+                // Create temporary string from rune
+                String *rune_str = string_new(rune_bytes);
+                String *result = string_concat(left.as.as_string, rune_str);
+                free(rune_str);  // Free temporary string
+                return (Value){ .type = VAL_STRING, .as.as_string = result };
+            }
+
+            // Rune + string concatenation
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_RUNE && right.type == VAL_STRING) {
+                // Encode rune to UTF-8
+                char rune_bytes[5];
+                int rune_len = utf8_encode(left.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+
+                // Create temporary string from rune
+                String *rune_str = string_new(rune_bytes);
+                String *result = string_concat(rune_str, right.as.as_string);
+                free(rune_str);  // Free temporary string
                 return (Value){ .type = VAL_STRING, .as.as_string = result };
             }
 
@@ -650,9 +681,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             const char *property = expr->as.get_property.property;
 
             if (object.type == VAL_STRING) {
+                String *str = object.as.as_string;
+
+                // .length property - returns codepoint count
                 if (strcmp(property, "length") == 0) {
-                    return val_int(object.as.as_string->length);
+                    // Compute character length if not cached
+                    if (str->char_length < 0) {
+                        str->char_length = utf8_count_codepoints(str->data, str->length);
+                    }
+                    return val_i32(str->char_length);
                 }
+
+                // .byte_length property - returns byte count
+                if (strcmp(property, "byte_length") == 0) {
+                    return val_i32(str->length);
+                }
+
                 fprintf(stderr, "Runtime error: Unknown property '%s' for string\n", property);
                 exit(1);
             } else if (object.type == VAL_BUFFER) {
@@ -709,14 +753,25 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
 
-                if (index < 0 || index >= str->length) {
-                    fprintf(stderr, "Runtime error: String index %d out of bounds (length %d)\n",
-                            index, str->length);
+                // Compute character length if not cached
+                if (str->char_length < 0) {
+                    str->char_length = utf8_count_codepoints(str->data, str->length);
+                }
+
+                // Check bounds using character count (not byte count)
+                if (index < 0 || index >= str->char_length) {
+                    fprintf(stderr, "Runtime error: String index %d out of bounds (length=%d)\n",
+                            index, str->char_length);
                     exit(1);
                 }
 
-                // Return the byte as an integer (u8/char)
-                return val_u8((unsigned char)str->data[index]);
+                // Find byte offset of the i-th codepoint
+                int byte_pos = utf8_byte_offset(str->data, str->length, index);
+
+                // Decode the codepoint at that position
+                uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+
+                return val_rune(codepoint);
             } else if (object.type == VAL_BUFFER) {
                 Buffer *buf = object.as.as_buffer;
 

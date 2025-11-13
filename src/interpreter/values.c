@@ -21,6 +21,7 @@ String* string_new(const char *cstr) {
         exit(1);
     }
     str->length = len;
+    str->char_length = -1;  // Cache not yet computed
     str->capacity = len + 1;
     str->data = malloc(str->capacity);
     if (!str->data) {
@@ -40,6 +41,7 @@ String* string_copy(String *str) {
         exit(1);
     }
     copy->length = str->length;
+    copy->char_length = str->char_length;  // Copy cached value
     copy->capacity = str->capacity;
     copy->data = malloc(copy->capacity);
     if (!copy->data) {
@@ -59,6 +61,7 @@ String* string_concat(String *a, String *b) {
         exit(1);
     }
     result->length = new_len;
+    result->char_length = -1;  // Cache invalidated after concatenation
     result->capacity = new_len + 1;
     result->data = malloc(result->capacity);
     if (!result->data) {
@@ -91,8 +94,20 @@ Value val_string_take(char *data, int length, int capacity) {
     }
     str->data = data;
     str->length = length;
+    str->char_length = -1;  // Cache not yet computed
     str->capacity = capacity;
     v.as.as_string = str;
+    return v;
+}
+
+Value val_rune(uint32_t codepoint) {
+    if (codepoint > 0x10FFFF) {
+        fprintf(stderr, "Runtime error: Invalid Unicode codepoint: 0x%X (max is 0x10FFFF)\n", codepoint);
+        exit(1);
+    }
+    Value v;
+    v.type = VAL_RUNE;
+    v.as.as_rune = codepoint;
     return v;
 }
 
@@ -554,6 +569,16 @@ void print_value(Value val) {
         case VAL_STRING:
             printf("%s", val.as.as_string->data);
             break;
+        case VAL_RUNE: {
+            // Print rune as character if printable, otherwise as U+XXXX
+            uint32_t r = val.as.as_rune;
+            if (r >= 32 && r < 127) {
+                printf("'%c'", (char)r);
+            } else {
+                printf("U+%04X", r);
+            }
+            break;
+        }
         case VAL_PTR:
             printf("%p", val.as.as_ptr);
             break;
@@ -626,6 +651,9 @@ void value_free(Value val) {
             if (val.as.as_string) {
                 string_free(val.as.as_string);
             }
+            break;
+        case VAL_RUNE:
+            // No cleanup needed for rune (primitive value)
             break;
         case VAL_BUFFER:
             if (val.as.as_buffer) {

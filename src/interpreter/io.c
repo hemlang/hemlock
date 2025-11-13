@@ -483,7 +483,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 // ========== STRING METHOD HANDLING ==========
 
 Value call_string_method(String *str, const char *method, Value *args, int num_args) {
-    // substr(start, length) - extract substring
+    // substr(start, length) - extract substring by codepoint positions
     if (strcmp(method, "substr") == 0) {
         if (num_args != 2) {
             fprintf(stderr, "Runtime error: substr() expects 2 arguments (start, length)\n");
@@ -494,33 +494,44 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             exit(1);
         }
 
-        int32_t start = value_to_int(args[0]);
-        int32_t length = value_to_int(args[1]);
+        // Compute character length if not cached
+        if (str->char_length < 0) {
+            str->char_length = utf8_count_codepoints(str->data, str->length);
+        }
 
-        // Bounds checking
-        if (start < 0 || start >= str->length) {
-            fprintf(stderr, "Runtime error: substr() start index %d out of bounds (length=%d)\n", start, str->length);
+        int32_t start = value_to_int(args[0]);
+        int32_t char_length = value_to_int(args[1]);
+
+        // Bounds checking (now on codepoint positions)
+        if (start < 0 || start >= str->char_length) {
+            fprintf(stderr, "Runtime error: substr() start index %d out of bounds (length=%d)\n",
+                    start, str->char_length);
             exit(1);
         }
-        if (length < 0) {
+        if (char_length < 0) {
             fprintf(stderr, "Runtime error: substr() length cannot be negative\n");
             exit(1);
         }
 
         // Clamp length to available characters
-        if (start + length > str->length) {
-            length = str->length - start;
+        if (start + char_length > str->char_length) {
+            char_length = str->char_length - start;
         }
 
-        // Create new string
-        char *new_data = malloc(length + 1);
-        memcpy(new_data, str->data + start, length);
-        new_data[length] = '\0';
+        // Convert codepoint positions to byte offsets
+        int start_byte = utf8_byte_offset(str->data, str->length, start);
+        int end_byte = utf8_byte_offset(str->data, str->length, start + char_length);
+        int byte_length = end_byte - start_byte;
 
-        return val_string_take(new_data, length, length + 1);
+        // Create new string
+        char *new_data = malloc(byte_length + 1);
+        memcpy(new_data, str->data + start_byte, byte_length);
+        new_data[byte_length] = '\0';
+
+        return val_string_take(new_data, byte_length, byte_length + 1);
     }
 
-    // slice(start, end) - Python-style slicing (end is exclusive)
+    // slice(start, end) - Python-style slicing by codepoint (end is exclusive)
     if (strcmp(method, "slice") == 0) {
         if (num_args != 2) {
             fprintf(stderr, "Runtime error: slice() expects 2 arguments (start, end)\n");
@@ -531,25 +542,37 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             exit(1);
         }
 
+        // Compute character length if not cached
+        if (str->char_length < 0) {
+            str->char_length = utf8_count_codepoints(str->data, str->length);
+        }
+
         int32_t start = value_to_int(args[0]);
         int32_t end = value_to_int(args[1]);
 
-        // Bounds checking
-        if (start < 0 || start > str->length) {
-            fprintf(stderr, "Runtime error: slice() start index out of bounds\n");
+        // Bounds checking (now on codepoint positions)
+        if (start < 0 || start > str->char_length) {
+            fprintf(stderr, "Runtime error: slice() start index %d out of bounds (length=%d)\n",
+                    start, str->char_length);
             exit(1);
         }
-        if (end < start || end > str->length) {
-            fprintf(stderr, "Runtime error: slice() end index out of bounds\n");
+        if (end < start || end > str->char_length) {
+            fprintf(stderr, "Runtime error: slice() end index %d out of bounds (length=%d)\n",
+                    end, str->char_length);
             exit(1);
         }
 
-        int32_t length = end - start;
-        char *new_data = malloc(length + 1);
-        memcpy(new_data, str->data + start, length);
-        new_data[length] = '\0';
+        // Convert codepoint positions to byte offsets
+        int start_byte = utf8_byte_offset(str->data, str->length, start);
+        int end_byte = utf8_byte_offset(str->data, str->length, end);
+        int byte_length = end_byte - start_byte;
 
-        return val_string_take(new_data, length, length + 1);
+        // Create new string
+        char *new_data = malloc(byte_length + 1);
+        memcpy(new_data, str->data + start_byte, byte_length);
+        new_data[byte_length] = '\0';
+
+        return val_string_take(new_data, byte_length, byte_length + 1);
     }
 
     // find(needle) - find first occurrence, returns index or -1
@@ -893,7 +916,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         return val_string_take(result, new_len, new_len + 1);
     }
 
-    // char_at(index) - explicit character access (returns u8)
+    // char_at(index) - get character at index (returns rune)
     if (strcmp(method, "char_at") == 0) {
         if (num_args != 1) {
             fprintf(stderr, "Runtime error: char_at() expects 1 argument (index)\n");
@@ -904,13 +927,85 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             exit(1);
         }
 
+        // Compute character length if not cached
+        if (str->char_length < 0) {
+            str->char_length = utf8_count_codepoints(str->data, str->length);
+        }
+
+        int32_t index = value_to_int(args[0]);
+        if (index < 0 || index >= str->char_length) {
+            fprintf(stderr, "Runtime error: char_at() index %d out of bounds (length=%d)\n",
+                    index, str->char_length);
+            exit(1);
+        }
+
+        // Find byte offset and decode codepoint
+        int byte_pos = utf8_byte_offset(str->data, str->length, index);
+        uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+
+        return val_rune(codepoint);
+    }
+
+    // byte_at(index) - get byte at index (returns u8)
+    if (strcmp(method, "byte_at") == 0) {
+        if (num_args != 1) {
+            fprintf(stderr, "Runtime error: byte_at() expects 1 argument (index)\n");
+            exit(1);
+        }
+        if (!is_integer(args[0])) {
+            fprintf(stderr, "Runtime error: byte_at() index must be an integer\n");
+            exit(1);
+        }
+
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index >= str->length) {
-            fprintf(stderr, "Runtime error: char_at() index out of bounds\n");
+            fprintf(stderr, "Runtime error: byte_at() index %d out of bounds (byte_length=%d)\n",
+                    index, str->length);
             exit(1);
         }
 
         return val_u8((uint8_t)str->data[index]);
+    }
+
+    // chars() - convert string to array of runes
+    if (strcmp(method, "chars") == 0) {
+        if (num_args != 0) {
+            fprintf(stderr, "Runtime error: chars() expects no arguments\n");
+            exit(1);
+        }
+
+        // Compute character length if not cached
+        if (str->char_length < 0) {
+            str->char_length = utf8_count_codepoints(str->data, str->length);
+        }
+
+        Array *arr = array_new();
+        int byte_pos = 0;
+
+        while (byte_pos < str->length) {
+            uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+            array_push(arr, val_rune(codepoint));
+
+            // Move to next character
+            byte_pos += utf8_char_byte_length((unsigned char)str->data[byte_pos]);
+        }
+
+        return val_array(arr);
+    }
+
+    // bytes() - convert string to array of bytes (u8)
+    if (strcmp(method, "bytes") == 0) {
+        if (num_args != 0) {
+            fprintf(stderr, "Runtime error: bytes() expects no arguments\n");
+            exit(1);
+        }
+
+        Array *arr = array_new();
+        for (int i = 0; i < str->length; i++) {
+            array_push(arr, val_u8((uint8_t)str->data[i]));
+        }
+
+        return val_array(arr);
     }
 
     // to_bytes() - convert string to buffer

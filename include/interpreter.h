@@ -20,6 +20,7 @@ typedef enum {
     VAL_F64,
     VAL_BOOL,
     VAL_STRING,
+    VAL_RUNE,           // Unicode codepoint (U+0000 to U+10FFFF)
     VAL_PTR,
     VAL_BUFFER,
     VAL_ARRAY,          // Dynamic array
@@ -41,9 +42,10 @@ typedef Value (*BuiltinFn)(Value *args, int num_args, ExecutionContext *ctx);
 
 // String struct
 typedef struct {
-    char *data;
-    int length;
-    int capacity;
+    char *data;          // UTF-8 encoded bytes
+    int length;          // Length in bytes (for backward compatibility, renamed to byte_length conceptually)
+    int char_length;     // Length in Unicode codepoints (cached, -1 if unknown)
+    int capacity;        // Allocated capacity in bytes
 } String;
 
 // Buffer struct (safe pointer wrapper)
@@ -144,6 +146,7 @@ typedef struct Value {
         double as_f64;
         int as_bool;
         String *as_string;
+        uint32_t as_rune;   // Unicode codepoint (0x0 to 0x10FFFF)
         void *as_ptr;
         Buffer *as_buffer;
         Array *as_array;
@@ -199,6 +202,7 @@ Value val_f64(double value);
 Value val_bool(int value);
 Value val_string(const char *str);
 Value val_string_take(char *str, int length, int capacity);
+Value val_rune(uint32_t codepoint);
 Value val_ptr(void *ptr);
 Value val_buffer(int size);
 Value val_array(Array *arr);

@@ -90,6 +90,7 @@ Value val_f64(double value);
 Value val_int(int value);
 Value val_float(double value);
 Value val_bool(int value);
+Value val_rune(uint32_t codepoint);
 Value val_ptr(void *ptr);
 Value val_type(TypeKind kind);
 Value val_function(Function *fn);
@@ -156,6 +157,17 @@ Value check_object_type(Value value, ObjectType *object_type, Environment *env, 
 // ========== BUILTINS (builtins.c) ==========
 
 void register_builtins(Environment *env, int argc, char **argv, ExecutionContext *ctx);
+
+// ========== UTF-8 UTILITIES (utf8.c) ==========
+
+int utf8_count_codepoints(const char *data, int byte_length);
+int utf8_byte_offset(const char *data, int byte_length, int char_index);
+uint32_t utf8_decode_at(const char *data, int byte_pos);
+uint32_t utf8_decode_next(const char **data_ptr);
+int utf8_encode(uint32_t codepoint, char *buffer);
+int utf8_char_byte_length(unsigned char first_byte);
+int utf8_validate(const char *data, int byte_length);
+int utf8_is_ascii(const char *data, int byte_length);
 
 // ========== I/O (io.c) ==========
 

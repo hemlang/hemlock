@@ -1,0 +1,39 @@
+// Test UTF-8 string methods
+
+let s = "Hi 🚀!";
+
+print("String: ");
+print(s);
+print("Length: ");
+print(s.length);
+
+// Test substr (codepoint-based)
+print("\nsubstr(0, 3): ");
+print(s.substr(0, 3));  // Should be "Hi "
+
+print("substr(3, 1): ");
+print(s.substr(3, 1));  // Should be "🚀"
+
+// Test slice (codepoint-based)
+print("\nslice(3, 4): ");
+print(s.slice(3, 4));  // Should be "🚀"
+
+// Test char_at (returns rune)
+print("\nchar_at(3): ");
+print(s.char_at(3));  // Should be '🚀' as rune
+
+// Test byte_at (returns u8)
+print("\nbyte_at(3): ");
+print(s.byte_at(3));  // Should be first byte of emoji
+
+// Test chars() (returns array of runes)
+print("\nchars(): ");
+let chars = s.chars();
+print(chars);
+
+// Test bytes() (returns array of u8)
+print("\nbytes(): ");
+let bytes = s.bytes();
+print(bytes);
+
+print("\nAll methods work!");

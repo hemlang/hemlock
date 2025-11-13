@@ -38,6 +38,13 @@ Expr* expr_string(const char *str) {
     return expr;
 }
 
+Expr* expr_rune(uint32_t codepoint) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_RUNE;
+    expr->as.rune = codepoint;
+    return expr;
+}
+
 Expr* expr_ident(const char *name) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_IDENT;
@@ -448,6 +455,9 @@ Expr* expr_clone(const Expr *expr) {
         case EXPR_STRING:
             return expr_string(expr->as.string);
 
+        case EXPR_RUNE:
+            return expr_rune(expr->as.rune);
+
         case EXPR_IDENT:
             return expr_ident(expr->as.ident);
 
@@ -578,6 +588,9 @@ void expr_free(Expr *expr) {
             break;
         case EXPR_STRING:
             free(expr->as.string);
+            break;
+        case EXPR_RUNE:
+            // No cleanup needed for rune (primitive value)
             break;
         case EXPR_BINARY:
             expr_free(expr->as.binary.left);

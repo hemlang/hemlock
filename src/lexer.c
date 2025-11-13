@@ -132,6 +132,127 @@ static Token string(Lexer *lex) {
     return token;
 }
 
+static Token rune_literal(Lexer *lex) {
+    // Read the character or escape sequence
+    if (is_at_end(lex) || peek(lex) == '\'') {
+        return error_token(lex, "Empty rune literal");
+    }
+
+    char c = peek(lex);
+    uint32_t codepoint = 0;
+
+    if (c == '\\') {
+        // Escape sequence
+        advance(lex);
+        if (is_at_end(lex)) {
+            return error_token(lex, "Unterminated rune literal");
+        }
+        c = peek(lex);
+        advance(lex);
+
+        switch (c) {
+            case 'n':  codepoint = '\n'; break;
+            case 't':  codepoint = '\t'; break;
+            case 'r':  codepoint = '\r'; break;
+            case '\\': codepoint = '\\'; break;
+            case '\'': codepoint = '\''; break;
+            case '"':  codepoint = '"'; break;
+            case '0':  codepoint = '\0'; break;
+            case 'u': {
+                // Unicode escape: \u{XXXX}
+                if (peek(lex) != '{') {
+                    return error_token(lex, "Expected '{' after \\u");
+                }
+                advance(lex); // consume '{'
+
+                codepoint = 0;
+                int digit_count = 0;
+                while (peek(lex) != '}' && !is_at_end(lex) && digit_count < 6) {
+                    c = peek(lex);
+                    int digit;
+                    if (c >= '0' && c <= '9') {
+                        digit = c - '0';
+                    } else if (c >= 'a' && c <= 'f') {
+                        digit = 10 + (c - 'a');
+                    } else if (c >= 'A' && c <= 'F') {
+                        digit = 10 + (c - 'A');
+                    } else {
+                        return error_token(lex, "Invalid hex digit in Unicode escape");
+                    }
+                    codepoint = (codepoint << 4) | digit;
+                    advance(lex);
+                    digit_count++;
+                }
+
+                if (peek(lex) != '}') {
+                    return error_token(lex, "Unterminated Unicode escape");
+                }
+                advance(lex); // consume '}'
+
+                if (codepoint > 0x10FFFF) {
+                    return error_token(lex, "Unicode codepoint out of range");
+                }
+                break;
+            }
+            default:
+                return error_token(lex, "Unknown escape sequence");
+        }
+    } else {
+        // Regular character - decode UTF-8
+        codepoint = (unsigned char)c;
+        advance(lex);
+
+        // Check for multi-byte UTF-8 sequences
+        if ((codepoint & 0x80) != 0) {
+            // Multi-byte UTF-8 character
+            if ((codepoint & 0xE0) == 0xC0) {
+                // 2-byte sequence
+                codepoint = (codepoint & 0x1F) << 6;
+                if (!is_at_end(lex)) {
+                    codepoint |= (peek(lex) & 0x3F);
+                    advance(lex);
+                }
+            } else if ((codepoint & 0xF0) == 0xE0) {
+                // 3-byte sequence
+                codepoint = (codepoint & 0x0F) << 12;
+                if (!is_at_end(lex)) {
+                    codepoint |= (peek(lex) & 0x3F) << 6;
+                    advance(lex);
+                }
+                if (!is_at_end(lex)) {
+                    codepoint |= (peek(lex) & 0x3F);
+                    advance(lex);
+                }
+            } else if ((codepoint & 0xF8) == 0xF0) {
+                // 4-byte sequence
+                codepoint = (codepoint & 0x07) << 18;
+                if (!is_at_end(lex)) {
+                    codepoint |= (peek(lex) & 0x3F) << 12;
+                    advance(lex);
+                }
+                if (!is_at_end(lex)) {
+                    codepoint |= (peek(lex) & 0x3F) << 6;
+                    advance(lex);
+                }
+                if (!is_at_end(lex)) {
+                    codepoint |= (peek(lex) & 0x3F);
+                    advance(lex);
+                }
+            }
+        }
+    }
+
+    // Expect closing quote
+    if (peek(lex) != '\'') {
+        return error_token(lex, "Expected closing ' after rune literal");
+    }
+    advance(lex); // consume closing '
+
+    Token token = make_token(lex, TOK_RUNE);
+    token.rune_value = codepoint;
+    return token;
+}
+
 static TokenType check_keyword(const char *start, int length, 
                                const char *rest, TokenType type) {
     if (strncmp(start, rest, length) == 0) {
@@ -215,6 +336,7 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 'r':
             if (len == 3) return check_keyword(lex->start, 3, "ref", TOK_REF);
+            if (len == 4) return check_keyword(lex->start, 4, "rune", TOK_TYPE_RUNE);
             if (len == 6) return check_keyword(lex->start, 6, "return", TOK_RETURN);
             break;
         case 'p':
@@ -284,7 +406,8 @@ Token lexer_next(Lexer *lex) {
     if (isdigit(c)) return number(lex);
     if (isalpha(c) || c == '_') return identifier(lex);
     if (c == '"') return string(lex);
-    
+    if (c == '\'') return rune_literal(lex);
+
     switch (c) {
         case '+':
             if (peek(lex) == '+') {
