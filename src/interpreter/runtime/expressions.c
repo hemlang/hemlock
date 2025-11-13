@@ -750,6 +750,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Reset return state
                 ctx->return_state.is_returning = 0;
 
+                // Retain result for the caller (so it survives call_env cleanup)
+                // The caller now owns this reference
+                value_retain(result);
+
                 // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
                 if (!ctx->exception_state.is_throwing) {
                     call_stack_pop(&ctx->call_stack);
