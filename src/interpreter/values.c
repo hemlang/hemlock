@@ -486,6 +486,10 @@ void task_free(Task *task) {
         }
         // Note: Don't release env - it's owned by the function
         if (task->args) {
+            // Release each argument value before freeing the array
+            for (int i = 0; i < task->num_args; i++) {
+                value_release(task->args[i]);
+            }
             free(task->args);
         }
         if (task->result) {
@@ -598,16 +602,18 @@ void channel_free(Channel *ch) {
     }
 }
 
+// Increment channel reference count (thread-safe using atomic operations)
 void channel_retain(Channel *ch) {
     if (ch) {
-        ch->ref_count++;
+        __atomic_add_fetch(&ch->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
+// Decrement channel reference count and free if it reaches 0 (thread-safe using atomic operations)
 void channel_release(Channel *ch) {
-    if (ch && ch->ref_count > 0) {
-        ch->ref_count--;
-        if (ch->ref_count == 0) {
+    if (ch) {
+        int old_count = __atomic_sub_fetch(&ch->ref_count, 1, __ATOMIC_SEQ_CST);
+        if (old_count == 0) {
             channel_free(ch);
         }
     }

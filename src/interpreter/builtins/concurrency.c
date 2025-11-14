@@ -91,6 +91,8 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
         task_args = malloc(sizeof(Value) * task_num_args);
         for (int i = 0; i < task_num_args; i++) {
             task_args[i] = args[i + 1];
+            // Retain arguments to ensure they stay alive for the task's lifetime
+            value_retain(task_args[i]);
         }
     }
 
