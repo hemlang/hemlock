@@ -194,6 +194,14 @@ Value c_to_hemlock_value(void *c_value, Type *type) {
             return val_ptr(*(void**)c_value);
         case TYPE_BOOL:
             return val_bool(*(int*)c_value != 0);
+        case TYPE_STRING: {
+            char *str = *(char**)c_value;
+            if (str == NULL) {
+                return val_null();
+            }
+            // Create a Hemlock string from the C string
+            return val_string(str);
+        }
         default:
             fprintf(stderr, "Error: Cannot convert C type to Hemlock: %d\n", type->kind);
             exit(1);
