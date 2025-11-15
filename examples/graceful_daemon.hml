@@ -1,0 +1,70 @@
+// Graceful Shutdown Daemon - Demonstrates signal handling and cleanup
+// Press Ctrl+C to trigger graceful shutdown
+
+let running = true;
+let request_count = 0;
+let start_time = 0;
+
+fn handle_shutdown(sig) {
+    print("");
+    print("Received shutdown signal (" + typeof(sig) + ")");
+    print("Initiating graceful shutdown...");
+    running = false;
+}
+
+fn handle_stats(sig) {
+    print("");
+    print("=== Statistics ===");
+    print("Requests processed: " + typeof(request_count));
+    print("Status: " + (running == true ? "running" : "shutting down"));
+    print("==================");
+}
+
+fn process_request(id: i32): i32 {
+    // Simulate request processing
+    let sum = 0;
+    let i = 0;
+    while (i < 100) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Register signal handlers
+signal(SIGINT, handle_shutdown);   // Ctrl+C
+signal(SIGTERM, handle_shutdown);  // Termination signal
+signal(SIGUSR1, handle_stats);     // Stats on demand (kill -USR1 <pid>)
+
+print("=== Graceful Shutdown Daemon ===");
+print("Process ID: " + exec("echo $$").output.trim());
+print("Press Ctrl+C for graceful shutdown");
+print("Send SIGUSR1 for statistics (kill -USR1 " + exec("echo $$").output.trim() + ")");
+print("");
+
+// Main event loop
+while (running) {
+    // Process a "request"
+    let result = process_request(request_count);
+    request_count = request_count + 1;
+
+    if (request_count == 1 || request_count == 50 || request_count == 100) {
+        print("Processed request #" + typeof(request_count));
+    }
+
+    // Small delay to make it visible
+    if (request_count < 1000) {
+        let waste = 0;
+        let j = 0;
+        while (j < 50000) {
+            waste = waste + 1;
+            j = j + 1;
+        }
+    }
+}
+
+// Cleanup phase
+print("");
+print("Performing cleanup...");
+print("Total requests processed: " + typeof(request_count));
+print("Daemon stopped cleanly");

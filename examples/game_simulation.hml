@@ -1,0 +1,130 @@
+// Game Simulation - Demonstrates objects, methods, and OOP patterns
+
+// Create hero (warrior with rage mechanic)
+let hero = {
+    name: "Thorin",
+    health: 100,
+    attack: 25,
+    defense: 8,
+    rage: 0,
+
+    attack_target: fn(target) {
+        let damage = self.attack - target.defense;
+        if (damage < 1) {
+            damage = 1;
+        }
+
+        // Warriors gain rage
+        self.rage = self.rage + 10;
+
+        print(self.name + " (Warrior) attacks " + target.name + " for " + typeof(damage) + " damage! [Rage: " + typeof(self.rage) + "]");
+        target.take_damage(damage);
+    },
+
+    special_attack: fn(target) {
+        if (self.rage >= 50) {
+            let damage = (self.attack * 2) - target.defense;
+            self.rage = self.rage - 50;
+            print(self.name + " uses CRUSHING BLOW on " + target.name + " for " + typeof(damage) + " damage!");
+            target.take_damage(damage);
+        }
+    },
+
+    take_damage: fn(amount: i32) {
+        self.health = self.health - amount;
+        if (self.health < 0) {
+            self.health = 0;
+        }
+        print(self.name + " has " + typeof(self.health) + " HP remaining");
+    },
+
+    is_alive: fn(): bool {
+        return self.health > 0;
+    }
+};
+
+// Create enemy
+let enemy = {
+    name: "Goblin Warrior",
+    health: 80,
+    attack: 18,
+    defense: 5,
+
+    attack_target: fn(target) {
+        let damage = self.attack - target.defense;
+        if (damage < 1) {
+            damage = 1;
+        }
+
+        print(self.name + " attacks " + target.name + " for " + typeof(damage) + " damage!");
+        target.take_damage(damage);
+    },
+
+    take_damage: fn(amount: i32) {
+        self.health = self.health - amount;
+        if (self.health < 0) {
+            self.health = 0;
+        }
+        print(self.name + " has " + typeof(self.health) + " HP remaining");
+    },
+
+    is_alive: fn(): bool {
+        return self.health > 0;
+    }
+};
+
+// Create healer
+let healer = {
+    name: "Elara the Cleric",
+    health: 60,
+    attack: 10,
+    defense: 3,
+
+    heal: fn(target, amount: i32) {
+        target.health = target.health + amount;
+        print(self.name + " heals " + target.name + " for " + typeof(amount) + " HP (now at " + typeof(target.health) + " HP)");
+    }
+};
+
+print("=== Game Simulation ===");
+print("");
+print("Characters:");
+print("  " + hero.name + " (Warrior) - HP: " + typeof(hero.health) + ", ATK: " + typeof(hero.attack) + ", DEF: " + typeof(hero.defense));
+print("  " + enemy.name + " - HP: " + typeof(enemy.health) + ", ATK: " + typeof(enemy.attack) + ", DEF: " + typeof(enemy.defense));
+print("  " + healer.name + " - HP: " + typeof(healer.health) + ", ATK: " + typeof(healer.attack) + ", DEF: " + typeof(healer.defense));
+print("");
+
+// Combat simulation
+let round = 1;
+while (hero.is_alive() && enemy.is_alive()) {
+    print("--- Round " + typeof(round) + " ---");
+
+    // Hero attacks
+    if (hero.rage >= 50 && round > 2) {
+        hero.special_attack(enemy);
+    } else {
+        hero.attack_target(enemy);
+    }
+
+    if (!enemy.is_alive()) {
+        break;
+    }
+
+    // Enemy attacks
+    enemy.attack_target(hero);
+
+    // Healer heals hero if low HP
+    if (hero.health < 50 && round < 5) {
+        healer.heal(healer, hero, 20);
+    }
+
+    print("");
+    round = round + 1;
+}
+
+print("=== Battle Concluded ===");
+if (hero.is_alive()) {
+    print(hero.name + " is victorious!");
+} else {
+    print(enemy.name + " has defeated " + hero.name + "!");
+}

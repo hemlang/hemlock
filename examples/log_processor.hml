@@ -1,0 +1,144 @@
+// Log File Processor - Demonstrates file I/O, error handling, and defer
+// Processes log files and generates a summary report
+
+define LogEntry {
+    timestamp: string,
+    level: string,
+    message: string
+}
+
+fn parse_log_line(line: string): LogEntry {
+    // Simple parser: "YYYY-MM-DD HH:MM:SS [LEVEL] message"
+    let parts = line.split(" ");
+
+    if (parts.length < 4) {
+        throw "Invalid log format";
+    }
+
+    let timestamp = parts[0] + " " + parts[1];
+    let level = parts[2];
+
+    // Remove brackets from level
+    if (level.starts_with("[")) {
+        level = level.substr(1, level.length - 2);
+    }
+
+    // Join remaining parts as message
+    let message_parts = parts.slice(3, parts.length);
+    let message = message_parts.join(" ");
+
+    let entry: LogEntry = {
+        timestamp: timestamp,
+        level: level,
+        message: message
+    };
+
+    return entry;
+}
+
+fn create_sample_log(): string {
+    // Create a sample log file for demonstration
+    let log_file = open("/tmp/sample.log", "w");
+    defer log_file.close();
+
+    log_file.write("2025-11-15 10:30:45 [INFO] Application started\n");
+    log_file.write("2025-11-15 10:30:46 [INFO] Loading configuration\n");
+    log_file.write("2025-11-15 10:30:47 [WARN] Config file missing, using defaults\n");
+    log_file.write("2025-11-15 10:30:50 [INFO] Server listening on port 8080\n");
+    log_file.write("2025-11-15 10:31:15 [INFO] Received request from 192.168.1.100\n");
+    log_file.write("2025-11-15 10:31:20 [ERROR] Database connection failed\n");
+    log_file.write("2025-11-15 10:31:21 [ERROR] Retrying connection...\n");
+    log_file.write("2025-11-15 10:31:25 [INFO] Database connected successfully\n");
+    log_file.write("2025-11-15 10:32:00 [WARN] High memory usage detected\n");
+    log_file.write("2025-11-15 10:32:30 [INFO] Processed 1000 requests\n");
+
+    return "/tmp/sample.log";
+}
+
+fn process_log_file(filename: string) {
+    let stats = {
+        total: 0,
+        errors: 0,
+        warnings: 0,
+        info: 0,
+
+        add_entry: fn(level: string) {
+            self.total = self.total + 1;
+
+            if (level == "ERROR") {
+                self.errors = self.errors + 1;
+            }
+            if (level == "WARN") {
+                self.warnings = self.warnings + 1;
+            }
+            if (level == "INFO") {
+                self.info = self.info + 1;
+            }
+        },
+
+        print_summary: fn() {
+            print("=== Log Summary ===");
+            print("Total entries: " + typeof(self.total));
+            print("Errors: " + typeof(self.errors));
+            print("Warnings: " + typeof(self.warnings));
+            print("Info: " + typeof(self.info));
+            print("==================");
+        }
+    };
+
+    let file = null;
+
+    try {
+        file = open(filename, "r");
+        defer file.close();
+
+        let content = file.read();
+        let lines = content.split("\n");
+
+        let i = 0;
+        while (i < lines.length) {
+            let line = lines[i].trim();
+
+            if (line.length > 0) {
+                try {
+                    let entry = parse_log_line(line);
+                    stats.add_entry(entry.level);
+
+                    // Print errors and warnings
+                    if (entry.level == "ERROR" || entry.level == "WARN") {
+                        print("[" + entry.level + "] " + entry.timestamp + " - " + entry.message);
+                    }
+                } catch (e) {
+                    print("Failed to parse line: " + line);
+                }
+            }
+
+            i = i + 1;
+        }
+    } catch (e) {
+        print("Error processing log file: " + e);
+        throw e;
+    }
+
+    return stats;
+}
+
+// Main execution
+print("=== Log File Processor ===");
+print("");
+
+// Create sample log
+print("Creating sample log file...");
+let log_path = create_sample_log();
+print("Sample log created at: " + log_path);
+print("");
+
+// Process the log
+print("Processing log file...");
+print("Issues found:");
+print("");
+
+let stats = process_log_file(log_path);
+
+print("");
+stats.print_summary();

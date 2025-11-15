@@ -1,0 +1,106 @@
+// RPG Battle System - Object-oriented combat with methods and state
+
+// Create hero (warrior with rage mechanic)
+let hero = {
+    name: "Thorin",
+    health: 100,
+    attack: 25,
+    defense: 8,
+    rage: 0,
+
+    attack_target: fn(target) {
+        let damage = self.attack - target.defense;
+        if (damage < 1) {
+            damage = 1;
+        }
+
+        self.rage = self.rage + 10;
+        print(self.name + " attacks for damage!");
+        target.take_damage(damage);
+        print("Rage is now at level!");
+    },
+
+    special_attack: fn(target) {
+        if (self.rage >= 50) {
+            let damage = (self.attack * 2) - target.defense;
+            self.rage = self.rage - 50;
+            print(self.name + " uses CRUSHING BLOW!");
+            target.take_damage(damage);
+        }
+    },
+
+    take_damage: fn(amount: i32) {
+        self.health = self.health - amount;
+        if (self.health < 0) {
+            self.health = 0;
+        }
+    },
+
+    is_alive: fn(): bool {
+        return self.health > 0;
+    }
+};
+
+// Create enemy
+let enemy = {
+    name: "Goblin",
+    health: 60,
+    attack: 18,
+    defense: 5,
+
+    attack_target: fn(target) {
+        let damage = self.attack - target.defense;
+        if (damage < 1) {
+            damage = 1;
+        }
+
+        print(self.name + " attacks!");
+        target.take_damage(damage);
+    },
+
+    take_damage: fn(amount: i32) {
+        self.health = self.health - amount;
+        if (self.health < 0) {
+            self.health = 0;
+        }
+    },
+
+    is_alive: fn(): bool {
+        return self.health > 0;
+    }
+};
+
+print("=== RPG Battle System ===");
+print("");
+print("Thorin the Warrior vs Goblin");
+print("");
+
+// Combat simulation
+let round = 1;
+while (hero.is_alive() && enemy.is_alive()) {
+    print("--- Round ---");
+
+    // Hero attacks
+    if (hero.rage >= 50 && round > 2) {
+        hero.special_attack(enemy);
+    } else {
+        hero.attack_target(enemy);
+    }
+
+    if (!enemy.is_alive()) {
+        break;
+    }
+
+    // Enemy attacks
+    enemy.attack_target(hero);
+
+    print("");
+    round = round + 1;
+}
+
+print("=== Battle Concluded ===");
+if (hero.is_alive()) {
+    print("Thorin is victorious!");
+} else {
+    print("Goblin has won!");
+}

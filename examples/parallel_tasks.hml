@@ -1,0 +1,87 @@
+// Parallel Task Processor - Demonstrates async/await and channels
+// This program spawns multiple workers that process tasks concurrently
+
+async fn worker(id: i32, tasks, results) {
+    print("Worker " + typeof(id) + " starting");
+
+    while (true) {
+        let task = tasks.recv();
+        if (task == null) {
+            print("Worker " + typeof(id) + " shutting down");
+            break;
+        }
+
+        // Simulate some CPU-intensive work
+        let sum = 0;
+        let i = 0;
+        while (i < task) {
+            sum = sum + i * i;
+            i = i + 1;
+        }
+
+        results.send({
+            worker_id: id,
+            task_size: task,
+            result: sum
+        });
+    }
+    return null;
+}
+
+async fn coordinator(num_tasks: i32, tasks, results) {
+    print("Coordinator sending " + typeof(num_tasks) + " tasks");
+
+    // Send tasks
+    let i = 0;
+    while (i < num_tasks) {
+        let task_size = 1000 + (i * 500);
+        tasks.send(task_size);
+        i = i + 1;
+    }
+
+    // Send shutdown signals (one per worker)
+    let j = 0;
+    while (j < 4) {
+        tasks.send(null);
+        j = j + 1;
+    }
+
+    tasks.close();
+    return null;
+}
+
+// Main execution
+print("=== Parallel Task Processor ===");
+
+// Create channels
+let task_queue = channel(10);
+let result_queue = channel(10);
+
+// Spawn 4 worker threads
+let w1 = spawn(worker, 1, task_queue, result_queue);
+let w2 = spawn(worker, 2, task_queue, result_queue);
+let w3 = spawn(worker, 3, task_queue, result_queue);
+let w4 = spawn(worker, 4, task_queue, result_queue);
+
+// Spawn coordinator
+let coord = spawn(coordinator, 12, task_queue, result_queue);
+
+// Collect results
+let count = 0;
+while (count < 12) {
+    let result = result_queue.recv();
+    print("Worker " + typeof(result.worker_id) + " completed task of size " +
+          typeof(result.task_size) + " -> result: " + typeof(result.result));
+    count = count + 1;
+}
+
+// Wait for all tasks to complete
+await w1;
+await w2;
+await w3;
+await w4;
+await coord;
+
+result_queue.close();
+
+print("All tasks completed!");
