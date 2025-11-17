@@ -54,7 +54,7 @@ String* string_new(const char *cstr) {
     str->length = len;
     str->char_length = -1;  // Cache not yet computed
     str->capacity = len + 1;
-    str->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
+    str->ref_count = 1;  // Start with 1 - caller owns the first reference
     str->data = malloc(str->capacity);
     if (!str->data) {
         free(str);
@@ -75,7 +75,7 @@ String* string_copy(String *str) {
     copy->length = str->length;
     copy->char_length = str->char_length;  // Copy cached value
     copy->capacity = str->capacity;
-    copy->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
+    copy->ref_count = 1;  // Start with 1 - caller owns the first reference
     copy->data = malloc(copy->capacity);
     if (!copy->data) {
         free(copy);
@@ -96,7 +96,7 @@ String* string_concat(String *a, String *b) {
     result->length = new_len;
     result->char_length = -1;  // Cache invalidated after concatenation
     result->capacity = new_len + 1;
-    result->ref_count = 0;  // Initialize reference count (first retain will bring to 1)
+    result->ref_count = 1;  // Start with 1 - caller owns the first reference
     result->data = malloc(result->capacity);
     if (!result->data) {
         free(result);
