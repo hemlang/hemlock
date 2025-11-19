@@ -1,0 +1,15 @@
+// Test basic modulo operator with i32
+let a = 10 % 3;
+print(a);  // 1
+
+let b = 15 % 4;
+print(b);  // 3
+
+let c = 20 % 5;
+print(c);  // 0
+
+let d = 7 % 2;
+print(d);  // 1
+
+let e = 100 % 7;
+print(e);  // 2

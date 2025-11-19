@@ -1,0 +1,4 @@
+// Test modulo by zero (should error)
+
+let a = 10 % 0;
+print(a);

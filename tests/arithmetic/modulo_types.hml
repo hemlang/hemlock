@@ -1,0 +1,41 @@
+// Test modulo with different integer types
+
+// i8
+let a: i8 = 10;
+let b: i8 = 3;
+print(a % b);  // 1
+
+// i16
+let c: i16 = 100;
+let d: i16 = 7;
+print(c % d);  // 2
+
+// i32
+let e: i32 = 1000;
+let f: i32 = 13;
+print(e % f);  // 12
+
+// i64
+let g: i64 = 100000;
+let h: i64 = 7;
+print(g % h);  // 5
+
+// u8
+let i: u8 = 255;
+let j: u8 = 10;
+print(i % j);  // 5
+
+// u16
+let k: u16 = 1000;
+let l: u16 = 17;
+print(k % l);  // 13
+
+// u32
+let m: u32 = 50000;
+let n: u32 = 19;
+print(m % n);  // 10
+
+// u64
+let o: u64 = 100000;
+let p: u64 = 11;
+print(o % p);  // 10

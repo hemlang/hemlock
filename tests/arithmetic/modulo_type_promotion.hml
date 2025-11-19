@@ -1,0 +1,22 @@
+// Test type promotion with modulo
+
+// i8 + i32 -> i32
+let a: i8 = 10;
+let b: i32 = 3;
+let c = a % b;
+print(typeof(c));  // i32
+print(c);  // 1
+
+// u8 + u16 -> u16
+let d: u8 = 20;
+let e: u16 = 7;
+let f = d % e;
+print(typeof(f));  // u16
+print(f);  // 6
+
+// i32 + i64 -> i64
+let g: i32 = 100;
+let h: i64 = 13;
+let i = g % h;
+print(typeof(i));  // i64
+print(i);  // 9

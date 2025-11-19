@@ -267,14 +267,15 @@ Expr* unary(Parser *p) {
 
 Expr* factor(Parser *p) {
     Expr *expr = unary(p);
-    
-    while (match(p, TOK_STAR) || match(p, TOK_SLASH)) {
+
+    while (match(p, TOK_STAR) || match(p, TOK_SLASH) || match(p, TOK_PERCENT)) {
         TokenType op_type = p->previous.type;
-        BinaryOp op = (op_type == TOK_STAR) ? OP_MUL : OP_DIV;
+        BinaryOp op = (op_type == TOK_STAR) ? OP_MUL :
+                      (op_type == TOK_SLASH) ? OP_DIV : OP_MOD;
         Expr *right = unary(p);
         expr = expr_binary(expr, op, right);
     }
-    
+
     return expr;
 }
 

@@ -1,0 +1,29 @@
+// Test modulo in complex expressions
+
+// Modulo with addition/subtraction
+let a = 10 % 3 + 5;
+print(a);  // 6 (1 + 5)
+
+let b = 20 - 15 % 4;
+print(b);  // 17 (20 - 3)
+
+// Modulo with multiplication (same precedence, left-to-right)
+let c = 10 * 3 % 7;
+print(c);  // 2 (30 % 7)
+
+let d = 20 % 3 * 4;
+print(d);  // 8 (2 * 4)
+
+// Modulo with division (same precedence, left-to-right)
+let e = 20 / 3 % 5;
+print(e);  // 1 (6 % 5)
+
+let f = 20 % 7 / 2;
+print(f);  // 3 (6 / 2)
+
+// Parentheses
+let g = 20 % (3 + 2);
+print(g);  // 0 (20 % 5)
+
+let h = (20 + 5) % 7;
+print(h);  // 4 (25 % 7)

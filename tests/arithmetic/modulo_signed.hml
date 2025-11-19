@@ -1,0 +1,22 @@
+// Test modulo with negative numbers (C-style modulo)
+
+// Negative dividend
+let a = -10 % 3;
+print(a);  // -1 (C-style: sign follows dividend)
+
+let b = -15 % 4;
+print(b);  // -3
+
+// Negative divisor
+let c = 10 % -3;
+print(c);  // 1
+
+let d = 15 % -4;
+print(d);  // 3
+
+// Both negative
+let e = -10 % -3;
+print(e);  // -1
+
+let f = -15 % -4;
+print(f);  // -3
