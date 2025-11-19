@@ -444,6 +444,7 @@ Token lexer_next(Lexer *lex) {
                 return make_token(lex, TOK_SLASH_EQUAL);
             }
             return make_token(lex, TOK_SLASH);
+        case '%': return make_token(lex, TOK_PERCENT);
         case ';': return make_token(lex, TOK_SEMICOLON);
         case ':': return make_token(lex, TOK_COLON);
         case ',': return make_token(lex, TOK_COMMA);

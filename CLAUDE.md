@@ -83,7 +83,7 @@ let q = p + 100;  // Way past allocation - allowed but dangerous
 ### 5. **C-like Syntax, Low Ceremony**
 - Familiar to systems programmers
 - `{}` blocks always, no optional braces
-- Operators match C: `+`, `-`, `*`, `/`, `&&`, `||`, `!`
+- Operators match C: `+`, `-`, `*`, `/`, `%`, `&&`, `||`, `!`
 - Type syntax matches Rust/TypeScript: `let x: type = value;`
 
 ---
@@ -506,6 +506,7 @@ print(a == 65);                 // true (implicit conversion)
 - `for` loops (C-style and for-in iteration)
 - `switch` statements with case/default
 - `break`/`continue`
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%` (modulo)
 - Boolean operators: `&&`, `||`, `!`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Bitwise operators: `&`, `|`, `^`, `<<`, `>>`, `~` (integer types only)
@@ -698,6 +699,64 @@ let result3 = (5 & 3) | (2 << 1);  // 1 | 4 = 5
 - Right shift (`>>`) is arithmetic for signed types, logical for unsigned
 - Shift amounts are not range-checked (behavior is platform-dependent for large shifts)
 - Bitwise NOT (`~`) returns the one's complement (all bits flipped)
+
+### Modulo Operator
+
+The modulo operator `%` returns the remainder after integer division. It works **only with integer types** (i8-i64, u8-u64) and follows C-style semantics.
+
+**Basic usage:**
+```hemlock
+let a = 10 % 3;   // 1
+let b = 15 % 4;   // 3
+let c = 20 % 5;   // 0
+let d = 100 % 7;  // 2
+```
+
+**C-style modulo behavior:**
+The sign of the result follows the sign of the **dividend** (left operand):
+```hemlock
+let a = -10 % 3;   // -1 (negative dividend)
+let b = 10 % -3;   // 1  (positive dividend)
+let c = -10 % -3;  // -1 (negative dividend)
+```
+
+**Type support:**
+```hemlock
+// Works with all integer types
+let a: i8 = 10 % 3;       // i8
+let b: i32 = 100 % 7;     // i32
+let c: i64 = 1000 % 13;   // i64
+let d: u8 = 255 % 10;     // u8
+let e: u32 = 50000 % 19;  // u32
+```
+
+**Type promotion:**
+Modulo follows the same type promotion rules as other arithmetic operators:
+```hemlock
+let a: i8 = 10;
+let b: i32 = 3;
+let c = a % b;  // i32 (promoted to larger type)
+```
+
+**Operator precedence:**
+Modulo has the same precedence as multiplication and division (higher than addition/subtraction):
+```hemlock
+let a = 10 % 3 + 5;  // 6  (1 + 5)
+let b = 10 * 3 % 7;  // 2  (30 % 7, left-to-right)
+let c = 20 % 3 * 4;  // 8  (2 * 4, left-to-right)
+```
+
+**Division by zero:**
+Modulo by zero causes a runtime error:
+```hemlock
+let a = 10 % 0;  // Runtime error: Division by zero
+```
+
+**Important notes:**
+- Modulo only works with integer types (not floats)
+- Result sign follows dividend (C-style semantics)
+- Type promotion follows standard rules (smaller types promote to larger)
+- Division by zero is checked at runtime and throws an error
 
 ---
 

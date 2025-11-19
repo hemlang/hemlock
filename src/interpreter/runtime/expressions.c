@@ -373,102 +373,111 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     case OP_ADD:
                     case OP_SUB:
                     case OP_MUL:
-                    case OP_DIV: {
+                    case OP_DIV:
+                    case OP_MOD: {
                         // Extract values according to the promoted type
                         switch (result_type) {
                             case VAL_I8: {
                                 int8_t l = left.as.as_i8;
                                 int8_t r = right.as.as_i8;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 int8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                               (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                               (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                               (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_i8(result);
                                 goto binary_cleanup;
                             }
                             case VAL_I16: {
                                 int16_t l = left.as.as_i16;
                                 int16_t r = right.as.as_i16;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 int16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_i16(result);
                                 goto binary_cleanup;
                             }
                             case VAL_I32: {
                                 int32_t l = left.as.as_i32;
                                 int32_t r = right.as.as_i32;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 int32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_i32(result);
                                 goto binary_cleanup;
                             }
                             case VAL_I64: {
                                 int64_t l = left.as.as_i64;
                                 int64_t r = right.as.as_i64;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 int64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_i64(result);
                                 goto binary_cleanup;
                             }
                             case VAL_U8: {
                                 uint8_t l = left.as.as_u8;
                                 uint8_t r = right.as.as_u8;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 uint8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                 (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_u8(result);
                                 goto binary_cleanup;
                             }
                             case VAL_U16: {
                                 uint16_t l = left.as.as_u16;
                                 uint16_t r = right.as.as_u16;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 uint16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                  (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                 (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                 (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                 (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_u16(result);
                                 goto binary_cleanup;
                             }
                             case VAL_U32: {
                                 uint32_t l = left.as.as_u32;
                                 uint32_t r = right.as.as_u32;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 uint32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                  (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                 (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                 (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                 (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_u32(result);
                                 goto binary_cleanup;
                             }
                             case VAL_U64: {
                                 uint64_t l = left.as.as_u64;
                                 uint64_t r = right.as.as_u64;
-                                if (expr->as.binary.op == OP_DIV && r == 0) {
+                                if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
                                     runtime_error(ctx, "Division by zero");
                                 }
                                 uint64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
                                                  (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                                 (expr->as.binary.op == OP_MUL) ? (l * r) : (l / r);
+                                                 (expr->as.binary.op == OP_MUL) ? (l * r) :
+                                                 (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
                                 binary_result = val_u64(result);
                                 goto binary_cleanup;
                             }
