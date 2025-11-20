@@ -1,6 +1,8 @@
 // Test: detach() fire-and-forget
 // Tests that detach works without returning a handle
 
+import { sleep } from "@stdlib/time";
+
 async fn log_message(msg: string) {
     // This would normally do something like write to a log file
     // For this test, we'll just verify it doesn't crash
@@ -11,5 +13,9 @@ async fn log_message(msg: string) {
 detach(log_message, "Event 1");
 detach(log_message, "Event 2");
 detach(log_message, "Event 3");
+
+// Give detached tasks time to complete before program exits
+// In a real program, you'd have other work to do here
+sleep(0.05);  // 50ms
 
 print("Detached tasks completed");

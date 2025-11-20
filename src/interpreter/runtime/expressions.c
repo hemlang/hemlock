@@ -1204,8 +1204,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             fn->closure_env = env;
             env_retain(env);  // Increment ref count since closure captures env
 
-            // Initialize reference count (first retain will bring to 1)
-            fn->ref_count = 0;
+            // Initialize reference count to 1 (creator owns the first reference)
+            // This ensures that when stored in the environment and later retained by tasks,
+            // the function isn't prematurely freed when the environment is cleaned up
+            fn->ref_count = 1;
 
             return val_function(fn);
         }

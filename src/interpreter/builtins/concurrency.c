@@ -274,22 +274,33 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
 
+        // CRITICAL: Retain task to prevent premature cleanup during pthread_detach
+        // Without this, the worker thread may complete and free the task before
+        // we finish calling pthread_detach, leading to use-after-free
+        task_retain(task);  // ref_count: 1 -> 2
+
         // Create thread to execute task
         int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
         if (rc != 0) {
             runtime_error(ctx, "Failed to create thread: %d", rc);
             free(task->thread);
+            task_release(task);  // Release our temporary reference
             return val_null();
         }
 
         // Detach the pthread immediately (fire and forget)
+        // Safe to access task->thread because we're holding a reference
         rc = pthread_detach(*(pthread_t*)task->thread);
         if (rc != 0) {
             runtime_error(ctx, "pthread_detach failed: %d", rc);
+            task_release(task);  // Release our temporary reference
             return val_null();
         }
 
-        // Task will clean itself up when thread completes
+        // Release our temporary reference - worker thread will clean up when done
+        // ref_count: 2 -> 1 (worker thread holds the remaining reference)
+        task_release(task);
+
         return val_null();
     }
 
