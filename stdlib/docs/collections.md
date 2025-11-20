@@ -40,12 +40,14 @@ let map = HashMap();
 **Methods:**
 - `map.set(key, value)` - Set a key-value pair
 - `map.get(key)` - Get value for key (returns null if not found)
+- `map.get_or_default(key, default_value)` - Get value for key, or return default if not found
 - `map.has(key)` - Check if key exists (returns boolean)
 - `map.delete(key)` - Remove key-value pair (returns boolean)
 - `map.clear()` - Remove all entries
 - `map.keys()` - Get array of all keys
 - `map.values()` - Get array of all values
 - `map.entries()` - Get array of [key, value] pairs
+- `map.each(callback)` - Iterate over entries with callback(key, value)
 
 **Properties:**
 - `map.size` - Number of entries
@@ -102,6 +104,7 @@ let q = Queue();
 - `q.is_empty()` - Check if queue is empty (returns boolean)
 - `q.clear()` - Remove all items
 - `q.to_array()` - Get copy of queue as array
+- `q.each(callback)` - Iterate over items with callback(item, index)
 
 **Properties:**
 - `q.size` - Number of items in queue
@@ -151,6 +154,7 @@ let s = Stack();
 - `s.is_empty()` - Check if stack is empty (returns boolean)
 - `s.clear()` - Remove all items
 - `s.to_array()` - Get copy of stack as array
+- `s.each(callback)` - Iterate over items with callback(item, index)
 
 **Properties:**
 - `s.size` - Number of items in stack
@@ -202,6 +206,7 @@ let s = Set();
 - `s.union(other_set)` - Return new set with values from both sets
 - `s.intersection(other_set)` - Return new set with common values
 - `s.difference(other_set)` - Return new set with values in this but not other
+- `s.each(callback)` - Iterate over values with callback(value, index)
 
 **Properties:**
 - `s.size` - Number of values in set
@@ -266,6 +271,7 @@ let list = LinkedList();
 - `list.is_empty()` - Check if list is empty
 - `list.to_array()` - Convert to array
 - `list.reverse()` - Reverse the list in-place
+- `list.each(callback)` - Iterate over values with callback(value, index)
 
 **Properties:**
 - `list.size` - Number of values in list
@@ -282,7 +288,7 @@ let list = LinkedList();
 
 ### Queue
 - Enqueue: O(1)
-- Dequeue: O(n) (due to array shift)
+- Dequeue: O(1) (circular buffer)
 - Peek: O(1)
 
 ### Stack
@@ -291,44 +297,45 @@ let list = LinkedList();
 - Peek: O(1)
 
 ### Set
-- Add: O(n) (linear search)
-- Delete: O(n) (linear search + array remove)
-- Has: O(n) (linear search)
-- Union/Intersection/Difference: O(n*m)
+- Add: O(1) average (HashMap-based)
+- Delete: O(1) average (HashMap-based)
+- Has: O(1) average (HashMap-based)
+- Union/Intersection/Difference: O(n+m)
 
 ### LinkedList
 - Append/Prepend: O(1)
-- Insert/Remove: O(n) (traversal to index)
-- Get/Set: O(n) (traversal to index)
+- Insert/Remove: O(n) worst case, O(n/2) average (bidirectional traversal)
+- Get/Set: O(n) worst case, O(n/2) average (bidirectional traversal)
 
 ---
 
 ## Implementation Notes
 
-- **Hash Function:** Uses a simple additive hash for strings and direct value for integers
+- **Hash Function:** Uses djb2 algorithm for strings (excellent distribution) and direct value for integers
 - **Collision Resolution:** Separate chaining with arrays
 - **Memory Management:** Manual - collections do not automatically free memory
 - **Load Factor:** HashMap resizes at 0.75 load factor
-- **Modulo Operation:** Implemented manually (no `%` operator in Hemlock)
+- **Modulo Operation:** Uses native `%` operator for O(1) performance
+- **Type Casting:** Efficient native type conversion for float-to-int operations
+- **Set Implementation:** Uses HashMap internally for O(1) operations
+- **Queue Implementation:** Circular buffer with automatic resizing for O(1) enqueue/dequeue
+- **LinkedList Optimization:** Bidirectional traversal - chooses head or tail based on proximity to target index
+- **Iterator Support:** All collections support `.each(callback)` for functional-style iteration
 
 ---
 
 ## Known Limitations
 
-1. **Queue dequeue** uses array shift which is O(n)
-2. **Set operations** use linear search (no hash-based implementation yet)
-3. **No automatic memory cleanup** - users must manually manage collection lifecycle
-4. **Manual modulo implementation** for HashMap (Hemlock lacks native `%` operator)
+1. **No automatic memory cleanup** - users must manually manage collection lifecycle
 
 ---
 
 ## Future Improvements
 
-- Implement circular buffer for Queue (O(1) dequeue)
-- Add hash-based Set implementation for better performance
 - Add PriorityQueue, Deque, TreeMap, and other data structures
-- Implement iterators for all collections
-- Add native modulo operator to Hemlock for better HashMap performance
+- Add map/filter/reduce methods for functional programming patterns
+- Add bounded collections (max size enforcement)
+- Add more convenience methods (compute_if_absent, put_if_absent, etc.)
 
 ---
 
