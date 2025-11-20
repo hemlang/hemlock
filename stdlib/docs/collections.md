@@ -282,7 +282,7 @@ let list = LinkedList();
 
 ### Queue
 - Enqueue: O(1)
-- Dequeue: O(n) (due to array shift)
+- Dequeue: O(1) (circular buffer)
 - Peek: O(1)
 
 ### Stack
@@ -291,10 +291,10 @@ let list = LinkedList();
 - Peek: O(1)
 
 ### Set
-- Add: O(n) (linear search)
-- Delete: O(n) (linear search + array remove)
-- Has: O(n) (linear search)
-- Union/Intersection/Difference: O(n*m)
+- Add: O(1) average (HashMap-based)
+- Delete: O(1) average (HashMap-based)
+- Has: O(1) average (HashMap-based)
+- Union/Intersection/Difference: O(n+m)
 
 ### LinkedList
 - Append/Prepend: O(1)
@@ -311,25 +311,25 @@ let list = LinkedList();
 - **Load Factor:** HashMap resizes at 0.75 load factor
 - **Modulo Operation:** Uses native `%` operator for O(1) performance
 - **Type Casting:** Efficient native type conversion for float-to-int operations
+- **Set Implementation:** Uses HashMap internally for O(1) operations
+- **Queue Implementation:** Circular buffer with automatic resizing for O(1) enqueue/dequeue
 
 ---
 
 ## Known Limitations
 
-1. **Queue dequeue** uses array shift which is O(n)
-2. **Set operations** use linear search (no hash-based implementation yet)
-3. **No automatic memory cleanup** - users must manually manage collection lifecycle
+1. **No automatic memory cleanup** - users must manually manage collection lifecycle
+2. **LinkedList traversal** - get/set operations traverse from head only (could optimize with bidirectional traversal)
 
 ---
 
 ## Future Improvements
 
-- Implement circular buffer for Queue (O(1) dequeue)
-- Add hash-based Set implementation for O(1) operations
 - Add PriorityQueue, Deque, TreeMap, and other data structures
 - Implement iterators for all collections
 - Optimize LinkedList with bidirectional traversal
-- Add convenience methods (get_or_default, etc.)
+- Add convenience methods (get_or_default, bounded collections, etc.)
+- Add forEach/map/filter methods for functional programming patterns
 
 ---
 

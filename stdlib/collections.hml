@@ -299,48 +299,110 @@ export fn HashMap() {
 
 // ========== QUEUE ==========
 // FIFO (First-In-First-Out) data structure
-// Efficient enqueue and dequeue operations
+// Circular buffer implementation for O(1) enqueue and dequeue
 
 export fn Queue() {
     let items = [];
+    let head = 0;      // Front of queue
+    let tail = 0;      // Back of queue
+    let count = 0;     // Number of items
+    let capacity = 16; // Initial capacity
+
+    // Initialize array with nulls
+    let i = 0;
+    while (i < capacity) {
+        items.push(null);
+        i = i + 1;
+    }
+
+    // Resize when capacity is reached
+    fn resize() {
+        let new_capacity = capacity * 2;
+        let new_items = [];
+
+        // Initialize new array
+        let i = 0;
+        while (i < new_capacity) {
+            new_items.push(null);
+            i = i + 1;
+        }
+
+        // Copy items in order from head to tail
+        i = 0;
+        while (i < count) {
+            new_items[i] = items[(head + i) % capacity];
+            i = i + 1;
+        }
+
+        items = new_items;
+        head = 0;
+        tail = count;
+        capacity = new_capacity;
+    }
 
     return {
         size: 0,
 
         enqueue: fn(item) {
-            items.push(item);
-            self.size = items.length;
+            // Resize if full
+            if (count == capacity) {
+                resize();
+            }
+
+            items[tail] = item;
+            tail = (tail + 1) % capacity;
+            count = count + 1;
+            self.size = count;
             return null;
         },
 
         dequeue: fn() {
-            if (items.length == 0) {
+            if (count == 0) {
                 throw "Queue is empty";
             }
-            let item = items.shift();
-            self.size = items.length;
+
+            let item = items[head];
+            items[head] = null;  // Clear reference
+            head = (head + 1) % capacity;
+            count = count - 1;
+            self.size = count;
             return item;
         },
 
         peek: fn() {
-            if (items.length == 0) {
+            if (count == 0) {
                 return null;
             }
-            return items[0];
+            return items[head];
         },
 
         is_empty: fn() {
-            return items.length == 0;
+            return count == 0;
         },
 
         clear: fn() {
+            // Reset to initial state
             items = [];
+            let i = 0;
+            while (i < capacity) {
+                items.push(null);
+                i = i + 1;
+            }
+            head = 0;
+            tail = 0;
+            count = 0;
             self.size = 0;
             return null;
         },
 
         to_array: fn() {
-            return items.slice(0, items.length);
+            let result = [];
+            let i = 0;
+            while (i < count) {
+                result.push(items[(head + i) % capacity]);
+                i = i + 1;
+            }
+            return result;
         }
     };
 }
@@ -396,63 +458,51 @@ export fn Stack() {
 // ========== SET ==========
 // Collection of unique values
 // Prevents duplicate entries
+// Now using HashMap internally for O(1) operations
 
 export fn Set() {
-    let items = [];
-
-    // Helper to find index of item
-    fn find_index(item) {
-        let i = 0;
-        while (i < items.length) {
-            if (items[i] == item) {
-                return i;
-            }
-            i = i + 1;
-        }
-        return -1;
-    }
+    let map = HashMap();  // Use HashMap for O(1) lookups
 
     return {
         size: 0,
 
         add: fn(item) {
-            if (find_index(item) == -1) {
-                items.push(item);
-                self.size = items.length;
+            if (!map.has(item)) {
+                map.set(item, true);  // Value doesn't matter, only key matters
+                self.size = map.size;
                 return true;
             }
             return false;
         },
 
         delete: fn(item) {
-            let idx = find_index(item);
-            if (idx != -1) {
-                items.remove(idx);
-                self.size = items.length;
+            if (map.delete(item)) {
+                self.size = map.size;
                 return true;
             }
             return false;
         },
 
         has: fn(item) {
-            return find_index(item) != -1;
+            return map.has(item);
         },
 
         clear: fn() {
-            items = [];
+            map.clear();
             self.size = 0;
             return null;
         },
 
         values: fn() {
-            return items.slice(0, items.length);
+            return map.keys();  // Keys are the set values
         },
 
         union: fn(other_set) {
             let result = Set();
+            let my_values = map.keys();
             let i = 0;
-            while (i < items.length) {
-                result.add(items[i]);
+            while (i < my_values.length) {
+                result.add(my_values[i]);
                 i = i + 1;
             }
             let other_values = other_set.values();
@@ -466,10 +516,11 @@ export fn Set() {
 
         intersection: fn(other_set) {
             let result = Set();
+            let my_values = map.keys();
             let i = 0;
-            while (i < items.length) {
-                if (other_set.has(items[i])) {
-                    result.add(items[i]);
+            while (i < my_values.length) {
+                if (other_set.has(my_values[i])) {
+                    result.add(my_values[i]);
                 }
                 i = i + 1;
             }
@@ -478,10 +529,11 @@ export fn Set() {
 
         difference: fn(other_set) {
             let result = Set();
+            let my_values = map.keys();
             let i = 0;
-            while (i < items.length) {
-                if (!other_set.has(items[i])) {
-                    result.add(items[i]);
+            while (i < my_values.length) {
+                if (!other_set.has(my_values[i])) {
+                    result.add(my_values[i]);
                 }
                 i = i + 1;
             }
