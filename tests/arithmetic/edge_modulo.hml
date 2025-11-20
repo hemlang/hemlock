@@ -1,0 +1,47 @@
+// Test modulo edge cases
+// Expected: PASS (modulo operator now implemented)
+
+// Note: Modulo by zero is tested separately as an error test (modulo_zero_error.hml)
+
+// Modulo with negative numbers
+let m1 = -10 % 3;
+print("-10 % 3 = " + typeof(m1));
+
+let m2 = 10 % -3;
+print("10 % -3 = " + typeof(m2));
+
+let m3 = -10 % -3;
+print("-10 % -3 = " + typeof(m3));
+
+// Modulo with result of 0
+let m4 = 10 % 5;
+assert(m4 == 0, "10 % 5 should be 0");
+
+// Modulo with same numbers
+let m5 = 7 % 7;
+assert(m5 == 0, "7 % 7 should be 0");
+
+// Modulo with larger divisor
+let m6 = 5 % 10;
+assert(m6 == 5, "5 % 10 should be 5");
+
+// Modulo with 1
+let m7 = 100 % 1;
+assert(m7 == 0, "100 % 1 should be 0");
+
+// Modulo in expressions
+let m8 = (10 % 3) + (15 % 4);
+assert(m8 == 4, "(10 % 3) + (15 % 4) should be 4");
+
+// Modulo with different integer types
+let a: i8 = 10;
+let b: i8 = 3;
+let m9 = a % b;
+assert(m9 == 1, "i8 modulo should work");
+
+let c: u8 = 20;
+let d: u8 = 6;
+let m10 = c % d;
+assert(m10 == 2, "u8 modulo should work");
+
+print("PASS");

@@ -1,0 +1,22 @@
+// Test signal handler that throws exception
+// Expected: Testing behavior
+
+let handler_called = false;
+
+fn throwing_handler(sig) {
+    handler_called = true;
+    throw "error in handler";
+}
+
+signal(SIGUSR1, throwing_handler);
+
+try {
+    raise(SIGUSR1);
+    print("Handler completed");
+} catch (e) {
+    print("Caught exception from handler: " + e);
+}
+
+assert(handler_called == true, "handler should have been called");
+
+print("PASS");

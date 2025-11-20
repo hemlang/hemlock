@@ -1,0 +1,27 @@
+// Test array find() and contains() with null values
+// Expected: PASS
+
+let arr = [1, null, 3, null, 5];
+
+// Find null
+let idx = arr.find(null);
+assert(idx == 1, "find(null) should find first null");
+
+// Contains null
+let has = arr.contains(null);
+assert(has == true, "contains(null) should return true");
+
+// Array without null
+let arr2 = [1, 2, 3];
+let idx2 = arr2.find(null);
+assert(idx2 == -1, "find(null) on array without null should return -1");
+
+let has2 = arr2.contains(null);
+assert(has2 == false, "contains(null) on array without null should return false");
+
+// Empty array
+let arr3: array = [];
+let idx3 = arr3.find(null);
+assert(idx3 == -1, "find(null) on empty array should return -1");
+
+print("PASS");

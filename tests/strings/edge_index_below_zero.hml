@@ -1,0 +1,12 @@
+// Test string indexing with negative index
+// Tests that negative indices throw catchable exceptions
+
+let s = "hello";
+
+// Test negative indexing - this should throw an error
+try {
+    let ch = s[-1];
+    print("ERROR: Should have thrown on negative index");
+} catch (e) {
+    print("PASS: Caught negative index error: " + e);
+}

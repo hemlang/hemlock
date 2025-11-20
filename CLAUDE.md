@@ -1209,8 +1209,15 @@ try {
 ### Current Limitations
 
 - No stack trace on uncaught exceptions (planned)
-- Some built-in functions still `exit()` instead of throwing exceptions (intentional for unrecoverable errors like `panic()`, to be reviewed for others)
+- Memory allocation failures and internal errors still call `exit()` (intentional - these indicate unrecoverable system failures)
 - No custom exception types yet (any value can be thrown)
+
+**Note:** All user-facing runtime errors are now catchable with try/catch, including:
+- Array/string indexing out of bounds
+- Type conversion errors
+- Function arity mismatches
+- Stack overflow (infinite recursion)
+- Async task errors (join/detach)
 
 ---
 
@@ -2766,14 +2773,14 @@ When adding features to Hemlock:
   - **Strings:** 18 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, byte_at, chars, bytes, to_bytes
   - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
   - Control flow: if/else, while, for, for-in, break, continue, switch, bitwise operators (&, |, ^, <<, >>, ~), **defer**
-  - Error handling: try/catch/finally/throw, panic
+  - **Error handling:** try/catch/finally/throw, panic - **all user-facing runtime errors are catchable** (array bounds, type conversions, arity mismatches, stack overflow, async errors)
   - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
   - **Signal Handling:** POSIX signal handling with signal(signum, handler) and raise(signum), 15 signal constants (SIGINT, SIGTERM, SIGUSR1, SIGUSR2, etc.)
   - Command-line arguments: built-in `args` array
-  - **Async/Concurrency:** async/await syntax, spawn/join/detach, channels with send/recv/close, pthread-based true parallelism, exception propagation
+  - **Async/Concurrency:** async/await syntax, spawn/join/detach (supports both fire-and-forget and spawn-then-detach patterns), channels with send/recv/close, pthread-based true parallelism, exception propagation
   - **FFI (Foreign Function Interface):** Call C functions from shared libraries using libffi, support for all primitive types, automatic type conversion
   - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime, ffi)
-  - 288 tests (all tests passing including 10 async/concurrency tests, 3 FFI tests, 5 i64/u64 tests, 5 signal handling tests, and 6 defer tests)
+  - **372 tests** - 347 passing + 25 expected error tests (100% test success rate including async, FFI, i64/u64, signals, defer, edge cases)
 - **v0.2** - Compiler backend, optimization (planned)
 - **v0.3** - Advanced features (planned)
 

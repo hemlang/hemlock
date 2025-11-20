@@ -1,0 +1,16 @@
+// Test writing zero bytes
+// Expected: PASS
+
+let f = open("/tmp/test_write_zero.txt", "w");
+let written = f.write("");
+assert(written == 0, "write('') should return 0");
+
+f.close();
+
+// Verify file is empty
+let f2 = open("/tmp/test_write_zero.txt", "r");
+let content = f2.read();
+assert(content == "", "file should be empty");
+f2.close();
+
+print("PASS");

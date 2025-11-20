@@ -1,0 +1,12 @@
+// Test bitwise shifts by 0
+// Expected: PASS
+
+let x = 42;
+
+let left = x << 0;
+assert(left == 42, "shift left by 0 should return original value");
+
+let right = x >> 0;
+assert(right == 42, "shift right by 0 should return original value");
+
+print("PASS");

@@ -1,0 +1,12 @@
+// Test array indexing with negative index
+// Tests that negative indices throw catchable exceptions
+
+let arr = [1, 2, 3];
+
+// Test negative indexing
+try {
+    let val = arr[-1];
+    print("ERROR: Should have thrown on negative index");
+} catch (e) {
+    print("PASS: Caught negative index: " + e);
+}

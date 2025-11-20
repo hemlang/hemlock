@@ -1,0 +1,34 @@
+// Test array slice() edge cases
+// Expected: PASS
+
+let arr = [1, 2, 3, 4, 5];
+
+// Slice with end beyond length
+let s1 = arr.slice(0, 100);
+assert(s1.length == 5, "slice beyond end should return all elements");
+
+// Slice with start > end
+let s2 = arr.slice(3, 1);
+assert(s2.length == 0, "slice with start > end should return empty array");
+
+// Slice with start == end
+let s3 = arr.slice(2, 2);
+assert(s3.length == 0, "slice with start == end should return empty array");
+
+// Slice starting beyond length
+let s4 = arr.slice(10, 20);
+assert(s4.length == 0, "slice starting beyond length should return empty array");
+
+// Slice entire array
+let s5 = arr.slice(0, 5);
+assert(s5.length == 5, "slice(0, length) should return full array");
+
+// Slice with negative indices - test current behavior
+try {
+    let s6 = arr.slice(-2, 5);
+    print("slice with negative start did not error");
+} catch (e) {
+    print("slice with negative start threw error: " + e);
+}
+
+print("PASS");

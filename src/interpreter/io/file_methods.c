@@ -1,15 +1,28 @@
 #include "internal.h"
+#include <stdarg.h>
+
+// ========== RUNTIME ERROR HELPER ==========
+
+static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    ctx->exception_state.exception_value = val_string(buffer);
+    value_retain(ctx->exception_state.exception_value);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
+}
 
 // ========== FILE METHOD HANDLING ==========
 
-Value call_file_method(FileHandle *file, const char *method, Value *args, int num_args) {
+Value call_file_method(FileHandle *file, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
     // read(size?: i32): string - read text from file
     if (strcmp(method, "read") == 0) {
         if (file->closed) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot read from closed file '%s'", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot read from closed file '%s'", file->path);
         }
 
         if (num_args == 0) {
@@ -26,19 +39,15 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
             char *buffer = malloc(size + 1);
             if (!buffer) {
-                fprintf(stderr, "Runtime error: Memory allocation failed\n");
-                exit(1);
+                return throw_runtime_error(ctx, "Memory allocation failed");
             }
             size_t read_bytes = fread(buffer, 1, size, file->fp);
             buffer[read_bytes] = '\0';
 
             if (ferror(file->fp)) {
                 free(buffer);
-                char error_msg[512];
-                snprintf(error_msg, sizeof(error_msg), "Read error on file '%s': %s",
+                return throw_runtime_error(ctx, "Read error on file '%s': %s",
                         file->path, strerror(errno));
-                fprintf(stderr, "Runtime error: %s\n", error_msg);
-                exit(1);
             }
 
             String *str = malloc(sizeof(String));
@@ -52,8 +61,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         } else if (num_args == 1) {
             // Read specified number of bytes
             if (!is_integer(args[0])) {
-                fprintf(stderr, "Runtime error: read() size must be integer\n");
-                exit(1);
+                return throw_runtime_error(ctx, "read() size must be integer");
             }
 
             int size = value_to_int(args[0]);
@@ -63,19 +71,15 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
             char *buffer = malloc(size + 1);
             if (!buffer) {
-                fprintf(stderr, "Runtime error: Memory allocation failed\n");
-                exit(1);
+                return throw_runtime_error(ctx, "Memory allocation failed");
             }
             size_t read_bytes = fread(buffer, 1, size, file->fp);
             buffer[read_bytes] = '\0';
 
             if (ferror(file->fp)) {
                 free(buffer);
-                char error_msg[512];
-                snprintf(error_msg, sizeof(error_msg), "Read error on file '%s': %s",
+                return throw_runtime_error(ctx, "Read error on file '%s': %s",
                         file->path, strerror(errno));
-                fprintf(stderr, "Runtime error: %s\n", error_msg);
-                exit(1);
             }
 
             String *str = malloc(sizeof(String));
@@ -87,23 +91,18 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
             return (Value){ .type = VAL_STRING, .as.as_string = str };
         } else {
-            fprintf(stderr, "Runtime error: read() expects 0-1 arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "read() expects 0-1 arguments");
         }
     }
 
     // read_bytes(size: i32): buffer - read binary data
     if (strcmp(method, "read_bytes") == 0) {
         if (file->closed) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot read from closed file '%s'", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot read from closed file '%s'", file->path);
         }
 
         if (num_args != 1 || !is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: read_bytes() expects 1 integer argument (size)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "read_bytes() expects 1 integer argument (size)");
         }
 
         int size = value_to_int(args[0]);
@@ -118,18 +117,14 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
         void *data = malloc(size);
         if (!data) {
-            fprintf(stderr, "Runtime error: Memory allocation failed\n");
-            exit(1);
+            return throw_runtime_error(ctx, "Memory allocation failed");
         }
         size_t read_bytes = fread(data, 1, size, file->fp);
 
         if (ferror(file->fp)) {
             free(data);
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Read error on file '%s': %s",
+            return throw_runtime_error(ctx, "Read error on file '%s': %s",
                     file->path, strerror(errno));
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
         }
 
         Buffer *buf = malloc(sizeof(Buffer));
@@ -144,23 +139,16 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
     // write(data: string): i32 - write string to file
     if (strcmp(method, "write") == 0) {
         if (file->closed) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot write to closed file '%s'", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot write to closed file '%s'", file->path);
         }
 
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: write() expects 1 argument (data)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "write() expects 1 argument (data)");
         }
 
         // Check if file is writable
         if (file->mode[0] == 'r' && strchr(file->mode, '+') == NULL) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot write to file '%s' opened in read-only mode", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot write to file '%s' opened in read-only mode", file->path);
         }
 
         size_t written = 0;
@@ -169,15 +157,11 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
             written = fwrite(str->data, 1, str->length, file->fp);
 
             if (ferror(file->fp)) {
-                char error_msg[512];
-                snprintf(error_msg, sizeof(error_msg), "Write error on file '%s': %s",
+                return throw_runtime_error(ctx, "Write error on file '%s': %s",
                         file->path, strerror(errno));
-                fprintf(stderr, "Runtime error: %s\n", error_msg);
-                exit(1);
             }
         } else {
-            fprintf(stderr, "Runtime error: write() expects string argument\n");
-            exit(1);
+            return throw_runtime_error(ctx, "write() expects string argument");
         }
 
         return val_i32((int32_t)written);
@@ -186,23 +170,16 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
     // write_bytes(data: buffer): i32 - write binary data
     if (strcmp(method, "write_bytes") == 0) {
         if (file->closed) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot write to closed file '%s'", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot write to closed file '%s'", file->path);
         }
 
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: write_bytes() expects 1 argument (data)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "write_bytes() expects 1 argument (data)");
         }
 
         // Check if file is writable
         if (file->mode[0] == 'r' && strchr(file->mode, '+') == NULL) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot write to file '%s' opened in read-only mode", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot write to file '%s' opened in read-only mode", file->path);
         }
 
         size_t written = 0;
@@ -211,15 +188,11 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
             written = fwrite(buf->data, 1, buf->length, file->fp);
 
             if (ferror(file->fp)) {
-                char error_msg[512];
-                snprintf(error_msg, sizeof(error_msg), "Write error on file '%s': %s",
+                return throw_runtime_error(ctx, "Write error on file '%s': %s",
                         file->path, strerror(errno));
-                fprintf(stderr, "Runtime error: %s\n", error_msg);
-                exit(1);
             }
         } else {
-            fprintf(stderr, "Runtime error: write_bytes() expects buffer argument\n");
-            exit(1);
+            return throw_runtime_error(ctx, "write_bytes() expects buffer argument");
         }
 
         return val_i32((int32_t)written);
@@ -228,24 +201,17 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
     // seek(position: i32): i32 - move file pointer
     if (strcmp(method, "seek") == 0) {
         if (file->closed) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot seek in closed file '%s'", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot seek in closed file '%s'", file->path);
         }
 
         if (num_args != 1 || !is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: seek() expects 1 integer argument (position)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "seek() expects 1 integer argument (position)");
         }
 
         int position = value_to_int(args[0]);
         if (fseek(file->fp, position, SEEK_SET) != 0) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Seek error on file '%s': %s",
+            return throw_runtime_error(ctx, "Seek error on file '%s': %s",
                     file->path, strerror(errno));
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
         }
 
         long new_pos = ftell(file->fp);
@@ -255,24 +221,17 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
     // tell(): i32 - get current file position
     if (strcmp(method, "tell") == 0) {
         if (file->closed) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Cannot tell position in closed file '%s'", file->path);
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
+            return throw_runtime_error(ctx, "Cannot tell position in closed file '%s'", file->path);
         }
 
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: tell() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "tell() expects no arguments");
         }
 
         long pos = ftell(file->fp);
         if (pos < 0) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "Tell error on file '%s': %s",
+            return throw_runtime_error(ctx, "Tell error on file '%s': %s",
                     file->path, strerror(errno));
-            fprintf(stderr, "Runtime error: %s\n", error_msg);
-            exit(1);
         }
 
         return val_i32((int32_t)pos);
@@ -281,8 +240,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
     // close() - close file (idempotent)
     if (strcmp(method, "close") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: close() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "close() expects no arguments");
         }
 
         // Idempotent - safe to call multiple times
@@ -294,18 +252,18 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         return val_null();
     }
 
-    fprintf(stderr, "Runtime error: File has no method '%s'\n", method);
-    exit(1);
+    return throw_runtime_error(ctx, "File has no method '%s'", method);
 }
 
 // ========== I/O BUILTIN FUNCTIONS ==========
 
 Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: read_line() expects no arguments\n");
-        exit(1);
+        ctx->exception_state.exception_value = val_string("read_line() expects no arguments");
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
     }
 
     char *line = NULL;
@@ -337,10 +295,11 @@ Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: eprint() expects 1 argument\n");
-        exit(1);
+        ctx->exception_state.exception_value = val_string("eprint() expects 1 argument");
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
     }
 
     // Print to stderr
@@ -388,15 +347,18 @@ Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: open() expects 1-2 arguments (path, [mode])\n");
-        exit(1);
+        ctx->exception_state.exception_value = val_string("open() expects 1-2 arguments (path, [mode])");
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: open() path must be a string\n");
-        exit(1);
+        ctx->exception_state.exception_value = val_string("open() path must be a string");
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
     }
 
     const char *path = args[0].as.as_string->data;
@@ -404,17 +366,23 @@ Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (num_args == 2) {
         if (args[1].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: open() mode must be a string\n");
-            exit(1);
+            ctx->exception_state.exception_value = val_string("open() mode must be a string");
+            value_retain(ctx->exception_state.exception_value);
+            ctx->exception_state.is_throwing = 1;
+            return val_null();
         }
         mode = args[1].as.as_string->data;
     }
 
     FILE *fp = fopen(path, mode);
     if (!fp) {
-        fprintf(stderr, "Runtime error: Failed to open '%s' with mode '%s': %s\n",
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to open '%s' with mode '%s': %s",
                 path, mode, strerror(errno));
-        exit(1);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
     }
 
     FileHandle *file = malloc(sizeof(FileHandle));

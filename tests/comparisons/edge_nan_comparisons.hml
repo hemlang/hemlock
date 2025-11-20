@@ -1,0 +1,5 @@
+// Test NaN comparison behavior
+// Expected: SKIP - Division by zero produces error, not NaN
+
+// TODO: When float division by zero produces NaN instead of error, enable this test
+print("SKIP: Division by zero currently errors instead of producing NaN");

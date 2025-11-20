@@ -1,0 +1,12 @@
+// Test while loop with break on first iteration
+// Expected: PASS
+
+let count = 0;
+while (true) {
+    count = count + 1;
+    break;
+}
+
+assert(count == 1, "while with first iteration break should execute once");
+
+print("PASS");

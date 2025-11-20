@@ -1,0 +1,23 @@
+// Test defer in loop (multiple deferrals)
+// Expected: PASS
+
+let counter = 0;
+
+fn increment() {
+    counter = counter + 1;
+}
+
+fn test_defer_loop() {
+    let i = 0;
+    while (i < 3) {
+        defer increment();
+        i = i + 1;
+    }
+}
+
+test_defer_loop();
+
+// All 3 defers should execute when function returns
+assert(counter == 3, "all defers from loop should execute");
+
+print("PASS");

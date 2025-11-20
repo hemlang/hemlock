@@ -1,0 +1,26 @@
+// Test substr edge cases with boundary conditions
+// Expected: PASS
+
+let s = "hello";
+
+// substr with length exceeding string length
+let sub1 = s.substr(0, 100);
+assert(sub1.length == 5, "substr with excessive length should return available characters");
+
+// substr starting beyond string length
+let sub2 = s.substr(10, 5);
+assert(sub2 == "", "substr starting beyond length should return empty string");
+
+// substr with 0 length
+let sub3 = s.substr(2, 0);
+assert(sub3 == "", "substr with 0 length should return empty string");
+
+// substr at exact end
+let sub4 = s.substr(5, 1);
+assert(sub4 == "", "substr at exact end should return empty string");
+
+// substr near end
+let sub5 = s.substr(3, 10);
+assert(sub5 == "lo", "substr near end should return remaining characters");
+
+print("PASS");

@@ -108,27 +108,63 @@ static Token number(Lexer *lex) {
 }
 
 static Token string(Lexer *lex) {
-    // Consume characters until closing quote
+    // Build string with escape sequence processing
+    char *buffer = malloc(256);
+    int capacity = 256;
+    int length = 0;
+
     while (peek(lex) != '"' && !is_at_end(lex)) {
         if (peek(lex) == '\n') lex->line++;
+
+        char c = peek(lex);
         advance(lex);
+
+        // Handle escape sequences
+        if (c == '\\') {
+            if (is_at_end(lex)) {
+                free(buffer);
+                return error_token(lex, "Unterminated string (escape at end)");
+            }
+
+            c = peek(lex);
+            advance(lex);
+
+            switch (c) {
+                case 'n':  c = '\n'; break;
+                case 't':  c = '\t'; break;
+                case 'r':  c = '\r'; break;
+                case '\\': c = '\\'; break;
+                case '\'': c = '\''; break;
+                case '"':  c = '"'; break;
+                case '0':  c = '\0'; break;
+                default:
+                    free(buffer);
+                    return error_token(lex, "Unknown escape sequence in string");
+            }
+        }
+
+        // Grow buffer if needed
+        if (length >= capacity - 1) {
+            capacity *= 2;
+            buffer = realloc(buffer, capacity);
+        }
+
+        buffer[length++] = c;
     }
-    
+
     if (is_at_end(lex)) {
+        free(buffer);
         return error_token(lex, "Unterminated string");
     }
-    
+
     // Closing quote
     advance(lex);
-    
+
+    buffer[length] = '\0';
+
     Token token = make_token(lex, TOK_STRING);
-    
-    // Extract string content (without quotes)
-    int str_len = token.length - 2;  // Exclude opening and closing quotes
-    token.string_value = malloc(str_len + 1);
-    memcpy(token.string_value, token.start + 1, str_len);
-    token.string_value[str_len] = '\0';
-    
+    token.string_value = buffer;
+
     return token;
 }
 

@@ -1,0 +1,11 @@
+// Test for-in loop on null value
+// Expected: ERROR
+
+try {
+    for (let x in null) {
+        print("ERROR: Should not iterate on null");
+    }
+    print("ERROR: for-in on null should have thrown");
+} catch (e) {
+    print("PASS: Caught for-in on null: " + e);
+}

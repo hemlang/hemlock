@@ -25,28 +25,24 @@ echo ""
 echo -e "${BLUE}Building hemlock...${NC}"
 # Detect if we're in the tests directory or project root
 if [ -f "../Makefile" ]; then
-    # We're in tests directory
-    PROJECT_ROOT=".."
-    TEST_DIR="."
-    if cd .. && make clean > /dev/null 2>&1 && make > /dev/null 2>&1; then
-        cd tests > /dev/null 2>&1
-        echo -e "${GREEN}✓ Build successful${NC}"
-    else
-        echo -e "${RED}✗ Build failed${NC}"
-        exit 1
-    fi
+    # We're in tests directory - change to project root
+    cd ..
+    PROJECT_ROOT="."
+    TEST_DIR="tests"
 elif [ -f "Makefile" ]; then
     # We're in project root
     PROJECT_ROOT="."
     TEST_DIR="tests"
-    if make clean > /dev/null 2>&1 && make > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ Build successful${NC}"
-    else
-        echo -e "${RED}✗ Build failed${NC}"
-        exit 1
-    fi
 else
     echo -e "${RED}✗ Cannot find Makefile${NC}"
+    exit 1
+fi
+
+# Build from project root
+if make clean > /dev/null 2>&1 && make > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Build successful${NC}"
+else
+    echo -e "${RED}✗ Build failed${NC}"
     exit 1
 fi
 echo ""
@@ -69,14 +65,9 @@ TEST_FILES=$(find "$TEST_DIR" -name "*.hml" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do
-    # Extract category from path
-    if [ "$TEST_DIR" = "tests" ]; then
-        category=$(dirname "$test_file" | cut -d'/' -f2)
-        test_name="${test_file#tests/}"
-    else
-        category=$(dirname "$test_file" | cut -d'/' -f1)
-        test_name="$test_file"
-    fi
+    # Extract category from path (always relative to tests/)
+    category=$(dirname "$test_file" | cut -d'/' -f2)
+    test_name="${test_file#tests/}"
 
     # Print category header if changed
     if [ "$category" != "$CURRENT_CATEGORY" ]; then

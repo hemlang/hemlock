@@ -1,17 +1,31 @@
 #include "internal.h"
+#include <stdarg.h>
+
+// ========== RUNTIME ERROR HELPER ==========
+
+static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    ctx->exception_state.exception_value = val_string(buffer);
+    value_retain(ctx->exception_state.exception_value);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
+}
 
 // ========== STRING METHOD HANDLING ==========
 
-Value call_string_method(String *str, const char *method, Value *args, int num_args) {
+Value call_string_method(String *str, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
     // substr(start, length) - extract substring by codepoint positions
     if (strcmp(method, "substr") == 0) {
         if (num_args != 2) {
-            fprintf(stderr, "Runtime error: substr() expects 2 arguments (start, length)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "substr() expects 2 arguments (start, length)");
         }
         if (!is_integer(args[0]) || !is_integer(args[1])) {
-            fprintf(stderr, "Runtime error: substr() arguments must be integers\n");
-            exit(1);
+            return throw_runtime_error(ctx, "substr() arguments must be integers");
         }
 
         // Compute character length if not cached
@@ -22,16 +36,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         int32_t start = value_to_int(args[0]);
         int32_t char_length = value_to_int(args[1]);
 
-        // Bounds checking (now on codepoint positions)
-        if (start < 0 || start >= str->char_length) {
-            fprintf(stderr, "Runtime error: substr() start index %d out of bounds (length=%d)\n",
-                    start, str->char_length);
-            exit(1);
+        // Clamp bounds to valid range
+        if (start < 0) start = 0;
+        if (start >= str->char_length) {
+            // Start beyond string length - return empty string
+            return val_string("");
         }
-        if (char_length < 0) {
-            fprintf(stderr, "Runtime error: substr() length cannot be negative\n");
-            exit(1);
-        }
+        if (char_length < 0) char_length = 0;
 
         // Clamp length to available characters
         if (start + char_length > str->char_length) {
@@ -54,12 +65,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // slice(start, end) - Python-style slicing by codepoint (end is exclusive)
     if (strcmp(method, "slice") == 0) {
         if (num_args != 2) {
-            fprintf(stderr, "Runtime error: slice() expects 2 arguments (start, end)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "slice() expects 2 arguments (start, end)");
         }
         if (!is_integer(args[0]) || !is_integer(args[1])) {
-            fprintf(stderr, "Runtime error: slice() arguments must be integers\n");
-            exit(1);
+            return throw_runtime_error(ctx, "slice() arguments must be integers");
         }
 
         // Compute character length if not cached
@@ -70,17 +79,11 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         int32_t start = value_to_int(args[0]);
         int32_t end = value_to_int(args[1]);
 
-        // Bounds checking (now on codepoint positions)
-        if (start < 0 || start > str->char_length) {
-            fprintf(stderr, "Runtime error: slice() start index %d out of bounds (length=%d)\n",
-                    start, str->char_length);
-            exit(1);
-        }
-        if (end < start || end > str->char_length) {
-            fprintf(stderr, "Runtime error: slice() end index %d out of bounds (length=%d)\n",
-                    end, str->char_length);
-            exit(1);
-        }
+        // Clamp bounds to valid range (Python/JS/Rust behavior)
+        if (start < 0) start = 0;
+        if (start > str->char_length) start = str->char_length;
+        if (end < start) end = start;  // Empty slice if end < start
+        if (end > str->char_length) end = str->char_length;
 
         // Convert codepoint positions to byte offsets
         int start_byte = utf8_byte_offset(str->data, str->length, start);
@@ -98,12 +101,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // find(needle) - find first occurrence, returns index or -1
     if (strcmp(method, "find") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: find() expects 1 argument (substring)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "find() expects 1 argument (substring)");
         }
         if (args[0].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: find() argument must be a string\n");
-            exit(1);
+            return throw_runtime_error(ctx, "find() argument must be a string");
         }
 
         String *needle = args[0].as.as_string;
@@ -126,12 +127,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // contains(needle) - check if string contains substring
     if (strcmp(method, "contains") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: contains() expects 1 argument (substring)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "contains() expects 1 argument (substring)");
         }
         if (args[0].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: contains() argument must be a string\n");
-            exit(1);
+            return throw_runtime_error(ctx, "contains() argument must be a string");
         }
 
         String *needle = args[0].as.as_string;
@@ -154,12 +153,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // split(delimiter) - split string into array
     if (strcmp(method, "split") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: split() expects 1 argument (delimiter)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "split() expects 1 argument (delimiter)");
         }
         if (args[0].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: split() delimiter must be a string\n");
-            exit(1);
+            return throw_runtime_error(ctx, "split() delimiter must be a string");
         }
 
         String *delim = args[0].as.as_string;
@@ -204,8 +201,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // trim() - remove whitespace from both ends
     if (strcmp(method, "trim") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: trim() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "trim() expects no arguments");
         }
 
         int start = 0;
@@ -238,8 +234,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // to_upper() - convert to uppercase
     if (strcmp(method, "to_upper") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: to_upper() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "to_upper() expects no arguments");
         }
 
         char *upper = malloc(str->length + 1);
@@ -259,8 +254,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // to_lower() - convert to lowercase
     if (strcmp(method, "to_lower") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: to_lower() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "to_lower() expects no arguments");
         }
 
         char *lower = malloc(str->length + 1);
@@ -280,12 +274,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // starts_with(prefix) - check if string starts with prefix
     if (strcmp(method, "starts_with") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: starts_with() expects 1 argument (prefix)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "starts_with() expects 1 argument (prefix)");
         }
         if (args[0].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: starts_with() argument must be a string\n");
-            exit(1);
+            return throw_runtime_error(ctx, "starts_with() argument must be a string");
         }
 
         String *prefix = args[0].as.as_string;
@@ -298,12 +290,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // ends_with(suffix) - check if string ends with suffix
     if (strcmp(method, "ends_with") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: ends_with() expects 1 argument (suffix)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "ends_with() expects 1 argument (suffix)");
         }
         if (args[0].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: ends_with() argument must be a string\n");
-            exit(1);
+            return throw_runtime_error(ctx, "ends_with() argument must be a string");
         }
 
         String *suffix = args[0].as.as_string;
@@ -317,12 +307,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // replace(old, new) - replace first occurrence
     if (strcmp(method, "replace") == 0) {
         if (num_args != 2) {
-            fprintf(stderr, "Runtime error: replace() expects 2 arguments (old, new)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "replace() expects 2 arguments (old, new)");
         }
         if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: replace() arguments must be strings\n");
-            exit(1);
+            return throw_runtime_error(ctx, "replace() arguments must be strings");
         }
 
         String *old = args[0].as.as_string;
@@ -357,12 +345,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // replace_all(old, new) - replace all occurrences
     if (strcmp(method, "replace_all") == 0) {
         if (num_args != 2) {
-            fprintf(stderr, "Runtime error: replace_all() expects 2 arguments (old, new)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "replace_all() expects 2 arguments (old, new)");
         }
         if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: replace_all() arguments must be strings\n");
-            exit(1);
+            return throw_runtime_error(ctx, "replace_all() arguments must be strings");
         }
 
         String *old = args[0].as.as_string;
@@ -408,18 +394,15 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // repeat(count) - repeat string n times
     if (strcmp(method, "repeat") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: repeat() expects 1 argument (count)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "repeat() expects 1 argument (count)");
         }
         if (!is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: repeat() count must be an integer\n");
-            exit(1);
+            return throw_runtime_error(ctx, "repeat() count must be an integer");
         }
 
         int32_t count = value_to_int(args[0]);
         if (count < 0) {
-            fprintf(stderr, "Runtime error: repeat() count cannot be negative\n");
-            exit(1);
+            return throw_runtime_error(ctx, "repeat() count cannot be negative");
         }
         if (count == 0) {
             return val_string("");
@@ -439,12 +422,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // char_at(index) - get character at index (returns rune)
     if (strcmp(method, "char_at") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: char_at() expects 1 argument (index)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "char_at() expects 1 argument (index)");
         }
         if (!is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: char_at() index must be an integer\n");
-            exit(1);
+            return throw_runtime_error(ctx, "char_at() index must be an integer");
         }
 
         // Compute character length if not cached
@@ -454,9 +435,8 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index >= str->char_length) {
-            fprintf(stderr, "Runtime error: char_at() index %d out of bounds (length=%d)\n",
+            return throw_runtime_error(ctx, "char_at() index %d out of bounds (length=%d)",
                     index, str->char_length);
-            exit(1);
         }
 
         // Find byte offset and decode codepoint
@@ -469,19 +449,16 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // byte_at(index) - get byte at index (returns u8)
     if (strcmp(method, "byte_at") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: byte_at() expects 1 argument (index)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "byte_at() expects 1 argument (index)");
         }
         if (!is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: byte_at() index must be an integer\n");
-            exit(1);
+            return throw_runtime_error(ctx, "byte_at() index must be an integer");
         }
 
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index >= str->length) {
-            fprintf(stderr, "Runtime error: byte_at() index %d out of bounds (byte_length=%d)\n",
+            return throw_runtime_error(ctx, "byte_at() index %d out of bounds (byte_length=%d)",
                     index, str->length);
-            exit(1);
         }
 
         return val_u8((uint8_t)str->data[index]);
@@ -490,8 +467,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // chars() - convert string to array of runes
     if (strcmp(method, "chars") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: chars() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "chars() expects no arguments");
         }
 
         // Compute character length if not cached
@@ -516,8 +492,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // bytes() - convert string to array of bytes (u8)
     if (strcmp(method, "bytes") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: bytes() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "bytes() expects no arguments");
         }
 
         Array *arr = array_new();
@@ -531,8 +506,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // to_bytes() - convert string to buffer
     if (strcmp(method, "to_bytes") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: to_bytes() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "to_bytes() expects no arguments");
         }
 
         Buffer *buf = malloc(sizeof(Buffer));
@@ -548,8 +522,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
     // deserialize() - parse JSON string to value
     if (strcmp(method, "deserialize") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: deserialize() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "deserialize() expects no arguments");
         }
 
         JSONParser parser;
@@ -561,13 +534,11 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         // Check that we consumed all the input
         json_skip_whitespace(&parser);
         if (parser.input[parser.pos] != '\0') {
-            fprintf(stderr, "Runtime error: Unexpected trailing characters in JSON\n");
-            exit(1);
+            return throw_runtime_error(ctx, "Unexpected trailing characters in JSON");
         }
 
         return result;
     }
 
-    fprintf(stderr, "Runtime error: String has no method '%s'\n", method);
-    exit(1);
+    return throw_runtime_error(ctx, "String has no method '%s'", method);
 }

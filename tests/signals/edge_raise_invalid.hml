@@ -1,0 +1,9 @@
+// Test raising invalid signal number
+// Expected: ERROR or undefined behavior
+
+try {
+    raise(99999);
+    print("Raising invalid signal did not error");
+} catch (e) {
+    print("PASS: Caught invalid signal: " + e);
+}

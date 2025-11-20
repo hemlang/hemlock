@@ -1,0 +1,10 @@
+// Test rune creation with invalid codepoints
+// Expected: ERROR
+
+// Negative rune value - this should be caught
+try {
+    let r: rune = -1;
+    print("ERROR: Should reject negative codepoint");
+} catch (e) {
+    print("PASS: Caught negative codepoint: " + e);
+}

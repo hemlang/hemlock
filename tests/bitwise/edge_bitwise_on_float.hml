@@ -1,0 +1,20 @@
+// Test bitwise operations on float (should error)
+// Expected: ERROR
+
+let x = 3.14;
+
+try {
+    let result = x & 1;
+    print("ERROR: bitwise AND on float should fail");
+} catch (e) {
+    print("Caught bitwise on float: " + e);
+}
+
+try {
+    let result = x << 1;
+    print("ERROR: shift on float should fail");
+} catch (e) {
+    print("Caught shift on float: " + e);
+}
+
+print("PASS");

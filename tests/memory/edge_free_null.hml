@@ -1,0 +1,5 @@
+// Test freeing null pointer
+// Expected: PASS (free(null) should be safe no-op)
+
+free(null);
+print("PASS: free(null) did not crash");

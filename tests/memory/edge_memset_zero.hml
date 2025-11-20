@@ -1,0 +1,8 @@
+// Test memset with size 0
+// Expected: PASS
+
+let p = alloc(10);
+memset(p, 0, 0);  // Should do nothing
+free(p);
+
+print("PASS: memset with size 0 completed");

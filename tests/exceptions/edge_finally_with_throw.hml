@@ -1,0 +1,13 @@
+// Test finally block that throws exception
+// Expected: PASS (finally exception should override try exception)
+
+try {
+    try {
+        throw "first error";
+    } finally {
+        throw "second error";
+    }
+} catch (e) {
+    assert(e == "second error", "finally exception should override try exception");
+    print("PASS: Caught exception from finally");
+}

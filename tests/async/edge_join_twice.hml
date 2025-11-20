@@ -1,0 +1,17 @@
+// Test joining a task twice
+// Expected: ERROR or specific behavior
+
+async fn compute(n: i32): i32 {
+    return n * 2;
+}
+
+let task = spawn(compute, 21);
+let result1 = join(task);
+
+// Try to join again
+try {
+    let result2 = join(task);
+    print("Joining twice did not error, result: " + typeof(result2));
+} catch (e) {
+    print("PASS: Caught double join: " + e);
+}

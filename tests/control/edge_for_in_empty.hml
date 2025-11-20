@@ -1,0 +1,27 @@
+// Test for-in loops on empty containers
+// Expected: PASS
+
+let count = 0;
+
+// for-in on empty array
+let arr = [];
+for (let val in arr) {
+    count = count + 1;
+}
+assert(count == 0, "for-in on empty array should not iterate");
+
+// for-in on empty object
+let obj = {};
+for (let key in obj) {
+    count = count + 1;
+}
+assert(count == 0, "for-in on empty object should not iterate");
+
+// for-in on empty string (if supported)
+let str = "";
+for (let ch in str) {
+    count = count + 1;
+}
+assert(count == 0, "for-in on empty string should not iterate");
+
+print("PASS");

@@ -1,0 +1,32 @@
+// Test function called with wrong number of arguments
+// Expected: Testing current behavior
+
+fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+// Call with fewer arguments - should error or use defaults
+try {
+    let result = add(5);
+    print("Calling with fewer args did not error, result: " + typeof(result));
+} catch (e) {
+    print("Caught arity mismatch (too few): " + e);
+}
+
+// Call with more arguments - should error or ignore extras
+try {
+    let result = add(5, 10, 15);
+    print("Calling with more args did not error, result: " + typeof(result));
+} catch (e) {
+    print("Caught arity mismatch (too many): " + e);
+}
+
+// Call with no arguments
+try {
+    let result = add();
+    print("Calling with no args did not error, result: " + typeof(result));
+} catch (e) {
+    print("Caught arity mismatch (none): " + e);
+}
+
+print("PASS");

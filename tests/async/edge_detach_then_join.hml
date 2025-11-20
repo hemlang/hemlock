@@ -1,0 +1,17 @@
+// Test joining a detached task
+// Expected: ERROR
+
+async fn compute(n: i32): i32 {
+    return n * 2;
+}
+
+let task = spawn(compute, 21);
+detach(task);
+
+// Try to join detached task
+try {
+    let result = join(task);
+    print("ERROR: Should not be able to join detached task");
+} catch (e) {
+    print("PASS: Caught join on detached task: " + e);
+}

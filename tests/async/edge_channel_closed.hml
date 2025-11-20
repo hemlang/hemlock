@@ -1,0 +1,48 @@
+// Test channel operations on closed channel
+// Expected: PASS (testing expected behavior)
+
+let ch = channel(5);
+
+// Send some values
+ch.send(1);
+ch.send(2);
+ch.send(3);
+
+// Close the channel
+ch.close();
+
+// Try to send on closed channel - should error
+try {
+    ch.send(4);
+    print("ERROR: send on closed channel should fail");
+} catch (e) {
+    print("Caught send on closed: " + e);
+}
+
+// Receive from closed channel with data should work
+let v1 = ch.recv();
+print("Received from closed channel with data: " + typeof(v1));
+
+let v2 = ch.recv();
+print("Received: " + typeof(v2));
+
+let v3 = ch.recv();
+print("Received: " + typeof(v3));
+
+// Receive from closed, empty channel should return null
+let v4 = ch.recv();
+if (v4 == null) {
+    print("Received null from closed empty channel");
+} else {
+    print("Received: " + typeof(v4));
+}
+
+// Close already closed channel - test behavior
+try {
+    ch.close();
+    print("Closing already closed channel did not error");
+} catch (e) {
+    print("Caught close on closed: " + e);
+}
+
+print("PASS");

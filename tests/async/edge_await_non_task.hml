@@ -1,0 +1,13 @@
+// Test await on non-task values
+// Expected: PASS (await should return the value unchanged)
+
+let x = await 42;
+assert(x == 42, "await on integer should return the integer");
+
+let s = await "hello";
+assert(s == "hello", "await on string should return the string");
+
+let arr = await [1, 2, 3];
+assert(arr.length == 3, "await on array should return the array");
+
+print("PASS");

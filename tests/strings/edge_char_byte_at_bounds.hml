@@ -1,0 +1,38 @@
+// Test char_at and byte_at with out of bounds indices
+// Expected: ERROR
+
+let s = "hello";
+
+// Test char_at out of bounds
+try {
+    let ch = s.char_at(10);
+    print("ERROR: char_at should have thrown on out of bounds");
+} catch (e) {
+    print("Caught char_at out of bounds: " + e);
+}
+
+// Test byte_at out of bounds
+try {
+    let b = s.byte_at(10);
+    print("ERROR: byte_at should have thrown on out of bounds");
+} catch (e) {
+    print("Caught byte_at out of bounds: " + e);
+}
+
+// Test char_at negative index
+try {
+    let ch = s.char_at(-1);
+    print("ERROR: char_at should have thrown on negative index");
+} catch (e) {
+    print("Caught char_at negative index: " + e);
+}
+
+// Test byte_at negative index
+try {
+    let b = s.byte_at(-1);
+    print("ERROR: byte_at should have thrown on negative index");
+} catch (e) {
+    print("Caught byte_at negative index: " + e);
+}
+
+print("PASS");

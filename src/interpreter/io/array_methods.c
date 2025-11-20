@@ -1,11 +1,27 @@
 #include "internal.h"
+#include <stdarg.h>
+
+// ========== RUNTIME ERROR HELPER ==========
+
+static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    ctx->exception_state.exception_value = val_string(buffer);
+    value_retain(ctx->exception_state.exception_value);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
+}
 
 // ========== ARRAY METHOD HANDLING ==========
 
 // Helper function to check if value matches array element type
-static void check_array_element_type_for_method(Array *arr, Value val) {
+static Value check_array_element_type_for_method(Array *arr, Value val, ExecutionContext *ctx) {
     if (!arr->element_type) {
-        return;  // Untyped array, allow any value
+        return val_null();  // Untyped array, allow any value
     }
 
     TypeKind expected = arr->element_type->kind;
@@ -28,14 +44,14 @@ static void check_array_element_type_for_method(Array *arr, Value val) {
         case TYPE_PTR:  type_matches = (val.type == VAL_PTR); break;
         case TYPE_BUFFER: type_matches = (val.type == VAL_BUFFER); break;
         default:
-            fprintf(stderr, "Runtime error: Unsupported array element type constraint\n");
-            exit(1);
+            return throw_runtime_error(ctx, "Unsupported array element type constraint");
     }
 
     if (!type_matches) {
-        fprintf(stderr, "Runtime error: Type mismatch in typed array - expected element of specific type\n");
-        exit(1);
+        return throw_runtime_error(ctx, "Type mismatch in typed array - expected element of specific type");
     }
+
+    return val_null();
 }
 
 // Helper: Compare two values for equality
@@ -64,12 +80,11 @@ int values_equal(Value a, Value b) {
     }
 }
 
-Value call_array_method(Array *arr, const char *method, Value *args, int num_args) {
+Value call_array_method(Array *arr, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
     // push(value) - add element to end
     if (strcmp(method, "push") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: push() expects 1 argument\n");
-            exit(1);
+            return throw_runtime_error(ctx, "push() expects 1 argument");
         }
         array_push(arr, args[0]);
         return val_null();
@@ -78,8 +93,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // pop() - remove and return last element
     if (strcmp(method, "pop") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: pop() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "pop() expects no arguments");
         }
         return array_pop(arr);
     }
@@ -87,8 +101,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // shift() - remove and return first element
     if (strcmp(method, "shift") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: shift() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "shift() expects no arguments");
         }
         if (arr->length == 0) {
             return val_null();
@@ -105,11 +118,13 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // unshift(value) - add element to beginning
     if (strcmp(method, "unshift") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: unshift() expects 1 argument\n");
-            exit(1);
+            return throw_runtime_error(ctx, "unshift() expects 1 argument");
         }
         // Check type constraint
-        check_array_element_type_for_method(arr, args[0]);
+        Value check_result = check_array_element_type_for_method(arr, args[0], ctx);
+        if (ctx->exception_state.is_throwing) {
+            return check_result;
+        }
 
         // Ensure capacity
         if (arr->length >= arr->capacity) {
@@ -129,20 +144,20 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // insert(index, value) - insert element at index
     if (strcmp(method, "insert") == 0) {
         if (num_args != 2) {
-            fprintf(stderr, "Runtime error: insert() expects 2 arguments (index, value)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "insert() expects 2 arguments (index, value)");
         }
         if (!is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: insert() index must be an integer\n");
-            exit(1);
+            return throw_runtime_error(ctx, "insert() index must be an integer");
         }
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index > arr->length) {
-            fprintf(stderr, "Runtime error: insert() index out of bounds\n");
-            exit(1);
+            return throw_runtime_error(ctx, "insert() index out of bounds");
         }
         // Check type constraint
-        check_array_element_type_for_method(arr, args[1]);
+        Value check_result = check_array_element_type_for_method(arr, args[1], ctx);
+        if (ctx->exception_state.is_throwing) {
+            return check_result;
+        }
 
         // Ensure capacity
         if (arr->length >= arr->capacity) {
@@ -162,17 +177,14 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // remove(index) - remove and return element at index
     if (strcmp(method, "remove") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: remove() expects 1 argument (index)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "remove() expects 1 argument (index)");
         }
         if (!is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: remove() index must be an integer\n");
-            exit(1);
+            return throw_runtime_error(ctx, "remove() index must be an integer");
         }
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index >= arr->length) {
-            fprintf(stderr, "Runtime error: remove() index out of bounds\n");
-            exit(1);
+            return throw_runtime_error(ctx, "remove() index out of bounds");
         }
         Value removed = arr->elements[index];
         // Shift elements left from index
@@ -186,8 +198,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // find(value) - find first occurrence, return index or -1
     if (strcmp(method, "find") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: find() expects 1 argument (value)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "find() expects 1 argument (value)");
         }
         for (int i = 0; i < arr->length; i++) {
             if (values_equal(arr->elements[i], args[0])) {
@@ -200,8 +211,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // contains(value) - check if array contains value
     if (strcmp(method, "contains") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: contains() expects 1 argument (value)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "contains() expects 1 argument (value)");
         }
         for (int i = 0; i < arr->length; i++) {
             if (values_equal(arr->elements[i], args[0])) {
@@ -214,24 +224,19 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // slice(start, end) - extract subarray (end is exclusive)
     if (strcmp(method, "slice") == 0) {
         if (num_args != 2) {
-            fprintf(stderr, "Runtime error: slice() expects 2 arguments (start, end)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "slice() expects 2 arguments (start, end)");
         }
         if (!is_integer(args[0]) || !is_integer(args[1])) {
-            fprintf(stderr, "Runtime error: slice() arguments must be integers\n");
-            exit(1);
+            return throw_runtime_error(ctx, "slice() arguments must be integers");
         }
         int32_t start = value_to_int(args[0]);
         int32_t end = value_to_int(args[1]);
 
-        if (start < 0 || start > arr->length) {
-            fprintf(stderr, "Runtime error: slice() start index out of bounds\n");
-            exit(1);
-        }
-        if (end < start || end > arr->length) {
-            fprintf(stderr, "Runtime error: slice() end index out of bounds\n");
-            exit(1);
-        }
+        // Clamp bounds to valid range (Python/JS/Rust behavior)
+        if (start < 0) start = 0;
+        if (start > arr->length) start = arr->length;
+        if (end < start) end = start;  // Empty slice if end < start
+        if (end > arr->length) end = arr->length;
 
         Array *result = array_new();
         for (int i = start; i < end; i++) {
@@ -243,12 +248,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // join(delimiter) - join array elements into string
     if (strcmp(method, "join") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: join() expects 1 argument (delimiter)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "join() expects 1 argument (delimiter)");
         }
         if (args[0].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: join() delimiter must be a string\n");
-            exit(1);
+            return throw_runtime_error(ctx, "join() delimiter must be a string");
         }
         String *delim = args[0].as.as_string;
 
@@ -272,8 +275,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
         char *result = malloc(total_len + 1);
         if (!result) {
-            fprintf(stderr, "Runtime error: Memory allocation failed in join()\n");
-            exit(1);
+            return throw_runtime_error(ctx, "Memory allocation failed in join()");
         }
         size_t pos = 0;
 
@@ -336,12 +338,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // concat(other) - concatenate arrays (returns new array)
     if (strcmp(method, "concat") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: concat() expects 1 argument (array)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "concat() expects 1 argument (array)");
         }
         if (args[0].type != VAL_ARRAY) {
-            fprintf(stderr, "Runtime error: concat() argument must be an array\n");
-            exit(1);
+            return throw_runtime_error(ctx, "concat() argument must be an array");
         }
         Array *other = args[0].as.as_array;
         Array *result = array_new();
@@ -360,8 +360,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // reverse() - reverse array in-place
     if (strcmp(method, "reverse") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: reverse() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "reverse() expects no arguments");
         }
         int left = 0;
         int right = arr->length - 1;
@@ -378,8 +377,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // first() - get first element
     if (strcmp(method, "first") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: first() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "first() expects no arguments");
         }
         if (arr->length == 0) {
             return val_null();
@@ -390,8 +388,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // last() - get last element
     if (strcmp(method, "last") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: last() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "last() expects no arguments");
         }
         if (arr->length == 0) {
             return val_null();
@@ -402,13 +399,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
     // clear() - remove all elements
     if (strcmp(method, "clear") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: clear() expects no arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "clear() expects no arguments");
         }
         arr->length = 0;
         return val_null();
     }
 
-    fprintf(stderr, "Runtime error: Array has no method '%s'\n", method);
-    exit(1);
+    return throw_runtime_error(ctx, "Array has no method '%s'", method);
 }

@@ -1,0 +1,6 @@
+// Test allocating zero bytes
+// Expected: ERROR (alloc requires positive size)
+// Note: This is a fatal error, not catchable by try-catch
+
+let p = alloc(0);
+print("ERROR: alloc(0) should have failed");

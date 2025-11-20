@@ -1,0 +1,30 @@
+// Test slice edge cases with boundary conditions
+// Expected: PASS
+
+let s = "hello";
+
+// slice with end beyond length
+let s1 = s.slice(0, 100);
+assert(s1 == "hello", "slice with end beyond length should return full string");
+
+// slice with start > end
+let s2 = s.slice(3, 1);
+assert(s2 == "", "slice with start > end should return empty string");
+
+// slice with start == end
+let s3 = s.slice(2, 2);
+assert(s3 == "", "slice with start == end should return empty string");
+
+// slice starting beyond length
+let s4 = s.slice(10, 20);
+assert(s4 == "", "slice starting beyond length should return empty string");
+
+// slice with both at 0
+let s5 = s.slice(0, 0);
+assert(s5 == "", "slice(0, 0) should return empty string");
+
+// slice to exact length
+let s6 = s.slice(0, 5);
+assert(s6 == "hello", "slice(0, length) should return full string");
+
+print("PASS");

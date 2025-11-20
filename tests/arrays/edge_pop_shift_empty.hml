@@ -1,0 +1,35 @@
+// Test pop() and shift() on empty arrays
+// Expected: PASS (should return null on empty array)
+
+let arr = [];
+
+// Test pop on empty array
+let popped = arr.pop();
+assert(popped == null, "pop() on empty array should return null");
+assert(arr.length == 0, "pop() on empty array should not change length");
+
+// Test shift on empty array
+let shifted = arr.shift();
+assert(shifted == null, "shift() on empty array should return null");
+assert(arr.length == 0, "shift() on empty array should not change length");
+
+// Test with array that becomes empty
+let arr2 = [1];
+let val = arr2.pop();
+assert(val == 1, "pop() should return the element");
+assert(arr2.length == 0, "array should now be empty");
+
+// Pop from now-empty array
+let val2 = arr2.pop();
+assert(val2 == null, "pop() from newly empty array should return null");
+
+// Same test with shift
+let arr3 = [1];
+let val3 = arr3.shift();
+assert(val3 == 1, "shift() should return the element");
+assert(arr3.length == 0, "array should now be empty");
+
+let val4 = arr3.shift();
+assert(val4 == null, "shift() from newly empty array should return null");
+
+print("PASS");

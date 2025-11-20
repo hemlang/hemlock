@@ -1,0 +1,22 @@
+// Test bitwise shifts by large amounts
+// Expected: Testing behavior (undefined in many languages)
+
+let x: i32 = 1;
+
+// Shift by 32 (bit width of i32)
+let result1 = x << 32;
+print("1 << 32 = " + typeof(result1));
+
+// Shift by more than bit width
+let result2 = x << 40;
+print("1 << 40 = " + typeof(result2));
+
+// Negative shift (if allowed)
+try {
+    let result3 = x << -1;
+    print("Shift by negative did not error: " + typeof(result3));
+} catch (e) {
+    print("Caught negative shift: " + e);
+}
+
+print("PASS");

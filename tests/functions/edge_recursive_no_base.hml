@@ -1,0 +1,13 @@
+// Test infinite recursion (stack overflow)
+// Expected: ERROR or crash (testing that it's caught)
+
+fn infinite(n: i32): i32 {
+    return infinite(n + 1);
+}
+
+try {
+    let result = infinite(0);
+    print("ERROR: Infinite recursion should have failed");
+} catch (e) {
+    print("PASS: Caught stack overflow or error: " + e);
+}

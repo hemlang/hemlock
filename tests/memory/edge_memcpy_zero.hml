@@ -1,0 +1,10 @@
+// Test memcpy with size 0
+// Expected: PASS
+
+let src = alloc(10);
+let dst = alloc(10);
+memcpy(dst, src, 0);  // Should do nothing
+free(src);
+free(dst);
+
+print("PASS: memcpy with size 0 completed");

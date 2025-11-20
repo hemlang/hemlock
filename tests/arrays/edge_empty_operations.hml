@@ -1,0 +1,50 @@
+// Test array operations on empty arrays
+// Expected: PASS (testing that operations handle empty arrays gracefully)
+
+let arr = [];
+
+// Test length
+assert(arr.length == 0, "Empty array should have length 0");
+
+// Test first() on empty array - should return null
+let f = arr.first();
+assert(f == null, "first() on empty array should return null");
+
+// Test last() on empty array - should return null
+let l = arr.last();
+assert(l == null, "last() on empty array should return null");
+
+// Test find on empty array
+let idx = arr.find(5);
+assert(idx == -1, "find on empty array should return -1");
+
+// Test contains on empty array
+assert(arr.contains(5) == false, "contains on empty array should return false");
+
+// Test join on empty array
+let joined = arr.join(",");
+assert(joined == "", "join on empty array should return empty string");
+
+// Test reverse on empty array (should not crash)
+arr.reverse();
+assert(arr.length == 0, "reverse on empty array should keep it empty");
+
+// Test slice on empty array
+let sliced = arr.slice(0, 5);
+assert(sliced.length == 0, "slice on empty array should return empty array");
+
+// Test concat empty with empty
+let arr2: array = [];
+let combined = arr.concat(arr2);
+assert(combined.length == 0, "concat empty with empty should return empty");
+
+// Test concat empty with non-empty
+let arr3 = [1, 2, 3];
+let combined2 = arr.concat(arr3);
+assert(combined2.length == 3, "concat empty with non-empty should return non-empty");
+
+// Test concat non-empty with empty
+let combined3 = arr3.concat(arr);
+assert(combined3.length == 3, "concat non-empty with empty should return non-empty");
+
+print("PASS");

@@ -1,0 +1,18 @@
+// Test switch on null value
+// Expected: PASS
+
+let x = null;
+let matched = false;
+
+switch (x) {
+    case null:
+        matched = true;
+        break;
+    default:
+        print("ERROR: Should match null case");
+        break;
+}
+
+assert(matched == true, "should match null case");
+
+print("PASS");

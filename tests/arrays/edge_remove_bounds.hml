@@ -1,0 +1,22 @@
+// Test array remove() with invalid indices
+// Tests that invalid indices throw catchable exceptions
+
+let arr = [1, 2, 3];
+
+// Test remove at negative index
+try {
+    arr.remove(-1);
+    print("ERROR: Should have thrown on negative index");
+} catch (e) {
+    print("Caught negative index: " + e);
+}
+
+// Test remove beyond bounds
+try {
+    arr.remove(10);
+    print("ERROR: Should have thrown on out of bounds index");
+} catch (e) {
+    print("Caught out of bounds: " + e);
+}
+
+print("PASS");

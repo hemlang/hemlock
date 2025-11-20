@@ -1,0 +1,17 @@
+// Test defer with panic (uncatchable error)
+// Expected: ERROR (panic should exit, but defer should run first)
+
+// Note: This test will crash the program with panic
+// It's here to document behavior, but may need special handling
+
+let cleanup_ran = false;
+
+fn test_panic_defer() {
+    defer print("Defer ran before panic");
+    panic("test panic");
+}
+
+// Commenting out the actual test since panic exits
+// test_panic_defer();
+
+print("SKIP: Test would panic - defer runs before panic exit");

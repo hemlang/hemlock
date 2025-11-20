@@ -1,0 +1,34 @@
+// Test comparisons involving null
+// Expected: PASS
+
+// null == null
+if (null == null) {
+    print("null == null: true");
+} else {
+    print("ERROR: null should equal null");
+}
+
+// null with other values
+if (null != 0) {
+    print("null != 0: true");
+}
+if (null != false) {
+    print("null != false: true");
+}
+if (null != "") {
+    print("null != empty string: true");
+}
+
+// null in array
+let arr = [1, null, 3];
+if (arr[1] == null) {
+    print("null in array: true");
+}
+
+// null in object
+let obj = { x: null };
+if (obj.x == null) {
+    print("null in object: true");
+}
+
+print("PASS");

@@ -1,0 +1,12 @@
+// Test array indexing out of bounds
+// Expected: ERROR
+
+let arr = [1, 2, 3];
+
+// Test reading out of bounds
+try {
+    let val = arr[10];
+    print("ERROR: Should have thrown on out of bounds read");
+} catch (e) {
+    print("PASS: Caught out of bounds read: " + e);
+}

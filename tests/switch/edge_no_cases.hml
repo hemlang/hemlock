@@ -1,0 +1,15 @@
+// Test switch with no cases (only default)
+// Expected: PASS
+
+let x = 5;
+let matched = false;
+
+switch (x) {
+    default:
+        matched = true;
+        break;
+}
+
+assert(matched == true, "default should match when no cases present");
+
+print("PASS");

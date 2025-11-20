@@ -1,0 +1,17 @@
+// Test exception occurring in finally block
+// Expected: PASS
+
+let cleanup_ran = false;
+
+try {
+    try {
+        print("try block");
+    } finally {
+        cleanup_ran = true;
+        throw "error in finally";
+    }
+} catch (e) {
+    assert(cleanup_ran == true, "finally should have run");
+    assert(e == "error in finally", "should catch finally exception");
+    print("PASS");
+}

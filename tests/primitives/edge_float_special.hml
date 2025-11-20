@@ -1,0 +1,7 @@
+// Test float special values (NaN, Infinity)
+// Expected: SKIP - Division by zero currently errors
+
+// TODO: When float division by zero produces Infinity/NaN, enable this test
+// Currently division by zero throws an error instead of producing special values
+
+print("SKIP: Division by zero currently errors instead of producing Infinity/NaN");

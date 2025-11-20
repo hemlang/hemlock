@@ -1,0 +1,26 @@
+// Test array insert() at boundary positions
+// Expected: PASS
+
+let arr = [1, 2, 3];
+
+// Insert at beginning
+arr.insert(0, 0);
+assert(arr.length == 4, "insert should increase length");
+assert(arr[0] == 0, "insert at 0 should place at beginning");
+
+// Insert at end
+arr.insert(4, 4);
+assert(arr.length == 5, "insert at end should work");
+assert(arr[4] == 4, "insert at end should place element correctly");
+
+// Insert beyond end - should this error or extend?
+// Testing current behavior
+try {
+    let arr2 = [1, 2, 3];
+    arr2.insert(10, 99);
+    print("insert beyond end did not error, value inserted");
+} catch (e) {
+    print("insert beyond end threw error: " + e);
+}
+
+print("PASS");

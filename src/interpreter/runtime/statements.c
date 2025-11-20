@@ -151,9 +151,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             }
 
             // Validate iterable type before creating loop environment
-            if (iterable.type != VAL_ARRAY && iterable.type != VAL_OBJECT) {
+            if (iterable.type != VAL_ARRAY && iterable.type != VAL_OBJECT && iterable.type != VAL_STRING) {
                 value_release(iterable);  // Release iterable before breaking
-                ctx->exception_state.exception_value = val_string("for-in requires array or object");
+                ctx->exception_state.exception_value = val_string("for-in requires array, object, or string");
                 ctx->exception_state.is_throwing = 1;
                 break;
             }
@@ -217,6 +217,56 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         }
                     }
                     env_set(iter_env, stmt->as.for_in.value_var, obj->field_values[i], ctx);
+                    // Check for exception from env_set
+                    if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
+                        break;
+                    }
+
+                    // Execute body
+                    eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
+
+                    // Check break/continue/return/exception
+                    if (ctx->loop_state.is_breaking) {
+                        ctx->loop_state.is_breaking = 0;
+                        break;
+                    }
+                    if (ctx->loop_state.is_continuing) {
+                        ctx->loop_state.is_continuing = 0;
+                        continue;
+                    }
+                    if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
+                        break;
+                    }
+                }
+            } else if (iterable.type == VAL_STRING) {
+                String *str = iterable.as.as_string;
+
+                // Compute character length if not cached
+                if (str->char_length < 0) {
+                    str->char_length = utf8_count_codepoints(str->data, str->length);
+                }
+
+                for (int i = 0; i < str->char_length; i++) {
+                    // Create new environment for this iteration
+                    Environment *iter_env = env_new(loop_env);
+
+                    // Bind index if key_var is specified
+                    if (stmt->as.for_in.key_var) {
+                        env_set(iter_env, stmt->as.for_in.key_var, val_i32(i), ctx);
+                        // Check for exception from env_set
+                        if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
+                            break;
+                        }
+                    }
+
+                    // Get the rune at position i
+                    int byte_pos = utf8_byte_offset(str->data, str->length, i);
+                    uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+
+                    env_set(iter_env, stmt->as.for_in.value_var, val_rune(codepoint), ctx);
                     // Check for exception from env_set
                     if (ctx->exception_state.is_throwing) {
                         env_release(iter_env);

@@ -244,8 +244,8 @@ void array_free(Array *arr);
 Array* array_new(void);
 void array_push(Array *arr, Value val);
 Value array_pop(Array *arr);
-Value array_get(Array *arr, int index);
-void array_set(Array *arr, int index, Value val);
+Value array_get(Array *arr, int index, ExecutionContext *ctx);
+void array_set(Array *arr, int index, Value val, ExecutionContext *ctx);
 
 // File operations
 void file_free(FileHandle *file);

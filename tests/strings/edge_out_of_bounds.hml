@@ -1,0 +1,12 @@
+// Test string indexing and operations with out-of-bounds access
+// Expected: ERROR (should test that appropriate errors are thrown)
+
+let s = "hello";
+
+// Test out of bounds indexing - this should throw an error
+try {
+    let ch = s[10];
+    print("ERROR: Should have thrown on out of bounds index");
+} catch (e) {
+    print("PASS: Caught out of bounds error: " + e);
+}

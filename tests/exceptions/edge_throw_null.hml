@@ -1,0 +1,9 @@
+// Test throwing null
+// Expected: PASS
+
+try {
+    throw null;
+} catch (e) {
+    assert(e == null, "caught value should be null");
+    print("PASS: Caught null exception");
+}

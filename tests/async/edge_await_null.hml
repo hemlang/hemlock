@@ -1,0 +1,9 @@
+// Test await on null value
+// Expected: PASS (await on non-task should return the value)
+
+let result = await null;
+if (result == null) {
+    print("PASS: await null returned null");
+} else {
+    print("ERROR: await null should return null");
+}

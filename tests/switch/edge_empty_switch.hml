@@ -1,0 +1,9 @@
+// Test empty switch (no cases, no default)
+// Expected: PASS (should do nothing)
+
+let x = 5;
+
+switch (x) {
+}
+
+print("PASS: Empty switch completed");

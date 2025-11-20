@@ -1,0 +1,15 @@
+// Test finally block with return statement
+// Expected: PASS (finally return should override try return)
+
+fn test_finally_return(): i32 {
+    try {
+        return 1;
+    } finally {
+        return 2;
+    }
+}
+
+let result = test_finally_return();
+assert(result == 2, "finally return should override try return");
+
+print("PASS");

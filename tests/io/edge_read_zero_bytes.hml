@@ -1,0 +1,14 @@
+// Test reading zero bytes
+// Expected: PASS
+
+let f = open("/tmp/test_read_zero.txt", "w");
+f.write("test data");
+f.close();
+
+let f2 = open("/tmp/test_read_zero.txt", "r");
+let content = f2.read(0);
+assert(content == "", "read(0) should return empty string");
+
+f2.close();
+
+print("PASS");

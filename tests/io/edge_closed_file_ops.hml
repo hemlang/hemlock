@@ -1,0 +1,44 @@
+// Test file operations on closed files
+// Expected: ERROR
+
+let f = open("/tmp/test_closed.txt", "w");
+f.write("test data");
+f.close();
+
+// Try to read from closed file
+try {
+    let content = f.read();
+    print("ERROR: read on closed file should fail");
+} catch (e) {
+    print("Caught read on closed: " + e);
+}
+
+// Try to write to closed file
+try {
+    f.write("more data");
+    print("ERROR: write on closed file should fail");
+} catch (e) {
+    print("Caught write on closed: " + e);
+}
+
+// Try to seek on closed file
+try {
+    f.seek(0);
+    print("ERROR: seek on closed file should fail");
+} catch (e) {
+    print("Caught seek on closed: " + e);
+}
+
+// Try to tell on closed file
+try {
+    let pos = f.tell();
+    print("ERROR: tell on closed file should fail");
+} catch (e) {
+    print("Caught tell on closed: " + e);
+}
+
+// Closing twice should be safe (idempotent)
+f.close();
+print("close() is idempotent");
+
+print("PASS");

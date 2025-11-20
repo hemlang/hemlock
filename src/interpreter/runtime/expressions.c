@@ -681,7 +681,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    Value result = call_file_method(method_self.as.as_file, method, args, expr->as.call.num_args);
+                    Value result = call_file_method(method_self.as.as_file, method, args, expr->as.call.num_args, ctx);
                     // Release argument values (file methods don't retain them)
                     if (args) {
                         for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -705,7 +705,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    Value result = call_array_method(method_self.as.as_array, method, args, expr->as.call.num_args);
+                    Value result = call_array_method(method_self.as.as_array, method, args, expr->as.call.num_args, ctx);
                     // Release argument values (array methods don't retain them)
                     if (args) {
                         for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -729,7 +729,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    Value result = call_string_method(method_self.as.as_string, method, args, expr->as.call.num_args);
+                    Value result = call_string_method(method_self.as.as_string, method, args, expr->as.call.num_args, ctx);
                     // Release argument values (string methods don't retain them)
                     if (args) {
                         for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -753,7 +753,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    Value result = call_channel_method(method_self.as.as_channel, method, args, expr->as.call.num_args);
+                    Value result = call_channel_method(method_self.as.as_channel, method, args, expr->as.call.num_args, ctx);
                     // Release argument values (channel methods don't retain them)
                     if (args) {
                         for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -779,7 +779,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             }
                         }
 
-                        Value result = call_object_method(method_self.as.as_object, method, args, expr->as.call.num_args);
+                        Value result = call_object_method(method_self.as.as_object, method, args, expr->as.call.num_args, ctx);
                         // Release argument values (object methods don't retain them)
                         if (args) {
                             for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -822,6 +822,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (expr->as.call.num_args != fn->num_params) {
                     runtime_error(ctx, "Function expects %d arguments, got %d",
                             fn->num_params, expr->as.call.num_args);
+                    // Release function and args before returning
+                    value_release(func);
+                    if (args) {
+                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                            value_release(args[i]);
+                        }
+                        free(args);
+                    }
+                    return val_null();
                 }
 
                 // Determine function name for stack trace
@@ -830,6 +839,21 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     fn_name = expr->as.call.func->as.get_property.property;
                 } else if (expr->as.call.func->type == EXPR_IDENT) {
                     fn_name = expr->as.call.func->as.ident;
+                }
+
+                // Check for stack overflow (prevent infinite recursion)
+                #define MAX_CALL_STACK_DEPTH 1000
+                if (ctx->call_stack.count >= MAX_CALL_STACK_DEPTH) {
+                    runtime_error(ctx, "Maximum call stack depth exceeded (infinite recursion?)");
+                    // Release function and args before returning
+                    value_release(func);
+                    if (args) {
+                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                            value_release(args[i]);
+                        }
+                        free(args);
+                    }
+                    return val_null();
                 }
 
                 // Push call onto stack trace (with line number from function body)
@@ -1042,7 +1066,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 result = val_u8(((unsigned char *)buf->data)[index]);  // New value, safe to release object
             } else if (object.type == VAL_ARRAY) {
                 // Array indexing
-                result = array_get(object.as.as_array, index);
+                result = array_get(object.as.as_array, index, ctx);
                 // Retain the element so it survives array release
                 value_retain(result);
             } else {
@@ -1068,7 +1092,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             if (object.type == VAL_ARRAY) {
                 // Array assignment - value can be any type
-                array_set(object.as.as_array, index, value);
+                array_set(object.as.as_array, index, value, ctx);
                 value_release(object);
                 value_release(index_val);
                 return value;
@@ -1249,9 +1273,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_add_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return new_val;
                 } else {
                     runtime_error(ctx, "Can only use ++ on array elements");
@@ -1299,9 +1323,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_sub_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return new_val;
                 } else {
                     runtime_error(ctx, "Can only use -- on array elements");
@@ -1348,9 +1372,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_add_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return old_val;
                 } else {
                     runtime_error(ctx, "Can only use ++ on array elements");
@@ -1397,9 +1421,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_sub_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return old_val;
                 } else {
                     runtime_error(ctx, "Can only use -- on array elements");

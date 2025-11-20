@@ -141,6 +141,9 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         free(arr->elements);
         free(arr);
         return val_null();
+    } else if (args[0].type == VAL_NULL) {
+        // free(null) is a safe no-op (like C's free(NULL))
+        return val_null();
     } else {
         fprintf(stderr, "Runtime error: free() requires a pointer, buffer, object, or array\n");
         exit(1);

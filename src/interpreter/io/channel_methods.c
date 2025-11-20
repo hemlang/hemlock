@@ -1,8 +1,24 @@
 #include "internal.h"
+#include <stdarg.h>
+
+// ========== RUNTIME ERROR HELPER ==========
+
+static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    ctx->exception_state.exception_value = val_string(buffer);
+    value_retain(ctx->exception_state.exception_value);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
+}
 
 // ========== CHANNEL METHODS ==========
 
-Value call_channel_method(Channel *ch, const char *method, Value *args, int num_args) {
+Value call_channel_method(Channel *ch, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
     pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
     pthread_cond_t *not_empty = (pthread_cond_t*)ch->not_empty;
     pthread_cond_t *not_full = (pthread_cond_t*)ch->not_full;
@@ -10,8 +26,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
     // send(value) - send a message to the channel
     if (strcmp(method, "send") == 0) {
         if (num_args != 1) {
-            fprintf(stderr, "Runtime error: send() expects 1 argument\n");
-            exit(1);
+            return throw_runtime_error(ctx, "send() expects 1 argument");
         }
 
         Value msg = args[0];
@@ -21,15 +36,13 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         // Check if channel is closed
         if (ch->closed) {
             pthread_mutex_unlock(mutex);
-            fprintf(stderr, "Runtime error: cannot send to closed channel\n");
-            exit(1);
+            return throw_runtime_error(ctx, "cannot send to closed channel");
         }
 
         if (ch->capacity == 0) {
             // Unbuffered channel - would need rendezvous
             pthread_mutex_unlock(mutex);
-            fprintf(stderr, "Runtime error: unbuffered channels not yet supported (use buffered channel)\n");
-            exit(1);
+            return throw_runtime_error(ctx, "unbuffered channels not yet supported (use buffered channel)");
         }
 
         // Wait while buffer is full
@@ -40,8 +53,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         // Check again if closed after waking up
         if (ch->closed) {
             pthread_mutex_unlock(mutex);
-            fprintf(stderr, "Runtime error: cannot send to closed channel\n");
-            exit(1);
+            return throw_runtime_error(ctx, "cannot send to closed channel");
         }
 
         // Add message to buffer
@@ -60,8 +72,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
     // recv() - receive a message from the channel
     if (strcmp(method, "recv") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: recv() expects 0 arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "recv() expects 0 arguments");
         }
 
         pthread_mutex_lock(mutex);
@@ -92,8 +103,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
     // close() - close the channel
     if (strcmp(method, "close") == 0) {
         if (num_args != 0) {
-            fprintf(stderr, "Runtime error: close() expects 0 arguments\n");
-            exit(1);
+            return throw_runtime_error(ctx, "close() expects 0 arguments");
         }
 
         pthread_mutex_lock(mutex);
@@ -106,6 +116,5 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         return val_null();
     }
 
-    fprintf(stderr, "Runtime error: Unknown channel method '%s'\n", method);
-    exit(1);
+    return throw_runtime_error(ctx, "Unknown channel method '%s'", method);
 }

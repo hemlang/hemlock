@@ -1,0 +1,14 @@
+// Test seeking to negative position
+// Tests that negative seek throws catchable exception
+
+let f = open("/tmp/test_seek_negative.txt", "w");
+f.write("test data");
+
+try {
+    f.seek(-10);
+    print("ERROR: seek to negative position should fail");
+} catch (e) {
+    print("PASS: Caught seek to negative: " + e);
+}
+
+f.close();

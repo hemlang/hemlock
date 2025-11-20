@@ -1,0 +1,67 @@
+// Test edge cases for string operations on empty strings
+// Expected: PASS
+
+// Empty string operations
+let empty = "";
+assert(empty.length == 0, "Empty string should have length 0");
+
+// find on empty string
+assert(empty.find("x") == -1, "find on empty string should return -1");
+
+// contains on empty string
+assert(empty.contains("x") == false, "contains on empty string should return false");
+
+// split on empty string
+let parts = empty.split(",");
+assert(parts.length == 1, "split empty string should return array with 1 element");
+assert(parts[0] == "", "split empty string should contain empty string");
+
+// split with empty delimiter
+let str = "hello";
+let chars_split = str.split("");
+assert(chars_split.length == 5, "split with empty delimiter should split into characters");
+
+// trim on whitespace-only string
+let whitespace = "   \t\n  ";
+let trimmed = whitespace.trim();
+assert(trimmed == "", "trim on whitespace-only should return empty string");
+
+// substr on empty string
+let sub = empty.substr(0, 5);
+assert(sub == "", "substr on empty string should return empty string");
+
+// slice on empty string
+let sliced = empty.slice(0, 5);
+assert(sliced == "", "slice on empty string should return empty string");
+
+// repeat with 0 count
+let repeated = "test".repeat(0);
+assert(repeated == "", "repeat with 0 should return empty string");
+
+// join empty array
+let arr = [];
+let joined = arr.join(",");
+assert(joined == "", "join empty array should return empty string");
+
+// replace on empty string
+let replaced = empty.replace("x", "y");
+assert(replaced == "", "replace on empty string should return empty string");
+
+// to_upper/to_lower on empty
+assert(empty.to_upper() == "", "to_upper on empty string should return empty");
+assert(empty.to_lower() == "", "to_lower on empty string should return empty");
+
+// starts_with/ends_with on empty
+assert(empty.starts_with("") == true, "empty string should start with empty string");
+assert(empty.ends_with("") == true, "empty string should end with empty string");
+assert(empty.starts_with("x") == false, "empty string should not start with non-empty");
+assert(empty.ends_with("x") == false, "empty string should not end with non-empty");
+
+// chars() and bytes() on empty string
+let chars = empty.chars();
+assert(chars.length == 0, "chars() on empty string should return empty array");
+
+let bytes = empty.bytes();
+assert(bytes.length == 0, "bytes() on empty string should return empty array");
+
+print("PASS");
