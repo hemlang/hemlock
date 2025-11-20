@@ -18,76 +18,35 @@ export fn HashMap() {
         i = i + 1;
     }
 
-    // Helper: modulo operation (optimized for small divisors)
+    // Helper: modulo operation using native % operator
     fn mod(a, b) {
-        let result = a;
-        let divisor = b;
-
-        // Handle negative numbers
+        let result = a % b;
+        // Ensure positive result for negative inputs
         if (result < 0) {
-            result = -result;
+            result = result + b;
         }
-
-        // Fast path for result already smaller than divisor
-        if (result < divisor) {
-            return result;
-        }
-
-        // For larger numbers, use repeated doubling to speed up
-        let multiples = [divisor];
-        let last = divisor;
-
-        // Build powers of 2 times divisor up to result
-        while (last + last <= result) {
-            last = last + last;
-            multiples.push(last);
-        }
-
-        // Subtract largest multiples first
-        let i = multiples.length - 1;
-        while (i >= 0) {
-            while (result >= multiples[i]) {
-                result = result - multiples[i];
-            }
-            i = i - 1;
-        }
-
         return result;
     }
 
     // Helper: convert float to integer (truncate towards zero)
     fn float_to_int(f) {
-        // Handle negative numbers
-        let is_negative = f < 0.0;
-        if (is_negative) {
-            f = -f;
-        }
-
-        // Truncate by repeatedly subtracting 1.0 and counting
-        let result = 0;
-        while (f >= 1.0) {
-            f = f - 1.0;
-            result = result + 1;
-        }
-
-        if (is_negative) {
-            result = -result;
-        }
-
+        // Use explicit type casting for efficient conversion
+        let result: i32 = f;
         return result;
     }
 
-    // Simple hash function for various types
+    // Hash function for various types (djb2 algorithm for strings)
     fn hash(key) {
         let type = typeof(key);
 
         if (type == "string") {
-            let h = 0;
+            // djb2 hash algorithm - much better distribution than simple sum
+            let h = 5381;
             let i = 0;
-            let byte_val = 0;
-            while (i < key.length) {
-                byte_val = key.byte_at(i);
-                h = h + byte_val;
+            while (i < key.byte_length) {
+                let byte_val = key.byte_at(i);
+                // h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
+                h = ((h << 5) + h) + byte_val;
                 i = i + 1;
             }
             if (h < 0) {
