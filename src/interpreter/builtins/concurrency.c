@@ -187,53 +187,114 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
-    // detach() takes an existing task handle and detaches it
-    if (num_args != 1) {
-        runtime_error(ctx, "detach() expects 1 argument (task handle)");
+    // detach() supports two patterns:
+    // 1. detach(task_handle) - detach an existing spawned task
+    // 2. detach(function, args...) - spawn and immediately detach (fire-and-forget)
+
+    if (num_args < 1) {
+        runtime_error(ctx, "detach() expects at least 1 argument");
         return val_null();
     }
 
-    Value task_val = args[0];
+    Value first_arg = args[0];
 
-    if (task_val.type != VAL_TASK) {
-        runtime_error(ctx, "detach() expects a task handle");
-        return val_null();
-    }
+    // Pattern 1: detach(task_handle)
+    if (first_arg.type == VAL_TASK) {
+        if (num_args != 1) {
+            runtime_error(ctx, "detach() with task handle expects exactly 1 argument");
+            return val_null();
+        }
 
-    Task *t = task_val.as.as_task;
+        Task *t = first_arg.as.as_task;
 
-    // Check if already detached or joined (thread-safe)
-    pthread_mutex_lock((pthread_mutex_t*)t->task_mutex);
+        // Check if already detached or joined (thread-safe)
+        pthread_mutex_lock((pthread_mutex_t*)t->task_mutex);
 
-    if (t->joined) {
+        if (t->joined) {
+            pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
+            runtime_error(ctx, "cannot detach already joined task");
+            return val_null();
+        }
+
+        if (t->detached) {
+            pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
+            runtime_error(ctx, "task already detached");
+            return val_null();
+        }
+
+        // Mark as detached
+        t->detached = 1;
+
         pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
-        runtime_error(ctx, "cannot detach already joined task");
+
+        // Detach the pthread (fire and forget)
+        if (t->thread) {
+            int rc = pthread_detach(*(pthread_t*)t->thread);
+            if (rc != 0) {
+                runtime_error(ctx, "pthread_detach failed: %d", rc);
+                return val_null();
+            }
+        }
+
         return val_null();
     }
 
-    if (t->detached) {
-        pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
-        runtime_error(ctx, "task already detached");
-        return val_null();
-    }
+    // Pattern 2: detach(function, args...) - spawn and immediately detach
+    if (first_arg.type == VAL_FUNCTION) {
+        Function *fn = first_arg.as.as_function;
 
-    // Mark as detached
-    t->detached = 1;
+        if (!fn->is_async) {
+            runtime_error(ctx, "detach() requires an async function");
+            return val_null();
+        }
 
-    pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
+        // Create task with remaining args as function arguments
+        Value *task_args = NULL;
+        int task_num_args = num_args - 1;
 
-    // Detach the pthread (fire and forget)
-    if (t->thread) {
-        int rc = pthread_detach(*(pthread_t*)t->thread);
+        if (task_num_args > 0) {
+            task_args = malloc(sizeof(Value) * task_num_args);
+            for (int i = 0; i < task_num_args; i++) {
+                task_args[i] = args[i + 1];
+                // Retain arguments to ensure they stay alive for the task's lifetime
+                value_retain(task_args[i]);
+            }
+        }
+
+        // Create task
+        Task *task = task_new(next_task_id++, fn, task_args, task_num_args, fn->closure_env);
+
+        // Mark as detached before starting thread
+        task->detached = 1;
+
+        // Allocate pthread_t
+        task->thread = malloc(sizeof(pthread_t));
+        if (!task->thread) {
+            runtime_error(ctx, "Memory allocation failed");
+            return val_null();
+        }
+
+        // Create thread to execute task
+        int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+        if (rc != 0) {
+            runtime_error(ctx, "Failed to create thread: %d", rc);
+            free(task->thread);
+            return val_null();
+        }
+
+        // Detach the pthread immediately (fire and forget)
+        rc = pthread_detach(*(pthread_t*)task->thread);
         if (rc != 0) {
             runtime_error(ctx, "pthread_detach failed: %d", rc);
             return val_null();
         }
+
+        // Task will clean itself up when thread completes
+        return val_null();
     }
 
-    // Note: We don't free the task here - it will clean itself up
-    // when the thread completes (see task_thread_wrapper cleanup).
-
+    // Invalid argument type
+    runtime_error(ctx, "detach() expects either a task handle or an async function");
     return val_null();
 }
 

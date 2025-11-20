@@ -427,8 +427,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     } else if (value.type == VAL_RUNE && target_kind == TYPE_RUNE) {
         return value;  // Rune to rune, ok
     } else {
-        fprintf(stderr, "Runtime error: Cannot convert type to target type\n");
-        exit(1);
+        runtime_error(ctx, "Cannot convert type to target type");
+        return val_null();
     }
 
     switch (target_kind) {
