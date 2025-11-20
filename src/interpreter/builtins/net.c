@@ -316,7 +316,7 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
         buf->data = malloc(1);
         buf->length = 0;
         buf->capacity = 0;
-        buf->ref_count = 0;
+        buf->ref_count = 1;  // Start with 1 - caller owns the first reference
         return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
     }
 
@@ -335,7 +335,7 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
     buf->data = data;
     buf->length = (int)received;
     buf->capacity = size;
-    buf->ref_count = 0;
+    buf->ref_count = 1;  // Start with 1 - caller owns the first reference
 
     return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
 }
@@ -439,7 +439,7 @@ Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_args, Exec
     buf->data = data;
     buf->length = (int)received;
     buf->capacity = size;
-    buf->ref_count = 0;
+    buf->ref_count = 1;  // Start with 1 - caller owns the first reference
 
     // Get source address and port
     char addr_str[INET_ADDRSTRLEN];
