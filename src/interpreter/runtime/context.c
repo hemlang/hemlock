@@ -183,19 +183,20 @@ void defer_stack_free(DeferStack *stack) {
 
 // Runtime error with stack trace
 void runtime_error(ExecutionContext *ctx, const char *format, ...) {
+    char buffer[512];
     va_list args;
     va_start(args, format);
-
-    fprintf(stderr, "Runtime error: ");
-    vfprintf(stderr, format, args);
-    fprintf(stderr, "\n");
-
+    vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    // Print stack trace if available
-    if (ctx && ctx->call_stack.count > 0) {
-        call_stack_print(&ctx->call_stack);
+    // Set exception state for catchable errors
+    if (ctx) {
+        ctx->exception_state.exception_value = val_string(buffer);
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+    } else {
+        // No context - print error and exit
+        fprintf(stderr, "Runtime error: %s\n", buffer);
+        exit(1);
     }
-
-    exit(1);
 }

@@ -1,5 +1,5 @@
 // Test array indexing with negative index
-// Expected: ERROR
+// Tests that negative indices throw catchable exceptions
 
 let arr = [1, 2, 3];
 

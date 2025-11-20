@@ -129,8 +129,8 @@ Array* array_new(void);
 void array_free(Array *arr);
 void array_push(Array *arr, Value val);
 Value array_pop(Array *arr);
-Value array_get(Array *arr, int index);
-void array_set(Array *arr, int index, Value val);
+Value array_get(Array *arr, int index, ExecutionContext *ctx);
+void array_set(Array *arr, int index, Value val, ExecutionContext *ctx);
 Value val_array(Array *arr);
 
 // Object operations
@@ -260,7 +260,8 @@ void defer_stack_push(DeferStack *stack, Expr *call, Environment *env);
 void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx);
 void defer_stack_free(DeferStack *stack);
 
-// Runtime error with stack trace (printf-style)
-__attribute__((noreturn)) void runtime_error(ExecutionContext *ctx, const char *format, ...);
+// Runtime error with exception support (printf-style)
+// Now throws catchable exceptions when ctx is provided
+void runtime_error(ExecutionContext *ctx, const char *format, ...);
 
 #endif // HEMLOCK_INTERPRETER_INTERNAL_H

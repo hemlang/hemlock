@@ -1042,7 +1042,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 result = val_u8(((unsigned char *)buf->data)[index]);  // New value, safe to release object
             } else if (object.type == VAL_ARRAY) {
                 // Array indexing
-                result = array_get(object.as.as_array, index);
+                result = array_get(object.as.as_array, index, ctx);
                 // Retain the element so it survives array release
                 value_retain(result);
             } else {
@@ -1068,7 +1068,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             if (object.type == VAL_ARRAY) {
                 // Array assignment - value can be any type
-                array_set(object.as.as_array, index, value);
+                array_set(object.as.as_array, index, value, ctx);
                 value_release(object);
                 value_release(index_val);
                 return value;
@@ -1249,9 +1249,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_add_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return new_val;
                 } else {
                     runtime_error(ctx, "Can only use ++ on array elements");
@@ -1299,9 +1299,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_sub_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return new_val;
                 } else {
                     runtime_error(ctx, "Can only use -- on array elements");
@@ -1348,9 +1348,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_add_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return old_val;
                 } else {
                     runtime_error(ctx, "Can only use ++ on array elements");
@@ -1397,9 +1397,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int32_t index = value_to_int(index_val);
 
                 if (object.type == VAL_ARRAY) {
-                    Value old_val = array_get(object.as.as_array, index);
+                    Value old_val = array_get(object.as.as_array, index, ctx);
                     Value new_val = value_sub_one(old_val, ctx);
-                    array_set(object.as.as_array, index, new_val);
+                    array_set(object.as.as_array, index, new_val, ctx);
                     return old_val;
                 } else {
                     runtime_error(ctx, "Can only use -- on array elements");

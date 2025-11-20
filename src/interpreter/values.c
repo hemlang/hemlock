@@ -325,19 +325,16 @@ Value array_pop(Array *arr) {
     return arr->elements[--arr->length];
 }
 
-Value array_get(Array *arr, int index) {
+Value array_get(Array *arr, int index, ExecutionContext *ctx) {
     if (index < 0 || index >= arr->length) {
-        fprintf(stderr, "Runtime error: Array index %d out of bounds (length %d)\n",
-                index, arr->length);
-        exit(1);
+        runtime_error(ctx, "Array index %d out of bounds (length %d)", index, arr->length);
     }
     return arr->elements[index];
 }
 
-void array_set(Array *arr, int index, Value val) {
+void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
     if (index < 0) {
-        fprintf(stderr, "Runtime error: Negative array index not supported\n");
-        exit(1);
+        runtime_error(ctx, "Negative array index not supported");
     }
 
     // Check type constraint

@@ -1,5 +1,5 @@
 // Test string indexing with negative index
-// Expected: ERROR (should test that appropriate errors are thrown)
+// Tests that negative indices throw catchable exceptions
 
 let s = "hello";
 
