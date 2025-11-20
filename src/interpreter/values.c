@@ -1051,24 +1051,9 @@ static void value_free_internal(Value val, VisitedSet *visited) {
             break;
         case VAL_FUNCTION:
             if (val.as.as_function) {
-                Function *fn = val.as.as_function;
-                // Free parameter names and types
-                if (fn->param_names) {
-                    for (int i = 0; i < fn->num_params; i++) {
-                        if (fn->param_names[i]) free(fn->param_names[i]);
-                    }
-                    free(fn->param_names);
-                }
-                if (fn->param_types) {
-                    // Note: Type structs are not freed (shared/owned by AST)
-                    free(fn->param_types);
-                }
-                // Release closure environment (reference counted)
-                if (fn->closure_env) {
-                    env_release(fn->closure_env);
-                }
-                // Note: body is not freed (shared/owned by AST)
-                free(fn);
+                // Use function_release to respect reference counting
+                // This is critical for async tasks that may retain function references
+                function_release(val.as.as_function);
             }
             break;
         case VAL_FFI_FUNCTION:
