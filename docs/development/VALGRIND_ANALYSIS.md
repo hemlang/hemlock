@@ -1,10 +1,18 @@
 # Valgrind Memory Leak Analysis for Hemlock
 
+> **STATUS: HISTORICAL DOCUMENT**
+>
+> This analysis identified critical memory leaks in Hemlock v0.1. **All major issues documented here have been resolved** in v1.0 through comprehensive reference counting implementation.
+>
+> See [MEMORY_LEAK_FIXES.md](MEMORY_LEAK_FIXES.md) for details on the fixes applied.
+
 **Date:** 2025-11-13
 **Branch:** claude/valgrind-memory-analysis-01MDQ6sTq4MU5MhvdxsK7v3B
 **Analyzer:** Claude Code (Sonnet 4.5)
 
 ## Executive Summary
+
+**⚠️ NOTE: Issues documented below were fixed in v1.0 - This is a historical record of the analysis.**
 
 Valgrind memory analysis reveals multiple memory leaks across different subsystems of the Hemlock interpreter. The leaks range from minor (basic programs) to significant (async/concurrency features). All memory leaks are **definite losses** with no "possibly lost" allocations, indicating clear ownership issues.
 

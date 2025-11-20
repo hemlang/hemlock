@@ -8,7 +8,7 @@
 #include "module.h"
 #include "interpreter/internal.h"
 
-#define HEMLOCK_VERSION "0.1.0"
+#define HEMLOCK_VERSION "1.0.0"
 #define HEMLOCK_BUILD_DATE __DATE__
 
 // FFI functions (from interpreter/ffi.c)
