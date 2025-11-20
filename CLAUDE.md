@@ -2554,15 +2554,21 @@ Hemlock provides a comprehensive standard library with modules for common progra
 import { sin, cos, PI } from "@stdlib/math";
 import { now, sleep } from "@stdlib/time";
 import { read_file, write_file } from "@stdlib/fs";
+import { TcpListener, TcpStream, UdpSocket } from "@stdlib/net";
+import { compile, test } from "@stdlib/regex";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
 import * as fs from "@stdlib/fs";
+import * as net from "@stdlib/net";
+import * as regex from "@stdlib/regex";
 
 // Use imported functions
 let angle = math.PI / 4.0;
 let x = math.sin(angle);
 let content = fs.read_file("data.txt");
+let stream = net.TcpStream("example.com", 80);
+let valid = regex.test("^[a-z]+$", "hello", null);
 ```
 
 ### Available Modules
@@ -2772,6 +2778,85 @@ copy_file("important.txt", "important.txt.backup");
 
 ---
 
+#### 6. **Networking** (`@stdlib/net`)
+**Status:** Complete
+
+TCP/UDP networking with ergonomic wrappers over raw socket builtins:
+- **TcpListener** - TCP server socket for accepting connections
+- **TcpStream** - TCP client/connection with read/write methods
+- **UdpSocket** - UDP datagram socket with send_to/recv_from
+- **DNS:** resolve() - Hostname to IP resolution
+
+```hemlock
+import { TcpListener, TcpStream, UdpSocket, resolve } from "@stdlib/net";
+
+// TCP Server
+let listener = TcpListener("0.0.0.0", 8080);
+defer listener.close();
+
+while (true) {
+    let stream = listener.accept();
+    spawn(handle_client, stream);
+}
+
+// TCP Client
+let stream = TcpStream("example.com", 80);
+defer stream.close();
+
+stream.write("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+let response = stream.read(4096);
+
+// UDP Socket
+let sock = UdpSocket("0.0.0.0", 5000);
+defer sock.close();
+
+let packet = sock.recv_from(1024);
+sock.send_to(packet.address, packet.port, packet.data);  // Echo
+
+// DNS Resolution
+let ip = resolve("example.com");  // "93.184.216.34"
+```
+
+**Documentation:** `stdlib/docs/net.md`
+**Features:** IPv4 support, async-compatible, manual resource management with defer, exception-based errors
+
+---
+
+#### 7. **Regular Expressions** (`@stdlib/regex`)
+**Status:** Basic (via FFI)
+
+POSIX Extended Regular Expression pattern matching via FFI to system regex library:
+- `compile(pattern, flags)` - Compile reusable regex object
+- `test(pattern, text, flags)` - One-shot pattern matching
+- `matches()`, `find()` - Convenience aliases
+- Case-insensitive matching with `REG_ICASE` flag
+- Manual memory management (explicit `.free()` required)
+
+```hemlock
+import { compile, test, REG_ICASE } from "@stdlib/regex";
+
+// One-shot matching
+if (test("^[a-z]+$", "hello", null)) {
+    print("Valid lowercase string");
+}
+
+// Case-insensitive matching
+if (test("^hello", "HELLO WORLD", REG_ICASE)) {
+    print("Matches!");
+}
+
+// Compiled regex for reuse
+let email_pattern = compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", null);
+print(email_pattern.test("user@example.com"));  // true
+print(email_pattern.test("invalid"));           // false
+email_pattern.free();  // Manual cleanup required
+```
+
+**Documentation:** `stdlib/docs/regex.md`
+**Notes:** Uses POSIX ERE syntax, manual memory management required
+
+---
+
 ### JSON Serialization
 
 Hemlock has built-in JSON support through object/string methods (no separate module needed):
@@ -2810,12 +2895,16 @@ stdlib/
 ├── time.hml               # Time/date operations
 ├── env.hml                # Environment variables
 ├── fs.hml                 # Filesystem operations
+├── net.hml                # Networking (TCP/UDP)
+├── regex.hml              # Regular expressions (via FFI)
 └── docs/
     ├── collections.md     # Collections API reference
     ├── math.md            # Math API reference
     ├── time.md            # Time API reference
     ├── env.md             # Environment API reference
-    └── fs.md              # Filesystem API reference
+    ├── fs.md              # Filesystem API reference
+    ├── net.md             # Networking API reference
+    └── regex.md           # Regex API reference
 ```
 
 ### Testing
@@ -2830,6 +2919,9 @@ make test
 make test | grep stdlib_collections
 make test | grep stdlib_math
 make test | grep stdlib_time
+make test | grep stdlib_env
+make test | grep stdlib_net
+make test | grep stdlib_regex
 ```
 
 **Test locations:**
@@ -2837,19 +2929,24 @@ make test | grep stdlib_time
 - `tests/stdlib_math/` - Math tests
 - `tests/stdlib_time/` - Time tests
 - `tests/stdlib_env/` - Environment tests
+- `tests/stdlib_net/` - Networking tests (TCP/UDP)
+- `tests/stdlib_regex/` - Regular expression tests
 
 ### Future Stdlib Modules
 
 Planned additions:
-- **strings** - String utilities (pad, join, is_alpha, reverse, etc.)
-- **path** - Path manipulation (join, basename, dirname, normalize)
+- **http** - HTTP client/server (building on @stdlib/net) - **IN PROGRESS**
+- **websocket** - WebSocket protocol (building on @stdlib/http) - **IN PROGRESS**
+- **strings** - String utilities (pad, join, is_alpha, reverse, lines, words)
+- **path** - Path manipulation (join, basename, dirname, extname, normalize)
 - **json** - Formalized JSON module (wrapper around serialize/deserialize)
-- **encoding** - Base64, hex, URL encoding
-- **testing** - Test framework with assertions
-- **http** - HTTP client (via FFI + libcurl)
-- **regex** - Regular expressions (via FFI + PCRE)
+- **encoding** - Base64, hex, URL encoding/decoding
+- **testing** - Test framework with describe/test/expect/assertions
+- **datetime** - Date/time formatting and parsing
+- **crypto** - Cryptographic functions (via FFI + OpenSSL)
+- **compression** - zlib/gzip compression (via FFI)
 
-See `stdlib/README.md` and `STDLIB_ANALYSIS_UPDATED.md` for detailed roadmap.
+See `stdlib/README.md`, `STDLIB_ANALYSIS_UPDATED.md`, and `STDLIB_NETWORKING_DESIGN.md` for detailed roadmap.
 
 ---
 
