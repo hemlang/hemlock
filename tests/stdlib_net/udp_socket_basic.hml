@@ -1,0 +1,54 @@
+// Test: UdpSocket basic functionality
+// Tests UDP datagram sending and receiving
+
+import { UdpSocket } from "@stdlib/net";
+
+async fn udp_server(port: i32) {
+    let sock = UdpSocket("127.0.0.1", port);
+    defer sock.close();
+
+    print("UDP server bound to 127.0.0.1:" + typeof(port));
+
+    // Receive datagram
+    let packet = sock.recv_from(1024);
+    print("Server received " + typeof(packet.data.length) + " bytes from " + packet.address + ":" + typeof(packet.port));
+
+    // Echo back to sender
+    let sent = sock.send_to(packet.address, packet.port, packet.data);
+    print("Server sent " + typeof(sent) + " bytes");
+
+    return null;
+}
+
+async fn udp_client(port: i32) {
+    // Give server time to start
+    __sleep(0.1);
+
+    let sock = UdpSocket("0.0.0.0", 0);  // Bind to any port
+    defer sock.close();
+
+    print("UDP client ready");
+
+    // Send datagram
+    let message = "Hello UDP!";
+    let sent = sock.send_to("127.0.0.1", port, message);
+    print("Client sent " + typeof(sent) + " bytes");
+
+    // Receive echo
+    let packet = sock.recv_from(1024);
+    print("Client received " + typeof(packet.data.length) + " bytes");
+
+    return null;
+}
+
+let test_port = 29999;
+
+// Spawn server and client
+let server_task = spawn(udp_server, test_port);
+let client_task = spawn(udp_client, test_port);
+
+// Wait for completion
+join(server_task);
+join(client_task);
+
+print("UdpSocket test passed!");

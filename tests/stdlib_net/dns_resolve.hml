@@ -1,0 +1,13 @@
+// Test: DNS resolution with stdlib/net wrapper
+// Tests the resolve() helper function
+
+import { resolve } from "@stdlib/net";
+
+let ip = resolve("localhost");
+print("localhost resolves to: " + ip);
+
+if (ip != "127.0.0.1") {
+    print("ERROR: localhost should resolve to 127.0.0.1");
+} else {
+    print("DNS resolve test passed!");
+}

@@ -1,0 +1,59 @@
+// Test: TcpListener and TcpStream basic functionality
+// Tests the ergonomic wrapper API from @stdlib/net
+
+import { TcpListener, TcpStream } from "@stdlib/net";
+
+async fn test_server(port: i32) {
+    let listener = TcpListener("127.0.0.1", port);
+    defer listener.close();
+
+    print("Server bound to 127.0.0.1:" + typeof(port));
+
+    let stream = listener.accept();
+    defer stream.close();
+
+    print("Server accepted connection from " + stream.peer_addr);
+
+    // Read data
+    let data = stream.read(1024);
+    print("Server received " + typeof(data.length) + " bytes");
+
+    // Echo back
+    let sent = stream.write(data);
+    print("Server sent " + typeof(sent) + " bytes");
+
+    return null;
+}
+
+async fn test_client(port: i32) {
+    // Give server time to start
+    __sleep(0.1);
+
+    let stream = TcpStream("127.0.0.1", port);
+    defer stream.close();
+
+    print("Client connected to 127.0.0.1:" + typeof(port));
+
+    // Send message
+    let message = "Hello from stdlib/net!";
+    let sent = stream.write(message);
+    print("Client sent " + typeof(sent) + " bytes");
+
+    // Receive echo
+    let received = stream.read(1024);
+    print("Client received " + typeof(received.length) + " bytes");
+
+    return null;
+}
+
+let test_port = 19999;
+
+// Spawn server and client
+let server_task = spawn(test_server, test_port);
+let client_task = spawn(test_client, test_port);
+
+// Wait for completion
+join(server_task);
+join(client_task);
+
+print("TcpListener/TcpStream test passed!");

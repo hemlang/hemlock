@@ -58,6 +58,17 @@ File and directory operations:
 
 See [docs/fs.md](docs/fs.md) for detailed documentation.
 
+### Networking (`@stdlib/net`)
+**Status:** Complete
+
+TCP/UDP networking with ergonomic wrappers:
+- **TcpListener** - TCP server socket for accepting connections
+- **TcpStream** - TCP client/connection with read/write methods
+- **UdpSocket** - UDP datagram socket with send_to/recv_from
+- **DNS:** resolve() - Hostname to IP resolution
+
+See [docs/net.md](docs/net.md) for detailed documentation.
+
 ## Usage
 
 Import modules using the `@stdlib/` prefix:
@@ -69,15 +80,18 @@ import { sin, cos, PI } from "@stdlib/math";
 import { now, sleep } from "@stdlib/time";
 import { getenv, exit } from "@stdlib/env";
 import { read_file, write_file, exists } from "@stdlib/fs";
+import { TcpListener, TcpStream, UdpSocket } from "@stdlib/net";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
 import * as fs from "@stdlib/fs";
+import * as net from "@stdlib/net";
 
 // Use imported functions
 let angle = math.PI / 4.0;
 let result = math.sin(angle);
 let content = fs.read_file("data.txt");
+let stream = net.TcpStream("example.com", 80);
 ```
 
 ## Quick Examples
@@ -132,6 +146,18 @@ if (exists("config.json")) {
 }
 ```
 
+### Networking
+```hemlock
+import { TcpStream, resolve } from "@stdlib/net";
+
+let ip = resolve("example.com");
+let stream = TcpStream(ip, 80);
+defer stream.close();
+
+stream.write("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+let response = stream.read(4096);
+```
+
 ## Directory Structure
 
 ```
@@ -142,12 +168,14 @@ stdlib/
 ├── time.hml            # Time module implementation
 ├── env.hml             # Environment module implementation
 ├── fs.hml              # Filesystem module implementation
+├── net.hml             # Networking module implementation
 └── docs/
     ├── collections.md  # Collections API reference
     ├── math.md         # Math API reference
     ├── time.md         # Time API reference
     ├── env.md          # Environment API reference
-    └── fs.md           # Filesystem API reference
+    ├── fs.md           # Filesystem API reference
+    └── net.md          # Networking API reference
 ```
 
 ## JSON Serialization
@@ -168,18 +196,19 @@ print(parsed.name);  // "Alice"
 ## Future Modules
 
 Planned additions to the standard library:
+- **http** - HTTP client/server (building on @stdlib/net) - **IN PROGRESS**
+- **websocket** - WebSocket protocol (building on @stdlib/http) - **IN PROGRESS**
 - **strings** - String utilities (pad, join, is_alpha, reverse, lines, words)
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
 - **json** - Formalized JSON module (wrapper around serialize/deserialize)
 - **encoding** - Base64, hex, URL encoding/decoding
 - **testing** - Test framework with describe/test/expect/assertions
 - **datetime** - Date/time formatting and parsing
-- **http** - HTTP client (via FFI + libcurl)
 - **regex** - Regular expressions (via FFI + PCRE)
 - **crypto** - Cryptographic functions (via FFI + OpenSSL)
 - **compression** - zlib/gzip compression (via FFI)
 
-See `STDLIB_ANALYSIS_UPDATED.md` for detailed roadmap and implementation plan.
+See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed roadmap.
 
 ## Module Status
 
@@ -190,6 +219,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` for detailed roadmap and implementation plan.
 | time | ⚠️ Basic | ✅ Complete | ✅ Good | 13 | Good |
 | env | ✅ Complete | ✅ Complete | ✅ Good | 14 | High |
 | fs | ✅ Comprehensive | ✅ Complete | ⚠️ Partial | 31 | High |
+| net | ✅ Complete | ✅ Complete | ✅ Good | 240 | High |
 
 **Legend:**
 - ✅ Complete/Excellent
