@@ -2543,6 +2543,316 @@ print("Total signals received: " + typeof(signal_count));
 
 ---
 
+## Standard Library
+
+Hemlock provides a comprehensive standard library with modules for common programming tasks. All stdlib modules use the `@stdlib/` import prefix and are documented in `stdlib/docs/`.
+
+### Import Syntax
+
+```hemlock
+// Import specific functions
+import { sin, cos, PI } from "@stdlib/math";
+import { now, sleep } from "@stdlib/time";
+import { read_file, write_file } from "@stdlib/fs";
+
+// Import all as namespace
+import * as math from "@stdlib/math";
+import * as fs from "@stdlib/fs";
+
+// Use imported functions
+let angle = math.PI / 4.0;
+let x = math.sin(angle);
+let content = fs.read_file("data.txt");
+```
+
+### Available Modules
+
+#### 1. **Collections** (`@stdlib/collections`) ⭐
+**Status:** Production-ready, fully optimized
+
+Comprehensive data structures for efficient data manipulation:
+- **HashMap** - O(1) hash table with djb2 algorithm
+- **Queue** - O(1) FIFO with circular buffer
+- **Stack** - O(1) LIFO
+- **Set** - O(1) unique values (HashMap-based)
+- **LinkedList** - O(1) insertion/deletion with bidirectional traversal
+
+```hemlock
+import { HashMap, Queue, Stack, Set, LinkedList } from "@stdlib/collections";
+
+let map = HashMap();
+map.set("key", "value");
+map.set("count", 42);
+print(map.get("key"));  // "value"
+
+let queue = Queue();
+queue.enqueue("first");
+queue.enqueue("second");
+print(queue.dequeue());  // "first"
+
+let set = Set();
+set.add(10);
+set.add(20);
+set.add(10);  // Duplicate ignored
+print(set.size);  // 2
+```
+
+**Documentation:** `stdlib/docs/collections.md`
+**Features:** All collections support `.each(callback)` iterators, automatic resizing, optimal performance
+
+---
+
+#### 2. **Math** (`@stdlib/math`)
+**Status:** Complete
+
+Mathematical functions and constants:
+- **Trigonometry:** sin, cos, tan, asin, acos, atan, atan2
+- **Exponential/Log:** sqrt, pow, exp, log, log10, log2
+- **Rounding:** floor, ceil, round, trunc
+- **Utility:** abs, min, max, clamp
+- **Random:** rand, rand_range, seed
+- **Constants:** PI, E, TAU, INF, NAN
+
+```hemlock
+import { sin, cos, sqrt, pow, PI } from "@stdlib/math";
+
+// Trigonometry
+let angle = PI / 4.0;
+let x = cos(angle);  // 0.707...
+let y = sin(angle);  // 0.707...
+
+// Math operations
+let dist = sqrt(pow(3.0, 2.0) + pow(4.0, 2.0));  // 5.0
+
+// Random numbers
+import { rand, rand_range, seed } from "@stdlib/math";
+seed(42);  // Reproducible
+let random = rand();  // 0.0 to 1.0
+let dice = rand_range(1.0, 7.0);  // 1.0 to 6.999...
+```
+
+**Documentation:** `stdlib/docs/math.md`
+**Notes:** All functions return f64, angles are in radians
+
+---
+
+#### 3. **Time** (`@stdlib/time`)
+**Status:** Basic
+
+Time measurement and delays:
+- `now()` - Unix timestamp in seconds (i64)
+- `time_ms()` - Milliseconds since epoch (i64)
+- `clock()` - CPU time in seconds (f64)
+- `sleep(seconds)` - Pause execution (supports sub-second precision)
+
+```hemlock
+import { time_ms, sleep, now } from "@stdlib/time";
+
+// Benchmark code
+let start = time_ms();
+// ... do work ...
+let elapsed = time_ms() - start;
+print("Took " + typeof(elapsed) + "ms");
+
+// Rate limiting
+fn process_items(items: array): null {
+    let i = 0;
+    while (i < items.length) {
+        process(items[i]);
+        sleep(0.1);  // 100ms between items
+        i = i + 1;
+    }
+    return null;
+}
+```
+
+**Documentation:** `stdlib/docs/time.md`
+**Notes:** `sleep()` uses nanosleep() for precision
+
+---
+
+#### 4. **Environment** (`@stdlib/env`)
+**Status:** Complete
+
+Environment variables and process control:
+- `getenv(name)` - Read environment variable
+- `setenv(name, value)` - Set environment variable
+- `unsetenv(name)` - Remove environment variable
+- `exit(code?)` - Exit process with status code
+- `get_pid()` - Get process ID
+
+```hemlock
+import { getenv, setenv, exit, get_pid } from "@stdlib/env";
+
+// Configuration from environment
+let port = getenv("PORT");
+if (port == null) {
+    port = "8080";  // Default
+}
+
+// Set environment for child processes
+let path = getenv("PATH");
+setenv("PATH", path + ":/usr/local/bin");
+
+// Process ID
+let pid = get_pid();
+print("Running as PID: " + typeof(pid));
+
+// Graceful exit
+if (error_occurred) {
+    exit(1);
+}
+```
+
+**Documentation:** `stdlib/docs/env.md`
+**Notes:** Environment changes affect current process and children only
+
+---
+
+#### 5. **Filesystem** (`@stdlib/fs`)
+**Status:** Comprehensive
+
+File and directory operations:
+
+**File operations:**
+- `exists(path)` - Check if file/directory exists
+- `read_file(path)` - Read entire file as string
+- `write_file(path, content)` - Write/overwrite file
+- `append_file(path, content)` - Append to file
+- `remove_file(path)` - Delete file
+- `rename(old, new)` - Rename/move file
+- `copy_file(src, dest)` - Copy file
+
+**Directory operations:**
+- `make_dir(path, mode?)` - Create directory
+- `remove_dir(path)` - Remove empty directory
+- `list_dir(path)` - List directory contents
+
+**File information:**
+- `is_file(path)` - Check if regular file
+- `is_dir(path)` - Check if directory
+- `file_stat(path)` - Get file metadata
+
+**Path operations:**
+- `cwd()` - Get current directory
+- `chdir(path)` - Change directory
+- `absolute_path(path)` - Resolve to absolute path
+
+```hemlock
+import {
+    read_file, write_file, exists,
+    list_dir, is_file, is_dir,
+    copy_file
+} from "@stdlib/fs";
+
+// File operations
+if (exists("config.json")) {
+    let config = read_file("config.json");
+    print("Config loaded");
+} else {
+    write_file("config.json", "{}");
+}
+
+// Directory listing
+let files = list_dir(".");
+let i = 0;
+while (i < files.length) {
+    if (is_file(files[i])) {
+        print("File: " + files[i]);
+    }
+    i = i + 1;
+}
+
+// Backup
+copy_file("important.txt", "important.txt.backup");
+```
+
+**Documentation:** `stdlib/docs/fs.md`
+**Notes:** All operations throw exceptions on errors (use try/catch)
+
+---
+
+### JSON Serialization
+
+Hemlock has built-in JSON support through object/string methods (no separate module needed):
+
+```hemlock
+// Object to JSON
+let data = { name: "Alice", age: 30, active: true };
+let json = data.serialize();
+print(json);  // {"name":"Alice","age":30,"active":true}
+
+// JSON to object
+let json_str = '{"x":10,"y":20}';
+let obj = json_str.deserialize();
+print(obj.x);  // 10
+
+// Nested objects work
+let nested = { user: { name: "Bob" }, items: [1, 2, 3] };
+let json2 = nested.serialize();
+let restored = json2.deserialize();
+```
+
+**Features:**
+- Supports objects, arrays, strings, numbers, booleans, null
+- Automatic cycle detection (throws on circular references)
+- No explicit import needed (methods on objects/strings)
+
+---
+
+### Module Organization
+
+```
+stdlib/
+├── README.md              # Module overview
+├── collections.hml        # Data structures
+├── math.hml               # Mathematical functions
+├── time.hml               # Time/date operations
+├── env.hml                # Environment variables
+├── fs.hml                 # Filesystem operations
+└── docs/
+    ├── collections.md     # Collections API reference
+    ├── math.md            # Math API reference
+    ├── time.md            # Time API reference
+    ├── env.md             # Environment API reference
+    └── fs.md              # Filesystem API reference
+```
+
+### Testing
+
+All stdlib modules have comprehensive test coverage:
+
+```bash
+# Run all tests
+make test
+
+# Run specific module tests
+make test | grep stdlib_collections
+make test | grep stdlib_math
+make test | grep stdlib_time
+```
+
+**Test locations:**
+- `tests/stdlib_collections/` - Collections tests
+- `tests/stdlib_math/` - Math tests
+- `tests/stdlib_time/` - Time tests
+- `tests/stdlib_env/` - Environment tests
+
+### Future Stdlib Modules
+
+Planned additions:
+- **strings** - String utilities (pad, join, is_alpha, reverse, etc.)
+- **path** - Path manipulation (join, basename, dirname, normalize)
+- **json** - Formalized JSON module (wrapper around serialize/deserialize)
+- **encoding** - Base64, hex, URL encoding
+- **testing** - Test framework with assertions
+- **http** - HTTP client (via FFI + libcurl)
+- **regex** - Regular expressions (via FFI + PCRE)
+
+See `stdlib/README.md` and `STDLIB_ANALYSIS_UPDATED.md` for detailed roadmap.
+
+---
+
 ## Implementation Details
 
 ### Project Structure
