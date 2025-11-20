@@ -305,11 +305,12 @@ let list = LinkedList();
 
 ## Implementation Notes
 
-- **Hash Function:** Uses a simple additive hash for strings and direct value for integers
+- **Hash Function:** Uses djb2 algorithm for strings (excellent distribution) and direct value for integers
 - **Collision Resolution:** Separate chaining with arrays
 - **Memory Management:** Manual - collections do not automatically free memory
 - **Load Factor:** HashMap resizes at 0.75 load factor
-- **Modulo Operation:** Implemented manually (no `%` operator in Hemlock)
+- **Modulo Operation:** Uses native `%` operator for O(1) performance
+- **Type Casting:** Efficient native type conversion for float-to-int operations
 
 ---
 
@@ -318,17 +319,17 @@ let list = LinkedList();
 1. **Queue dequeue** uses array shift which is O(n)
 2. **Set operations** use linear search (no hash-based implementation yet)
 3. **No automatic memory cleanup** - users must manually manage collection lifecycle
-4. **Manual modulo implementation** for HashMap (Hemlock lacks native `%` operator)
 
 ---
 
 ## Future Improvements
 
 - Implement circular buffer for Queue (O(1) dequeue)
-- Add hash-based Set implementation for better performance
+- Add hash-based Set implementation for O(1) operations
 - Add PriorityQueue, Deque, TreeMap, and other data structures
 - Implement iterators for all collections
-- Add native modulo operator to Hemlock for better HashMap performance
+- Optimize LinkedList with bidirectional traversal
+- Add convenience methods (get_or_default, etc.)
 
 ---
 
