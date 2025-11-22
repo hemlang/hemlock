@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hemlock Language Manual</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --sage: #9CAF88;
+            --pine: #2F4F4F;
+            --dark-pine: #1a2f2f;
+            --light-sage: #E8F4E1;
+            --cream: #FAF9F6;
+            --text: #2C3E2C;
+            --text-light: #5A6F5A;
+            --border: #D4E4CB;
+            --code-bg: #F5F9F3;
+            --accent: #6B8E6B;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            line-height: 1.7;
+            color: var(--text);
+            background: var(--cream);
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: var(--pine);
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .header-logo {
+            height: 45px;
+            margin-right: 1rem;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .header .tagline {
+            margin-left: auto;
+            font-size: 0.9rem;
+            font-style: italic;
+            color: var(--light-sage);
+            display: none;
+        }
+
+        @media (min-width: 768px) {
+            .header .tagline {
+                display: block;
+            }
+        }
+
+        /* Layout */
+        .container {
+            display: flex;
+            margin-top: 70px;
+            min-height: calc(100vh - 70px);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 70px;
+            width: 280px;
+            height: calc(100vh - 70px);
+            background: var(--light-sage);
+            border-right: 2px solid var(--border);
+            overflow-y: auto;
+            padding: 2rem 0;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            z-index: 900;
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        @media (min-width: 1024px) {
+            .sidebar {
+                transform: translateX(0);
+            }
+        }
+
+        .nav-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--pine);
+            padding: 0 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-link {
+            display: block;
+            padding: 0.5rem 1.5rem;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(47, 79, 79, 0.05);
+            border-left-color: var(--sage);
+        }
+
+        .nav-link.active {
+            background: rgba(47, 79, 79, 0.1);
+            border-left-color: var(--pine);
+            font-weight: 600;
+            color: var(--pine);
+        }
+
+        .nav-link.sub {
+            padding-left: 2.5rem;
+            font-size: 0.85rem;
+        }
+
+        /* Mobile Menu Toggle */
+        .menu-toggle {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 56px;
+            height: 56px;
+            background: var(--pine);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @media (min-width: 1024px) {
+            .menu-toggle {
+                display: none;
+            }
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: 0;
+            padding: 3rem 2rem;
+            max-width: 900px;
+        }
+
+        @media (min-width: 1024px) {
+            .main-content {
+                margin-left: 280px;
+            }
+        }
+
+        /* Typography */
+        .content h1 {
+            font-size: 2.5rem;
+            color: var(--pine);
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 3px solid var(--sage);
+        }
+
+        .content h2 {
+            font-size: 2rem;
+            color: var(--pine);
+            margin: 3rem 0 1rem;
+            padding-top: 1rem;
+        }
+
+        .content h3 {
+            font-size: 1.5rem;
+            color: var(--accent);
+            margin: 2rem 0 1rem;
+        }
+
+        .content h4 {
+            font-size: 1.2rem;
+            color: var(--accent);
+            margin: 1.5rem 0 0.8rem;
+        }
+
+        .content p {
+            margin: 1rem 0;
+            color: var(--text);
+        }
+
+        .content ul, .content ol {
+            margin: 1rem 0 1rem 2rem;
+        }
+
+        .content li {
+            margin: 0.5rem 0;
+        }
+
+        .content blockquote {
+            border-left: 4px solid var(--sage);
+            background: var(--light-sage);
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
+            font-style: italic;
+            color: var(--text-light);
+        }
+
+        .content hr {
+            border: none;
+            border-top: 2px solid var(--border);
+            margin: 2rem 0;
+        }
+
+        /* Code Blocks */
+        .content code {
+            background: var(--code-bg);
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+            color: var(--pine);
+        }
+
+        .content pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--pine);
+            border-radius: 4px;
+            padding: 1.2rem;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+        }
+
+        .content pre code {
+            background: none;
+            padding: 0;
+            border-radius: 0;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        /* Tables */
+        .content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+        }
+
+        .content th,
+        .content td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .content th {
+            background: var(--light-sage);
+            color: var(--pine);
+            font-weight: 600;
+        }
+
+        /* Links */
+        .content a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .content a:hover {
+            border-bottom-color: var(--accent);
+        }
+
+        /* Special Boxes */
+        .note {
+            background: var(--light-sage);
+            border-left: 4px solid var(--sage);
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .note strong:first-child {
+            color: var(--pine);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--cream);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--sage);
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        /* Section anchors */
+        .section-anchor {
+            scroll-margin-top: 90px;
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 2rem 1rem;
+            }
+
+            .content h1 {
+                font-size: 2rem;
+            }
+
+            .content h2 {
+                font-size: 1.6rem;
+            }
+
+            .content h3 {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <img src="logo.png" alt="Hemlock Logo" class="header-logo">
+        <h1>Hemlock Language Manual</h1>
+        <span class="tagline">"A small, unsafe language for writing unsafe things safely."</span>
+    </div>
+
+    <!-- Mobile Menu Toggle -->
+    <button class="menu-toggle" id="menuToggle">☰</button>
+
+    <!-- Container -->
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar" id="sidebar">
+            <div class="nav-section">
+                <div class="nav-section-title">Introduction</div>
+                <a href="#core-identity" class="nav-link">Core Identity</a>
+                <a href="#design-principles" class="nav-link">Design Principles</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Type System</div>
+                <a href="#type-system" class="nav-link">Overview</a>
+                <a href="#numeric-types" class="nav-link sub">Numeric Types</a>
+                <a href="#type-promotion" class="nav-link sub">Type Promotion</a>
+                <a href="#range-checking" class="nav-link sub">Range Checking</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Memory Management</div>
+                <a href="#memory-management" class="nav-link">Overview</a>
+                <a href="#pointer-types" class="nav-link sub">Pointer Types</a>
+                <a href="#memory-api" class="nav-link sub">Memory API</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Data Types</div>
+                <a href="#strings" class="nav-link">Strings</a>
+                <a href="#runes" class="nav-link">Runes</a>
+                <a href="#arrays" class="nav-link">Arrays</a>
+                <a href="#objects" class="nav-link">Objects</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Control Flow</div>
+                <a href="#control-flow" class="nav-link">Overview</a>
+                <a href="#if-statements" class="nav-link sub">If Statements</a>
+                <a href="#switch-statements" class="nav-link sub">Switch</a>
+                <a href="#bitwise-operators" class="nav-link sub">Bitwise Operators</a>
+                <a href="#modulo-operator" class="nav-link sub">Modulo</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Advanced Features</div>
+                <a href="#defer-statement" class="nav-link">Defer</a>
+                <a href="#error-handling" class="nav-link">Error Handling</a>
+                <a href="#functions" class="nav-link">Functions</a>
+                <a href="#async-concurrency" class="nav-link">Async/Concurrency</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">I/O & System</div>
+                <a href="#file-io" class="nav-link">File I/O</a>
+                <a href="#signal-handling" class="nav-link">Signal Handling</a>
+                <a href="#command-line-arguments" class="nav-link">CLI Arguments</a>
+                <a href="#command-execution" class="nav-link">Command Execution</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Standard Library</div>
+                <a href="#standard-library" class="nav-link">Overview</a>
+                <a href="#stdlib-collections" class="nav-link sub">Collections</a>
+                <a href="#stdlib-math" class="nav-link sub">Math</a>
+                <a href="#stdlib-time" class="nav-link sub">Time</a>
+                <a href="#stdlib-env" class="nav-link sub">Environment</a>
+                <a href="#stdlib-fs" class="nav-link sub">Filesystem</a>
+                <a href="#stdlib-net" class="nav-link sub">Networking</a>
+                <a href="#stdlib-regex" class="nav-link sub">Regex</a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Reference</div>
+                <a href="#implementation-details" class="nav-link">Implementation</a>
+                <a href="#testing-philosophy" class="nav-link">Testing</a>
+                <a href="#common-patterns" class="nav-link">Common Patterns</a>
+                <a href="#version-history" class="nav-link">Version History</a>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="content" id="content">
+                <h1 class="section-anchor" id="hemlock-language-design-philosophy">Hemlock Language Design Philosophy</h1>
+                <blockquote>
+                    <p>"A small, unsafe language for writing unsafe things safely."</p>
+                </blockquote>
+                <p>This document captures the core design principles and philosophy of Hemlock. Read this first before making any changes or additions to the language.</p>
+
+                <!-- Content will be loaded dynamically -->
+                <p style="text-align: center; padding: 3rem 0; color: var(--text-light);">Loading documentation...</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Mobile menu toggle
+        const menuToggle = document.getElementById('menuToggle');
+        const sidebar = document.getElementById('sidebar');
+
+        menuToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('open');
+            menuToggle.textContent = sidebar.classList.contains('open') ? '×' : '☰';
+        });
+
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth < 1024) {
+                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                    sidebar.classList.remove('open');
+                    menuToggle.textContent = '☰';
+                }
+            }
+        });
+
+        // Load and parse CLAUDE.md content
+        async function loadDocumentation() {
+            try {
+                const response = await fetch('CLAUDE.md');
+                const markdown = await response.text();
+
+                // Parse markdown to HTML
+                const content = parseMarkdown(markdown);
+                document.getElementById('content').innerHTML = content;
+
+                // Setup navigation
+                setupNavigation();
+            } catch (error) {
+                document.getElementById('content').innerHTML = '<p>Error loading documentation. Please ensure CLAUDE.md is in the same directory.</p>';
+            }
+        }
+
+        function parseMarkdown(md) {
+            let lines = md.split('\n');
+            let html = '';
+            let inCodeBlock = false;
+            let codeBlockContent = '';
+            let codeBlockLang = '';
+            let inList = false;
+            let listContent = '';
+            let inBlockquote = false;
+            let blockquoteContent = '';
+
+            function processInlineMarkdown(text) {
+                // Bold
+                text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                // Italic (but not in middle of words)
+                text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                // Inline code
+                text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+                // Links
+                text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+                return text;
+            }
+
+            function makeId(text) {
+                return text.toLowerCase()
+                    .replace(/[^\w\s-]/g, '')
+                    .replace(/\s+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+            }
+
+            function flushList() {
+                if (inList && listContent) {
+                    html += '<ul>\n' + listContent + '</ul>\n';
+                    listContent = '';
+                    inList = false;
+                }
+            }
+
+            function flushBlockquote() {
+                if (inBlockquote && blockquoteContent) {
+                    html += '<blockquote>' + processInlineMarkdown(blockquoteContent.trim()) + '</blockquote>\n';
+                    blockquoteContent = '';
+                    inBlockquote = false;
+                }
+            }
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+
+                // Code blocks
+                if (line.startsWith('```')) {
+                    if (inCodeBlock) {
+                        html += '<pre><code>' + escapeHtml(codeBlockContent) + '</code></pre>\n';
+                        codeBlockContent = '';
+                        inCodeBlock = false;
+                    } else {
+                        flushList();
+                        flushBlockquote();
+                        inCodeBlock = true;
+                        codeBlockLang = line.substring(3).trim();
+                    }
+                    continue;
+                }
+
+                if (inCodeBlock) {
+                    codeBlockContent += line + '\n';
+                    continue;
+                }
+
+                // Headers
+                if (line.startsWith('# ')) {
+                    flushList();
+                    flushBlockquote();
+                    const text = line.substring(2).trim();
+                    const id = makeId(text);
+                    html += `<h1 class="section-anchor" id="${id}">${processInlineMarkdown(text)}</h1>\n`;
+                    continue;
+                }
+                if (line.startsWith('## ')) {
+                    flushList();
+                    flushBlockquote();
+                    const text = line.substring(3).trim();
+                    const id = makeId(text);
+                    html += `<h2 class="section-anchor" id="${id}">${processInlineMarkdown(text)}</h2>\n`;
+                    continue;
+                }
+                if (line.startsWith('### ')) {
+                    flushList();
+                    flushBlockquote();
+                    const text = line.substring(4).trim();
+                    const id = makeId(text);
+                    html += `<h3 class="section-anchor" id="${id}">${processInlineMarkdown(text)}</h3>\n`;
+                    continue;
+                }
+                if (line.startsWith('#### ')) {
+                    flushList();
+                    flushBlockquote();
+                    const text = line.substring(5).trim();
+                    const id = makeId(text);
+                    html += `<h4 class="section-anchor" id="${id}">${processInlineMarkdown(text)}</h4>\n`;
+                    continue;
+                }
+
+                // Horizontal rule
+                if (line.trim() === '---') {
+                    flushList();
+                    flushBlockquote();
+                    html += '<hr>\n';
+                    continue;
+                }
+
+                // Blockquote
+                if (line.startsWith('> ')) {
+                    flushList();
+                    blockquoteContent += line.substring(2) + ' ';
+                    inBlockquote = true;
+                    continue;
+                } else if (inBlockquote && line.trim() === '') {
+                    flushBlockquote();
+                    continue;
+                }
+
+                // Lists
+                if (line.startsWith('- ') || line.startsWith('* ')) {
+                    flushBlockquote();
+                    const text = line.substring(2).trim();
+                    listContent += '<li>' + processInlineMarkdown(text) + '</li>\n';
+                    inList = true;
+                    continue;
+                } else if (inList && line.trim() !== '') {
+                    // Continue list item on next line
+                    listContent = listContent.trimEnd();
+                    if (listContent.endsWith('</li>')) {
+                        listContent = listContent.substring(0, listContent.length - 5);
+                        listContent += ' ' + processInlineMarkdown(line.trim()) + '</li>\n';
+                    }
+                    continue;
+                } else if (inList && line.trim() === '') {
+                    flushList();
+                    continue;
+                }
+
+                // Empty line
+                if (line.trim() === '') {
+                    flushList();
+                    flushBlockquote();
+                    continue;
+                }
+
+                // Regular paragraph
+                flushList();
+                flushBlockquote();
+                if (line.trim() !== '') {
+                    html += '<p>' + processInlineMarkdown(line) + '</p>\n';
+                }
+            }
+
+            // Flush any remaining content
+            flushList();
+            flushBlockquote();
+
+            return html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function setupNavigation() {
+            const navLinks = document.querySelectorAll('.nav-link');
+            const sections = document.querySelectorAll('.section-anchor');
+
+            // Smooth scrolling
+            navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const targetId = link.getAttribute('href').substring(1);
+                    const target = document.getElementById(targetId);
+
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth' });
+
+                        // Close mobile menu
+                        if (window.innerWidth < 1024) {
+                            sidebar.classList.remove('open');
+                            menuToggle.textContent = '☰';
+                        }
+                    }
+                });
+            });
+
+            // Highlight active section on scroll
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.getAttribute('id');
+                        navLinks.forEach(link => {
+                            const href = link.getAttribute('href').substring(1);
+                            if (href === id) {
+                                navLinks.forEach(l => l.classList.remove('active'));
+                                link.classList.add('active');
+                            }
+                        });
+                    }
+                });
+            }, { threshold: 0.5, rootMargin: '-100px' });
+
+            sections.forEach(section => observer.observe(section));
+        }
+
+        // Load documentation on page load
+        loadDocumentation();
+    </script>
+</body>
+</html>
