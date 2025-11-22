@@ -335,6 +335,44 @@ let result = "  Hello World  "
 - `bytes()` - Convert to array of bytes (u8 values)
 - `to_bytes()` - Convert to buffer for low-level access
 
+### String Interpolation (Experimental - WIP)
+
+**⚠️ Status:** Work in progress - currently has known issues causing segfaults. Implementation is incomplete.
+
+**Syntax:** `${}` for embedding expressions in string literals (like JavaScript template literals)
+
+```hemlock
+// Basic variable interpolation (PLANNED)
+let name = "Alice";
+let greeting = "Hello, ${name}!";  // Will be: "Hello, Alice!"
+
+// Multiple interpolations (PLANNED)
+let age = 30;
+let msg = "Name: ${name}, Age: ${age}";
+
+// Arbitrary expressions (PLANNED)
+let x = 10;
+let y = 20;
+let result = "Sum: ${x + y}, Product: ${x * y}";
+```
+
+**Implementation Status:**
+- ✅ Lexer support for detecting `${...}` in strings
+- ✅ Parser support for parsing interpolated expressions
+- ✅ AST node type `EXPR_STRING_INTERPOLATION`
+- ✅ Interpreter evaluation logic
+- ❌ **Known Issue:** Segfault during evaluation (debugging in progress)
+- ❌ Not ready for use in production code
+
+**Escape sequence:**
+- Use `\$` to include a literal `$` in strings: `"Price: \$100"` → `"Price: $100"`
+
+**TODO:**
+- Fix memory management issues causing segfaults
+- Add comprehensive test coverage
+- Verify nested interpolation works correctly
+- Document limitations and edge cases
+
 ---
 
 ## Runes

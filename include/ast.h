@@ -34,6 +34,7 @@ typedef enum {
     EXPR_POSTFIX_INC,
     EXPR_POSTFIX_DEC,
     EXPR_AWAIT,
+    EXPR_STRING_INTERPOLATION,
 } ExprType;
 
 typedef enum {
@@ -150,6 +151,11 @@ struct Expr {
         struct {
             Expr *awaited_expr;
         } await_expr;
+        struct {
+            char **string_parts;   // Array of literal string parts
+            Expr **expr_parts;     // Array of expressions to interpolate
+            int num_parts;         // Number of parts (string_parts has num_parts+1 elements)
+        } string_interpolation;
     } as;
 };
 
@@ -338,6 +344,7 @@ Expr* expr_prefix_dec(Expr *operand);
 Expr* expr_postfix_inc(Expr *operand);
 Expr* expr_postfix_dec(Expr *operand);
 Expr* expr_await(Expr *awaited_expr);
+Expr* expr_string_interpolation(char **string_parts, Expr **expr_parts, int num_parts);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);

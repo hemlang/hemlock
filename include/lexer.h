@@ -130,6 +130,7 @@ typedef struct {
 
     // For strings
     char *string_value; // Must be freed
+    int is_interpolated; // Flag for string interpolation
 
     // For runes
     uint32_t rune_value; // Unicode codepoint

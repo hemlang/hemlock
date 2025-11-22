@@ -40,6 +40,91 @@ static char* consume_identifier_or_type(Parser *p, const char *message) {
     return strdup("error");
 }
 
+// Helper: Parse interpolated string with ${...} expressions
+static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
+    char **string_parts = malloc(sizeof(char*) * 32);  // Array of string literals
+    Expr **expr_parts = malloc(sizeof(Expr*) * 32);    // Array of expressions
+    int num_parts = 0;
+    int capacity = 32;
+
+    const char *ptr = str_content;
+    char *current_string = malloc(1024);
+    int str_len = 0;
+    int str_capacity = 1024;
+
+    while (*ptr != '\0') {
+        if (*ptr == '$' && *(ptr + 1) == '{') {
+            // Found interpolation start
+            // Save current string part
+            current_string[str_len] = '\0';
+            string_parts[num_parts] = strdup(current_string);
+            str_len = 0;
+
+            // Find matching }
+            ptr += 2;  // Skip ${
+            const char *expr_start = ptr;
+            int brace_count = 1;
+            while (*ptr != '\0' && brace_count > 0) {
+                if (*ptr == '{') brace_count++;
+                if (*ptr == '}') brace_count--;
+                if (brace_count > 0) ptr++;
+            }
+
+            if (brace_count != 0) {
+                error(p, "Unclosed ${...} in string interpolation");
+                free(current_string);
+                return expr_string("");
+            }
+
+            // Extract expression text
+            int expr_len = ptr - expr_start;
+            char *expr_text = malloc(expr_len + 1);
+            memcpy(expr_text, expr_start, expr_len);
+            expr_text[expr_len] = '\0';
+
+            // Parse the expression using a new parser
+            Lexer expr_lexer;
+            lexer_init(&expr_lexer, expr_text);
+
+            Parser expr_parser;
+            parser_init(&expr_parser, &expr_lexer);
+
+            Expr *interpolated_expr = expression(&expr_parser);
+            expr_parts[num_parts] = interpolated_expr;
+
+            // Note: Not freeing expr_text here because the lexer/parser may have pointers into it
+            // This is a known memory leak that should be fixed by tracking allocated strings
+            // TODO: Track expr_text allocations and free them after AST is no longer needed
+
+            num_parts++;
+            if (num_parts >= capacity) {
+                capacity *= 2;
+                string_parts = realloc(string_parts, sizeof(char*) * capacity);
+                expr_parts = realloc(expr_parts, sizeof(Expr*) * capacity);
+            }
+
+            ptr++;  // Skip closing }
+        } else {
+            // Regular character
+            if (str_len >= str_capacity - 1) {
+                str_capacity *= 2;
+                current_string = realloc(current_string, str_capacity);
+            }
+            current_string[str_len++] = *ptr;
+            ptr++;
+        }
+    }
+
+    // Save final string part
+    current_string[str_len] = '\0';
+    string_parts[num_parts] = strdup(current_string);
+    free(current_string);
+
+    // Create interpolation expression
+    Expr *result = expr_string_interpolation(string_parts, expr_parts, num_parts);
+    return result;
+}
+
 Expr* primary(Parser *p) {
     if (match(p, TOK_TRUE)) {
         return expr_bool(1);
@@ -63,9 +148,19 @@ Expr* primary(Parser *p) {
 
     if (match(p, TOK_STRING)) {
         char *str = p->previous.string_value;
-        Expr *expr = expr_string(str);
-        free(str);  // Parser owns this memory from lexer
-        return expr;
+        int is_interpolated = p->previous.is_interpolated;
+
+        if (is_interpolated) {
+            // Parse interpolated string
+            Expr *expr = parse_interpolated_string(p, str);
+            free(str);  // Parser owns this memory from lexer
+            return expr;
+        } else {
+            // Regular string literal
+            Expr *expr = expr_string(str);
+            free(str);  // Parser owns this memory from lexer
+            return expr;
+        }
     }
 
     if (match(p, TOK_RUNE)) {

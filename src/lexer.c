@@ -60,6 +60,7 @@ static Token make_token(Lexer *lex, TokenType type) {
     token.length = (int)(lex->current - lex->start);
     token.line = lex->line;
     token.int_value = 0;
+    token.is_interpolated = 0;  // Initialize to prevent undefined behavior
     return token;
 }
 
@@ -112,6 +113,7 @@ static Token string(Lexer *lex) {
     char *buffer = malloc(256);
     int capacity = 256;
     int length = 0;
+    int is_interpolated = 0;  // Track if string contains ${...}
 
     while (peek(lex) != '"' && !is_at_end(lex)) {
         if (peek(lex) == '\n') lex->line++;
@@ -137,10 +139,25 @@ static Token string(Lexer *lex) {
                 case '\'': c = '\''; break;
                 case '"':  c = '"'; break;
                 case '0':  c = '\0'; break;
+                case '$':  c = '$'; break;  // Escaped $ (literal dollar sign)
                 default:
                     free(buffer);
                     return error_token(lex, "Unknown escape sequence in string");
             }
+        }
+        // Check for string interpolation ${...}
+        else if (c == '$' && peek(lex) == '{') {
+            is_interpolated = 1;
+            // Keep the ${  in the buffer for parser to handle
+            if (length >= capacity - 1) {
+                capacity *= 2;
+                buffer = realloc(buffer, capacity);
+            }
+            buffer[length++] = c;  // '$'
+
+            c = peek(lex);
+            advance(lex);  // consume '{'
+            // c is now '{', will be added below
         }
 
         // Grow buffer if needed
@@ -164,6 +181,7 @@ static Token string(Lexer *lex) {
 
     Token token = make_token(lex, TOK_STRING);
     token.string_value = buffer;
+    token.is_interpolated = is_interpolated;
 
     return token;
 }
