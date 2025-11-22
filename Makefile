@@ -9,7 +9,12 @@ SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/parser/*.c) $(wildcard $
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 TARGET = hemlock
 
-all: $(BUILD_DIR) $(BUILD_DIR)/parser $(BUILD_DIR)/interpreter $(BUILD_DIR)/interpreter/builtins $(BUILD_DIR)/interpreter/io $(BUILD_DIR)/interpreter/runtime $(TARGET)
+# hemfmt-specific sources (exclude main.c and hemfmt.c from shared objects)
+FORMATTER_SRCS = $(SRC_DIR)/ast.c $(SRC_DIR)/lexer.c $(SRC_DIR)/formatter.c $(wildcard $(SRC_DIR)/parser/*.c)
+FORMATTER_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(FORMATTER_SRCS))
+HEMFMT_TARGET = hemfmt
+
+all: $(BUILD_DIR) $(BUILD_DIR)/parser $(BUILD_DIR)/interpreter $(BUILD_DIR)/interpreter/builtins $(BUILD_DIR)/interpreter/io $(BUILD_DIR)/interpreter/runtime $(TARGET) $(HEMFMT_TARGET)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -32,12 +37,15 @@ $(BUILD_DIR)/interpreter/runtime:
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
 
+$(HEMFMT_TARGET): $(FORMATTER_OBJS) $(BUILD_DIR)/hemfmt.o
+	$(CC) $(FORMATTER_OBJS) $(BUILD_DIR)/hemfmt.o -o $(HEMFMT_TARGET) $(LDFLAGS)
+
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET) $(HEMFMT_TARGET)
 
 run: $(TARGET)
 	./$(TARGET)
@@ -45,4 +53,6 @@ run: $(TARGET)
 test: $(TARGET)
 	@bash tests/run_tests.sh
 
-.PHONY: all clean run test
+fmt: $(HEMFMT_TARGET)
+
+.PHONY: all clean run test fmt
