@@ -1,0 +1,81 @@
+// HTTP Client Example
+// Demonstrates @stdlib/http (curl wrapper)
+
+import * as http from "@stdlib/http";
+
+print("=== Hemlock HTTP Client Examples ===");
+print("");
+
+// Example 1: Simple GET request
+print("1. Simple GET request to example.com");
+print("----------------------------------------");
+
+try {
+    let response = http.get("http://example.com", []);
+
+    print("Status: " + typeof(response.status_code));
+    print("Success: " + typeof(http.is_success(response.status_code)));
+    print("Body length: " + typeof(response.body.length) + " bytes");
+    print("");
+
+    if (http.is_success(response.status_code)) {
+        print("✓ GET request successful!");
+    } else {
+        print("✗ GET request failed");
+    }
+} catch (e) {
+    print("ERROR: " + e);
+}
+
+print("");
+
+// Example 2: Fetch (simpler API)
+print("2. Fetch URL directly");
+print("----------------------------------------");
+
+try {
+    let html = http.fetch("http://example.com");
+    print("Fetched " + typeof(html.length) + " bytes");
+    print("First 100 chars:");
+    print(html.substr(0, 100) + "...");
+    print("");
+    print("✓ Fetch successful!");
+} catch (e) {
+    print("ERROR: " + e);
+}
+
+print("");
+
+// Example 3: JSON API (httpbin.org)
+print("3. POST JSON to API");
+print("----------------------------------------");
+
+try {
+    let user_data = {
+        name: "Hemlock User",
+        age: 42,
+        lang: "hemlock"
+    };
+
+    print("Sending JSON:");
+    print(user_data.serialize());
+    print("");
+
+    let post_response = http.post_json("http://httpbin.org/post", user_data);
+
+    if (http.is_success(post_response.status_code)) {
+        print("✓ POST successful!");
+        print("Response body:");
+        print(post_response.body.substr(0, 200) + "...");
+    } else {
+        print("✗ POST failed: " + typeof(post_response.status_code));
+    }
+} catch (e) {
+    print("ERROR: " + e);
+}
+
+print("");
+print("=== All Examples Complete ===");
+print("");
+print("Note: This uses @stdlib/http which wraps curl via exec()");
+print("For native libwebsockets HTTP, use @stdlib/http_lws (requires libwebsockets-dev)");

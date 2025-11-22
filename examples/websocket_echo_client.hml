@@ -1,0 +1,68 @@
+// WebSocket Echo Client Example
+// Demonstrates @stdlib/websocket_pure (pure Hemlock implementation)
+
+import { WebSocket } from "@stdlib/websocket_pure";
+
+print("=== Hemlock WebSocket Echo Client ===");
+print("");
+
+// Note: This uses the pure Hemlock implementation
+// For production with SSL, use @stdlib/websocket (requires libwebsockets)
+
+print("Connecting to ws://echo.websocket.org...");
+
+try {
+    let ws = WebSocket("ws://echo.websocket.org");
+    defer ws.close();
+
+    print("✓ Connected!");
+    print("");
+
+    // Send a few test messages
+    print("Sending: 'Hello WebSocket!'");
+    ws.send_text("Hello WebSocket!");
+
+    print("Waiting for echo...");
+    let msg1 = ws.recv();
+
+    if (msg1 != null && msg1.type == "text") {
+        print("✓ Received: " + msg1.data);
+    } else {
+        print("✗ No response or wrong type");
+    }
+
+    print("");
+
+    // Send another message
+    print("Sending: 'Hemlock WebSocket Test'");
+    ws.send_text("Hemlock WebSocket Test");
+
+    print("Waiting for echo...");
+    let msg2 = ws.recv();
+
+    if (msg2 != null && msg2.type == "text") {
+        print("✓ Received: " + msg2.data);
+    } else {
+        print("✗ No response or wrong type");
+    }
+
+    print("");
+    print("Closing connection...");
+
+} catch (e) {
+    print("ERROR: " + e);
+    print("");
+    print("Common issues:");
+    print("- Message >125 bytes (not yet supported in pure implementation)");
+    print("- Network connectivity");
+    print("- echo.websocket.org is down");
+    print("");
+    print("Limitations of pure Hemlock implementation:");
+    print("- No wss:// (SSL) support");
+    print("- Messages limited to <126 bytes");
+    print("- Simplified masking and validation");
+    print("");
+    print("For production use, install libwebsockets and use @stdlib/websocket");
+}
+
+print("Done!");

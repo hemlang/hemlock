@@ -1,0 +1,19 @@
+// Debug HTTP module
+
+print("Debugging HTTP module...");
+
+import * as http from "@stdlib/http";
+
+print("HTTP module loaded");
+print("typeof http: " + typeof(http));
+
+// Try calling get
+print("\nCalling http.get...");
+
+try {
+    let result = http.get("http://example.com", []);
+    print("Result type: " + typeof(result));
+    print("Result: " + typeof(result));
+} catch (e) {
+    print("Error: " + e);
+}

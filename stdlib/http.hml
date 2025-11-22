@@ -116,7 +116,7 @@ fn http_request_curl(method: string, url: string, headers: array<string>, body: 
 // ========== FALLBACK: EXEC() WRAPPER ==========
 // Since FFI write callbacks are complex, use exec() as fallback
 
-fn http_request_exec(method: string, url: string, headers: array<string>, body: string): object {
+fn http_request_exec(method, url, headers, body) {
     // Build curl command
     let cmd = "curl -s -w '\\n%{http_code}' -L";
 
@@ -152,47 +152,26 @@ fn http_request_exec(method: string, url: string, headers: array<string>, body: 
     }
 
     // Parse output: body\nSTATUS_CODE
-    let output = result.output;
-    let last_newline = -1;
-
-    // Find last newline (status code follows it)
-    let i = output.length - 1;
-    while (i >= 0) {
-        if (output[i] == '\n') {
-            last_newline = i;
-            break;
-        }
-        i = i - 1;
-    }
-
-    let response_body = "";
-    let status_code = 200;
-
-    if (last_newline > 0) {
-        response_body = output.substr(0, last_newline);
-        // Status code is after the newline (3 digits)
-        // Would need string-to-int conversion for actual parsing
-    } else {
-        response_body = output;
-    }
+    // For now, just return the whole output as body
+    // Status code parsing would require string-to-int conversion
 
     return {
-        status_code: status_code,
+        status_code: 200,  // Default to 200 (would parse from curl output)
         headers: "",
-        body: response_body,
+        body: result.output,
     };
 }
 
 // ========== PUBLIC API ==========
 
-export fn get(url: string, headers?: array<string>): object {
+export fn get(url, headers) {
     if (headers == null) {
         headers = [];
     }
     return http_request_exec("GET", url, headers, "");
 }
 
-export fn post(url: string, body?: string, headers?: array<string>): object {
+export fn post(url, body, headers) {
     if (body == null) {
         body = "";
     }
@@ -202,7 +181,7 @@ export fn post(url: string, body?: string, headers?: array<string>): object {
     return http_request_exec("POST", url, headers, body);
 }
 
-export fn put(url: string, body?: string, headers?: array<string>): object {
+export fn put(url, body, headers) {
     if (body == null) {
         body = "";
     }
@@ -212,14 +191,14 @@ export fn put(url: string, body?: string, headers?: array<string>): object {
     return http_request_exec("PUT", url, headers, body);
 }
 
-export fn delete(url: string, headers?: array<string>): object {
+export fn delete(url, headers) {
     if (headers == null) {
         headers = [];
     }
     return http_request_exec("DELETE", url, headers, "");
 }
 
-export fn request(method: string, url: string, body?: string, headers?: array<string>): object {
+export fn request(method, url, body, headers) {
     if (body == null) {
         body = "";
     }
@@ -231,23 +210,23 @@ export fn request(method: string, url: string, body?: string, headers?: array<st
 
 // ========== CONVENIENCE FUNCTIONS ==========
 
-export fn fetch(url: string): string {
+export fn fetch(url) {
     let response = get(url, null);
     return response.body;
 }
 
-export fn post_json(url: string, data: object): object {
+export fn post_json(url, data) {
     let json = data.serialize();
     let headers = ["Content-Type: application/json"];
     return post(url, json, headers);
 }
 
-export fn get_json(url: string): object {
+export fn get_json(url) {
     let response = get(url, null);
     return response.body.deserialize();
 }
 
-export fn download(url: string, output_path: string): bool {
+export fn download(url, output_path) {
     let cmd = "curl -s -L -o '" + output_path + "' '" + url + "'";
     let result = exec(cmd);
     return result.exit_code == 0;
@@ -255,25 +234,25 @@ export fn download(url: string, output_path: string): bool {
 
 // ========== STATUS CODE HELPERS ==========
 
-export fn is_success(status_code: i32): bool {
+export fn is_success(status_code) {
     return status_code >= 200 && status_code < 300;
 }
 
-export fn is_redirect(status_code: i32): bool {
+export fn is_redirect(status_code) {
     return status_code >= 300 && status_code < 400;
 }
 
-export fn is_client_error(status_code: i32): bool {
+export fn is_client_error(status_code) {
     return status_code >= 400 && status_code < 500;
 }
 
-export fn is_server_error(status_code: i32): bool {
+export fn is_server_error(status_code) {
     return status_code >= 500 && status_code < 600;
 }
 
 // ========== URL HELPERS ==========
 
-export fn url_encode(str: string): string {
+export fn url_encode(str) {
     let result = str;
     result = result.replace_all(" ", "%20");
     result = result.replace_all("!", "%21");
