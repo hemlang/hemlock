@@ -1,0 +1,92 @@
+// Test reduce() - accumulate values into single result
+
+// Basic reduce - sum
+let nums = [1, 2, 3, 4, 5];
+let sum = nums.reduce(fn(acc, x) {
+    return acc + x;
+}, 0);
+print(sum);  // 15
+
+// Reduce without initial value - uses first element
+let sum2 = [10, 20, 30].reduce(fn(acc, x) {
+    return acc + x;
+});
+print(sum2);  // 60
+
+// Reduce - product
+let product = [1, 2, 3, 4, 5].reduce(fn(acc, x) {
+    return acc * x;
+}, 1);
+print(product);  // 120
+
+// Reduce - find maximum
+let max = [3, 7, 2, 9, 5].reduce(fn(acc, x) {
+    if (x > acc) {
+        return x;
+    } else {
+        return acc;
+    }
+}, 0);
+print(max);  // 9
+
+// Reduce - concatenate strings
+let words = ["Hello", "world", "from", "Hemlock"];
+let sentence = words.reduce(fn(acc, word) {
+    return acc + " " + word;
+}, "");
+print(sentence.trim());  // Hello world from Hemlock
+
+// Reduce with single element array
+let single = [42].reduce(fn(acc, x) {
+    return acc + x;
+}, 0);
+print(single);  // 42
+
+// Reduce with single element, no initial value
+let single2 = [42].reduce(fn(acc, x) {
+    return acc + x;
+});
+print(single2);  // 42 (first element becomes accumulator)
+
+// Reduce - count occurrences
+let items = [1, 2, 1, 3, 2, 1];
+let count_ones = items.reduce(fn(count, x) {
+    if (x == 1) {
+        return count + 1;
+    } else {
+        return count;
+    }
+}, 0);
+print(count_ones);  // 3
+
+// Reduce with closure
+let multiplier = 2;
+let result = [1, 2, 3].reduce(fn(acc, x) {
+    return acc + (x * multiplier);
+}, 0);
+print(result);  // 12 (2+4+6)
+
+// Reduce preserves original array
+let original = [1, 2, 3];
+let reduced = original.reduce(fn(acc, x) {
+    return acc + x;
+}, 0);
+print(original.length);  // 3 (unchanged)
+print(reduced);  // 6
+
+// Reduce - build new array (flatten)
+let nested = [1, 2, 3];
+let doubled_via_reduce = nested.reduce(fn(acc, x) {
+    acc.push(x * 2);
+    return acc;
+}, []);
+print(doubled_via_reduce[0]);  // 2
+print(doubled_via_reduce[1]);  // 4
+print(doubled_via_reduce[2]);  // 6
+
+// Reduce to accumulate string length
+let strings = ["a", "bb", "ccc"];
+let total_len = strings.reduce(fn(acc, s) {
+    return acc + s.length;
+}, 0);
+print(total_len);  // 6

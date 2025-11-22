@@ -1,0 +1,63 @@
+// Test map() - transform each element
+
+// Basic map - double each number
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(x) {
+    return x * 2;
+});
+print(doubled[0]);  // 2
+print(doubled[1]);  // 4
+print(doubled[2]);  // 6
+print(doubled[3]);  // 8
+print(doubled[4]);  // 10
+print(doubled.length);  // 5
+
+// Map to different type - numbers to strings
+let strs = nums.map(fn(x) {
+    return "num_" + typeof(x);
+});
+print(strs[0]);  // num_1
+print(strs[1]);  // num_2
+print(strs[2]);  // num_3
+
+// Map with empty array
+let empty = [];
+let empty_result = empty.map(fn(x) {
+    return x * 2;
+});
+print(empty_result.length);  // 0
+
+// Map with strings
+let words = ["hello", "world"];
+let upper = words.map(fn(s) {
+    return s.to_upper();
+});
+print(upper[0]);  // HELLO
+print(upper[1]);  // WORLD
+
+// Map preserves original array
+let original = [10, 20, 30];
+let transformed = original.map(fn(x) {
+    return x + 1;
+});
+print(original[0]);  // 10 (unchanged)
+print(original[1]);  // 20 (unchanged)
+print(transformed[0]);  // 11
+print(transformed[1]);  // 21
+
+// Map with closure
+let multiplier = 3;
+let tripled = [1, 2, 3].map(fn(x) {
+    return x * multiplier;
+});
+print(tripled[0]);  // 3
+print(tripled[1]);  // 6
+print(tripled[2]);  // 9
+
+// Complex transformation
+let objects = [1, 2, 3].map(fn(n) {
+    return n * n;
+});
+print(objects[0]);  // 1
+print(objects[1]);  // 4
+print(objects[2]);  // 9

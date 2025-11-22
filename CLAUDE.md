@@ -1653,6 +1653,82 @@ let text = ["apple", "banana", "cherry"]
 - `first()` - Get first element (without removing)
 - `last()` - Get last element (without removing)
 - `clear()` - Remove all elements
+- `map(callback)` - Transform each element, returns new array
+- `filter(predicate)` - Keep elements that pass test, returns new array
+- `reduce(reducer, initial?)` - Accumulate to single value
+
+### Higher-Order Functions
+
+**map(callback) - Transform Elements:**
+```hemlock
+// Double each number
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(x) {
+    return x * 2;
+});
+print(doubled[0]);  // 2
+print(doubled[2]);  // 6
+
+// Transform to different type
+let strings = [1, 2, 3].map(fn(n) {
+    return "num_" + typeof(n);
+});
+print(strings[0]);  // "num_1"
+```
+
+**filter(predicate) - Select Elements:**
+```hemlock
+// Keep even numbers
+let nums = [1, 2, 3, 4, 5, 6];
+let evens = nums.filter(fn(x) {
+    return x % 2 == 0;
+});
+print(evens.length);  // 3
+print(evens[0]);  // 2
+
+// Filter strings by length
+let words = ["apple", "banana", "cherry", "date"];
+let long_words = words.filter(fn(w) {
+    return w.length > 5;
+});
+print(long_words[0]);  // "banana"
+```
+
+**reduce(reducer, initial?) - Accumulate Values:**
+```hemlock
+// Sum array
+let nums = [1, 2, 3, 4, 5];
+let sum = nums.reduce(fn(acc, x) {
+    return acc + x;
+}, 0);
+print(sum);  // 15
+
+// Product (without initial value - uses first element)
+let product = [1, 2, 3, 4].reduce(fn(acc, x) {
+    return acc * x;
+});
+print(product);  // 24
+
+// Find maximum
+let max = [3, 7, 2, 9, 5].reduce(fn(acc, x) {
+    if (x > acc) {
+        return x;
+    } else {
+        return acc;
+    }
+}, 0);
+print(max);  // 9
+```
+
+**Chaining Higher-Order Functions:**
+```hemlock
+// Complex data pipeline
+let result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    .filter(fn(x) { return x % 2 == 1; })  // Get odds
+    .map(fn(x) { return x * x; })           // Square them
+    .reduce(fn(acc, x) { return acc + x; }, 0);  // Sum
+print(result);  // 165 (1+9+25+49+81)
+```
 
 ### Implementation Details
 - Arrays are heap-allocated with dynamic capacity
@@ -3178,7 +3254,7 @@ When adding features to Hemlock:
   - Memory: alloc, free, memset, memcpy, realloc, talloc, sizeof
   - Objects: literals, methods, duck typing, optional fields, serialize/deserialize
   - **Strings:** 18 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, byte_at, chars, bytes, to_bytes
-  - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
+  - **Arrays:** 18 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear, **map, filter, reduce** (higher-order functions for functional programming)
   - Control flow: if/else, while, for, for-in, break, continue, switch, bitwise operators (&, |, ^, <<, >>, ~), **defer**
   - **Error handling:** try/catch/finally/throw, panic - **all user-facing runtime errors are catchable** (array bounds, type conversions, arity mismatches, stack overflow, async errors)
   - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
@@ -3187,7 +3263,7 @@ When adding features to Hemlock:
   - **Async/Concurrency:** async/await syntax, spawn/join/detach (supports both fire-and-forget and spawn-then-detach patterns), channels with send/recv/close, pthread-based true parallelism, exception propagation
   - **FFI (Foreign Function Interface):** Call C functions from shared libraries using libffi, support for all primitive types, automatic type conversion
   - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime, ffi)
-  - **372 tests** - 347 passing + 25 expected error tests (100% test success rate including async, FFI, i64/u64, signals, defer, edge cases)
+  - **394 tests** - 369 passing + 25 expected error tests (100% test success rate including async, FFI, i64/u64, signals, defer, map/filter/reduce, edge cases)
 - **v0.2** - Compiler backend, optimization (planned)
 - **v0.3** - Advanced features (planned)
 

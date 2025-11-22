@@ -16,6 +16,59 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     return val_null();
 }
 
+// ========== FUNCTION CALL HELPER ==========
+
+// Helper to call a function value with given arguments
+static Value call_function_value(Value func, Value *args, int num_args, ExecutionContext *ctx) {
+    if (func.type != VAL_FUNCTION) {
+        return throw_runtime_error(ctx, "Callback must be a function");
+    }
+
+    Function *fn = func.as.as_function;
+
+    // Check argument count
+    if (num_args != fn->num_params) {
+        return throw_runtime_error(ctx, "Callback expects %d arguments, got %d",
+                fn->num_params, num_args);
+    }
+
+    // Create call environment with closure_env as parent
+    Environment *call_env = env_new(fn->closure_env);
+
+    // Bind parameters
+    for (int i = 0; i < fn->num_params; i++) {
+        Value arg_value = args[i];
+
+        // Type check if parameter has type annotation
+        if (fn->param_types[i]) {
+            arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                env_release(call_env);
+                return val_null();
+            }
+        }
+
+        env_set(call_env, fn->param_names[i], arg_value, ctx);
+        if (ctx->exception_state.is_throwing) {
+            env_release(call_env);
+            return val_null();
+        }
+    }
+
+    // Execute body
+    ctx->return_state.is_returning = 0;
+    eval_stmt(fn->body, call_env, ctx);
+
+    // Get return value
+    Value result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();
+    ctx->return_state.is_returning = 0;
+
+    // Clean up
+    env_release(call_env);
+
+    return result;
+}
+
 // ========== ARRAY METHOD HANDLING ==========
 
 // Helper function to check if value matches array element type
@@ -403,6 +456,130 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         }
         arr->length = 0;
         return val_null();
+    }
+
+    // map(callback) - transform each element, return new array
+    if (strcmp(method, "map") == 0) {
+        if (num_args != 1) {
+            return throw_runtime_error(ctx, "map() expects 1 argument (callback function)");
+        }
+        if (args[0].type != VAL_FUNCTION) {
+            return throw_runtime_error(ctx, "map() argument must be a function");
+        }
+
+        Array *result = array_new();
+        for (int i = 0; i < arr->length; i++) {
+            // Prepare callback arguments: (element, index)
+            Value callback_args[2];
+            callback_args[0] = arr->elements[i];
+            callback_args[1] = val_i32(i);
+
+            // Call the callback function
+            Value mapped = call_function_value(args[0], callback_args, 1, ctx);
+            if (ctx->exception_state.is_throwing) {
+                // Clean up and propagate exception
+                return val_null();
+            }
+
+            // Add result to output array
+            array_push(result, mapped);
+            value_release(mapped);  // array_push retains, so we can release
+        }
+        return val_array(result);
+    }
+
+    // filter(predicate) - keep elements where predicate returns true
+    if (strcmp(method, "filter") == 0) {
+        if (num_args != 1) {
+            return throw_runtime_error(ctx, "filter() expects 1 argument (predicate function)");
+        }
+        if (args[0].type != VAL_FUNCTION) {
+            return throw_runtime_error(ctx, "filter() argument must be a function");
+        }
+
+        Array *result = array_new();
+        for (int i = 0; i < arr->length; i++) {
+            // Prepare callback arguments: (element, index)
+            Value callback_args[2];
+            callback_args[0] = arr->elements[i];
+            callback_args[1] = val_i32(i);
+
+            // Call the predicate function
+            Value predicate_result = call_function_value(args[0], callback_args, 1, ctx);
+            if (ctx->exception_state.is_throwing) {
+                // Clean up and propagate exception
+                return val_null();
+            }
+
+            // Check if predicate returned truthy value
+            int is_truthy = 0;
+            if (predicate_result.type == VAL_BOOL) {
+                is_truthy = predicate_result.as.as_bool;
+            } else if (predicate_result.type != VAL_NULL) {
+                is_truthy = 1;  // Non-null, non-false values are truthy
+            }
+
+            if (is_truthy) {
+                array_push(result, arr->elements[i]);
+            }
+
+            value_release(predicate_result);
+        }
+        return val_array(result);
+    }
+
+    // reduce(reducer, initial?) - accumulate values into single result
+    if (strcmp(method, "reduce") == 0) {
+        if (num_args < 1 || num_args > 2) {
+            return throw_runtime_error(ctx, "reduce() expects 1 or 2 arguments (reducer function, optional initial value)");
+        }
+        if (args[0].type != VAL_FUNCTION) {
+            return throw_runtime_error(ctx, "reduce() first argument must be a function");
+        }
+
+        // Empty array handling
+        if (arr->length == 0) {
+            if (num_args == 2) {
+                return args[1];  // Return initial value
+            } else {
+                return throw_runtime_error(ctx, "reduce() on empty array with no initial value");
+            }
+        }
+
+        // Determine starting accumulator and index
+        Value accumulator;
+        int start_index;
+        if (num_args == 2) {
+            accumulator = args[1];
+            value_retain(accumulator);
+            start_index = 0;
+        } else {
+            accumulator = arr->elements[0];
+            value_retain(accumulator);
+            start_index = 1;
+        }
+
+        // Iterate and reduce
+        for (int i = start_index; i < arr->length; i++) {
+            // Prepare reducer arguments: (accumulator, element, index)
+            Value reducer_args[3];
+            reducer_args[0] = accumulator;
+            reducer_args[1] = arr->elements[i];
+            reducer_args[2] = val_i32(i);
+
+            // Call the reducer function
+            Value new_accumulator = call_function_value(args[0], reducer_args, 2, ctx);
+            if (ctx->exception_state.is_throwing) {
+                value_release(accumulator);
+                return val_null();
+            }
+
+            // Update accumulator
+            value_release(accumulator);
+            accumulator = new_accumulator;
+        }
+
+        return accumulator;
     }
 
     return throw_runtime_error(ctx, "Array has no method '%s'", method);
