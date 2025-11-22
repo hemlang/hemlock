@@ -77,4 +77,5 @@ install_manifest.txt
 # ctags/cscope
 tags
 TAGS
-cscope.*
+cscope.*hemfmt
+test_*.hml
