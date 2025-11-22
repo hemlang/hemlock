@@ -1,0 +1,6 @@
+// Test array destructuring from variable
+let arr = [10, 20, 30];
+let [x, y, z] = arr;
+print(x);
+print(y);
+print(z);

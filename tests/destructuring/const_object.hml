@@ -1,0 +1,4 @@
+// Test const object destructuring
+const {x, y} = {x: 42, y: 99};
+print(x);
+print(y);

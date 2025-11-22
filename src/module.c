@@ -387,10 +387,19 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                 eval_stmt(decl, module_env, ctx);
 
                 // Extract the name and mark as exported
+                // Note: Only simple identifier patterns are supported for exports (not destructuring)
                 if (decl->type == STMT_LET) {
-                    module->export_names[module->num_exports++] = strdup(decl->as.let.name);
+                    if (decl->as.let.pattern->type != PATTERN_IDENT) {
+                        fprintf(stderr, "Error: Cannot export destructuring patterns\n");
+                        continue;
+                    }
+                    module->export_names[module->num_exports++] = strdup(decl->as.let.pattern->as.ident.name);
                 } else if (decl->type == STMT_CONST) {
-                    module->export_names[module->num_exports++] = strdup(decl->as.const_stmt.name);
+                    if (decl->as.const_stmt.pattern->type != PATTERN_IDENT) {
+                        fprintf(stderr, "Error: Cannot export destructuring patterns\n");
+                        continue;
+                    }
+                    module->export_names[module->num_exports++] = strdup(decl->as.const_stmt.pattern->as.ident.name);
                 }
             } else if (stmt->as.export_stmt.is_reexport) {
                 // Re-export: copy exports from another module

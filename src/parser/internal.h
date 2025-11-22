@@ -44,5 +44,6 @@ Type* parse_type(Parser *p);
 
 Stmt* statement(Parser *p);
 Stmt* block_statement(Parser *p);
+Pattern* parse_pattern(Parser *p);
 
 #endif // HEMLOCK_PARSER_INTERNAL_H

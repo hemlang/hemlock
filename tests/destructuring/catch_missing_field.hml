@@ -1,0 +1,6 @@
+// Test: Error when object missing field
+try {
+    let {x, y, z} = {x: 10, y: 20};
+} catch (e) {
+    print(e);
+}

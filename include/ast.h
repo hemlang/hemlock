@@ -185,6 +185,36 @@ struct Type {
     struct Type *element_type;  // For TYPE_ARRAY (element type)
 };
 
+// ========== DESTRUCTURING PATTERNS ==========
+
+// Forward declaration
+typedef struct Pattern Pattern;
+
+typedef enum {
+    PATTERN_IDENT,    // Simple identifier: x
+    PATTERN_ARRAY,    // Array pattern: [a, b, c]
+    PATTERN_OBJECT,   // Object pattern: {x, y} or {x: a, y: b}
+} PatternType;
+
+struct Pattern {
+    PatternType type;
+    union {
+        struct {
+            char *name;
+            Type *type_annotation;  // Optional type annotation
+        } ident;
+        struct {
+            Pattern **elements;
+            int num_elements;
+        } array;
+        struct {
+            char **keys;          // Field names in the object
+            char **bindings;      // Variable names to bind (NULL if same as key)
+            int num_fields;
+        } object;
+    } as;
+};
+
 // ========== STATEMENT TYPES ==========
 
 typedef enum {
@@ -216,12 +246,12 @@ struct Stmt {
     int line;  // Source line number (for error reporting)
     union {
         struct {
-            char *name;
+            Pattern *pattern;     // Destructuring pattern (identifier, array, or object)
             Type *type_annotation;
             Expr *value;
         } let;
         struct {
-            char *name;
+            Pattern *pattern;     // Destructuring pattern (identifier, array, or object)
             Type *type_annotation;
             Expr *value;
         } const_stmt;
@@ -339,11 +369,18 @@ Expr* expr_postfix_inc(Expr *operand);
 Expr* expr_postfix_dec(Expr *operand);
 Expr* expr_await(Expr *awaited_expr);
 
+// Pattern constructors
+Pattern* pattern_ident(const char *name, Type *type_annotation);
+Pattern* pattern_array(Pattern **elements, int num_elements);
+Pattern* pattern_object(char **keys, char **bindings, int num_fields);
+
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);
 Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value);
+Stmt* stmt_let_pattern(Pattern *pattern, Type *type_annotation, Expr *value);
 Stmt* stmt_const(const char *name, Expr *value);
 Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value);
+Stmt* stmt_const_pattern(Pattern *pattern, Type *type_annotation, Expr *value);
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch);
 Stmt* stmt_while(Expr *condition, Stmt *body);
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
@@ -373,6 +410,7 @@ void type_free(Type *type);
 Expr* expr_clone(const Expr *expr);
 
 // Cleanup
+void pattern_free(Pattern *pattern);
 void expr_free(Expr *expr);
 void stmt_free(Stmt *stmt);
 

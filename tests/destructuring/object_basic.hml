@@ -1,0 +1,4 @@
+// Test basic object destructuring
+let {x, y} = {x: 10, y: 20};
+print(x);
+print(y);

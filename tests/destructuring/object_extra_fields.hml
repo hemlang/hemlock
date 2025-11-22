@@ -1,0 +1,4 @@
+// Test object destructuring with extra fields
+let {name, age} = {name: "Alice", age: 30, city: "NYC", active: true};
+print(name);
+print(age);

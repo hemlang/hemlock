@@ -4,9 +4,62 @@
 
 Stmt* statement(Parser *p);
 
-Stmt* let_statement(Parser *p) {
-    consume(p, TOK_IDENT, "Expect variable name");
+// Parse destructuring pattern (identifier, array, or object)
+Pattern* parse_pattern(Parser *p) {
+    // Array destructuring: [a, b, c]
+    if (match(p, TOK_LBRACKET)) {
+        Pattern **elements = malloc(sizeof(Pattern*) * 128);
+        int num_elements = 0;
+
+        if (!check(p, TOK_RBRACKET)) {
+            do {
+                elements[num_elements++] = parse_pattern(p);
+            } while (match(p, TOK_COMMA));
+        }
+
+        consume(p, TOK_RBRACKET, "Expect ']' after array pattern");
+        return pattern_array(elements, num_elements);
+    }
+
+    // Object destructuring: {x, y} or {x: a, y: b}
+    if (match(p, TOK_LBRACE)) {
+        char **keys = malloc(sizeof(char*) * 128);
+        char **bindings = malloc(sizeof(char*) * 128);
+        int num_fields = 0;
+
+        if (!check(p, TOK_RBRACE)) {
+            do {
+                consume(p, TOK_IDENT, "Expect field name in object pattern");
+                keys[num_fields] = token_text(&p->previous);
+
+                // Check for renaming: {x: newX}
+                if (match(p, TOK_COLON)) {
+                    consume(p, TOK_IDENT, "Expect variable name after ':'");
+                    bindings[num_fields] = token_text(&p->previous);
+                } else {
+                    // No renaming, binding is same as key
+                    bindings[num_fields] = NULL;
+                }
+
+                num_fields++;
+            } while (match(p, TOK_COMMA));
+        }
+
+        consume(p, TOK_RBRACE, "Expect '}' after object pattern");
+        return pattern_object(keys, bindings, num_fields);
+    }
+
+    // Simple identifier pattern: x
+    consume(p, TOK_IDENT, "Expect variable name in pattern");
     char *name = token_text(&p->previous);
+    Pattern *pattern = pattern_ident(name, NULL);
+    free(name);
+    return pattern;
+}
+
+Stmt* let_statement(Parser *p) {
+    // Parse pattern (identifier, array, or object)
+    Pattern *pattern = parse_pattern(p);
 
     Type *type_annotation = NULL;
 
@@ -15,20 +68,18 @@ Stmt* let_statement(Parser *p) {
         type_annotation = parse_type(p);
     }
 
-    consume(p, TOK_EQUAL, "Expect '=' after variable name");
+    consume(p, TOK_EQUAL, "Expect '=' after pattern");
 
     Expr *value = expression(p);
 
     consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
 
-    Stmt *stmt = stmt_let_typed(name, type_annotation, value);
-    free(name);
-    return stmt;
+    return stmt_let_pattern(pattern, type_annotation, value);
 }
 
 Stmt* const_statement(Parser *p) {
-    consume(p, TOK_IDENT, "Expect variable name");
-    char *name = token_text(&p->previous);
+    // Parse pattern (identifier, array, or object)
+    Pattern *pattern = parse_pattern(p);
 
     Type *type_annotation = NULL;
 
@@ -37,15 +88,13 @@ Stmt* const_statement(Parser *p) {
         type_annotation = parse_type(p);
     }
 
-    consume(p, TOK_EQUAL, "Expect '=' after variable name");
+    consume(p, TOK_EQUAL, "Expect '=' after pattern");
 
     Expr *value = expression(p);
 
     consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
 
-    Stmt *stmt = stmt_const_typed(name, type_annotation, value);
-    free(name);
-    return stmt;
+    return stmt_const_pattern(pattern, type_annotation, value);
 }
 
 Stmt* block_statement(Parser *p) {

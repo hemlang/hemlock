@@ -1669,6 +1669,141 @@ let text = ["apple", "banana", "cherry"]
 
 ---
 
+## Destructuring
+
+Hemlock supports **destructuring patterns** for extracting values from arrays and objects into individual variables. This provides a concise syntax for unpacking complex data structures.
+
+### Array Destructuring
+
+Extract array elements into individual variables:
+
+```hemlock
+// Basic array destructuring
+let [a, b, c] = [1, 2, 3];
+print(a);  // 1
+print(b);  // 2
+print(c);  // 3
+
+// From variables
+let arr = [10, 20, 30];
+let [x, y, z] = arr;
+print(x);  // 10
+
+// Extra elements are ignored
+let [first, second] = [1, 2, 3, 4, 5];
+print(first);   // 1
+print(second);  // 2
+
+// Works with any value type
+let [name, age] = ["Alice", 30];
+```
+
+### Object Destructuring
+
+Extract object fields into variables:
+
+```hemlock
+// Basic object destructuring
+let {x, y} = {x: 10, y: 20};
+print(x);  // 10
+print(y);  // 20
+
+// From variables
+let point = {x: 100, y: 200, z: 300};
+let {x, y, z} = point;
+
+// Renaming fields
+let {x: newX, y: newY} = {x: 5, y: 15};
+print(newX);  // 5
+print(newY);  // 15
+
+// Extra fields are ignored
+let {name, age} = {name: "Bob", age: 25, city: "NYC", active: true};
+print(name);  // "Bob"
+print(age);   // 25
+```
+
+### Nested Destructuring
+
+Destructuring patterns can be nested:
+
+```hemlock
+// Nested arrays
+let [[a, b], [c, d]] = [[1, 2], [3, 4]];
+print(a);  // 1
+print(b);  // 2
+print(c);  // 3
+print(d);  // 4
+
+// Array of objects (future support)
+// let [{x: x1}, {x: x2}] = [{x: 10}, {x: 20}];
+```
+
+### Const Destructuring
+
+Destructuring works with `const` declarations:
+
+```hemlock
+const [a, b, c] = [10, 20, 30];
+const {x, y} = {x: 42, y: 99};
+
+// Variables are immutable
+a = 5;  // ERROR: Cannot reassign const variable
+```
+
+### Error Handling
+
+Destructuring validates types and structure at runtime:
+
+```hemlock
+// Type mismatch errors
+try {
+    let [a, b] = "not an array";  // ERROR: Cannot destructure non-array value
+} catch (e) {
+    print(e);
+}
+
+try {
+    let {x, y} = 42;  // ERROR: Cannot destructure non-object value
+} catch (e) {
+    print(e);
+}
+
+// Array too short
+try {
+    let [a, b, c] = [1, 2];  // ERROR: Array has 2 elements but pattern expects 3
+} catch (e) {
+    print(e);
+}
+
+// Missing object field
+try {
+    let {x, y, z} = {x: 10, y: 20};  // ERROR: Object does not have field 'z'
+} catch (e) {
+    print(e);
+}
+```
+
+### Design Principles
+
+**Explicit and runtime-checked:**
+- Destructuring patterns are validated at runtime (matches Hemlock's dynamic philosophy)
+- Clear error messages when structure doesn't match
+- No automatic filling of missing values with null/undefined
+
+**Supported patterns:**
+- Array patterns: `[a, b, c]`
+- Object patterns: `{x, y}` or `{x: newX, y: newY}`
+- Nested patterns: `[[a, b], [c, d]]`
+
+**Current limitations:**
+- No rest operator (`...rest`) yet
+- No default values in patterns yet
+- No mixing patterns and regular identifiers
+- Module exports don't support destructuring patterns (only simple identifiers)
+
+---
+
 ## Command-Line Arguments
 
 Hemlock programs can access command-line arguments via a built-in **`args` array** that is automatically populated at program startup.
@@ -3170,7 +3305,7 @@ When adding features to Hemlock:
 
 ## Version History
 
-- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, error handling, file I/O, signal handling, command-line arguments, async/await, structured concurrency, FFI (current)
+- **v0.1** - Primitives, memory management, UTF-8 strings, control flow, functions, closures, recursion, objects, arrays, destructuring, error handling, file I/O, signal handling, command-line arguments, async/await, structured concurrency, FFI (current)
   - Type system: i8-i64, u8-u64, f32/f64, bool, string, rune, null, ptr, buffer, array, object, file, task, channel, void
   - **64-bit integer support:** i64 and u64 types with full type promotion, conversion, and FFI support
   - **UTF-8 first-class strings:** Full Unicode support (U+0000 to U+10FFFF), codepoint-based indexing and operations, `.length` (codepoints) and `.byte_length` (bytes) properties
@@ -3179,15 +3314,16 @@ When adding features to Hemlock:
   - Objects: literals, methods, duck typing, optional fields, serialize/deserialize
   - **Strings:** 18 methods including substr, slice, find, contains, split, trim, to_upper, to_lower, starts_with, ends_with, replace, replace_all, repeat, char_at, byte_at, chars, bytes, to_bytes
   - **Arrays:** 15 methods including push, pop, shift, unshift, insert, remove, find, contains, slice, join, concat, reverse, first, last, clear
+  - **Destructuring:** Array patterns `[a, b, c]`, object patterns `{x, y}` with renaming `{x: a, y: b}`, nested patterns, runtime validation, const support
   - Control flow: if/else, while, for, for-in, break, continue, switch, bitwise operators (&, |, ^, <<, >>, ~), **defer**
-  - **Error handling:** try/catch/finally/throw, panic - **all user-facing runtime errors are catchable** (array bounds, type conversions, arity mismatches, stack overflow, async errors)
+  - **Error handling:** try/catch/finally/throw, panic - **all user-facing runtime errors are catchable** (array bounds, type conversions, arity mismatches, stack overflow, async errors, destructuring errors)
   - **File I/O:** File object API with methods (read, read_bytes, write, write_bytes, seek, tell, close) and properties (path, mode, closed)
   - **Signal Handling:** POSIX signal handling with signal(signum, handler) and raise(signum), 15 signal constants (SIGINT, SIGTERM, SIGUSR1, SIGUSR2, etc.)
   - Command-line arguments: built-in `args` array
   - **Async/Concurrency:** async/await syntax, spawn/join/detach (supports both fire-and-forget and spawn-then-detach patterns), channels with send/recv/close, pthread-based true parallelism, exception propagation
   - **FFI (Foreign Function Interface):** Call C functions from shared libraries using libffi, support for all primitive types, automatic type conversion
   - **Architecture:** Modular interpreter (environment, values, types, builtins, io, runtime, ffi)
-  - **372 tests** - 347 passing + 25 expected error tests (100% test success rate including async, FFI, i64/u64, signals, defer, edge cases)
+  - **404 tests** - 379 passing + 25 expected error tests (100% test success rate including async, FFI, i64/u64, signals, defer, destructuring, edge cases)
 - **v0.2** - Compiler backend, optimization (planned)
 - **v0.3** - Advanced features (planned)
 

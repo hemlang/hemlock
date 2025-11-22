@@ -1,0 +1,4 @@
+// Test object destructuring with renaming
+let {x: a, y: b} = {x: 5, y: 15};
+print(a);
+print(b);

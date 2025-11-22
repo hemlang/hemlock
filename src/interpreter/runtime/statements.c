@@ -1,26 +1,132 @@
 #include "internal.h"
 
+// ========== DESTRUCTURING PATTERN BINDING ==========
+
+// Recursively bind a pattern to a value
+void bind_pattern(Pattern *pattern, Value value, Environment *env, int is_const, ExecutionContext *ctx) {
+    switch (pattern->type) {
+        case PATTERN_IDENT: {
+            // Simple identifier: just define it
+            const char *name = pattern->as.ident.name;
+            // If pattern has type annotation, convert value
+            if (pattern->as.ident.type_annotation != NULL) {
+                value = convert_to_type(value, pattern->as.ident.type_annotation, env, ctx);
+            }
+            env_define(env, name, value, is_const, ctx);
+            break;
+        }
+
+        case PATTERN_ARRAY: {
+            // Array destructuring: [a, b, c] = arr
+            if (value.type != VAL_ARRAY) {
+                runtime_error(ctx, "Cannot destructure non-array value");
+                return;
+            }
+
+            Array *arr = value.as.as_array;
+            int num_patterns = pattern->as.array.num_elements;
+
+            // Check if array has enough elements
+            if (arr->length < num_patterns) {
+                runtime_error(ctx, "Array has %d elements but pattern expects %d",
+                            arr->length, num_patterns);
+                return;
+            }
+
+            // Bind each pattern element to corresponding array element
+            for (int i = 0; i < num_patterns; i++) {
+                Value elem = array_get(arr, i, ctx);
+                if (ctx->exception_state.is_throwing) return;
+
+                // Retain the value since we're binding it to a new variable
+                value_retain(elem);
+                bind_pattern(pattern->as.array.elements[i], elem, env, is_const, ctx);
+                if (ctx->exception_state.is_throwing) return;
+            }
+            break;
+        }
+
+        case PATTERN_OBJECT: {
+            // Object destructuring: {x, y} = obj or {x: a, y: b} = obj
+            if (value.type != VAL_OBJECT) {
+                runtime_error(ctx, "Cannot destructure non-object value");
+                return;
+            }
+
+            Object *obj = value.as.as_object;
+            int num_fields = pattern->as.object.num_fields;
+
+            // Extract each field and bind it
+            for (int i = 0; i < num_fields; i++) {
+                const char *key = pattern->as.object.keys[i];
+                const char *binding = pattern->as.object.bindings[i];
+
+                // Use binding if provided, otherwise use key
+                const char *var_name = (binding != NULL) ? binding : key;
+
+                // Find the field in the object
+                Value field_value = val_null();
+                int found = 0;
+                for (int j = 0; j < obj->num_fields; j++) {
+                    if (strcmp(obj->field_names[j], key) == 0) {
+                        field_value = obj->field_values[j];
+                        found = 1;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    runtime_error(ctx, "Object does not have field '%s'", key);
+                    return;
+                }
+
+                // Bind the field value to the variable
+                value_retain(field_value);
+                env_define(env, var_name, field_value, is_const, ctx);
+                if (ctx->exception_state.is_throwing) return;
+            }
+            break;
+        }
+    }
+}
+
 // ========== STATEMENT EVALUATION ==========
 
 void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
     switch (stmt->type) {
         case STMT_LET: {
             Value value = eval_expr(stmt->as.let.value, env, ctx);
-            // If there's a type annotation, convert/check the value
+            if (ctx->exception_state.is_throwing) return;
+
+            // If there's a type annotation on the statement, convert/check the value
             if (stmt->as.let.type_annotation != NULL) {
                 value = convert_to_type(value, stmt->as.let.type_annotation, env, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    value_release(value);
+                    return;
+                }
             }
-            env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
+
+            // Bind pattern to value (handles destructuring)
+            bind_pattern(stmt->as.let.pattern, value, env, 0, ctx);  // 0 = mutable
             break;
         }
 
         case STMT_CONST: {
             Value value = eval_expr(stmt->as.const_stmt.value, env, ctx);
-            // If there's a type annotation, convert/check the value
+            if (ctx->exception_state.is_throwing) return;
+
+            // If there's a type annotation on the statement, convert/check the value
             if (stmt->as.const_stmt.type_annotation != NULL) {
                 value = convert_to_type(value, stmt->as.const_stmt.type_annotation, env, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    value_release(value);
+                    return;
+                }
             }
-            env_define(env, stmt->as.const_stmt.name, value, 1, ctx);  // 1 = const
+
+            // Bind pattern to value (handles destructuring)
+            bind_pattern(stmt->as.const_stmt.pattern, value, env, 1, ctx);  // 1 = const
             break;
         }
 

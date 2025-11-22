@@ -1,0 +1,5 @@
+// Test array destructuring with strings
+let [first, second, third] = ["hello", "world", "test"];
+print(first);
+print(second);
+print(third);

@@ -1,0 +1,6 @@
+// Test: Error when array is too short
+try {
+    let [a, b, c] = [1, 2];
+} catch (e) {
+    print(e);
+}

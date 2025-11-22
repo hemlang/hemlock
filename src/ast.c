@@ -245,34 +245,110 @@ void type_free(Type *type) {
     }
 }
 
+// ========== PATTERN CONSTRUCTORS ==========
+
+Pattern* pattern_ident(const char *name, Type *type_annotation) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_IDENT;
+    pattern->as.ident.name = strdup(name);
+    pattern->as.ident.type_annotation = type_annotation;
+    return pattern;
+}
+
+Pattern* pattern_array(Pattern **elements, int num_elements) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_ARRAY;
+    pattern->as.array.elements = elements;
+    pattern->as.array.num_elements = num_elements;
+    return pattern;
+}
+
+Pattern* pattern_object(char **keys, char **bindings, int num_fields) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_OBJECT;
+    pattern->as.object.keys = keys;
+    pattern->as.object.bindings = bindings;
+    pattern->as.object.num_fields = num_fields;
+    return pattern;
+}
+
+void pattern_free(Pattern *pattern) {
+    if (!pattern) return;
+
+    switch (pattern->type) {
+        case PATTERN_IDENT:
+            free(pattern->as.ident.name);
+            if (pattern->as.ident.type_annotation) {
+                type_free(pattern->as.ident.type_annotation);
+            }
+            break;
+
+        case PATTERN_ARRAY:
+            for (int i = 0; i < pattern->as.array.num_elements; i++) {
+                pattern_free(pattern->as.array.elements[i]);
+            }
+            free(pattern->as.array.elements);
+            break;
+
+        case PATTERN_OBJECT:
+            for (int i = 0; i < pattern->as.object.num_fields; i++) {
+                free(pattern->as.object.keys[i]);
+                if (pattern->as.object.bindings && pattern->as.object.bindings[i]) {
+                    free(pattern->as.object.bindings[i]);
+                }
+            }
+            free(pattern->as.object.keys);
+            if (pattern->as.object.bindings) {
+                free(pattern->as.object.bindings);
+            }
+            break;
+    }
+
+    free(pattern);
+}
+
 // ========== STATEMENT CONSTRUCTORS ==========
 
+// Helper function to create simple let statements (backward compatibility)
 Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value) {
-    Stmt *stmt = malloc(sizeof(Stmt));
-    stmt->type = STMT_LET;
-    stmt->line = 0;
-    stmt->as.let.name = strdup(name);
-    stmt->as.let.type_annotation = type_annotation;  // Can be NULL
-    stmt->as.let.value = value;
-    return stmt;
+    Pattern *pattern = pattern_ident(name, NULL);  // Type annotation goes on statement for simple case
+    return stmt_let_pattern(pattern, type_annotation, value);
 }
 
 Stmt* stmt_let(const char *name, Expr *value) {
     return stmt_let_typed(name, NULL, value);
 }
 
-Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value) {
+// New pattern-based let statement constructor
+Stmt* stmt_let_pattern(Pattern *pattern, Type *type_annotation, Expr *value) {
     Stmt *stmt = malloc(sizeof(Stmt));
-    stmt->type = STMT_CONST;
+    stmt->type = STMT_LET;
     stmt->line = 0;
-    stmt->as.const_stmt.name = strdup(name);
-    stmt->as.const_stmt.type_annotation = type_annotation;  // Can be NULL
-    stmt->as.const_stmt.value = value;
+    stmt->as.let.pattern = pattern;
+    stmt->as.let.type_annotation = type_annotation;  // Can be NULL
+    stmt->as.let.value = value;
     return stmt;
+}
+
+// Helper function to create simple const statements (backward compatibility)
+Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value) {
+    Pattern *pattern = pattern_ident(name, NULL);  // Type annotation goes on statement for simple case
+    return stmt_const_pattern(pattern, type_annotation, value);
 }
 
 Stmt* stmt_const(const char *name, Expr *value) {
     return stmt_const_typed(name, NULL, value);
+}
+
+// New pattern-based const statement constructor
+Stmt* stmt_const_pattern(Pattern *pattern, Type *type_annotation, Expr *value) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_CONST;
+    stmt->line = 0;
+    stmt->as.const_stmt.pattern = pattern;
+    stmt->as.const_stmt.type_annotation = type_annotation;  // Can be NULL
+    stmt->as.const_stmt.value = value;
+    return stmt;
 }
 
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
@@ -753,12 +829,12 @@ void stmt_free(Stmt *stmt) {
     
     switch (stmt->type) {
         case STMT_LET:
-            free(stmt->as.let.name);
+            pattern_free(stmt->as.let.pattern);
             type_free(stmt->as.let.type_annotation);
             expr_free(stmt->as.let.value);
             break;
         case STMT_CONST:
-            free(stmt->as.const_stmt.name);
+            pattern_free(stmt->as.const_stmt.pattern);
             type_free(stmt->as.const_stmt.type_annotation);
             expr_free(stmt->as.const_stmt.value);
             break;

@@ -1,0 +1,6 @@
+// Test object destructuring from variable
+let point = {x: 100, y: 200, z: 300};
+let {x, y, z} = point;
+print(x);
+print(y);
+print(z);

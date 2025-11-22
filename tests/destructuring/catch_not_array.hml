@@ -1,0 +1,6 @@
+// Test: Error when destructuring non-array
+try {
+    let [a, b] = "not an array";
+} catch (e) {
+    print(e);
+}
