@@ -122,6 +122,7 @@ struct Expr {
             int is_async;
             char **param_names;
             Type **param_types;
+            Expr **param_defaults;  // Default value expressions (NULL if required)
             int num_params;
             Type *return_type;
             Stmt *body;
@@ -330,7 +331,7 @@ Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
 Expr* expr_index(Expr *object, Expr *index);
 Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
-Expr* expr_function(int is_async, char **param_names, Type **param_types, int num_params, Type *return_type, Stmt *body);
+Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int num_params, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);
 Expr* expr_prefix_inc(Expr *operand);

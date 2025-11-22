@@ -1261,6 +1261,7 @@ print(add5(3));  // 8
 - **Closures:** Functions capture their defining environment
 - **Recursion:** Fully supported (no tail call optimization yet)
 - **Type annotations:** Optional for parameters and return type
+- **Optional parameters:** Parameters can have default values
 - **Pass-by-value:** All arguments are copied
 
 **Return semantics:**
@@ -1277,11 +1278,85 @@ print(add5(3));  // 8
 - `fn name(...) {}` desugars to `let name = fn(...) {};`
 - Both forms are equivalent
 
+### Optional Parameters
+
+Functions can have optional parameters with default values using the `?:` syntax:
+
+```hemlock
+// Basic optional parameter
+fn greet(name: string, greeting?: "Hello") {
+    print(greeting + " " + name);
+}
+
+greet("Alice");              // Hello Alice
+greet("Bob", "Hi");          // Hi Bob
+
+// Multiple optional parameters
+fn format_name(first: string, middle?: "", last?: "Doe") {
+    if (middle == "") {
+        return first + " " + last;
+    }
+    return first + " " + middle + " " + last;
+}
+
+print(format_name("John"));                    // John Doe
+print(format_name("John", "Q", "Adams"));      // John Q Adams
+
+// Optional parameter with type annotation
+fn multiply(x: i32, factor?: 2): i32 {
+    return x * factor;
+}
+
+print(multiply(5));      // 10
+print(multiply(5, 3));   // 15
+
+// Default expressions can be complex
+fn power(base: i32, exp?: 2 + 1) {
+    let result = 1;
+    let i = 0;
+    while (i < exp) {
+        result = result * base;
+        i = i + 1;
+    }
+    return result;
+}
+
+print(power(2));      // 8 (2^3)
+print(power(2, 4));   // 16 (2^4)
+
+// Works with closures
+fn make_multiplier(factor?: 10) {
+    return fn(n) {
+        return n * factor;
+    };
+}
+
+let mult = make_multiplier();
+print(mult(5));  // 50
+
+// All optional parameters - 0 args is valid
+fn test(a?: 1, b?: 2, c?: 3) {
+    return a + b + c;
+}
+
+print(test());            // 6
+print(test(10));          // 15
+print(test(10, 20));      // 33
+print(test(10, 20, 30));  // 60
+```
+
+**Optional parameter rules:**
+- Optional parameters must come after all required parameters
+- Syntax: `param?: default_value` or `param: type?: default_value`
+- Default expressions are evaluated at call time, not function definition time
+- Default expressions are evaluated in the closure environment
+- Function calls validate argument count: `required ≤ provided ≤ total`
+- Error messages show the valid range: "Function expects 2-4 arguments, got 1"
+
 **Known limitations (v0.1):**
 - Closure environments are never freed (memory leak, to be fixed with refcounting in v0.2)
 - No pass-by-reference yet (`ref` keyword parsed but not implemented)
 - No variadic functions
-- No default arguments
 - No function overloading
 - No tail call optimization
 

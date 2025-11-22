@@ -401,7 +401,9 @@ Stmt* export_statement(Parser *p) {
 
     char **param_names = malloc(sizeof(char*) * 32);
     Type **param_types = malloc(sizeof(Type*) * 32);
+    Expr **param_defaults = malloc(sizeof(Expr*) * 32);
     int num_params = 0;
+    int seen_optional = 0;
 
     if (!check(p, TOK_RPAREN)) {
         do {
@@ -412,6 +414,18 @@ Stmt* export_statement(Parser *p) {
                 param_types[num_params] = parse_type(p);
             } else {
                 param_types[num_params] = NULL;
+            }
+
+            // Check for optional parameter
+            if (match(p, TOK_QUESTION)) {
+                consume(p, TOK_COLON, "Expect ':' after '?' for default value");
+                param_defaults[num_params] = expression(p);
+                seen_optional = 1;
+            } else {
+                if (seen_optional) {
+                    error_at(p, &p->current, "Required parameters must come before optional parameters");
+                }
+                param_defaults[num_params] = NULL;
             }
 
             num_params++;
@@ -431,7 +445,7 @@ Stmt* export_statement(Parser *p) {
     Stmt *body = block_statement(p);
 
     // Create function expression
-    Expr *fn_expr = expr_function(is_async, param_names, param_types, num_params, return_type, body);
+    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, return_type, body);
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -590,7 +604,9 @@ Stmt* statement(Parser *p) {
         // Parse parameters
         char **param_names = malloc(sizeof(char*) * 32);
         Type **param_types = malloc(sizeof(Type*) * 32);
+        Expr **param_defaults = malloc(sizeof(Expr*) * 32);
         int num_params = 0;
+        int seen_optional = 0;
 
         if (!check(p, TOK_RPAREN)) {
             do {
@@ -601,6 +617,18 @@ Stmt* statement(Parser *p) {
                     param_types[num_params] = parse_type(p);
                 } else {
                     param_types[num_params] = NULL;
+                }
+
+                // Check for optional parameter
+                if (match(p, TOK_QUESTION)) {
+                    consume(p, TOK_COLON, "Expect ':' after '?' for default value");
+                    param_defaults[num_params] = expression(p);
+                    seen_optional = 1;
+                } else {
+                    if (seen_optional) {
+                        error_at(p, &p->current, "Required parameters must come before optional parameters");
+                    }
+                    param_defaults[num_params] = NULL;
                 }
 
                 num_params++;
@@ -620,7 +648,7 @@ Stmt* statement(Parser *p) {
         Stmt *body = block_statement(p);
 
         // Create function expression (with is_async flag)
-        Expr *fn_expr = expr_function(is_async, param_names, param_types, num_params, return_type, body);
+        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, return_type, body);
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);
