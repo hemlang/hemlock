@@ -74,7 +74,7 @@ assert(error_caught, "parse error on invalid JSON");
 
 // Test error handling - circular reference in stringify
 let circular = {};
-circular.self = circular;
+circular.circ = circular;
 let circular_error = false;
 try {
     stringify(circular);

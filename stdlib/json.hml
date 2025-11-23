@@ -91,7 +91,7 @@ fn format_value(value, depth: i32, indent_str: string): string {
     }
 
     // Objects
-    if (value_type == "object" || value_type != "null") {
+    if (value_type == "object") {
         return format_object(value, depth, indent_str);
     }
 
@@ -208,7 +208,7 @@ fn object_keys(obj) {
 
 // Pretty print JSON with indentation
 // indent can be: number of spaces (i32) or string (e.g., "\t")
-fn pretty(value, indent?) {
+fn pretty(value, indent?: null) {
     let indent_str = "  ";  // Default: 2 spaces
 
     if (indent != null) {
@@ -227,7 +227,7 @@ fn pretty(value, indent?) {
 }
 
 // Pretty print JSON to file
-fn pretty_file(path: string, value, indent?) {
+fn pretty_file(path: string, value, indent?: null) {
     let formatted = pretty(value, indent);
 
     let f = open(path, "w");
@@ -278,7 +278,7 @@ fn parse_int(s: string): i32 {
 // Get value by path (dot notation)
 // Example: get(obj, "user.address.city")
 // Example: get(obj, "items.0") for array index
-fn get(obj, path: string, default_val?) {
+fn get(obj, path: string, default_val?: null) {
     if (path.length == 0) {
         return obj;
     }
