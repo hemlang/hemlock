@@ -67,8 +67,20 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
     Function *prev_handler = signal_handlers[signum];
     Value prev_val = prev_handler ? val_function(prev_handler) : val_null();
 
-    // Update handler table
+    // Retain prev_val BEFORE we release it from signal_handlers
+    // This keeps it alive for the caller
+    if (prev_handler) {
+        function_retain(prev_handler);
+    }
+
+    // Update handler table with proper refcounting
+    if (prev_handler) {
+        function_release(prev_handler);  // Release old handler from signal_handlers
+    }
     signal_handlers[signum] = new_handler;
+    if (new_handler) {
+        function_retain(new_handler);  // Retain new handler in signal_handlers
+    }
 
     // Install C signal handler or reset to default
     if (new_handler != NULL) {

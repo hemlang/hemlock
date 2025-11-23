@@ -11,6 +11,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 value = convert_to_type(value, stmt->as.let.type_annotation, env, ctx);
             }
             env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
+            value_release(value);  // Release original reference (env_define retains)
             break;
         }
 
@@ -21,11 +22,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 value = convert_to_type(value, stmt->as.const_stmt.type_annotation, env, ctx);
             }
             env_define(env, stmt->as.const_stmt.name, value, 1, ctx);  // 1 = const
+            value_release(value);  // Release original reference (env_define retains)
             break;
         }
 
         case STMT_EXPR: {
-            eval_expr(stmt->as.expr, env, ctx);
+            Value result = eval_expr(stmt->as.expr, env, ctx);
+            value_release(result);  // Release unused expression result
             break;
         }
 

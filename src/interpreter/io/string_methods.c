@@ -514,7 +514,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         memcpy(buf->data, str->data, str->length);
         buf->length = str->length;
         buf->capacity = str->length;
-        buf->ref_count = 0;
+        buf->ref_count = 1;  // Start with 1 - caller owns the first reference
 
         return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
     }

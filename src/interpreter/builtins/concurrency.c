@@ -179,9 +179,10 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
 
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
-    // Release the task (decrement ref count, will free if reaches 0)
-    // After join(), the task is consumed and should be cleaned up
-    task_release(task);
+    // NOTE: We do NOT release the task here. The task will be released when the
+    // variable goes out of scope (automatic refcounting handles this).
+    // Previously task_release() was called here, but with proper refcounting,
+    // this caused use-after-free when the variable still held a reference.
 
     return result;
 }

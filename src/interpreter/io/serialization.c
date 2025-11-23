@@ -354,6 +354,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         obj->num_fields = 0;
         obj->capacity = 32;
         obj->type_name = NULL;
+        obj->ref_count = 1;  // Start with 1 - caller owns the first reference
         return val_object(obj);
     }
 
@@ -373,6 +374,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
             return val_null();
         }
         field_names[num_fields] = strdup(name_val.as.as_string->data);
+        value_release(name_val);  // Release the temporary string after copying
 
         json_skip_whitespace(p);
 
@@ -440,6 +442,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     obj->num_fields = num_fields;
     obj->capacity = 32;
     obj->type_name = NULL;
+    obj->ref_count = 1;  // Start with 1 - caller owns the first reference
     return val_object(obj);
 }
 

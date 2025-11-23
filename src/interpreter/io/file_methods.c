@@ -55,7 +55,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
             str->length = read_bytes;
             str->char_length = -1;
             str->capacity = size + 1;
-            str->ref_count = 0;
+            str->ref_count = 1;  // Start with 1 - caller owns the first reference
 
             return (Value){ .type = VAL_STRING, .as.as_string = str };
         } else if (num_args == 1) {
@@ -87,7 +87,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
             str->length = read_bytes;
             str->char_length = -1;
             str->capacity = size + 1;
-            str->ref_count = 0;
+            str->ref_count = 1;  // Start with 1 - caller owns the first reference
 
             return (Value){ .type = VAL_STRING, .as.as_string = str };
         } else {
@@ -111,7 +111,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
             buf->data = malloc(1);
             buf->length = 0;
             buf->capacity = 0;
-            buf->ref_count = 0;
+            buf->ref_count = 1;  // Start with 1 - caller owns the first reference
             return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
         }
 
@@ -131,7 +131,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         buf->data = data;
         buf->length = read_bytes;
         buf->capacity = size;
-        buf->ref_count = 0;
+        buf->ref_count = 1;  // Start with 1 - caller owns the first reference
 
         return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
     }
@@ -289,7 +289,7 @@ Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
     str->data = line;
     str->length = read;
     str->capacity = len;
-    str->ref_count = 0;
+    str->ref_count = 1;  // Start with 1 - caller owns the first reference
 
     return (Value){ .type = VAL_STRING, .as.as_string = str };
 }
