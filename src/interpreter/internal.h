@@ -175,6 +175,7 @@ void value_release(Value val);
 
 // Printing
 void print_value(Value val);
+char* value_to_string(Value val);  // Caller must free result
 
 // ========== TYPES (types.c) ==========
 

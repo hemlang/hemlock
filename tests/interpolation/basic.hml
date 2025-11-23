@@ -1,0 +1,15 @@
+// Basic string interpolation tests
+
+// Simple variable interpolation
+let name = "Alice";
+let greeting = `Hello, ${name}!`;
+print(greeting);
+
+// Multiple interpolations
+let age = 30;
+let msg = `Hello, ${name}! You are ${age} years old.`;
+print(msg);
+
+// Expected output:
+// Hello, Alice!
+// Hello, Alice! You are 30 years old.

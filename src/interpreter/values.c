@@ -913,6 +913,153 @@ void print_value(Value val) {
     }
 }
 
+// Convert value to string (caller must free the result)
+char* value_to_string(Value val) {
+    char buffer[1024];  // Temporary buffer for formatting
+
+    switch (val.type) {
+        case VAL_I8:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i8);
+            return strdup(buffer);
+        case VAL_I16:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i16);
+            return strdup(buffer);
+        case VAL_I32:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
+            return strdup(buffer);
+        case VAL_I64:
+            snprintf(buffer, sizeof(buffer), "%ld", val.as.as_i64);
+            return strdup(buffer);
+        case VAL_U8:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
+            return strdup(buffer);
+        case VAL_U16:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u16);
+            return strdup(buffer);
+        case VAL_U32:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
+            return strdup(buffer);
+        case VAL_U64:
+            snprintf(buffer, sizeof(buffer), "%lu", val.as.as_u64);
+            return strdup(buffer);
+        case VAL_F32:
+            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
+            return strdup(buffer);
+        case VAL_F64:
+            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f64);
+            return strdup(buffer);
+        case VAL_BOOL:
+            return strdup(val.as.as_bool ? "true" : "false");
+        case VAL_STRING:
+            return strdup(val.as.as_string->data);
+        case VAL_RUNE: {
+            // Convert rune to UTF-8 string
+            uint32_t r = val.as.as_rune;
+            char utf8[5] = {0};
+
+            if (r < 0x80) {
+                utf8[0] = (char)r;
+            } else if (r < 0x800) {
+                utf8[0] = 0xC0 | (r >> 6);
+                utf8[1] = 0x80 | (r & 0x3F);
+            } else if (r < 0x10000) {
+                utf8[0] = 0xE0 | (r >> 12);
+                utf8[1] = 0x80 | ((r >> 6) & 0x3F);
+                utf8[2] = 0x80 | (r & 0x3F);
+            } else {
+                utf8[0] = 0xF0 | (r >> 18);
+                utf8[1] = 0x80 | ((r >> 12) & 0x3F);
+                utf8[2] = 0x80 | ((r >> 6) & 0x3F);
+                utf8[3] = 0x80 | (r & 0x3F);
+            }
+
+            return strdup(utf8);
+        }
+        case VAL_PTR:
+            snprintf(buffer, sizeof(buffer), "%p", val.as.as_ptr);
+            return strdup(buffer);
+        case VAL_BUFFER:
+            snprintf(buffer, sizeof(buffer), "<buffer %p length=%d capacity=%d>",
+                   val.as.as_buffer->data,
+                   val.as.as_buffer->length,
+                   val.as.as_buffer->capacity);
+            return strdup(buffer);
+        case VAL_ARRAY: {
+            // Simple array representation
+            Array *arr = val.as.as_array;
+            int total_len = 2;  // [ and ]
+            char **parts = malloc(sizeof(char*) * arr->length);
+            for (int i = 0; i < arr->length; i++) {
+                parts[i] = value_to_string(arr->elements[i]);
+                total_len += strlen(parts[i]);
+                if (i > 0) total_len += 2;  // ", "
+            }
+
+            char *result = malloc(total_len + 1);
+            strcpy(result, "[");
+            for (int i = 0; i < arr->length; i++) {
+                if (i > 0) strcat(result, ", ");
+                strcat(result, parts[i]);
+                free(parts[i]);
+            }
+            strcat(result, "]");
+            free(parts);
+            return result;
+        }
+        case VAL_FILE: {
+            FileHandle *file = val.as.as_file;
+            if (file->closed) {
+                return strdup("<file (closed)>");
+            } else {
+                snprintf(buffer, sizeof(buffer), "<file '%s' mode='%s'>", file->path, file->mode);
+                return strdup(buffer);
+            }
+        }
+        case VAL_SOCKET: {
+            SocketHandle *sock = val.as.as_socket;
+            if (sock->closed) {
+                return strdup("<socket (closed)>");
+            } else if (sock->address) {
+                snprintf(buffer, sizeof(buffer), "<socket %s:%d fd=%d%s>",
+                       sock->address, sock->port, sock->fd,
+                       sock->listening ? " listening" : "");
+                return strdup(buffer);
+            } else {
+                snprintf(buffer, sizeof(buffer), "<socket fd=%d>", sock->fd);
+                return strdup(buffer);
+            }
+        }
+        case VAL_OBJECT:
+            if (val.as.as_object->type_name) {
+                snprintf(buffer, sizeof(buffer), "<object:%s>", val.as.as_object->type_name);
+                return strdup(buffer);
+            } else {
+                return strdup("<object>");
+            }
+        case VAL_TYPE:
+            return strdup("<type>");
+        case VAL_BUILTIN_FN:
+            return strdup("<builtin function>");
+        case VAL_FUNCTION:
+            return strdup("<function>");
+        case VAL_FFI_FUNCTION:
+            return strdup("<ffi function>");
+        case VAL_TASK:
+            snprintf(buffer, sizeof(buffer), "<task %d>", val.as.as_task->id);
+            return strdup(buffer);
+        case VAL_CHANNEL:
+            snprintf(buffer, sizeof(buffer), "<channel capacity=%d count=%d%s>",
+                   val.as.as_channel->capacity,
+                   val.as.as_channel->count,
+                   val.as.as_channel->closed ? " closed" : "");
+            return strdup(buffer);
+        case VAL_NULL:
+            return strdup("null");
+    }
+
+    return strdup("<unknown>");
+}
+
 // ========== VALUE CLEANUP ==========
 
 // ========== CYCLE DETECTION FOR DEALLOCATION ==========

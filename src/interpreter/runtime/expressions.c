@@ -1548,6 +1548,46 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             return val_null();  // Unreachable, but silences fallthrough warning
         }
 
+        case EXPR_STRING_INTERPOLATION: {
+            // Evaluate string interpolation: "prefix ${expr1} middle ${expr2} suffix"
+            // Build the final string by concatenating string parts and evaluated expressions
+
+            int num_parts = expr->as.string_interpolation.num_parts;
+            char **string_parts = expr->as.string_interpolation.string_parts;
+            Expr **expr_parts = expr->as.string_interpolation.expr_parts;
+
+            // Calculate total length needed
+            int total_len = 0;
+            for (int i = 0; i <= num_parts; i++) {
+                total_len += strlen(string_parts[i]);
+            }
+
+            // Evaluate expression parts and convert to strings
+            char **expr_strings = malloc(sizeof(char*) * num_parts);
+            for (int i = 0; i < num_parts; i++) {
+                Value expr_val = eval_expr(expr_parts[i], env, ctx);
+                expr_strings[i] = value_to_string(expr_val);
+                total_len += strlen(expr_strings[i]);
+            }
+
+            // Build final string
+            char *result = malloc(total_len + 1);
+            result[0] = '\0';
+
+            for (int i = 0; i < num_parts; i++) {
+                strcat(result, string_parts[i]);
+                strcat(result, expr_strings[i]);
+                free(expr_strings[i]);
+            }
+            strcat(result, string_parts[num_parts]);  // Final string part
+
+            free(expr_strings);
+
+            Value val = val_string(result);
+            free(result);
+            return val;
+        }
+
         case EXPR_AWAIT: {
             // Evaluate the expression
             Value awaited = eval_expr(expr->as.await_expr.awaited_expr, env, ctx);

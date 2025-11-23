@@ -1,0 +1,32 @@
+// Test string interpolation with expressions
+
+let x = 10;
+let y = 20;
+
+// Arithmetic expressions
+print(`Sum: ${x + y}`);
+print(`Product: ${x * y}`);
+print(`Division: ${y / x}`);
+
+// Method calls
+let text = "hemlock";
+print(`Uppercase: ${text.to_upper()}`);
+
+// Array access
+let items = [1, 2, 3, 4, 5];
+print(`First: ${items[0]}, Last: ${items[4]}`);
+print(`Length: ${items.length}`);
+
+// Escape sequences
+print(`Price: \$100`);
+print(`Use \` for templates`);
+
+// Expected output:
+// Sum: 30
+// Product: 200
+// Division: 2
+// Uppercase: HEMLOCK
+// First: 1, Last: 5
+// Length: 5
+// Price: $100
+// Use ` for templates

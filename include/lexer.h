@@ -8,6 +8,7 @@ typedef enum {
     // Literals
     TOK_NUMBER,
     TOK_STRING,
+    TOK_TEMPLATE_STRING,  // Backtick strings with interpolation
     TOK_RUNE,
     TOK_IDENT,
     TOK_TRUE,

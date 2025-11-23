@@ -168,6 +168,66 @@ static Token string(Lexer *lex) {
     return token;
 }
 
+static Token template_string(Lexer *lex) {
+    // Build template string with ${...} preserved for parser
+    char *buffer = malloc(256);
+    int capacity = 256;
+    int length = 0;
+
+    while (peek(lex) != '`' && !is_at_end(lex)) {
+        if (peek(lex) == '\n') lex->line++;
+
+        char c = peek(lex);
+        advance(lex);
+
+        // Handle escape sequences
+        if (c == '\\') {
+            if (is_at_end(lex)) {
+                free(buffer);
+                return error_token(lex, "Unterminated template string (escape at end)");
+            }
+
+            c = peek(lex);
+            advance(lex);
+
+            switch (c) {
+                case 'n':  c = '\n'; break;
+                case 't':  c = '\t'; break;
+                case 'r':  c = '\r'; break;
+                case '\\': c = '\\'; break;
+                case '`':  c = '`'; break;
+                case '$':  c = '$'; break;  // Escaped $ (literal dollar sign)
+                default:
+                    free(buffer);
+                    return error_token(lex, "Unknown escape sequence in template string");
+            }
+        }
+
+        // Grow buffer if needed
+        if (length >= capacity - 1) {
+            capacity *= 2;
+            buffer = realloc(buffer, capacity);
+        }
+
+        buffer[length++] = c;
+    }
+
+    if (is_at_end(lex)) {
+        free(buffer);
+        return error_token(lex, "Unterminated template string");
+    }
+
+    // Closing backtick
+    advance(lex);
+
+    buffer[length] = '\0';
+
+    Token token = make_token(lex, TOK_TEMPLATE_STRING);
+    token.string_value = buffer;
+
+    return token;
+}
+
 static Token rune_literal(Lexer *lex) {
     // Read the character or escape sequence
     if (is_at_end(lex) || peek(lex) == '\'') {
@@ -450,6 +510,7 @@ Token lexer_next(Lexer *lex) {
     if (isdigit(c)) return number(lex);
     if (isalpha(c) || c == '_') return identifier(lex);
     if (c == '"') return string(lex);
+    if (c == '`') return template_string(lex);
     if (c == '\'') return rune_literal(lex);
 
     switch (c) {

@@ -224,6 +224,16 @@ Expr* expr_await(Expr *awaited_expr) {
     return expr;
 }
 
+Expr* expr_string_interpolation(char **string_parts, Expr **expr_parts, int num_parts) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_STRING_INTERPOLATION;
+    expr->line = 0;
+    expr->as.string_interpolation.string_parts = string_parts;
+    expr->as.string_interpolation.expr_parts = expr_parts;
+    expr->as.string_interpolation.num_parts = num_parts;
+    return expr;
+}
+
 Expr* expr_optional_chain_property(Expr *object, const char *property) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OPTIONAL_CHAIN;
@@ -693,6 +703,23 @@ Expr* expr_clone(const Expr *expr) {
         case EXPR_AWAIT:
             return expr_await(expr_clone(expr->as.await_expr.awaited_expr));
 
+        case EXPR_STRING_INTERPOLATION: {
+            // Clone string parts
+            int n = expr->as.string_interpolation.num_parts;
+            char **new_string_parts = malloc(sizeof(char*) * (n + 1));
+            for (int i = 0; i <= n; i++) {
+                new_string_parts[i] = strdup(expr->as.string_interpolation.string_parts[i]);
+            }
+
+            // Clone expr parts
+            Expr **new_expr_parts = malloc(sizeof(Expr*) * n);
+            for (int i = 0; i < n; i++) {
+                new_expr_parts[i] = expr_clone(expr->as.string_interpolation.expr_parts[i]);
+            }
+
+            return expr_string_interpolation(new_string_parts, new_expr_parts, n);
+        }
+
         case EXPR_OPTIONAL_CHAIN:
             if (expr->as.optional_chain.is_property) {
                 return expr_optional_chain_property(
@@ -839,6 +866,21 @@ void expr_free(Expr *expr) {
         case EXPR_AWAIT:
             expr_free(expr->as.await_expr.awaited_expr);
             break;
+        case EXPR_STRING_INTERPOLATION: {
+            // Free string parts
+            int n = expr->as.string_interpolation.num_parts;
+            for (int i = 0; i <= n; i++) {
+                free(expr->as.string_interpolation.string_parts[i]);
+            }
+            free(expr->as.string_interpolation.string_parts);
+
+            // Free expr parts
+            for (int i = 0; i < n; i++) {
+                expr_free(expr->as.string_interpolation.expr_parts[i]);
+            }
+            free(expr->as.string_interpolation.expr_parts);
+            break;
+        }
         case EXPR_OPTIONAL_CHAIN:
             expr_free(expr->as.optional_chain.object);
             if (expr->as.optional_chain.property) {
