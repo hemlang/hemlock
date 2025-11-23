@@ -273,6 +273,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
+            // Rune comparisons
+            if (left.type == VAL_RUNE && right.type == VAL_RUNE) {
+                if (expr->as.binary.op == OP_EQUAL) {
+                    binary_result = val_bool(left.as.as_rune == right.as.as_rune);
+                    goto binary_cleanup;
+                } else if (expr->as.binary.op == OP_NOT_EQUAL) {
+                    binary_result = val_bool(left.as.as_rune != right.as.as_rune);
+                    goto binary_cleanup;
+                }
+            }
+
             // Null comparisons
             if (left.type == VAL_NULL || right.type == VAL_NULL) {
                 if (expr->as.binary.op == OP_EQUAL) {
