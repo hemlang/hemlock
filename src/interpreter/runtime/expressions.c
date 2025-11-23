@@ -845,10 +845,27 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Call user-defined function
                 Function *fn = func.as.as_function;
 
-                // Check argument count
-                if (expr->as.call.num_args != fn->num_params) {
-                    runtime_error(ctx, "Function expects %d arguments, got %d",
-                            fn->num_params, expr->as.call.num_args);
+                // Calculate number of required parameters (those without defaults)
+                int required_params = 0;
+                if (fn->param_defaults) {
+                    for (int i = 0; i < fn->num_params; i++) {
+                        if (!fn->param_defaults[i]) {
+                            required_params++;
+                        }
+                    }
+                } else {
+                    required_params = fn->num_params;
+                }
+
+                // Check argument count (must be between required and total params)
+                if (expr->as.call.num_args < required_params || expr->as.call.num_args > fn->num_params) {
+                    if (required_params == fn->num_params) {
+                        runtime_error(ctx, "Function expects %d arguments, got %d",
+                                fn->num_params, expr->as.call.num_args);
+                    } else {
+                        runtime_error(ctx, "Function expects %d-%d arguments, got %d",
+                                required_params, fn->num_params, expr->as.call.num_args);
+                    }
                     // Release function and args before returning
                     value_release(func);
                     if (args) {
@@ -897,7 +914,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Bind parameters
                 for (int i = 0; i < fn->num_params; i++) {
-                    Value arg_value = args[i];
+                    Value arg_value;
+
+                    // Use provided argument or evaluate default
+                    if (i < expr->as.call.num_args) {
+                        // Argument was provided
+                        arg_value = args[i];
+                    } else {
+                        // Argument missing - use default value
+                        if (fn->param_defaults && fn->param_defaults[i]) {
+                            // Evaluate default expression in the closure environment
+                            arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
+                        } else {
+                            // Should never happen if arity check is correct
+                            runtime_error(ctx, "Missing required parameter '%s'", fn->param_names[i]);
+                        }
+                    }
 
                     // Type check if parameter has type annotation
                     if (fn->param_types[i]) {
@@ -1183,9 +1215,31 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             for (int i = 0; i < expr->as.function.num_params; i++) {
                 if (expr->as.function.param_types[i]) {
                     fn->param_types[i] = type_new(expr->as.function.param_types[i]->kind);
+                    // Copy type_name for custom types (enums and objects)
+                    if (expr->as.function.param_types[i]->type_name) {
+                        fn->param_types[i]->type_name = strdup(expr->as.function.param_types[i]->type_name);
+                    }
+                    // Copy element_type for arrays
+                    if (expr->as.function.param_types[i]->element_type) {
+                        fn->param_types[i]->element_type = type_new(expr->as.function.param_types[i]->element_type->kind);
+                        if (expr->as.function.param_types[i]->element_type->type_name) {
+                            fn->param_types[i]->element_type->type_name = strdup(expr->as.function.param_types[i]->element_type->type_name);
+                        }
+                    }
                 } else {
                     fn->param_types[i] = NULL;
                 }
+            }
+
+            // Store parameter defaults (AST expressions, not evaluated yet)
+            // We share the AST nodes (not copied) since they're immutable
+            if (expr->as.function.param_defaults) {
+                fn->param_defaults = malloc(sizeof(Expr*) * expr->as.function.num_params);
+                for (int i = 0; i < expr->as.function.num_params; i++) {
+                    fn->param_defaults[i] = expr->as.function.param_defaults[i];
+                }
+            } else {
+                fn->param_defaults = NULL;
             }
 
             fn->num_params = expr->as.function.num_params;
@@ -1193,6 +1247,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Copy return type (may be NULL)
             if (expr->as.function.return_type) {
                 fn->return_type = type_new(expr->as.function.return_type->kind);
+                // Copy type_name for custom types (enums and objects)
+                if (expr->as.function.return_type->type_name) {
+                    fn->return_type->type_name = strdup(expr->as.function.return_type->type_name);
+                }
+                // Copy element_type for arrays
+                if (expr->as.function.return_type->element_type) {
+                    fn->return_type->element_type = type_new(expr->as.function.return_type->element_type->kind);
+                    if (expr->as.function.return_type->element_type->type_name) {
+                        fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
+                    }
+                }
             } else {
                 fn->return_type = NULL;
             }
@@ -1496,6 +1561,148 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // For other values (including direct async function calls),
             // just return the value as-is (already evaluated)
             return awaited;
+        }
+
+        case EXPR_OPTIONAL_CHAIN: {
+            // Evaluate the object expression
+            Value object_val = eval_expr(expr->as.optional_chain.object, env, ctx);
+
+            // If object is null, short-circuit and return null
+            if (object_val.type == VAL_NULL) {
+                return val_null();
+            }
+
+            // Otherwise, perform the operation based on the type
+            if (expr->as.optional_chain.is_property) {
+                // Optional property access: obj?.property
+                const char *property = expr->as.optional_chain.property;
+                Value result;
+
+                // Handle property access for different types (similar to EXPR_GET_PROPERTY)
+                if (object_val.type == VAL_STRING) {
+                    String *str = object_val.as.as_string;
+
+                    if (strcmp(property, "length") == 0) {
+                        if (str->char_length < 0) {
+                            str->char_length = utf8_count_codepoints(str->data, str->length);
+                        }
+                        result = val_i32(str->char_length);
+                    } else if (strcmp(property, "byte_length") == 0) {
+                        result = val_i32(str->length);
+                    } else {
+                        runtime_error(ctx, "Unknown property '%s' for string", property);
+                    }
+                } else if (object_val.type == VAL_ARRAY) {
+                    if (strcmp(property, "length") == 0) {
+                        result = val_i32(object_val.as.as_array->length);
+                    } else {
+                        runtime_error(ctx, "Unknown property '%s' for array", property);
+                    }
+                } else if (object_val.type == VAL_BUFFER) {
+                    if (strcmp(property, "length") == 0) {
+                        result = val_i32(object_val.as.as_buffer->length);
+                    } else if (strcmp(property, "capacity") == 0) {
+                        result = val_i32(object_val.as.as_buffer->capacity);
+                    } else {
+                        runtime_error(ctx, "Unknown property '%s' for buffer", property);
+                    }
+                } else if (object_val.type == VAL_FILE) {
+                    FileHandle *f = object_val.as.as_file;
+                    if (strcmp(property, "path") == 0) {
+                        result = val_string(f->path);
+                    } else if (strcmp(property, "mode") == 0) {
+                        result = val_string(f->mode);
+                    } else if (strcmp(property, "closed") == 0) {
+                        result = val_bool(f->closed);
+                    } else {
+                        runtime_error(ctx, "Unknown property '%s' for file", property);
+                    }
+                } else if (object_val.type == VAL_OBJECT) {
+                    Object *obj = object_val.as.as_object;
+                    for (int i = 0; i < obj->num_fields; i++) {
+                        if (strcmp(obj->field_names[i], property) == 0) {
+                            result = obj->field_values[i];
+                            value_retain(result);
+                            value_release(object_val);
+                            return result;
+                        }
+                    }
+                    // For optional chaining, return null for missing properties
+                    value_release(object_val);
+                    return val_null();
+                } else {
+                    runtime_error(ctx, "Cannot access property on non-object value");
+                }
+
+                value_release(object_val);
+                return result;
+            } else if (expr->as.optional_chain.is_call) {
+                // Optional call is not supported for now
+                runtime_error(ctx, "Optional chaining for function calls is not yet supported");
+            } else {
+                // Optional indexing: obj?.[index]
+                Value index_val = eval_expr(expr->as.optional_chain.index, env, ctx);
+
+                if (!is_integer(index_val)) {
+                    runtime_error(ctx, "Index must be an integer");
+                }
+
+                int32_t index = value_to_int(index_val);
+                Value result;
+
+                if (object_val.type == VAL_ARRAY) {
+                    result = array_get(object_val.as.as_array, index, ctx);
+                    value_retain(result);
+                } else if (object_val.type == VAL_STRING) {
+                    String *str = object_val.as.as_string;
+
+                    // Compute character length if not cached
+                    if (str->char_length < 0) {
+                        str->char_length = utf8_count_codepoints(str->data, str->length);
+                    }
+
+                    // Check bounds using character count (not byte count)
+                    if (index < 0 || index >= str->char_length) {
+                        runtime_error(ctx, "String index out of bounds");
+                    }
+
+                    // Find byte offset of the i-th codepoint
+                    int byte_pos = utf8_byte_offset(str->data, str->length, index);
+
+                    // Decode the codepoint at that position
+                    uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+
+                    result = val_rune(codepoint);
+                } else if (object_val.type == VAL_BUFFER) {
+                    Buffer *buf = object_val.as.as_buffer;
+
+                    if (index < 0 || index >= buf->length) {
+                        runtime_error(ctx, "Buffer index out of bounds");
+                    }
+
+                    result = val_u8(((unsigned char *)buf->data)[index]);
+                } else {
+                    runtime_error(ctx, "Cannot index non-array/non-string/non-buffer value");
+                }
+
+                value_release(object_val);
+                value_release(index_val);
+                return result;
+            }
+            break;  // Prevent fall-through
+        }
+
+        case EXPR_NULL_COALESCE: {
+            // Evaluate the left operand
+            Value left_val = eval_expr(expr->as.null_coalesce.left, env, ctx);
+
+            // If left is not null, return it
+            if (left_val.type != VAL_NULL) {
+                return left_val;
+            }
+
+            // Otherwise, evaluate and return the right operand
+            return eval_expr(expr->as.null_coalesce.right, env, ctx);
         }
     }
 

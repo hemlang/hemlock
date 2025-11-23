@@ -28,6 +28,7 @@ typedef enum {
     TOK_RETURN,
     TOK_REF,
     TOK_DEFINE,
+    TOK_ENUM,
     TOK_OBJECT,
     TOK_SELF,
     TOK_TRY,
@@ -97,6 +98,8 @@ typedef enum {
     TOK_TILDE,
     TOK_LESS_LESS,
     TOK_GREATER_GREATER,
+    TOK_QUESTION_DOT,        // ?.
+    TOK_QUESTION_QUESTION,   // ??
 
     // Punctuation
     TOK_SEMICOLON,

@@ -101,6 +101,7 @@ typedef struct {
     int is_async;
     char **param_names;
     Type **param_types;
+    Expr **param_defaults;  // Default value expressions (NULL for required params)
     int num_params;
     Type *return_type;
     Stmt *body;

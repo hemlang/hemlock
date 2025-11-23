@@ -1,0 +1,35 @@
+{
+  "name": "hemlock",
+  "displayName": "Hemlock",
+  "description": "Syntax highlighting for Hemlock programming language",
+  "version": "0.1.0",
+  "publisher": "hemlock",
+  "engines": {
+    "vscode": "^1.50.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "hemlock",
+        "aliases": [
+          "Hemlock",
+          "hemlock"
+        ],
+        "extensions": [
+          ".hml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "hemlock",
+        "scopeName": "source.hemlock",
+        "path": "./syntaxes/hemlock.tmLanguage.json"
+      }
+    ]
+  }
+}

@@ -25,6 +25,9 @@ void register_object_type(ObjectType *type) {
 }
 
 ObjectType* lookup_object_type(const char *name) {
+    if (name == NULL) {
+        return NULL;
+    }
     for (int i = 0; i < object_types.count; i++) {
         if (strcmp(object_types.types[i]->name, name) == 0) {
             return object_types.types[i];
@@ -68,6 +71,74 @@ void cleanup_object_types(void) {
     object_types.types = NULL;
     object_types.count = 0;
     object_types.capacity = 0;
+}
+
+// ========== ENUM TYPE REGISTRY ==========
+
+EnumTypeRegistry enum_types = {0};
+
+void init_enum_types(void) {
+    if (enum_types.types == NULL) {
+        enum_types.capacity = 16;
+        enum_types.types = malloc(sizeof(EnumType*) * enum_types.capacity);
+        enum_types.count = 0;
+    }
+}
+
+void register_enum_type(EnumType *type) {
+    init_enum_types();
+    if (enum_types.count >= enum_types.capacity) {
+        enum_types.capacity *= 2;
+        enum_types.types = realloc(enum_types.types, sizeof(EnumType*) * enum_types.capacity);
+    }
+    enum_types.types[enum_types.count++] = type;
+}
+
+EnumType* lookup_enum_type(const char *name) {
+    if (name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < enum_types.count; i++) {
+        if (strcmp(enum_types.types[i]->name, name) == 0) {
+            return enum_types.types[i];
+        }
+    }
+    return NULL;
+}
+
+void cleanup_enum_types(void) {
+    if (enum_types.types == NULL) {
+        return;  // Nothing to clean up
+    }
+
+    // Free each EnumType
+    for (int i = 0; i < enum_types.count; i++) {
+        EnumType *type = enum_types.types[i];
+        if (type) {
+            // Free type name
+            free(type->name);
+
+            // Free variant names
+            for (int j = 0; j < type->num_variants; j++) {
+                free(type->variant_names[j]);
+            }
+            free(type->variant_names);
+
+            // Free variant values
+            free(type->variant_values);
+
+            // Free the EnumType struct itself
+            free(type);
+        }
+    }
+
+    // Free the types array
+    free(enum_types.types);
+
+    // Reset the registry
+    enum_types.types = NULL;
+    enum_types.count = 0;
+    enum_types.capacity = 0;
 }
 
 // Check if an object matches a type definition (duck typing)
@@ -339,11 +410,25 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     TypeKind kind = target_type->kind;
 
-    // Handle object types
+    // Handle object and enum types (both use TYPE_CUSTOM_OBJECT at parse time)
     if (kind == TYPE_CUSTOM_OBJECT) {
+        // Check if it's an enum type first
+        EnumType *enum_type = lookup_enum_type(target_type->type_name);
+        if (enum_type) {
+            // Enum values are i32
+            if (value.type != VAL_I32) {
+                fprintf(stderr, "Runtime error: Expected enum value (i32) for type '%s'\n",
+                        target_type->type_name);
+                exit(1);
+            }
+            // Optionally validate that the value is a valid variant (future enhancement)
+            return value;
+        }
+
+        // Not an enum, try object type
         ObjectType *object_type = lookup_object_type(target_type->type_name);
         if (!object_type) {
-            fprintf(stderr, "Runtime error: Unknown object type '%s'\n", target_type->type_name);
+            fprintf(stderr, "Runtime error: Unknown type '%s'\n", target_type->type_name);
             exit(1);
         }
         return check_object_type(value, object_type, env, ctx);
@@ -587,6 +672,12 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
         case TYPE_INFER:
             return value;  // No conversion needed
+
+        case TYPE_ENUM:
+            // Enum type should be handled earlier in the function
+            // If we reach here, something went wrong
+            fprintf(stderr, "Runtime error: Enum type should be handled earlier\n");
+            exit(1);
 
         case TYPE_VOID:
             // Void type is only used for FFI function return types

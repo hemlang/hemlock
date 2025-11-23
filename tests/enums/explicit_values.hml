@@ -1,0 +1,11 @@
+// Test enum with explicit values
+
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 2
+}
+
+print(Status.OK);
+print(Status.ERROR);
+print(Status.PENDING);

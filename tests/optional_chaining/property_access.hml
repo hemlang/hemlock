@@ -1,0 +1,19 @@
+// Test optional chaining with property access
+
+// Object property access
+let person = { name: "Alice", age: 30 };
+print(person?.name);  // Alice
+print(person?.age);   // 30
+
+// Array length property
+let arr = [1, 2, 3];
+print(arr?.length);  // 3
+
+// String length property
+let str = "hello";
+print(str?.length);  // 5
+
+// Nested object property access
+let user = { info: { name: "Bob", email: "bob@example.com" } };
+print(user?.info?.name);  // Bob
+print(user?.info?.email);  // bob@example.com

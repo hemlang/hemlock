@@ -1,0 +1,21 @@
+// Test optional chaining with indexing
+
+// Array indexing
+let arr = [1, 2, 3, 4, 5];
+print(arr?.[0]);  // 1
+print(arr?.[2]);  // 3
+print(arr?.[4]);  // 5
+
+// String indexing
+let str = "hello";
+print(str?.[0]);  // 'h'
+print(str?.[1]);  // 'e'
+print(str?.[4]);  // 'o'
+
+// Null array indexing
+let null_arr = null;
+print(null_arr?.[0] == null);  // true
+
+// Null string indexing
+let null_str = null;
+print(null_str?.[0] == null);  // true

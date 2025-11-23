@@ -424,6 +424,11 @@ void function_free(Function *fn) {
         free(fn->param_types);
     }
 
+    // Free parameter defaults array (Expr* pointers are owned by AST, just free the array)
+    if (fn->param_defaults) {
+        free(fn->param_defaults);
+    }
+
     // Release closure environment (reference counted)
     if (fn->closure_env) {
         env_release(fn->closure_env);
@@ -431,6 +436,7 @@ void function_free(Function *fn) {
 
     // Note: body (Stmt*) is not freed - owned by AST
     // Note: return_type (Type*) is not freed - owned by AST
+    // Note: param_defaults (Expr**) expressions are not freed - owned by AST
 
     free(fn);
 }
