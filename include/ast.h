@@ -34,6 +34,8 @@ typedef enum {
     EXPR_POSTFIX_INC,
     EXPR_POSTFIX_DEC,
     EXPR_AWAIT,
+    EXPR_OPTIONAL_CHAIN,     // Optional chaining: obj?.prop, obj?.[index], obj?.method()
+    EXPR_NULL_COALESCE,      // Null coalescing: value ?? default
 } ExprType;
 
 typedef enum {
@@ -150,6 +152,19 @@ struct Expr {
         struct {
             Expr *awaited_expr;
         } await_expr;
+        struct {
+            Expr *object;        // Left-hand side expression (can be null for chained access)
+            char *property;      // For property access (NULL for indexing/call)
+            Expr *index;         // For indexing (NULL for property/call)
+            Expr **args;         // For method calls (NULL for property/indexing)
+            int num_args;        // Number of arguments (0 if not a call)
+            int is_property;     // 1 for property access, 0 for indexing/call
+            int is_call;         // 1 for method call, 0 for property/indexing
+        } optional_chain;
+        struct {
+            Expr *left;          // Left operand
+            Expr *right;         // Right operand (default value)
+        } null_coalesce;
     } as;
 };
 
@@ -338,6 +353,10 @@ Expr* expr_prefix_dec(Expr *operand);
 Expr* expr_postfix_inc(Expr *operand);
 Expr* expr_postfix_dec(Expr *operand);
 Expr* expr_await(Expr *awaited_expr);
+Expr* expr_optional_chain_property(Expr *object, const char *property);
+Expr* expr_optional_chain_index(Expr *object, Expr *index);
+Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args);
+Expr* expr_null_coalesce(Expr *left, Expr *right);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);

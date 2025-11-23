@@ -493,7 +493,18 @@ Token lexer_next(Lexer *lex) {
         case '.': return make_token(lex, TOK_DOT);
         case '[': return make_token(lex, TOK_LBRACKET);
         case ']': return make_token(lex, TOK_RBRACKET);
-        case '?': return make_token(lex, TOK_QUESTION);
+
+        case '?':
+            // Check for ?. (optional chaining) or ?? (null coalescing)
+            if (peek(lex) == '.') {
+                advance(lex);
+                return make_token(lex, TOK_QUESTION_DOT);
+            }
+            if (peek(lex) == '?') {
+                advance(lex);
+                return make_token(lex, TOK_QUESTION_QUESTION);
+            }
+            return make_token(lex, TOK_QUESTION);
 
         case '=':
             if (peek(lex) == '=') {

@@ -1,0 +1,16 @@
+// Test optional chaining with null values
+
+// Property access on null
+let obj = null;
+let result = obj?.name;
+print(result == null);  // true
+
+// Indexing on null
+let arr = null;
+let item = arr?.[0];
+print(item == null);  // true
+
+// Chaining on null
+let nested = null;
+let deep = nested?.field?.value;
+print(deep == null);  // true

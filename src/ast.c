@@ -223,6 +223,57 @@ Expr* expr_await(Expr *awaited_expr) {
     return expr;
 }
 
+Expr* expr_optional_chain_property(Expr *object, const char *property) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_OPTIONAL_CHAIN;
+    expr->line = 0;
+    expr->as.optional_chain.object = object;
+    expr->as.optional_chain.property = strdup(property);
+    expr->as.optional_chain.index = NULL;
+    expr->as.optional_chain.args = NULL;
+    expr->as.optional_chain.num_args = 0;
+    expr->as.optional_chain.is_property = 1;
+    expr->as.optional_chain.is_call = 0;
+    return expr;
+}
+
+Expr* expr_optional_chain_index(Expr *object, Expr *index) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_OPTIONAL_CHAIN;
+    expr->line = 0;
+    expr->as.optional_chain.object = object;
+    expr->as.optional_chain.property = NULL;
+    expr->as.optional_chain.index = index;
+    expr->as.optional_chain.args = NULL;
+    expr->as.optional_chain.num_args = 0;
+    expr->as.optional_chain.is_property = 0;
+    expr->as.optional_chain.is_call = 0;
+    return expr;
+}
+
+Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_OPTIONAL_CHAIN;
+    expr->line = 0;
+    expr->as.optional_chain.object = object;
+    expr->as.optional_chain.property = NULL;
+    expr->as.optional_chain.index = NULL;
+    expr->as.optional_chain.args = args;
+    expr->as.optional_chain.num_args = num_args;
+    expr->as.optional_chain.is_property = 0;
+    expr->as.optional_chain.is_call = 1;
+    return expr;
+}
+
+Expr* expr_null_coalesce(Expr *left, Expr *right) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_NULL_COALESCE;
+    expr->line = 0;
+    expr->as.null_coalesce.left = left;
+    expr->as.null_coalesce.right = right;
+    return expr;
+}
+
 // ========== TYPE CONSTRUCTORS ==========
 
 Type* type_new(TypeKind kind) {
@@ -629,6 +680,38 @@ Expr* expr_clone(const Expr *expr) {
 
         case EXPR_AWAIT:
             return expr_await(expr_clone(expr->as.await_expr.awaited_expr));
+
+        case EXPR_OPTIONAL_CHAIN:
+            if (expr->as.optional_chain.is_property) {
+                return expr_optional_chain_property(
+                    expr_clone(expr->as.optional_chain.object),
+                    expr->as.optional_chain.property
+                );
+            } else if (expr->as.optional_chain.is_call) {
+                Expr **args_copy = NULL;
+                if (expr->as.optional_chain.num_args > 0) {
+                    args_copy = malloc(sizeof(Expr*) * expr->as.optional_chain.num_args);
+                    for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                        args_copy[i] = expr_clone(expr->as.optional_chain.args[i]);
+                    }
+                }
+                return expr_optional_chain_call(
+                    expr_clone(expr->as.optional_chain.object),
+                    args_copy,
+                    expr->as.optional_chain.num_args
+                );
+            } else {
+                return expr_optional_chain_index(
+                    expr_clone(expr->as.optional_chain.object),
+                    expr_clone(expr->as.optional_chain.index)
+                );
+            }
+
+        case EXPR_NULL_COALESCE:
+            return expr_null_coalesce(
+                expr_clone(expr->as.null_coalesce.left),
+                expr_clone(expr->as.null_coalesce.right)
+            );
     }
 
     return NULL;
@@ -737,6 +820,25 @@ void expr_free(Expr *expr) {
             break;
         case EXPR_AWAIT:
             expr_free(expr->as.await_expr.awaited_expr);
+            break;
+        case EXPR_OPTIONAL_CHAIN:
+            expr_free(expr->as.optional_chain.object);
+            if (expr->as.optional_chain.property) {
+                free(expr->as.optional_chain.property);
+            }
+            if (expr->as.optional_chain.index) {
+                expr_free(expr->as.optional_chain.index);
+            }
+            if (expr->as.optional_chain.args) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    expr_free(expr->as.optional_chain.args[i]);
+                }
+                free(expr->as.optional_chain.args);
+            }
+            break;
+        case EXPR_NULL_COALESCE:
+            expr_free(expr->as.null_coalesce.left);
+            expr_free(expr->as.null_coalesce.right);
             break;
         case EXPR_NUMBER:
         case EXPR_BOOL:
