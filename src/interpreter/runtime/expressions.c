@@ -122,7 +122,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         case EXPR_TERNARY: {
             Value condition = eval_expr(expr->as.ternary.condition, env, ctx);
-            Value result;
+            Value result = {0};
             if (value_is_truthy(condition)) {
                 result = eval_expr(expr->as.ternary.true_expr, env, ctx);
             } else {
@@ -676,7 +676,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         case EXPR_CALL: {
             // Check if this is a method call (obj.method(...))
             int is_method_call = 0;
-            Value method_self;
+            Value method_self = {0};
 
             if (expr->as.call.func->type == EXPR_GET_PROPERTY) {
                 is_method_call = 1;
@@ -843,7 +843,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            Value result;
+            Value result = {0};
             int should_release_args = 1;  // Track whether we need to release args
 
             if (func.type == VAL_BUILTIN_FN) {
@@ -925,7 +925,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Bind parameters
                 for (int i = 0; i < fn->num_params; i++) {
-                    Value arg_value;
+                    Value arg_value = {0};
 
                     // Use provided argument or evaluate default
                     if (i < expr->as.call.num_args) {
@@ -1028,7 +1028,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         case EXPR_GET_PROPERTY: {
             Value object = eval_expr(expr->as.get_property.object, env, ctx);
             const char *property = expr->as.get_property.property;
-            Value result;
+            Value result = {0};
 
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
@@ -1100,7 +1100,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         case EXPR_INDEX: {
             Value object = eval_expr(expr->as.index.object, env, ctx);
             Value index_val = eval_expr(expr->as.index.index, env, ctx);
-            Value result;
+            Value result = {0};
 
             // Object property access with string key
             if (object.type == VAL_OBJECT && index_val.type == VAL_STRING) {
@@ -1642,7 +1642,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.optional_chain.is_property) {
                 // Optional property access: obj?.property
                 const char *property = expr->as.optional_chain.property;
-                Value result;
+                Value result = {0};
 
                 // Handle property access for different types (similar to EXPR_GET_PROPERTY)
                 if (object_val.type == VAL_STRING) {
@@ -1714,7 +1714,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 int32_t index = value_to_int(index_val);
-                Value result;
+                Value result = {0};
 
                 if (object_val.type == VAL_ARRAY) {
                     result = array_get(object_val.as.as_array, index, ctx);
