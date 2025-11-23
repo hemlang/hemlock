@@ -21,10 +21,10 @@ try {
     assert(response.body != null, "Body should exist");
 
     if (http.is_success(response.status_code)) {
-        print("✓ GET request successful (status: " + typeof(response.status_code) + ")");
+        print("✓ GET request successful (status: " + response.status_code + ")");
         tests_passed = tests_passed + 1;
     } else {
-        print("✗ GET request failed with status: " + typeof(response.status_code));
+        print("✗ GET request failed with status: " + response.status_code);
         tests_failed = tests_failed + 1;
     }
 } catch (e) {
@@ -42,10 +42,10 @@ try {
     assert(response2 != null, "Response should not be null");
 
     if (http.is_success(response2.status_code)) {
-        print("✓ POST request successful (status: " + typeof(response2.status_code) + ")");
+        print("✓ POST request successful (status: " + response2.status_code + ")");
         tests_passed = tests_passed + 1;
     } else {
-        print("✗ POST request failed with status: " + typeof(response2.status_code));
+        print("✗ POST request failed with status: " + response2.status_code);
         tests_failed = tests_failed + 1;
     }
 } catch (e) {
@@ -63,7 +63,7 @@ try {
     assert(body != null, "Body should not be null");
     assert(body.length > 0, "Body should have content");
 
-    print("✓ fetch() returned " + typeof(body.length) + " bytes");
+    print("✓ fetch() returned " + body.length + " bytes");
     tests_passed = tests_passed + 1;
 } catch (e) {
     print("✗ fetch() threw exception: " + e);

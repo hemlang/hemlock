@@ -109,7 +109,7 @@ export fn WebSocket(url: string): WebSocket {
                 let bin_ptr = lws_msg_binary(msg_ptr);
                 let bin_len = lws_msg_len(msg_ptr);
                 // Would need to convert to buffer - for now just report length
-                message.data = "binary data (" + typeof(bin_len) + " bytes)";
+                message.data = "binary data (" + bin_len + " bytes)";
                 message.binary = null;
             } else if (msg_type == WS_MSG_PING) {
                 message.type = "ping";
@@ -146,7 +146,7 @@ export fn WebSocketServer(host: string, port: i32): WebSocketServer {
     let handle = lws_ws_server_create(host, port);
 
     if (handle == null) {
-        throw "Failed to create WebSocket server on " + host + ":" + typeof(port);
+        throw "Failed to create WebSocket server on " + host + ":" + port;
     }
 
     return {
@@ -172,7 +172,7 @@ export fn WebSocketServer(host: string, port: i32): WebSocketServer {
 
             return {
                 handle: conn_handle,
-                url: "ws://" + self.host + ":" + typeof(self.port),
+                url: "ws://" + self.host + ":" + self.port,
                 closed: false,
 
                 send_text: fn(data: string): bool {
@@ -211,7 +211,7 @@ export fn WebSocketServer(host: string, port: i32): WebSocketServer {
                         message.type = "binary";
                         let bin_ptr = lws_msg_binary(msg_ptr);
                         let bin_len = lws_msg_len(msg_ptr);
-                        message.data = "binary data (" + typeof(bin_len) + " bytes)";
+                        message.data = "binary data (" + bin_len + " bytes)";
                         message.binary = null;
                     } else if (msg_type == WS_MSG_PING) {
                         message.type = "ping";

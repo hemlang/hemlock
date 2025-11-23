@@ -627,8 +627,8 @@ const unsigned char* lws_msg_binary(ws_message_t *msg) {
     return msg ? msg->data : NULL;
 }
 
-size_t lws_msg_len(ws_message_t *msg) {
-    return msg ? msg->len : 0;
+int lws_msg_len(ws_message_t *msg) {
+    return msg ? (int)msg->len : 0;
 }
 
 void lws_msg_free(ws_message_t *msg) {
