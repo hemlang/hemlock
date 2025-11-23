@@ -1,0 +1,54 @@
+// Test chaining map, filter, and reduce
+
+// Example 1: Double numbers, filter evens, sum them
+let result1 = [1, 2, 3, 4, 5]
+    .map(fn(x) { return x * 2; })
+    .filter(fn(x) { return x % 4 == 0; })
+    .reduce(fn(acc, x) { return acc + x; }, 0);
+print(result1);  // 12 (4 + 8)
+
+// Example 2: Filter > 2, square them, find product
+let result2 = [1, 2, 3, 4, 5]
+    .filter(fn(x) { return x > 2; })
+    .map(fn(x) { return x * x; })
+    .reduce(fn(acc, x) { return acc * x; }, 1);
+print(result2);  // 3600 (9 * 16 * 25)
+
+// Example 3: String processing pipeline
+let words = ["hello", "world", "test", "code"];
+let result3 = words
+    .filter(fn(w) { return w.length > 4; })
+    .map(fn(w) { return w.to_upper(); })
+    .reduce(fn(acc, w) { return acc + " " + w; }, "");
+print(result3.trim());  // HELLO WORLD
+
+// Example 4: Count even numbers after doubling
+let count = [1, 2, 3, 4, 5, 6]
+    .map(fn(x) { return x * 2; })
+    .filter(fn(x) { return x % 4 == 0; })
+    .reduce(fn(acc, x) { return acc + 1; }, 0);
+print(count);  // 3 (4, 8, 12)
+
+// Example 5: Complex pipeline
+let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let result5 = nums
+    .filter(fn(x) { return x % 2 == 1; })  // Odds: 1,3,5,7,9
+    .map(fn(x) { return x + 1; })          // Add 1: 2,4,6,8,10
+    .filter(fn(x) { return x > 5; })       // Keep > 5: 6,8,10
+    .reduce(fn(acc, x) { return acc + x; }, 0);  // Sum: 24
+print(result5);  // 24
+
+// Example 6: Array building with reduce
+let doubled_evens = [1, 2, 3, 4, 5, 6]
+    .filter(fn(x) { return x % 2 == 0; })
+    .map(fn(x) { return x * 2; })
+    .reduce(fn(acc, x) {
+        acc.push(x);
+        return acc;
+    }, []);
+print(doubled_evens[0]);  // 4
+print(doubled_evens[1]);  // 8
+print(doubled_evens[2]);  // 12
+print(doubled_evens.length);  // 3
+
+print("All chaining tests passed");

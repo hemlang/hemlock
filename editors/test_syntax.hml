@@ -1,0 +1,264 @@
+// Hemlock Syntax Highlighting Test File
+// This file demonstrates all language features for testing syntax highlighting
+
+/* Block comment
+   Multiple lines
+   TODO: Test all features
+   FIXME: Check edge cases
+*/
+
+import { sin, cos, PI } from "@stdlib/math";
+import * as fs from "@stdlib/fs";
+
+// Type definitions
+define Person {
+    name: string,
+    age: i32,
+    active?: true,
+}
+
+// Numeric types
+let i8_val: i8 = -128;
+let i16_val: i16 = 32767;
+let i32_val: i32 = 2147483647;
+let i64_val: i64 = 9223372036854775807;
+let u8_val: u8 = 255;
+let u16_val: u16 = 65535;
+let u32_val: u32 = 4294967295;
+let u64_val: u64 = 18446744073709551615;
+let f32_val: f32 = 3.14;
+let f64_val: f64 = 2.718281828;
+
+// Number literals
+let decimal = 42;
+let hex = 0xFF00AA;
+let binary = 0b101010;
+let octal = 0o755;
+let float = 3.14159;
+let scientific = 1.23e-4;
+
+// Boolean and null
+let flag: bool = true;
+let empty = null;
+let disabled = false;
+
+// Strings with escapes
+let greeting = "Hello, World!\n";
+let escaped = "Tab:\t Quote:\" Backslash:\\ Null:\0";
+let unicode = "Rocket: \u{1F680} Heart: \u{2764}";
+let multiline = "Line 1\nLine 2\rLine 3";
+
+// Runes (characters)
+let char_a = 'A';
+let emoji = '🚀';
+let newline = '\n';
+let unicode_rune = '\u{1F600}';
+let escaped_quote = '\'';
+
+// Arrays and objects
+let numbers = [1, 2, 3, 4, 5];
+let typed_arr: array<i32> = [10, 20, 30];
+let person = { name: "Alice", age: 30, active: true };
+
+// Control flow
+fn test_control_flow(x: i32): string {
+    if (x > 100) {
+        return "large";
+    } else if (x > 50) {
+        return "medium";
+    } else {
+        return "small";
+    }
+}
+
+// Switch statement
+fn get_color(code: i32): string {
+    switch (code) {
+        case 1:
+            return "red";
+        case 2:
+            return "green";
+        case 3:
+            return "blue";
+        default:
+            return "unknown";
+    }
+}
+
+// Loops
+fn test_loops() {
+    // While loop
+    let i = 0;
+    while (i < 10) {
+        print("Count: " + typeof(i));
+        i = i + 1;
+    }
+
+    // For loop
+    for (let j = 0; j < 5; j = j + 1) {
+        if (j == 2) {
+            continue;
+        }
+        if (j == 4) {
+            break;
+        }
+        print(j);
+    }
+}
+
+// Operators
+fn test_operators(a: i32, b: i32): i32 {
+    // Arithmetic
+    let sum = a + b;
+    let diff = a - b;
+    let prod = a * b;
+    let quot = a / b;
+    let rem = a % b;
+
+    // Comparison
+    let eq = a == b;
+    let ne = a != b;
+    let lt = a < b;
+    let gt = a > b;
+    let le = a <= b;
+    let ge = a >= b;
+
+    // Logical
+    let and_result = true && false;
+    let or_result = true || false;
+    let not_result = !true;
+
+    // Bitwise
+    let bit_and = a & b;
+    let bit_or = a | b;
+    let bit_xor = a ^ b;
+    let bit_not = ~a;
+    let left_shift = a << 2;
+    let right_shift = a >> 1;
+
+    return sum;
+}
+
+// Async functions
+async fn fetch_data(url: string): string {
+    let result = exec("curl " + url);
+    return result.output;
+}
+
+async fn parallel_tasks() {
+    let t1 = spawn(fetch_data, "http://example.com");
+    let t2 = spawn(fetch_data, "http://test.com");
+
+    let r1 = await t1;
+    let r2 = await t2;
+
+    return r1 + r2;
+}
+
+// Error handling
+fn risky_operation(should_fail: bool) {
+    try {
+        if (should_fail) {
+            throw "Operation failed!";
+        }
+        print("Success");
+    } catch (e) {
+        print("Error: " + e);
+    } finally {
+        print("Cleanup");
+    }
+}
+
+// Defer
+fn with_defer() {
+    defer print("This runs last");
+    defer print("This runs second");
+    print("This runs first");
+}
+
+// Memory management
+fn test_memory() {
+    let ptr = alloc(1024);
+    memset(ptr, 0, 1024);
+    defer free(ptr);
+
+    let buf = buffer(256);
+    buf[0] = 65;  // 'A'
+    defer free(buf);
+}
+
+// File I/O
+fn read_config(path: string): string {
+    let f = open(path, "r");
+    defer f.close();
+    return f.read();
+}
+
+// Signal handling
+let interrupted = false;
+
+fn handle_signal(signum: i32) {
+    if (signum == SIGINT) {
+        print("Caught SIGINT");
+        interrupted = true;
+    }
+}
+
+fn setup_signals() {
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+}
+
+// Built-in functions
+fn test_builtins() {
+    print("Hello");
+    let t = typeof(42);
+    assert(true);
+    panic("Emergency exit!");
+}
+
+// Channel communication
+async fn producer(ch, count: i32) {
+    let i = 0;
+    while (i < count) {
+        ch.send(i * 10);
+        i = i + 1;
+    }
+    ch.close();
+}
+
+// Using self in objects
+let counter = {
+    count: 0,
+    increment: fn() {
+        self.count = self.count + 1;
+    },
+    get: fn() {
+        return self.count;
+    }
+};
+
+// Command-line arguments
+fn main() {
+    if (args.length < 2) {
+        print("Usage: " + args[0] + " <arg>");
+        return;
+    }
+    print("First arg: " + args[1]);
+}
+
+// Constants
+let pi_val = PI;
+let e_val = E;
+let tau_val = TAU;
+let inf_val = INF;
+let nan_val = NAN;
+
+// Regex
+import { compile, test, REG_ICASE } from "@stdlib/regex";
+
+fn test_regex() {
+    let pattern = compile("^[a-z]+$", null);
+    let matches = pattern.test("hello");
+    pattern.free();
+}

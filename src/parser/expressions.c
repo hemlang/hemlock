@@ -6,6 +6,7 @@
 Expr* expression(Parser *p);
 Expr* assignment(Parser *p);
 Expr* ternary(Parser *p);
+Expr* null_coalesce(Parser *p);
 Expr* logical_or(Parser *p);
 Expr* logical_and(Parser *p);
 Expr* bitwise_or(Parser *p);
@@ -145,7 +146,9 @@ Expr* primary(Parser *p) {
     // Parse parameters
     char **param_names = malloc(sizeof(char*) * 32);  // max 32 params
     Type **param_types = malloc(sizeof(Type*) * 32);
+    Expr **param_defaults = malloc(sizeof(Expr*) * 32);
     int num_params = 0;
+    int seen_optional = 0;  // Track if we've seen an optional parameter
 
     if (!check(p, TOK_RPAREN)) {
         do {
@@ -157,6 +160,19 @@ Expr* primary(Parser *p) {
                 param_types[num_params] = parse_type(p);
             } else {
                 param_types[num_params] = NULL;
+            }
+
+            // Check for optional parameter (?) with default value
+            if (match(p, TOK_QUESTION)) {
+                consume(p, TOK_COLON, "Expect ':' after '?' for default value");
+                param_defaults[num_params] = expression(p);
+                seen_optional = 1;
+            } else {
+                // Required parameter
+                if (seen_optional) {
+                    error_at(p, &p->current, "Required parameters must come before optional parameters");
+                }
+                param_defaults[num_params] = NULL;
             }
 
             num_params++;
@@ -175,7 +191,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, num_params, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, return_type, body);
 
 not_fn_expr:
 
@@ -209,7 +225,37 @@ Expr* postfix(Parser *p) {
 
     // Handle chained property access, indexing, method calls, and postfix operators
     for (;;) {
-        if (match(p, TOK_DOT)) {
+        if (match(p, TOK_QUESTION_DOT)) {
+            // Optional chaining: obj?.property, obj?.[index], or obj?.method()
+            if (match(p, TOK_LBRACKET)) {
+                // Optional indexing: obj?.[index]
+                Expr *index = expression(p);
+                consume(p, TOK_RBRACKET, "Expect ']' after optional chaining index");
+                expr = expr_optional_chain_index(expr, index);
+            } else if (check(p, TOK_LPAREN)) {
+                // Optional call: obj?.()
+                match(p, TOK_LPAREN);
+                Expr **args = NULL;
+                int num_args = 0;
+
+                if (!check(p, TOK_RPAREN)) {
+                    args = malloc(sizeof(Expr*) * 8);
+                    args[num_args++] = expression(p);
+
+                    while (match(p, TOK_COMMA)) {
+                        args[num_args++] = expression(p);
+                    }
+                }
+
+                consume(p, TOK_RPAREN, "Expect ')' after optional chaining arguments");
+                expr = expr_optional_chain_call(expr, args, num_args);
+            } else {
+                // Optional property access: obj?.property
+                char *property = consume_identifier_or_type(p, "Expect property name after '?.'");
+                expr = expr_optional_chain_property(expr, property);
+                free(property);
+            }
+        } else if (match(p, TOK_DOT)) {
             // Property access: obj.property
             char *property = consume_identifier_or_type(p, "Expect property name after '.'");
             expr = expr_get_property(expr, property);
@@ -414,8 +460,19 @@ Expr* logical_or(Parser *p) {
     return expr;
 }
 
-Expr* ternary(Parser *p) {
+Expr* null_coalesce(Parser *p) {
     Expr *expr = logical_or(p);
+
+    while (match(p, TOK_QUESTION_QUESTION)) {
+        Expr *right = logical_or(p);
+        expr = expr_null_coalesce(expr, right);
+    }
+
+    return expr;
+}
+
+Expr* ternary(Parser *p) {
+    Expr *expr = null_coalesce(p);
 
     if (match(p, TOK_QUESTION)) {
         Expr *true_expr = expression(p);

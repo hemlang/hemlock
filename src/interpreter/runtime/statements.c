@@ -352,6 +352,63 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             break;
         }
 
+        case STMT_ENUM: {
+            // Create enum type definition
+            EnumType *type = malloc(sizeof(EnumType));
+            type->name = strdup(stmt->as.enum_decl.name);
+            type->num_variants = stmt->as.enum_decl.num_variants;
+
+            // Copy variant names
+            type->variant_names = malloc(sizeof(char*) * type->num_variants);
+            type->variant_values = malloc(sizeof(int32_t) * type->num_variants);
+
+            // Evaluate variant values (auto-increment or explicit)
+            int32_t auto_value = 0;
+            for (int i = 0; i < type->num_variants; i++) {
+                type->variant_names[i] = strdup(stmt->as.enum_decl.variant_names[i]);
+
+                if (stmt->as.enum_decl.variant_values[i] != NULL) {
+                    // Explicit value - evaluate the expression
+                    Value val = eval_expr(stmt->as.enum_decl.variant_values[i], env, ctx);
+                    if (val.type != VAL_I32) {
+                        fprintf(stderr, "Runtime error: Enum variant value must be i32\n");
+                        exit(1);
+                    }
+                    type->variant_values[i] = val.as.as_i32;
+                    auto_value = val.as.as_i32 + 1;  // Next auto value
+                } else {
+                    // Auto value
+                    type->variant_values[i] = auto_value;
+                    auto_value++;
+                }
+            }
+
+            // Register the enum type
+            register_enum_type(type);
+
+            // Create a namespace object with the enum variants
+            Object *obj = malloc(sizeof(Object));
+            obj->type_name = strdup(type->name);
+            obj->num_fields = type->num_variants;
+            obj->capacity = type->num_variants;
+            obj->field_names = malloc(sizeof(char*) * type->num_variants);
+            obj->field_values = malloc(sizeof(Value) * type->num_variants);
+            obj->ref_count = 1;
+
+            for (int i = 0; i < type->num_variants; i++) {
+                obj->field_names[i] = strdup(type->variant_names[i]);
+                obj->field_values[i] = val_i32(type->variant_values[i]);
+            }
+
+            Value enum_obj;
+            enum_obj.type = VAL_OBJECT;
+            enum_obj.as.as_object = obj;
+
+            // Bind the enum namespace to the environment
+            env_define(env, type->name, enum_obj, 1, ctx);  // 1 = const
+            break;
+        }
+
         case STMT_TRY: {
             // Execute try block
             eval_stmt(stmt->as.try_stmt.try_block, env, ctx);

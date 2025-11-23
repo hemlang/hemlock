@@ -34,6 +34,8 @@ typedef enum {
     EXPR_POSTFIX_INC,
     EXPR_POSTFIX_DEC,
     EXPR_AWAIT,
+    EXPR_OPTIONAL_CHAIN,     // Optional chaining: obj?.prop, obj?.[index], obj?.method()
+    EXPR_NULL_COALESCE,      // Null coalescing: value ?? default
 } ExprType;
 
 typedef enum {
@@ -122,6 +124,7 @@ struct Expr {
             int is_async;
             char **param_names;
             Type **param_types;
+            Expr **param_defaults;  // Default value expressions (NULL if required)
             int num_params;
             Type *return_type;
             Stmt *body;
@@ -150,6 +153,19 @@ struct Expr {
         struct {
             Expr *awaited_expr;
         } await_expr;
+        struct {
+            Expr *object;        // Left-hand side expression (can be null for chained access)
+            char *property;      // For property access (NULL for indexing/call)
+            Expr *index;         // For indexing (NULL for property/call)
+            Expr **args;         // For method calls (NULL for property/indexing)
+            int num_args;        // Number of arguments (0 if not a call)
+            int is_property;     // 1 for property access, 0 for indexing/call
+            int is_call;         // 1 for method call, 0 for property/indexing
+        } optional_chain;
+        struct {
+            Expr *left;          // Left operand
+            Expr *right;         // Right operand (default value)
+        } null_coalesce;
     } as;
 };
 
@@ -176,6 +192,7 @@ typedef enum {
     TYPE_INFER,          // No annotation, infer from value
     TYPE_CUSTOM_OBJECT,  // Custom object type (Person, User, etc.)
     TYPE_GENERIC_OBJECT, // Generic 'object' keyword
+    TYPE_ENUM,           // Enum type (Color, Status, etc.)
     TYPE_VOID,           // Void type (for FFI functions with no return)
 } TypeKind;
 
@@ -200,6 +217,7 @@ typedef enum {
     STMT_BLOCK,
     STMT_RETURN,
     STMT_DEFINE_OBJECT,
+    STMT_ENUM,
     STMT_TRY,
     STMT_THROW,
     STMT_SWITCH,
@@ -263,6 +281,12 @@ struct Stmt {
             Expr **field_defaults;    // NULL or default value expression
             int num_fields;
         } define_object;
+        struct {
+            char *name;               // Enum type name
+            char **variant_names;     // Array of variant names
+            Expr **variant_values;    // Array of values (NULL for auto)
+            int num_variants;         // Number of variants
+        } enum_decl;
         struct {
             Stmt *try_block;
             char *catch_param;        // NULL if no catch block
@@ -330,7 +354,7 @@ Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
 Expr* expr_index(Expr *object, Expr *index);
 Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
-Expr* expr_function(int is_async, char **param_names, Type **param_types, int num_params, Type *return_type, Stmt *body);
+Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int num_params, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);
 Expr* expr_prefix_inc(Expr *operand);
@@ -338,6 +362,10 @@ Expr* expr_prefix_dec(Expr *operand);
 Expr* expr_postfix_inc(Expr *operand);
 Expr* expr_postfix_dec(Expr *operand);
 Expr* expr_await(Expr *awaited_expr);
+Expr* expr_optional_chain_property(Expr *object, const char *property);
+Expr* expr_optional_chain_index(Expr *object, Expr *index);
+Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args);
+Expr* expr_null_coalesce(Expr *left, Expr *right);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);
@@ -355,6 +383,7 @@ Stmt* stmt_expr(Expr *expr);
 Stmt* stmt_return(Expr *value);
 Stmt* stmt_define_object(const char *name, char **field_names, Type **field_types,
                          int *field_optional, Expr **field_defaults, int num_fields);
+Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, int num_variants);
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);
 Stmt* stmt_throw(Expr *value);
 Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_cases);

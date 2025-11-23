@@ -1,0 +1,14 @@
+Caught: map() argument must be a function
+Caught: filter() argument must be a function
+Caught: reduce() first argument must be a function
+Caught: reduce() on empty array with no initial value
+Caught: map() expects 1 argument
+Caught: filter() expects 1 argument
+Caught: reduce() expects 1 or 2 arguments
+Caught: Callback expects 3 arguments, got 1
+Caught: Callback expects 0 arguments, got 1
+Caught: Callback expects 1 arguments, got 2
+Caught: error in map
+Caught: error in filter
+Caught: error in reduce
+All edge cases passed

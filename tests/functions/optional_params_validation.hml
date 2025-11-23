@@ -1,0 +1,40 @@
+// Test error cases for optional parameters
+
+// Too few arguments (missing required param)
+fn test1(a: i32, b?: 5) {
+    return a + b;
+}
+
+try {
+    test1();  // Error: Function expects 1-2 arguments, got 0
+} catch (e) {
+    print("Caught: Expected error for too few args");
+}
+
+// Too many arguments
+try {
+    test1(1, 2, 3);  // Error: Function expects 1-2 arguments, got 3
+} catch (e) {
+    print("Caught: Expected error for too many args");
+}
+
+// Correct usage
+print(test1(10));      // 15
+print(test1(10, 20));  // 30
+
+// All optional parameters - 0 args is valid
+fn test2(a?: 1, b?: 2, c?: 3) {
+    return a + b + c;
+}
+
+print(test2());            // 6
+print(test2(10));          // 15
+print(test2(10, 20));      // 33
+print(test2(10, 20, 30));  // 60
+
+// Try to call with too many args
+try {
+    test2(1, 2, 3, 4);  // Error: Function expects 0-3 arguments, got 4
+} catch (e) {
+    print("Caught: Expected error for too many args");
+}

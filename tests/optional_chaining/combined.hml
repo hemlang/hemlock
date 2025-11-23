@@ -1,0 +1,33 @@
+// Test optional chaining combined with null coalescing
+
+// Optional chaining with null coalescing
+let obj = null;
+let name = obj?.name ?? "Unknown";
+print(name);  // Unknown
+
+// Nested optional chaining with null coalescing
+let user = { profile: null };
+let email = user?.profile?.email ?? "no-email@example.com";
+print(email);  // no-email@example.com
+
+// Array optional indexing with null coalescing
+let arr = null;
+let first = arr?.[0] ?? -1;
+print(first);  // -1
+
+// Valid object with null coalescing
+let person = { name: "Alice", age: 30 };
+let person_name = person?.name ?? "Unknown";
+print(person_name);  // Alice
+
+// Chaining multiple optional operations
+let data = { users: [{ name: "Bob" }, { name: "Charlie" }] };
+let first_user = data?.users?.[0]?.name ?? "No user";
+print(first_user);  // Bob
+
+// Missing property with null coalescing
+let config = { port: 8080 };
+let host = config?.host ?? "localhost";
+let port = config?.port ?? 3000;
+print(host);  // localhost
+print(port);  // 8080

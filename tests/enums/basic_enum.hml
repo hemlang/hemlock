@@ -1,0 +1,11 @@
+// Test basic enum declaration and usage
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+print(Color.RED);
+print(Color.GREEN);
+print(Color.BLUE);

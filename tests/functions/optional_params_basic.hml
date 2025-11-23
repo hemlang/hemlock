@@ -1,0 +1,52 @@
+// Test basic optional parameters with defaults
+
+// Simple optional parameter with default value
+fn greet(name: string, greeting?: "Hello") {
+    print(greeting + " " + name);
+}
+
+greet("Alice");              // Should print: Hello Alice
+greet("Bob", "Hi");          // Should print: Hi Bob
+greet("Charlie", "Hey");     // Should print: Hey Charlie
+
+// Optional numeric parameter
+fn add(a: i32, b?: 10) {
+    return a + b;
+}
+
+print(add(5));        // 15
+print(add(5, 20));    // 25
+print(add(0, 0));     // 0
+
+// Multiple optional parameters
+fn format_name(first: string, middle?: "", last?: "Doe") {
+    if (middle == "") {
+        return first + " " + last;
+    }
+    return first + " " + middle + " " + last;
+}
+
+print(format_name("John"));                    // John Doe
+print(format_name("John", "Q"));               // John Q Doe
+print(format_name("John", "Quincy", "Adams")); // John Quincy Adams
+
+// Optional parameter with type annotation
+fn multiply(x: i32, factor?: 2): i32 {
+    return x * factor;
+}
+
+print(multiply(5));      // 10
+print(multiply(5, 3));   // 15
+
+// Optional parameter with boolean default
+fn log_message(msg: string, verbose?: false) {
+    if (verbose) {
+        print("[VERBOSE] " + msg);
+    } else {
+        print(msg);
+    }
+}
+
+log_message("Test");        // Test
+log_message("Test", true);  // [VERBOSE] Test
+log_message("Test", false); // Test

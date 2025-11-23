@@ -75,6 +75,23 @@ typedef struct {
 
 extern ObjectTypeRegistry object_types;
 
+// ========== ENUM TYPE REGISTRY ==========
+
+typedef struct {
+    char *name;
+    char **variant_names;
+    int32_t *variant_values;
+    int num_variants;
+} EnumType;
+
+typedef struct {
+    EnumType **types;
+    int count;
+    int capacity;
+} EnumTypeRegistry;
+
+extern EnumTypeRegistry enum_types;
+
 // ========== ENVIRONMENT (environment.c) ==========
 
 Environment* env_new(Environment *parent);
@@ -180,6 +197,12 @@ void init_object_types(void);
 void register_object_type(ObjectType *type);
 ObjectType* lookup_object_type(const char *name);
 void cleanup_object_types(void);
+
+// Enum type registry
+void init_enum_types(void);
+void register_enum_type(EnumType *type);
+EnumType* lookup_enum_type(const char *name);
+void cleanup_enum_types(void);
 Value check_object_type(Value value, ObjectType *object_type, Environment *env, ExecutionContext *ctx);
 
 // ========== BUILTINS (builtins.c) ==========

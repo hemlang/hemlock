@@ -1,0 +1,21 @@
+// Test enum as function parameters
+
+enum Status {
+    OK,
+    ERROR,
+    PENDING
+}
+
+fn process(s: Status): string {
+    if (s == Status.OK) {
+        return "Success";
+    }
+    if (s == Status.ERROR) {
+        return "Failed";
+    }
+    return "Waiting";
+}
+
+print(process(Status.OK));
+print(process(Status.ERROR));
+print(process(Status.PENDING));

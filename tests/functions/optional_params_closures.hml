@@ -1,0 +1,35 @@
+// Test optional parameters with closures and higher-order functions
+
+// Optional function parameter with default
+fn apply_operation(x: i32, operation?: fn(n) { return n * 2; }) {
+    return operation(x);
+}
+
+print(apply_operation(5));  // 10 (default: n * 2)
+
+fn triple(n) {
+    return n * 3;
+}
+
+print(apply_operation(5, triple));  // 15
+
+// Optional parameter in returned closure
+fn make_multiplier(factor?: 10) {
+    return fn(n) {
+        return n * factor;
+    };
+}
+
+let mult = make_multiplier();
+print(mult(5));  // 50
+
+let mult3 = make_multiplier(3);
+print(mult3(5));  // 15
+
+// Anonymous function with optional params
+let greet = fn(name: string, prefix?: "Mr.") {
+    return prefix + " " + name;
+};
+
+print(greet("Smith"));        // Mr. Smith
+print(greet("Smith", "Dr."));  // Dr. Smith

@@ -1,0 +1,41 @@
+// Test optional parameters with recursion
+
+// Recursive function with optional accumulator
+fn factorial(n: i32, acc?: 1): i32 {
+    if (n <= 1) {
+        return acc;
+    }
+    return factorial(n - 1, n * acc);
+}
+
+print(factorial(5));      // 120
+print(factorial(5, 1));   // 120
+print(factorial(5, 2));   // 240 (factorial * 2)
+
+// Countdown with optional step
+fn countdown(n: i32, step?: 1) {
+    if (n <= 0) {
+        print("Done!");
+        return null;
+    }
+    print(n);
+    return countdown(n - step, step);
+}
+
+countdown(5);      // 5 4 3 2 1 Done!
+countdown(10, 2);  // 10 8 6 4 2 Done!
+
+// Fibonacci with optional starting values
+fn fib(n: i32, a?: 0, b?: 1): i32 {
+    if (n == 0) {
+        return a;
+    }
+    if (n == 1) {
+        return b;
+    }
+    return fib(n - 1, b, a + b);
+}
+
+print(fib(0));   // 0
+print(fib(1));   // 1
+print(fib(10));  // 55

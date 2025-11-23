@@ -297,8 +297,9 @@ int main(int argc, char **argv) {
             run_repl();
         }
 
-        // Cleanup object type registry before exit
+        // Cleanup type registries before exit
         cleanup_object_types();
+        cleanup_enum_types();
         return 0;
     }
 
@@ -312,8 +313,9 @@ int main(int argc, char **argv) {
             run_repl();
         }
 
-        // Cleanup object type registry before exit
+        // Cleanup type registries before exit
         cleanup_object_types();
+        cleanup_enum_types();
         return 0;
     }
 
