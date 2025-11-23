@@ -791,12 +791,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return result;
                 }
 
-                // Special handling for object built-in methods (e.g., serialize)
+                // Special handling for object built-in methods (e.g., serialize, keys)
                 if (method_self.type == VAL_OBJECT) {
                     const char *method = expr->as.call.func->as.get_property.property;
 
-                    // Only handle built-in object methods here (currently just serialize)
-                    if (strcmp(method, "serialize") == 0) {
+                    // Only handle built-in object methods here (serialize, keys)
+                    if (strcmp(method, "serialize") == 0 || strcmp(method, "keys") == 0) {
                         // Evaluate arguments
                         Value *args = NULL;
                         if (expr->as.call.num_args > 0) {
@@ -1089,13 +1089,36 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         case EXPR_INDEX: {
             Value object = eval_expr(expr->as.index.object, env, ctx);
             Value index_val = eval_expr(expr->as.index.index, env, ctx);
+            Value result;
 
+            // Object property access with string key
+            if (object.type == VAL_OBJECT && index_val.type == VAL_STRING) {
+                Object *obj = object.as.as_object;
+                const char *key = index_val.as.as_string->data;
+
+                // Look up field by key
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (strcmp(obj->field_names[i], key) == 0) {
+                        result = obj->field_values[i];
+                        value_retain(result);
+                        value_release(object);
+                        value_release(index_val);
+                        return result;
+                    }
+                }
+
+                // Field not found, return null
+                value_release(object);
+                value_release(index_val);
+                return val_null();
+            }
+
+            // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
                 runtime_error(ctx, "Index must be an integer");
             }
 
             int32_t index = value_to_int(index_val);
-            Value result;
 
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
@@ -1132,7 +1155,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Retain the element so it survives array release
                 value_retain(result);
             } else {
-                runtime_error(ctx, "Only strings, buffers, and arrays can be indexed");
+                runtime_error(ctx, "Only strings, buffers, arrays, and objects can be indexed");
             }
 
             // Release the object and index after use
@@ -1146,6 +1169,37 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value index_val = eval_expr(expr->as.index_assign.index, env, ctx);
             Value value = eval_expr(expr->as.index_assign.value, env, ctx);
 
+            // Object property assignment with string key
+            if (object.type == VAL_OBJECT && index_val.type == VAL_STRING) {
+                Object *obj = object.as.as_object;
+                const char *key = index_val.as.as_string->data;
+
+                // Look for existing field
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (strcmp(obj->field_names[i], key) == 0) {
+                        // Update existing field
+                        value_release(obj->field_values[i]);
+                        obj->field_values[i] = value;
+                        value_retain(value);
+                        value_release(object);
+                        value_release(index_val);
+                        return value;
+                    }
+                }
+
+                // Add new field
+                obj->num_fields++;
+                obj->field_names = realloc(obj->field_names, obj->num_fields * sizeof(char *));
+                obj->field_values = realloc(obj->field_values, obj->num_fields * sizeof(Value));
+                obj->field_names[obj->num_fields - 1] = strdup(key);
+                obj->field_values[obj->num_fields - 1] = value;
+                value_retain(value);
+                value_release(object);
+                value_release(index_val);
+                return value;
+            }
+
+            // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
                 runtime_error(ctx, "Index must be an integer");
             }
@@ -1192,7 +1246,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Don't release value - it's returned
                 return value;
             } else {
-                runtime_error(ctx, "Only strings, buffers, and arrays support index assignment");
+                runtime_error(ctx, "Only strings, buffers, arrays, and objects support index assignment");
                 return val_null();
             }
         }

@@ -16,20 +16,59 @@ fn parse(json_str: string) {
         throw "parse() requires string argument";
     }
 
-    try {
-        return json_str.deserialize();
-    } catch (e) {
-        throw "JSON parse error: " + e;
-    }
+    // Just let deserialize() throw its own error
+    return json_str.deserialize();
 }
 
-// Serialize value to JSON string (wrapper around built-in .serialize())
+// Serialize value to JSON string
 fn stringify(value) {
-    try {
-        return value.serialize();
-    } catch (e) {
-        throw "JSON stringify error: " + e;
+    let t = typeof(value);
+
+    // Primitives - handle directly
+    if (t == "null") {
+        return "null";
     }
+
+    if (t == "bool") {
+        if (value) {
+            return "true";
+        } else {
+            return "false";
+        }
+    }
+
+    if (t == "string") {
+        return escape_json_string(value);
+    }
+
+    if (t == "i8" || t == "i16" || t == "i32" || t == "i64" ||
+        t == "u8" || t == "u16" || t == "u32" || t == "u64" ||
+        t == "f32" || t == "f64" || t == "integer" || t == "number") {
+        // Numbers - convert to string representation
+        return format_number(value);
+    }
+
+    // Arrays and objects - use built-in .serialize()
+    if (t == "array" || t == "object") {
+        try {
+            return value.serialize();
+        } catch (e) {
+            throw "JSON stringify error: " + e;
+        }
+    }
+
+    throw "Cannot stringify value of type: " + t;
+}
+
+// Helper: Format number to string
+fn format_number(value) {
+    // Use a temporary object to leverage .serialize()
+    let wrapper = { n: value };
+    let json = wrapper.serialize();
+    // Extract just the number part: {"n":42} -> "42"
+    let colon_pos = json.find(":");
+    let close_brace_pos = json.find("}");
+    return json.slice(colon_pos + 1, close_brace_pos);
 }
 
 // Parse JSON from file
@@ -82,7 +121,8 @@ fn format_value(value, depth: i32, indent_str: string): string {
         value_type == "i64" || value_type == "u8" || value_type == "u16" ||
         value_type == "u32" || value_type == "u64" || value_type == "f32" ||
         value_type == "f64" || value_type == "integer" || value_type == "number") {
-        return typeof(value);
+        // Use stringify to convert number to string representation
+        return stringify(value);
     }
 
     // Arrays
@@ -177,7 +217,8 @@ fn escape_json_string(s: string): string {
         } else if (ch == '\t') {
             result = result + "\\t";
         } else {
-            result = result + ch;
+            // Concatenate rune with string (rune is automatically converted)
+            result = result + "" + ch;
         }
 
         i = i + 1;
@@ -198,12 +239,9 @@ fn repeat_string(s: string, count: i32): string {
     return result;
 }
 
-// Internal: Get object keys (placeholder - needs builtin)
+// Internal: Get object keys
 fn object_keys(obj) {
-    // This needs a builtin function to get object keys
-    // For now, we'll need to add get_object_keys() builtin
-    // Placeholder implementation - will be replaced
-    throw "object_keys() requires get_object_keys() builtin";
+    return obj.keys();
 }
 
 // Pretty print JSON with indentation
@@ -264,10 +302,12 @@ fn parse_int(s: string): i32 {
     // Simple integer parser
     let result = 0;
     let i = 0;
+    let zero_code: i32 = '0';
 
     while (i < s.length) {
         let ch = s[i];
-        let digit = ch - '0';
+        let ch_code: i32 = ch;
+        let digit = ch_code - zero_code;
         result = result * 10 + digit;
         i = i + 1;
     }

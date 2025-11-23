@@ -85,7 +85,7 @@ char* escape_json_string(const char *str) {
 }
 
 // Recursive serialization helper
-char* serialize_value(Value val, VisitedSet *visited) {
+char* serialize_value(Value val, VisitedSet *visited, ExecutionContext *ctx) {
     char buffer[256];
 
     switch (val.type) {
@@ -136,8 +136,8 @@ char* serialize_value(Value val, VisitedSet *visited) {
 
             // Check for cycles
             if (visited_contains(visited, obj)) {
-                fprintf(stderr, "Runtime error: serialize() detected circular reference\n");
-                exit(1);
+                throw_runtime_error(ctx, "serialize() detected circular reference");
+                return NULL;
             }
 
             // Mark as visited
@@ -154,7 +154,12 @@ char* serialize_value(Value val, VisitedSet *visited) {
                 char *escaped_name = escape_json_string(obj->field_names[i]);
 
                 // Serialize field value
-                char *value_str = serialize_value(obj->field_values[i], visited);
+                char *value_str = serialize_value(obj->field_values[i], visited, ctx);
+                if (value_str == NULL) {
+                    free(escaped_name);
+                    free(json);
+                    return NULL;
+                }
 
                 // Calculate space needed
                 size_t needed = len + strlen(escaped_name) + strlen(value_str) + 10;
@@ -188,8 +193,8 @@ char* serialize_value(Value val, VisitedSet *visited) {
 
             // Check for cycles (cast array pointer to object pointer for visited set)
             if (visited_contains(visited, (Object*)arr)) {
-                fprintf(stderr, "Runtime error: serialize() detected circular reference\n");
-                exit(1);
+                throw_runtime_error(ctx, "serialize() detected circular reference");
+                return NULL;
             }
 
             // Mark as visited
@@ -203,7 +208,11 @@ char* serialize_value(Value val, VisitedSet *visited) {
 
             for (int i = 0; i < arr->length; i++) {
                 // Serialize element
-                char *elem_str = serialize_value(arr->elements[i], visited);
+                char *elem_str = serialize_value(arr->elements[i], visited, ctx);
+                if (elem_str == NULL) {
+                    free(json);
+                    return NULL;
+                }
 
                 // Calculate space needed
                 size_t needed = len + strlen(elem_str) + 2;
@@ -243,10 +252,9 @@ void json_skip_whitespace(JSONParser *p) {
     }
 }
 
-Value json_parse_string(JSONParser *p) {
+Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
     if (p->input[p->pos] != '"') {
-        fprintf(stderr, "Runtime error: Expected '\"' in JSON\n");
-        exit(1);
+        return throw_runtime_error(ctx, "Expected '\"' in JSON");
     }
     p->pos++;  // skip opening quote
 
@@ -290,7 +298,7 @@ Value json_parse_string(JSONParser *p) {
     return result;
 }
 
-Value json_parse_number(JSONParser *p) {
+Value json_parse_number(JSONParser *p, ExecutionContext *ctx) {
     int start = p->pos;
     int is_float = 0;
 
@@ -325,7 +333,7 @@ Value json_parse_number(JSONParser *p) {
     return result;
 }
 
-Value json_parse_object(JSONParser *p) {
+Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     if (p->input[p->pos] != '{') {
         fprintf(stderr, "Runtime error: Expected '{' in JSON\n");
         exit(1);
@@ -354,22 +362,28 @@ Value json_parse_object(JSONParser *p) {
         json_skip_whitespace(p);
 
         // Parse field name (must be a string)
-        Value name_val = json_parse_string(p);
+        Value name_val = json_parse_string(p, ctx);
         field_names[num_fields] = strdup(name_val.as.as_string->data);
 
         json_skip_whitespace(p);
 
         // Expect colon
         if (p->input[p->pos] != ':') {
-            fprintf(stderr, "Runtime error: Expected ':' in JSON object\n");
-            exit(1);
+            // Clean up allocated memory before error
+            for (int i = 0; i < num_fields; i++) {
+                free(field_names[i]);
+                value_release(field_values[i]);
+            }
+            free(field_names);
+            free(field_values);
+            return throw_runtime_error(ctx, "Expected ':' in JSON object");
         }
         p->pos++;
 
         json_skip_whitespace(p);
 
         // Parse field value
-        field_values[num_fields] = json_parse_value(p);
+        field_values[num_fields] = json_parse_value(p, ctx);
         num_fields++;
 
         json_skip_whitespace(p);
@@ -398,7 +412,7 @@ Value json_parse_object(JSONParser *p) {
     return val_object(obj);
 }
 
-Value json_parse_array(JSONParser *p) {
+Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
     if (p->input[p->pos] != '[') {
         fprintf(stderr, "Runtime error: Expected '[' in JSON\n");
         exit(1);
@@ -419,7 +433,7 @@ Value json_parse_array(JSONParser *p) {
         json_skip_whitespace(p);
 
         // Parse element value
-        Value element = json_parse_value(p);
+        Value element = json_parse_value(p, ctx);
         array_push(arr, element);
 
         json_skip_whitespace(p);
@@ -442,20 +456,20 @@ Value json_parse_array(JSONParser *p) {
     return val_array(arr);
 }
 
-Value json_parse_value(JSONParser *p) {
+Value json_parse_value(JSONParser *p, ExecutionContext *ctx) {
     json_skip_whitespace(p);
 
     // Check first character to determine type
     char c = p->input[p->pos];
 
     if (c == '"') {
-        return json_parse_string(p);
+        return json_parse_string(p, ctx);
     } else if (c == '{') {
-        return json_parse_object(p);
+        return json_parse_object(p, ctx);
     } else if (c == '[') {
-        return json_parse_array(p);
+        return json_parse_array(p, ctx);
     } else if (c == '-' || (c >= '0' && c <= '9')) {
-        return json_parse_number(p);
+        return json_parse_number(p, ctx);
     } else if (strncmp(p->input + p->pos, "true", 4) == 0) {
         p->pos += 4;
         return val_bool(1);
@@ -474,7 +488,23 @@ Value json_parse_value(JSONParser *p) {
 // ========== OBJECT METHOD HANDLING ==========
 
 Value call_object_method(Object *obj, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
-    (void)args;  // Currently no object methods use args
+    (void)args;  // Unused for some methods
+
+    // keys() - return array of object keys
+    if (strcmp(method, "keys") == 0) {
+        if (num_args != 0) {
+            return throw_runtime_error(ctx, "keys() expects no arguments");
+        }
+
+        // Create array of keys
+        Array *keys_array = array_new();
+        for (int i = 0; i < obj->num_fields; i++) {
+            array_push(keys_array, val_string(obj->field_names[i]));
+        }
+
+        return val_array(keys_array);
+    }
+
     // serialize() - convert object to JSON string
     if (strcmp(method, "serialize") == 0) {
         if (num_args != 0) {
@@ -485,10 +515,16 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         visited_init(&visited);
 
         Value obj_val = val_object(obj);
-        char *json = serialize_value(obj_val, &visited);
-        Value result = val_string(json);
+        char *json = serialize_value(obj_val, &visited, ctx);
 
         visited_free(&visited);
+
+        if (json == NULL) {
+            // Exception was already thrown by serialize_value
+            return val_null();
+        }
+
+        Value result = val_string(json);
         free(json);
 
         return result;
