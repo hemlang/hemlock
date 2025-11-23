@@ -1,0 +1,131 @@
+// @stdlib/http - HTTP client using libwebsockets
+// Replaces curl-based implementation with native libwebsockets FFI
+
+import "stdlib/c/lws_wrapper.so";
+
+// ========== LIBWEBSOCKETS FFI DECLARATIONS ==========
+
+extern fn lws_http_get(url: string): ptr;
+extern fn lws_http_post(url: string, body: string, content_type: string): ptr;
+extern fn lws_http_request(method: string, url: string, body: string, headers: ptr): ptr;
+extern fn lws_http_response_free(response: ptr): void;
+
+// Response accessors
+extern fn lws_response_status(response: ptr): i32;
+extern fn lws_response_body(response: ptr): string;
+extern fn lws_response_headers(response: ptr): string;
+
+// ========== HTTP CLIENT IMPLEMENTATION ==========
+
+fn http_request(method: string, url: string, body: string, headers: array<string>): object {
+    // Call libwebsockets wrapper
+    let resp_ptr: ptr = null;
+
+    if (method == "GET") {
+        resp_ptr = lws_http_get(url);
+    } else if (method == "POST") {
+        resp_ptr = lws_http_post(url, body, "application/x-www-form-urlencoded");
+    } else {
+        resp_ptr = lws_http_request(method, url, body, null);
+    }
+
+    if (resp_ptr == null) {
+        throw "HTTP request failed: libwebsockets error";
+    }
+
+    // Extract response data
+    let status = lws_response_status(resp_ptr);
+    let response_body = lws_response_body(resp_ptr);
+    let response_headers = lws_response_headers(resp_ptr);
+
+    // Free C response structure
+    defer lws_http_response_free(resp_ptr);
+
+    return {
+        status_code: status,
+        headers: response_headers,
+        body: response_body,
+    };
+}
+
+// ========== PUBLIC API ==========
+
+export fn get(url: string, headers?: array<string>): object {
+    if (headers == null) { headers = []; }
+    return http_request("GET", url, "", headers);
+}
+
+export fn post(url: string, body?: string, headers?: array<string>): object {
+    if (body == null) { body = ""; }
+    if (headers == null) { headers = []; }
+    return http_request("POST", url, body, headers);
+}
+
+export fn put(url: string, body?: string, headers?: array<string>): object {
+    if (body == null) { body = ""; }
+    if (headers == null) { headers = []; }
+    return http_request("PUT", url, body, headers);
+}
+
+export fn delete(url: string, headers?: array<string>): object {
+    if (headers == null) { headers = []; }
+    return http_request("DELETE", url, "", headers);
+}
+
+export fn request(method: string, url: string, body?: string, headers?: array<string>): object {
+    if (body == null) { body = ""; }
+    if (headers == null) { headers = []; }
+    return http_request(method, url, body, headers);
+}
+
+// ========== CONVENIENCE FUNCTIONS ==========
+
+export fn fetch(url: string): string {
+    let response = get(url, null);
+    return response.body;
+}
+
+export fn post_json(url: string, data: object): object {
+    let json = data.serialize();
+    let headers = ["Content-Type: application/json"];
+    return post(url, json, headers);
+}
+
+export fn get_json(url: string): object {
+    let response = get(url, null);
+    return response.body.deserialize();
+}
+
+// ========== STATUS CODE HELPERS ==========
+
+export fn is_success(status_code: i32): bool {
+    return status_code >= 200 && status_code < 300;
+}
+
+export fn is_redirect(status_code: i32): bool {
+    return status_code >= 300 && status_code < 400;
+}
+
+export fn is_client_error(status_code: i32): bool {
+    return status_code >= 400 && status_code < 500;
+}
+
+export fn is_server_error(status_code: i32): bool {
+    return status_code >= 500 && status_code < 600;
+}
+
+// ========== URL HELPERS ==========
+
+export fn url_encode(str: string): string {
+    let result = str;
+    result = result.replace_all(" ", "%20");
+    result = result.replace_all("!", "%21");
+    result = result.replace_all("#", "%23");
+    result = result.replace_all("$", "%24");
+    result = result.replace_all("&", "%26");
+    result = result.replace_all("'", "%27");
+    result = result.replace_all("(", "%28");
+    result = result.replace_all(")", "%29");
+    result = result.replace_all("+", "%2B");
+    return result;
+}

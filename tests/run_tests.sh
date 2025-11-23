@@ -45,6 +45,13 @@ else
     echo -e "${RED}✗ Build failed${NC}"
     exit 1
 fi
+
+# Build stdlib modules (if dependencies available)
+if make stdlib > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ stdlib modules built${NC}"
+else
+    echo -e "${YELLOW}⊘ stdlib modules skipped (dependencies not installed)${NC}"
+fi
 echo ""
 
 # Function to check if a test is expected to fail (error test)
@@ -69,6 +76,23 @@ for test_file in $TEST_FILES; do
     category=$(dirname "$test_file" | cut -d'/' -f2)
     test_name="${test_file#tests/}"
 
+    # Skip HTTP/WebSocket tests if lws_wrapper.so doesn't exist
+    if [[ "$category" == "stdlib_http" || "$category" == "stdlib_websocket" ]]; then
+        if [ ! -f "$PROJECT_ROOT/stdlib/c/lws_wrapper.so" ]; then
+            # Only print the skip message once per category
+            if [ "$category" != "$CURRENT_CATEGORY" ]; then
+                if [ -n "$CURRENT_CATEGORY" ]; then
+                    echo ""
+                fi
+                echo -e "${BLUE}[$category]${NC}"
+                echo -e "${YELLOW}⊘${NC} Skipping $category tests (libwebsockets not installed)"
+                echo "  Run 'sudo apt-get install libwebsockets-dev && make stdlib' to enable"
+                CURRENT_CATEGORY="$category"
+            fi
+            continue
+        fi
+    fi
+
     # Print category header if changed
     if [ "$category" != "$CURRENT_CATEGORY" ]; then
         if [ -n "$CURRENT_CATEGORY" ]; then
@@ -79,7 +103,7 @@ for test_file in $TEST_FILES; do
     fi
 
     # Run the test with timeout and capture output and exit code
-    output=$(timeout 5 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
+    output=$(timeout 20 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
     exit_code=$?
 
     # Check if timeout occurred

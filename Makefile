@@ -36,7 +36,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
+clean: clean-stdlib
 	rm -rf $(BUILD_DIR) $(TARGET)
 
 run: $(TARGET)
@@ -45,4 +45,29 @@ run: $(TARGET)
 test: $(TARGET)
 	@bash tests/run_tests.sh
 
-.PHONY: all clean run test
+# Stdlib C modules (optional - requires external dependencies)
+STDLIB_C_DIR = stdlib/c
+STDLIB_LWS_WRAPPER = $(STDLIB_C_DIR)/lws_wrapper.so
+
+stdlib: $(STDLIB_LWS_WRAPPER)
+
+$(STDLIB_LWS_WRAPPER): $(STDLIB_C_DIR)/lws_wrapper.c
+	@echo "Building libwebsockets wrapper..."
+	@mkdir -p $(STDLIB_C_DIR)
+	@if $(CC) -shared -fPIC -o $@ $< -lwebsockets $(CFLAGS) 2>&1; then \
+		echo "✓ Built $@"; \
+	else \
+		echo "⚠ Warning: Could not build lws_wrapper.so"; \
+		echo "  libwebsockets-dev is not installed or headers not found"; \
+		echo "  Install with: sudo apt-get install libwebsockets-dev"; \
+		echo "  HTTP/WebSocket tests will be skipped"; \
+		exit 0; \
+	fi
+
+clean-stdlib:
+	rm -f $(STDLIB_LWS_WRAPPER)
+
+.PHONY: all clean run test stdlib clean-stdlib
+
+# Force rebuild of stdlib target
+.PHONY: $(STDLIB_LWS_WRAPPER)

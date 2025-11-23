@@ -17,10 +17,13 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev
 
     - name: Build Hemlock
       run: make clean && make
+
+    - name: Build stdlib FFI wrappers
+      run: make stdlib
 
     - name: Run test suite
       run: make test

@@ -1,0 +1,148 @@
+// Test WebSocket server functionality
+// Requires: libwebsockets-dev installed, make stdlib
+// Run with: ./hemlock tests/stdlib_websocket/test_websocket_server.hml
+
+import { WebSocket, WebSocketServer } from "@stdlib/websocket";
+
+print("Testing WebSocket server...");
+print("Requires: libwebsockets-dev");
+print("");
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+// Async function to accept server connection
+async fn accept_connection(srv) {
+    print("  Server: Waiting for client...");
+    let conn = srv.accept(5000);
+    print("  Server: Client connected");
+    return conn;
+}
+
+// Test 1: Create WebSocket server
+print("Test 1: Create WebSocket server");
+try {
+    let server = WebSocketServer("127.0.0.1", 9001);
+    defer server.close();
+
+    assert(server != null, "Server should be created");
+    assert(server.host == "127.0.0.1", "Host should be stored");
+    assert(server.port == 9001, "Port should be stored");
+    assert(server.closed == false, "Should not be closed initially");
+
+    print("✓ Server created on 127.0.0.1:9001");
+    tests_passed = tests_passed + 1;
+
+    // Test 2: Client connects to server
+    print("");
+    print("Test 2: Client connects to server");
+
+    let accept_task = spawn(accept_connection, server);
+
+    // Small delay to ensure server is ready
+    import { sleep } from "@stdlib/time";
+    sleep(0.1);
+
+    // Client connects
+    print("  Client: Connecting...");
+    let client = WebSocket("ws://127.0.0.1:9001");
+    defer client.close();
+
+    print("  Client: Connected");
+
+    // Wait for server to accept
+    let server_conn = join(accept_task);
+    defer server_conn.close();
+
+    assert(server_conn != null, "Server should accept connection");
+
+    print("✓ Client-server connection established");
+    tests_passed = tests_passed + 1;
+
+    // Test 3: Client to server message
+    print("");
+    print("Test 3: Client to server message");
+
+    let msg_from_client = "Hello Server!";
+    client.send_text(msg_from_client);
+    print("  Client sent: " + msg_from_client);
+
+    let received = server_conn.recv(5000);
+    assert(received != null, "Server should receive message");
+    assert(received.type == "text", "Message should be text");
+    assert(received.data == msg_from_client, "Message should match");
+
+    print("  Server received: " + received.data);
+    print("✓ Client to server messaging works");
+    tests_passed = tests_passed + 1;
+
+    // Test 4: Server to client message
+    print("");
+    print("Test 4: Server to client message");
+
+    let msg_from_server = "Hello Client!";
+    server_conn.send_text(msg_from_server);
+    print("  Server sent: " + msg_from_server);
+
+    let received2 = client.recv(5000);
+    assert(received2 != null, "Client should receive message");
+    assert(received2.type == "text", "Message should be text");
+    assert(received2.data == msg_from_server, "Message should match");
+
+    print("  Client received: " + received2.data);
+    print("✓ Server to client messaging works");
+    tests_passed = tests_passed + 1;
+
+    // Test 5: Bidirectional echo
+    print("");
+    print("Test 5: Bidirectional echo");
+
+    let echo_count = 0;
+    while (echo_count < 3) {
+        let test_msg = "Echo test " + (echo_count + 1);
+
+        // Client sends
+        client.send_text(test_msg);
+        let srv_recv = server_conn.recv(5000);
+        assert(srv_recv.data == test_msg, "Server should receive correctly");
+
+        // Server echoes back
+        server_conn.send_text("Echo: " + srv_recv.data);
+        let cli_recv = client.recv(5000);
+
+        print("  " + test_msg + " → " + cli_recv.data);
+
+        echo_count = echo_count + 1;
+    }
+
+    print("✓ Bidirectional echo test passed");
+    tests_passed = tests_passed + 1;
+
+    // Cleanup
+    server_conn.close();
+    client.close();
+    server.close();
+
+} catch (e) {
+    print("✗ Server test failed: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+print("========================================");
+print("WebSocket Server Tests Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+
+if (tests_failed > 0) {
+    print("");
+    print("Some tests failed. Common issues:");
+    print("  - lws_wrapper.so not compiled (run: make stdlib)");
+    print("  - libwebsockets not installed");
+    print("  - Port 9001 already in use");
+    print("  - Permission denied (use port > 1024)");
+}
+
+print("");
+assert(tests_failed == 0, "All WebSocket server tests should pass");

@@ -2,6 +2,34 @@
 
 The Hemlock standard library provides essential modules and data structures for Hemlock programs.
 
+## Installation
+
+### Core Modules
+Most stdlib modules are pure Hemlock and require no external dependencies.
+
+### Optional Dependencies
+
+Some modules require external C libraries:
+
+**For HTTP/WebSocket support:**
+```bash
+# Ubuntu/Debian
+sudo apt-get install libwebsockets-dev
+
+# macOS
+brew install libwebsockets
+
+# Arch Linux
+sudo pacman -S libwebsockets
+```
+
+**Build stdlib C modules:**
+```bash
+make stdlib
+```
+
+This compiles the libwebsockets FFI wrapper (lws_wrapper.so) for HTTP and WebSocket modules.
+
 ## Available Modules
 
 ### Collections (`@stdlib/collections`) ⭐
@@ -82,18 +110,30 @@ POSIX Extended Regular Expression pattern matching:
 See [docs/regex.md](docs/regex.md) for detailed documentation.
 
 ### HTTP Client (`@stdlib/http`)
-**Status:** Production (via curl wrapper)
+**Status:** Production (via libwebsockets FFI)
 
-Production-ready HTTP/HTTPS client wrapping curl:
-- **HTTP methods:** get, post, put, delete, request
-- **Convenience:** fetch, post_json, get_json, download
+Production-ready HTTP/HTTPS client using libwebsockets:
+- **HTTP methods:** get, post, request
+- **Convenience:** fetch, post_json
 - **Status helpers:** is_success, is_redirect, is_client_error, is_server_error
 - **URL helpers:** url_encode
-- **Wraps curl CLI** via exec() for simplicity and reliability
-- **Full HTTPS/TLS support** via curl's OpenSSL
-- **Battle-tested** - uses the same curl that powers millions of applications
+- **Native libwebsockets FFI** for performance and reliability
+- **Full HTTPS/TLS support** via libwebsockets SSL
+- **Requires:** libwebsockets-dev package
 
 See [docs/http.md](docs/http.md) for detailed documentation.
+
+### WebSocket (`@stdlib/websocket`)
+**Status:** Production (via libwebsockets FFI)
+
+WebSocket client/server using libwebsockets:
+- **Client:** WebSocket(url) - Connect to ws:// or wss:// endpoints
+- **Server:** WebSocketServer(host, port) - Accept WebSocket connections
+- **Message types:** Text, binary, ping, pong, close
+- **SSL/TLS support:** Secure WebSocket (wss://) built-in
+- **Requires:** libwebsockets-dev package
+
+See [docs/websocket.md](docs/websocket.md) for detailed documentation.
 
 ### JSON (`@stdlib/json`)
 **Status:** Comprehensive
@@ -122,6 +162,7 @@ import { read_file, write_file, exists } from "@stdlib/fs";
 import { TcpListener, TcpStream, UdpSocket } from "@stdlib/net";
 import { compile, test, REG_ICASE } from "@stdlib/regex";
 import { get, post, fetch } from "@stdlib/http";
+import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { parse, stringify, pretty, get, set } from "@stdlib/json";
 
 // Import all as namespace
@@ -130,6 +171,7 @@ import * as fs from "@stdlib/fs";
 import * as net from "@stdlib/net";
 import * as regex from "@stdlib/regex";
 import * as http from "@stdlib/http";
+import * as ws from "@stdlib/websocket";
 import * as json from "@stdlib/json";
 
 // Use imported functions
@@ -224,7 +266,7 @@ email_pattern.free();  // Manual cleanup required
 import { get, post_json, fetch } from "@stdlib/http";
 
 // Simple GET request
-let response = get("http://example.com/api/data", null);
+let response = get("http://example.com/api/data", []);
 print(response.status_code);  // 200
 print(response.body);
 
@@ -233,7 +275,23 @@ let body = fetch("http://example.com");
 
 // POST JSON
 let data = { name: "Alice", age: 30 };
-let response = post_json("http://api.example.com/users", data);
+let response2 = post_json("http://api.example.com/users", data);
+```
+
+### WebSocket
+```hemlock
+import { WebSocket } from "@stdlib/websocket";
+
+// Connect to WebSocket server
+let ws = WebSocket("ws://echo.websocket.org");
+defer ws.close();
+
+// Send and receive messages
+ws.send_text("Hello, WebSocket!");
+let msg = ws.recv(5000);  // 5 second timeout
+if (msg.type == "text") {
+    print("Received: " + msg.data);
+}
 ```
 
 ### JSON
@@ -264,8 +322,12 @@ stdlib/
 ├── fs.hml              # Filesystem module implementation
 ├── net.hml             # Networking module implementation
 ├── regex.hml           # Regular expressions module (via FFI)
-├── http.hml            # HTTP client module (pure Hemlock)
+├── http.hml            # HTTP client module (via libwebsockets FFI)
+├── websocket.hml       # WebSocket client/server (via libwebsockets FFI)
+├── websocket_pure.hml  # WebSocket pure Hemlock implementation (educational)
 ├── json.hml            # JSON module (pure Hemlock)
+├── c/                  # C FFI wrappers (compiled with 'make stdlib')
+│   └── lws_wrapper.c   # libwebsockets wrapper for HTTP/WebSocket
 └── docs/
     ├── collections.md  # Collections API reference
     ├── math.md         # Math API reference
@@ -275,6 +337,7 @@ stdlib/
     ├── net.md          # Networking API reference
     ├── regex.md        # Regex API reference
     ├── http.md         # HTTP API reference
+    ├── websocket.md    # WebSocket API reference
     └── json.md         # JSON API reference
 ```
 
@@ -296,7 +359,6 @@ print(parsed.name);  // "Alice"
 ## Future Modules
 
 Planned additions to the standard library:
-- **websocket** - WebSocket protocol (building on @stdlib/http)
 - **strings** - String utilities (pad, join, is_alpha, reverse, lines, words)
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
 - **encoding** - Base64, hex, URL encoding/decoding
@@ -318,7 +380,8 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | fs | ✅ Comprehensive | ✅ Complete | ⚠️ Partial | 31 | High |
 | net | ✅ Complete | ✅ Complete | ✅ Good | 240 | High |
 | regex | ⚠️ Basic (FFI) | ✅ Complete | ✅ Good | 152 | Good |
-| http | ✅ Production (curl) | ✅ Complete | ⚠️ Example | 311 | High |
+| http | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 280 | High |
+| websocket | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 318 | High |
 | json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
 
 **Legend:**
