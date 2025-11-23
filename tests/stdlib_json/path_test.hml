@@ -1,0 +1,80 @@
+// Test @stdlib/json path access (get, set, has, delete)
+
+import { get, set, has, delete } from "@stdlib/json";
+
+// Test get() with nested object
+let doc = {
+    user: {
+        name: "Alice",
+        age: 30,
+        address: {
+            city: "NYC",
+            zip: 10001
+        }
+    },
+    items: [1, 2, 3, 4, 5]
+};
+
+// Test basic property access
+assert(get(doc, "user.name") == "Alice", "get user.name");
+assert(get(doc, "user.age") == 30, "get user.age");
+
+// Test deeply nested access
+assert(get(doc, "user.address.city") == "NYC", "get user.address.city");
+assert(get(doc, "user.address.zip") == 10001, "get user.address.zip");
+
+// Test array access
+assert(get(doc, "items.0") == 1, "get items[0]");
+assert(get(doc, "items.1") == 2, "get items[1]");
+assert(get(doc, "items.4") == 5, "get items[4]");
+
+// Test empty path (returns root)
+let root = get(doc, "");
+assert(root.user.name == "Alice", "get empty path returns root");
+
+// Test missing path with default
+assert(get(doc, "user.phone", "(none)") == "(none)", "get missing with default");
+assert(get(doc, "nonexistent.path", 42) == 42, "get nonexistent with default");
+
+// Test missing path without default
+let missing = get(doc, "user.email");
+assert(missing == null, "get missing without default returns null");
+
+// Test array out of bounds with default
+assert(get(doc, "items.10", -1) == -1, "get array out of bounds with default");
+
+// Test set() basic property
+set(doc, "user.name", "Bob");
+assert(doc.user.name == "Bob", "set user.name");
+
+// Test set() nested property
+set(doc, "user.address.city", "LA");
+assert(doc.user.address.city == "LA", "set user.address.city");
+
+// Test set() array element
+set(doc, "items.0", 99);
+assert(doc.items[0] == 99, "set items[0]");
+
+set(doc, "items.2", 88);
+assert(doc.items[2] == 88, "set items[2]");
+
+// Test has() for existing paths
+assert(has(doc, "user.name") == true, "has user.name");
+assert(has(doc, "user.address.city") == true, "has user.address.city");
+assert(has(doc, "items.0") == true, "has items[0]");
+
+// Test has() for missing paths
+assert(has(doc, "user.phone") == false, "has missing user.phone");
+assert(has(doc, "nonexistent") == false, "has nonexistent path");
+assert(has(doc, "items.100") == false, "has array out of bounds");
+
+// Test delete() (sets to null)
+delete(doc, "user.age");
+assert(doc.user.age == null, "delete sets to null");
+
+// Test path with null intermediate
+let null_test = { a: { b: { c: 10 } } };
+set(null_test, "a.b.c", null);
+assert(get(null_test, "a.b.x", "default") == "default", "get with null intermediate");
+
+print("All path access tests passed!");

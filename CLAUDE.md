@@ -335,6 +335,49 @@ let result = "  Hello World  "
 - `bytes()` - Convert to array of bytes (u8 values)
 - `to_bytes()` - Convert to buffer for low-level access
 
+### String Interpolation
+
+**Syntax:** Use backticks (`` ` ``) with `${}` for template strings (like JavaScript)
+
+```hemlock
+// Basic variable interpolation
+let name = "Alice";
+let greeting = `Hello, ${name}!`;
+print(greeting);  // "Hello, Alice!"
+
+// Multiple interpolations
+let age = 30;
+let msg = `Hello, ${name}! You are ${age} years old.`;
+print(msg);  // "Hello, Alice! You are 30 years old."
+
+// Arbitrary expressions
+let x = 10;
+let y = 20;
+let result = `Sum: ${x + y}, Product: ${x * y}`;
+print(result);  // "Sum: 30, Product: 200"
+
+// Works with any expression
+let items = [1, 2, 3];
+print(`Array length: ${items.length}`);  // "Array length: 3"
+```
+
+**Three string types in Hemlock:**
+- **Regular strings:** `"hello"` - No interpolation
+- **Template strings:** `` `hello ${name}` `` - With interpolation
+- **Rune literals:** `'A'` - Single Unicode codepoint
+
+**Escape sequences in template strings:**
+- `\$` - Literal dollar sign: `` `Price: \$100` `` → `"Price: $100"`
+- `` \` `` - Literal backtick: `` `Use \` for code` `` → ``"Use ` for code"``
+- `\n`, `\t`, `\\`, etc. - Standard escape sequences work
+
+**How it works:**
+- Backtick strings are parsed for `${...}` expressions at compile time
+- Expressions are evaluated at runtime
+- Results are automatically converted to strings via `value_to_string()`
+- All parts are concatenated into the final string
+- UTF-8 safe (works with runes, emojis, etc.)
+
 ---
 
 ## Runes
@@ -1261,6 +1304,7 @@ print(add5(3));  // 8
 - **Closures:** Functions capture their defining environment
 - **Recursion:** Fully supported (no tail call optimization yet)
 - **Type annotations:** Optional for parameters and return type
+- **Optional parameters:** Parameters can have default values
 - **Pass-by-value:** All arguments are copied
 
 **Return semantics:**
@@ -1277,12 +1321,215 @@ print(add5(3));  // 8
 - `fn name(...) {}` desugars to `let name = fn(...) {};`
 - Both forms are equivalent
 
+### Optional Parameters
+
+Functions can have optional parameters with default values using the `?:` syntax:
+
+```hemlock
+// Basic optional parameter
+fn greet(name: string, greeting?: "Hello") {
+    print(greeting + " " + name);
+}
+
+greet("Alice");              // Hello Alice
+greet("Bob", "Hi");          // Hi Bob
+
+// Multiple optional parameters
+fn format_name(first: string, middle?: "", last?: "Doe") {
+    if (middle == "") {
+        return first + " " + last;
+    }
+    return first + " " + middle + " " + last;
+}
+
+print(format_name("John"));                    // John Doe
+print(format_name("John", "Q", "Adams"));      // John Q Adams
+
+// Optional parameter with type annotation
+fn multiply(x: i32, factor?: 2): i32 {
+    return x * factor;
+}
+
+print(multiply(5));      // 10
+print(multiply(5, 3));   // 15
+
+// Default expressions can be complex
+fn power(base: i32, exp?: 2 + 1) {
+    let result = 1;
+    let i = 0;
+    while (i < exp) {
+        result = result * base;
+        i = i + 1;
+    }
+    return result;
+}
+
+print(power(2));      // 8 (2^3)
+print(power(2, 4));   // 16 (2^4)
+
+// Works with closures
+fn make_multiplier(factor?: 10) {
+    return fn(n) {
+        return n * factor;
+    };
+}
+
+let mult = make_multiplier();
+print(mult(5));  // 50
+
+// All optional parameters - 0 args is valid
+fn test(a?: 1, b?: 2, c?: 3) {
+    return a + b + c;
+}
+
+print(test());            // 6
+print(test(10));          // 15
+print(test(10, 20));      // 33
+print(test(10, 20, 30));  // 60
+```
+
+**Optional parameter rules:**
+- Optional parameters must come after all required parameters
+- Syntax: `param?: default_value` or `param: type?: default_value`
+- Default expressions are evaluated at call time, not function definition time
+- Default expressions are evaluated in the closure environment
+- Function calls validate argument count: `required ≤ provided ≤ total`
+- Error messages show the valid range: "Function expects 2-4 arguments, got 1"
+
 **Known limitations:**
 - No pass-by-reference yet (`ref` keyword parsed but not implemented)
 - No variadic functions
-- No default arguments
 - No function overloading
 - No tail call optimization
+
+---
+
+## Enums
+
+Hemlock supports **C-style enumerations** with explicit or auto-incrementing values:
+
+```hemlock
+// Simple enum (auto values: 0, 1, 2, ...)
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+// Enum with explicit values
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 2
+}
+
+// Mixed auto and explicit values
+enum Code {
+    A,        // 0
+    B = 10,   // 10
+    C,        // 11 (auto-increments from last explicit value)
+    D = 20,   // 20
+    E         // 21
+}
+```
+
+### Usage
+
+**Accessing enum variants:**
+```hemlock
+print(Color.RED);     // 0
+print(Status.ERROR);  // 1
+print(Code.C);        // 11
+```
+
+**Type annotations:**
+```hemlock
+let color: Color = Color.RED;
+let status: Status = Status.OK;
+
+// Type checking ensures values match
+color = Color.BLUE;  // ✓ OK
+```
+
+**Comparisons:**
+```hemlock
+let status = Status.OK;
+
+if (status == Status.OK) {
+    print("Success");
+}
+
+if (status != Status.ERROR) {
+    print("Not an error");
+}
+```
+
+**Switch statements:**
+```hemlock
+let color = Color.GREEN;
+
+switch (color) {
+    case Color.RED:
+        print("Red");
+        break;
+    case Color.GREEN:
+        print("Green");
+        break;
+    case Color.BLUE:
+        print("Blue");
+        break;
+}
+```
+
+**Function parameters:**
+```hemlock
+fn process(s: Status): string {
+    if (s == Status.OK) {
+        return "Success";
+    }
+    if (s == Status.ERROR) {
+        return "Failed";
+    }
+    return "Waiting";
+}
+
+print(process(Status.OK));      // "Success"
+print(process(Status.ERROR));   // "Failed"
+print(process(Status.PENDING)); // "Waiting"
+```
+
+### Implementation Details
+
+- Enum variants are **i32 values** at runtime
+- Enums create a **const namespace object** with variant fields
+- Type checking validates enum types during assignment and function calls
+- Auto-incrementing starts at 0, or continues from last explicit value
+- Variant values must be compile-time constants (i32 expressions)
+
+**Example of namespace object:**
+```hemlock
+enum Status {
+    OK,
+    ERROR,
+    PENDING
+}
+
+// Internally creates:
+// const Status = {
+//     OK: 0,
+//     ERROR: 1,
+//     PENDING: 2
+// }
+
+// So you can access:
+print(Status.OK);  // 0
+```
+
+**Current Limitations:**
+- No enum variant validation at runtime (can assign any i32 to enum-typed variable)
+- No discriminated unions or associated data
+- No pattern matching (use switch statements)
+- Enum values must fit in i32 range
 
 ---
 
@@ -1651,6 +1898,82 @@ let text = ["apple", "banana", "cherry"]
 - `first()` - Get first element (without removing)
 - `last()` - Get last element (without removing)
 - `clear()` - Remove all elements
+- `map(callback)` - Transform each element, returns new array
+- `filter(predicate)` - Keep elements that pass test, returns new array
+- `reduce(reducer, initial?)` - Accumulate to single value
+
+### Higher-Order Functions
+
+**map(callback) - Transform Elements:**
+```hemlock
+// Double each number
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(x) {
+    return x * 2;
+});
+print(doubled[0]);  // 2
+print(doubled[2]);  // 6
+
+// Transform to different type
+let strings = [1, 2, 3].map(fn(n) {
+    return "num_" + typeof(n);
+});
+print(strings[0]);  // "num_1"
+```
+
+**filter(predicate) - Select Elements:**
+```hemlock
+// Keep even numbers
+let nums = [1, 2, 3, 4, 5, 6];
+let evens = nums.filter(fn(x) {
+    return x % 2 == 0;
+});
+print(evens.length);  // 3
+print(evens[0]);  // 2
+
+// Filter strings by length
+let words = ["apple", "banana", "cherry", "date"];
+let long_words = words.filter(fn(w) {
+    return w.length > 5;
+});
+print(long_words[0]);  // "banana"
+```
+
+**reduce(reducer, initial?) - Accumulate Values:**
+```hemlock
+// Sum array
+let nums = [1, 2, 3, 4, 5];
+let sum = nums.reduce(fn(acc, x) {
+    return acc + x;
+}, 0);
+print(sum);  // 15
+
+// Product (without initial value - uses first element)
+let product = [1, 2, 3, 4].reduce(fn(acc, x) {
+    return acc * x;
+});
+print(product);  // 24
+
+// Find maximum
+let max = [3, 7, 2, 9, 5].reduce(fn(acc, x) {
+    if (x > acc) {
+        return x;
+    } else {
+        return acc;
+    }
+}, 0);
+print(max);  // 9
+```
+
+**Chaining Higher-Order Functions:**
+```hemlock
+// Complex data pipeline
+let result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    .filter(fn(x) { return x % 2 == 1; })  // Get odds
+    .map(fn(x) { return x * x; })           // Square them
+    .reduce(fn(acc, x) { return acc + x; }, 0);  // Sum
+print(result);  // 165 (1+9+25+49+81)
+```
 
 ### Implementation Details
 - Arrays are heap-allocated with dynamic capacity
@@ -3205,21 +3528,25 @@ When adding features to Hemlock:
 ## Version History
 
 - **v1.0** - Production-ready release with complete feature set (current)
-  - **Type system:** i8-i64, u8-u64, f32/f64, bool, string, rune, null, ptr, buffer, array, object, file, task, channel, void
+  - **Type system:** i8-i64, u8-u64, f32/f64, bool, string, rune, null, ptr, buffer, array, object, enum, file, task, channel, void
   - **64-bit integer support:** i64 and u64 types with full type promotion, conversion, and FFI support
   - **UTF-8 first-class strings:** Full Unicode support (U+0000 to U+10FFFF), codepoint-based indexing and operations, 18 string methods
   - **Rune type:** Unicode codepoints as distinct 32-bit type with escape sequences and conversions
   - **Memory management:** alloc, free, memset, memcpy, realloc, talloc, sizeof with reference counting for heap objects
   - **Objects:** literals, methods, duck typing, optional fields, JSON serialization
-  - **Arrays:** 15 array methods with optional type constraints
+  - **Enums:** C-style enumerations with auto-incrementing or explicit values, type checking, namespace objects
+  - **Arrays:** 18 methods including map, filter, reduce (higher-order functions for functional programming)
+  - **Functions:** First-class with closures, recursion, optional parameters
   - **Control flow:** if/else, while, for, for-in, switch, break, continue, defer, bitwise operators
+  - **String interpolation:** `"Hello ${name}"` syntax for embedding expressions in strings
+  - **Optional chaining:** `obj?.field` and null coalescing `value ?? default`
   - **Error handling:** try/catch/finally/throw, panic, stack traces on uncaught exceptions
   - **File I/O:** File object API with full read/write/seek methods
   - **Signal handling:** POSIX signal handling with 15 signal constants
   - **Async/concurrency:** async/await syntax, true multi-threaded parallelism via pthreads, thread-safe channels
   - **FFI:** Call C functions from shared libraries using libffi
-  - **Standard library:** 8 production modules (collections, math, time, env, fs, net, regex, http)
-  - **389 tests:** 364 passing + 25 expected error tests (100% success rate)
+  - **Standard library:** 10 production modules (collections, math, time, env, fs, net, regex, http, json, websocket)
+  - **394 tests:** 369 passing + 25 expected error tests (100% success rate)
   - **Reference counting:** Automatic memory management for all heap-allocated types
   - **Stack traces:** Automatic call stack tracking and printing on errors
 

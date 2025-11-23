@@ -1,0 +1,183 @@
+// Integration test for @stdlib/json - real-world scenarios
+
+import {
+    parse, stringify, pretty,
+    parse_file, stringify_file, pretty_file,
+    get, set, has,
+    clone, equals,
+    is_valid
+} from "@stdlib/json";
+
+// Scenario 1: Configuration file manipulation
+print("Test 1: Configuration management");
+
+let config = {
+    server: {
+        host: "localhost",
+        port: 8080,
+        ssl: false
+    },
+    database: {
+        host: "db.example.com",
+        port: 5432,
+        name: "myapp"
+    }
+};
+
+// Read config values with defaults
+let server_host = get(config, "server.host", "0.0.0.0");
+let server_port = get(config, "server.port", 3000);
+let cache_ttl = get(config, "cache.ttl", 300);
+
+assert(server_host == "localhost", "config server host");
+assert(server_port == 8080, "config server port");
+assert(cache_ttl == 300, "config default cache ttl");
+
+// Update config
+set(config, "server.port", 9000);
+set(config, "server.ssl", true);
+
+assert(config.server.port == 9000, "config updated port");
+assert(config.server.ssl == true, "config updated ssl");
+
+// Scenario 2: API response processing
+print("Test 2: API response processing");
+
+let api_response = parse("{\"status\":\"success\",\"data\":{\"users\":[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}],\"total\":2}}");
+
+let status = get(api_response, "status");
+let total = get(api_response, "data.total");
+let first_user = get(api_response, "data.users.0.name");
+
+assert(status == "success", "api status");
+assert(total == 2, "api total users");
+assert(first_user == "Alice", "api first user name");
+
+// Scenario 3: Data transformation with clone
+print("Test 3: Data transformation");
+
+let input_data = {
+    id: 123,
+    values: [10, 20, 30]
+};
+
+let output_data = clone(input_data);
+set(output_data, "id", 456);
+output_data.values.push(40);
+
+assert(input_data.id == 123, "original data unchanged");
+assert(input_data.values.length == 3, "original values unchanged");
+assert(output_data.id == 456, "transformed data id");
+assert(output_data.values.length == 4, "transformed values length");
+
+// Scenario 4: Validation workflow
+print("Test 4: Validation workflow");
+
+fn process_user_input(json_str: string) {
+    if (!is_valid(json_str)) {
+        return null;
+    }
+
+    let data = parse(json_str);
+
+    if (!has(data, "version")) {
+        return null;
+    }
+
+    let version = get(data, "version");
+    if (version != "1.0") {
+        return null;
+    }
+
+    return data;
+}
+
+let valid_input = "{\"version\":\"1.0\",\"data\":\"test\"}";
+let result1 = process_user_input(valid_input);
+assert(result1 != null, "process valid input");
+
+let invalid_json = "{\"unclosed\"";
+let result2 = process_user_input(invalid_json);
+assert(result2 == null, "process invalid JSON");
+
+let missing_version = "{\"data\":\"test\"}";
+let result3 = process_user_input(missing_version);
+assert(result3 == null, "process missing version");
+
+// Scenario 5: Pretty printing for debugging
+print("Test 5: Pretty printing");
+
+let debug_data = {
+    request: {
+        method: "POST",
+        path: "/api/users"
+    },
+    response: {
+        status: 200,
+        body: { created: true }
+    }
+};
+
+let formatted = pretty(debug_data, 2);
+assert(formatted.contains("{\n"), "pretty formatted starts with brace");
+assert(formatted.contains("\"method\": \"POST\""), "pretty contains method");
+assert(formatted.contains("\"status\": 200"), "pretty contains status");
+
+// Scenario 6: Array comparison
+print("Test 6: Array comparison");
+
+let arr1 = [1, 2, 3];
+let arr2 = [1, 2, 3];
+let arr3 = [1, 2, 4];
+
+assert(equals(arr1, arr2) == true, "equal arrays");
+assert(equals(arr1, arr3) == false, "different arrays");
+
+// Scenario 7: Nested path manipulation
+print("Test 7: Complex nested structures");
+
+let nested_doc = {
+    metadata: {
+        version: "2.0",
+        author: "system"
+    },
+    data: {
+        records: [
+            { id: 1, name: "Record 1" },
+            { id: 2, name: "Record 2" }
+        ]
+    }
+};
+
+let record_name = get(nested_doc, "data.records.0.name");
+assert(record_name == "Record 1", "nested array object access");
+
+set(nested_doc, "data.records.1.name", "Updated Record");
+assert(nested_doc.data.records[1].name == "Updated Record", "nested array object update");
+
+// Scenario 8: File operations (write and read)
+print("Test 8: File operations");
+
+let file_data = {
+    test: "integration",
+    timestamp: 123456789,
+    items: ["a", "b", "c"]
+};
+
+// Write compact JSON
+stringify_file("/tmp/test_compact.json", file_data);
+
+// Write pretty JSON
+pretty_file("/tmp/test_pretty.json", file_data, 2);
+
+// Read back compact
+let read_compact = parse_file("/tmp/test_compact.json");
+assert(read_compact.test == "integration", "file read compact test");
+assert(read_compact.items.length == 3, "file read compact items");
+
+// Read back pretty (should parse the same)
+let read_pretty = parse_file("/tmp/test_pretty.json");
+assert(read_pretty.test == "integration", "file read pretty test");
+assert(equals(read_compact.items, read_pretty.items) == true, "compact and pretty parse same");
+
+print("All integration tests passed!");

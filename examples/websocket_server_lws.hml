@@ -1,0 +1,91 @@
+// WebSocket Echo Server Example (libwebsockets version)
+// Demonstrates @stdlib/websocket server with async handling
+// Requires: libwebsockets-dev and compiled lws_wrapper.so (make stdlib)
+
+import { WebSocketServer } from "@stdlib/websocket";
+
+print("=== Hemlock WebSocket Echo Server (libwebsockets) ===");
+print("");
+
+// Handler for each client connection
+async fn handle_client(conn, client_id) {
+    defer conn.close();
+
+    print("[Client " + typeof(client_id) + "] Connected");
+
+    let message_count = 0;
+
+    while (true) {
+        // Wait for message (10 second timeout)
+        let msg = conn.recv(10000);
+
+        if (msg == null) {
+            print("[Client " + typeof(client_id) + "] Timeout or connection closed");
+            break;
+        }
+
+        if (msg.type == "close") {
+            print("[Client " + typeof(client_id) + "] Close frame received");
+            break;
+        }
+
+        if (msg.type == "text") {
+            message_count = message_count + 1;
+            print("[Client " + typeof(client_id) + "] Message #" + typeof(message_count) + ": " + msg.data);
+
+            // Echo back
+            let echo = "Echo: " + msg.data;
+            conn.send_text(echo);
+            print("[Client " + typeof(client_id) + "] Sent: " + echo);
+        }
+    }
+
+    print("[Client " + typeof(client_id) + "] Disconnected (handled " + typeof(message_count) + " messages)");
+}
+
+// Main server
+try {
+    let host = "0.0.0.0";
+    let port = 8080;
+
+    print("Starting WebSocket server on " + host + ":" + typeof(port));
+    print("");
+
+    let server = WebSocketServer(host, port);
+    defer server.close();
+
+    print("✓ Server listening!");
+    print("  Connect with: ws://localhost:8080");
+    print("  Press Ctrl+C to stop");
+    print("");
+
+    let client_id = 0;
+
+    while (true) {
+        print("Waiting for client connection...");
+
+        // Accept new client (blocking)
+        let conn = server.accept(-1);
+
+        if (conn != null) {
+            client_id = client_id + 1;
+            print("New client connected! Spawning handler...");
+
+            // Handle client in separate task
+            spawn(handle_client, conn, client_id);
+        }
+    }
+
+} catch (e) {
+    print("");
+    print("ERROR: " + e);
+    print("");
+    print("Common issues:");
+    print("  - Port 8080 already in use");
+    print("  - lws_wrapper.so not found: Run 'make stdlib'");
+    print("  - libwebsockets not installed: Run 'sudo apt-get install libwebsockets-dev'");
+    print("  - Permission denied (use port > 1024)");
+}
+
+print("");
+print("Server stopped");

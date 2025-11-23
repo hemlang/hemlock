@@ -1,0 +1,15 @@
+// Test enum with mixed auto and explicit values
+
+enum Code {
+    A,
+    B = 10,
+    C,
+    D = 20,
+    E
+}
+
+print(Code.A);
+print(Code.B);
+print(Code.C);
+print(Code.D);
+print(Code.E);

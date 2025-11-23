@@ -29,15 +29,15 @@ int visited_contains(VisitedSet *set, Object *obj);
 void visited_add(VisitedSet *set, Object *obj);
 void visited_free(VisitedSet *set);
 char* escape_json_string(const char *str);
-char* serialize_value(Value val, VisitedSet *visited);
+char* serialize_value(Value val, VisitedSet *visited, ExecutionContext *ctx);
 
 // JSON parsing functions
 void json_skip_whitespace(JSONParser *p);
-Value json_parse_string(JSONParser *p);
-Value json_parse_number(JSONParser *p);
-Value json_parse_object(JSONParser *p);
-Value json_parse_array(JSONParser *p);
-Value json_parse_value(JSONParser *p);
+Value json_parse_string(JSONParser *p, ExecutionContext *ctx);
+Value json_parse_number(JSONParser *p, ExecutionContext *ctx);
+Value json_parse_object(JSONParser *p, ExecutionContext *ctx);
+Value json_parse_array(JSONParser *p, ExecutionContext *ctx);
+Value json_parse_value(JSONParser *p, ExecutionContext *ctx);
 
 // ========== ARRAY HELPERS ==========
 

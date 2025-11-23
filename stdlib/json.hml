@@ -1,0 +1,596 @@
+// @stdlib/json - Comprehensive JSON manipulation library
+//
+// Provides parsing, serialization, formatting, validation, querying,
+// and manipulation of JSON data.
+//
+// Usage:
+//   import { parse, stringify, pretty, get, set } from "@stdlib/json";
+
+// ============================================================================
+// Core Parsing & Serialization
+// ============================================================================
+
+// Parse JSON string to value (wrapper around built-in .deserialize())
+fn parse(json_str: string) {
+    if (typeof(json_str) != "string") {
+        throw "parse() requires string argument";
+    }
+
+    // Just let deserialize() throw its own error
+    return json_str.deserialize();
+}
+
+// Serialize value to JSON string
+fn stringify(value) {
+    let t = typeof(value);
+
+    // Primitives - handle directly
+    if (t == "null") {
+        return "null";
+    }
+
+    if (t == "bool") {
+        if (value) {
+            return "true";
+        } else {
+            return "false";
+        }
+    }
+
+    if (t == "string") {
+        return escape_json_string(value);
+    }
+
+    if (t == "i8" || t == "i16" || t == "i32" || t == "i64" ||
+        t == "u8" || t == "u16" || t == "u32" || t == "u64" ||
+        t == "f32" || t == "f64" || t == "integer" || t == "number") {
+        // Numbers - convert to string representation
+        return format_number(value);
+    }
+
+    // Arrays and objects - use built-in .serialize()
+    if (t == "array" || t == "object") {
+        try {
+            return value.serialize();
+        } catch (e) {
+            throw "JSON stringify error: " + e;
+        }
+    }
+
+    throw "Cannot stringify value of type: " + t;
+}
+
+// Helper: Format number to string
+fn format_number(value) {
+    // Use a temporary object to leverage .serialize()
+    let wrapper = { n: value };
+    let json = wrapper.serialize();
+    // Extract just the number part: {"n":42} -> "42"
+    let colon_pos = json.find(":");
+    let close_brace_pos = json.find("}");
+    return json.slice(colon_pos + 1, close_brace_pos);
+}
+
+// Parse JSON from file
+fn parse_file(path: string) {
+    let f = open(path, "r");
+    defer f.close();
+
+    let content = f.read();
+    return parse(content);
+}
+
+// Write JSON to file (compact format)
+fn stringify_file(path: string, value) {
+    let json = stringify(value);
+
+    let f = open(path, "w");
+    defer f.close();
+
+    f.write(json);
+    return null;
+}
+
+// ============================================================================
+// Pretty Printing
+// ============================================================================
+
+// Internal: Format value with indentation
+fn format_value(value, depth: i32, indent_str: string): string {
+    let value_type = typeof(value);
+
+    // Primitives
+    if (value_type == "null") {
+        return "null";
+    }
+
+    if (value_type == "bool") {
+        if (value) {
+            return "true";
+        } else {
+            return "false";
+        }
+    }
+
+    if (value_type == "string") {
+        // Escape and quote
+        return escape_json_string(value);
+    }
+
+    if (value_type == "i8" || value_type == "i16" || value_type == "i32" ||
+        value_type == "i64" || value_type == "u8" || value_type == "u16" ||
+        value_type == "u32" || value_type == "u64" || value_type == "f32" ||
+        value_type == "f64" || value_type == "integer" || value_type == "number") {
+        // Use stringify to convert number to string representation
+        return stringify(value);
+    }
+
+    // Arrays
+    if (value_type == "array") {
+        return format_array(value, depth, indent_str);
+    }
+
+    // Objects
+    if (value_type == "object") {
+        return format_object(value, depth, indent_str);
+    }
+
+    throw "Cannot format value of type: " + value_type;
+}
+
+// Internal: Format array with pretty indentation
+fn format_array(arr: array, depth: i32, indent_str: string): string {
+    if (arr.length == 0) {
+        return "[]";
+    }
+
+    let result = "[";
+    let newline = "\n";
+    let current_indent = repeat_string(indent_str, depth + 1);
+    let closing_indent = repeat_string(indent_str, depth);
+
+    let i = 0;
+    while (i < arr.length) {
+        result = result + newline + current_indent;
+        result = result + format_value(arr[i], depth + 1, indent_str);
+
+        if (i < arr.length - 1) {
+            result = result + ",";
+        }
+
+        i = i + 1;
+    }
+
+    result = result + newline + closing_indent + "]";
+    return result;
+}
+
+// Internal: Format object with pretty indentation
+fn format_object(obj, depth: i32, indent_str: string): string {
+    let keys = object_keys(obj);
+
+    if (keys.length == 0) {
+        return "{}";
+    }
+
+    let result = "{";
+    let newline = "\n";
+    let current_indent = repeat_string(indent_str, depth + 1);
+    let closing_indent = repeat_string(indent_str, depth);
+
+    let i = 0;
+    while (i < keys.length) {
+        let key = keys[i];
+        let value = obj[key];
+
+        result = result + newline + current_indent;
+        result = result + escape_json_string(key) + ": ";
+        result = result + format_value(value, depth + 1, indent_str);
+
+        if (i < keys.length - 1) {
+            result = result + ",";
+        }
+
+        i = i + 1;
+    }
+
+    result = result + newline + closing_indent + "}";
+    return result;
+}
+
+// Internal: Escape string for JSON
+fn escape_json_string(s: string): string {
+    let result = "\"";
+    let i = 0;
+
+    while (i < s.length) {
+        let ch = s[i];
+
+        if (ch == '"') {
+            result = result + "\\\"";
+        } else if (ch == '\\') {
+            result = result + "\\\\";
+        } else if (ch == '\n') {
+            result = result + "\\n";
+        } else if (ch == '\r') {
+            result = result + "\\r";
+        } else if (ch == '\t') {
+            result = result + "\\t";
+        } else {
+            // Concatenate rune with string (rune is automatically converted)
+            result = result + "" + ch;
+        }
+
+        i = i + 1;
+    }
+
+    result = result + "\"";
+    return result;
+}
+
+// Internal: Repeat string n times
+fn repeat_string(s: string, count: i32): string {
+    let result = "";
+    let i = 0;
+    while (i < count) {
+        result = result + s;
+        i = i + 1;
+    }
+    return result;
+}
+
+// Internal: Get object keys
+fn object_keys(obj) {
+    return obj.keys();
+}
+
+// Pretty print JSON with indentation
+// indent can be: number of spaces (i32) or string (e.g., "\t")
+fn pretty(value, indent?: null) {
+    let indent_str = "  ";  // Default: 2 spaces
+
+    if (indent != null) {
+        if (typeof(indent) == "i32" || typeof(indent) == "integer") {
+            // Number of spaces
+            indent_str = repeat_string(" ", indent);
+        } else if (typeof(indent) == "string") {
+            // Custom string (e.g., "\t")
+            indent_str = indent;
+        } else {
+            throw "indent must be i32 (spaces) or string";
+        }
+    }
+
+    return format_value(value, 0, indent_str);
+}
+
+// Pretty print JSON to file
+fn pretty_file(path: string, value, indent?: null) {
+    let formatted = pretty(value, indent);
+
+    let f = open(path, "w");
+    defer f.close();
+
+    f.write(formatted);
+    return null;
+}
+
+// ============================================================================
+// Path Access (get/set/has/delete)
+// ============================================================================
+
+// Internal: Check if string is numeric (array index)
+fn is_numeric(s: string): bool {
+    if (s.length == 0) {
+        return false;
+    }
+
+    let i = 0;
+    while (i < s.length) {
+        let ch = s[i];
+        if (ch < '0' || ch > '9') {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// Internal: Parse string to integer
+fn parse_int(s: string): i32 {
+    // Simple integer parser
+    let result = 0;
+    let i = 0;
+    let zero_code: i32 = '0';
+
+    while (i < s.length) {
+        let ch = s[i];
+        let ch_code: i32 = ch;
+        let digit = ch_code - zero_code;
+        result = result * 10 + digit;
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Get value by path (dot notation)
+// Example: get(obj, "user.address.city")
+// Example: get(obj, "items.0") for array index
+fn get(obj, path: string, default_val?: null) {
+    if (path.length == 0) {
+        return obj;
+    }
+
+    let parts = path.split(".");
+    let current = obj;
+    let i = 0;
+
+    while (i < parts.length) {
+        if (current == null) {
+            if (default_val != null) {
+                return default_val;
+            }
+            return null;
+        }
+
+        let part = parts[i];
+
+        // Handle array indices (numeric parts)
+        if (is_numeric(part)) {
+            if (typeof(current) != "array") {
+                if (default_val != null) {
+                    return default_val;
+                }
+                return null;
+            }
+
+            let idx = parse_int(part);
+            if (idx < 0 || idx >= current.length) {
+                if (default_val != null) {
+                    return default_val;
+                }
+                return null;
+            }
+
+            current = current[idx];
+        } else {
+            // Object property access
+            if (typeof(current) != "object") {
+                if (default_val != null) {
+                    return default_val;
+                }
+                return null;
+            }
+
+            current = current[part];
+        }
+
+        i = i + 1;
+    }
+
+    if (current == null && default_val != null) {
+        return default_val;
+    }
+
+    return current;
+}
+
+// Set value by path (dot notation)
+// Modifies object in-place
+fn set(obj, path: string, value) {
+    if (path.length == 0) {
+        throw "Cannot set empty path";
+    }
+
+    let parts = path.split(".");
+    let current = obj;
+    let i = 0;
+
+    // Navigate to parent
+    while (i < parts.length - 1) {
+        let part = parts[i];
+
+        if (is_numeric(part)) {
+            let idx = parse_int(part);
+            current = current[idx];
+        } else {
+            current = current[part];
+        }
+
+        if (current == null) {
+            throw "Path does not exist: " + path;
+        }
+
+        i = i + 1;
+    }
+
+    // Set final value
+    let last_part = parts[parts.length - 1];
+
+    if (is_numeric(last_part)) {
+        let idx = parse_int(last_part);
+        current[idx] = value;
+    } else {
+        current[last_part] = value;
+    }
+
+    return null;
+}
+
+// Check if path exists
+fn has(obj, path: string): bool {
+    let sentinel = {};  // Unique object as sentinel
+    let result = get(obj, path, sentinel);
+    return result != sentinel;
+}
+
+// Delete value by path
+fn delete(obj, path: string) {
+    // Note: Hemlock doesn't have object property deletion yet
+    // This sets the property to null as a workaround
+    set(obj, path, null);
+    return null;
+}
+
+// ============================================================================
+// Validation
+// ============================================================================
+
+// Check if string is valid JSON (lightweight check)
+fn is_valid(json_str: string): bool {
+    try {
+        parse(json_str);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Validate JSON and return detailed result
+fn validate(json_str: string) {
+    try {
+        parse(json_str);
+        return {
+            valid: true,
+            message: "Valid JSON",
+            line: 0
+        };
+    } catch (e) {
+        return {
+            valid: false,
+            message: typeof(e),
+            line: -1  // Line number not available yet
+        };
+    }
+}
+
+// ============================================================================
+// Type Checking Utilities
+// ============================================================================
+
+fn is_object(value): bool {
+    let t = typeof(value);
+    return t == "object";
+}
+
+fn is_array(value): bool {
+    return typeof(value) == "array";
+}
+
+fn is_string(value): bool {
+    return typeof(value) == "string";
+}
+
+fn is_number(value): bool {
+    let t = typeof(value);
+    return t == "i8" || t == "i16" || t == "i32" || t == "i64" ||
+           t == "u8" || t == "u16" || t == "u32" || t == "u64" ||
+           t == "f32" || t == "f64" || t == "integer" || t == "number";
+}
+
+fn is_bool(value): bool {
+    return typeof(value) == "bool";
+}
+
+fn is_null(value): bool {
+    return typeof(value) == "null";
+}
+
+// Get JSON type as string
+fn type_of(value): string {
+    let t = typeof(value);
+
+    if (is_number(value)) {
+        return "number";
+    }
+
+    return t;
+}
+
+// ============================================================================
+// Clone & Merge
+// ============================================================================
+
+// Deep clone value (creates independent copy)
+fn clone(value) {
+    // Use serialize/deserialize for deep copy
+    return parse(stringify(value));
+}
+
+// Deep merge objects (combines nested objects)
+fn merge(base, update) {
+    if (!is_object(base) || !is_object(update)) {
+        return update;
+    }
+
+    let result = clone(base);
+
+    // Note: Need object_keys() builtin to iterate
+    // For now, this is a placeholder
+    throw "merge() requires object iteration support";
+
+    return result;
+}
+
+// Shallow merge (replaces nested objects)
+fn patch(base, update) {
+    if (!is_object(base) || !is_object(update)) {
+        return update;
+    }
+
+    // Note: Need object_keys() builtin
+    throw "patch() requires object iteration support";
+}
+
+// ============================================================================
+// Comparison
+// ============================================================================
+
+// Deep equality check
+fn equals(a, b): bool {
+    let type_a = typeof(a);
+    let type_b = typeof(b);
+
+    if (type_a != type_b) {
+        return false;
+    }
+
+    // Primitives
+    if (type_a == "null" || type_a == "bool" || type_a == "string" ||
+        is_number(a)) {
+        return a == b;
+    }
+
+    // Arrays
+    if (type_a == "array") {
+        if (a.length != b.length) {
+            return false;
+        }
+
+        let i = 0;
+        while (i < a.length) {
+            if (!equals(a[i], b[i])) {
+                return false;
+            }
+            i = i + 1;
+        }
+
+        return true;
+    }
+
+    // Objects - need object iteration
+    if (type_a == "object") {
+        throw "equals() for objects requires object iteration support";
+    }
+
+    return false;
+}
+
+// ============================================================================
+// Export Note
+// ============================================================================
+
+// All functions are automatically exported when imported with:
+// import { function_name } from "@stdlib/json";

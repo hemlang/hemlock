@@ -1,0 +1,24 @@
+// Test enum with switch statement
+
+enum Color {
+    RED = 1,
+    GREEN = 2,
+    BLUE = 3
+}
+
+let color = Color.GREEN;
+
+switch (color) {
+    case Color.RED:
+        print("Red");
+        break;
+    case Color.GREEN:
+        print("Green");
+        break;
+    case Color.BLUE:
+        print("Blue");
+        break;
+    default:
+        print("Unknown");
+        break;
+}

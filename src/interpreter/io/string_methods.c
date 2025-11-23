@@ -529,7 +529,12 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         parser.input = str->data;
         parser.pos = 0;
 
-        Value result = json_parse_value(&parser);
+        Value result = json_parse_value(&parser, ctx);
+
+        // Check if parsing threw an error
+        if (ctx->exception_state.is_throwing) {
+            return val_null();  // Error already set in ctx
+        }
 
         // Check that we consumed all the input
         json_skip_whitespace(&parser);

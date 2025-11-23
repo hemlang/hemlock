@@ -1,0 +1,43 @@
+// Test basic HTTP functionality (requires libwebsockets)
+
+import * as http from "@stdlib/http";
+
+print("Testing @stdlib/http basic functionality...");
+
+// Test 1: Module loads
+print("✓ HTTP module loads");
+
+// Test 2: Status code helpers
+assert(http.is_success(200) == true, "is_success(200) should be true");
+assert(http.is_success(299) == true, "is_success(299) should be true");
+assert(http.is_success(300) == false, "is_success(300) should be false");
+assert(http.is_success(404) == false, "is_success(404) should be false");
+
+assert(http.is_redirect(301) == true, "is_redirect(301) should be true");
+assert(http.is_redirect(302) == true, "is_redirect(302) should be true");
+assert(http.is_redirect(200) == false, "is_redirect(200) should be false");
+
+assert(http.is_client_error(400) == true, "is_client_error(400) should be true");
+assert(http.is_client_error(404) == true, "is_client_error(404) should be true");
+assert(http.is_client_error(500) == false, "is_client_error(500) should be false");
+
+assert(http.is_server_error(500) == true, "is_server_error(500) should be true");
+assert(http.is_server_error(503) == true, "is_server_error(503) should be true");
+assert(http.is_server_error(400) == false, "is_server_error(400) should be false");
+
+print("✓ Status code helpers work correctly");
+
+// Test 3: URL encoding
+let encoded = http.url_encode("hello world");
+assert(encoded == "hello%20world", "url_encode should encode spaces");
+
+let encoded2 = http.url_encode("test&key=value");
+assert(encoded2.contains("%26"), "url_encode should encode ampersands");
+
+print("✓ URL encoding works");
+
+print("");
+print("All HTTP basic tests passed!");
+print("");
+print("Note: Network tests require libwebsockets-dev and 'make stdlib'");
+print("Run tests/stdlib_http/test_http_requests.hml for network tests");

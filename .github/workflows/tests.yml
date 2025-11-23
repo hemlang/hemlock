@@ -17,10 +17,13 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev
 
     - name: Build Hemlock
       run: make clean && make
+
+    - name: Build stdlib FFI wrappers
+      run: make stdlib
 
     - name: Run test suite
       run: make test
@@ -32,3 +35,94 @@ jobs:
           exit 1
         fi
         ./hemlock --version || echo "Version check skipped (not implemented yet)"
+
+  # Memory leak detection with AddressSanitizer
+  asan-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev
+
+    - name: Build with AddressSanitizer
+      run: |
+        make clean
+        CFLAGS="-Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -fsanitize=address -fno-omit-frame-pointer" \
+        LDFLAGS="-lm -lpthread -lffi -ldl -fsanitize=address" \
+        make
+
+    - name: Build stdlib FFI wrappers
+      run: make stdlib
+
+    - name: Run tests with ASAN
+      run: make test
+      env:
+        ASAN_OPTIONS: detect_leaks=1:halt_on_error=0:log_path=asan.log
+
+    - name: Check for ASAN errors
+      if: always()
+      run: |
+        if ls asan.log.* 1> /dev/null 2>&1; then
+          echo "⚠️ AddressSanitizer detected issues:"
+          cat asan.log.*
+          exit 1
+        else
+          echo "✅ No memory errors detected by AddressSanitizer"
+        fi
+
+  # Valgrind memory leak check (selected tests only for speed)
+  valgrind-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make valgrind libwebsockets-dev
+
+    - name: Build Hemlock
+      run: make clean && make
+
+    - name: Build stdlib FFI wrappers
+      run: make stdlib
+
+    - name: Run basic valgrind check
+      run: make valgrind
+      continue-on-error: true
+
+    - name: Analyze valgrind results
+      if: always()
+      run: |
+        if [ -f valgrind-*.log ]; then
+          echo "=== Valgrind Results ==="
+          grep "LEAK SUMMARY" valgrind-*.log || echo "No leak summary found"
+
+          # Count leaked bytes
+          LEAKED=$(grep "definitely lost:" valgrind-*.log | awk '{print $4}' | head -1)
+          if [ -n "$LEAKED" ] && [ "$LEAKED" -gt 0 ]; then
+            echo "⚠️ Valgrind detected $LEAKED bytes definitely lost"
+            cat valgrind-*.log
+            # Don't fail on leaks yet - this is informational
+            # exit 1
+          else
+            echo "✅ No definite leaks detected"
+          fi
+        else
+          echo "No valgrind log files found"
+        fi
+
+    - name: Upload valgrind logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: valgrind-logs
+        path: valgrind-*.log
+        if-no-files-found: ignore

@@ -1,0 +1,116 @@
+// Test WebSocket module basics (no network required)
+// Tests module loading, constants, utility functions
+// Run with: ./hemlock tests/stdlib_websocket/test_websocket_basic.hml
+
+print("Testing @stdlib/websocket basic functionality...");
+print("");
+
+// Import module at the top
+import { is_secure_url, parse_ws_url } from "@stdlib/websocket";
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+// Test 1: Module import
+print("Test 1: Module import");
+try {
+    assert(is_secure_url != null, "is_secure_url should be defined");
+    assert(parse_ws_url != null, "parse_ws_url should be defined");
+    print("✓ Module loaded successfully");
+    tests_passed = tests_passed + 1;
+} catch (e) {
+    print("✗ Failed to load module: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+
+// Test 2: is_secure_url() function
+print("Test 2: is_secure_url() function");
+try {
+    assert(is_secure_url("wss://example.com") == true, "wss:// should be secure");
+    assert(is_secure_url("ws://example.com") == false, "ws:// should not be secure");
+    assert(is_secure_url("http://example.com") == false, "http:// should not be secure");
+    print("✓ is_secure_url() works correctly");
+    tests_passed = tests_passed + 1;
+} catch (e) {
+    print("✗ is_secure_url() failed: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+
+// Test 3: parse_ws_url() for ws:// URLs
+print("Test 3: parse_ws_url() for ws:// URLs");
+try {
+    let parts1 = parse_ws_url("ws://echo.websocket.org/");
+
+    assert(parts1.secure == false, "ws:// should not be secure");
+    assert(parts1.host == "echo.websocket.org", "Host should be extracted");
+    assert(parts1.port == 80, "Default port should be 80");
+    assert(parts1.path == "/", "Path should be extracted");
+
+    print("✓ parse_ws_url() parses ws:// correctly");
+    tests_passed = tests_passed + 1;
+} catch (e) {
+    print("✗ parse_ws_url() failed for ws://: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+
+// Test 4: parse_ws_url() for wss:// URLs
+print("Test 4: parse_ws_url() for wss:// URLs");
+try {
+    let parts2 = parse_ws_url("wss://secure.example.com/socket");
+
+    assert(parts2.secure == true, "wss:// should be secure");
+    assert(parts2.host == "secure.example.com", "Host should be extracted");
+    assert(parts2.port == 443, "Default port should be 443 for wss://");
+    assert(parts2.path == "/socket", "Path should be extracted");
+
+    print("✓ parse_ws_url() parses wss:// correctly");
+    tests_passed = tests_passed + 1;
+} catch (e) {
+    print("✗ parse_ws_url() failed for wss://: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+
+// Test 5: parse_ws_url() error handling
+print("Test 5: parse_ws_url() error handling");
+try {
+    let caught_error = false;
+    try {
+        parse_ws_url("http://example.com");
+    } catch (e) {
+        caught_error = true;
+        assert(e.contains("Invalid WebSocket URL"), "Should throw invalid URL error");
+    }
+
+    assert(caught_error == true, "Should have thrown error for invalid URL");
+    print("✓ parse_ws_url() validates URL scheme");
+    tests_passed = tests_passed + 1;
+} catch (e) {
+    print("✗ parse_ws_url() error handling failed: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+print("========================================");
+print("WebSocket Basic Tests Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+
+if (tests_failed > 0) {
+    print("");
+    print("Some tests failed. This usually means:");
+    print("  - lws_wrapper.so not compiled (run: make stdlib)");
+    print("  - libwebsockets not installed");
+    print("  - Module API has changed");
+}
+
+print("");
+assert(tests_failed == 0, "All WebSocket basic tests should pass");

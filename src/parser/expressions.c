@@ -6,6 +6,7 @@
 Expr* expression(Parser *p);
 Expr* assignment(Parser *p);
 Expr* ternary(Parser *p);
+Expr* null_coalesce(Parser *p);
 Expr* logical_or(Parser *p);
 Expr* logical_and(Parser *p);
 Expr* bitwise_or(Parser *p);
@@ -40,6 +41,91 @@ static char* consume_identifier_or_type(Parser *p, const char *message) {
     return strdup("error");
 }
 
+// Helper: Parse interpolated string with ${...} expressions
+static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
+    char **string_parts = malloc(sizeof(char*) * 32);  // Array of string literals
+    Expr **expr_parts = malloc(sizeof(Expr*) * 32);    // Array of expressions
+    int num_parts = 0;
+    int capacity = 32;
+
+    const char *ptr = str_content;
+    char *current_string = malloc(1024);
+    int str_len = 0;
+    int str_capacity = 1024;
+
+    while (*ptr != '\0') {
+        if (*ptr == '$' && *(ptr + 1) == '{') {
+            // Found interpolation start
+            // Save current string part
+            current_string[str_len] = '\0';
+            string_parts[num_parts] = strdup(current_string);
+            str_len = 0;
+
+            // Find matching }
+            ptr += 2;  // Skip ${
+            const char *expr_start = ptr;
+            int brace_count = 1;
+            while (*ptr != '\0' && brace_count > 0) {
+                if (*ptr == '{') brace_count++;
+                if (*ptr == '}') brace_count--;
+                if (brace_count > 0) ptr++;
+            }
+
+            if (brace_count != 0) {
+                error(p, "Unclosed ${...} in string interpolation");
+                free(current_string);
+                return expr_string("");
+            }
+
+            // Extract expression text
+            int expr_len = ptr - expr_start;
+            char *expr_text = malloc(expr_len + 1);
+            memcpy(expr_text, expr_start, expr_len);
+            expr_text[expr_len] = '\0';
+
+            // Parse the expression using a new parser
+            Lexer expr_lexer;
+            lexer_init(&expr_lexer, expr_text);
+
+            Parser expr_parser;
+            parser_init(&expr_parser, &expr_lexer);
+
+            Expr *interpolated_expr = expression(&expr_parser);
+            expr_parts[num_parts] = interpolated_expr;
+
+            // Note: Not freeing expr_text here because the lexer/parser may have pointers into it
+            // This is a known memory leak that should be fixed by tracking allocated strings
+            // TODO: Track expr_text allocations and free them after AST is no longer needed
+
+            num_parts++;
+            if (num_parts >= capacity) {
+                capacity *= 2;
+                string_parts = realloc(string_parts, sizeof(char*) * capacity);
+                expr_parts = realloc(expr_parts, sizeof(Expr*) * capacity);
+            }
+
+            ptr++;  // Skip closing }
+        } else {
+            // Regular character
+            if (str_len >= str_capacity - 1) {
+                str_capacity *= 2;
+                current_string = realloc(current_string, str_capacity);
+            }
+            current_string[str_len++] = *ptr;
+            ptr++;
+        }
+    }
+
+    // Save final string part
+    current_string[str_len] = '\0';
+    string_parts[num_parts] = strdup(current_string);
+    free(current_string);
+
+    // Create interpolation expression
+    Expr *result = expr_string_interpolation(string_parts, expr_parts, num_parts);
+    return result;
+}
+
 Expr* primary(Parser *p) {
     if (match(p, TOK_TRUE)) {
         return expr_bool(1);
@@ -64,6 +150,13 @@ Expr* primary(Parser *p) {
     if (match(p, TOK_STRING)) {
         char *str = p->previous.string_value;
         Expr *expr = expr_string(str);
+        free(str);  // Parser owns this memory from lexer
+        return expr;
+    }
+
+    if (match(p, TOK_TEMPLATE_STRING)) {
+        char *str = p->previous.string_value;
+        Expr *expr = parse_interpolated_string(p, str);
         free(str);  // Parser owns this memory from lexer
         return expr;
     }
@@ -145,7 +238,9 @@ Expr* primary(Parser *p) {
     // Parse parameters
     char **param_names = malloc(sizeof(char*) * 32);  // max 32 params
     Type **param_types = malloc(sizeof(Type*) * 32);
+    Expr **param_defaults = malloc(sizeof(Expr*) * 32);
     int num_params = 0;
+    int seen_optional = 0;  // Track if we've seen an optional parameter
 
     if (!check(p, TOK_RPAREN)) {
         do {
@@ -157,6 +252,19 @@ Expr* primary(Parser *p) {
                 param_types[num_params] = parse_type(p);
             } else {
                 param_types[num_params] = NULL;
+            }
+
+            // Check for optional parameter (?) with default value
+            if (match(p, TOK_QUESTION)) {
+                consume(p, TOK_COLON, "Expect ':' after '?' for default value");
+                param_defaults[num_params] = expression(p);
+                seen_optional = 1;
+            } else {
+                // Required parameter
+                if (seen_optional) {
+                    error_at(p, &p->current, "Required parameters must come before optional parameters");
+                }
+                param_defaults[num_params] = NULL;
             }
 
             num_params++;
@@ -175,7 +283,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, num_params, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, return_type, body);
 
 not_fn_expr:
 
@@ -209,7 +317,37 @@ Expr* postfix(Parser *p) {
 
     // Handle chained property access, indexing, method calls, and postfix operators
     for (;;) {
-        if (match(p, TOK_DOT)) {
+        if (match(p, TOK_QUESTION_DOT)) {
+            // Optional chaining: obj?.property, obj?.[index], or obj?.method()
+            if (match(p, TOK_LBRACKET)) {
+                // Optional indexing: obj?.[index]
+                Expr *index = expression(p);
+                consume(p, TOK_RBRACKET, "Expect ']' after optional chaining index");
+                expr = expr_optional_chain_index(expr, index);
+            } else if (check(p, TOK_LPAREN)) {
+                // Optional call: obj?.()
+                match(p, TOK_LPAREN);
+                Expr **args = NULL;
+                int num_args = 0;
+
+                if (!check(p, TOK_RPAREN)) {
+                    args = malloc(sizeof(Expr*) * 8);
+                    args[num_args++] = expression(p);
+
+                    while (match(p, TOK_COMMA)) {
+                        args[num_args++] = expression(p);
+                    }
+                }
+
+                consume(p, TOK_RPAREN, "Expect ')' after optional chaining arguments");
+                expr = expr_optional_chain_call(expr, args, num_args);
+            } else {
+                // Optional property access: obj?.property
+                char *property = consume_identifier_or_type(p, "Expect property name after '?.'");
+                expr = expr_optional_chain_property(expr, property);
+                free(property);
+            }
+        } else if (match(p, TOK_DOT)) {
             // Property access: obj.property
             char *property = consume_identifier_or_type(p, "Expect property name after '.'");
             expr = expr_get_property(expr, property);
@@ -414,8 +552,19 @@ Expr* logical_or(Parser *p) {
     return expr;
 }
 
-Expr* ternary(Parser *p) {
+Expr* null_coalesce(Parser *p) {
     Expr *expr = logical_or(p);
+
+    while (match(p, TOK_QUESTION_QUESTION)) {
+        Expr *right = logical_or(p);
+        expr = expr_null_coalesce(expr, right);
+    }
+
+    return expr;
+}
+
+Expr* ternary(Parser *p) {
+    Expr *expr = null_coalesce(p);
 
     if (match(p, TOK_QUESTION)) {
         Expr *true_expr = expression(p);

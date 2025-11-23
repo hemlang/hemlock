@@ -1,0 +1,149 @@
+// Test WebSocket client with local echo server
+// Requires: libwebsockets-dev installed, make stdlib
+// Run with: ./hemlock tests/stdlib_websocket/test_websocket_echo.hml
+
+import { WebSocket, WebSocketServer } from "@stdlib/websocket";
+import { sleep } from "@stdlib/time";
+
+print("Testing WebSocket client with local echo server...");
+print("Requires: libwebsockets-dev");
+print("");
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+// Echo server that reflects messages back to client
+async fn echo_server(server, num_messages: i32) {
+    print("  Echo server: Waiting for client connection...");
+    let conn = server.accept(10000);
+
+    if (conn == null) {
+        print("  Echo server: Accept timeout");
+        return;
+    }
+
+    defer conn.close();
+    print("  Echo server: Client connected");
+
+    let count = 0;
+    while (count < num_messages) {
+        let msg = conn.recv(5000);
+        if (msg == null) {
+            print("  Echo server: Receive timeout");
+            return;
+        }
+
+        // Echo the message back
+        if (msg.type == "text") {
+            conn.send_text(msg.data);
+        } else {
+            conn.send_binary(msg.data, msg.length);
+        }
+
+        count = count + 1;
+    }
+
+    print("  Echo server: Echoed " + count + " messages");
+}
+
+// Test 1: Connect to local echo server
+print("Test 1: Connect to local echo server");
+try {
+    let server = WebSocketServer("127.0.0.1", 9002);
+    defer server.close();
+
+    // Start echo server in background (will echo 5 messages total)
+    let server_task = spawn(echo_server, server, 5);
+
+    // Give server time to start listening
+    sleep(0.5);
+
+    // Client connects
+    print("  Client: Connecting to ws://127.0.0.1:9002...");
+    let ws = WebSocket("ws://127.0.0.1:9002");
+    defer ws.close();
+
+    assert(ws != null, "WebSocket should be created");
+    assert(ws.url == "ws://127.0.0.1:9002", "URL should be stored");
+    assert(ws.closed == false, "Should not be closed initially");
+    print("  Client: Connected");
+
+    print("✓ Connected to local echo server");
+    tests_passed = tests_passed + 1;
+
+    // Test 2: Send and receive text message
+    print("");
+    print("Test 2: Send and receive text message");
+
+    let test_msg = "Hello WebSocket!";
+    let send_ok = ws.send_text(test_msg);
+    assert(send_ok == true, "send_text should return true");
+
+    print("  Sent: " + test_msg);
+
+    // Receive echo (5 second timeout)
+    let msg = ws.recv(5000);
+
+    assert(msg != null, "Should receive message");
+    assert(msg.type == "text", "Message should be text type");
+    assert(msg.data == test_msg, "Echo should match sent message");
+
+    print("  Received: " + msg.data);
+    print("✓ Echo test passed");
+    tests_passed = tests_passed + 1;
+
+    // Test 3: Multiple messages
+    print("");
+    print("Test 3: Send multiple messages");
+
+    let count = 0;
+    while (count < 3) {
+        let msg_text = "Message " + (count + 1);
+        ws.send_text(msg_text);
+
+        let response = ws.recv(5000);
+        assert(response != null, "Should receive response");
+        assert(response.data == msg_text, "Echo should match");
+
+        print("  " + msg_text + " → " + response.data);
+        count = count + 1;
+    }
+
+    print("✓ Multiple messages test passed");
+    tests_passed = tests_passed + 1;
+
+    // Test 4: Connection close
+    print("");
+    print("Test 4: Close connection");
+
+    ws.close();
+    assert(ws.closed == true, "Should be marked as closed");
+
+    print("✓ Connection closed successfully");
+    tests_passed = tests_passed + 1;
+
+    // Wait for echo server to complete
+    join(server_task);
+
+} catch (e) {
+    print("✗ WebSocket test failed: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+print("========================================");
+print("WebSocket Echo Tests Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+
+if (tests_failed > 0) {
+    print("");
+    print("Some tests failed. Common issues:");
+    print("  - lws_wrapper.so not compiled (run: make stdlib)");
+    print("  - libwebsockets not installed");
+    print("  - Port 9002 already in use");
+}
+
+print("");
+assert(tests_failed == 0, "All WebSocket echo tests should pass");

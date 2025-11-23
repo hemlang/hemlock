@@ -1,0 +1,83 @@
+// Test @stdlib/json validation and type checking
+
+import {
+    is_valid, validate,
+    is_object, is_array, is_string, is_number, is_bool, is_null,
+    type_of
+} from "@stdlib/json";
+
+// Test is_valid() with valid JSON
+assert(is_valid("{\"x\":10}") == true, "is_valid object");
+assert(is_valid("[1,2,3]") == true, "is_valid array");
+assert(is_valid("\"hello\"") == true, "is_valid string");
+assert(is_valid("42") == true, "is_valid number");
+assert(is_valid("true") == true, "is_valid bool");
+assert(is_valid("null") == true, "is_valid null");
+
+// Test is_valid() with invalid JSON
+assert(is_valid("{\"unclosed\"") == false, "is_valid unclosed object");
+assert(is_valid("[1,2,") == false, "is_valid unclosed array");
+assert(is_valid("invalid") == false, "is_valid invalid text");
+assert(is_valid("") == false, "is_valid empty string");
+
+// Test validate() with valid JSON
+let result1 = validate("{\"x\":10}");
+assert(result1.valid == true, "validate valid JSON");
+assert(result1.message == "Valid JSON", "validate valid message");
+
+// Test validate() with invalid JSON
+let result2 = validate("{\"unclosed\"");
+assert(result2.valid == false, "validate invalid JSON");
+assert(typeof(result2.message) == "string", "validate error message is string");
+
+// Test type checking - is_object()
+assert(is_object({}) == true, "is_object empty object");
+assert(is_object({ x: 10 }) == true, "is_object with properties");
+assert(is_object([]) == false, "is_object rejects array");
+assert(is_object("text") == false, "is_object rejects string");
+assert(is_object(42) == false, "is_object rejects number");
+assert(is_object(null) == false, "is_object rejects null");
+
+// Test type checking - is_array()
+assert(is_array([]) == true, "is_array empty array");
+assert(is_array([1, 2, 3]) == true, "is_array with elements");
+assert(is_array({}) == false, "is_array rejects object");
+assert(is_array("text") == false, "is_array rejects string");
+assert(is_array(42) == false, "is_array rejects number");
+
+// Test type checking - is_string()
+assert(is_string("hello") == true, "is_string with text");
+assert(is_string("") == true, "is_string empty");
+assert(is_string(42) == false, "is_string rejects number");
+assert(is_string(true) == false, "is_string rejects bool");
+assert(is_string([]) == false, "is_string rejects array");
+
+// Test type checking - is_number()
+assert(is_number(42) == true, "is_number integer");
+assert(is_number(3.14) == true, "is_number float");
+assert(is_number(0) == true, "is_number zero");
+assert(is_number("42") == false, "is_number rejects string");
+assert(is_number(true) == false, "is_number rejects bool");
+
+// Test type checking - is_bool()
+assert(is_bool(true) == true, "is_bool true");
+assert(is_bool(false) == true, "is_bool false");
+assert(is_bool(1) == false, "is_bool rejects number");
+assert(is_bool("true") == false, "is_bool rejects string");
+
+// Test type checking - is_null()
+assert(is_null(null) == true, "is_null null");
+assert(is_null(0) == false, "is_null rejects zero");
+assert(is_null("") == false, "is_null rejects empty string");
+assert(is_null(false) == false, "is_null rejects false");
+
+// Test type_of()
+assert(type_of({}) == "object", "type_of object");
+assert(type_of([]) == "array", "type_of array");
+assert(type_of("text") == "string", "type_of string");
+assert(type_of(42) == "number", "type_of number");
+assert(type_of(3.14) == "number", "type_of float");
+assert(type_of(true) == "bool", "type_of bool");
+assert(type_of(null) == "null", "type_of null");
+
+print("All validation and type checking tests passed!");

@@ -1,0 +1,4 @@
+// Very simple test
+let x = 5;
+let s = "Value: ${x}";
+print(s);

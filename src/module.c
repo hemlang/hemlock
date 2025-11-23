@@ -2,6 +2,7 @@
 #include "module.h"
 #include "parser.h"
 #include "lexer.h"
+#include "interpreter/internal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -377,6 +378,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 
                     Value val = env_get(imported->exports_env, import_name, ctx);
                     env_define(module_env, bind_name, val, 1, ctx);  // immutable
+                    value_release(val);  // Release temp reference from env_get (env_define already retained)
                 }
             }
         } else if (stmt->type == STMT_EXPORT) {
@@ -412,6 +414,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 
                     Value val = env_get(reexported->exports_env, export_name, ctx);
                     env_define(module_env, final_name, val, 1, ctx);
+                    value_release(val);  // Release temp reference from env_get (env_define already retained)
                     module->export_names[module->num_exports++] = strdup(final_name);
                 }
             } else {

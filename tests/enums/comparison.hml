@@ -1,0 +1,22 @@
+// Test enum comparison
+
+enum Status {
+    OK,
+    ERROR,
+    PENDING
+}
+
+let status = Status.OK;
+
+if (status == Status.OK) {
+    print("Status is OK");
+}
+
+if (status != Status.ERROR) {
+    print("Status is not ERROR");
+}
+
+let error = Status.ERROR;
+if (error == Status.ERROR) {
+    print("Error status");
+}

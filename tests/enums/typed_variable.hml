@@ -1,0 +1,13 @@
+// Test enum with typed variable
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+let color: Color = Color.RED;
+print(color);
+
+color = Color.BLUE;
+print(color);

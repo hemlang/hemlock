@@ -1,0 +1,60 @@
+// Test @stdlib/json pretty() formatting
+
+import { parse, pretty } from "@stdlib/json";
+
+// Test simple object formatting
+let obj = { x: 10, y: 20 };
+let formatted = pretty(obj);
+
+assert(formatted.contains("{\n"), "pretty object starts with open brace + newline");
+assert(formatted.contains("\"x\": 10"), "pretty object contains formatted x");
+assert(formatted.contains("\"y\": 20"), "pretty object contains formatted y");
+assert(formatted.contains("\n}"), "pretty object ends with newline + close brace");
+
+// Test array formatting
+let arr = [1, 2, 3];
+let arr_formatted = pretty(arr);
+
+assert(arr_formatted.contains("[\n"), "pretty array starts correctly");
+assert(arr_formatted.contains("  1"), "pretty array indents element 1");
+assert(arr_formatted.contains("  2"), "pretty array indents element 2");
+assert(arr_formatted.contains("  3"), "pretty array indents element 3");
+assert(arr_formatted.contains("\n]"), "pretty array ends correctly");
+
+// Test nested object
+let nested = {
+    user: { name: "Alice", age: 30 },
+    active: true
+};
+let nested_formatted = pretty(nested);
+
+assert(nested_formatted.contains("\"user\": {"), "pretty nested contains user object");
+assert(nested_formatted.contains("\"name\": \"Alice\""), "pretty nested contains name");
+assert(nested_formatted.contains("\"age\": 30"), "pretty nested contains age");
+assert(nested_formatted.contains("\"active\": true"), "pretty nested contains active");
+
+// Test custom indentation (4 spaces)
+let custom_indent = pretty(obj, 4);
+assert(custom_indent.contains("    "), "custom indent uses 4 spaces");
+
+// Test tab indentation
+let tab_indent = pretty(obj, "\t");
+assert(tab_indent.contains("\t"), "tab indent uses tabs");
+
+// Test empty object
+let empty_obj = {};
+let empty_formatted = pretty(empty_obj);
+assert(empty_formatted == "{}", "empty object formatted as {}");
+
+// Test empty array
+let empty_arr = [];
+let empty_arr_formatted = pretty(empty_arr);
+assert(empty_arr_formatted == "[]", "empty array formatted as []");
+
+// Test string escaping in pretty format
+let str_obj = { message: "Hello\n\"World\"" };
+let str_formatted = pretty(str_obj);
+assert(str_formatted.contains("\\n"), "pretty escapes newlines");
+assert(str_formatted.contains("\\\""), "pretty escapes quotes");
+
+print("All pretty printing tests passed!");

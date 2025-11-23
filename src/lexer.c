@@ -168,6 +168,66 @@ static Token string(Lexer *lex) {
     return token;
 }
 
+static Token template_string(Lexer *lex) {
+    // Build template string with ${...} preserved for parser
+    char *buffer = malloc(256);
+    int capacity = 256;
+    int length = 0;
+
+    while (peek(lex) != '`' && !is_at_end(lex)) {
+        if (peek(lex) == '\n') lex->line++;
+
+        char c = peek(lex);
+        advance(lex);
+
+        // Handle escape sequences
+        if (c == '\\') {
+            if (is_at_end(lex)) {
+                free(buffer);
+                return error_token(lex, "Unterminated template string (escape at end)");
+            }
+
+            c = peek(lex);
+            advance(lex);
+
+            switch (c) {
+                case 'n':  c = '\n'; break;
+                case 't':  c = '\t'; break;
+                case 'r':  c = '\r'; break;
+                case '\\': c = '\\'; break;
+                case '`':  c = '`'; break;
+                case '$':  c = '$'; break;  // Escaped $ (literal dollar sign)
+                default:
+                    free(buffer);
+                    return error_token(lex, "Unknown escape sequence in template string");
+            }
+        }
+
+        // Grow buffer if needed
+        if (length >= capacity - 1) {
+            capacity *= 2;
+            buffer = realloc(buffer, capacity);
+        }
+
+        buffer[length++] = c;
+    }
+
+    if (is_at_end(lex)) {
+        free(buffer);
+        return error_token(lex, "Unterminated template string");
+    }
+
+    // Closing backtick
+    advance(lex);
+
+    buffer[length] = '\0';
+
+    Token token = make_token(lex, TOK_TEMPLATE_STRING);
+    token.string_value = buffer;
+
+    return token;
+}
+
 static Token rune_literal(Lexer *lex) {
     // Read the character or escape sequence
     if (is_at_end(lex) || peek(lex) == '\'') {
@@ -333,7 +393,10 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 7) return check_keyword(lex->start, 7, "default", TOK_DEFAULT);
             break;
         case 'e':
-            if (len == 4) return check_keyword(lex->start, 4, "else", TOK_ELSE);
+            if (len == 4) {
+                if (strncmp(lex->start, "else", 4) == 0) return TOK_ELSE;
+                if (strncmp(lex->start, "enum", 4) == 0) return TOK_ENUM;
+            }
             if (len == 6) {
                 if (strncmp(lex->start, "export", 6) == 0) return TOK_EXPORT;
                 if (strncmp(lex->start, "extern", 6) == 0) return TOK_EXTERN;
@@ -447,6 +510,7 @@ Token lexer_next(Lexer *lex) {
     if (isdigit(c)) return number(lex);
     if (isalpha(c) || c == '_') return identifier(lex);
     if (c == '"') return string(lex);
+    if (c == '`') return template_string(lex);
     if (c == '\'') return rune_literal(lex);
 
     switch (c) {
@@ -493,7 +557,18 @@ Token lexer_next(Lexer *lex) {
         case '.': return make_token(lex, TOK_DOT);
         case '[': return make_token(lex, TOK_LBRACKET);
         case ']': return make_token(lex, TOK_RBRACKET);
-        case '?': return make_token(lex, TOK_QUESTION);
+
+        case '?':
+            // Check for ?. (optional chaining) or ?? (null coalescing)
+            if (peek(lex) == '.') {
+                advance(lex);
+                return make_token(lex, TOK_QUESTION_DOT);
+            }
+            if (peek(lex) == '?') {
+                advance(lex);
+                return make_token(lex, TOK_QUESTION_QUESTION);
+            }
+            return make_token(lex, TOK_QUESTION);
 
         case '=':
             if (peek(lex) == '=') {

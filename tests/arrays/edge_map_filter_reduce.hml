@@ -1,0 +1,122 @@
+// Test edge cases for map, filter, reduce
+
+// Test 1: map with non-function argument
+try {
+    let arr = [1, 2, 3];
+    arr.map(42);  // Not a function
+} catch (e) {
+    print("Caught: map() argument must be a function");
+}
+
+// Test 2: filter with non-function argument
+try {
+    let arr = [1, 2, 3];
+    arr.filter("not a function");
+} catch (e) {
+    print("Caught: filter() argument must be a function");
+}
+
+// Test 3: reduce with non-function argument
+try {
+    let arr = [1, 2, 3];
+    arr.reduce(null, 0);
+} catch (e) {
+    print("Caught: reduce() first argument must be a function");
+}
+
+// Test 4: reduce on empty array without initial value
+try {
+    let empty = [];
+    empty.reduce(fn(acc, x) { return acc + x; });
+} catch (e) {
+    print("Caught: reduce() on empty array with no initial value");
+}
+
+// Test 5: map with wrong number of arguments
+try {
+    let arr = [1, 2, 3];
+    arr.map(fn(x) { return x; }, 42);  // Too many args
+} catch (e) {
+    print("Caught: map() expects 1 argument");
+}
+
+// Test 6: filter with no arguments
+try {
+    let arr = [1, 2, 3];
+    arr.filter();
+} catch (e) {
+    print("Caught: filter() expects 1 argument");
+}
+
+// Test 7: reduce with too many arguments
+try {
+    let arr = [1, 2, 3];
+    arr.reduce(fn(acc, x) { return acc; }, 0, 100);
+} catch (e) {
+    print("Caught: reduce() expects 1 or 2 arguments");
+}
+
+// Test 8: callback with wrong arity in map
+try {
+    let arr = [1, 2, 3];
+    arr.map(fn(x, y, z) { return x; });  // Expects 3 args, gets 1
+} catch (e) {
+    print("Caught: Callback expects 3 arguments, got 1");
+}
+
+// Test 9: callback with wrong arity in filter
+try {
+    let arr = [1, 2, 3];
+    arr.filter(fn() { return true; });  // Expects 0 args, gets 1
+} catch (e) {
+    print("Caught: Callback expects 0 arguments, got 1");
+}
+
+// Test 10: callback with wrong arity in reduce
+try {
+    let arr = [1, 2, 3];
+    arr.reduce(fn(x) { return x; }, 0);  // Expects 1 arg, gets 2
+} catch (e) {
+    print("Caught: Callback expects 1 arguments, got 2");
+}
+
+// Test 11: Exception in map callback
+try {
+    let arr = [1, 2, 3];
+    arr.map(fn(x) {
+        if (x == 2) {
+            throw "error in map";
+        }
+        return x;
+    });
+} catch (e) {
+    print("Caught: error in map");
+}
+
+// Test 12: Exception in filter callback
+try {
+    let arr = [1, 2, 3];
+    arr.filter(fn(x) {
+        if (x == 2) {
+            throw "error in filter";
+        }
+        return true;
+    });
+} catch (e) {
+    print("Caught: error in filter");
+}
+
+// Test 13: Exception in reduce callback
+try {
+    let arr = [1, 2, 3];
+    arr.reduce(fn(acc, x) {
+        if (x == 2) {
+            throw "error in reduce";
+        }
+        return acc + x;
+    }, 0);
+} catch (e) {
+    print("Caught: error in reduce");
+}
+
+print("All edge cases passed");

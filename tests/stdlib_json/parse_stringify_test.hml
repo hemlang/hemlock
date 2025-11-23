@@ -1,0 +1,86 @@
+// Test @stdlib/json parse() and stringify() functions
+
+import { parse, stringify } from "@stdlib/json";
+
+// Test parsing primitives
+let null_val = parse("null");
+assert(null_val == null, "parse null");
+
+let bool_true = parse("true");
+assert(bool_true == true, "parse true");
+
+let bool_false = parse("false");
+assert(bool_false == false, "parse false");
+
+let num = parse("42");
+assert(num == 42, "parse number");
+
+let float_val = parse("3.14");
+assert(float_val == 3.14, "parse float");
+
+let str = parse("\"hello\"");
+assert(str == "hello", "parse string");
+
+// Test parsing arrays
+let arr = parse("[1,2,3]");
+assert(arr.length == 3, "parse array length");
+assert(arr[0] == 1, "parse array element 0");
+assert(arr[1] == 2, "parse array element 1");
+assert(arr[2] == 3, "parse array element 2");
+
+// Test parsing objects
+let obj = parse("{\"x\":10,\"y\":20}");
+assert(obj.x == 10, "parse object x");
+assert(obj.y == 20, "parse object y");
+
+// Test parsing nested structures
+let nested = parse("{\"user\":{\"name\":\"Alice\",\"age\":30},\"items\":[1,2,3]}");
+assert(nested.user.name == "Alice", "parse nested user.name");
+assert(nested.user.age == 30, "parse nested user.age");
+assert(nested.items.length == 3, "parse nested items");
+
+// Test stringify primitives
+assert(stringify(null) == "null", "stringify null");
+assert(stringify(true) == "true", "stringify true");
+assert(stringify(false) == "false", "stringify false");
+assert(stringify(42) == "42", "stringify number");
+assert(stringify("hello") == "\"hello\"", "stringify string");
+
+// Test stringify arrays
+let arr_json = stringify([1, 2, 3]);
+assert(arr_json == "[1,2,3]", "stringify array");
+
+// Test stringify objects
+let obj_json = stringify({ x: 10, y: 20 });
+assert(obj_json.contains("\"x\":10"), "stringify object contains x:10");
+assert(obj_json.contains("\"y\":20"), "stringify object contains y:20");
+
+// Test round-trip (parse -> stringify -> parse)
+let original = { name: "Bob", age: 25, active: true };
+let json_str = stringify(original);
+let restored = parse(json_str);
+assert(restored.name == "Bob", "round-trip name");
+assert(restored.age == 25, "round-trip age");
+assert(restored.active == true, "round-trip active");
+
+// Test error handling - invalid JSON
+let error_caught = false;
+try {
+    parse("{\"unclosed\"");
+} catch (e) {
+    error_caught = true;
+}
+assert(error_caught, "parse error on invalid JSON");
+
+// Test error handling - circular reference in stringify
+let circular = {};
+circular.circ = circular;
+let circular_error = false;
+try {
+    stringify(circular);
+} catch (e) {
+    circular_error = true;
+}
+assert(circular_error, "stringify error on circular reference");
+
+print("All parse/stringify tests passed!");

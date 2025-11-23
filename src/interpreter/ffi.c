@@ -397,7 +397,7 @@ void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
     if (func != NULL) {
         // Create a value to store the FFI function
-        Value ffi_val;
+        Value ffi_val = {0};  // Zero-initialize entire struct
         ffi_val.type = VAL_FFI_FUNCTION;
         ffi_val.as.as_ffi_function = func;
         env_define(env, function_name, ffi_val, 0, ctx);

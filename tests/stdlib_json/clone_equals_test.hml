@@ -1,0 +1,86 @@
+// Test @stdlib/json clone() and equals()
+
+import { clone, equals } from "@stdlib/json";
+
+// Test clone() with primitives
+let num_clone = clone(42);
+assert(num_clone == 42, "clone number");
+
+let str_clone = clone("hello");
+assert(str_clone == "hello", "clone string");
+
+let bool_clone = clone(true);
+assert(bool_clone == true, "clone bool");
+
+let null_clone = clone(null);
+assert(null_clone == null, "clone null");
+
+// Test clone() with array
+let arr = [1, 2, 3];
+let arr_clone = clone(arr);
+assert(arr_clone.length == 3, "clone array length");
+assert(arr_clone[0] == 1, "clone array element 0");
+assert(arr_clone[1] == 2, "clone array element 1");
+assert(arr_clone[2] == 3, "clone array element 2");
+
+// Verify array clone is independent
+arr_clone.push(4);
+assert(arr.length == 3, "original array unchanged after clone modification");
+assert(arr_clone.length == 4, "cloned array modified");
+
+// Test clone() with object
+let obj = { x: 10, y: 20 };
+let obj_clone = clone(obj);
+assert(obj_clone.x == 10, "clone object x");
+assert(obj_clone.y == 20, "clone object y");
+
+// Verify object clone is independent
+obj_clone.x = 99;
+assert(obj.x == 10, "original object unchanged after clone modification");
+assert(obj_clone.x == 99, "cloned object modified");
+
+// Test clone() with nested structure
+let nested = {
+    user: { name: "Alice", age: 30 },
+    items: [1, 2, 3]
+};
+let nested_clone = clone(nested);
+
+assert(nested_clone.user.name == "Alice", "clone nested user.name");
+assert(nested_clone.user.age == 30, "clone nested user.age");
+assert(nested_clone.items.length == 3, "clone nested items length");
+
+// Verify nested clone is independent (deep copy)
+nested_clone.user.name = "Bob";
+nested_clone.items.push(4);
+
+assert(nested.user.name == "Alice", "original nested object unchanged");
+assert(nested.items.length == 3, "original nested array unchanged");
+assert(nested_clone.user.name == "Bob", "cloned nested object modified");
+assert(nested_clone.items.length == 4, "cloned nested array modified");
+
+// Test equals() with primitives
+assert(equals(42, 42) == true, "equals same numbers");
+assert(equals(42, 43) == false, "equals different numbers");
+assert(equals("hello", "hello") == true, "equals same strings");
+assert(equals("hello", "world") == false, "equals different strings");
+assert(equals(true, true) == true, "equals same bools");
+assert(equals(true, false) == false, "equals different bools");
+assert(equals(null, null) == true, "equals null");
+
+// Test equals() with type mismatch
+assert(equals(42, "42") == false, "equals number vs string");
+assert(equals(true, 1) == false, "equals bool vs number");
+assert(equals(null, 0) == false, "equals null vs zero");
+
+// Test equals() with arrays
+assert(equals([1, 2, 3], [1, 2, 3]) == true, "equals same arrays");
+assert(equals([1, 2, 3], [1, 2]) == false, "equals different length arrays");
+assert(equals([1, 2, 3], [1, 2, 4]) == false, "equals different array elements");
+assert(equals([], []) == true, "equals empty arrays");
+
+// Test equals() with nested arrays
+assert(equals([[1, 2], [3, 4]], [[1, 2], [3, 4]]) == true, "equals nested arrays");
+assert(equals([[1, 2], [3, 4]], [[1, 2], [3, 5]]) == false, "equals different nested arrays");
+
+print("All clone and equals tests passed!");

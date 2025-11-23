@@ -112,14 +112,14 @@ String* string_concat(String *a, String *b) {
 }
 
 Value val_string(const char *str) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_STRING;
     v.as.as_string = string_new(str);
     return v;
 }
 
 Value val_string_take(char *data, int length, int capacity) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_STRING;
     String *str = malloc(sizeof(String));
     if (!str) {
@@ -140,7 +140,7 @@ Value val_rune(uint32_t codepoint) {
         fprintf(stderr, "Runtime error: Invalid Unicode codepoint: 0x%X (max is 0x10FFFF)\n", codepoint);
         exit(1);
     }
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_RUNE;
     v.as.as_rune = codepoint;
     return v;
@@ -179,7 +179,7 @@ Value val_buffer(int size) {
         exit(1);
     }
 
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_BUFFER;
     Buffer *buf = malloc(sizeof(Buffer));
     if (!buf) {
@@ -200,7 +200,7 @@ Value val_buffer(int size) {
 }
 
 Value val_file(FileHandle *file) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_FILE;
     v.as.as_file = file;
     return v;
@@ -352,7 +352,7 @@ void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
 }
 
 Value val_array(Array *arr) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_ARRAY;
     v.as.as_array = arr;
     return v;
@@ -424,6 +424,11 @@ void function_free(Function *fn) {
         free(fn->param_types);
     }
 
+    // Free parameter defaults array (Expr* pointers are owned by AST, just free the array)
+    if (fn->param_defaults) {
+        free(fn->param_defaults);
+    }
+
     // Release closure environment (reference counted)
     if (fn->closure_env) {
         env_release(fn->closure_env);
@@ -431,6 +436,7 @@ void function_free(Function *fn) {
 
     // Note: body (Stmt*) is not freed - owned by AST
     // Note: return_type (Type*) is not freed - owned by AST
+    // Note: param_defaults (Expr**) expressions are not freed - owned by AST
 
     free(fn);
 }
@@ -479,7 +485,7 @@ Object* object_new(char *type_name, int initial_capacity) {
 }
 
 Value val_object(Object *obj) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_OBJECT;
     v.as.as_object = obj;
     return v;
@@ -571,7 +577,7 @@ void task_release(Task *task) {
 }
 
 Value val_task(Task *task) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_TASK;
     v.as.as_task = task;
     return v;
@@ -664,7 +670,7 @@ void channel_release(Channel *ch) {
 }
 
 Value val_channel(Channel *channel) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_CHANNEL;
     v.as.as_channel = channel;
     return v;
@@ -673,70 +679,70 @@ Value val_channel(Channel *channel) {
 // ========== VALUE OPERATIONS ==========
 
 Value val_i8(int8_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_I8;
     v.as.as_i8 = value;
     return v;
 }
 
 Value val_i16(int16_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_I16;
     v.as.as_i16 = value;
     return v;
 }
 
 Value val_i32(int32_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_I32;
     v.as.as_i32 = value;
     return v;
 }
 
 Value val_i64(int64_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_I64;
     v.as.as_i64 = value;
     return v;
 }
 
 Value val_u8(uint8_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_U8;
     v.as.as_u8 = value;
     return v;
 }
 
 Value val_u16(uint16_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_U16;
     v.as.as_u16 = value;
     return v;
 }
 
 Value val_u32(uint32_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_U32;
     v.as.as_u32 = value;
     return v;
 }
 
 Value val_u64(uint64_t value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_U64;
     v.as.as_u64 = value;
     return v;
 }
 
 Value val_f32(float value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_F32;
     v.as.as_f32 = value;
     return v;
 }
 
 Value val_f64(double value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_F64;
     v.as.as_f64 = value;
     return v;
@@ -751,35 +757,35 @@ Value val_float(double value) {
 }
 
 Value val_bool(int value) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_BOOL;
     v.as.as_bool = value ? 1 : 0;
     return v;
 }
 
 Value val_ptr(void *ptr) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_PTR;
     v.as.as_ptr = ptr;
     return v;
 }
 
 Value val_type(TypeKind kind) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_TYPE;
     v.as.as_type = kind;
     return v;
 }
 
 Value val_function(Function *fn) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_FUNCTION;
     v.as.as_function = fn;
     return v;
 }
 
 Value val_null(void) {
-    Value v;
+    Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_NULL;
     return v;
 }
@@ -905,6 +911,153 @@ void print_value(Value val) {
             printf("null");
             break;
     }
+}
+
+// Convert value to string (caller must free the result)
+char* value_to_string(Value val) {
+    char buffer[1024];  // Temporary buffer for formatting
+
+    switch (val.type) {
+        case VAL_I8:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i8);
+            return strdup(buffer);
+        case VAL_I16:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i16);
+            return strdup(buffer);
+        case VAL_I32:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
+            return strdup(buffer);
+        case VAL_I64:
+            snprintf(buffer, sizeof(buffer), "%ld", val.as.as_i64);
+            return strdup(buffer);
+        case VAL_U8:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
+            return strdup(buffer);
+        case VAL_U16:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u16);
+            return strdup(buffer);
+        case VAL_U32:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
+            return strdup(buffer);
+        case VAL_U64:
+            snprintf(buffer, sizeof(buffer), "%lu", val.as.as_u64);
+            return strdup(buffer);
+        case VAL_F32:
+            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
+            return strdup(buffer);
+        case VAL_F64:
+            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f64);
+            return strdup(buffer);
+        case VAL_BOOL:
+            return strdup(val.as.as_bool ? "true" : "false");
+        case VAL_STRING:
+            return strdup(val.as.as_string->data);
+        case VAL_RUNE: {
+            // Convert rune to UTF-8 string
+            uint32_t r = val.as.as_rune;
+            char utf8[5] = {0};
+
+            if (r < 0x80) {
+                utf8[0] = (char)r;
+            } else if (r < 0x800) {
+                utf8[0] = 0xC0 | (r >> 6);
+                utf8[1] = 0x80 | (r & 0x3F);
+            } else if (r < 0x10000) {
+                utf8[0] = 0xE0 | (r >> 12);
+                utf8[1] = 0x80 | ((r >> 6) & 0x3F);
+                utf8[2] = 0x80 | (r & 0x3F);
+            } else {
+                utf8[0] = 0xF0 | (r >> 18);
+                utf8[1] = 0x80 | ((r >> 12) & 0x3F);
+                utf8[2] = 0x80 | ((r >> 6) & 0x3F);
+                utf8[3] = 0x80 | (r & 0x3F);
+            }
+
+            return strdup(utf8);
+        }
+        case VAL_PTR:
+            snprintf(buffer, sizeof(buffer), "%p", val.as.as_ptr);
+            return strdup(buffer);
+        case VAL_BUFFER:
+            snprintf(buffer, sizeof(buffer), "<buffer %p length=%d capacity=%d>",
+                   val.as.as_buffer->data,
+                   val.as.as_buffer->length,
+                   val.as.as_buffer->capacity);
+            return strdup(buffer);
+        case VAL_ARRAY: {
+            // Simple array representation
+            Array *arr = val.as.as_array;
+            int total_len = 2;  // [ and ]
+            char **parts = malloc(sizeof(char*) * arr->length);
+            for (int i = 0; i < arr->length; i++) {
+                parts[i] = value_to_string(arr->elements[i]);
+                total_len += strlen(parts[i]);
+                if (i > 0) total_len += 2;  // ", "
+            }
+
+            char *result = malloc(total_len + 1);
+            strcpy(result, "[");
+            for (int i = 0; i < arr->length; i++) {
+                if (i > 0) strcat(result, ", ");
+                strcat(result, parts[i]);
+                free(parts[i]);
+            }
+            strcat(result, "]");
+            free(parts);
+            return result;
+        }
+        case VAL_FILE: {
+            FileHandle *file = val.as.as_file;
+            if (file->closed) {
+                return strdup("<file (closed)>");
+            } else {
+                snprintf(buffer, sizeof(buffer), "<file '%s' mode='%s'>", file->path, file->mode);
+                return strdup(buffer);
+            }
+        }
+        case VAL_SOCKET: {
+            SocketHandle *sock = val.as.as_socket;
+            if (sock->closed) {
+                return strdup("<socket (closed)>");
+            } else if (sock->address) {
+                snprintf(buffer, sizeof(buffer), "<socket %s:%d fd=%d%s>",
+                       sock->address, sock->port, sock->fd,
+                       sock->listening ? " listening" : "");
+                return strdup(buffer);
+            } else {
+                snprintf(buffer, sizeof(buffer), "<socket fd=%d>", sock->fd);
+                return strdup(buffer);
+            }
+        }
+        case VAL_OBJECT:
+            if (val.as.as_object->type_name) {
+                snprintf(buffer, sizeof(buffer), "<object:%s>", val.as.as_object->type_name);
+                return strdup(buffer);
+            } else {
+                return strdup("<object>");
+            }
+        case VAL_TYPE:
+            return strdup("<type>");
+        case VAL_BUILTIN_FN:
+            return strdup("<builtin function>");
+        case VAL_FUNCTION:
+            return strdup("<function>");
+        case VAL_FFI_FUNCTION:
+            return strdup("<ffi function>");
+        case VAL_TASK:
+            snprintf(buffer, sizeof(buffer), "<task %d>", val.as.as_task->id);
+            return strdup(buffer);
+        case VAL_CHANNEL:
+            snprintf(buffer, sizeof(buffer), "<channel capacity=%d count=%d%s>",
+                   val.as.as_channel->capacity,
+                   val.as.as_channel->count,
+                   val.as.as_channel->closed ? " closed" : "");
+            return strdup(buffer);
+        case VAL_NULL:
+            return strdup("null");
+    }
+
+    return strdup("<unknown>");
 }
 
 // ========== VALUE CLEANUP ==========
