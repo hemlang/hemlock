@@ -383,12 +383,14 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
                 if (!msg) break;
 
                 msg->len = len;
-                msg->data = malloc(len);
+                // Allocate len+1 to ensure we can null-terminate for text messages
+                msg->data = malloc(len + 1);
                 if (!msg->data) {
                     free(msg);
                     break;
                 }
                 memcpy(msg->data, in, len);
+                msg->data[len] = '\0';  // Null-terminate for text messages
                 msg->is_binary = lws_frame_is_binary(wsi);
                 msg->next = NULL;
 
@@ -616,11 +618,8 @@ int lws_msg_type(ws_message_t *msg) {
 
 const char* lws_msg_text(ws_message_t *msg) {
     if (!msg || !msg->data) return "";
-    // Ensure null-terminated
-    char *text = malloc(msg->len + 1);
-    memcpy(text, msg->data, msg->len);
-    text[msg->len] = '\0';
-    return text;  // Memory leak - caller should free
+    // Data is already null-terminated when allocated
+    return (const char *)msg->data;
 }
 
 const unsigned char* lws_msg_binary(ws_message_t *msg) {
@@ -695,12 +694,14 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
                 if (!msg) break;
 
                 msg->len = len;
-                msg->data = malloc(len);
+                // Allocate len+1 to ensure we can null-terminate for text messages
+                msg->data = malloc(len + 1);
                 if (!msg->data) {
                     free(msg);
                     break;
                 }
                 memcpy(msg->data, in, len);
+                msg->data[len] = '\0';  // Null-terminate for text messages
                 msg->is_binary = lws_frame_is_binary(wsi);
                 msg->next = NULL;
 

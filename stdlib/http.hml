@@ -183,9 +183,7 @@ export fn url_encode(str) {
 // Current limitations:
 // - PUT and DELETE use POST/GET (C wrapper needs implementation)
 // - Custom headers partially supported (Content-Type works)
-// - Response headers not yet parsed
-// - download() doesn't actually write files yet
-//
-// If libwebsockets is not available, the old curl-based version
-// is saved as stdlib/http_curl_backup.hml
+// - Response headers not yet parsed (returns empty string)
+// - download() only checks status, doesn't write to file (needs file I/O)
+// - url_encode() only encodes common characters (not RFC 3986 compliant)
 //
