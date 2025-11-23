@@ -146,7 +146,9 @@ Expr* primary(Parser *p) {
     // Parse parameters
     char **param_names = malloc(sizeof(char*) * 32);  // max 32 params
     Type **param_types = malloc(sizeof(Type*) * 32);
+    Expr **param_defaults = malloc(sizeof(Expr*) * 32);
     int num_params = 0;
+    int seen_optional = 0;  // Track if we've seen an optional parameter
 
     if (!check(p, TOK_RPAREN)) {
         do {
@@ -158,6 +160,19 @@ Expr* primary(Parser *p) {
                 param_types[num_params] = parse_type(p);
             } else {
                 param_types[num_params] = NULL;
+            }
+
+            // Check for optional parameter (?) with default value
+            if (match(p, TOK_QUESTION)) {
+                consume(p, TOK_COLON, "Expect ':' after '?' for default value");
+                param_defaults[num_params] = expression(p);
+                seen_optional = 1;
+            } else {
+                // Required parameter
+                if (seen_optional) {
+                    error_at(p, &p->current, "Required parameters must come before optional parameters");
+                }
+                param_defaults[num_params] = NULL;
             }
 
             num_params++;
@@ -176,7 +191,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, num_params, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, return_type, body);
 
 not_fn_expr:
 

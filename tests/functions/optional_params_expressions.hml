@@ -1,0 +1,46 @@
+// Test optional parameters with complex default expressions
+
+// Default expression with arithmetic
+fn power(base: i32, exp?: 2 + 1) {
+    let result = 1;
+    let i = 0;
+    while (i < exp) {
+        result = result * base;
+        i = i + 1;
+    }
+    return result;
+}
+
+print(power(2));      // 8 (2^3)
+print(power(2, 4));   // 16 (2^4)
+
+// Default expression with string concatenation
+fn make_url(path: string, protocol?: "https" + "://") {
+    return protocol + "example.com" + path;
+}
+
+print(make_url("/api"));           // https://example.com/api
+print(make_url("/api", "http://")); // http://example.com/api
+
+// Default expression with array literal
+fn process_items(items?: [1, 2, 3]) {
+    let sum = 0;
+    let i = 0;
+    while (i < items.length) {
+        sum = sum + items[i];
+        i = i + 1;
+    }
+    return sum;
+}
+
+print(process_items());           // 6
+print(process_items([10, 20]));   // 30
+
+// Default expression with object literal
+fn configure(opts?: {debug: false, max: 100}) {
+    print("Debug: " + typeof(opts.debug));
+    print("Max: " + typeof(opts.max));
+}
+
+configure();                            // Debug: false, Max: 100
+configure({debug: true, max: 50});      // Debug: true, Max: 50

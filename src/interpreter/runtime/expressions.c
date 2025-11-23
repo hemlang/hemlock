@@ -845,10 +845,27 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Call user-defined function
                 Function *fn = func.as.as_function;
 
-                // Check argument count
-                if (expr->as.call.num_args != fn->num_params) {
-                    runtime_error(ctx, "Function expects %d arguments, got %d",
-                            fn->num_params, expr->as.call.num_args);
+                // Calculate number of required parameters (those without defaults)
+                int required_params = 0;
+                if (fn->param_defaults) {
+                    for (int i = 0; i < fn->num_params; i++) {
+                        if (!fn->param_defaults[i]) {
+                            required_params++;
+                        }
+                    }
+                } else {
+                    required_params = fn->num_params;
+                }
+
+                // Check argument count (must be between required and total params)
+                if (expr->as.call.num_args < required_params || expr->as.call.num_args > fn->num_params) {
+                    if (required_params == fn->num_params) {
+                        runtime_error(ctx, "Function expects %d arguments, got %d",
+                                fn->num_params, expr->as.call.num_args);
+                    } else {
+                        runtime_error(ctx, "Function expects %d-%d arguments, got %d",
+                                required_params, fn->num_params, expr->as.call.num_args);
+                    }
                     // Release function and args before returning
                     value_release(func);
                     if (args) {
@@ -897,7 +914,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Bind parameters
                 for (int i = 0; i < fn->num_params; i++) {
-                    Value arg_value = args[i];
+                    Value arg_value;
+
+                    // Use provided argument or evaluate default
+                    if (i < expr->as.call.num_args) {
+                        // Argument was provided
+                        arg_value = args[i];
+                    } else {
+                        // Argument missing - use default value
+                        if (fn->param_defaults && fn->param_defaults[i]) {
+                            // Evaluate default expression in the closure environment
+                            arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
+                        } else {
+                            // Should never happen if arity check is correct
+                            runtime_error(ctx, "Missing required parameter '%s'", fn->param_names[i]);
+                        }
+                    }
 
                     // Type check if parameter has type annotation
                     if (fn->param_types[i]) {
@@ -1197,6 +1229,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 } else {
                     fn->param_types[i] = NULL;
                 }
+            }
+
+            // Store parameter defaults (AST expressions, not evaluated yet)
+            // We share the AST nodes (not copied) since they're immutable
+            if (expr->as.function.param_defaults) {
+                fn->param_defaults = malloc(sizeof(Expr*) * expr->as.function.num_params);
+                for (int i = 0; i < expr->as.function.num_params; i++) {
+                    fn->param_defaults[i] = expr->as.function.param_defaults[i];
+                }
+            } else {
+                fn->param_defaults = NULL;
             }
 
             fn->num_params = expr->as.function.num_params;
