@@ -3546,7 +3546,7 @@ When adding features to Hemlock:
   - **Async/concurrency:** async/await syntax, true multi-threaded parallelism via pthreads, thread-safe channels
   - **FFI:** Call C functions from shared libraries using libffi
   - **Standard library:** 10 production modules (collections, math, time, env, fs, net, regex, http, json, websocket)
-  - **394 tests:** 369 passing + 25 expected error tests (100% success rate)
+  - **420 tests:** 395 passing + 25 expected error tests (100% success rate)
   - **Reference counting:** Automatic memory management for all heap-allocated types
   - **Stack traces:** Automatic call stack tracking and printing on errors
 
