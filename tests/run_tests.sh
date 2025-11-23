@@ -45,6 +45,13 @@ else
     echo -e "${RED}✗ Build failed${NC}"
     exit 1
 fi
+
+# Build stdlib modules (if dependencies available)
+if make stdlib > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ stdlib modules built${NC}"
+else
+    echo -e "${YELLOW}⊘ stdlib modules skipped (dependencies not installed)${NC}"
+fi
 echo ""
 
 # Function to check if a test is expected to fail (error test)
@@ -71,8 +78,7 @@ for test_file in $TEST_FILES; do
 
     # Skip HTTP/WebSocket tests if lws_wrapper.so doesn't exist
     if [[ "$category" == "stdlib_http" || "$category" == "stdlib_websocket" ]]; then
-        LWS_PATH="$PROJECT_ROOT/stdlib/c/lws_wrapper.so"
-        if [ ! -f "$LWS_PATH" ]; then
+        if [ ! -f "$PROJECT_ROOT/stdlib/c/lws_wrapper.so" ]; then
             # Only print the skip message once per category
             if [ "$category" != "$CURRENT_CATEGORY" ]; then
                 if [ -n "$CURRENT_CATEGORY" ]; then
@@ -80,12 +86,6 @@ for test_file in $TEST_FILES; do
                 fi
                 echo -e "${BLUE}[$category]${NC}"
                 echo -e "${YELLOW}⊘${NC} Skipping $category tests (libwebsockets not installed)"
-                echo "  Checked path: $LWS_PATH"
-                echo "  PWD: $(pwd)"
-                echo "  File test: [ -f \"$LWS_PATH\" ] = $([ -f \"$LWS_PATH\" ] && echo true || echo false)"
-                if [ -e "$LWS_PATH" ]; then
-                    echo "  File exists but is not a regular file: $(file "$LWS_PATH" 2>&1 || echo 'file command failed')"
-                fi
                 echo "  Run 'sudo apt-get install libwebsockets-dev && make stdlib' to enable"
                 CURRENT_CATEGORY="$category"
             fi
