@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc
-LDFLAGS = -lm -lpthread -lffi -ldl
+LDFLAGS = -lm -lpthread -lffi -ldl -Wl,--no-as-needed -lcrypto -Wl,--as-needed
 SRC_DIR = src
 BUILD_DIR = build
 

@@ -1,0 +1,406 @@
+// @stdlib/hash - Hashing and checksum utilities
+//
+// Provides both non-cryptographic hashes (for hash tables, checksums)
+// and cryptographic hashes (SHA-256, SHA-512, MD5 via OpenSSL FFI).
+//
+// Usage:
+//   import { djb2, fnv1a, murmur3, sha256, sha512, md5, file_checksum } from "@stdlib/hash";
+
+// Import OpenSSL's libcrypto for cryptographic hash functions
+import "libcrypto.so.3";
+
+// ============================================================================
+// NON-CRYPTOGRAPHIC HASH FUNCTIONS
+// ============================================================================
+
+// DJB2 Hash Algorithm
+// Fast, simple hash function with good distribution
+// Commonly used in hash tables (as seen in HashMap implementation)
+export fn djb2(input: string): i32 {
+    if (typeof(input) != "string") {
+        throw "djb2() requires string argument";
+    }
+
+    let h = 5381;
+    let i = 0;
+    while (i < input.byte_length) {
+        let byte_val = input.byte_at(i);
+        // h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
+        h = ((h << 5) + h) + byte_val;
+        i = i + 1;
+    }
+
+    return h;
+}
+
+// FNV-1a Hash Algorithm (32-bit version)
+// Fowler-Noll-Vo hash with good avalanche properties
+// Better distribution than DJB2 for certain data patterns
+export fn fnv1a(input: string): i32 {
+    if (typeof(input) != "string") {
+        throw "fnv1a() requires string argument";
+    }
+
+    // FNV-1a constants (32-bit)
+    let FNV_OFFSET_BASIS = 2166136261;  // 0x811c9dc5
+    let FNV_PRIME = 16777619;            // 0x01000193
+
+    let h = FNV_OFFSET_BASIS;
+    let i = 0;
+    while (i < input.byte_length) {
+        let byte_val = input.byte_at(i);
+        h = h ^ byte_val;  // XOR with byte
+        h = h * FNV_PRIME;  // Multiply by FNV prime
+        i = i + 1;
+    }
+
+    return h;
+}
+
+// MurmurHash3 (32-bit version, simplified)
+// Fast, non-cryptographic hash with excellent distribution
+// Widely used in production hash tables (Redis, Hadoop, etc.)
+export fn murmur3(input: string, seed?: 0): i32 {
+    if (typeof(input) != "string") {
+        throw "murmur3() requires string argument";
+    }
+
+    let bytes = input.bytes();
+    let len = bytes.length;
+    let h = seed;
+
+    // Constants
+    let c1 = 3432918353;  // 0xcc9e2d51
+    let c2 = 461845907;   // 0x1b873593
+    let r1 = 15;
+    let r2 = 13;
+    let m = 5;
+    let n = 3864292196;   // 0xe6546b64
+
+    // Process 4-byte chunks
+    let i = 0;
+    let chunks = len / 4;
+    let full_chunks = 0;
+    // Convert to integer (truncate decimal)
+    let temp_chunks: i32 = chunks;
+    full_chunks = temp_chunks;
+
+    i = 0;
+    while (i < full_chunks) {
+        // Read 4 bytes as little-endian i32
+        let k = bytes[i * 4]
+            | (bytes[i * 4 + 1] << 8)
+            | (bytes[i * 4 + 2] << 16)
+            | (bytes[i * 4 + 3] << 24);
+
+        k = k * c1;
+        k = (k << r1) | (k >> (32 - r1));  // rotl32
+        k = k * c2;
+
+        h = h ^ k;
+        h = (h << r2) | (h >> (32 - r2));  // rotl32
+        h = h * m + n;
+
+        i = i + 1;
+    }
+
+    // Process remaining bytes
+    let k1 = 0;
+    let tail_start = full_chunks * 4;
+
+    if (len % 4 == 3) {
+        k1 = k1 ^ (bytes[tail_start + 2] << 16);
+    }
+    if (len % 4 >= 2) {
+        k1 = k1 ^ (bytes[tail_start + 1] << 8);
+    }
+    if (len % 4 >= 1) {
+        k1 = k1 ^ bytes[tail_start];
+        k1 = k1 * c1;
+        k1 = (k1 << r1) | (k1 >> (32 - r1));
+        k1 = k1 * c2;
+        h = h ^ k1;
+    }
+
+    // Finalization mix
+    h = h ^ len;
+    h = h ^ (h >> 16);
+    h = h * 2246822507;  // 0x85ebca6b
+    h = h ^ (h >> 13);
+    h = h * 3266489909;  // 0xc2b2ae35
+    h = h ^ (h >> 16);
+
+    return h;
+}
+
+// ============================================================================
+// CRYPTOGRAPHIC HASH FUNCTIONS (via OpenSSL FFI)
+// ============================================================================
+
+// OpenSSL FFI declarations
+// These functions compute cryptographic hashes using OpenSSL's libcrypto
+
+// SHA-256: unsigned char *SHA256(const unsigned char *d, size_t n, unsigned char *md)
+extern fn SHA256(data: ptr, len: i32, output: ptr): ptr;
+
+// SHA-512: unsigned char *SHA512(const unsigned char *d, size_t n, unsigned char *md)
+extern fn SHA512(data: ptr, len: i32, output: ptr): ptr;
+
+// MD5: unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md)
+extern fn MD5(data: ptr, len: i32, output: ptr): ptr;
+
+// Helper: Convert bytes to hexadecimal string
+fn bytes_to_hex(bytes: buffer, len: i32): string {
+    let hex_chars = "0123456789abcdef";
+    let result = "";
+    let i = 0;
+    while (i < len) {
+        let byte_val = bytes[i];
+        let high = (byte_val >> 4) & 15;
+        let low = byte_val & 15;
+        result = result + hex_chars[high];
+        result = result + hex_chars[low];
+        i = i + 1;
+    }
+    return result;
+}
+
+// SHA-256 hash (256-bit / 32-byte output)
+// Returns hexadecimal string representation
+export fn sha256(input: string): string {
+    if (typeof(input) != "string") {
+        throw "sha256() requires string argument";
+    }
+
+    // Convert string to bytes
+    let bytes = input.bytes();
+    let len = bytes.length;
+
+    // Handle empty string case (alloc requires positive size)
+    if (len == 0) {
+        len = 1;  // Allocate at least 1 byte
+    }
+
+    // Allocate input buffer and copy bytes
+    let input_buf = alloc(len);
+    let i = 0;
+    while (i < bytes.length) {
+        let byte_ptr = input_buf + i;
+        let byte_val: u8 = bytes[i];
+        memset(byte_ptr, byte_val, 1);
+        i = i + 1;
+    }
+
+    // Allocate output buffer (SHA-256 produces 32 bytes)
+    let output = alloc(32);
+
+    // Compute hash
+    SHA256(input_buf, bytes.length, output);
+
+    // Clean up input buffer
+    free(input_buf);
+
+    // Read bytes using u32 reads (4 bytes at a time)
+    let hex_chars = "0123456789abcdef";
+    let hex = "";
+    let i2 = 0;
+    while (i2 < 32) {
+        // Read 4 bytes as u32 (little-endian)
+        let word_ptr = output + (i2 & ~3);  // Align to 4-byte boundary
+        let word = __read_u32(word_ptr);
+
+        // Extract the specific byte from the word
+        let byte_offset = i2 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+
+        let high = (byte_val >> 4) & 15;
+        let low = byte_val & 15;
+        hex = hex + hex_chars[high];
+        hex = hex + hex_chars[low];
+
+        i2 = i2 + 1;
+    }
+
+    // Free output
+    free(output);
+
+    return hex;
+}
+
+// SHA-512 hash (512-bit / 64-byte output)
+// Returns hexadecimal string representation
+export fn sha512(input: string): string {
+    if (typeof(input) != "string") {
+        throw "sha512() requires string argument";
+    }
+
+    // Convert string to bytes
+    let bytes = input.bytes();
+    let len = bytes.length;
+
+    // Handle empty string case (alloc requires positive size)
+    if (len == 0) {
+        len = 1;  // Allocate at least 1 byte
+    }
+
+    // Allocate input buffer and copy bytes
+    let input_buf = alloc(len);
+    let i = 0;
+    while (i < bytes.length) {
+        let byte_ptr = input_buf + i;
+        let byte_val: u8 = bytes[i];
+        memset(byte_ptr, byte_val, 1);
+        i = i + 1;
+    }
+
+    // Allocate output buffer (SHA-512 produces 64 bytes)
+    let output = alloc(64);
+
+    // Compute hash
+    SHA512(input_buf, bytes.length, output);
+
+    // Clean up input buffer
+    free(input_buf);
+
+    // Read bytes using u32 reads (4 bytes at a time)
+    let hex_chars = "0123456789abcdef";
+    let hex = "";
+    let i2 = 0;
+    while (i2 < 64) {
+        // Read 4 bytes as u32 (little-endian)
+        let word_ptr = output + (i2 & ~3);  // Align to 4-byte boundary
+        let word = __read_u32(word_ptr);
+
+        // Extract the specific byte from the word
+        let byte_offset = i2 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+
+        let high = (byte_val >> 4) & 15;
+        let low = byte_val & 15;
+        hex = hex + hex_chars[high];
+        hex = hex + hex_chars[low];
+
+        i2 = i2 + 1;
+    }
+
+    // Free output
+    free(output);
+
+    return hex;
+}
+
+// MD5 hash (128-bit / 16-byte output)
+// WARNING: MD5 is cryptographically broken, use only for legacy compatibility
+// Returns hexadecimal string representation
+export fn md5(input: string): string {
+    if (typeof(input) != "string") {
+        throw "md5() requires string argument";
+    }
+
+    // Convert string to bytes
+    let bytes = input.bytes();
+    let len = bytes.length;
+
+    // Handle empty string case (alloc requires positive size)
+    if (len == 0) {
+        len = 1;  // Allocate at least 1 byte
+    }
+
+    // Allocate input buffer and copy bytes
+    let input_buf = alloc(len);
+    let i = 0;
+    while (i < bytes.length) {
+        let byte_ptr = input_buf + i;
+        let byte_val: u8 = bytes[i];
+        memset(byte_ptr, byte_val, 1);
+        i = i + 1;
+    }
+
+    // Allocate output buffer (MD5 produces 16 bytes)
+    let output = alloc(16);
+
+    // Compute hash
+    MD5(input_buf, bytes.length, output);
+
+    // Clean up input buffer
+    free(input_buf);
+
+    // Read bytes using u32 reads (4 bytes at a time)
+    let hex_chars = "0123456789abcdef";
+    let hex = "";
+    let i2 = 0;
+    while (i2 < 16) {
+        // Read 4 bytes as u32 (little-endian)
+        let word_ptr = output + (i2 & ~3);  // Align to 4-byte boundary
+        let word = __read_u32(word_ptr);
+
+        // Extract the specific byte from the word
+        let byte_offset = i2 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+
+        let high = (byte_val >> 4) & 15;
+        let low = byte_val & 15;
+        hex = hex + hex_chars[high];
+        hex = hex + hex_chars[low];
+
+        i2 = i2 + 1;
+    }
+
+    // Free output
+    free(output);
+
+    return hex;
+}
+
+// ============================================================================
+// FILE CHECKSUM FUNCTIONS
+// ============================================================================
+
+// Compute hash of file contents
+// hash_fn: one of djb2, fnv1a, murmur3, sha256, sha512, md5
+export fn file_checksum(path: string, hash_fn): string {
+    if (typeof(path) != "string") {
+        throw "file_checksum() requires string path";
+    }
+    if (typeof(hash_fn) != "function") {
+        throw "file_checksum() requires hash function as second argument";
+    }
+
+    // Open and read file
+    let file = open(path, "r");
+    defer file.close();
+
+    let content = file.read();
+
+    // Compute hash
+    let hash_result = hash_fn(content);
+
+    // Convert to string - typeof() returns a string representation of any value
+    return "" + typeof(hash_result);
+}
+
+// Convenience functions for specific file checksums
+
+export fn file_sha256(path: string): string {
+    return file_checksum(path, sha256);
+}
+
+export fn file_sha512(path: string): string {
+    return file_checksum(path, sha512);
+}
+
+export fn file_md5(path: string): string {
+    return file_checksum(path, md5);
+}
+
+export fn file_djb2(path: string): string {
+    return file_checksum(path, djb2);
+}
+
+export fn file_fnv1a(path: string): string {
+    return file_checksum(path, fnv1a);
+}
+
+export fn file_murmur3(path: string): string {
+    return file_checksum(path, murmur3);
+}

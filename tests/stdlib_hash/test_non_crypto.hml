@@ -1,0 +1,117 @@
+// Test non-cryptographic hash functions
+
+import { djb2, fnv1a, murmur3 } from "@stdlib/hash";
+
+// ========== DJB2 TESTS ==========
+
+// Test basic djb2 hash
+let h1 = djb2("hello");
+assert(typeof(h1) == "i32", "djb2 should return i32");
+
+// Test empty string
+let h2 = djb2("");
+assert(typeof(h2) == "i32", "djb2 should handle empty string");
+assert(h2 == 5381, "djb2 of empty string should be 5381 (initial value)");
+
+// Test deterministic (same input = same output)
+let h3a = djb2("test");
+let h3b = djb2("test");
+assert(h3a == h3b, "djb2 should be deterministic");
+
+// Test different inputs produce different hashes (usually)
+let h4a = djb2("hello");
+let h4b = djb2("world");
+assert(h4a != h4b, "djb2 should produce different hashes for different inputs");
+
+// Test UTF-8 strings
+let h5 = djb2("Hello 🌍");
+assert(typeof(h5) == "i32", "djb2 should handle UTF-8");
+
+// Test longer strings
+let h6 = djb2("The quick brown fox jumps over the lazy dog");
+assert(typeof(h6) == "i32", "djb2 should handle long strings");
+
+// ========== FNV-1a TESTS ==========
+
+// Test basic fnv1a hash
+let f1 = fnv1a("hello");
+assert(typeof(f1) == "i32", "fnv1a should return i32");
+
+// Test empty string
+let f2 = fnv1a("");
+assert(typeof(f2) == "i32", "fnv1a should handle empty string");
+assert(f2 == 2166136261, "fnv1a of empty string should be FNV offset basis");
+
+// Test deterministic
+let f3a = fnv1a("test");
+let f3b = fnv1a("test");
+assert(f3a == f3b, "fnv1a should be deterministic");
+
+// Test different inputs
+let f4a = fnv1a("hello");
+let f4b = fnv1a("world");
+assert(f4a != f4b, "fnv1a should produce different hashes for different inputs");
+
+// Test UTF-8 strings
+let f5 = fnv1a("Hello 🚀");
+assert(typeof(f5) == "i32", "fnv1a should handle UTF-8");
+
+// Test that djb2 and fnv1a produce different results
+let d = djb2("collision test");
+let f = fnv1a("collision test");
+assert(d != f, "djb2 and fnv1a should produce different hashes");
+
+// ========== MURMUR3 TESTS ==========
+
+// Test basic murmur3 hash (default seed = 0)
+let m1 = murmur3("hello");
+assert(typeof(m1) == "i32", "murmur3 should return i32");
+
+// Test with explicit seed
+let m2a = murmur3("test", 0);
+let m2b = murmur3("test", 42);
+assert(m2a != m2b, "murmur3 should produce different hashes with different seeds");
+
+// Test deterministic with same seed
+let m3a = murmur3("data", 123);
+let m3b = murmur3("data", 123);
+assert(m3a == m3b, "murmur3 should be deterministic with same seed");
+
+// Test empty string
+let m4 = murmur3("");
+assert(typeof(m4) == "i32", "murmur3 should handle empty string");
+
+// Test different inputs
+let m5a = murmur3("hello");
+let m5b = murmur3("world");
+assert(m5a != m5b, "murmur3 should produce different hashes for different inputs");
+
+// Test UTF-8 strings
+let m6 = murmur3("Hello 世界");
+assert(typeof(m6) == "i32", "murmur3 should handle UTF-8");
+
+// Test longer strings (multiple 4-byte chunks)
+let m7 = murmur3("The quick brown fox jumps over the lazy dog");
+assert(typeof(m7) == "i32", "murmur3 should handle long strings");
+
+// Test strings of various lengths (to test remainder processing)
+let m8a = murmur3("a");      // 1 byte
+let m8b = murmur3("ab");     // 2 bytes
+let m8c = murmur3("abc");    // 3 bytes
+let m8d = murmur3("abcd");   // 4 bytes (exactly one chunk)
+let m8e = murmur3("abcde");  // 5 bytes (one chunk + 1 byte)
+assert(m8a != m8b, "murmur3 should handle 1-byte strings");
+assert(m8b != m8c, "murmur3 should handle 2-byte strings");
+assert(m8c != m8d, "murmur3 should handle 3-byte strings");
+assert(m8d != m8e, "murmur3 should handle 5-byte strings");
+
+// Test that all three algorithms produce different results
+let input = "hash comparison test";
+let djb2_hash = djb2(input);
+let fnv1a_hash = fnv1a(input);
+let murmur3_hash = murmur3(input);
+assert(djb2_hash != fnv1a_hash, "djb2 and fnv1a should differ");
+assert(djb2_hash != murmur3_hash, "djb2 and murmur3 should differ");
+assert(fnv1a_hash != murmur3_hash, "fnv1a and murmur3 should differ");
+
+print("All non-crypto hash tests passed!");

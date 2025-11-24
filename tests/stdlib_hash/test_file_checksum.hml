@@ -1,0 +1,100 @@
+// Test file checksum functions
+
+import { file_checksum, file_sha256, file_sha512, file_md5, file_djb2, file_fnv1a, file_murmur3 } from "@stdlib/hash";
+import { sha256, sha512, md5, djb2, fnv1a, murmur3 } from "@stdlib/hash";
+
+// Create test files with known content
+let test_file1 = "/tmp/hash_test1.txt";
+let test_file2 = "/tmp/hash_test2.txt";
+let test_empty = "/tmp/hash_empty.txt";
+
+let f1 = open(test_file1, "w");
+f1.write("hello world");
+f1.close();
+
+let f2 = open(test_file2, "w");
+f2.write("The quick brown fox jumps over the lazy dog");
+f2.close();
+
+let f3 = open(test_empty, "w");
+f3.close();
+
+// ========== GENERIC file_checksum() TESTS ==========
+
+// Test with SHA-256
+let checksum1 = file_checksum(test_file1, sha256);
+assert(typeof(checksum1) == "string", "file_checksum should return string for sha256");
+assert(checksum1.length == 64, "file_checksum with sha256 should return 64-char hex");
+
+// Test with MD5
+let checksum2 = file_checksum(test_file1, md5);
+assert(typeof(checksum2) == "string", "file_checksum should return string for md5");
+assert(checksum2.length == 32, "file_checksum with md5 should return 32-char hex");
+
+// Test with non-crypto hash (returns string representation of integer)
+let checksum3 = file_checksum(test_file1, djb2);
+assert(typeof(checksum3) == "string", "file_checksum should return string for djb2");
+
+// ========== CONVENIENCE FUNCTION TESTS ==========
+
+// Test file_sha256
+let hash1 = file_sha256(test_file1);
+let direct1 = sha256("hello world");
+assert(hash1 == direct1, "file_sha256 should match direct sha256 of content");
+
+// Test file_sha512
+let hash2 = file_sha512(test_file1);
+let direct2 = sha512("hello world");
+assert(hash2 == direct2, "file_sha512 should match direct sha512 of content");
+
+// Test file_md5
+let hash3 = file_md5(test_file1);
+let direct3 = md5("hello world");
+assert(hash3 == direct3, "file_md5 should match direct md5 of content");
+
+// Test file_djb2
+let hash4 = file_djb2(test_file1);
+let direct4 = djb2("hello world");
+assert(hash4 == typeof(direct4), "file_djb2 should match direct djb2 of content");
+
+// Test file_fnv1a
+let hash5 = file_fnv1a(test_file1);
+let direct5 = fnv1a("hello world");
+assert(hash5 == typeof(direct5), "file_fnv1a should match direct fnv1a of content");
+
+// Test file_murmur3
+let hash6 = file_murmur3(test_file1);
+let direct6 = murmur3("hello world");
+assert(hash6 == typeof(direct6), "file_murmur3 should match direct murmur3 of content");
+
+// ========== DIFFERENT FILE CONTENT TESTS ==========
+
+// Test that different files produce different checksums
+let hash_f1 = file_sha256(test_file1);
+let hash_f2 = file_sha256(test_file2);
+assert(hash_f1 != hash_f2, "Different files should have different checksums");
+
+// Test known SHA-256 of pangram
+let pangram_hash = file_sha256(test_file2);
+assert(pangram_hash == "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
+       "SHA-256 of pangram file should match known value");
+
+// ========== EMPTY FILE TESTS ==========
+
+// Test empty file checksums
+let empty_sha256 = file_sha256(test_empty);
+assert(empty_sha256 == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "SHA-256 of empty file should match known value");
+
+let empty_md5 = file_md5(test_empty);
+assert(empty_md5 == "d41d8cd98f00b204e9800998ecf8427e",
+       "MD5 of empty file should match known value");
+
+// ========== CLEANUP ==========
+
+// Remove test files
+let exec_result1 = exec("rm -f " + test_file1);
+let exec_result2 = exec("rm -f " + test_file2);
+let exec_result3 = exec("rm -f " + test_empty);
+
+print("All file checksum tests passed!");

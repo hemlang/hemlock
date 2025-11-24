@@ -1,0 +1,117 @@
+// Test cryptographic hash functions
+
+import { sha256, sha512, md5 } from "@stdlib/hash";
+
+// ========== SHA-256 TESTS ==========
+
+// Test basic sha256
+let s1 = sha256("hello");
+assert(typeof(s1) == "string", "sha256 should return string");
+assert(s1.length == 64, "sha256 should return 64-character hex string (32 bytes)");
+
+// Test empty string (known SHA-256 hash)
+let s2 = sha256("");
+assert(s2 == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "sha256 of empty string should match known value");
+
+// Test "hello" (known SHA-256 hash)
+let s3 = sha256("hello");
+assert(s3 == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+       "sha256 of 'hello' should match known value");
+
+// Test deterministic
+let s4a = sha256("test");
+let s4b = sha256("test");
+assert(s4a == s4b, "sha256 should be deterministic");
+
+// Test different inputs produce different hashes
+let s5a = sha256("hello");
+let s5b = sha256("world");
+assert(s5a != s5b, "sha256 should produce different hashes for different inputs");
+
+// Test UTF-8 strings
+let s6 = sha256("Hello 🌍");
+assert(s6.length == 64, "sha256 should handle UTF-8");
+
+// Test longer strings
+let s7 = sha256("The quick brown fox jumps over the lazy dog");
+assert(s7 == "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
+       "sha256 of pangram should match known value");
+
+// ========== SHA-512 TESTS ==========
+
+// Test basic sha512
+let h1 = sha512("hello");
+assert(typeof(h1) == "string", "sha512 should return string");
+assert(h1.length == 128, "sha512 should return 128-character hex string (64 bytes)");
+
+// Test empty string (known SHA-512 hash)
+let h2 = sha512("");
+assert(h2 == "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+       "sha512 of empty string should match known value");
+
+// Test deterministic
+let h3a = sha512("test");
+let h3b = sha512("test");
+assert(h3a == h3b, "sha512 should be deterministic");
+
+// Test different inputs
+let h4a = sha512("hello");
+let h4b = sha512("world");
+assert(h4a != h4b, "sha512 should produce different hashes for different inputs");
+
+// Test UTF-8 strings
+let h5 = sha512("Hello 🚀");
+assert(h5.length == 128, "sha512 should handle UTF-8");
+
+// ========== MD5 TESTS ==========
+
+// Test basic md5
+let m1 = md5("hello");
+assert(typeof(m1) == "string", "md5 should return string");
+assert(m1.length == 32, "md5 should return 32-character hex string (16 bytes)");
+
+// Test empty string (known MD5 hash)
+let m2 = md5("");
+assert(m2 == "d41d8cd98f00b204e9800998ecf8427e",
+       "md5 of empty string should match known value");
+
+// Test "hello" (known MD5 hash)
+let m3 = md5("hello");
+assert(m3 == "5d41402abc4b2a76b9719d911017c592",
+       "md5 of 'hello' should match known value");
+
+// Test deterministic
+let m4a = md5("test");
+let m4b = md5("test");
+assert(m4a == m4b, "md5 should be deterministic");
+
+// Test different inputs
+let m5a = md5("hello");
+let m5b = md5("world");
+assert(m5a != m5b, "md5 should produce different hashes for different inputs");
+
+// Test UTF-8 strings
+let m6 = md5("Hello 世界");
+assert(m6.length == 32, "md5 should handle UTF-8");
+
+// Test longer strings
+let m7 = md5("The quick brown fox jumps over the lazy dog");
+assert(m7 == "9e107d9d372bb6826bd81d3542a419d6",
+       "md5 of pangram should match known value");
+
+// ========== CROSS-ALGORITHM TESTS ==========
+
+// Test that all three algorithms produce different results
+let input = "hash comparison test";
+let sha256_hash = sha256(input);
+let sha512_hash = sha512(input);
+let md5_hash = md5(input);
+
+assert(sha256_hash != md5_hash, "sha256 and md5 should differ (different lengths)");
+assert(sha512_hash != md5_hash, "sha512 and md5 should differ (different lengths)");
+assert(sha256_hash.length == 64, "sha256 output length check");
+assert(sha512_hash.length == 128, "sha512 output length check");
+assert(md5_hash.length == 32, "md5 output length check");
+
+print("All crypto hash tests passed!");
