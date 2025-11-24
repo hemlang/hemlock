@@ -388,10 +388,15 @@ if (r.exit_code == 0) {
 
 On Ubuntu/Debian:
 ```bash
-sudo apt-get install libffi-dev
+sudo apt-get install libffi-dev libssl-dev libwebsockets-dev
 ```
 
-On other Linux distributions, install the equivalent `libffi` development package.
+**Required libraries:**
+- `libffi-dev` - Foreign Function Interface for FFI support
+- `libssl-dev` - OpenSSL for cryptographic hash functions (md5, sha1, sha256)
+- `libwebsockets-dev` - WebSocket and HTTP client/server support
+
+On other Linux distributions, install the equivalent development packages.
 
 ### Compile
 

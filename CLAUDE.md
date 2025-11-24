@@ -3448,6 +3448,32 @@ hemlock/
 - Keep runtime library for dynamic features
 - Optional `--no-tags` flag for fully static builds
 
+### External Dependencies
+
+Hemlock uses **static linking** for external C libraries to ensure reliability and simplify deployment:
+
+**Required dependencies (statically linked):**
+- **libm** - Math functions (sin, cos, sqrt, etc.)
+- **libpthread** - Threading for async/await
+- **libffi** - Foreign function interface for FFI support
+- **libdl** - Dynamic loading for FFI libraries
+- **libcrypto (OpenSSL)** - Cryptographic hash functions (md5, sha1, sha256)
+- **libwebsockets** - HTTP and WebSocket networking
+
+**Installation on Ubuntu/Debian:**
+```bash
+sudo apt-get install libssl-dev libwebsockets-dev libffi-dev
+```
+
+**Static vs Dynamic Linking:**
+- ✅ **Prefer static linking** - Libraries are linked directly into the Hemlock binary at compile time
+- ✅ **Simpler deployment** - No separate .so files to manage
+- ✅ **Earlier error detection** - Link-time errors vs runtime failures
+- ✅ **Consistent behavior** - Same library version guaranteed across systems
+- ❌ **Avoid dynamic loading** - Only use dlopen() for user FFI libraries, not core dependencies
+
+**Historical note:** Earlier versions used dynamic loading (dlopen) for libwebsockets and OpenSSL, but this was changed to static linking in v0.1 for better reliability.
+
 ---
 
 ## Testing Philosophy

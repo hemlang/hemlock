@@ -160,4 +160,27 @@ void socket_free(SocketHandle *sock);
 Value get_socket_property(SocketHandle *sock, const char *property, ExecutionContext *ctx);
 Value call_socket_method(SocketHandle *sock, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 
+// libwebsockets builtins (websockets.c)
+// HTTP builtins
+Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx);
+// WebSocket builtins
+Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx);
+// WebSocket server builtins
+Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H

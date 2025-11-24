@@ -112,6 +112,28 @@ static BuiltinInfo builtins[] = {
     {"__cwd", builtin_cwd},
     {"__chdir", builtin_chdir},
     {"__absolute_path", builtin_absolute_path},
+    // libwebsockets builtins (use stdlib/http.hml and stdlib/websocket.hml modules for public API)
+    // HTTP builtins
+    {"__lws_http_get", builtin_lws_http_get},
+    {"__lws_http_post", builtin_lws_http_post},
+    {"__lws_response_status", builtin_lws_response_status},
+    {"__lws_response_body", builtin_lws_response_body},
+    {"__lws_response_headers", builtin_lws_response_headers},
+    {"__lws_response_free", builtin_lws_response_free},
+    // WebSocket builtins
+    {"__lws_ws_connect", builtin_lws_ws_connect},
+    {"__lws_ws_send_text", builtin_lws_ws_send_text},
+    {"__lws_ws_recv", builtin_lws_ws_recv},
+    {"__lws_msg_type", builtin_lws_msg_type},
+    {"__lws_msg_text", builtin_lws_msg_text},
+    {"__lws_msg_len", builtin_lws_msg_len},
+    {"__lws_msg_free", builtin_lws_msg_free},
+    {"__lws_ws_close", builtin_lws_ws_close},
+    {"__lws_ws_is_closed", builtin_lws_ws_is_closed},
+    // WebSocket server builtins
+    {"__lws_ws_server_create", builtin_lws_ws_server_create},
+    {"__lws_ws_server_accept", builtin_lws_ws_server_accept},
+    {"__lws_ws_server_close", builtin_lws_ws_server_close},
     {NULL, NULL}  // Sentinel
 };
 

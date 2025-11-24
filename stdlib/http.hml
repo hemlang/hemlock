@@ -1,17 +1,9 @@
-// @stdlib/http - HTTP client using libwebsockets FFI
+// @stdlib/http - HTTP client using libwebsockets (statically linked)
 // Production-ready HTTP/HTTPS client
-// Requires: libwebsockets-dev package and compiled lws_wrapper.so (make stdlib)
+// Requires: libwebsockets-dev package (sudo apt-get install libwebsockets-dev)
 
-import "stdlib/c/lws_wrapper.so";
-
-// ========== FFI DECLARATIONS ==========
-
-extern fn lws_http_get(url: string): ptr;
-extern fn lws_http_post(url: string, body: string, content_type: string): ptr;
-extern fn lws_http_response_free(response: ptr): void;
-extern fn lws_response_status(response: ptr): i32;
-extern fn lws_response_body(response: ptr): string;
-extern fn lws_response_headers(response: ptr): string;
+// Note: libwebsockets functions are now built into hemlock as __lws_* builtins
+// No FFI import needed - functions are available directly
 
 // ========== HTTP CLIENT IMPLEMENTATION ==========
 
@@ -19,7 +11,7 @@ fn http_request(method, url, body, headers) {
     let resp_ptr: ptr = null;
 
     if (method == "GET") {
-        resp_ptr = lws_http_get(url);
+        resp_ptr = __lws_http_get(url);
     } else if (method == "POST") {
         let content_type = "application/x-www-form-urlencoded";
 
@@ -34,7 +26,7 @@ fn http_request(method, url, body, headers) {
             }
         }
 
-        resp_ptr = lws_http_post(url, body, content_type);
+        resp_ptr = __lws_http_post(url, body, content_type);
     } else {
         throw "HTTP method not supported: " + method;
     }
@@ -44,12 +36,12 @@ fn http_request(method, url, body, headers) {
     }
 
     // Extract response data
-    let status = lws_response_status(resp_ptr);
-    let response_body = lws_response_body(resp_ptr);
-    let response_headers = lws_response_headers(resp_ptr);
+    let status = __lws_response_status(resp_ptr);
+    let response_body = __lws_response_body(resp_ptr);
+    let response_headers = __lws_response_headers(resp_ptr);
 
     // Free C response structure
-    lws_http_response_free(resp_ptr);
+    __lws_response_free(resp_ptr);
 
     return {
         status_code: status,
