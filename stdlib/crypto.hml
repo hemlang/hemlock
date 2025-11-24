@@ -98,12 +98,12 @@ extern fn EVP_DecryptUpdate(ctx: ptr, out: ptr, outl: ptr, input: ptr, inl: i32)
 extern fn EVP_DecryptFinal_ex(ctx: ptr, out: ptr, outl: ptr): i32;
 
 // Generate a 256-bit (32 byte) AES key
-export fn generate_aes_key(): buffer {
+export fn generate_aes_key() {
     return random_bytes(32);
 }
 
 // Generate a 128-bit (16 byte) initialization vector (IV)
-export fn generate_iv(): buffer {
+export fn generate_iv() {
     return random_bytes(16);
 }
 
@@ -177,6 +177,7 @@ fn string_to_bytes(s) {
 
 // Helper: Convert buffer to string
 fn bytes_to_string(buf, len) {
+    print("[DEBUG] bytes_to_string called with len=" + typeof(len));
     let result = "";
     let i = 0;
     while (i < len) {
@@ -185,6 +186,7 @@ fn bytes_to_string(buf, len) {
         result = result + r;
         i = i + 1;
     }
+    print("[DEBUG] bytes_to_string returning type: " + typeof(result));
     return result;
 }
 
@@ -340,7 +342,16 @@ export fn aes_decrypt(ciphertext, key, iv) {
         output_buf[i2] = byte_val;
         i2 = i2 + 1;
     }
-    let output = bytes_to_string(output_buf, total_len);
+
+    // Convert buffer to string
+    let result_string = "";
+    let i3 = 0;
+    while (i3 < total_len) {
+        let b = output_buf[i3];
+        let r: rune = b;
+        result_string = result_string + r;
+        i3 = i3 + 1;
+    }
 
     // Cleanup
     free(plaintext);
@@ -348,7 +359,7 @@ export fn aes_decrypt(ciphertext, key, iv) {
     free(final_len_ptr);
     EVP_CIPHER_CTX_free(ctx);
 
-    return output;
+    return result_string;
 }
 
 // ============================================================================
