@@ -48,8 +48,11 @@ export fn random_bytes(size) {
     let output = buffer(size);
     let i = 0;
     while (i < size) {
-        let byte_ptr = buf + i;
-        let byte_val = __read_u8(byte_ptr);
+        // Read byte using __read_u32 pattern (align to 4-byte boundary)
+        let word_ptr = buf + (i & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
         output[i] = byte_val;
         i = i + 1;
     }
@@ -104,7 +107,49 @@ export fn generate_iv(): buffer {
     return random_bytes(16);
 }
 
-// Helper: Convert string to byte buffer
+// Helper: Convert buffer to raw pointer (allocates new memory, caller must free)
+fn buffer_to_ptr(buf) {
+    let len = buf.length;
+    let p = alloc(len);
+    let i = 0;
+    while (i < len) {
+        let byte_val = buf[i];
+        let dest = p + i;
+        memset(dest, byte_val, 1);
+        i = i + 1;
+    }
+    return p;
+}
+
+// Helper: Convert string to raw byte pointer (caller must free)
+fn string_to_bytes_ptr(s) {
+    let bytes = s.bytes();
+    let len = bytes.length;
+
+    // Handle empty string
+    if (len == 0) {
+        len = 1;  // OpenSSL needs at least 1 byte buffer
+    }
+
+    let p = alloc(len);
+    let i = 0;
+    while (i < bytes.length) {
+        let byte_val: u8 = bytes[i];
+        // Write byte to memory
+        let dest = p + i;
+        memset(dest, byte_val, 1);
+        i = i + 1;
+    }
+
+    // Pad with zero if we allocated extra
+    if (bytes.length == 0) {
+        memset(p, 0, 1);
+    }
+
+    return p;
+}
+
+// Helper: Convert string to byte buffer (for compatibility)
 fn string_to_bytes(s) {
     let bytes = s.bytes();
     let len = bytes.length;
@@ -149,14 +194,8 @@ fn bytes_to_string(buf, len) {
 // iv: 128-bit (16 byte) initialization vector
 // Returns: encrypted buffer (includes PKCS#7 padding)
 export fn aes_encrypt(plaintext, key, iv) {
-    // Type validation removed due to typeof() issues with function parameters
-    // Users should ensure correct types are passed
-    if (key.length != 32) {
-        throw "aes_encrypt() requires 32-byte (256-bit) key";
-    }
-    if (iv.length != 16) {
-        throw "aes_encrypt() requires 16-byte (128-bit) iv";
-    }
+    // NOTE: Buffers can be passed directly to extern functions expecting ptr
+    // Hemlock handles the conversion automatically
 
     // Convert plaintext to bytes
     let plaintext_bytes = string_to_bytes(plaintext);
@@ -168,7 +207,7 @@ export fn aes_encrypt(plaintext, key, iv) {
         throw "Failed to create cipher context";
     }
 
-    // Initialize encryption
+    // Initialize encryption - pass buffers directly
     let cipher = EVP_aes_256_cbc();
     let result = EVP_EncryptInit_ex(ctx, cipher, null, key, iv);
     if (result != 1) {
@@ -181,7 +220,7 @@ export fn aes_encrypt(plaintext, key, iv) {
     let ciphertext = alloc(max_output_len);
     let outlen_ptr = alloc(4);  // int* for output length
 
-    // Encrypt
+    // Encrypt - pass buffer directly
     result = EVP_EncryptUpdate(ctx, ciphertext, outlen_ptr, plaintext_bytes, plaintext_len);
     if (result != 1) {
         free(ciphertext);
@@ -190,7 +229,8 @@ export fn aes_encrypt(plaintext, key, iv) {
         throw "EVP_EncryptUpdate() failed";
     }
 
-    let ciphertext_len = __read_i32(outlen_ptr);
+    // Read i32 using __read_u32 (values fit in i32 range)
+    let ciphertext_len = __read_u32(outlen_ptr);
 
     // Finalize encryption (adds padding)
     let final_ptr = ciphertext + ciphertext_len;
@@ -204,15 +244,19 @@ export fn aes_encrypt(plaintext, key, iv) {
         throw "EVP_EncryptFinal_ex() failed";
     }
 
-    let final_len = __read_i32(final_len_ptr);
+    // Read i32 using __read_u32
+    let final_len = __read_u32(final_len_ptr);
     let total_len = ciphertext_len + final_len;
 
     // Copy to buffer
     let output = buffer(total_len);
     let i = 0;
     while (i < total_len) {
-        let byte_ptr = ciphertext + i;
-        let byte_val = __read_u8(byte_ptr);
+        // Read byte using __read_u32 pattern
+        let word_ptr = ciphertext + (i & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
         output[i] = byte_val;
         i = i + 1;
     }
@@ -232,14 +276,8 @@ export fn aes_encrypt(plaintext, key, iv) {
 // iv: 128-bit (16 byte) initialization vector (same as encryption)
 // Returns: decrypted string
 export fn aes_decrypt(ciphertext, key, iv) {
-    // Type validation removed due to typeof() issues with function parameters
-    // Users should ensure correct types are passed
-    if (key.length != 32) {
-        throw "aes_decrypt() requires 32-byte (256-bit) key";
-    }
-    if (iv.length != 16) {
-        throw "aes_decrypt() requires 16-byte (128-bit) iv";
-    }
+    // NOTE: Buffers can be passed directly to extern functions expecting ptr
+    // Hemlock handles the conversion automatically
 
     let ciphertext_len = ciphertext.length;
 
@@ -249,7 +287,7 @@ export fn aes_decrypt(ciphertext, key, iv) {
         throw "Failed to create cipher context";
     }
 
-    // Initialize decryption
+    // Initialize decryption - pass buffers directly
     let cipher = EVP_aes_256_cbc();
     let result = EVP_DecryptInit_ex(ctx, cipher, null, key, iv);
     if (result != 1) {
@@ -262,7 +300,7 @@ export fn aes_decrypt(ciphertext, key, iv) {
     let plaintext = alloc(max_output_len);
     let outlen_ptr = alloc(4);
 
-    // Decrypt
+    // Decrypt - pass buffer directly
     result = EVP_DecryptUpdate(ctx, plaintext, outlen_ptr, ciphertext, ciphertext_len);
     if (result != 1) {
         free(plaintext);
@@ -271,7 +309,8 @@ export fn aes_decrypt(ciphertext, key, iv) {
         throw "EVP_DecryptUpdate() failed";
     }
 
-    let plaintext_len = __read_i32(outlen_ptr);
+    // Read i32 using __read_u32
+    let plaintext_len = __read_u32(outlen_ptr);
 
     // Finalize decryption (removes padding)
     let final_ptr = plaintext + plaintext_len;
@@ -285,15 +324,19 @@ export fn aes_decrypt(ciphertext, key, iv) {
         throw "EVP_DecryptFinal_ex() failed (possibly wrong key/iv or corrupted data)";
     }
 
-    let final_len = __read_i32(final_len_ptr);
+    // Read i32 using __read_u32
+    let final_len = __read_u32(final_len_ptr);
     let total_len = plaintext_len + final_len;
 
     // Convert to string
     let output_buf = buffer(total_len);
     let i2 = 0;
     while (i2 < total_len) {
-        let byte_ptr = plaintext + i2;
-        let byte_val = __read_u8(byte_ptr);
+        // Read byte using __read_u32 pattern
+        let word_ptr = plaintext + (i2 & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i2 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
         output_buf[i2] = byte_val;
         i2 = i2 + 1;
     }
@@ -402,7 +445,8 @@ export fn rsa_generate_key(): RSAKeyPair {
         throw "EVP_PKEY_keygen() failed";
     }
 
-    let pkey = __read_ptr(pkey_ptr);
+    // Read pointer as u64 (pointers are 64-bit on this platform)
+    let pkey = __read_u64(pkey_ptr);
     free(pkey_ptr);
     EVP_PKEY_CTX_free(ctx);
 
@@ -458,9 +502,8 @@ export fn rsa_sign(data, keypair) {
         throw "EVP_DigestSign() failed to get signature length";
     }
 
-    // Read signature length as i64
-    let siglen_i64 = __read_i64(siglen_ptr);
-    let siglen: i32 = siglen_i64;  // Convert to i32
+    // Read signature length as u64 (size_t is 64-bit)
+    let siglen = __read_u64(siglen_ptr);
 
     // Allocate signature buffer
     let sig = alloc(siglen);
@@ -478,8 +521,11 @@ export fn rsa_sign(data, keypair) {
     let output = buffer(siglen);
     let i3 = 0;
     while (i3 < siglen) {
-        let byte_ptr = sig + i3;
-        let byte_val = __read_u8(byte_ptr);
+        // Read byte using __read_u32 pattern
+        let word_ptr = sig + (i3 & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i3 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
         output[i3] = byte_val;
         i3 = i3 + 1;
     }
@@ -577,7 +623,8 @@ export fn ecdsa_generate_key(): ECDSAKeyPair {
         throw "EVP_PKEY_keygen() failed";
     }
 
-    let pkey = __read_ptr(pkey_ptr);
+    // Read pointer as u64 (pointers are 64-bit on this platform)
+    let pkey = __read_u64(pkey_ptr);
     free(pkey_ptr);
     EVP_PKEY_CTX_free(ctx);
 
@@ -631,9 +678,8 @@ export fn ecdsa_sign(data, keypair) {
         throw "EVP_DigestSign() failed to get signature length";
     }
 
-    // Read signature length as i64
-    let siglen_i64 = __read_i64(siglen_ptr);
-    let siglen: i32 = siglen_i64;
+    // Read signature length as u64 (size_t is 64-bit)
+    let siglen = __read_u64(siglen_ptr);
 
     // Allocate signature buffer
     let sig = alloc(siglen);
@@ -651,8 +697,11 @@ export fn ecdsa_sign(data, keypair) {
     let output = buffer(siglen);
     let i4 = 0;
     while (i4 < siglen) {
-        let byte_ptr = sig + i4;
-        let byte_val = __read_u8(byte_ptr);
+        // Read byte using __read_u32 pattern
+        let word_ptr = sig + (i4 & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i4 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
         output[i4] = byte_val;
         i4 = i4 + 1;
     }
