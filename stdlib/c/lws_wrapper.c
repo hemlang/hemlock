@@ -373,6 +373,7 @@ typedef struct {
     pthread_t service_thread;
     volatile int shutdown;
     int has_own_thread;  // 1 if this connection started its own service thread
+    int owns_memory;     // 1 if we allocated this struct and should free it
 } ws_connection_t;
 
 // Service thread function - runs continuously to service the event loop
@@ -551,6 +552,7 @@ ws_connection_t* lws_ws_connect(const char *url) {
 
     conn = calloc(1, sizeof(ws_connection_t));
     if (!conn) return NULL;
+    conn->owns_memory = 1;  // Client connections own their memory
 
     // Create context
     memset(&info, 0, sizeof(info));
@@ -608,6 +610,7 @@ ws_connection_t* lws_ws_connect(const char *url) {
     // Start service thread
     conn->shutdown = 0;
     conn->has_own_thread = 1;
+    conn->owns_memory = 1;
     if (pthread_create(&conn->service_thread, NULL, ws_service_thread, conn) != 0) {
         fprintf(stderr, "Failed to create service thread\n");
         lws_context_destroy(conn->context);
@@ -732,6 +735,9 @@ void lws_msg_free(ws_message_t *msg) {
 // WebSocket close
 void lws_ws_close(ws_connection_t *conn) {
     if (conn) {
+        // Mark as closed
+        conn->closed = 1;
+
         // Signal service thread to stop (if it has one)
         conn->shutdown = 1;
 
@@ -748,7 +754,10 @@ void lws_ws_close(ws_connection_t *conn) {
             msg = next;
         }
 
-        if (conn->send_buffer) free(conn->send_buffer);
+        if (conn->send_buffer) {
+            free(conn->send_buffer);
+            conn->send_buffer = NULL;
+        }
 
         // Only destroy context if this connection owns it (has its own thread)
         // Server-side connections share the server's context
@@ -756,7 +765,11 @@ void lws_ws_close(ws_connection_t *conn) {
             lws_context_destroy(conn->context);
         }
 
-        free(conn);
+        // Only free the struct if we allocated it
+        // Server-side connections are allocated by libwebsockets
+        if (conn->owns_memory) {
+            free(conn);
+        }
     }
 }
 
@@ -775,6 +788,7 @@ typedef struct ws_server {
     int closed;
     pthread_t service_thread;
     volatile int shutdown;
+    pthread_mutex_t pending_mutex;  // Protect pending_wsi and pending_conn
 } ws_server_t;
 
 // Service thread function for server - runs continuously to service the event loop
@@ -798,17 +812,22 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
     switch (reason) {
         case LWS_CALLBACK_ESTABLISHED:
             fprintf(stderr, "WebSocket server connection established\n");
-            // Store the wsi AND conn for accept() to pick up
-            if (server && !server->pending_wsi) {
-                server->pending_wsi = wsi;
-                server->pending_conn = conn;  // Store the actual conn struct
-            }
             // Initialize connection state
             if (conn) {
                 conn->wsi = wsi;
                 conn->context = lws_get_context(wsi);
                 conn->shutdown = 0;
                 conn->has_own_thread = 0;  // Server's thread handles this
+                conn->owns_memory = 0;     // libwebsockets allocated this
+            }
+            // Store the wsi AND conn for accept() to pick up
+            if (server) {
+                pthread_mutex_lock(&server->pending_mutex);
+                if (!server->pending_wsi) {
+                    server->pending_wsi = wsi;
+                    server->pending_conn = conn;  // Store the actual conn struct
+                }
+                pthread_mutex_unlock(&server->pending_mutex);
             }
             break;
 
@@ -879,6 +898,7 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     if (!server) return NULL;
 
     server->port = port;
+    pthread_mutex_init(&server->pending_mutex, NULL);
 
     // Create context
     memset(&info, 0, sizeof(info));
@@ -919,13 +939,18 @@ ws_connection_t* lws_ws_server_accept(ws_server_t *server, int timeout_ms) {
 
     while (iterations != 0) {
         // Check for pending connection (service thread handles the event loop)
+        pthread_mutex_lock(&server->pending_mutex);
+        ws_connection_t *conn = NULL;
         if (server->pending_wsi) {
             // Return the connection struct that was created by libwebsockets
             // and initialized in the ESTABLISHED callback
-            ws_connection_t *conn = server->pending_conn;
+            conn = server->pending_conn;
             server->pending_wsi = NULL;
             server->pending_conn = NULL;
+        }
+        pthread_mutex_unlock(&server->pending_mutex);
 
+        if (conn) {
             return conn;
         }
 
@@ -948,6 +973,9 @@ void lws_ws_server_close(ws_server_t *server) {
 
         // Wait for service thread to finish
         pthread_join(server->service_thread, NULL);
+
+        // Destroy mutex
+        pthread_mutex_destroy(&server->pending_mutex);
 
         if (server->context) {
             lws_context_destroy(server->context);
