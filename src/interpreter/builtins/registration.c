@@ -58,11 +58,15 @@ static BuiltinInfo builtins[] = {
     {"__rand", builtin_rand},
     {"__rand_range", builtin_rand_range},
     {"__seed", builtin_seed},
-    // Time functions (use stdlib/time.hml module for public API)
+    // Time functions (use stdlib/time.hml and stdlib/datetime.hml modules for public API)
     {"__now", builtin_now},
     {"__time_ms", builtin_time_ms},
     {"__sleep", builtin_sleep},
     {"__clock", builtin_clock},
+    {"__localtime", builtin_localtime},
+    {"__gmtime", builtin_gmtime},
+    {"__mktime", builtin_mktime},
+    {"__strftime", builtin_strftime},
     // Environment functions (use stdlib/env.hml and stdlib/process.hml modules for public API)
     {"__getenv", builtin_getenv},
     {"__setenv", builtin_setenv},

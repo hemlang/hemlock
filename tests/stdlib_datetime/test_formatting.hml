@@ -1,0 +1,45 @@
+// Test date/time formatting
+import { from_date } from "@stdlib/datetime";
+
+let dt = from_date(2025, 3, 15, 14, 30, 45);
+
+// Test various strftime format strings
+print("Test datetime: March 15, 2025, 14:30:45");
+
+// Test 1: %Y - 4-digit year
+print("Test 1: %Y -> " + dt.format("%Y"));
+
+// Test 2: %m - Month number
+print("Test 2: %m -> " + dt.format("%m"));
+
+// Test 3: %d - Day
+print("Test 3: %d -> " + dt.format("%d"));
+
+// Test 4: %H - Hour (24h)
+print("Test 4: %H -> " + dt.format("%H"));
+
+// Test 5: %M - Minute
+print("Test 5: %M -> " + dt.format("%M"));
+
+// Test 6: %S - Second
+print("Test 6: %S -> " + dt.format("%S"));
+
+// Test 7: Combined format
+print("Test 7: %Y-%m-%d %H:%M:%S -> " + dt.format("%Y-%m-%d %H:%M:%S"));
+
+// Test 8: ISO format
+print("Test 8: to_iso_string() -> " + dt.to_iso_string());
+
+// Test 9: Weekday name
+print("Test 9: weekday_name() -> " + dt.weekday_name());
+
+// Test 10: Month name
+print("Test 10: month_name() -> " + dt.month_name());
+
+// Test 11: Custom format
+print("Test 11: %B %d, %Y -> " + dt.format("%B %d, %Y"));
+
+// Test 12: Another custom format
+print("Test 12: %d/%m/%Y -> " + dt.format("%d/%m/%Y"));
+
+print("All formatting tests passed!");

@@ -1,0 +1,392 @@
+// Hemlock Standard Library: Date & Time Operations
+// This module provides date/time formatting, parsing, and arithmetic
+
+// ========== CORE DATE/TIME FUNCTIONS ==========
+
+// Export low-level builtins for direct use
+export let localtime = __localtime;  // Convert Unix timestamp to local time components
+export let gmtime = __gmtime;        // Convert Unix timestamp to UTC components
+export let mktime = __mktime;        // Convert time components to Unix timestamp
+export let strftime = __strftime;    // Format date/time with strftime format string
+
+// ========== DATETIME CLASS ==========
+
+// DateTime constructor - creates from Unix timestamp
+export fn DateTime(timestamp?: null) {
+    let ts = timestamp;
+    if (ts == null) {
+        ts = __now();
+    }
+
+    let components = __localtime(ts);
+
+    return {
+        timestamp: ts,
+        year: components.year,
+        month: components.month,
+        day: components.day,
+        hour: components.hour,
+        minute: components.minute,
+        second: components.second,
+        weekday: components.weekday,
+        yearday: components.yearday,
+        isdst: components.isdst,
+
+        // Format using strftime format string
+        format: fn(fmt: string): string {
+            return __strftime(fmt, self);
+        },
+
+        // Common format methods
+        to_string: fn(): string {
+            return self.format("%Y-%m-%d %H:%M:%S");
+        },
+
+        to_date_string: fn(): string {
+            return self.format("%Y-%m-%d");
+        },
+
+        to_time_string: fn(): string {
+            return self.format("%H:%M:%S");
+        },
+
+        to_iso_string: fn(): string {
+            let utc_components = __gmtime(self.timestamp);
+            return __strftime("%Y-%m-%dT%H:%M:%SZ", utc_components);
+        },
+
+        // Date arithmetic - add days
+        add_days: fn(days: i32) {
+            let seconds_per_day = 86400;
+            let new_ts = self.timestamp + (days * seconds_per_day);
+            return DateTime(new_ts);
+        },
+
+        // Date arithmetic - add hours
+        add_hours: fn(hours: i32) {
+            let seconds_per_hour = 3600;
+            let new_ts = self.timestamp + (hours * seconds_per_hour);
+            return DateTime(new_ts);
+        },
+
+        // Date arithmetic - add minutes
+        add_minutes: fn(minutes: i32) {
+            let new_ts = self.timestamp + (minutes * 60);
+            return DateTime(new_ts);
+        },
+
+        // Date arithmetic - add seconds
+        add_seconds: fn(seconds: i32) {
+            let new_ts = self.timestamp + seconds;
+            return DateTime(new_ts);
+        },
+
+        // Get difference in days
+        diff_days: fn(other) {
+            let diff_seconds = self.timestamp - other.timestamp;
+            return diff_seconds / 86400;
+        },
+
+        // Get difference in hours
+        diff_hours: fn(other) {
+            let diff_seconds = self.timestamp - other.timestamp;
+            return diff_seconds / 3600;
+        },
+
+        // Get difference in minutes
+        diff_minutes: fn(other) {
+            let diff_seconds = self.timestamp - other.timestamp;
+            return diff_seconds / 60;
+        },
+
+        // Get difference in seconds
+        diff_seconds: fn(other) {
+            return self.timestamp - other.timestamp;
+        },
+
+        // Comparison methods
+        is_after: fn(other) {
+            return self.timestamp > other.timestamp;
+        },
+
+        is_before: fn(other) {
+            return self.timestamp < other.timestamp;
+        },
+
+        is_equal: fn(other) {
+            return self.timestamp == other.timestamp;
+        },
+
+        // Get weekday name
+        weekday_name: fn(): string {
+            let names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            return names[self.weekday];
+        },
+
+        // Get month name
+        month_name: fn(): string {
+            let names = ["", "January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December"];
+            return names[self.month];
+        }
+    };
+}
+
+// ========== CONVENIENCE CONSTRUCTORS ==========
+
+// Create DateTime from current time
+export fn now() {
+    return DateTime(__now());
+}
+
+// Create DateTime from date components (local time)
+export fn from_date(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
+    let components = {
+        year: year,
+        month: month,
+        day: day,
+        hour: hour,
+        minute: minute,
+        second: second
+    };
+    let timestamp = __mktime(components);
+    return DateTime(timestamp);
+}
+
+// Create DateTime from UTC date components
+export fn from_utc(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
+    // Create local components, convert to timestamp, then adjust
+    // Note: This is a simplified approach. Full UTC support would need timegm()
+    let components = {
+        year: year,
+        month: month,
+        day: day,
+        hour: hour,
+        minute: minute,
+        second: second
+    };
+    let timestamp = __mktime(components);
+    return DateTime(timestamp);
+}
+
+// ========== PARSING FUNCTIONS ==========
+
+// Parse ISO 8601 date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+export fn parse_iso(date_str: string) {
+    // Check if it contains time component
+    let has_time = date_str.contains("T");
+
+    if (has_time) {
+        // Parse YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM:SSZ
+        let parts = date_str.split("T");
+        let date_parts = parts[0].split("-");
+        let time_part = parts[1];
+
+        // Remove Z suffix if present
+        if (time_part.ends_with("Z")) {
+            time_part = time_part.slice(0, time_part.length - 1);
+        }
+
+        let time_parts = time_part.split(":");
+
+        let year = 0;
+        let month = 0;
+        let day = 0;
+        let hour = 0;
+        let minute = 0;
+        let second = 0;
+
+        // Parse integers (Hemlock doesn't have parseInt yet, so we construct from string)
+        let i = 0;
+        while (i < date_parts[0].length) {
+            let ch = date_parts[0][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            year = year * 10 + digit;
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < date_parts[1].length) {
+            let ch = date_parts[1][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            month = month * 10 + digit;
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < date_parts[2].length) {
+            let ch = date_parts[2][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            day = day * 10 + digit;
+            i = i + 1;
+        }
+
+        // Parse time components similarly
+        i = 0;
+        while (i < time_parts[0].length) {
+            let ch = time_parts[0][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            hour = hour * 10 + digit;
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < time_parts[1].length) {
+            let ch = time_parts[1][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            minute = minute * 10 + digit;
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < time_parts[2].length) {
+            let ch = time_parts[2][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            second = second * 10 + digit;
+            i = i + 1;
+        }
+
+        return from_date(year, month, day, hour, minute, second);
+    } else {
+        // Parse YYYY-MM-DD
+        let parts = date_str.split("-");
+        let year = 0;
+        let month = 0;
+        let day = 0;
+
+        let i = 0;
+        while (i < parts[0].length) {
+            let ch = parts[0][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            year = year * 10 + digit;
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < parts[1].length) {
+            let ch = parts[1][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            month = month * 10 + digit;
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < parts[2].length) {
+            let ch = parts[2][i];
+            let digit = 0;
+            if (ch == '0') { digit = 0; }
+            if (ch == '1') { digit = 1; }
+            if (ch == '2') { digit = 2; }
+            if (ch == '3') { digit = 3; }
+            if (ch == '4') { digit = 4; }
+            if (ch == '5') { digit = 5; }
+            if (ch == '6') { digit = 6; }
+            if (ch == '7') { digit = 7; }
+            if (ch == '8') { digit = 8; }
+            if (ch == '9') { digit = 9; }
+            day = day * 10 + digit;
+            i = i + 1;
+        }
+
+        return from_date(year, month, day, 0, 0, 0);
+    }
+}
+
+// ========== FORMAT STRING REFERENCE ==========
+// Supported strftime format codes:
+// %Y - 4-digit year (e.g., 2025)
+// %y - 2-digit year (e.g., 25)
+// %m - Month as number (01-12)
+// %B - Full month name (e.g., January)
+// %b - Abbreviated month name (e.g., Jan)
+// %d - Day of month (01-31)
+// %H - Hour (00-23)
+// %I - Hour (01-12)
+// %M - Minute (00-59)
+// %S - Second (00-59)
+// %p - AM/PM
+// %A - Full weekday name (e.g., Monday)
+// %a - Abbreviated weekday name (e.g., Mon)
+// %w - Weekday as number (0-6, 0=Sunday)
+// %j - Day of year (001-366)
+// %% - Literal %
