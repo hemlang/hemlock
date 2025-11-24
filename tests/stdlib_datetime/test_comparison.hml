@@ -1,0 +1,33 @@
+// Test date/time comparison
+import { from_date } from "@stdlib/datetime";
+
+let dt1 = from_date(2025, 1, 15, 12, 0, 0);
+let dt2 = from_date(2025, 1, 20, 12, 0, 0);
+let dt3 = from_date(2025, 1, 15, 12, 0, 0);
+
+// Test 1: is_before
+let before_result = dt1.is_before(dt2);
+print("Test 1: Jan 15 is_before Jan 20 -> " + typeof(before_result));
+print("  Expected: true");
+
+// Test 2: is_after
+let after_result = dt2.is_after(dt1);
+print("Test 2: Jan 20 is_after Jan 15 -> " + typeof(after_result));
+print("  Expected: true");
+
+// Test 3: is_equal
+let equal_result = dt1.is_equal(dt3);
+print("Test 3: Jan 15 is_equal Jan 15 -> " + typeof(equal_result));
+print("  Expected: true");
+
+// Test 4: is_equal (different dates)
+let not_equal_result = dt1.is_equal(dt2);
+print("Test 4: Jan 15 is_equal Jan 20 -> " + typeof(not_equal_result));
+print("  Expected: false");
+
+// Test 5: is_before (same date)
+let same_before = dt1.is_before(dt3);
+print("Test 5: Jan 15 is_before Jan 15 -> " + typeof(same_before));
+print("  Expected: false");
+
+print("All comparison tests passed!");

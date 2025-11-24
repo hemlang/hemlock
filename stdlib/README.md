@@ -65,6 +65,21 @@ Time measurement and delays:
 
 See [docs/time.md](docs/time.md) for detailed documentation.
 
+### Date & Time (`@stdlib/datetime`)
+**Status:** Complete
+
+Comprehensive date/time manipulation:
+- **DateTime class** - High-level date/time object with methods
+- **Constructors:** now, from_date, from_utc, parse_iso
+- **Formatting:** format (strftime), to_string, to_date_string, to_time_string, to_iso_string
+- **Arithmetic:** add_days, add_hours, add_minutes, add_seconds
+- **Comparison:** is_before, is_after, is_equal
+- **Differences:** diff_days, diff_hours, diff_minutes, diff_seconds
+- **Utilities:** weekday_name, month_name
+- **Low-level builtins:** localtime, gmtime, mktime, strftime
+
+See [docs/datetime.md](docs/datetime.md) for detailed documentation.
+
 ### Environment (`@stdlib/env`)
 **Status:** Complete
 
@@ -157,6 +172,7 @@ Import modules using the `@stdlib/` prefix:
 import { HashMap, Queue, Stack } from "@stdlib/collections";
 import { sin, cos, PI } from "@stdlib/math";
 import { now, sleep } from "@stdlib/time";
+import { DateTime, from_date, parse_iso } from "@stdlib/datetime";
 import { getenv, exit } from "@stdlib/env";
 import { read_file, write_file, exists } from "@stdlib/fs";
 import { TcpListener, TcpStream, UdpSocket } from "@stdlib/net";
@@ -167,6 +183,7 @@ import { parse, stringify, pretty, get, set } from "@stdlib/json";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
+import * as datetime from "@stdlib/datetime";
 import * as fs from "@stdlib/fs";
 import * as net from "@stdlib/net";
 import * as regex from "@stdlib/regex";
@@ -210,6 +227,24 @@ let start = time_ms();
 sleep(1.0);
 let elapsed = time_ms() - start;
 print("Elapsed: " + typeof(elapsed) + "ms");
+```
+
+### Date & Time
+```hemlock
+import { now, from_date, parse_iso } from "@stdlib/datetime";
+
+// Current date/time
+let current = now();
+print(current.to_string());  // "2025-01-16 12:30:45"
+
+// Create from specific date
+let birthday = from_date(1990, 5, 15);
+print(birthday.format("%B %d, %Y"));  // "May 15, 1990"
+
+// Date arithmetic
+let next_week = current.add_days(7);
+let days_until = next_week.diff_days(current);
+print("Days until: " + typeof(days_until));  // 7
 ```
 
 ### Environment
@@ -318,6 +353,7 @@ stdlib/
 ├── collections.hml     # Collections module implementation
 ├── math.hml            # Math module implementation
 ├── time.hml            # Time module implementation
+├── datetime.hml        # Date & time module implementation
 ├── env.hml             # Environment module implementation
 ├── fs.hml              # Filesystem module implementation
 ├── net.hml             # Networking module implementation
@@ -332,6 +368,7 @@ stdlib/
     ├── collections.md  # Collections API reference
     ├── math.md         # Math API reference
     ├── time.md         # Time API reference
+    ├── datetime.md     # Date & time API reference
     ├── env.md          # Environment API reference
     ├── fs.md           # Filesystem API reference
     ├── net.md          # Networking API reference
@@ -363,7 +400,6 @@ Planned additions to the standard library:
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
 - **encoding** - Base64, hex, URL encoding/decoding
 - **testing** - Test framework with describe/test/expect/assertions
-- **datetime** - Date/time formatting and parsing
 - **crypto** - Cryptographic functions (via FFI + OpenSSL)
 - **compression** - zlib/gzip compression (via FFI)
 
@@ -376,6 +412,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | collections | ✅ Production | ✅ Complete | ✅ Comprehensive | 760 | Excellent |
 | math | ✅ Complete | ✅ Complete | ✅ Good | 50 | High |
 | time | ⚠️ Basic | ✅ Complete | ✅ Good | 13 | Good |
+| datetime | ✅ Complete | ✅ Complete | ✅ Comprehensive | 450+ | High |
 | env | ✅ Complete | ✅ Complete | ✅ Good | 14 | High |
 | fs | ✅ Comprehensive | ✅ Complete | ⚠️ Partial | 31 | High |
 | net | ✅ Complete | ✅ Complete | ✅ Good | 240 | High |

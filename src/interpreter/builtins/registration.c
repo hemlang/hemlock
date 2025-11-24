@@ -63,6 +63,10 @@ static BuiltinInfo builtins[] = {
     {"__time_ms", builtin_time_ms},
     {"__sleep", builtin_sleep},
     {"__clock", builtin_clock},
+    {"__localtime", builtin_localtime},
+    {"__gmtime", builtin_gmtime},
+    {"__mktime", builtin_mktime},
+    {"__strftime", builtin_strftime},
     // Environment functions (use stdlib/env.hml module for public API)
     {"__getenv", builtin_getenv},
     {"__setenv", builtin_setenv},

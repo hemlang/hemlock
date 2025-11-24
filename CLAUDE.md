@@ -3000,7 +3000,56 @@ fn process_items(items: array): null {
 
 ---
 
-#### 4. **Environment** (`@stdlib/env`)
+#### 4. **Date & Time** (`@stdlib/datetime`)
+**Status:** Complete
+
+Comprehensive date/time manipulation with formatting, parsing, and arithmetic:
+- **DateTime class** - High-level date/time object
+- **Constructors:** now, from_date, from_utc, parse_iso
+- **Formatting:** format (strftime), to_string, to_date_string, to_time_string, to_iso_string
+- **Arithmetic:** add_days, add_hours, add_minutes, add_seconds
+- **Comparison:** is_before, is_after, is_equal
+- **Differences:** diff_days, diff_hours, diff_minutes, diff_seconds
+- **Utilities:** weekday_name, month_name
+- **Low-level builtins:** localtime, gmtime, mktime, strftime
+
+```hemlock
+import { now, from_date, parse_iso } from "@stdlib/datetime";
+
+// Get current date/time
+let current = now();
+print(current.to_string());  // "2025-01-16 12:30:45"
+print(current.format("%B %d, %Y"));  // "January 16, 2025"
+
+// Create from specific date
+let birthday = from_date(1990, 5, 15, 14, 30, 0);
+print(birthday.format("%B %d, %Y at %I:%M %p"));  // "May 15, 1990 at 02:30 PM"
+
+// Parse ISO date
+let meeting = parse_iso("2025-03-20T14:30:00");
+print(meeting.to_string());  // "2025-03-20 14:30:00"
+
+// Date arithmetic
+let next_week = current.add_days(7);
+let days_until = next_week.diff_days(current);
+print("Days until: " + typeof(days_until));  // 7
+
+// Comparison
+if (meeting.is_after(current)) {
+    print("Meeting is in the future");
+}
+
+// Format with strftime codes
+let formatted = current.format("%A, %B %d, %Y at %I:%M:%S %p");
+print(formatted);  // "Thursday, January 16, 2025 at 12:30:45 PM"
+```
+
+**Documentation:** `stdlib/docs/datetime.md`
+**Notes:** Building on `@stdlib/time`, uses C's strftime for formatting
+
+---
+
+#### 5. **Environment** (`@stdlib/env`)
 **Status:** Complete
 
 Environment variables and process control:
@@ -3038,7 +3087,7 @@ if (error_occurred) {
 
 ---
 
-#### 5. **Filesystem** (`@stdlib/fs`)
+#### 6. **Filesystem** (`@stdlib/fs`)
 **Status:** Comprehensive
 
 File and directory operations:
@@ -3101,7 +3150,7 @@ copy_file("important.txt", "important.txt.backup");
 
 ---
 
-#### 6. **Networking** (`@stdlib/net`)
+#### 7. **Networking** (`@stdlib/net`)
 **Status:** Complete
 
 TCP/UDP networking with ergonomic wrappers over raw socket builtins:
@@ -3145,7 +3194,7 @@ let ip = resolve("example.com");  // "93.184.216.34"
 
 ---
 
-#### 7. **Regular Expressions** (`@stdlib/regex`)
+#### 8. **Regular Expressions** (`@stdlib/regex`)
 **Status:** Basic (via FFI)
 
 POSIX Extended Regular Expression pattern matching via FFI to system regex library:
@@ -3258,14 +3307,10 @@ make test | grep stdlib_regex
 ### Future Stdlib Modules
 
 Planned additions:
-- **http** - HTTP client/server (building on @stdlib/net) - **IN PROGRESS**
-- **websocket** - WebSocket protocol (building on @stdlib/http) - **IN PROGRESS**
 - **strings** - String utilities (pad, join, is_alpha, reverse, lines, words)
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
-- **json** - Formalized JSON module (wrapper around serialize/deserialize)
 - **encoding** - Base64, hex, URL encoding/decoding
 - **testing** - Test framework with describe/test/expect/assertions
-- **datetime** - Date/time formatting and parsing
 - **crypto** - Cryptographic functions (via FFI + OpenSSL)
 - **compression** - zlib/gzip compression (via FFI)
 

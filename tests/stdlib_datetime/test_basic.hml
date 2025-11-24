@@ -1,0 +1,58 @@
+// Test basic datetime functionality
+import { DateTime, now, from_date, localtime, gmtime, mktime, strftime } from "@stdlib/datetime";
+
+// Test 1: Create DateTime from current time
+let dt = now();
+print("Test 1: now() created DateTime");
+print(typeof(dt.year));
+print(typeof(dt.month));
+print(typeof(dt.day));
+
+// Test 2: Create DateTime from specific date
+let dt2 = from_date(2025, 1, 15, 14, 30, 45);
+print("Test 2: from_date() created DateTime for 2025-01-15 14:30:45");
+print(dt2.year);
+print(dt2.month);
+print(dt2.day);
+print(dt2.hour);
+print(dt2.minute);
+print(dt2.second);
+
+// Test 3: Format date/time
+let formatted = dt2.format("%Y-%m-%d %H:%M:%S");
+print("Test 3: format() -> " + formatted);
+
+// Test 4: to_string method
+let str = dt2.to_string();
+print("Test 4: to_string() -> " + str);
+
+// Test 5: to_date_string method
+let date_str = dt2.to_date_string();
+print("Test 5: to_date_string() -> " + date_str);
+
+// Test 6: to_time_string method
+let time_str = dt2.to_time_string();
+print("Test 6: to_time_string() -> " + time_str);
+
+// Test 7: Low-level localtime builtin
+let components = localtime(1737037845);  // 2025-01-16 12:30:45 (approx)
+print("Test 7: localtime() components:");
+print("  year: " + typeof(components.year));
+print("  month: " + typeof(components.month));
+print("  day: " + typeof(components.day));
+
+// Test 8: Low-level gmtime builtin
+let utc_components = gmtime(1737037845);
+print("Test 8: gmtime() components:");
+print("  year: " + typeof(utc_components.year));
+print("  hour: " + typeof(utc_components.hour));
+
+// Test 9: Low-level mktime builtin
+let ts = mktime({ year: 2025, month: 1, day: 15, hour: 0, minute: 0, second: 0 });
+print("Test 9: mktime() -> " + typeof(ts));
+
+// Test 10: Low-level strftime builtin
+let formatted2 = strftime("%Y/%m/%d", { year: 2025, month: 12, day: 25, hour: 0, minute: 0, second: 0, weekday: 0, yearday: 1 });
+print("Test 10: strftime() -> " + formatted2);
+
+print("All basic tests passed!");

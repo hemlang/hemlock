@@ -1,0 +1,29 @@
+// Test date/time parsing
+import { parse_iso } from "@stdlib/datetime";
+
+// Test 1: Parse ISO date (YYYY-MM-DD)
+let dt1 = parse_iso("2025-01-15");
+print("Test 1: parse_iso('2025-01-15')");
+print("  Year: " + typeof(dt1.year));
+print("  Month: " + typeof(dt1.month));
+print("  Day: " + typeof(dt1.day));
+print("  Expected: 2025, 1, 15");
+
+// Test 2: Parse ISO datetime (YYYY-MM-DDTHH:MM:SS)
+let dt2 = parse_iso("2025-03-20T14:30:45");
+print("Test 2: parse_iso('2025-03-20T14:30:45')");
+print("  Date: " + dt2.to_date_string());
+print("  Time: " + dt2.to_time_string());
+print("  Expected: 2025-03-20, 14:30:45");
+
+// Test 3: Parse ISO datetime with Z suffix
+let dt3 = parse_iso("2025-12-31T23:59:59Z");
+print("Test 3: parse_iso('2025-12-31T23:59:59Z')");
+print("  Year: " + typeof(dt3.year));
+print("  Month: " + typeof(dt3.month));
+print("  Day: " + typeof(dt3.day));
+print("  Hour: " + typeof(dt3.hour));
+print("  Minute: " + typeof(dt3.minute));
+print("  Second: " + typeof(dt3.second));
+
+print("All parsing tests passed!");

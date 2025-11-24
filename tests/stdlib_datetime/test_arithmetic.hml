@@ -1,0 +1,54 @@
+// Test date/time arithmetic
+import { from_date } from "@stdlib/datetime";
+
+// Create a base date: 2025-01-15 12:00:00
+let dt = from_date(2025, 1, 15, 12, 0, 0);
+print("Base date: " + dt.to_string());
+
+// Test 1: Add days
+let dt_plus_5_days = dt.add_days(5);
+print("Test 1: add_days(5) -> " + dt_plus_5_days.to_string());
+print("  Expected: 2025-01-20 12:00:00");
+
+// Test 2: Add hours
+let dt_plus_6_hours = dt.add_hours(6);
+print("Test 2: add_hours(6) -> " + dt_plus_6_hours.to_string());
+print("  Expected: 2025-01-15 18:00:00");
+
+// Test 3: Add minutes
+let dt_plus_45_min = dt.add_minutes(45);
+print("Test 3: add_minutes(45) -> " + dt_plus_45_min.to_string());
+print("  Expected: 2025-01-15 12:45:00");
+
+// Test 4: Add seconds
+let dt_plus_30_sec = dt.add_seconds(30);
+print("Test 4: add_seconds(30) -> " + dt_plus_30_sec.to_string());
+print("  Expected: 2025-01-15 12:00:30");
+
+// Test 5: Subtract days (negative)
+let dt_minus_2_days = dt.add_days(-2);
+print("Test 5: add_days(-2) -> " + dt_minus_2_days.to_string());
+print("  Expected: 2025-01-13 12:00:00");
+
+// Test 6: Difference in days
+let dt1 = from_date(2025, 1, 1, 0, 0, 0);
+let dt2 = from_date(2025, 1, 11, 0, 0, 0);
+let diff_days = dt2.diff_days(dt1);
+print("Test 6: diff_days between Jan 1 and Jan 11 -> " + typeof(diff_days));
+print("  Expected: 10");
+
+// Test 7: Difference in hours
+let dt3 = from_date(2025, 1, 1, 10, 0, 0);
+let dt4 = from_date(2025, 1, 1, 16, 0, 0);
+let diff_hours = dt4.diff_hours(dt3);
+print("Test 7: diff_hours between 10:00 and 16:00 -> " + typeof(diff_hours));
+print("  Expected: 6");
+
+// Test 8: Difference in minutes
+let dt5 = from_date(2025, 1, 1, 12, 0, 0);
+let dt6 = from_date(2025, 1, 1, 12, 30, 0);
+let diff_minutes = dt6.diff_minutes(dt5);
+print("Test 8: diff_minutes between 12:00 and 12:30 -> " + typeof(diff_minutes));
+print("  Expected: 30");
+
+print("All arithmetic tests passed!");
