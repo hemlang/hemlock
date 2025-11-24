@@ -1,3 +1,0 @@
-print("Test 1: About to import");
-import { rsa_generate_key } from "@stdlib/crypto";
-print("Test 2: Import successful");
