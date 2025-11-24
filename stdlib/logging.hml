@@ -110,7 +110,8 @@ export fn Logger(config?: null) {
                 return "[array]";
             }
         }
-        // For numbers, convert using string concatenation with empty string        if (t == "i32" || t == "i64" || t == "u32" || t == "u64" ||
+        // For numbers, convert using string concatenation with empty string
+        if (t == "i32" || t == "i64" || t == "u32" || t == "u64" ||
             t == "i8" || t == "i16" || t == "u8" || t == "u16" ||
             t == "f32" || t == "f64") {
             // Convert number to string using string context
