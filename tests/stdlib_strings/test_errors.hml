@@ -1,0 +1,46 @@
+// Test @stdlib/strings error handling
+import { pad_left, pad_right, center, is_alpha, reverse } from "@stdlib/strings";
+
+print("Testing error cases...");
+
+// Test pad_left with invalid fill length
+try {
+    pad_left("test", 10, "ab");  // Fill must be single character
+    print(false);  // Should not reach here
+} catch (e) {
+    print(true);  // Expected error
+}
+
+// Test pad_right with invalid fill length
+try {
+    pad_right("test", 10, "");  // Fill must be single character
+    print(false);
+} catch (e) {
+    print(true);
+}
+
+// Test center with invalid fill
+try {
+    center("test", 10, "abc");
+    print(false);
+} catch (e) {
+    print(true);
+}
+
+// Test is_alpha with non-string
+try {
+    is_alpha(123);
+    print(false);
+} catch (e) {
+    print(true);
+}
+
+// Test reverse with non-string
+try {
+    reverse(null);
+    print(false);
+} catch (e) {
+    print(true);
+}
+
+print("All error tests passed!");

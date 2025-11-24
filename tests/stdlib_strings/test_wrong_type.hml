@@ -1,0 +1,12 @@
+// Test wrong type
+import { is_alpha } from "@stdlib/strings";
+
+print("Before call...");
+try {
+    print("Calling is_alpha(123)...");
+    let result = is_alpha(123);
+    print("Unexpected: got result " + typeof(result));
+} catch (e) {
+    print("Caught error: " + e);
+}
+print("Done!");

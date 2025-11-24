@@ -1,0 +1,80 @@
+// Test @stdlib/strings padding functions
+import { pad_left, pad_right, center } from "@stdlib/strings";
+
+print("Testing pad_left...");
+
+// Basic padding
+let s1 = pad_left("hello", 10);
+print(s1 == "     hello");  // true
+print(s1.length == 10);     // true
+
+// Already at width
+let s2 = pad_left("hello", 5);
+print(s2 == "hello");       // true
+
+// Already exceeds width
+let s3 = pad_left("hello world", 5);
+print(s3 == "hello world");  // true
+
+// Custom fill character
+let s4 = pad_left("42", 5, "0");
+print(s4 == "00042");       // true
+
+// Single character
+let s5 = pad_left("X", 5, "*");
+print(s5 == "****X");       // true
+
+// Unicode/emoji fill
+let s6 = pad_left("hi", 5, "🚀");
+print(s6 == "🚀🚀🚀hi");    // true
+print(s6.length == 5);      // true
+
+print("Testing pad_right...");
+
+// Basic padding
+let r1 = pad_right("hello", 10);
+print(r1 == "hello     ");  // true
+print(r1.length == 10);     // true
+
+// Already at width
+let r2 = pad_right("hello", 5);
+print(r2 == "hello");       // true
+
+// Custom fill
+let r3 = pad_right("42", 5, "0");
+print(r3 == "42000");       // true
+
+// Unicode fill
+let r4 = pad_right("hi", 5, "❤");
+print(r4 == "hi❤❤❤");      // true
+
+print("Testing center...");
+
+// Basic centering
+let c1 = center("hi", 6);
+print(c1 == "  hi  ");      // true
+print(c1.length == 6);      // true
+
+// Odd width (extra space on right)
+let c2 = center("hi", 5);
+print(c2 == " hi  ");       // true
+print(c2.length == 5);      // true
+
+// Already at width
+let c3 = center("hello", 5);
+print(c3 == "hello");       // true
+
+// Custom fill
+let c4 = center("X", 5, "*");
+print(c4 == "**X**");       // true
+
+// Larger example
+let c5 = center("Title", 20, "=");
+print(c5 == "=======Title========");  // true
+print(c5.length == 20);               // true
+
+// Unicode
+let c6 = center("test", 10, "─");
+print(c6 == "───test───");   // true
+
+print("All padding tests passed!");

@@ -1,0 +1,100 @@
+// Test @stdlib/strings manipulation functions
+import { reverse, lines, words } from "@stdlib/strings";
+
+print("Testing reverse...");
+
+// Basic reverse
+print(reverse("hello") == "olleh");
+print(reverse("abc") == "cba");
+print(reverse("12345") == "54321");
+
+// Single character
+print(reverse("a") == "a");
+
+// Empty string
+print(reverse("") == "");
+
+// Palindrome
+print(reverse("racecar") == "racecar");
+
+// With spaces
+print(reverse("hello world") == "dlrow olleh");
+
+// Unicode / emojis
+print(reverse("🚀🌍") == "🌍🚀");
+print(reverse("Hi🚀") == "🚀iH");
+
+print("Testing lines...");
+
+// Basic line splitting
+let l1 = lines("hello\nworld");
+print(l1.length == 2);
+print(l1[0] == "hello");
+print(l1[1] == "world");
+
+// Multiple lines
+let l2 = lines("line1\nline2\nline3");
+print(l2.length == 3);
+print(l2[0] == "line1");
+print(l2[1] == "line2");
+print(l2[2] == "line3");
+
+// Empty lines
+let l3 = lines("a\n\nb");
+print(l3.length == 3);
+print(l3[0] == "a");
+print(l3[1] == "");
+print(l3[2] == "b");
+
+// Single line (no newline)
+let l4 = lines("hello");
+print(l4.length == 1);
+print(l4[0] == "hello");
+
+// Empty string
+let l5 = lines("");
+print(l5.length == 1);
+print(l5[0] == "");
+
+print("Testing words...");
+
+// Basic word splitting
+let w1 = words("hello world");
+print(w1.length == 2);
+print(w1[0] == "hello");
+print(w1[1] == "world");
+
+// Multiple words
+let w2 = words("the quick brown fox");
+print(w2.length == 4);
+print(w2[0] == "the");
+print(w2[1] == "quick");
+print(w2[2] == "brown");
+print(w2[3] == "fox");
+
+// Extra spaces
+let w3 = words("hello  world");
+print(w3.length == 2);
+print(w3[0] == "hello");
+print(w3[1] == "world");
+
+// Leading/trailing spaces
+let w4 = words("  hello world  ");
+print(w4.length == 2);
+print(w4[0] == "hello");
+print(w4[1] == "world");
+
+// Single word
+let w5 = words("hello");
+print(w5.length == 1);
+print(w5[0] == "hello");
+
+// Empty string
+let w6 = words("");
+print(w6.length == 0);
+
+// Only spaces
+let w7 = words("   ");
+print(w7.length == 0);
+
+print("All manipulation tests passed!");

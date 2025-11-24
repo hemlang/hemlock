@@ -1,0 +1,8 @@
+// Test correct call
+import { is_alpha } from "@stdlib/strings";
+
+print("Testing is_alpha with correct type...");
+let result = is_alpha("hello");
+print("Result: " + typeof(result));
+print(result);
+print("Done!");

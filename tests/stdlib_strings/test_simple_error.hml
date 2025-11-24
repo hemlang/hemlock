@@ -1,0 +1,15 @@
+// Simple error test
+import { is_alpha } from "@stdlib/strings";
+
+print("Starting test...");
+
+try {
+    let result = is_alpha(123);
+    print("Result: " + typeof(result));
+    print(false);  // Should not reach here
+} catch (e) {
+    print("Caught error: " + e);
+    print(true);
+}
+
+print("Done!");

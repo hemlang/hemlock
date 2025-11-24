@@ -1,0 +1,32 @@
+// Test @stdlib/strings with Unicode strings
+import { reverse, pad_left, pad_right, center } from "@stdlib/strings";
+
+print("Testing Unicode support...");
+
+// Reverse with emojis
+print(reverse("Hello 🌍") == "🌍 olleH");
+print(reverse("🚀🌟💫") == "💫🌟🚀");
+
+// Reverse with CJK characters
+print(reverse("你好") == "好你");
+print(reverse("こんにちは") == "はちにんこ");
+
+// Padding with Unicode
+let s1 = pad_left("test", 10, "█");
+print(s1 == "██████test");
+print(s1.length == 10);
+
+let s2 = pad_right("test", 10, "░");
+print(s2 == "test░░░░░░");
+print(s2.length == 10);
+
+// Centering with Unicode
+let s3 = center("中", 5, "─");
+print(s3 == "──中──");
+print(s3.length == 5);
+
+// Mixed Unicode and ASCII
+let s4 = reverse("Hello🚀World");
+print(s4 == "dlroW🚀olleH");
+
+print("All Unicode tests passed!");

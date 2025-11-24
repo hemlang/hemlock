@@ -1,0 +1,294 @@
+// @stdlib/strings - Advanced string utilities
+//
+// Provides string manipulation functions beyond the 18 built-in methods.
+//
+// Usage:
+//   import { pad_left, pad_right, center, is_alpha, is_digit } from "@stdlib/strings";
+//   import { reverse, lines, words } from "@stdlib/strings";
+
+// ============================================================================
+// Padding & Alignment
+// ============================================================================
+
+// Pad string on the left to reach target width
+// Parameters:
+//   str: string - Input string
+//   width: i32 - Target width (in codepoints)
+//   fill: string - Fill character (default: space)
+// Returns: string - Padded string
+export fn pad_left(str, width, fill?: " "): string {
+    if (typeof(str) != "string") {
+        throw "pad_left() requires string argument";
+    }
+    if (typeof(width) != "i32") {
+        throw "pad_left() width must be i32";
+    }
+    if (typeof(fill) != "string") {
+        throw "pad_left() fill must be string";
+    }
+    if (fill.length != 1) {
+        throw "pad_left() fill must be single character";
+    }
+
+    let current_len = str.length;
+    if (current_len >= width) {
+        return str;
+    }
+
+    let padding_len = width - current_len;
+    let padding = fill.repeat(padding_len);
+    return padding + str;
+}
+
+// Pad string on the right to reach target width
+// Parameters:
+//   str: string - Input string
+//   width: i32 - Target width (in codepoints)
+//   fill: string - Fill character (default: space)
+// Returns: string - Padded string
+export fn pad_right(str, width, fill?: " "): string {
+    if (typeof(str) != "string") {
+        throw "pad_right() requires string argument";
+    }
+    if (typeof(width) != "i32") {
+        throw "pad_right() width must be i32";
+    }
+    if (typeof(fill) != "string") {
+        throw "pad_right() fill must be string";
+    }
+    if (fill.length != 1) {
+        throw "pad_right() fill must be single character";
+    }
+
+    let current_len = str.length;
+    if (current_len >= width) {
+        return str;
+    }
+
+    let padding_len = width - current_len;
+    let padding = fill.repeat(padding_len);
+    return str + padding;
+}
+
+// Center string within target width
+// Parameters:
+//   str: string - Input string
+//   width: i32 - Target width (in codepoints)
+//   fill: string - Fill character (default: space)
+// Returns: string - Centered string
+export fn center(str, width, fill?: " "): string {
+    if (typeof(str) != "string") {
+        throw "center() requires string argument";
+    }
+    if (typeof(width) != "i32") {
+        throw "center() width must be i32";
+    }
+    if (typeof(fill) != "string") {
+        throw "center() fill must be string";
+    }
+    if (fill.length != 1) {
+        throw "center() fill must be single character";
+    }
+
+    let current_len = str.length;
+    if (current_len >= width) {
+        return str;
+    }
+
+    let total_padding = width - current_len;
+    let left_padding = total_padding / 2;
+    let right_padding = total_padding - left_padding;
+
+    let left_fill = fill.repeat(left_padding);
+    let right_fill = fill.repeat(right_padding);
+
+    return left_fill + str + right_fill;
+}
+
+// ============================================================================
+// Character Type Checking
+// ============================================================================
+
+// Helper: Check if rune is alphabetic (a-z, A-Z)
+fn is_alpha_rune(r: rune): bool {
+    let code: i32 = r;
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+// Helper: Check if rune is digit (0-9)
+fn is_digit_rune(r: rune): bool {
+    let code: i32 = r;
+    return code >= 48 && code <= 57;
+}
+
+// Helper: Check if rune is whitespace (space, tab, newline, etc.)
+fn is_whitespace_rune(r: rune): bool {
+    let code: i32 = r;
+    // Space (32), Tab (9), Newline (10), Carriage return (13)
+    return code == 32 || code == 9 || code == 10 || code == 13;
+}
+
+// Check if string contains only alphabetic characters
+// Parameters:
+//   str: string - Input string
+// Returns: bool - True if all characters are alphabetic (a-z, A-Z)
+export fn is_alpha(str): bool {
+    if (typeof(str) != "string") {
+        throw "is_alpha() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return false;
+    }
+
+    let chars = str.chars();
+    let i = 0;
+    while (i < chars.length) {
+        if (!is_alpha_rune(chars[i])) {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// Check if string contains only digit characters
+// Parameters:
+//   str: string - Input string
+// Returns: bool - True if all characters are digits (0-9)
+export fn is_digit(str): bool {
+    if (typeof(str) != "string") {
+        throw "is_digit() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return false;
+    }
+
+    let chars = str.chars();
+    let i = 0;
+    while (i < chars.length) {
+        if (!is_digit_rune(chars[i])) {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// Check if string contains only alphanumeric characters
+// Parameters:
+//   str: string - Input string
+// Returns: bool - True if all characters are alphabetic or digits
+export fn is_alnum(str): bool {
+    if (typeof(str) != "string") {
+        throw "is_alnum() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return false;
+    }
+
+    let chars = str.chars();
+    let i = 0;
+    while (i < chars.length) {
+        if (!is_alpha_rune(chars[i]) && !is_digit_rune(chars[i])) {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// Check if string contains only whitespace characters
+// Parameters:
+//   str: string - Input string
+// Returns: bool - True if all characters are whitespace
+export fn is_whitespace(str): bool {
+    if (typeof(str) != "string") {
+        throw "is_whitespace() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return false;
+    }
+
+    let chars = str.chars();
+    let i = 0;
+    while (i < chars.length) {
+        if (!is_whitespace_rune(chars[i])) {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// String Manipulation
+// ============================================================================
+
+// Reverse a string (works with UTF-8 / Unicode codepoints)
+// Parameters:
+//   str: string - Input string
+// Returns: string - Reversed string
+export fn reverse(str): string {
+    if (typeof(str) != "string") {
+        throw "reverse() requires string argument";
+    }
+
+    if (str.length <= 1) {
+        return str;
+    }
+
+    let chars = str.chars();
+    let result = "";
+    let i = chars.length - 1;
+    while (i >= 0) {
+        result = result + chars[i];
+        i = i - 1;
+    }
+
+    return result;
+}
+
+// Split string into lines by newline characters
+// Parameters:
+//   str: string - Input string
+// Returns: array<string> - Array of lines
+export fn lines(str): array {
+    if (typeof(str) != "string") {
+        throw "lines() requires string argument";
+    }
+
+    return str.split("\n");
+}
+
+// Split string into words by whitespace
+// Parameters:
+//   str: string - Input string
+// Returns: array<string> - Array of words (non-empty)
+export fn words(str): array {
+    if (typeof(str) != "string") {
+        throw "words() requires string argument";
+    }
+
+    // Split by space and filter out empty strings
+    let parts = str.split(" ");
+    let result: array = [];
+
+    let i = 0;
+    while (i < parts.length) {
+        let trimmed = parts[i].trim();
+        if (trimmed.length > 0) {
+            result.push(trimmed);
+        }
+        i = i + 1;
+    }
+
+    return result;
+}

@@ -148,6 +148,18 @@ Full-featured JSON manipulation library:
 
 See [docs/json.md](docs/json.md) for detailed documentation.
 
+### Strings (`@stdlib/strings`)
+**Status:** Complete
+
+Advanced string utilities beyond the 18 built-in methods:
+- **Padding & Alignment:** pad_left, pad_right, center
+- **Character type checking:** is_alpha, is_digit, is_alnum, is_whitespace
+- **String manipulation:** reverse, lines, words
+- **Full Unicode support** - All functions work with UTF-8 codepoints
+- **Complements built-ins** - Extends substr, slice, split, trim, etc.
+
+See [docs/strings.md](docs/strings.md) for detailed documentation.
+
 ## Usage
 
 Import modules using the `@stdlib/` prefix:
@@ -164,6 +176,7 @@ import { compile, test, REG_ICASE } from "@stdlib/regex";
 import { get, post, fetch } from "@stdlib/http";
 import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { parse, stringify, pretty, get, set } from "@stdlib/json";
+import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
@@ -173,6 +186,7 @@ import * as regex from "@stdlib/regex";
 import * as http from "@stdlib/http";
 import * as ws from "@stdlib/websocket";
 import * as json from "@stdlib/json";
+import * as strings from "@stdlib/strings";
 
 // Use imported functions
 let angle = math.PI / 4.0;
@@ -310,6 +324,25 @@ print(pretty(config, 2));
 let backup = clone(config);
 ```
 
+### Strings
+```hemlock
+import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
+
+// Padding and alignment
+let padded = pad_left("42", 5, "0");  // "00042"
+let centered = center("Title", 20, "=");  // "=======Title========"
+
+// Character type checking
+print(is_alpha("hello"));    // true
+print(is_digit("12345"));    // true
+print(is_alnum("test123"));  // true
+
+// String manipulation
+print(reverse("hello"));     // "olleh"
+let text_lines = lines("line1\nline2\nline3");  // ["line1", "line2", "line3"]
+let word_list = words("the quick brown fox");   // ["the", "quick", "brown", "fox"]
+```
+
 ## Directory Structure
 
 ```
@@ -326,6 +359,7 @@ stdlib/
 ├── websocket.hml       # WebSocket client/server (via libwebsockets FFI)
 ├── websocket_pure.hml  # WebSocket pure Hemlock implementation (educational)
 ├── json.hml            # JSON module (pure Hemlock)
+├── strings.hml         # String utilities module (pure Hemlock)
 ├── c/                  # C FFI wrappers (compiled with 'make stdlib')
 │   └── lws_wrapper.c   # libwebsockets wrapper for HTTP/WebSocket
 └── docs/
@@ -338,7 +372,8 @@ stdlib/
     ├── regex.md        # Regex API reference
     ├── http.md         # HTTP API reference
     ├── websocket.md    # WebSocket API reference
-    └── json.md         # JSON API reference
+    ├── json.md         # JSON API reference
+    └── strings.md      # Strings API reference
 ```
 
 ## JSON Serialization
@@ -359,7 +394,6 @@ print(parsed.name);  // "Alice"
 ## Future Modules
 
 Planned additions to the standard library:
-- **strings** - String utilities (pad, join, is_alpha, reverse, lines, words)
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
 - **encoding** - Base64, hex, URL encoding/decoding
 - **testing** - Test framework with describe/test/expect/assertions
@@ -383,6 +417,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | http | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 280 | High |
 | websocket | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 318 | High |
 | json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
+| strings | ✅ Complete | ✅ Complete | ✅ Comprehensive | 293 | High |
 
 **Legend:**
 - ✅ Complete/Excellent

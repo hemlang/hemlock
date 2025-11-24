@@ -1,0 +1,65 @@
+// Test @stdlib/strings character type checking functions
+import { is_alpha, is_digit, is_alnum, is_whitespace } from "@stdlib/strings";
+
+print("Testing is_alpha...");
+
+// Alphabetic strings
+print(is_alpha("hello") == true);
+print(is_alpha("HELLO") == true);
+print(is_alpha("HelloWorld") == true);
+print(is_alpha("abc") == true);
+print(is_alpha("XYZ") == true);
+
+// Non-alphabetic
+print(is_alpha("hello123") == false);
+print(is_alpha("hello world") == false);  // Space
+print(is_alpha("hello!") == false);
+print(is_alpha("123") == false);
+print(is_alpha("") == false);  // Empty string
+
+print("Testing is_digit...");
+
+// Digit strings
+print(is_digit("123") == true);
+print(is_digit("0") == true);
+print(is_digit("999") == true);
+print(is_digit("42") == true);
+
+// Non-digit
+print(is_digit("123a") == false);
+print(is_digit("12.3") == false);
+print(is_digit("1 2 3") == false);
+print(is_digit("hello") == false);
+print(is_digit("") == false);
+
+print("Testing is_alnum...");
+
+// Alphanumeric strings
+print(is_alnum("hello123") == true);
+print(is_alnum("ABC123") == true);
+print(is_alnum("test") == true);
+print(is_alnum("123") == true);
+print(is_alnum("a1b2c3") == true);
+
+// Non-alphanumeric
+print(is_alnum("hello world") == false);  // Space
+print(is_alnum("test!") == false);
+print(is_alnum("a-b") == false);
+print(is_alnum("") == false);
+
+print("Testing is_whitespace...");
+
+// Whitespace strings
+print(is_whitespace(" ") == true);
+print(is_whitespace("   ") == true);
+print(is_whitespace("\t") == true);
+print(is_whitespace("\n") == true);
+print(is_whitespace("\r") == true);
+print(is_whitespace(" \t\n\r ") == true);
+
+// Non-whitespace
+print(is_whitespace("hello") == false);
+print(is_whitespace(" a ") == false);
+print(is_whitespace("") == false);
+
+print("All character type tests passed!");
