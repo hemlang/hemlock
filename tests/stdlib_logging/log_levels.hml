@@ -1,0 +1,49 @@
+// Test: Log level filtering
+import { Logger, DEBUG, INFO, WARN, ERROR } from "@stdlib/logging";
+
+// Test 1: INFO level (should filter DEBUG)
+print("=== Test 1: INFO level ===");
+let logger1 = Logger({ level: INFO });
+logger1.debug("Should NOT appear");
+logger1.info("Should appear - INFO");
+logger1.warn("Should appear - WARN");
+logger1.error("Should appear - ERROR");
+
+// Test 2: WARN level (should filter DEBUG and INFO)
+print("\n=== Test 2: WARN level ===");
+let logger2 = Logger({ level: WARN });
+logger2.debug("Should NOT appear");
+logger2.info("Should NOT appear");
+logger2.warn("Should appear - WARN");
+logger2.error("Should appear - ERROR");
+
+// Test 3: ERROR level (should only show ERROR)
+print("\n=== Test 3: ERROR level ===");
+let logger3 = Logger({ level: ERROR });
+logger3.debug("Should NOT appear");
+logger3.info("Should NOT appear");
+logger3.warn("Should NOT appear");
+logger3.error("Should appear - ERROR");
+
+// Test 4: DEBUG level (should show all)
+print("\n=== Test 4: DEBUG level ===");
+let logger4 = Logger({ level: DEBUG });
+logger4.debug("Should appear - DEBUG");
+logger4.info("Should appear - INFO");
+logger4.warn("Should appear - WARN");
+logger4.error("Should appear - ERROR");
+
+// Test 5: Dynamic level change
+print("\n=== Test 5: Dynamic level change ===");
+let logger5 = Logger({ level: ERROR });
+logger5.info("Should NOT appear (level=ERROR)");
+logger5.error("Should appear (level=ERROR)");
+
+logger5.set_level(INFO);
+logger5.info("Should appear (level=INFO)");
+logger5.debug("Should NOT appear (level=INFO)");
+
+logger5.set_level(DEBUG);
+logger5.debug("Should appear (level=DEBUG)");
+
+print("\nPASS: Log level filtering test completed");

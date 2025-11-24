@@ -1,0 +1,64 @@
+// Test: Edge cases and error handling
+import { Logger, INFO } from "@stdlib/logging";
+import { exists, remove_file } from "@stdlib/fs";
+
+print("=== Test 1: Invalid file path fallback ===");
+let logger1 = Logger({
+    output: "/invalid/path/that/does/not/exist/log.txt",
+    level: INFO
+});
+logger1.info("This should fallback to stdout");
+
+print("\n=== Test 2: Close logger multiple times ===");
+let log_file = "/tmp/hemlock_edge_test.log";
+if (exists(log_file)) {
+    remove_file(log_file);
+}
+
+let logger2 = Logger({ output: log_file });
+logger2.info("Test message");
+logger2.close();
+logger2.close();  // Should be safe
+logger2.close();  // Should be safe
+print("PASS: Multiple close calls handled");
+
+// Clean up
+if (exists(log_file)) {
+    remove_file(log_file);
+}
+
+print("\n=== Test 3: Very long message ===");
+let logger3 = Logger();
+let long_msg = "This is a very long message that repeats: ";
+let i = 0;
+while (i < 50) {
+    long_msg = long_msg + "repeat ";
+    i = i + 1;
+}
+logger3.info(long_msg);
+print("PASS: Long message handled");
+
+print("\n=== Test 4: Special characters in message ===");
+let logger4 = Logger();
+logger4.info("Message with special chars: \n\t\r");
+logger4.info("Unicode: 你好世界 🚀");
+print("PASS: Special characters handled");
+
+print("\n=== Test 5: Null and empty messages ===");
+let logger5 = Logger();
+logger5.info("");
+logger5.info(null);
+print("PASS: Null and empty messages handled");
+
+print("\n=== Test 6: Circular reference in structured data ===");
+let logger6 = Logger();
+let obj = { x: 10 };
+obj.me = obj;  // Circular reference
+try {
+    logger6.info("Circular data", obj);
+    print("FAIL: Should have thrown error for circular reference");
+} catch (e) {
+    print("PASS: Circular reference detected");
+}
+
+print("\nPASS: Edge cases test completed");

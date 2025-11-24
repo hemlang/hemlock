@@ -1,0 +1,43 @@
+// Test: Structured logging (key-value pairs)
+import { Logger, INFO } from "@stdlib/logging";
+
+let logger = Logger({ level: INFO });
+
+print("=== Test 1: Basic structured data ===");
+logger.info("User login", {
+    user_id: 12345,
+    username: "alice"
+});
+
+print("\n=== Test 2: Nested objects ===");
+logger.warn("API error", {
+    endpoint: "/api/users",
+    status: 500,
+    error: {
+        code: "TIMEOUT",
+        message: "Request timed out"
+    }
+});
+
+print("\n=== Test 3: Arrays in structured data ===");
+logger.error("Validation errors", {
+    field: "email",
+    errors: ["Invalid format", "Domain not allowed"]
+});
+
+print("\n=== Test 4: Mixed types ===");
+logger.info("Mixed data", {
+    string: "test",
+    number: 42,
+    float: 3.14,
+    bool: true,
+    null_val: null
+});
+
+print("\n=== Test 5: Empty object ===");
+logger.info("Empty data", {});
+
+print("\n=== Test 6: Without structured data ===");
+logger.info("Just a message");
+
+print("\nPASS: Structured logging test completed");

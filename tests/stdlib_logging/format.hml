@@ -1,0 +1,39 @@
+// Test: Custom log formatting
+import { Logger, INFO, WARN, ERROR } from "@stdlib/logging";
+
+print("=== Test 1: Default format ===");
+let logger1 = Logger();
+logger1.info("Default format message");
+
+print("\n=== Test 2: Custom format (no timestamp) ===");
+let logger2 = Logger({
+    format: "[{level}] {message}",
+    include_timestamp: false
+});
+logger2.info("No timestamp message");
+logger2.warn("Warning without timestamp");
+
+print("\n=== Test 3: Custom format (level first) ===");
+let logger3 = Logger({
+    format: "{level}: {message}"
+});
+logger3.error("Error with custom separator");
+
+print("\n=== Test 4: Minimal format ===");
+let logger4 = Logger({
+    format: "{message}",
+    include_timestamp: false
+});
+logger4.info("Just the message");
+
+print("\n=== Test 5: Format with structured data ===");
+let logger5 = Logger({
+    format: "[{level}] {message}",
+    include_timestamp: false
+});
+logger5.info("Structured message", {
+    key1: "value1",
+    key2: 42
+});
+
+print("\nPASS: Custom format test completed");

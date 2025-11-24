@@ -197,6 +197,20 @@ Data encoding and decoding utilities for data interchange:
 
 See [docs/encoding.md](docs/encoding.md) for detailed documentation.
 
+### Logging (`@stdlib/logging`)
+**Status:** Complete
+
+Comprehensive logging facilities with levels, filtering, and structured logging:
+- **Log levels:** DEBUG, INFO, WARN, ERROR with filtering
+- **Output targets:** stdout or file
+- **Structured logging:** Key-value pairs (JSON serialization)
+- **Configurable formatting:** Customizable log message format
+- **Timestamps:** Unix epoch timestamps
+- **Default logger:** Convenience functions for quick logging
+- **Multiple loggers:** Create separate loggers for different subsystems
+
+See [docs/logging.md](docs/logging.md) for detailed documentation.
+
 ## Usage
 
 Import modules using the `@stdlib/` prefix:
@@ -217,6 +231,7 @@ import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { parse, stringify, pretty, get, set } from "@stdlib/json";
 import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
 import { base64_encode, base64_decode, hex_encode, url_encode } from "@stdlib/encoding";
+import { Logger, DEBUG, INFO, WARN, ERROR } from "@stdlib/logging";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
@@ -229,6 +244,7 @@ import * as ws from "@stdlib/websocket";
 import * as json from "@stdlib/json";
 import * as strings from "@stdlib/strings";
 import * as encoding from "@stdlib/encoding";
+import * as logging from "@stdlib/logging";
 
 // Use imported functions
 let angle = math.PI / 4.0;

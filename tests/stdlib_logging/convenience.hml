@@ -1,0 +1,24 @@
+// Test: Convenience functions (default logger)
+import { debug, info, warn, error, log, DEBUG, INFO } from "@stdlib/logging";
+
+print("=== Test 1: Convenience functions without structured data ===");
+debug("Debug from convenience function");
+info("Info from convenience function");
+warn("Warning from convenience function");
+error("Error from convenience function");
+
+print("\n=== Test 2: Convenience functions with structured data ===");
+info("User action", { action: "click", button: "submit" });
+warn("Low disk space", { available_gb: 5, threshold_gb: 10 });
+error("Connection failed", { host: "example.com", port: 443 });
+
+print("\n=== Test 3: log() function with explicit level ===");
+log(DEBUG, "Debug via log()");
+log(INFO, "Info via log()");
+
+print("\n=== Test 4: Different message types ===");
+info(123);
+info(true);
+info([1, 2, 3]);
+
+print("\nPASS: Convenience functions test completed");

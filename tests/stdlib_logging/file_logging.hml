@@ -1,0 +1,84 @@
+// Test: File logging
+import { Logger, INFO } from "@stdlib/logging";
+import { exists, read_file, remove_file } from "@stdlib/fs";
+
+// Test file path
+let log_file = "/tmp/hemlock_test_log.txt";
+
+// Clean up any existing test file
+if (exists(log_file)) {
+    remove_file(log_file);
+}
+
+// Create logger with file output
+let logger = Logger({
+    output: log_file,
+    level: INFO
+});
+
+// Write some log messages
+logger.info("First log message");
+logger.info("Second log message");
+logger.warn("Warning message");
+logger.error("Error message");
+
+// Close the logger
+logger.close();
+
+// Verify file was created
+if (!exists(log_file)) {
+    print("FAIL: Log file was not created");
+} else {
+    print("PASS: Log file created");
+
+    // Read and verify contents
+    let content = read_file(log_file);
+
+    if (content.contains("First log message")) {
+        print("PASS: First message logged");
+    } else {
+        print("FAIL: First message not found");
+    }
+
+    if (content.contains("Second log message")) {
+        print("PASS: Second message logged");
+    } else {
+        print("FAIL: Second message not found");
+    }
+
+    if (content.contains("Warning message")) {
+        print("PASS: Warning logged");
+    } else {
+        print("FAIL: Warning not found");
+    }
+
+    if (content.contains("Error message")) {
+        print("PASS: Error logged");
+    } else {
+        print("FAIL: Error not found");
+    }
+
+    if (content.contains("[INFO]")) {
+        print("PASS: INFO level marker found");
+    } else {
+        print("FAIL: INFO level marker not found");
+    }
+
+    if (content.contains("[WARN]")) {
+        print("PASS: WARN level marker found");
+    } else {
+        print("FAIL: WARN level marker not found");
+    }
+
+    if (content.contains("[ERROR]")) {
+        print("PASS: ERROR level marker found");
+    } else {
+        print("FAIL: ERROR level marker not found");
+    }
+
+    // Clean up
+    remove_file(log_file);
+    print("PASS: Cleanup completed");
+}
+
+print("\nPASS: File logging test completed");

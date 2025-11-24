@@ -1,0 +1,24 @@
+// Test: Basic logging to stdout
+import { Logger, DEBUG, INFO, WARN, ERROR } from "@stdlib/logging";
+
+// Create basic logger
+let logger = Logger();
+
+// Test all log levels
+logger.debug("This is a debug message");
+logger.info("This is an info message");
+logger.warn("This is a warning message");
+logger.error("This is an error message");
+
+// Test with different message types
+logger.info(42);
+logger.info(3.14);
+logger.info(true);
+logger.info(false);
+logger.info(null);
+
+// Test with arrays
+logger.info([1, 2, 3]);
+logger.info(["a", "b", "c"]);
+
+print("PASS: Basic logging test completed");
