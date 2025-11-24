@@ -1,0 +1,154 @@
+// Test: @stdlib/testing - Basic functionality
+// Tests the test framework itself
+
+import {
+    describe, test, expect, run
+} from "@stdlib/testing";
+import { exit } from "@stdlib/env";
+
+describe("expect() - Equality assertions", fn() {
+    test("to_equal works with integers", fn() {
+        expect(42).to_equal(42);
+    });
+
+    test("to_equal works with strings", fn() {
+        expect("hello").to_equal("hello");
+    });
+
+    test("to_equal works with booleans", fn() {
+        expect(true).to_equal(true);
+        expect(false).to_equal(false);
+    });
+
+    test("to_equal works with arrays", fn() {
+        expect([1, 2, 3]).to_equal([1, 2, 3]);
+    });
+
+    test("to_be works with primitives", fn() {
+        expect(10).to_be(10);
+        expect("test").to_be("test");
+    });
+
+    test("not_to_equal works", fn() {
+        expect(5).not_to_equal(10);
+        expect("foo").not_to_equal("bar");
+    });
+
+    test("not_to_be works", fn() {
+        expect(1).not_to_be(2);
+    });
+});
+
+describe("expect() - Null checks", fn() {
+    test("to_be_null works", fn() {
+        let x = null;
+        expect(x).to_be_null();
+    });
+
+    test("not_to_be_null works", fn() {
+        expect(42).not_to_be_null();
+        expect("hello").not_to_be_null();
+    });
+});
+
+describe("expect() - Boolean checks", fn() {
+    test("to_be_true works", fn() {
+        expect(true).to_be_true();
+        expect(5 > 3).to_be_true();
+    });
+
+    test("to_be_false works", fn() {
+        expect(false).to_be_false();
+        expect(10 < 5).to_be_false();
+    });
+});
+
+describe("expect() - Numeric comparisons", fn() {
+    test("to_be_greater_than works", fn() {
+        expect(10).to_be_greater_than(5);
+        expect(3.14).to_be_greater_than(3.0);
+    });
+
+    test("to_be_less_than works", fn() {
+        expect(5).to_be_less_than(10);
+        expect(-5).to_be_less_than(0);
+    });
+
+    test("to_be_greater_than_or_equal works", fn() {
+        expect(10).to_be_greater_than_or_equal(10);
+        expect(10).to_be_greater_than_or_equal(5);
+    });
+
+    test("to_be_less_than_or_equal works", fn() {
+        expect(5).to_be_less_than_or_equal(5);
+        expect(5).to_be_less_than_or_equal(10);
+    });
+});
+
+describe("expect() - Type checks", fn() {
+    test("to_be_type works with integers", fn() {
+        expect(42).to_be_type("i32");
+    });
+
+    test("to_be_type works with strings", fn() {
+        expect("hello").to_be_type("string");
+    });
+
+    test("to_be_type works with arrays", fn() {
+        expect([1, 2, 3]).to_be_type("array");
+    });
+
+    test("to_be_type works with booleans", fn() {
+        expect(true).to_be_type("bool");
+    });
+
+    test("to_be_type works with null", fn() {
+        expect(null).to_be_type("null");
+    });
+});
+
+describe("expect() - Container checks", fn() {
+    test("to_contain works with arrays", fn() {
+        expect([1, 2, 3]).to_contain(2);
+    });
+
+    test("to_contain works with strings", fn() {
+        expect("hello world").to_contain("world");
+    });
+
+    test("not_to_contain works with arrays", fn() {
+        expect([1, 2, 3]).not_to_contain(5);
+    });
+
+    test("not_to_contain works with strings", fn() {
+        expect("hello").not_to_contain("goodbye");
+    });
+});
+
+describe("expect() - Exception checks", fn() {
+    test("to_throw detects exceptions", fn() {
+        expect(fn() {
+            throw "error!";
+        }).to_throw();
+    });
+
+    test("to_throw checks error message", fn() {
+        expect(fn() {
+            throw "specific error";
+        }).to_throw("specific error");
+    });
+
+    test("not_to_throw works", fn() {
+        expect(fn() {
+            let x = 2 + 2;
+            return x;
+        }).not_to_throw();
+    });
+});
+
+// Run tests
+let results = run();
+
+if (!results.success) {
+    exit(1);
+}

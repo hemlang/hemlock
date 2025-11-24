@@ -1,0 +1,108 @@
+// Test: @stdlib/testing - Test hooks
+// Tests before_each and after_each functionality
+
+import {
+    describe, test, expect,
+    before_each, after_each, run
+} from "@stdlib/testing";
+import { exit } from "@stdlib/env";
+
+describe("before_each hook", fn() {
+    let counter = 0;
+
+    before_each(fn() {
+        counter = 100;
+    });
+
+    test("runs before first test", fn() {
+        expect(counter).to_equal(100);
+        counter = 200;
+    });
+
+    test("runs before second test", fn() {
+        expect(counter).to_equal(100);  // Reset by before_each
+        counter = 300;
+    });
+
+    test("runs before third test", fn() {
+        expect(counter).to_equal(100);  // Reset again
+    });
+});
+
+describe("after_each hook", fn() {
+    let log = [];
+
+    after_each(fn() {
+        log.push("cleanup");
+    });
+
+    test("first test", fn() {
+        log.push("test1");
+        expect(log.length).to_equal(1);
+    });
+
+    test("second test", fn() {
+        log.push("test2");
+        // after_each from first test ran
+        expect(log).to_contain("cleanup");
+    });
+});
+
+describe("before_each and after_each together", fn() {
+    let data = null;
+
+    before_each(fn() {
+        data = [1, 2, 3];
+    });
+
+    after_each(fn() {
+        data = null;
+    });
+
+    test("data is initialized", fn() {
+        expect(data).not_to_be_null();
+        expect(data.length).to_equal(3);
+    });
+
+    test("data is fresh each time", fn() {
+        expect(data).to_equal([1, 2, 3]);
+        data.push(4);
+        expect(data.length).to_equal(4);
+    });
+
+    test("modifications don't persist", fn() {
+        // Previous test modified data, but before_each reset it
+        expect(data.length).to_equal(3);
+    });
+});
+
+describe("hooks with array operations", fn() {
+    let arr = null;
+
+    before_each(fn() {
+        arr = [];
+    });
+
+    test("push operation", fn() {
+        arr.push(10);
+        expect(arr.length).to_equal(1);
+    });
+
+    test("array starts empty", fn() {
+        expect(arr.length).to_equal(0);
+    });
+
+    test("multiple pushes", fn() {
+        arr.push(1);
+        arr.push(2);
+        arr.push(3);
+        expect(arr.length).to_equal(3);
+    });
+});
+
+// Run tests
+let results = run();
+
+if (!results.success) {
+    exit(1);
+}

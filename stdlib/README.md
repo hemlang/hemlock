@@ -148,6 +148,19 @@ Full-featured JSON manipulation library:
 
 See [docs/json.md](docs/json.md) for detailed documentation.
 
+### Testing (`@stdlib/testing`)
+**Status:** Complete
+
+Comprehensive test framework with modern describe/test/expect syntax:
+- **Test structure:** describe, test - Organize tests into suites
+- **Fluent assertions:** expect(value).to_equal(), .to_be_greater_than(), .to_throw(), etc.
+- **Simple assertions:** assert_eq, assert_ne, assert_true, assert_false, assert_throws
+- **Test hooks:** before_each, after_each - Setup and teardown
+- **Test runner:** run() - Execute tests with colored output and statistics
+- **Error messages:** Clear, detailed failure messages with value formatting
+
+See [docs/testing.md](docs/testing.md) for detailed documentation.
+
 ## Usage
 
 Import modules using the `@stdlib/` prefix:
@@ -164,6 +177,7 @@ import { compile, test, REG_ICASE } from "@stdlib/regex";
 import { get, post, fetch } from "@stdlib/http";
 import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { parse, stringify, pretty, get, set } from "@stdlib/json";
+import { describe, test, expect, assert_eq, run } from "@stdlib/testing";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
@@ -173,6 +187,7 @@ import * as regex from "@stdlib/regex";
 import * as http from "@stdlib/http";
 import * as ws from "@stdlib/websocket";
 import * as json from "@stdlib/json";
+import * as testing from "@stdlib/testing";
 
 // Use imported functions
 let angle = math.PI / 4.0;
@@ -310,6 +325,23 @@ print(pretty(config, 2));
 let backup = clone(config);
 ```
 
+### Testing
+```hemlock
+import { describe, test, expect, run } from "@stdlib/testing";
+
+describe("Math operations", fn() {
+    test("addition works", fn() {
+        expect(2 + 2).to_equal(4);
+    });
+
+    test("arrays contain values", fn() {
+        expect([1, 2, 3]).to_contain(2);
+    });
+});
+
+let results = run();
+```
+
 ## Directory Structure
 
 ```
@@ -326,6 +358,7 @@ stdlib/
 ├── websocket.hml       # WebSocket client/server (via libwebsockets FFI)
 ├── websocket_pure.hml  # WebSocket pure Hemlock implementation (educational)
 ├── json.hml            # JSON module (pure Hemlock)
+├── testing.hml         # Testing framework (pure Hemlock)
 ├── c/                  # C FFI wrappers (compiled with 'make stdlib')
 │   └── lws_wrapper.c   # libwebsockets wrapper for HTTP/WebSocket
 └── docs/
@@ -338,7 +371,8 @@ stdlib/
     ├── regex.md        # Regex API reference
     ├── http.md         # HTTP API reference
     ├── websocket.md    # WebSocket API reference
-    └── json.md         # JSON API reference
+    ├── json.md         # JSON API reference
+    └── testing.md      # Testing API reference
 ```
 
 ## JSON Serialization
@@ -362,7 +396,6 @@ Planned additions to the standard library:
 - **strings** - String utilities (pad, join, is_alpha, reverse, lines, words)
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
 - **encoding** - Base64, hex, URL encoding/decoding
-- **testing** - Test framework with describe/test/expect/assertions
 - **datetime** - Date/time formatting and parsing
 - **crypto** - Cryptographic functions (via FFI + OpenSSL)
 - **compression** - zlib/gzip compression (via FFI)
@@ -383,6 +416,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | http | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 280 | High |
 | websocket | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 318 | High |
 | json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
+| testing | ✅ Complete | ✅ Complete | ✅ Good | 410 | High |
 
 **Legend:**
 - ✅ Complete/Excellent
@@ -413,6 +447,7 @@ make test | grep stdlib_math
 make test | grep stdlib_time
 make test | grep stdlib_env
 make test | grep stdlib_regex
+make test | grep stdlib_testing
 
 # Or run individual test files
 ./hemlock tests/stdlib_collections/test_hashmap.hml

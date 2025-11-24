@@ -1,0 +1,122 @@
+// Test: @stdlib/testing - Simple assertions
+// Tests assert_eq, assert_ne, assert_true, assert_false, assert_throws
+
+import {
+    describe, test, expect,
+    assert_eq, assert_ne, assert_true, assert_false, assert_throws,
+    run
+} from "@stdlib/testing";
+import { exit } from "@stdlib/env";
+
+describe("assert_eq()", fn() {
+    test("passes for equal integers", fn() {
+        assert_eq(42, 42);
+    });
+
+    test("passes for equal strings", fn() {
+        assert_eq("hello", "hello");
+    });
+
+    test("passes for equal arrays", fn() {
+        assert_eq([1, 2, 3], [1, 2, 3]);
+    });
+
+    test("passes for equal booleans", fn() {
+        assert_eq(true, true);
+        assert_eq(false, false);
+    });
+
+    test("throws on inequality", fn() {
+        expect(fn() {
+            assert_eq(5, 10);
+        }).to_throw();
+    });
+});
+
+describe("assert_ne()", fn() {
+    test("passes for unequal values", fn() {
+        assert_ne(5, 10);
+        assert_ne("foo", "bar");
+    });
+
+    test("throws on equality", fn() {
+        expect(fn() {
+            assert_ne(42, 42);
+        }).to_throw();
+    });
+});
+
+describe("assert_true()", fn() {
+    test("passes for true", fn() {
+        assert_true(true);
+        assert_true(5 > 3);
+    });
+
+    test("throws for false", fn() {
+        expect(fn() {
+            assert_true(false);
+        }).to_throw();
+    });
+
+    test("throws for non-boolean", fn() {
+        expect(fn() {
+            assert_true(1);
+        }).to_throw();
+    });
+});
+
+describe("assert_false()", fn() {
+    test("passes for false", fn() {
+        assert_false(false);
+        assert_false(10 < 5);
+    });
+
+    test("throws for true", fn() {
+        expect(fn() {
+            assert_false(true);
+        }).to_throw();
+    });
+
+    test("throws for non-boolean", fn() {
+        expect(fn() {
+            assert_false(0);
+        }).to_throw();
+    });
+});
+
+describe("assert_throws()", fn() {
+    test("passes when function throws", fn() {
+        assert_throws(fn() {
+            throw "error!";
+        });
+    });
+
+    test("passes with correct message", fn() {
+        assert_throws(fn() {
+            throw "specific error";
+        }, "specific error");
+    });
+
+    test("throws when function doesn't throw", fn() {
+        expect(fn() {
+            assert_throws(fn() {
+                return 42;
+            });
+        }).to_throw();
+    });
+
+    test("throws on wrong message", fn() {
+        expect(fn() {
+            assert_throws(fn() {
+                throw "actual error";
+            }, "expected error");
+        }).to_throw();
+    });
+});
+
+// Run tests
+let results = run();
+
+if (!results.success) {
+    exit(1);
+}
