@@ -1,0 +1,3 @@
+print("Hello from Hemlock");
+let x = 42;
+print("x = " + typeof(x));
