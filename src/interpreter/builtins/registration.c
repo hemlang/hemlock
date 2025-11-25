@@ -142,6 +142,19 @@ static BuiltinInfo builtins[] = {
     {"__zlib_compress_bound", builtin_zlib_compress_bound},
     {"__crc32", builtin_crc32},
     {"__adler32", builtin_adler32},
+    // OS information builtins (use stdlib/os.hml module for public API)
+    {"__platform", builtin_platform},
+    {"__arch", builtin_arch},
+    {"__hostname", builtin_hostname},
+    {"__username", builtin_username},
+    {"__homedir", builtin_homedir},
+    {"__cpu_count", builtin_cpu_count},
+    {"__total_memory", builtin_total_memory},
+    {"__free_memory", builtin_free_memory},
+    {"__os_version", builtin_os_version},
+    {"__os_name", builtin_os_name},
+    {"__tmpdir", builtin_tmpdir},
+    {"__uptime", builtin_uptime},
     {NULL, NULL}  // Sentinel
 };
 

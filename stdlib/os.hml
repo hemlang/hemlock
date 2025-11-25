@@ -1,0 +1,131 @@
+// Hemlock Standard Library: OS Module
+// Platform detection, system information, and hardware details
+//
+// This module provides:
+// - Platform detection (linux, macos, windows)
+// - System info (hostname, username, home dir)
+// - Hardware info (CPU count, memory)
+
+// ========== PLATFORM DETECTION ==========
+
+// Get platform name: "linux", "macos", "windows", or "unknown"
+export let platform = __platform;
+
+// Get CPU architecture: "x86_64", "aarch64", "arm", etc.
+export let arch = __arch;
+
+// Get OS kernel name: "Linux", "Darwin", "Windows_NT", etc.
+export let os_name = __os_name;
+
+// Get OS kernel version string
+export let os_version = __os_version;
+
+// ========== SYSTEM INFORMATION ==========
+
+// Get system hostname
+export let hostname = __hostname;
+
+// Get current username
+export let username = __username;
+
+// Get home directory path
+export let homedir = __homedir;
+
+// Get temporary directory path
+export let tmpdir = __tmpdir;
+
+// Get system uptime in seconds
+export let uptime = __uptime;
+
+// ========== HARDWARE INFORMATION ==========
+
+// Get number of CPU cores (logical processors)
+export let cpu_count = __cpu_count;
+
+// Get total system memory in bytes
+export let total_memory = __total_memory;
+
+// Get available/free system memory in bytes
+export let free_memory = __free_memory;
+
+// ========== CONVENIENCE FUNCTIONS ==========
+
+// Check if running on Linux
+export fn is_linux(): bool {
+    return platform() == "linux";
+}
+
+// Check if running on macOS
+export fn is_macos(): bool {
+    return platform() == "macos";
+}
+
+// Check if running on Windows
+export fn is_windows(): bool {
+    return platform() == "windows";
+}
+
+// Check if running on a Unix-like system (Linux or macOS)
+export fn is_unix(): bool {
+    let p = platform();
+    return p == "linux" || p == "macos";
+}
+
+// Get system info as an object
+export fn info(): object {
+    return {
+        platform: platform(),
+        arch: arch(),
+        os_name: os_name(),
+        os_version: os_version(),
+        hostname: hostname(),
+        username: username(),
+        homedir: homedir(),
+        tmpdir: tmpdir(),
+        cpu_count: cpu_count(),
+        total_memory: total_memory(),
+        free_memory: free_memory(),
+        uptime: uptime()
+    };
+}
+
+// Get memory info as an object (in bytes)
+export fn memory_info(): object {
+    let total = total_memory();
+    let free_mem = free_memory();
+    return {
+        total: total,
+        free: free_mem,
+        used: total - free_mem
+    };
+}
+
+// Format bytes as human-readable string (KB, MB, GB, etc.)
+// Note: Type annotation removed to work around i64 parameter truncation bug
+export fn format_bytes(bytes): string {
+    if (bytes < 0) {
+        return "-" + format_bytes(-bytes);
+    }
+
+    if (bytes < 1024) {
+        return "" + bytes + " B";
+    }
+
+    let kb = bytes / 1024;
+    if (kb < 1024) {
+        return "" + kb + " KB";
+    }
+
+    let mb = kb / 1024;
+    if (mb < 1024) {
+        return "" + mb + " MB";
+    }
+
+    let gb = mb / 1024;
+    if (gb < 1024) {
+        return "" + gb + " GB";
+    }
+
+    let tb = gb / 1024;
+    return "" + tb + " TB";
+}

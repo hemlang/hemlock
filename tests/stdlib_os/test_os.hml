@@ -1,0 +1,162 @@
+// Test @stdlib/os module
+import * as os from "@stdlib/os";
+
+// ========== Platform Detection Tests ==========
+
+// Test platform() returns a valid string
+let p = os.platform();
+assert(typeof(p) == "string", "platform() should return a string");
+assert(p == "linux" || p == "macos" || p == "windows" || p == "unknown",
+       "platform() should return linux, macos, windows, or unknown");
+print("platform() = " + p);
+
+// Test arch() returns a valid string
+let a = os.arch();
+assert(typeof(a) == "string", "arch() should return a string");
+assert(a.length > 0, "arch() should return non-empty string");
+print("arch() = " + a);
+
+// Test os_name() returns a valid string
+let name = os.os_name();
+assert(typeof(name) == "string", "os_name() should return a string");
+assert(name.length > 0, "os_name() should return non-empty string");
+print("os_name() = " + name);
+
+// Test os_version() returns a valid string
+let ver = os.os_version();
+assert(typeof(ver) == "string", "os_version() should return a string");
+assert(ver.length > 0, "os_version() should return non-empty string");
+print("os_version() = " + ver);
+
+// ========== Convenience Platform Check Tests ==========
+
+// Test is_linux()
+let is_lin = os.is_linux();
+assert(typeof(is_lin) == "bool", "is_linux() should return a bool");
+if (p == "linux") {
+    assert(is_lin == true, "is_linux() should be true on linux");
+} else {
+    assert(is_lin == false, "is_linux() should be false on non-linux");
+}
+print("is_linux() = " + is_lin);
+
+// Test is_macos()
+let is_mac = os.is_macos();
+assert(typeof(is_mac) == "bool", "is_macos() should return a bool");
+if (p == "macos") {
+    assert(is_mac == true, "is_macos() should be true on macos");
+} else {
+    assert(is_mac == false, "is_macos() should be false on non-macos");
+}
+print("is_macos() = " + is_mac);
+
+// Test is_windows()
+let is_win = os.is_windows();
+assert(typeof(is_win) == "bool", "is_windows() should return a bool");
+if (p == "windows") {
+    assert(is_win == true, "is_windows() should be true on windows");
+} else {
+    assert(is_win == false, "is_windows() should be false on non-windows");
+}
+print("is_windows() = " + is_win);
+
+// Test is_unix()
+let is_nix = os.is_unix();
+assert(typeof(is_nix) == "bool", "is_unix() should return a bool");
+if (p == "linux" || p == "macos") {
+    assert(is_nix == true, "is_unix() should be true on linux/macos");
+} else {
+    assert(is_nix == false, "is_unix() should be false on non-unix");
+}
+print("is_unix() = " + is_nix);
+
+// ========== System Information Tests ==========
+
+// Test hostname()
+let host = os.hostname();
+assert(typeof(host) == "string", "hostname() should return a string");
+assert(host.length > 0, "hostname() should return non-empty string");
+print("hostname() = " + host);
+
+// Test username()
+let user = os.username();
+assert(typeof(user) == "string", "username() should return a string");
+assert(user.length > 0, "username() should return non-empty string");
+print("username() = " + user);
+
+// Test homedir()
+let home = os.homedir();
+assert(typeof(home) == "string", "homedir() should return a string");
+assert(home.length > 0, "homedir() should return non-empty string");
+// Home directory should start with / on Unix
+if (os.is_unix()) {
+    assert(home.starts_with("/"), "homedir() should start with / on Unix");
+}
+print("homedir() = " + home);
+
+// Test tmpdir()
+let tmp = os.tmpdir();
+assert(typeof(tmp) == "string", "tmpdir() should return a string");
+assert(tmp.length > 0, "tmpdir() should return non-empty string");
+print("tmpdir() = " + tmp);
+
+// Test uptime()
+let up = os.uptime();
+assert(typeof(up) == "i64", "uptime() should return i64");
+assert(up > 0, "uptime() should be positive");
+print("uptime() = " + up + " seconds");
+
+// ========== Hardware Information Tests ==========
+
+// Test cpu_count()
+let cpus = os.cpu_count();
+assert(typeof(cpus) == "i32", "cpu_count() should return i32");
+assert(cpus >= 1, "cpu_count() should be at least 1");
+print("cpu_count() = " + cpus);
+
+// Test total_memory()
+let total_mem = os.total_memory();
+assert(typeof(total_mem) == "i64", "total_memory() should return i64");
+assert(total_mem > 0, "total_memory() should be positive");
+print("total_memory() = " + total_mem + " bytes (" + os.format_bytes(total_mem) + ")");
+
+// Test free_memory()
+let free_mem = os.free_memory();
+assert(typeof(free_mem) == "i64", "free_memory() should return i64");
+assert(free_mem > 0, "free_memory() should be positive");
+assert(free_mem <= total_mem, "free_memory() should be <= total_memory()");
+print("free_memory() = " + free_mem + " bytes (" + os.format_bytes(free_mem) + ")");
+
+// ========== Convenience Functions Tests ==========
+
+// Test info()
+let info = os.info();
+assert(typeof(info) == "object", "info() should return an object");
+assert(info.platform == p, "info().platform should match platform()");
+assert(info.arch == a, "info().arch should match arch()");
+assert(info.hostname == host, "info().hostname should match hostname()");
+assert(info.username == user, "info().username should match username()");
+assert(info.cpu_count == cpus, "info().cpu_count should match cpu_count()");
+print("info() = object with " + info.cpu_count + " CPUs");
+
+// Test memory_info()
+let mem_info = os.memory_info();
+assert(typeof(mem_info) == "object", "memory_info() should return an object");
+assert(mem_info.total > 0, "memory_info().total should be positive");
+assert(mem_info.free > 0, "memory_info().free should be positive");
+assert(mem_info.used >= 0, "memory_info().used should be non-negative");
+assert(mem_info.total == mem_info.free + mem_info.used, "total should equal free + used");
+print("memory_info() = total: " + os.format_bytes(mem_info.total) +
+      ", used: " + os.format_bytes(mem_info.used) +
+      ", free: " + os.format_bytes(mem_info.free));
+
+// Test format_bytes()
+assert(os.format_bytes(0) == "0 B", "format_bytes(0) should be '0 B'");
+assert(os.format_bytes(500) == "500 B", "format_bytes(500) should be '500 B'");
+assert(os.format_bytes(1024) == "1 KB", "format_bytes(1024) should be '1 KB'");
+assert(os.format_bytes(1048576) == "1 MB", "format_bytes(1048576) should be '1 MB'");
+assert(os.format_bytes(1073741824) == "1 GB", "format_bytes(1073741824) should be '1 GB'");
+print("format_bytes() tests passed");
+
+print("");
+print("All @stdlib/os tests passed!");

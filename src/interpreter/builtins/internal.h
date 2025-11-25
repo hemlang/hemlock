@@ -192,4 +192,18 @@ Value builtin_zlib_compress_bound(Value *args, int num_args, ExecutionContext *c
 Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 
+// OS information builtins (os.c)
+Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_username(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_cpu_count(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H
