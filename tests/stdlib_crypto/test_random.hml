@@ -1,0 +1,67 @@
+// Test: @stdlib/crypto - Secure random bytes generation
+
+import { random_bytes } from "@stdlib/crypto";
+
+print("Testing random_bytes()...");
+
+// Test 1: Generate random bytes
+let bytes = random_bytes(32);
+if (bytes.length != 32) {
+    throw "Expected 32 bytes, got " + typeof(bytes.length);
+}
+print("✓ Generated 32 random bytes");
+
+// Test 2: Different calls produce different results
+let bytes1 = random_bytes(16);
+let bytes2 = random_bytes(16);
+
+let same = true;
+let i = 0;
+while (i < 16) {
+    if (bytes1[i] != bytes2[i]) {
+        same = false;
+    }
+    i = i + 1;
+}
+
+if (same) {
+    throw "Random bytes are identical (probability: 1 in 2^128)";
+}
+print("✓ Random bytes are different across calls");
+
+// Test 3: Various sizes
+let sizes = [1, 8, 16, 32, 64, 128, 256];
+i = 0;
+while (i < sizes.length) {
+    let size = sizes[i];
+    let buf = random_bytes(size);
+    if (buf.length != size) {
+        throw "Expected " + typeof(size) + " bytes, got " + typeof(buf.length);
+    }
+    i = i + 1;
+}
+print("✓ Various sizes work correctly");
+
+// Test 4: Error handling - zero size
+try {
+    random_bytes(0);
+    throw "Should have thrown error for size 0";
+} catch (e) {
+    if (e != "random_bytes() requires positive size") {
+        throw "Wrong error message: " + e;
+    }
+}
+print("✓ Error handling for zero size");
+
+// Test 5: Error handling - negative size
+try {
+    random_bytes(-10);
+    throw "Should have thrown error for negative size";
+} catch (e) {
+    if (e != "random_bytes() requires positive size") {
+        throw "Wrong error message: " + e;
+    }
+}
+print("✓ Error handling for negative size");
+
+print("All random_bytes tests passed!");

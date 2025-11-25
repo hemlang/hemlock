@@ -1,0 +1,148 @@
+// Test: @stdlib/crypto - Utility functions (hex encoding/decoding)
+
+import { buffer_to_hex, hex_to_buffer, random_bytes } from "@stdlib/crypto";
+
+print("Testing utility functions...");
+
+// Test 1: buffer_to_hex
+let bytes = random_bytes(16);
+let hex = buffer_to_hex(bytes);
+
+if (typeof(hex) != "string") {
+    throw "Expected string from buffer_to_hex, got " + typeof(hex);
+}
+
+if (hex.length != 32) {
+    throw "Expected 32 hex characters for 16 bytes, got " + typeof(hex.length);
+}
+print("✓ buffer_to_hex (16 bytes -> 32 hex chars)");
+
+// Test 2: hex_to_buffer - known values
+let test_hex = "48656c6c6f";  // "Hello" in hex
+let decoded = hex_to_buffer(test_hex);
+
+if (decoded.length != 5) {
+    throw "Expected 5 bytes, got " + typeof(decoded.length);
+}
+
+// Check bytes match "Hello"
+if (decoded[0] != 72 || decoded[1] != 101 || decoded[2] != 108 || decoded[3] != 108 || decoded[4] != 111) {
+    throw "Decoded bytes don't match 'Hello'";
+}
+print("✓ hex_to_buffer (known value)");
+
+// Test 3: Round-trip conversion
+let original = random_bytes(32);
+let hex2 = buffer_to_hex(original);
+let restored = hex_to_buffer(hex2);
+
+if (restored.length != original.length) {
+    throw "Round-trip length mismatch";
+}
+
+let i = 0;
+while (i < original.length) {
+    if (original[i] != restored[i]) {
+        throw "Round-trip byte mismatch at index " + typeof(i);
+    }
+    i = i + 1;
+}
+print("✓ Round-trip conversion (buffer -> hex -> buffer)");
+
+// Test 4: Empty buffer (skip - buffer(0) not allowed)
+// Buffers must have positive size in Hemlock
+print("✓ Empty buffer conversion (skipped - buffer must have positive size)");
+
+// Test 5: Various sizes
+let sizes = [1, 2, 8, 16, 32, 64, 100];
+i = 0;
+while (i < sizes.length) {
+    let size = sizes[i];
+    let buf = random_bytes(size);
+    let h = buffer_to_hex(buf);
+
+    if (h.length != size * 2) {
+        throw "Expected " + typeof(size * 2) + " hex chars, got " + typeof(h.length);
+    }
+
+    let back = hex_to_buffer(h);
+    if (back.length != size) {
+        throw "Round-trip size mismatch for size " + typeof(size);
+    }
+
+    i = i + 1;
+}
+print("✓ Various buffer sizes");
+
+// Test 6: Lowercase hex
+let lowercase = "deadbeef";
+let lower_buf = hex_to_buffer(lowercase);
+
+if (lower_buf.length != 4) {
+    throw "Expected 4 bytes from lowercase hex";
+}
+
+if (lower_buf[0] != 222 || lower_buf[1] != 173 || lower_buf[2] != 190 || lower_buf[3] != 239) {
+    throw "Lowercase hex decoding failed";
+}
+print("✓ Lowercase hex decoding");
+
+// Test 7: Uppercase hex
+let uppercase = "DEADBEEF";
+let upper_buf = hex_to_buffer(uppercase);
+
+if (upper_buf.length != 4) {
+    throw "Expected 4 bytes from uppercase hex";
+}
+
+if (upper_buf[0] != 222 || upper_buf[1] != 173 || upper_buf[2] != 190 || upper_buf[3] != 239) {
+    throw "Uppercase hex decoding failed";
+}
+print("✓ Uppercase hex decoding");
+
+// Test 8: Mixed case hex
+let mixed = "DeAdBeEf";
+let mixed_buf = hex_to_buffer(mixed);
+
+if (mixed_buf.length != 4) {
+    throw "Expected 4 bytes from mixed case hex";
+}
+print("✓ Mixed case hex decoding");
+
+// Test 9: Error handling - odd length hex string
+try {
+    hex_to_buffer("abc");  // Odd length
+    throw "Should have thrown error for odd-length hex string";
+} catch (e) {
+    if (e != "hex_to_buffer() requires even-length hex string") {
+        throw "Wrong error message: " + e;
+    }
+}
+print("✓ Error handling for odd-length hex string");
+
+// Test 10: All byte values (0-255)
+let all_bytes = buffer(256);
+i = 0;
+while (i < 256) {
+    let val: u8 = i;
+    all_bytes[i] = val;
+    i = i + 1;
+}
+
+let all_hex = buffer_to_hex(all_bytes);
+let all_restored = hex_to_buffer(all_hex);
+
+if (all_restored.length != 256) {
+    throw "All bytes round-trip length mismatch";
+}
+
+i = 0;
+while (i < 256) {
+    if (all_bytes[i] != all_restored[i]) {
+        throw "All bytes round-trip mismatch at " + typeof(i);
+    }
+    i = i + 1;
+}
+print("✓ All byte values (0-255) round-trip");
+
+print("All utility function tests passed!");

@@ -1,0 +1,925 @@
+// @stdlib/crypto - Cryptographic functions via OpenSSL FFI
+//
+// Provides secure cryptographic operations:
+// - Secure random bytes generation (RAND_bytes)
+// - AES-256-CBC encryption/decryption
+// - RSA signing and verification
+// - ECDSA signing and verification
+//
+// System Requirements:
+// - OpenSSL libcrypto.so.3 (same as @stdlib/hash)
+// - On Debian/Ubuntu: sudo apt-get install libssl-dev
+//
+// Usage:
+//   import { random_bytes, aes_encrypt, aes_decrypt } from "@stdlib/crypto";
+//   import { rsa_generate_key, rsa_sign, rsa_verify } from "@stdlib/crypto";
+//   import { ecdsa_generate_key, ecdsa_sign, ecdsa_verify } from "@stdlib/crypto";
+
+// Import OpenSSL's libcrypto for cryptographic functions
+import "libcrypto.so.3";
+
+// Import hash functions for use in signatures
+import { sha256 } from "@stdlib/hash";
+
+// ============================================================================
+// SECURE RANDOM BYTES
+// ============================================================================
+
+// OpenSSL random bytes generation
+// int RAND_bytes(unsigned char *buf, int num)
+extern fn RAND_bytes(buf: ptr, num: i32): i32;
+
+// Generate cryptographically secure random bytes
+// Returns a buffer containing random bytes
+export fn random_bytes(size) {
+    if (size <= 0) {
+        throw "random_bytes() requires positive size";
+    }
+
+    let buf = alloc(size);
+    let result = RAND_bytes(buf, size);
+
+    if (result != 1) {
+        free(buf);
+        throw "RAND_bytes() failed to generate random data";
+    }
+
+    // Convert ptr to buffer with proper metadata
+    let output = buffer(size);
+    let i = 0;
+    while (i < size) {
+        // Read byte using __read_u32 pattern (align to 4-byte boundary)
+        let word_ptr = buf + (i & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+        output[i] = byte_val;
+        i = i + 1;
+    }
+    free(buf);
+
+    return output;
+}
+
+// ============================================================================
+// AES-256-CBC ENCRYPTION/DECRYPTION
+// ============================================================================
+
+// OpenSSL EVP cipher functions
+// EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void)
+extern fn EVP_CIPHER_CTX_new(): ptr;
+
+// void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx)
+extern fn EVP_CIPHER_CTX_free(ctx: ptr): void;
+
+// const EVP_CIPHER *EVP_aes_256_cbc(void)
+extern fn EVP_aes_256_cbc(): ptr;
+
+// int EVP_EncryptInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
+//                        ENGINE *impl, const unsigned char *key, const unsigned char *iv)
+extern fn EVP_EncryptInit_ex(ctx: ptr, cipher: ptr, engine: ptr, key: ptr, iv: ptr): i32;
+
+// int EVP_EncryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl,
+//                       const unsigned char *in, int inl)
+extern fn EVP_EncryptUpdate(ctx: ptr, out: ptr, outl: ptr, input: ptr, inl: i32): i32;
+
+// int EVP_EncryptFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl)
+extern fn EVP_EncryptFinal_ex(ctx: ptr, out: ptr, outl: ptr): i32;
+
+// int EVP_DecryptInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
+//                        ENGINE *impl, const unsigned char *key, const unsigned char *iv)
+extern fn EVP_DecryptInit_ex(ctx: ptr, cipher: ptr, engine: ptr, key: ptr, iv: ptr): i32;
+
+// int EVP_DecryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl,
+//                       const unsigned char *in, int inl)
+extern fn EVP_DecryptUpdate(ctx: ptr, out: ptr, outl: ptr, input: ptr, inl: i32): i32;
+
+// int EVP_DecryptFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *outm, int *outl)
+extern fn EVP_DecryptFinal_ex(ctx: ptr, out: ptr, outl: ptr): i32;
+
+// Generate a 256-bit (32 byte) AES key
+export fn generate_aes_key() {
+    return random_bytes(32);
+}
+
+// Generate a 128-bit (16 byte) initialization vector (IV)
+export fn generate_iv() {
+    return random_bytes(16);
+}
+
+// Helper: Convert buffer to raw pointer (allocates new memory, caller must free)
+fn buffer_to_ptr(buf) {
+    let len = buf.length;
+    let p = alloc(len);
+    let i = 0;
+    while (i < len) {
+        let byte_val = buf[i];
+        let dest = p + i;
+        memset(dest, byte_val, 1);
+        i = i + 1;
+    }
+    return p;
+}
+
+// Helper: Convert string to raw byte pointer (caller must free)
+fn string_to_bytes_ptr(s) {
+    let bytes = s.bytes();
+    let len = bytes.length;
+
+    // Handle empty string
+    if (len == 0) {
+        len = 1;  // OpenSSL needs at least 1 byte buffer
+    }
+
+    let p = alloc(len);
+    let i = 0;
+    while (i < bytes.length) {
+        let byte_val: u8 = bytes[i];
+        // Write byte to memory
+        let dest = p + i;
+        memset(dest, byte_val, 1);
+        i = i + 1;
+    }
+
+    // Pad with zero if we allocated extra
+    if (bytes.length == 0) {
+        memset(p, 0, 1);
+    }
+
+    return p;
+}
+
+// Helper: Convert string to byte buffer (for compatibility)
+fn string_to_bytes(s) {
+    let bytes = s.bytes();
+    let len = bytes.length;
+
+    // Handle empty string
+    if (len == 0) {
+        len = 1;  // OpenSSL needs at least 1 byte buffer
+    }
+
+    let buf = buffer(len);
+    let i = 0;
+    while (i < bytes.length) {
+        let byte_val: u8 = bytes[i];
+        buf[i] = byte_val;
+        i = i + 1;
+    }
+
+    // Pad with zero if we allocated extra
+    if (bytes.length == 0) {
+        buf[0] = 0;
+    }
+
+    return buf;
+}
+
+// Helper: Convert buffer to string
+fn bytes_to_string(buf, len) {
+    print("[DEBUG] bytes_to_string called with len=" + typeof(len));
+    let result = "";
+    let i = 0;
+    while (i < len) {
+        let b = buf[i];
+        let r: rune = b;
+        result = result + r;
+        i = i + 1;
+    }
+    print("[DEBUG] bytes_to_string returning type: " + typeof(result));
+    return result;
+}
+
+// AES-256-CBC Encryption
+// plaintext: string to encrypt
+// key: 256-bit (32 byte) key
+// iv: 128-bit (16 byte) initialization vector
+// Returns: encrypted buffer (includes PKCS#7 padding)
+export fn aes_encrypt(plaintext, key, iv) {
+    // NOTE: Buffers can be passed directly to extern functions expecting ptr
+    // Hemlock handles the conversion automatically
+
+    // Validate inputs
+    if (key.length != 32) {
+        throw "aes_encrypt() requires 32-byte (256-bit) key";
+    }
+    if (iv.length != 16) {
+        throw "aes_encrypt() requires 16-byte (128-bit) iv";
+    }
+
+    // Convert plaintext to bytes
+    let plaintext_bytes = string_to_bytes(plaintext);
+    let plaintext_len = plaintext_bytes.length;
+
+    // Convert buffers to raw pointers for OpenSSL
+    let plaintext_ptr = buffer_to_ptr(plaintext_bytes);
+    let key_ptr = buffer_to_ptr(key);
+    let iv_ptr = buffer_to_ptr(iv);
+
+    // Create cipher context
+    let ctx = EVP_CIPHER_CTX_new();
+    if (ctx == null) {
+        free(plaintext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        throw "Failed to create cipher context";
+    }
+
+    // Initialize encryption - use raw pointers
+    let cipher = EVP_aes_256_cbc();
+    let result = EVP_EncryptInit_ex(ctx, cipher, null, key_ptr, iv_ptr);
+    if (result != 1) {
+        free(plaintext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        EVP_CIPHER_CTX_free(ctx);
+        throw "EVP_EncryptInit_ex() failed";
+    }
+
+    // Allocate output buffer (plaintext + block size for padding)
+    let max_output_len = plaintext_len + 16;
+    let ciphertext = alloc(max_output_len);
+    let outlen_ptr = alloc(4);  // int* for output length
+
+    // Encrypt - use raw pointer
+    result = EVP_EncryptUpdate(ctx, ciphertext, outlen_ptr, plaintext_ptr, plaintext_len);
+    if (result != 1) {
+        free(plaintext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        free(ciphertext);
+        free(outlen_ptr);
+        EVP_CIPHER_CTX_free(ctx);
+        throw "EVP_EncryptUpdate() failed";
+    }
+
+    // Read i32 using __read_u32 (values fit in i32 range)
+    let ciphertext_len = __read_u32(outlen_ptr);
+
+    // Finalize encryption (adds padding)
+    let final_ptr = ciphertext + ciphertext_len;
+    let final_len_ptr = alloc(4);
+    result = EVP_EncryptFinal_ex(ctx, final_ptr, final_len_ptr);
+    if (result != 1) {
+        free(plaintext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        free(ciphertext);
+        free(outlen_ptr);
+        free(final_len_ptr);
+        EVP_CIPHER_CTX_free(ctx);
+        throw "EVP_EncryptFinal_ex() failed";
+    }
+
+    // Read i32 using __read_u32
+    let final_len = __read_u32(final_len_ptr);
+    let total_len = ciphertext_len + final_len;
+
+    // Copy to buffer
+    let output = buffer(total_len);
+    let i = 0;
+    while (i < total_len) {
+        // Read byte using __read_u32 pattern
+        let word_ptr = ciphertext + (i & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+        output[i] = byte_val;
+        i = i + 1;
+    }
+
+    // Cleanup
+    free(plaintext_ptr);
+    free(key_ptr);
+    free(iv_ptr);
+    free(ciphertext);
+    free(outlen_ptr);
+    free(final_len_ptr);
+    EVP_CIPHER_CTX_free(ctx);
+
+    return output;
+}
+
+// AES-256-CBC Decryption
+// ciphertext: encrypted buffer
+// key: 256-bit (32 byte) key (same as encryption)
+// iv: 128-bit (16 byte) initialization vector (same as encryption)
+// Returns: decrypted string
+export fn aes_decrypt(ciphertext, key, iv) {
+    // NOTE: Buffers can be passed directly to extern functions expecting ptr
+    // Hemlock handles the conversion automatically
+
+    // Validate inputs
+    if (key.length != 32) {
+        throw "aes_decrypt() requires 32-byte (256-bit) key";
+    }
+    if (iv.length != 16) {
+        throw "aes_decrypt() requires 16-byte (128-bit) iv";
+    }
+
+    let ciphertext_len = ciphertext.length;
+
+    // Convert buffers to raw pointers for OpenSSL
+    let ciphertext_ptr = buffer_to_ptr(ciphertext);
+    let key_ptr = buffer_to_ptr(key);
+    let iv_ptr = buffer_to_ptr(iv);
+
+    // Create cipher context
+    let ctx = EVP_CIPHER_CTX_new();
+    if (ctx == null) {
+        free(ciphertext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        throw "Failed to create cipher context";
+    }
+
+    // Initialize decryption - use raw pointers
+    let cipher = EVP_aes_256_cbc();
+    let result = EVP_DecryptInit_ex(ctx, cipher, null, key_ptr, iv_ptr);
+    if (result != 1) {
+        free(ciphertext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        EVP_CIPHER_CTX_free(ctx);
+        throw "EVP_DecryptInit_ex() failed";
+    }
+
+    // Allocate output buffer
+    let max_output_len = ciphertext_len + 16;
+    let plaintext = alloc(max_output_len);
+    let outlen_ptr = alloc(4);
+
+    // Decrypt - use raw pointer for ciphertext
+    result = EVP_DecryptUpdate(ctx, plaintext, outlen_ptr, ciphertext_ptr, ciphertext_len);
+    if (result != 1) {
+        free(ciphertext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        free(plaintext);
+        free(outlen_ptr);
+        EVP_CIPHER_CTX_free(ctx);
+        throw "EVP_DecryptUpdate() failed";
+    }
+
+    // Read i32 using __read_u32
+    let plaintext_len = __read_u32(outlen_ptr);
+
+    // Finalize decryption (removes padding)
+    let final_ptr = plaintext + plaintext_len;
+    let final_len_ptr = alloc(4);
+    result = EVP_DecryptFinal_ex(ctx, final_ptr, final_len_ptr);
+    if (result != 1) {
+        free(ciphertext_ptr);
+        free(key_ptr);
+        free(iv_ptr);
+        free(plaintext);
+        free(outlen_ptr);
+        free(final_len_ptr);
+        EVP_CIPHER_CTX_free(ctx);
+        throw "EVP_DecryptFinal_ex() failed (possibly wrong key/iv or corrupted data)";
+    }
+
+    // Read i32 using __read_u32
+    let final_len = __read_u32(final_len_ptr);
+    let total_len = plaintext_len + final_len;
+
+    // Convert to string
+    let output_buf = buffer(total_len);
+    let i2 = 0;
+    while (i2 < total_len) {
+        // Read byte using __read_u32 pattern
+        let word_ptr = plaintext + (i2 & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i2 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+        output_buf[i2] = byte_val;
+        i2 = i2 + 1;
+    }
+
+    // Convert buffer to string
+    let result_string = "";
+    let i3 = 0;
+    while (i3 < total_len) {
+        let b = output_buf[i3];
+        let r: rune = b;
+        result_string = result_string + r;
+        i3 = i3 + 1;
+    }
+
+    // Cleanup
+    free(ciphertext_ptr);
+    free(key_ptr);
+    free(iv_ptr);
+    free(plaintext);
+    free(outlen_ptr);
+    free(final_len_ptr);
+    EVP_CIPHER_CTX_free(ctx);
+
+    return result_string;
+}
+
+// ============================================================================
+// RSA SIGNATURES (2048-bit keys with SHA-256)
+// ============================================================================
+
+// OpenSSL EVP key functions
+// EVP_PKEY *EVP_PKEY_new(void)
+extern fn EVP_PKEY_new(): ptr;
+
+// void EVP_PKEY_free(EVP_PKEY *pkey)
+extern fn EVP_PKEY_free(pkey: ptr): void;
+
+// EVP_PKEY_CTX *EVP_PKEY_CTX_new_id(int id, ENGINE *e)
+extern fn EVP_PKEY_CTX_new_id(id: i32, engine: ptr): ptr;
+
+// void EVP_PKEY_CTX_free(EVP_PKEY_CTX *ctx)
+extern fn EVP_PKEY_CTX_free(ctx: ptr): void;
+
+// int EVP_PKEY_keygen_init(EVP_PKEY_CTX *ctx)
+extern fn EVP_PKEY_keygen_init(ctx: ptr): i32;
+
+// int EVP_PKEY_CTX_set_rsa_keygen_bits(EVP_PKEY_CTX *ctx, int mbits)
+extern fn EVP_PKEY_CTX_set_rsa_keygen_bits(ctx: ptr, bits: i32): i32;
+
+// int EVP_PKEY_keygen(EVP_PKEY_CTX *ctx, EVP_PKEY **ppkey)
+extern fn EVP_PKEY_keygen(ctx: ptr, ppkey: ptr): i32;
+
+// EVP_PKEY *EVP_PKEY_Q_keygen(OSSL_LIB_CTX *libctx, const char *propq, const char *type, size_t bits)
+// OpenSSL 3.x simplified API - returns pointer directly, no need for pointer-to-pointer
+extern fn EVP_PKEY_Q_keygen(libctx: ptr, propq: ptr, type_name: ptr, bits: u64): ptr;
+
+// EVP_PKEY_CTX *EVP_PKEY_CTX_new_from_name(OSSL_LIB_CTX *libctx, const char *name, const char *propquery)
+extern fn EVP_PKEY_CTX_new_from_name(libctx: ptr, name: ptr, propquery: ptr): ptr;
+
+// int EVP_PKEY_CTX_set_group_name(EVP_PKEY_CTX *ctx, const char *name)
+extern fn EVP_PKEY_CTX_set_group_name(ctx: ptr, name: ptr): i32;
+
+// int EVP_PKEY_generate(EVP_PKEY_CTX *ctx, EVP_PKEY **ppkey)
+extern fn EVP_PKEY_generate(ctx: ptr, ppkey: ptr): i32;
+
+// EVP_MD_CTX *EVP_MD_CTX_new(void)
+extern fn EVP_MD_CTX_new(): ptr;
+
+// void EVP_MD_CTX_free(EVP_MD_CTX *ctx)
+extern fn EVP_MD_CTX_free(ctx: ptr): void;
+
+// const EVP_MD *EVP_sha256(void)
+extern fn EVP_sha256(): ptr;
+
+// int EVP_DigestSignInit(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
+//                        const EVP_MD *type, ENGINE *e, EVP_PKEY *pkey)
+extern fn EVP_DigestSignInit(ctx: ptr, pctx: ptr, md: ptr, engine: ptr, pkey: ptr): i32;
+
+// int EVP_DigestSign(EVP_MD_CTX *ctx, unsigned char *sigret, size_t *siglen,
+//                    const unsigned char *tbs, size_t tbslen)
+extern fn EVP_DigestSign(ctx: ptr, sig: ptr, siglen: ptr, data: ptr, datalen: i32): i32;
+
+// int EVP_DigestVerifyInit(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
+//                          const EVP_MD *type, ENGINE *e, EVP_PKEY *pkey)
+extern fn EVP_DigestVerifyInit(ctx: ptr, pctx: ptr, md: ptr, engine: ptr, pkey: ptr): i32;
+
+// int EVP_DigestVerify(EVP_MD_CTX *ctx, const unsigned char *sigret, size_t siglen,
+//                      const unsigned char *tbs, size_t tbslen)
+extern fn EVP_DigestVerify(ctx: ptr, sig: ptr, siglen: i32, data: ptr, datalen: i32): i32;
+
+// EVP key type constants
+let EVP_PKEY_RSA = 6;
+let EVP_PKEY_EC = 408;
+
+// RSA key pair object
+define RSAKeyPair {
+    private_key: ptr,  // EVP_PKEY* (do not expose directly)
+    public_key: ptr,   // EVP_PKEY* (do not expose directly)
+}
+
+// Generate RSA-2048 key pair
+// Returns RSAKeyPair object with private and public keys
+// NOTE: Keys must be freed with rsa_free_keys()
+export fn rsa_generate_key() {
+    // Use OpenSSL 3.x simplified API (EVP_PKEY_Q_keygen)
+    // This avoids pointer-to-pointer issues that caused segfaults with EVP_PKEY_keygen
+
+    // Create null-terminated C string "RSA\0"
+    let type_str = buffer(4);
+    type_str[0] = 82;  // 'R'
+    type_str[1] = 83;  // 'S'
+    type_str[2] = 65;  // 'A'
+    type_str[3] = 0;   // null terminator
+
+    let type_ptr = buffer_to_ptr(type_str);
+
+    // EVP_PKEY_Q_keygen(NULL, NULL, "RSA", 2048) - returns EVP_PKEY* directly
+    let pkey = EVP_PKEY_Q_keygen(null, null, type_ptr, 2048);
+
+    // Cleanup temporary buffer
+    free(type_ptr);
+
+    if (pkey == null) {
+        throw "RSA key generation failed";
+    }
+
+    // For simplicity, we use the same key object for both private and public
+    // In real implementation, you'd extract public key separately
+    let keypair = {
+        private_key: pkey,
+        public_key: pkey
+    };
+
+    return keypair;
+}
+
+// Free RSA key pair
+export fn rsa_free_keys(keypair) {
+    if (keypair.private_key != null) {
+        EVP_PKEY_free(keypair.private_key);
+    }
+}
+
+// Sign data with RSA private key using SHA-256
+// Returns signature as buffer
+export fn rsa_sign(data, keypair) {
+    // Type validation removed due to typeof() issues with function parameters
+    if (keypair.private_key == null) {
+        throw "rsa_sign() requires valid RSA key pair";
+    }
+
+    // Convert data to bytes
+    let data_bytes = string_to_bytes(data);
+    let data_len = data_bytes.length;
+
+    // Convert buffer to pointer for OpenSSL
+    let data_ptr = buffer_to_ptr(data_bytes);
+
+    // Create message digest context
+    let md_ctx = EVP_MD_CTX_new();
+    if (md_ctx == null) {
+        free(data_ptr);
+        throw "Failed to create MD context";
+    }
+
+    // Initialize signing
+    let md = EVP_sha256();
+    let result = EVP_DigestSignInit(md_ctx, null, md, null, keypair.private_key);
+    if (result != 1) {
+        free(data_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestSignInit() failed";
+    }
+
+    // Determine signature length (first call with NULL sig)
+    let siglen_ptr = alloc(8);  // size_t*
+    result = EVP_DigestSign(md_ctx, null, siglen_ptr, data_ptr, data_len);
+    if (result != 1) {
+        free(data_ptr);
+        free(siglen_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestSign() failed to get signature length";
+    }
+
+    // Read signature length as u64 (size_t is 64-bit)
+    let siglen = __read_u64(siglen_ptr);
+
+    // Allocate signature buffer
+    let sig = alloc(siglen);
+
+    // Actually sign
+    result = EVP_DigestSign(md_ctx, sig, siglen_ptr, data_ptr, data_len);
+    if (result != 1) {
+        free(data_ptr);
+        free(sig);
+        free(siglen_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestSign() failed";
+    }
+
+    // Copy to buffer
+    let output = buffer(siglen);
+    let i3 = 0;
+    while (i3 < siglen) {
+        // Read byte using __read_u32 pattern
+        let word_ptr = sig + (i3 & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i3 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+        output[i3] = byte_val;
+        i3 = i3 + 1;
+    }
+
+    // Cleanup
+    free(data_ptr);
+    free(sig);
+    free(siglen_ptr);
+    EVP_MD_CTX_free(md_ctx);
+
+    return output;
+}
+
+// Verify RSA signature with public key using SHA-256
+// Returns true if signature is valid, false otherwise
+export fn rsa_verify(data, signature, keypair) {
+    // Type validation removed due to typeof() issues with function parameters
+    if (keypair.public_key == null) {
+        throw "rsa_verify() requires valid RSA key pair";
+    }
+
+    // Convert data to bytes
+    let data_bytes = string_to_bytes(data);
+    let data_len = data_bytes.length;
+
+    // Convert buffers to pointers for OpenSSL
+    let data_ptr = buffer_to_ptr(data_bytes);
+    let sig_ptr = buffer_to_ptr(signature);
+    let sig_len = signature.length;
+
+    // Create message digest context
+    let md_ctx = EVP_MD_CTX_new();
+    if (md_ctx == null) {
+        free(data_ptr);
+        free(sig_ptr);
+        throw "Failed to create MD context";
+    }
+
+    // Initialize verification
+    let md = EVP_sha256();
+    let result = EVP_DigestVerifyInit(md_ctx, null, md, null, keypair.public_key);
+    if (result != 1) {
+        free(data_ptr);
+        free(sig_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestVerifyInit() failed";
+    }
+
+    // Verify signature
+    result = EVP_DigestVerify(md_ctx, sig_ptr, sig_len, data_ptr, data_len);
+
+    // Cleanup
+    free(data_ptr);
+    free(sig_ptr);
+    EVP_MD_CTX_free(md_ctx);
+
+    // Return true if verification succeeded (result == 1)
+    return result == 1;
+}
+
+// ============================================================================
+// ECDSA SIGNATURES (P-256 curve with SHA-256)
+// ============================================================================
+
+// int EVP_PKEY_CTX_set_ec_paramgen_curve_nid(EVP_PKEY_CTX *ctx, int nid)
+extern fn EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx: ptr, nid: i32): i32;
+
+// NID for P-256 curve (secp256r1 / prime256v1)
+let NID_X9_62_prime256v1 = 415;
+
+// ECDSA key pair object (same structure as RSA for simplicity)
+define ECDSAKeyPair {
+    private_key: ptr,  // EVP_PKEY*
+    public_key: ptr,   // EVP_PKEY*
+}
+
+// Generate ECDSA P-256 key pair
+// Returns ECDSAKeyPair object with private and public keys
+// NOTE: Keys must be freed with ecdsa_free_keys()
+export fn ecdsa_generate_key() {
+    // Use OpenSSL 3.x simplified API (EVP_PKEY_Q_keygen)
+    // This avoids pointer-to-pointer issues and matches RSA approach
+
+    // Create null-terminated C string "EC\0"
+    let type_str = buffer(3);
+    type_str[0] = 69;  // 'E'
+    type_str[1] = 67;  // 'C'
+    type_str[2] = 0;   // null terminator
+
+    // Create null-terminated C string "prime256v1\0" (P-256 curve)
+    let curve_str = buffer(11);
+    curve_str[0] = 112;  // 'p'
+    curve_str[1] = 114;  // 'r'
+    curve_str[2] = 105;  // 'i'
+    curve_str[3] = 109;  // 'm'
+    curve_str[4] = 101;  // 'e'
+    curve_str[5] = 50;   // '2'
+    curve_str[6] = 53;   // '5'
+    curve_str[7] = 54;   // '6'
+    curve_str[8] = 118;  // 'v'
+    curve_str[9] = 49;   // '1'
+    curve_str[10] = 0;   // null terminator
+
+    let type_ptr = buffer_to_ptr(type_str);
+    let curve_ptr = buffer_to_ptr(curve_str);
+
+    // EVP_PKEY_Q_keygen(NULL, NULL, "EC", "prime256v1") - returns EVP_PKEY* directly
+    // Note: For EC keys, pass curve name as string instead of bits
+    let pkey = EVP_PKEY_Q_keygen(null, null, type_ptr, curve_ptr);
+
+    // Cleanup temporary buffers
+    free(type_ptr);
+    free(curve_ptr);
+
+    if (pkey == null) {
+        throw "ECDSA key generation failed";
+    }
+
+    let keypair = {
+        private_key: pkey,
+        public_key: pkey
+    };
+
+    return keypair;
+}
+
+// Free ECDSA key pair
+export fn ecdsa_free_keys(keypair) {
+    if (keypair.private_key != null) {
+        EVP_PKEY_free(keypair.private_key);
+    }
+}
+
+// Sign data with ECDSA private key using SHA-256
+// Returns signature as buffer (DER-encoded)
+export fn ecdsa_sign(data, keypair) {
+    // Type validation removed due to typeof() issues with function parameters
+    if (keypair.private_key == null) {
+        throw "ecdsa_sign() requires valid ECDSA key pair";
+    }
+
+    // Convert data to bytes
+    let data_bytes = string_to_bytes(data);
+    let data_len = data_bytes.length;
+
+    // Convert buffer to pointer for OpenSSL
+    let data_ptr = buffer_to_ptr(data_bytes);
+
+    // Create message digest context
+    let md_ctx = EVP_MD_CTX_new();
+    if (md_ctx == null) {
+        free(data_ptr);
+        throw "Failed to create MD context";
+    }
+
+    // Initialize signing
+    let md = EVP_sha256();
+    let result = EVP_DigestSignInit(md_ctx, null, md, null, keypair.private_key);
+    if (result != 1) {
+        free(data_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestSignInit() failed";
+    }
+
+    // Determine signature length
+    let siglen_ptr = alloc(8);  // size_t*
+    result = EVP_DigestSign(md_ctx, null, siglen_ptr, data_ptr, data_len);
+    if (result != 1) {
+        free(data_ptr);
+        free(siglen_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestSign() failed to get signature length";
+    }
+
+    // Read signature length as u64 (size_t is 64-bit)
+    let siglen = __read_u64(siglen_ptr);
+
+    // Allocate signature buffer
+    let sig = alloc(siglen);
+
+    // Actually sign
+    result = EVP_DigestSign(md_ctx, sig, siglen_ptr, data_ptr, data_len);
+    if (result != 1) {
+        free(data_ptr);
+        free(sig);
+        free(siglen_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestSign() failed";
+    }
+
+    // Copy to buffer
+    let output = buffer(siglen);
+    let i4 = 0;
+    while (i4 < siglen) {
+        // Read byte using __read_u32 pattern
+        let word_ptr = sig + (i4 & ~3);
+        let word = __read_u32(word_ptr);
+        let byte_offset = i4 % 4;
+        let byte_val = (word >> (byte_offset * 8)) & 255;
+        output[i4] = byte_val;
+        i4 = i4 + 1;
+    }
+
+    // Cleanup
+    free(data_ptr);
+    free(sig);
+    free(siglen_ptr);
+    EVP_MD_CTX_free(md_ctx);
+
+    return output;
+}
+
+// Verify ECDSA signature with public key using SHA-256
+// Returns true if signature is valid, false otherwise
+export fn ecdsa_verify(data, signature, keypair) {
+    // Type validation removed due to typeof() issues with function parameters
+    if (keypair.public_key == null) {
+        throw "ecdsa_verify() requires valid ECDSA key pair";
+    }
+
+    // Convert data to bytes
+    let data_bytes = string_to_bytes(data);
+    let data_len = data_bytes.length;
+
+    // Convert buffers to pointers for OpenSSL
+    let data_ptr = buffer_to_ptr(data_bytes);
+    let sig_ptr = buffer_to_ptr(signature);
+    let sig_len = signature.length;
+
+    // Create message digest context
+    let md_ctx = EVP_MD_CTX_new();
+    if (md_ctx == null) {
+        free(data_ptr);
+        free(sig_ptr);
+        throw "Failed to create MD context";
+    }
+
+    // Initialize verification
+    let md = EVP_sha256();
+    let result = EVP_DigestVerifyInit(md_ctx, null, md, null, keypair.public_key);
+    if (result != 1) {
+        free(data_ptr);
+        free(sig_ptr);
+        EVP_MD_CTX_free(md_ctx);
+        throw "EVP_DigestVerifyInit() failed";
+    }
+
+    // Verify signature
+    result = EVP_DigestVerify(md_ctx, sig_ptr, sig_len, data_ptr, data_len);
+
+    // Cleanup
+    free(data_ptr);
+    free(sig_ptr);
+    EVP_MD_CTX_free(md_ctx);
+
+    // Return true if verification succeeded
+    return result == 1;
+}
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+// Convert buffer to hexadecimal string (useful for displaying keys/signatures)
+export fn buffer_to_hex(buf) {
+    let hex_chars = "0123456789abcdef";
+    let result = "";
+    let i = 0;
+    while (i < buf.length) {
+        let byte_val = buf[i];
+        let high = (byte_val >> 4) & 15;
+        let low = byte_val & 15;
+        result = result + hex_chars[high];
+        result = result + hex_chars[low];
+        i = i + 1;
+    }
+    return result;
+}
+
+// Convert hexadecimal string to buffer
+export fn hex_to_buffer(hex) {
+    if (hex.length % 2 != 0) {
+        throw "hex_to_buffer() requires even-length hex string";
+    }
+
+    let len = hex.length / 2;
+    let buf = buffer(len);
+    let i = 0;
+
+    while (i < len) {
+        let high_char = hex[i * 2];
+        let low_char = hex[i * 2 + 1];
+
+        // Convert hex characters to values (simplified, assumes valid hex)
+        let high = 0;
+        let low = 0;
+
+        // High nibble
+        if (high_char >= '0' && high_char <= '9') {
+            high = high_char - '0';
+        } else if (high_char >= 'a' && high_char <= 'f') {
+            high = high_char - 'a' + 10;
+        } else if (high_char >= 'A' && high_char <= 'F') {
+            high = high_char - 'A' + 10;
+        }
+
+        // Low nibble
+        if (low_char >= '0' && low_char <= '9') {
+            low = low_char - '0';
+        } else if (low_char >= 'a' && low_char <= 'f') {
+            low = low_char - 'a' + 10;
+        } else if (low_char >= 'A' && low_char <= 'F') {
+            low = low_char - 'A' + 10;
+        }
+
+        let byte_val: u8 = (high << 4) | low;
+        buf[i] = byte_val;
+        i = i + 1;
+    }
+
+    return buf;
+}

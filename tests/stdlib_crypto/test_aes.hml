@@ -1,0 +1,131 @@
+// Test: @stdlib/crypto - AES-256-CBC encryption/decryption
+
+import { generate_aes_key, generate_iv, aes_encrypt, aes_decrypt } from "@stdlib/crypto";
+
+print("Testing AES-256-CBC...");
+
+// Test 1: Basic encryption/decryption
+let key = generate_aes_key();
+let iv = generate_iv();
+
+if (key.length != 32) {
+    throw "AES key should be 32 bytes, got " + typeof(key.length);
+}
+if (iv.length != 16) {
+    throw "IV should be 16 bytes, got " + typeof(iv.length);
+}
+print("✓ Key and IV generation");
+
+// Test 2: Encrypt and decrypt simple message
+let plaintext = "Hello, World!";
+let ciphertext = aes_encrypt(plaintext, key, iv);
+
+if (ciphertext.length < plaintext.length) {
+    throw "Ciphertext should be at least as long as plaintext";
+}
+
+let decrypted = aes_decrypt(ciphertext, key, iv);
+if (decrypted != plaintext) {
+    throw "Decrypted text doesn't match: " + decrypted;
+}
+print("✓ Basic encryption/decryption");
+
+// Test 3: Longer message
+let long_message = "This is a much longer message that will span multiple AES blocks. AES has a block size of 16 bytes, so this message will be split across several blocks. The CBC mode will chain the blocks together for security.";
+let long_ciphertext = aes_encrypt(long_message, key, iv);
+let long_decrypted = aes_decrypt(long_ciphertext, key, iv);
+
+if (long_decrypted != long_message) {
+    throw "Long message decryption failed";
+}
+print("✓ Long message encryption/decryption");
+
+// Test 4: Empty string
+let empty = "";
+let empty_ciphertext = aes_encrypt(empty, key, iv);
+let empty_decrypted = aes_decrypt(empty_ciphertext, key, iv);
+
+if (empty_decrypted != empty) {
+    throw "Empty string decryption failed";
+}
+print("✓ Empty string encryption/decryption");
+
+// Test 5: Unicode/UTF-8
+let unicode = "Hello 🌍! Hemlock 🚀";
+let unicode_ciphertext = aes_encrypt(unicode, key, iv);
+let unicode_decrypted = aes_decrypt(unicode_ciphertext, key, iv);
+
+if (unicode_decrypted != unicode) {
+    throw "Unicode decryption failed";
+}
+print("✓ Unicode/UTF-8 encryption/decryption");
+
+// Test 6: Different IV produces different ciphertext
+let iv2 = generate_iv();
+let ciphertext1 = aes_encrypt(plaintext, key, iv);
+let ciphertext2 = aes_encrypt(plaintext, key, iv2);
+
+let same = true;
+let i = 0;
+let min_len = ciphertext1.length;
+if (ciphertext2.length < min_len) {
+    min_len = ciphertext2.length;
+}
+
+while (i < min_len) {
+    if (ciphertext1[i] != ciphertext2[i]) {
+        same = false;
+    }
+    i = i + 1;
+}
+
+if (same) {
+    throw "Different IVs should produce different ciphertexts";
+}
+print("✓ Different IVs produce different ciphertexts");
+
+// Test 7: Wrong key fails decryption
+let key2 = generate_aes_key();
+try {
+    aes_decrypt(ciphertext, key2, iv);
+    throw "Should have failed with wrong key";
+} catch (e) {
+    // Expected - decryption should fail
+}
+print("✓ Wrong key fails decryption");
+
+// Test 8: Wrong IV fails decryption
+let iv3 = generate_iv();
+try {
+    aes_decrypt(ciphertext, key, iv3);
+    throw "Should have failed with wrong IV";
+} catch (e) {
+    // Expected - decryption should fail
+}
+print("✓ Wrong IV fails decryption");
+
+// Test 9: Error handling - wrong key size
+try {
+    let bad_key = generate_iv();  // 16 bytes instead of 32
+    aes_encrypt("data", bad_key, iv);
+    throw "Should have thrown error for wrong key size";
+} catch (e) {
+    if (e != "aes_encrypt() requires 32-byte (256-bit) key") {
+        throw "Wrong error message: " + e;
+    }
+}
+print("✓ Error handling for wrong key size");
+
+// Test 10: Error handling - wrong IV size
+try {
+    let bad_iv = generate_aes_key();  // 32 bytes instead of 16
+    aes_encrypt("data", key, bad_iv);
+    throw "Should have thrown error for wrong IV size";
+} catch (e) {
+    if (e != "aes_encrypt() requires 16-byte (128-bit) iv") {
+        throw "Wrong error message: " + e;
+    }
+}
+print("✓ Error handling for wrong IV size");
+
+print("All AES tests passed!");

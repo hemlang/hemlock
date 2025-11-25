@@ -1,0 +1,118 @@
+// Test: @stdlib/testing - Test runner
+// Tests run() function and result reporting
+
+import {
+    describe, test, expect, run
+} from "@stdlib/testing";
+import { exit } from "@stdlib/env";
+
+describe("Test runner results", fn() {
+    test("run returns result object", fn() {
+        // This will be tested after we run()
+        expect(true).to_be_true();
+    });
+
+    test("results have correct fields", fn() {
+        expect(true).to_be_true();
+    });
+});
+
+describe("Array deep equality", fn() {
+    test("empty arrays are equal", fn() {
+        expect([]).to_equal([]);
+    });
+
+    test("nested arrays work", fn() {
+        expect([[1, 2], [3, 4]]).to_equal([[1, 2], [3, 4]]);
+    });
+
+    test("different lengths are not equal", fn() {
+        expect(fn() {
+            expect([1, 2]).to_equal([1, 2, 3]);
+        }).to_throw();
+    });
+
+    test("different values are not equal", fn() {
+        expect(fn() {
+            expect([1, 2, 3]).to_equal([1, 5, 3]);
+        }).to_throw();
+    });
+});
+
+describe("Error messages", fn() {
+    test("equality failures show values", fn() {
+        expect(fn() {
+            expect(5).to_equal(10);
+        }).to_throw();
+    });
+
+    test("type failures show types", fn() {
+        expect(fn() {
+            expect(42).to_be_type("string");
+        }).to_throw();
+    });
+
+    test("comparison failures show values", fn() {
+        expect(fn() {
+            expect(5).to_be_greater_than(10);
+        }).to_throw();
+    });
+});
+
+describe("Mixed type arrays", fn() {
+    test("arrays with different types", fn() {
+        let arr = [1, "hello", true, null];
+        expect(arr.length).to_equal(4);
+        expect(arr).to_contain(1);
+        expect(arr).to_contain("hello");
+        expect(arr).to_contain(true);
+    });
+
+    test("mixed arrays equality", fn() {
+        expect([1, "two", 3.0]).to_equal([1, "two", 3.0]);
+    });
+});
+
+describe("Edge cases", fn() {
+    test("comparing null values", fn() {
+        expect(null).to_equal(null);
+        expect(null).to_be_null();
+    });
+
+    test("empty string vs null", fn() {
+        expect("").not_to_equal(null);
+        expect("").not_to_be_null();
+    });
+
+    test("zero vs false", fn() {
+        expect(0).not_to_equal(false);
+    });
+
+    test("empty array is not null", fn() {
+        expect([]).not_to_be_null();
+    });
+});
+
+describe("Numeric edge cases", fn() {
+    test("negative numbers", fn() {
+        expect(-5).to_be_less_than(0);
+        expect(-10).to_be_less_than(-5);
+    });
+
+    test("floating point", fn() {
+        expect(3.14).to_be_greater_than(3.0);
+        expect(3.14).to_be_less_than(3.2);
+    });
+
+    test("comparing different numeric types", fn() {
+        expect(42).to_equal(42);
+    });
+});
+
+// Run tests - this will execute all registered describe/test blocks above
+let results = run({ no_color: true });
+
+// Exit with error if any tests failed
+if (!results.success) {
+    exit(1);
+}

@@ -1,0 +1,615 @@
+// @stdlib/testing - Test Framework
+// Comprehensive testing utilities with describe/test/expect syntax
+
+// Global test registry
+let __test_suites = [];
+let __current_suite = null;
+let __test_stats = { total: 0, passed: 0, failed: 0, errors: [] };
+
+// ANSI color codes (for terminal output)
+// ESC character (ASCII 27) + color codes
+let __ESC: rune = 27;
+let COLOR_RED = ("" + __ESC) + "[31m";
+let COLOR_GREEN = ("" + __ESC) + "[32m";
+let COLOR_YELLOW = ("" + __ESC) + "[33m";
+let COLOR_BLUE = ("" + __ESC) + "[34m";
+let COLOR_RESET = ("" + __ESC) + "[0m";
+let COLOR_BOLD = ("" + __ESC) + "[1m";
+
+// Helper: Deep equality comparison
+fn __deep_equal(a, b): bool {
+    let type_a = typeof(a);
+    let type_b = typeof(b);
+
+    // Different types
+    if (type_a != type_b) {
+        return false;
+    }
+
+    // Primitives
+    if (type_a == "i8" || type_a == "i16" || type_a == "i32" || type_a == "i64" ||
+        type_a == "u8" || type_a == "u16" || type_a == "u32" || type_a == "u64" ||
+        type_a == "f32" || type_a == "f64" || type_a == "bool" || type_a == "string" ||
+        type_a == "rune" || type_a == "null") {
+        return a == b;
+    }
+
+    // Arrays
+    if (type_a == "array") {
+        if (a.length != b.length) {
+            return false;
+        }
+        let i = 0;
+        while (i < a.length) {
+            if (!__deep_equal(a[i], b[i])) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // Objects (simplified - checks if same reference for now)
+    // TODO: Implement proper object field comparison
+    return a == b;
+}
+
+// Helper: Value to string for error messages
+fn __value_to_string(val): string {
+    let t = typeof(val);
+
+    if (t == "null") {
+        return "null";
+    }
+
+    if (t == "bool") {
+        if (val) {
+            return "true";
+        } else {
+            return "false";
+        }
+    }
+
+    if (t == "string") {
+        return `"${val}"`;
+    }
+
+    if (t == "array") {
+        let parts = [];
+        let i = 0;
+        while (i < val.length) {
+            parts.push(__value_to_string(val[i]));
+            i = i + 1;
+        }
+        return "[" + parts.join(", ") + "]";
+    }
+
+    // Numbers, runes, objects, etc.
+    return "" + val;
+}
+
+// Expectation object
+fn __make_expectation(actual) {
+    return {
+        actual: actual,
+
+        // Core equality assertions
+        to_equal: fn(expected) {
+            if (!__deep_equal(self.actual, expected)) {
+                let msg = `Expected ${__value_to_string(self.actual)} to equal ${__value_to_string(expected)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        to_be: fn(expected) {
+            if (self.actual != expected) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be ${__value_to_string(expected)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        not_to_equal: fn(expected) {
+            if (__deep_equal(self.actual, expected)) {
+                let msg = `Expected ${__value_to_string(self.actual)} not to equal ${__value_to_string(expected)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        not_to_be: fn(expected) {
+            if (self.actual == expected) {
+                let msg = `Expected ${__value_to_string(self.actual)} not to be ${__value_to_string(expected)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        // Null checks
+        to_be_null: fn() {
+            if (typeof(self.actual) != "null") {
+                let msg = `Expected ${__value_to_string(self.actual)} to be null`;
+                throw msg;
+            }
+            return null;
+        },
+
+        not_to_be_null: fn() {
+            if (typeof(self.actual) == "null") {
+                throw "Expected value not to be null";
+            }
+            return null;
+        },
+
+        // Boolean checks
+        to_be_true: fn() {
+            if (typeof(self.actual) != "bool" || !self.actual) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be true`;
+                throw msg;
+            }
+            return null;
+        },
+
+        to_be_false: fn() {
+            if (typeof(self.actual) != "bool" || self.actual) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be false`;
+                throw msg;
+            }
+            return null;
+        },
+
+        // Numeric comparisons
+        to_be_greater_than: fn(value) {
+            if (self.actual <= value) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be greater than ${__value_to_string(value)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        to_be_less_than: fn(value) {
+            if (self.actual >= value) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be less than ${__value_to_string(value)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        to_be_greater_than_or_equal: fn(value) {
+            if (self.actual < value) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be >= ${__value_to_string(value)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        to_be_less_than_or_equal: fn(value) {
+            if (self.actual > value) {
+                let msg = `Expected ${__value_to_string(self.actual)} to be <= ${__value_to_string(value)}`;
+                throw msg;
+            }
+            return null;
+        },
+
+        // Type checks
+        to_be_type: fn(expected_type) {
+            let actual_type = typeof(self.actual);
+            if (actual_type != expected_type) {
+                let msg = `Expected type "${expected_type}" but got "${actual_type}"`;
+                throw msg;
+            }
+            return null;
+        },
+
+        // Container checks
+        to_contain: fn(value) {
+            let t = typeof(self.actual);
+
+            if (t == "array") {
+                if (self.actual.contains(value)) {
+                    return null;
+                }
+                let msg = `Expected array ${__value_to_string(self.actual)} to contain ${__value_to_string(value)}`;
+                throw msg;
+            }
+
+            if (t == "string") {
+                if (self.actual.contains(value)) {
+                    return null;
+                }
+                let msg = `Expected string "${self.actual}" to contain "${value}"`;
+                throw msg;
+            }
+
+            throw "to_contain() only works with arrays and strings";
+        },
+
+        not_to_contain: fn(value) {
+            let t = typeof(self.actual);
+
+            if (t == "array") {
+                if (!self.actual.contains(value)) {
+                    return null;
+                }
+                let msg = `Expected array ${__value_to_string(self.actual)} not to contain ${__value_to_string(value)}`;
+                throw msg;
+            }
+
+            if (t == "string") {
+                if (!self.actual.contains(value)) {
+                    return null;
+                }
+                let msg = `Expected string "${self.actual}" not to contain "${value}"`;
+                throw msg;
+            }
+
+            throw "not_to_contain() only works with arrays and strings";
+        },
+
+        // Throw assertion (for functions)
+        to_throw: fn(expected_msg?: null) {
+            if (typeof(self.actual) != "function") {
+                throw "to_throw() expects a function";
+            }
+
+            let did_throw = false;
+            let thrown_msg = null;
+
+            try {
+                self.actual();
+            } catch (e) {
+                did_throw = true;
+                thrown_msg = e;
+            }
+
+            if (!did_throw) {
+                throw "Expected function to throw but it did not";
+            }
+
+            // Check message if provided
+            if (expected_msg != null) {
+                if (thrown_msg != expected_msg) {
+                    let msg = `Expected throw message "${expected_msg}" but got "${thrown_msg}"`;
+                    throw msg;
+                }
+            }
+
+            return null;
+        },
+
+        not_to_throw: fn() {
+            if (typeof(self.actual) != "function") {
+                throw "not_to_throw() expects a function";
+            }
+
+            try {
+                self.actual();
+            } catch (e) {
+                let msg = `Expected function not to throw but it threw: ${e}`;
+                throw msg;
+            }
+
+            return null;
+        }
+    };
+}
+
+// Public API: expect(value)
+fn expect(value) {
+    return __make_expectation(value);
+}
+
+// Public API: describe(name, fn)
+fn describe(suite_name: string, suite_fn) {
+    let suite = {
+        name: suite_name,
+        tests: [],
+        before_each: null,
+        after_each: null
+    };
+
+    __test_suites.push(suite);
+
+    // Set current suite context
+    let prev_suite = __current_suite;
+    __current_suite = suite;
+
+    // Run the suite function to register tests
+    suite_fn();
+
+    // Restore previous suite
+    __current_suite = prev_suite;
+
+    return null;
+}
+
+// Public API: test(name, fn)
+fn test(test_name: string, test_fn) {
+    if (__current_suite == null) {
+        throw "test() must be called inside describe()";
+    }
+
+    let test_case = {
+        name: test_name,
+        func: test_fn
+    };
+
+    __current_suite.tests.push(test_case);
+    return null;
+}
+
+// Public API: before_each(callback)
+fn before_each(callback) {
+    if (__current_suite == null) {
+        throw "before_each() must be called inside describe()";
+    }
+
+    __current_suite.before_each = callback;
+    return null;
+}
+
+// Public API: after_each(callback)
+fn after_each(callback) {
+    if (__current_suite == null) {
+        throw "after_each() must be called inside describe()";
+    }
+
+    __current_suite.after_each = callback;
+    return null;
+}
+
+// Public API: Simple assertions
+fn assert_eq(actual, expected) {
+    if (!__deep_equal(actual, expected)) {
+        let msg = `Assertion failed: ${__value_to_string(actual)} != ${__value_to_string(expected)}`;
+        throw msg;
+    }
+    return null;
+}
+
+fn assert_ne(actual, expected) {
+    if (__deep_equal(actual, expected)) {
+        let msg = `Assertion failed: ${__value_to_string(actual)} == ${__value_to_string(expected)}`;
+        throw msg;
+    }
+    return null;
+}
+
+fn assert_true(value) {
+    if (typeof(value) != "bool" || !value) {
+        let msg = `Assertion failed: expected true, got ${__value_to_string(value)}`;
+        throw msg;
+    }
+    return null;
+}
+
+fn assert_false(value) {
+    if (typeof(value) != "bool" || value) {
+        let msg = `Assertion failed: expected false, got ${__value_to_string(value)}`;
+        throw msg;
+    }
+    return null;
+}
+
+fn assert_throws(callback, expected_msg?: null) {
+    let did_throw = false;
+    let thrown_msg = null;
+
+    try {
+        callback();
+    } catch (e) {
+        did_throw = true;
+        thrown_msg = e;
+    }
+
+    if (!did_throw) {
+        throw "Assertion failed: expected function to throw";
+    }
+
+    if (expected_msg != null) {
+        if (thrown_msg != expected_msg) {
+            let msg = `Assertion failed: expected throw message "${expected_msg}" but got "${thrown_msg}"`;
+            throw msg;
+        }
+    }
+
+    return null;
+}
+
+// Test runner
+fn run(options?: null) {
+    let verbose = false;
+    let no_color = false;
+
+    if (options != null) {
+        try {
+            if (typeof(options.verbose) == "bool") {
+                verbose = options.verbose;
+            }
+        } catch (e) {
+            // Field doesn't exist, use default
+        }
+        try {
+            if (typeof(options.no_color) == "bool") {
+                no_color = options.no_color;
+            }
+        } catch (e) {
+            // Field doesn't exist, use default
+        }
+    }
+
+    // Reset stats
+    __test_stats.total = 0;
+    __test_stats.passed = 0;
+    __test_stats.failed = 0;
+    __test_stats.errors = [];
+
+    // Print header
+    if (!no_color) {
+        print(COLOR_BOLD + "Running tests..." + COLOR_RESET);
+    } else {
+        print("Running tests...");
+    }
+    print("");
+
+    // Run all test suites
+    let suite_idx = 0;
+    while (suite_idx < __test_suites.length) {
+        let suite = __test_suites[suite_idx];
+
+        // Print suite name
+        if (!no_color) {
+            print(COLOR_BLUE + COLOR_BOLD + suite.name + COLOR_RESET);
+        } else {
+            print(suite.name);
+        }
+
+        // Run each test in suite
+        let test_idx = 0;
+        while (test_idx < suite.tests.length) {
+            let test_case = suite.tests[test_idx];
+            __test_stats.total = __test_stats.total + 1;
+
+            let test_passed = true;
+            let error_msg = null;
+
+            try {
+                // Run before_each hook
+                if (suite.before_each != null) {
+                    suite.before_each();
+                }
+
+                // Run test
+                test_case.func();
+
+                // Run after_each hook
+                if (suite.after_each != null) {
+                    suite.after_each();
+                }
+
+                __test_stats.passed = __test_stats.passed + 1;
+            } catch (e) {
+                test_passed = false;
+                error_msg = e;
+                __test_stats.failed = __test_stats.failed + 1;
+
+                // Record error
+                __test_stats.errors.push({
+                    suite: suite.name,
+                    test: test_case.name,
+                    error: error_msg
+                });
+            }
+
+            // Print test result
+            if (test_passed) {
+                if (!no_color) {
+                    print("  " + COLOR_GREEN + "✓" + COLOR_RESET + " " + test_case.name);
+                } else {
+                    print("  ✓ " + test_case.name);
+                }
+            } else {
+                if (!no_color) {
+                    print("  " + COLOR_RED + "✗" + COLOR_RESET + " " + test_case.name);
+                } else {
+                    print("  ✗ " + test_case.name);
+                }
+
+                if (verbose) {
+                    if (!no_color) {
+                        print("    " + COLOR_RED + error_msg + COLOR_RESET);
+                    } else {
+                        print("    " + error_msg);
+                    }
+                }
+            }
+
+            test_idx = test_idx + 1;
+        }
+
+        print("");
+        suite_idx = suite_idx + 1;
+    }
+
+    // Print summary
+    if (!no_color) {
+        print(COLOR_BOLD + "Test Summary:" + COLOR_RESET);
+    } else {
+        print("Test Summary:");
+    }
+
+    let total_str = "" + __test_stats.total;
+    let passed_str = "" + __test_stats.passed;
+    let failed_str = "" + __test_stats.failed;
+
+    if (!no_color) {
+        print("  Total:  " + total_str);
+        print("  " + COLOR_GREEN + "Passed: " + passed_str + COLOR_RESET);
+
+        if (__test_stats.failed > 0) {
+            print("  " + COLOR_RED + "Failed: " + failed_str + COLOR_RESET);
+        } else {
+            print("  Failed: " + failed_str);
+        }
+    } else {
+        print("  Total:  " + total_str);
+        print("  Passed: " + passed_str);
+        print("  Failed: " + failed_str);
+    }
+
+    print("");
+
+    // Print detailed errors if not verbose
+    if (!verbose && __test_stats.failed > 0) {
+        if (!no_color) {
+            print(COLOR_BOLD + COLOR_RED + "Failures:" + COLOR_RESET);
+        } else {
+            print("Failures:");
+        }
+
+        let err_idx = 0;
+        while (err_idx < __test_stats.errors.length) {
+            let err = __test_stats.errors[err_idx];
+
+            if (!no_color) {
+                print("");
+                print(COLOR_BOLD + err.suite + " > " + err.test + COLOR_RESET);
+                print(COLOR_RED + err.error + COLOR_RESET);
+            } else {
+                print("");
+                print(err.suite + " > " + err.test);
+                print(err.error);
+            }
+
+            err_idx = err_idx + 1;
+        }
+
+        print("");
+    }
+
+    // Return stats object
+    return {
+        total: __test_stats.total,
+        passed: __test_stats.passed,
+        failed: __test_stats.failed,
+        success: __test_stats.failed == 0
+    };
+}
+
+// Export all public functions
+fn __exports() {
+    return {
+        expect: expect,
+        describe: describe,
+        test: test,
+        before_each: before_each,
+        after_each: after_each,
+        assert_eq: assert_eq,
+        assert_ne: assert_ne,
+        assert_true: assert_true,
+        assert_false: assert_false,
+        assert_throws: assert_throws,
+        run: run
+    };
+}

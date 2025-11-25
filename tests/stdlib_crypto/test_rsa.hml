@@ -1,0 +1,126 @@
+// Test: @stdlib/crypto - RSA signatures
+
+import { rsa_generate_key, rsa_sign, rsa_verify, rsa_free_keys } from "@stdlib/crypto";
+
+print("Testing RSA signatures...");
+
+// Test 1: Generate RSA key pair
+print("Generating RSA-2048 key pair (this may take a moment)...");
+let keypair = rsa_generate_key();
+defer rsa_free_keys(keypair);
+
+if (typeof(keypair) != "RSAKeyPair") {
+    throw "Expected RSAKeyPair type, got " + typeof(keypair);
+}
+print("✓ RSA key generation");
+
+// Test 2: Sign a message
+let message = "This is a test message";
+let signature = rsa_sign(message, keypair);
+
+if (typeof(signature) != "buffer") {
+    throw "Expected buffer signature, got " + typeof(signature);
+}
+
+// RSA-2048 signature should be ~256 bytes
+if (signature.length < 200 || signature.length > 300) {
+    throw "Unexpected signature length: " + typeof(signature.length);
+}
+print("✓ RSA signing (signature: " + typeof(signature.length) + " bytes)");
+
+// Test 3: Verify signature
+let valid = rsa_verify(message, signature, keypair);
+
+if (valid != true) {
+    throw "Signature verification failed";
+}
+print("✓ RSA signature verification");
+
+// Test 4: Tampered message fails verification
+let tampered = "This is a test messag3";  // Changed last character
+let tampered_valid = rsa_verify(tampered, signature, keypair);
+
+if (tampered_valid != false) {
+    throw "Tampered message should fail verification";
+}
+print("✓ Tampered message fails verification");
+
+// Test 5: Tampered signature fails verification
+// Flip a bit in the signature
+signature[0] = signature[0] ^ 1;
+let tampered_sig_valid = rsa_verify(message, signature, keypair);
+
+if (tampered_sig_valid != false) {
+    throw "Tampered signature should fail verification";
+}
+print("✓ Tampered signature fails verification");
+
+// Test 6: Sign again (regenerate signature)
+let signature2 = rsa_sign(message, keypair);
+let valid2 = rsa_verify(message, signature2, keypair);
+
+if (valid2 != true) {
+    throw "Second signature verification failed";
+}
+print("✓ Multiple signatures work");
+
+// Test 7: Different messages produce different signatures
+let message2 = "This is a different message";
+let signature3 = rsa_sign(message2, keypair);
+
+let same = true;
+let i = 0;
+let min_len = signature2.length;
+if (signature3.length < min_len) {
+    min_len = signature3.length;
+}
+
+while (i < min_len) {
+    if (signature2[i] != signature3[i]) {
+        same = false;
+    }
+    i = i + 1;
+}
+
+if (same) {
+    throw "Different messages should produce different signatures";
+}
+print("✓ Different messages produce different signatures");
+
+// Test 8: Long message
+let long_message = "This is a very long message that will test RSA signing with larger inputs. ";
+i = 0;
+while (i < 10) {
+    long_message = long_message + long_message;
+    i = i + 1;
+}
+
+let long_sig = rsa_sign(long_message, keypair);
+let long_valid = rsa_verify(long_message, long_sig, keypair);
+
+if (long_valid != true) {
+    throw "Long message signature verification failed";
+}
+print("✓ Long message signing/verification");
+
+// Test 9: Empty string
+let empty = "";
+let empty_sig = rsa_sign(empty, keypair);
+let empty_valid = rsa_verify(empty, empty_sig, keypair);
+
+if (empty_valid != true) {
+    throw "Empty string signature verification failed";
+}
+print("✓ Empty string signing/verification");
+
+// Test 10: Unicode/UTF-8
+let unicode = "Hello 🌍! RSA signatures with Hemlock 🚀";
+let unicode_sig = rsa_sign(unicode, keypair);
+let unicode_valid = rsa_verify(unicode, unicode_sig, keypair);
+
+if (unicode_valid != true) {
+    throw "Unicode signature verification failed";
+}
+print("✓ Unicode signing/verification");
+
+print("All RSA tests passed!");

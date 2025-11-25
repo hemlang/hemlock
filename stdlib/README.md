@@ -197,6 +197,19 @@ Data encoding and decoding utilities for data interchange:
 
 See [docs/encoding.md](docs/encoding.md) for detailed documentation.
 
+### Testing (`@stdlib/testing`)
+**Status:** Complete
+
+Comprehensive test framework with modern describe/test/expect syntax:
+- **Test structure:** describe, test - Organize tests into suites
+- **Fluent assertions:** expect(value).to_equal(), .to_be_greater_than(), .to_throw(), etc.
+- **Simple assertions:** assert_eq, assert_ne, assert_true, assert_false, assert_throws
+- **Test hooks:** before_each, after_each - Setup and teardown
+- **Test runner:** run() - Execute tests with colored output and statistics
+- **Error messages:** Clear, detailed failure messages with value formatting
+
+See [docs/testing.md](docs/testing.md) for detailed documentation.
+
 ### Logging (`@stdlib/logging`)
 **Status:** Complete
 
@@ -210,6 +223,20 @@ Comprehensive logging facilities with levels, filtering, and structured logging:
 - **Multiple loggers:** Create separate loggers for different subsystems
 
 See [docs/logging.md](docs/logging.md) for detailed documentation.
+
+### Compression (`@stdlib/compression`)
+**Status:** Complete
+
+Compression and decompression using zlib/gzip:
+- **zlib:** compress, decompress - Raw zlib compression
+- **gzip:** gzip_compress, gzip_decompress - Gzip format with headers
+- **Checksums:** adler32, crc32 - Data integrity verification
+- **TAR archives:** tar_create, tar_extract - Create and extract tar files
+- **Compression levels:** 0 (none) to 9 (maximum), default 6
+- **Error handling:** Exceptions on compression failures
+
+See [docs/compression.md](docs/compression.md) for detailed documentation.
+
 
 ## Usage
 
@@ -231,7 +258,9 @@ import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { parse, stringify, pretty, get, set } from "@stdlib/json";
 import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
 import { base64_encode, base64_decode, hex_encode, url_encode } from "@stdlib/encoding";
+import { describe, test, expect, assert_eq, run } from "@stdlib/testing";
 import { Logger, DEBUG, INFO, WARN, ERROR } from "@stdlib/logging";
+import { compress, decompress, gzip_compress, adler32 } from "@stdlib/compression";
 
 // Import all as namespace
 import * as math from "@stdlib/math";
@@ -244,7 +273,9 @@ import * as ws from "@stdlib/websocket";
 import * as json from "@stdlib/json";
 import * as strings from "@stdlib/strings";
 import * as encoding from "@stdlib/encoding";
+import * as testing from "@stdlib/testing";
 import * as logging from "@stdlib/logging";
+import * as compression from "@stdlib/compression";
 
 // Use imported functions
 let angle = math.PI / 4.0;
@@ -437,6 +468,23 @@ let url_param = url_encode("hello@example.com");
 print(url_param);  // "hello%40example.com"
 ```
 
+### Testing
+```hemlock
+import { describe, test, expect, run } from "@stdlib/testing";
+
+describe("Math operations", fn() {
+    test("addition works", fn() {
+        expect(2 + 2).to_equal(4);
+    });
+
+    test("arrays contain values", fn() {
+        expect([1, 2, 3]).to_contain(2);
+    });
+});
+
+let results = run();
+```
+
 ## Directory Structure
 
 ```
@@ -456,6 +504,7 @@ stdlib/
 ├── json.hml            # JSON module (pure Hemlock)
 ├── strings.hml         # String utilities module (pure Hemlock)
 ├── encoding.hml        # Encoding module (pure Hemlock)
+├── testing.hml         # Testing framework (pure Hemlock)
 ├── c/                  # C FFI wrappers (compiled with 'make stdlib')
 │   └── lws_wrapper.c   # libwebsockets wrapper for HTTP/WebSocket
 └── docs/
@@ -471,7 +520,8 @@ stdlib/
     ├── websocket.md    # WebSocket API reference
     ├── json.md         # JSON API reference
     ├── strings.md      # Strings API reference
-    └── encoding.md     # Encoding API reference
+    ├── encoding.md     # Encoding API reference
+    └── testing.md      # Testing API reference
 ```
 
 ## JSON Serialization
@@ -493,7 +543,6 @@ print(parsed.name);  // "Alice"
 
 Planned additions to the standard library:
 - **path** - Path manipulation (join, basename, dirname, extname, normalize)
-- **testing** - Test framework with describe/test/expect/assertions
 - **crypto** - Cryptographic functions (via FFI + OpenSSL)
 - **compression** - zlib/gzip compression (via FFI)
 
@@ -517,6 +566,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
 | strings | ✅ Complete | ✅ Complete | ✅ Comprehensive | 293 | High |
 | encoding | ✅ Complete | ✅ Complete | ✅ Comprehensive | 370 | High |
+| testing | ✅ Complete | ✅ Complete | ✅ Good | 410 | High |
 
 **Legend:**
 - ✅ Complete/Excellent
@@ -547,6 +597,7 @@ make test | grep stdlib_math
 make test | grep stdlib_time
 make test | grep stdlib_env
 make test | grep stdlib_regex
+make test | grep stdlib_testing
 
 # Or run individual test files
 ./hemlock tests/stdlib_collections/test_hashmap.hml

@@ -1,0 +1,156 @@
+// Test: @stdlib/crypto - Integration test (AES encryption + ECDSA signing)
+
+import {
+    generate_aes_key,
+    generate_iv,
+    aes_encrypt,
+    aes_decrypt,
+    ecdsa_generate_key,
+    ecdsa_sign,
+    ecdsa_verify,
+    ecdsa_free_keys,
+    buffer_to_hex
+} from "@stdlib/crypto";
+
+print("Testing crypto integration (encrypt + sign)...");
+
+// Scenario: Encrypt sensitive data and sign it for authenticity
+
+// Step 1: Generate keys
+print("Step 1: Generating keys...");
+let aes_key = generate_aes_key();
+let aes_iv = generate_iv();
+let signing_key = ecdsa_generate_key();
+defer ecdsa_free_keys(signing_key);
+
+print("  AES key: " + buffer_to_hex(aes_key).substr(0, 16) + "...");
+print("  IV: " + buffer_to_hex(aes_iv).substr(0, 16) + "...");
+print("✓ Keys generated");
+
+// Step 2: Encrypt data
+print("Step 2: Encrypting sensitive data...");
+let plaintext = "Confidential: Bank account 12345 has balance $100,000";
+let ciphertext = aes_encrypt(plaintext, aes_key, aes_iv);
+
+print("  Plaintext: " + plaintext);
+print("  Ciphertext: " + buffer_to_hex(ciphertext).substr(0, 32) + "... (" + typeof(ciphertext.length) + " bytes)");
+print("✓ Data encrypted");
+
+// Step 3: Sign ciphertext for authenticity
+print("Step 3: Signing ciphertext...");
+let ciphertext_hex = buffer_to_hex(ciphertext);
+let signature = ecdsa_sign(ciphertext_hex, signing_key);
+
+print("  Signature: " + buffer_to_hex(signature).substr(0, 32) + "... (" + typeof(signature.length) + " bytes)");
+print("✓ Ciphertext signed");
+
+// Step 4: Verify signature
+print("Step 4: Verifying signature...");
+let valid = ecdsa_verify(ciphertext_hex, signature, signing_key);
+
+if (!valid) {
+    throw "Signature verification failed!";
+}
+print("✓ Signature verified");
+
+// Step 5: Decrypt data
+print("Step 5: Decrypting data...");
+let decrypted = aes_decrypt(ciphertext, aes_key, aes_iv);
+
+if (decrypted != plaintext) {
+    throw "Decrypted data doesn't match original!";
+}
+print("  Decrypted: " + decrypted);
+print("✓ Data decrypted successfully");
+
+// Step 6: Tamper detection test
+print("Step 6: Testing tamper detection...");
+ciphertext[0] = ciphertext[0] ^ 1;  // Flip a bit
+let tampered_hex = buffer_to_hex(ciphertext);
+let tampered_valid = ecdsa_verify(tampered_hex, signature, signing_key);
+
+if (tampered_valid) {
+    throw "Tampered data passed verification!";
+}
+print("✓ Tamper detection works");
+
+// Restore for decryption test
+ciphertext[0] = ciphertext[0] ^ 1;
+
+// Step 7: Wrong key test
+print("Step 7: Testing wrong decryption key...");
+let wrong_key = generate_aes_key();
+try {
+    aes_decrypt(ciphertext, wrong_key, aes_iv);
+    throw "Should have failed with wrong key";
+} catch (e) {
+    // Expected
+}
+print("✓ Wrong key fails decryption");
+
+// Step 8: Multiple encrypt/sign operations
+print("Step 8: Testing multiple operations...");
+let messages = ["Message 1", "Message 2", "Message 3"];
+let i = 0;
+
+while (i < messages.length) {
+    let msg = messages[i];
+    let iv = generate_iv();  // New IV for each encryption
+
+    // Encrypt
+    let ct = aes_encrypt(msg, aes_key, iv);
+
+    // Sign
+    let sig = ecdsa_sign(buffer_to_hex(ct), signing_key);
+
+    // Verify
+    if (!ecdsa_verify(buffer_to_hex(ct), sig, signing_key)) {
+        throw "Verification failed for message " + typeof(i);
+    }
+
+    // Decrypt
+    let pt = aes_decrypt(ct, aes_key, iv);
+    if (pt != msg) {
+        throw "Decryption failed for message " + typeof(i);
+    }
+
+    i = i + 1;
+}
+print("✓ Multiple operations successful");
+
+// Step 9: Large data test
+print("Step 9: Testing with large data...");
+let large_data = "This is a large data block. ";
+i = 0;
+while (i < 10) {
+    large_data = large_data + large_data;
+    i = i + 1;
+}
+
+let large_iv = generate_iv();
+let large_ct = aes_encrypt(large_data, aes_key, large_iv);
+let large_sig = ecdsa_sign(buffer_to_hex(large_ct), signing_key);
+let large_valid = ecdsa_verify(buffer_to_hex(large_ct), large_sig, signing_key);
+
+if (!large_valid) {
+    throw "Large data signature verification failed";
+}
+
+let large_pt = aes_decrypt(large_ct, aes_key, large_iv);
+if (large_pt != large_data) {
+    throw "Large data decryption failed";
+}
+
+print("  Data size: " + typeof(large_data.length) + " bytes");
+print("  Ciphertext: " + typeof(large_ct.length) + " bytes");
+print("✓ Large data handling works");
+
+// Step 10: Complete workflow summary
+print("\n=== Integration Test Summary ===");
+print("Plaintext length: " + typeof(plaintext.length) + " bytes");
+print("Ciphertext length: " + typeof(ciphertext.length) + " bytes");
+print("Signature length: " + typeof(signature.length) + " bytes");
+print("Total overhead: " + typeof(ciphertext.length + signature.length - plaintext.length) + " bytes");
+print("\n✓ Complete encrypt + sign workflow validated");
+
+print("\nAll integration tests passed!");

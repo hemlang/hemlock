@@ -1,0 +1,3 @@
+print("Test 1: Before import");
+import { generate_aes_key } from "@stdlib/crypto";
+print("Test 2: After AES import");
