@@ -1,4 +1,0 @@
-print("Test 1: Before import");
-import { rsa_generate_key } from "@stdlib/crypto";
-print("Test 2: After RSA import");
-print("Function type: " + typeof(rsa_generate_key));

@@ -1,0 +1,65 @@
+// Test terminal cursor control
+import {
+    move_to, move_up, move_down, move_left, move_right,
+    SAVE_CURSOR, RESTORE_CURSOR, HIDE_CURSOR, SHOW_CURSOR,
+    print_at, clear
+} from "@stdlib/terminal";
+
+// ESC character for testing
+let ESC: rune = 27;
+let ESC_STR: string = ESC;
+
+print("=== Terminal Cursor Tests ===");
+print("");
+
+// Test move_to function
+print("Testing move_to():");
+let code = move_to(5, 10);
+print("move_to(5, 10) returns escape code");
+if (code.contains(ESC_STR + "[")) {
+    print("✓ Contains ANSI escape sequence");
+}
+
+// Test relative movements
+print("");
+print("Testing relative movements:");
+let up = move_up(3);
+let down = move_down(2);
+let left = move_left(5);
+let right = move_right(4);
+
+if (up.contains(ESC_STR + "[3A")) {
+    print("✓ move_up(3) correct");
+}
+if (down.contains(ESC_STR + "[2B")) {
+    print("✓ move_down(2) correct");
+}
+if (left.contains(ESC_STR + "[5D")) {
+    print("✓ move_left(5) correct");
+}
+if (right.contains(ESC_STR + "[4C")) {
+    print("✓ move_right(4) correct");
+}
+
+// Test cursor save/restore
+print("");
+print("Testing save/restore:");
+if (SAVE_CURSOR.contains(ESC_STR + "[s")) {
+    print("✓ SAVE_CURSOR correct");
+}
+if (RESTORE_CURSOR.contains(ESC_STR + "[u")) {
+    print("✓ RESTORE_CURSOR correct");
+}
+
+// Test cursor visibility
+print("");
+print("Testing cursor visibility:");
+if (HIDE_CURSOR.contains(ESC_STR + "[?25l")) {
+    print("✓ HIDE_CURSOR correct");
+}
+if (SHOW_CURSOR.contains(ESC_STR + "[?25h")) {
+    print("✓ SHOW_CURSOR correct");
+}
+
+print("");
+print("✓ All cursor tests completed");

@@ -1,0 +1,37 @@
+// Test terminal text styles
+import {
+    BOLD, DIM, ITALIC, UNDERLINE, BLINK, REVERSE, STRIKETHROUGH,
+    RESET, RESET_BOLD, RESET_UNDERLINE, RED, GREEN
+} from "@stdlib/terminal";
+
+print("=== Terminal Style Tests ===");
+print("");
+
+// Test individual styles
+print("Individual Styles:");
+print(BOLD + "Bold text" + RESET);
+print(DIM + "Dim text" + RESET);
+print(ITALIC + "Italic text (not all terminals)" + RESET);
+print(UNDERLINE + "Underlined text" + RESET);
+print(BLINK + "Blinking text (rarely supported)" + RESET);
+print(REVERSE + "Reversed text" + RESET);
+print(STRIKETHROUGH + "Strikethrough text" + RESET);
+
+print("");
+
+// Test combining styles
+print("Combined Styles:");
+print(BOLD + UNDERLINE + "Bold and underlined" + RESET);
+print(BOLD + RED + "Bold red" + RESET);
+print(UNDERLINE + GREEN + "Underlined green" + RESET);
+
+print("");
+
+// Test style resets
+print("Style Resets:");
+print(BOLD + "Bold " + RESET_BOLD + "not bold anymore");
+print(UNDERLINE + "Underlined " + RESET_UNDERLINE + "not underlined");
+print(BOLD + UNDERLINE + "Both " + RESET + "neither");
+
+print("");
+print("✓ All style tests completed");

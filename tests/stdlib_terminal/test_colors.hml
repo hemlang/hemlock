@@ -1,0 +1,81 @@
+// Test terminal color constants and functions
+import {
+    RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA, WHITE, BLACK,
+    BRIGHT_RED, BRIGHT_GREEN, BRIGHT_BLUE, GRAY,
+    BG_RED, BG_GREEN, BG_BLUE, BG_YELLOW,
+    RESET, color, color_bg, rgb, bg_rgb, color_256, bg_color_256
+} from "@stdlib/terminal";
+
+print("=== Terminal Color Tests ===");
+print("");
+
+// Test basic colors
+print("Basic Colors:");
+print(RED + "Red text" + RESET);
+print(GREEN + "Green text" + RESET);
+print(BLUE + "Blue text" + RESET);
+print(YELLOW + "Yellow text" + RESET);
+print(CYAN + "Cyan text" + RESET);
+print(MAGENTA + "Magenta text" + RESET);
+print(WHITE + "White text" + RESET);
+
+print("");
+
+// Test bright colors
+print("Bright Colors:");
+print(BRIGHT_RED + "Bright red" + RESET);
+print(BRIGHT_GREEN + "Bright green" + RESET);
+print(BRIGHT_BLUE + "Bright blue" + RESET);
+print(GRAY + "Gray text" + RESET);
+
+print("");
+
+// Test background colors
+print("Background Colors:");
+print(WHITE + BG_RED + " White on red " + RESET);
+print(WHITE + BG_GREEN + " White on green " + RESET);
+print(WHITE + BG_BLUE + " White on blue " + RESET);
+print(BLACK + BG_YELLOW + " Black on yellow " + RESET);
+
+print("");
+
+// Test color() function
+print("color() function:");
+print(color("Error message", RED));
+print(color("Success message", GREEN));
+print(color("Info message", BLUE));
+
+print("");
+
+// Test color_bg() function
+print("color_bg() function:");
+print(color_bg(" ERROR ", WHITE, BG_RED));
+print(color_bg(" SUCCESS ", WHITE, BG_GREEN));
+print(color_bg(" INFO ", WHITE, BG_BLUE));
+
+print("");
+
+// Test RGB colors (24-bit)
+print("RGB Colors (24-bit true color):");
+print(rgb(255, 100, 50) + "Custom orange" + RESET);
+print(rgb(75, 0, 130) + "Indigo" + RESET);
+print(rgb(255, 20, 147) + "Deep pink" + RESET);
+
+print("");
+
+// Test RGB background
+print("RGB Background:");
+print(rgb(255, 255, 255) + bg_rgb(255, 0, 0) + " White on red " + RESET);
+print(rgb(0, 0, 0) + bg_rgb(0, 255, 0) + " Black on green " + RESET);
+
+print("");
+
+// Test 256-color palette
+print("256-Color Palette:");
+print(color_256(196) + "Color 196 (bright red)" + RESET);
+print(color_256(21) + "Color 21 (deep blue)" + RESET);
+print(color_256(226) + "Color 226 (yellow)" + RESET);
+print(bg_color_256(240) + "Background color 240" + RESET);
+
+print("");
+print("✓ All color tests completed");

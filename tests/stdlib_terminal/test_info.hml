@@ -1,0 +1,42 @@
+// Test terminal information functions
+import { size, supports_color } from "@stdlib/terminal";
+
+print("=== Terminal Info Tests ===");
+print("");
+
+// Test size() function
+print("Testing size():");
+let dimensions = size();
+print("Terminal size: " + typeof(dimensions.rows) + " rows x " + typeof(dimensions.cols) + " cols");
+
+if (dimensions.rows > 0 && dimensions.cols > 0) {
+    print("✓ size() returns valid dimensions");
+} else {
+    print("✗ size() returned invalid dimensions");
+}
+
+// Verify size returns object with correct fields
+if (typeof(dimensions) == "object") {
+    print("✓ size() returns object");
+}
+
+print("");
+
+// Test supports_color() function
+print("Testing supports_color():");
+let has_color = supports_color();
+print("Color support: " + typeof(has_color));
+
+if (typeof(has_color) == "bool") {
+    print("✓ supports_color() returns boolean");
+}
+
+// Most modern terminals support color
+if (has_color) {
+    print("✓ Terminal supports ANSI colors");
+} else {
+    print("⚠ Terminal does not support ANSI colors");
+}
+
+print("");
+print("✓ All terminal info tests completed");

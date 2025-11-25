@@ -12,6 +12,18 @@
 
 // ========== MODULE CACHE ==========
 
+// Helper function to ensure export array has capacity
+static void ensure_export_capacity(Module *module) {
+    if (module->num_exports >= module->export_capacity) {
+        module->export_capacity *= 2;
+        module->export_names = realloc(module->export_names, sizeof(char*) * module->export_capacity);
+        if (!module->export_names) {
+            fprintf(stderr, "Runtime error: Memory allocation failed for module exports\n");
+            exit(1);
+        }
+    }
+}
+
 // Find the stdlib directory path
 static char* find_stdlib_path() {
     char exe_path[PATH_MAX];
@@ -248,7 +260,8 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
     module->absolute_path = absolute_path;
     module->state = MODULE_LOADING;  // Mark as loading for cycle detection
     module->exports_env = NULL;
-    module->export_names = malloc(sizeof(char*) * 32);
+    module->export_capacity = 32;
+    module->export_names = malloc(sizeof(char*) * module->export_capacity);
     module->num_exports = 0;
 
     // Add to cache immediately (for cycle detection)
@@ -390,9 +403,13 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 
                 // Extract the name and mark as exported
                 if (decl->type == STMT_LET) {
-                    module->export_names[module->num_exports++] = strdup(decl->as.let.name);
+                    ensure_export_capacity(module);
+                    module->export_names[module->num_exports] = strdup(decl->as.let.name);
+                    module->num_exports++;
                 } else if (decl->type == STMT_CONST) {
-                    module->export_names[module->num_exports++] = strdup(decl->as.const_stmt.name);
+                    ensure_export_capacity(module);
+                    module->export_names[module->num_exports] = strdup(decl->as.const_stmt.name);
+                    module->num_exports++;
                 }
             } else if (stmt->as.export_stmt.is_reexport) {
                 // Re-export: copy exports from another module
@@ -415,6 +432,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     Value val = env_get(reexported->exports_env, export_name, ctx);
                     env_define(module_env, final_name, val, 1, ctx);
                     value_release(val);  // Release temp reference from env_get (env_define already retained)
+                    ensure_export_capacity(module);
                     module->export_names[module->num_exports++] = strdup(final_name);
                 }
             } else {
@@ -424,6 +442,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     char *alias = stmt->as.export_stmt.export_aliases[j];
                     char *final_name = alias ? alias : export_name;
 
+                    ensure_export_capacity(module);
                     module->export_names[module->num_exports++] = strdup(final_name);
                 }
             }

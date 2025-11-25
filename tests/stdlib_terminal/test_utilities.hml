@@ -1,0 +1,48 @@
+// Test terminal utility functions
+import {
+    color, print_color, print_styled,
+    RED, GREEN, BLUE, BOLD, UNDERLINE, RESET
+} from "@stdlib/terminal";
+
+// ESC character for testing
+let ESC: rune = 27;
+let ESC_STR: string = ESC;
+
+print("=== Terminal Utility Tests ===");
+print("");
+
+// Test color() function
+print("Testing color() function:");
+let colored = color("Test", RED);
+if (colored.contains(ESC_STR + "[31m") && colored.contains(ESC_STR + "[0m")) {
+    print("✓ color() wraps text with color and reset");
+}
+print(colored);
+
+print("");
+
+// Test print_color() function
+print("Testing print_color() function:");
+print_color("Red text", RED);
+print_color("Green text", GREEN);
+print_color("Blue text", BLUE);
+print("✓ print_color() works");
+
+print("");
+
+// Test print_styled() function
+print("Testing print_styled() function:");
+print_styled("Bold text", BOLD);
+print_styled("Underlined text", UNDERLINE);
+print("✓ print_styled() works");
+
+print("");
+
+// Test combining color and style
+print("Testing combined color and style:");
+print(BOLD + RED + "Bold red text" + RESET);
+print(UNDERLINE + GREEN + "Underlined green text" + RESET);
+print("✓ Color and style combination works");
+
+print("");
+print("✓ All utility tests completed");

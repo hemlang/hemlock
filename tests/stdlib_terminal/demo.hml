@@ -1,0 +1,150 @@
+// Comprehensive demo of @stdlib/terminal features
+import {
+    RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA,
+    BRIGHT_GREEN, BRIGHT_BLUE, BRIGHT_YELLOW,
+    BG_RED, BG_GREEN, BG_BLUE, WHITE, BLACK,
+    BOLD, UNDERLINE, ITALIC, DIM, RESET,
+    color, color_bg, rgb, bg_rgb,
+    clear, size, supports_color,
+    ProgressBar, Spinner, SPINNER_DOTS, SPINNER_ARROW,
+    print_color, print_styled
+} from "@stdlib/terminal";
+import { sleep } from "@stdlib/time";
+
+print("╔═══════════════════════════════════════════╗");
+print("║   Hemlock Terminal Module Demo           ║");
+print("╚═══════════════════════════════════════════╝");
+print("");
+
+// Check terminal capabilities
+print("Terminal Information:");
+let term = size();
+print("  Size: " + typeof(term.rows) + " rows × " + typeof(term.cols) + " cols");
+print("  Color support: " + typeof(supports_color()));
+print("");
+
+// Color demonstrations
+print("═══ Basic Colors ═══");
+print_color("  ● Red", RED);
+print_color("  ● Green", GREEN);
+print_color("  ● Blue", BLUE);
+print_color("  ● Yellow", YELLOW);
+print_color("  ● Cyan", CYAN);
+print_color("  ● Magenta", MAGENTA);
+print("");
+
+// Bright colors
+print("═══ Bright Colors ═══");
+print(BRIGHT_GREEN + "  ● Bright Green" + RESET);
+print(BRIGHT_BLUE + "  ● Bright Blue" + RESET);
+print(BRIGHT_YELLOW + "  ● Bright Yellow" + RESET);
+print("");
+
+// Background colors
+print("═══ Background Colors ═══");
+print(color_bg(" ERROR ", WHITE, BG_RED) + " " +
+      color_bg(" SUCCESS ", WHITE, BG_GREEN) + " " +
+      color_bg(" INFO ", WHITE, BG_BLUE));
+print("");
+
+// Text styles
+print("═══ Text Styles ═══");
+print_styled("  ● Bold text", BOLD);
+print_styled("  ● Underlined text", UNDERLINE);
+print_styled("  ● Italic text", ITALIC);
+print(DIM + "  ● Dim text" + RESET);
+print("");
+
+// RGB colors (24-bit)
+print("═══ RGB True Color (24-bit) ═══");
+print(rgb(255, 100, 50) + "  ● Custom orange (255, 100, 50)" + RESET);
+print(rgb(75, 0, 130) + "  ● Indigo (75, 0, 130)" + RESET);
+print(rgb(255, 20, 147) + "  ● Deep pink (255, 20, 147)" + RESET);
+print(rgb(255, 255, 255) + bg_rgb(138, 43, 226) + " White on purple " + RESET);
+print("");
+
+// Styled logger demo
+print("═══ Styled Logger ═══");
+print(RED + BOLD + "[ERROR]" + RESET + " Connection failed to database");
+print(YELLOW + BOLD + "[WARN]" + RESET + " Low disk space detected");
+print(BLUE + BOLD + "[INFO]" + RESET + " Starting background service");
+print(GREEN + BOLD + "[OK]" + RESET + " Operation completed successfully");
+print("");
+
+// Progress bar demo
+print("═══ Progress Bar ═══");
+let bar = ProgressBar(50, 40);
+let i = 0;
+while (i <= 50) {
+    bar.update(i);
+    sleep(0.03);
+    i = i + 1;
+}
+bar.finish();
+print("");
+
+// Spinner demo - Dots
+print("═══ Spinners ═══");
+print("Dots spinner:");
+let spinner1 = Spinner(SPINNER_DOTS());
+i = 0;
+while (i < 20) {
+    spinner1.spin();
+    sleep(0.1);
+    i = i + 1;
+}
+spinner1.finish("  ✓ Loading complete");
+
+// Spinner demo - Arrow
+print("Arrow spinner:");
+let spinner2 = Spinner(SPINNER_ARROW());
+i = 0;
+while (i < 16) {
+    spinner2.spin();
+    sleep(0.08);
+    i = i + 1;
+}
+spinner2.finish("  ✓ Processing complete");
+
+print("");
+
+// Color gradient effect
+print("═══ Color Gradient ═══");
+let colors = [
+    rgb(255, 0, 0),
+    rgb(255, 127, 0),
+    rgb(255, 255, 0),
+    rgb(0, 255, 0),
+    rgb(0, 0, 255),
+    rgb(75, 0, 130),
+    rgb(148, 0, 211)
+];
+let labels = ["Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet"];
+i = 0;
+while (i < colors.length) {
+    print(colors[i] + "  ██████ " + labels[i] + RESET);
+    i = i + 1;
+}
+print("");
+
+// Status indicators
+print("═══ Status Indicators ═══");
+print(GREEN + "●" + RESET + " Service A: Running");
+print(YELLOW + "●" + RESET + " Service B: Warning");
+print(RED + "●" + RESET + " Service C: Stopped");
+print(BLUE + "●" + RESET + " Service D: Starting");
+print("");
+
+// Table with colors
+print("═══ Colored Table ═══");
+print(BOLD + "Name" + RESET + "          " + BOLD + "Status" + RESET + "        " + BOLD + "Load" + RESET);
+print("─────────────────────────────────────");
+print("web-01        " + GREEN + "● Online" + RESET + "      " + GREEN + "12%" + RESET);
+print("web-02        " + GREEN + "● Online" + RESET + "      " + YELLOW + "67%" + RESET);
+print("db-01         " + YELLOW + "● Warning" + RESET + "     " + RED + "89%" + RESET);
+print("cache-01      " + RED + "● Offline" + RESET + "     " + DIM + "0%" + RESET);
+print("");
+
+print("╔═══════════════════════════════════════════╗");
+print("║   Demo Complete!                          ║");
+print("╚═══════════════════════════════════════════╝");

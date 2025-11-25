@@ -24,6 +24,7 @@ typedef struct Module {
     Environment *exports_env;    // Environment containing exported values
     char **export_names;         // List of exported names
     int num_exports;
+    int export_capacity;         // Capacity of export_names array
 } Module;
 
 // Module cache structure

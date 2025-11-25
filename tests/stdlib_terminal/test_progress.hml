@@ -1,0 +1,60 @@
+// Test terminal progress bar
+import { ProgressBar } from "@stdlib/terminal";
+import { sleep } from "@stdlib/time";
+
+print("=== Terminal Progress Bar Tests ===");
+print("");
+
+// Test ProgressBar creation
+print("Testing ProgressBar creation:");
+let bar1 = ProgressBar(100);
+print("✓ Created progress bar with total=100");
+
+let bar2 = ProgressBar(50, 30);
+print("✓ Created progress bar with total=50, width=30");
+
+print("");
+
+// Test update method
+print("Testing update method:");
+bar1.update(0);
+sleep(0.1);
+bar1.update(25);
+sleep(0.1);
+bar1.update(50);
+sleep(0.1);
+bar1.update(75);
+sleep(0.1);
+bar1.update(100);
+bar1.finish();
+print("✓ Progress bar update works");
+
+print("");
+
+// Test increment method
+print("Testing increment method:");
+let bar3 = ProgressBar(10, 20);
+let i = 0;
+while (i < 10) {
+    bar3.increment();
+    sleep(0.05);
+    i = i + 1;
+}
+bar3.finish();
+print("✓ Progress bar increment works");
+
+print("");
+
+// Test with different widths
+print("Testing different widths:");
+let bar4 = ProgressBar(100, 60);
+bar4.update(30);
+sleep(0.1);
+bar4.update(60);
+sleep(0.1);
+bar4.update(100);
+bar4.finish();
+print("✓ Wide progress bar works");
+
+print("");
+print("✓ All progress bar tests completed");

@@ -1,0 +1,108 @@
+// Test terminal spinner
+import {
+    Spinner, SPINNER_DOTS, SPINNER_LINE, SPINNER_ARROW,
+    SPINNER_BOUNCE, SPINNER_CLOCK
+} from "@stdlib/terminal";
+import { sleep } from "@stdlib/time";
+
+print("=== Terminal Spinner Tests ===");
+print("");
+
+// Test basic spinner creation
+print("Testing basic spinner:");
+let spinner1 = Spinner();
+let i = 0;
+while (i < 8) {
+    spinner1.spin();
+    sleep(0.1);
+    i = i + 1;
+}
+spinner1.finish("✓ Basic spinner works");
+
+print("");
+
+// Test SPINNER_DOTS
+print("Testing SPINNER_DOTS:");
+let dots = SPINNER_DOTS();
+if (dots.length == 10) {
+    print("✓ SPINNER_DOTS has 10 frames");
+}
+let spinner2 = Spinner(dots);
+i = 0;
+while (i < 10) {
+    spinner2.spin();
+    sleep(0.05);
+    i = i + 1;
+}
+spinner2.finish("✓ Dots spinner works");
+
+print("");
+
+// Test SPINNER_LINE
+print("Testing SPINNER_LINE:");
+let line = SPINNER_LINE();
+if (line.length == 4) {
+    print("✓ SPINNER_LINE has 4 frames");
+}
+let spinner3 = Spinner(line);
+i = 0;
+while (i < 8) {
+    spinner3.spin();
+    sleep(0.1);
+    i = i + 1;
+}
+spinner3.finish("✓ Line spinner works");
+
+print("");
+
+// Test SPINNER_ARROW
+print("Testing SPINNER_ARROW:");
+let arrow = SPINNER_ARROW();
+if (arrow.length == 8) {
+    print("✓ SPINNER_ARROW has 8 frames");
+}
+let spinner4 = Spinner(arrow);
+i = 0;
+while (i < 8) {
+    spinner4.spin();
+    sleep(0.1);
+    i = i + 1;
+}
+spinner4.finish("✓ Arrow spinner works");
+
+print("");
+
+// Test SPINNER_BOUNCE
+print("Testing SPINNER_BOUNCE:");
+let bounce = SPINNER_BOUNCE();
+if (bounce.length == 4) {
+    print("✓ SPINNER_BOUNCE has 4 frames");
+}
+let spinner5 = Spinner(bounce);
+i = 0;
+while (i < 8) {
+    spinner5.spin();
+    sleep(0.1);
+    i = i + 1;
+}
+spinner5.finish("✓ Bounce spinner works");
+
+print("");
+
+// Test SPINNER_CLOCK
+print("Testing SPINNER_CLOCK:");
+let clock = SPINNER_CLOCK();
+if (clock.length == 12) {
+    print("✓ SPINNER_CLOCK has 12 frames");
+}
+let spinner6 = Spinner(clock);
+i = 0;
+while (i < 12) {
+    spinner6.spin();
+    sleep(0.05);
+    i = i + 1;
+}
+spinner6.finish("✓ Clock spinner works");
+
+print("");
+print("✓ All spinner tests completed");

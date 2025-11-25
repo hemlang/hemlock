@@ -1,4 +1,0 @@
-import { rsa_generate_key } from "@stdlib/crypto";
-print("Calling rsa_generate_key()...");
-let keypair = rsa_generate_key();
-print("Done!");
