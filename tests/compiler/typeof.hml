@@ -1,0 +1,7 @@
+// Test typeof builtin
+print(typeof(42));
+print(typeof("hello"));
+print(typeof(true));
+print(typeof(false));
+print(typeof(null));
+print(typeof(3.14));

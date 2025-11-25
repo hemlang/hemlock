@@ -6,6 +6,7 @@
 
 # Compiled executables
 /hemlock
+/hemlockc
 hemlock.exe
 *.out
 *.app

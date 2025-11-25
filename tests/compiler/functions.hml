@@ -1,0 +1,27 @@
+// Test user-defined functions
+fn add(a, b) {
+    return a + b;
+}
+
+fn multiply(x, y) {
+    return x * y;
+}
+
+fn greet(name) {
+    print("Hello, " + name + "!");
+    return null;
+}
+
+// Test function calls
+print(add(10, 20));
+print(multiply(6, 7));
+greet("World");
+
+// Test function with local variables
+fn compute(x) {
+    let doubled = x * 2;
+    let tripled = x * 3;
+    return doubled + tripled;
+}
+
+print(compute(5));

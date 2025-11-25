@@ -7,6 +7,7 @@ on:
     branches: [ main, master ]
 
 jobs:
+  # Interpreter tests
   test:
     runs-on: ubuntu-latest
 
@@ -35,6 +36,37 @@ jobs:
           exit 1
         fi
         ./hemlock --version || echo "Version check skipped (not implemented yet)"
+
+  # Compiler tests (Hemlock to C)
+  compiler-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make
+
+    - name: Build Hemlock compiler and runtime
+      run: make compiler
+
+    - name: Run compiler test suite
+      run: make test-compiler
+
+    - name: Check compiler artifacts
+      run: |
+        if [ ! -f ./hemlockc ]; then
+          echo "Error: hemlockc compiler not found"
+          exit 1
+        fi
+        if [ ! -f ./libhemlock_runtime.a ]; then
+          echo "Error: runtime library not found"
+          exit 1
+        fi
+        ./hemlockc --version
 
   # Memory leak detection with AddressSanitizer
   asan-test:

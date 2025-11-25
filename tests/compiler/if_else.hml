@@ -1,0 +1,28 @@
+// Test if/else statements
+let x = 10;
+
+if (x > 5) {
+    print("greater");
+}
+
+if (x < 5) {
+    print("less");
+} else {
+    print("not less");
+}
+
+if (x == 10) {
+    print("equal to 10");
+} else if (x == 5) {
+    print("equal to 5");
+} else {
+    print("other");
+}
+
+// Nested if
+let y = 20;
+if (x > 0) {
+    if (y > 0) {
+        print("both positive");
+    }
+}

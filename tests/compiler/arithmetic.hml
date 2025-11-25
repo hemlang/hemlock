@@ -1,0 +1,16 @@
+// Test arithmetic operations
+let a = 10;
+let b = 3;
+
+print(a + b);
+print(a - b);
+print(a * b);
+print(a / b);
+
+// Negative numbers
+print(-5 + 2);
+print(10 - 15);
+
+// Complex expressions
+print((a + b) * 2);
+print(a + b * 2);

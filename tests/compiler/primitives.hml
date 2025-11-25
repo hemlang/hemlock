@@ -1,0 +1,18 @@
+// Test primitives: integers, strings, booleans
+let x = 42;
+print(x);
+
+let y = -10;
+print(y);
+
+let s = "Hello, World!";
+print(s);
+
+let b = true;
+print(b);
+
+let f = false;
+print(f);
+
+let n = null;
+print(n);

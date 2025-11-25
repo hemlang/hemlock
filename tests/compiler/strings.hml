@@ -1,0 +1,14 @@
+// Test string operations
+let a = "Hello";
+let b = "World";
+
+print(a);
+print(b);
+print(a + " " + b);
+let answer = 42;
+print("The answer is: " + answer);
+
+// Empty string
+let empty = "";
+print(empty);
+print("prefix" + empty + "suffix");

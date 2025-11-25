@@ -144,3 +144,54 @@ valgrind-clean:
 	@echo "Done."
 
 .PHONY: all clean run test
+
+# ========== COMPILER AND RUNTIME ==========
+
+# Compiler source files (reuse lexer, parser, ast from interpreter)
+COMPILER_SRCS = src/compiler/main.c src/compiler/codegen.c src/lexer.c src/ast.c $(wildcard src/parser/*.c)
+COMPILER_OBJS = $(BUILD_DIR)/compiler/main.o $(BUILD_DIR)/compiler/codegen.o $(BUILD_DIR)/lexer.o $(BUILD_DIR)/ast.o $(patsubst src/parser/%.c,$(BUILD_DIR)/parser/%.o,$(wildcard src/parser/*.c))
+COMPILER_TARGET = hemlockc
+
+# Runtime library
+RUNTIME_DIR = runtime
+RUNTIME_LIB = libhemlock_runtime.a
+
+.PHONY: compiler runtime runtime-clean compiler-clean
+
+# Build directory for compiler
+$(BUILD_DIR)/compiler:
+	mkdir -p $(BUILD_DIR)/compiler
+
+# Compiler target
+compiler: $(BUILD_DIR) $(BUILD_DIR)/compiler $(BUILD_DIR)/parser runtime $(COMPILER_TARGET)
+
+$(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_LIB)
+	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) -lm
+
+$(BUILD_DIR)/compiler/%.o: src/compiler/%.c | $(BUILD_DIR)/compiler
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Build runtime library
+runtime:
+	@echo "Building Hemlock runtime library..."
+	$(MAKE) -C $(RUNTIME_DIR) static
+	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
+	@echo "✓ Runtime library built: $(RUNTIME_LIB)"
+
+runtime-clean:
+	$(MAKE) -C $(RUNTIME_DIR) clean
+	rm -f $(RUNTIME_LIB)
+
+compiler-clean:
+	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
+
+# Full clean including compiler and runtime
+fullclean: clean compiler-clean runtime-clean
+
+# Build everything (interpreter + compiler + runtime)
+all-compiler: all compiler
+
+# Run compiler test suite
+.PHONY: test-compiler
+test-compiler: compiler
+	@bash tests/compiler/run_compiler_tests.sh
