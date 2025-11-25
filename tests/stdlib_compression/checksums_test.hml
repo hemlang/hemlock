@@ -1,0 +1,50 @@
+// Test CRC32 and Adler-32 checksums
+import { crc32, adler32, compress_bound } from "@stdlib/compression";
+
+// Helper to create buffer from string
+fn string_to_buffer(s) {
+    let bytes = s.bytes();
+    let buf = buffer(bytes.length);
+    let i = 0;
+    while (i < bytes.length) {
+        buf[i] = bytes[i];
+        i = i + 1;
+    }
+    return buf;
+}
+
+// Test CRC32
+let data = string_to_buffer("Hello");
+let checksum = crc32(data);
+print(checksum != 0);  // true (non-zero checksum)
+
+// Same data should produce same checksum
+let data2 = string_to_buffer("Hello");
+let checksum2 = crc32(data2);
+print(checksum == checksum2);  // true
+
+// Different data should produce different checksum
+let data3 = string_to_buffer("World");
+let checksum3 = crc32(data3);
+print(checksum != checksum3);  // true
+
+// Test Adler-32
+let adler = adler32(data);
+print(adler != 0);  // true (non-zero checksum)
+
+// Same data should produce same checksum
+let adler2 = adler32(data2);
+print(adler == adler2);  // true
+
+// Different data should produce different checksum
+let adler3 = adler32(data3);
+print(adler != adler3);  // true
+
+// Test compress_bound
+let bound = compress_bound(1000);
+print(bound > 1000);  // true (always larger than input for worst case)
+
+let bound2 = compress_bound(0);
+print(bound2 > 0);  // true (even empty input has some bound)
+
+print("Checksum tests passed!");

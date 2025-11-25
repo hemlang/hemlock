@@ -1,8 +1,19 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc
-LDFLAGS = -lm -lpthread -lffi -ldl -Wl,--no-as-needed -lcrypto -lwebsockets -Wl,--as-needed
 SRC_DIR = src
 BUILD_DIR = build
+
+# Check if libwebsockets is available
+HAS_LIBWEBSOCKETS := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo 1 || (test -f /usr/include/libwebsockets.h && echo 1 || echo 0))
+
+# Base libraries (always required)
+LDFLAGS = -lm -lpthread -lffi -ldl -lz -lcrypto
+
+# Conditionally add libwebsockets
+ifeq ($(HAS_LIBWEBSOCKETS),1)
+LDFLAGS += -lwebsockets
+CFLAGS += -DHAVE_LIBWEBSOCKETS=1
+endif
 
 # Source files from src/ and src/parser/ and src/interpreter/ and src/interpreter/builtins/ and src/interpreter/io/ and src/interpreter/runtime/
 SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/parser/*.c) $(wildcard $(SRC_DIR)/interpreter/*.c) $(wildcard $(SRC_DIR)/interpreter/builtins/*.c) $(wildcard $(SRC_DIR)/interpreter/io/*.c) $(wildcard $(SRC_DIR)/interpreter/runtime/*.c)
@@ -37,13 +48,31 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET) stdlib/c/*.so
 
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TARGET)
+test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
+
+# ========== STDLIB C MODULES ==========
+
+# Build stdlib C modules (lws_wrapper.so for HTTP/WebSocket)
+.PHONY: stdlib
+stdlib:
+ifeq ($(HAS_LIBWEBSOCKETS),1)
+	@echo "Building stdlib/c/lws_wrapper.so..."
+	$(CC) -shared -fPIC -o stdlib/c/lws_wrapper.so stdlib/c/lws_wrapper.c -lwebsockets
+	@echo "✓ lws_wrapper.so built successfully"
+else
+	@echo "⊘ Skipping lws_wrapper.so (libwebsockets not installed)"
+endif
+
+# Clean stdlib builds
+.PHONY: stdlib-clean
+stdlib-clean:
+	rm -f stdlib/c/*.so
 
 # ========== VALGRIND MEMORY LEAK CHECKING ==========
 

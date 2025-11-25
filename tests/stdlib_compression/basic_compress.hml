@@ -1,0 +1,30 @@
+// Test basic compression and decompression
+import { compress, decompress } from "@stdlib/compression";
+
+// Test basic compression (small strings may have overhead, so just test round-trip)
+let original = "Hello, World! This is a test string to compress.";
+let compressed = compress(original);
+
+// Compressed should be a buffer
+print(typeof(compressed) == "buffer");  // true
+
+// Decompress should restore original
+let restored = decompress(compressed);
+print(restored == original);  // true
+
+// Test with longer string (more compression opportunity)
+let long_string = "";
+let i = 0;
+while (i < 100) {
+    long_string = long_string + "The quick brown fox jumps over the lazy dog. ";
+    i = i + 1;
+}
+
+let long_compressed = compress(long_string);
+// Long repetitive strings should compress well
+print(long_compressed.length < long_string.byte_length);  // true
+
+let long_restored = decompress(long_compressed);
+print(long_restored == long_string);  // true
+
+print("Basic compression tests passed!");

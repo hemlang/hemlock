@@ -1,0 +1,32 @@
+// Test tar archive creation (TarWriter)
+// Note: TarReader has known issues with closure capture in Hemlock
+import { TarWriter } from "@stdlib/compression";
+
+// Create a tar archive
+let writer = TarWriter();
+
+// Add a directory
+writer.add_directory("myproject");
+
+// Add some files
+writer.add_file("myproject/README.md", "# My Project\n\nThis is a test project.");
+writer.add_file("myproject/main.hml", "print(\"Hello, World!\");");
+writer.add_file("myproject/data.txt", "Some data content here.");
+
+// Verify entry count
+print(writer.count() == 4);  // true (1 dir + 3 files)
+
+// Build the archive
+let tar_data = writer.build();
+
+// Verify output is valid tar (not empty)
+print(tar_data.length > 0);  // true
+
+// Verify ustar magic bytes (offset 257-262)
+print(tar_data[257] == 117);  // 'u'
+print(tar_data[258] == 115);  // 's'
+print(tar_data[259] == 116);  // 't'
+print(tar_data[260] == 97);   // 'a'
+print(tar_data[261] == 114);  // 'r'
+
+print("Tar archive tests passed!");

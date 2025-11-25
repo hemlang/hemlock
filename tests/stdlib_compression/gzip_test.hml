@@ -1,0 +1,28 @@
+// Test gzip compression and decompression
+import { gzip, gunzip } from "@stdlib/compression";
+
+// Test basic gzip
+let original = "Hello, World! This is a test for gzip compression.";
+let compressed = gzip(original);
+
+// Verify gzip magic bytes
+print(compressed[0] == 31);   // 0x1f
+print(compressed[1] == 139);  // 0x8b
+
+// Decompress
+let restored = gunzip(compressed);
+print(restored == original);  // true
+
+// Test with compression level 9 (best)
+let original2 = "Testing gzip with maximum compression level.";
+let compressed2 = gzip(original2, 9);
+let restored2 = gunzip(compressed2);
+print(restored2 == original2);  // true
+
+// Test with compression level 1 (fastest)
+let original3 = "Testing gzip with fastest compression level.";
+let compressed3 = gzip(original3, 1);
+let restored3 = gunzip(compressed3);
+print(restored3 == original3);  // true
+
+print("Gzip tests passed!");

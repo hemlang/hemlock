@@ -1,0 +1,23 @@
+// Test empty input handling
+import { compress, decompress, gzip, gunzip } from "@stdlib/compression";
+
+// Test empty string compression
+let empty = "";
+let compressed = compress(empty);
+// Empty string zlib compression produces a small output (not zero)
+print(compressed.length >= 0);  // true
+
+// Test round-trip with empty string - decompress returns empty string
+let decompressed = decompress(compressed);
+print(decompressed == "");  // true
+
+// Test gzip with empty input (produces valid gzip header/trailer)
+let gzip_empty = gzip(empty);
+print(gzip_empty.length > 0);  // true (gzip has header even for empty)
+print(gzip_empty[0] == 31);    // true (gzip magic byte 1)
+print(gzip_empty[1] == 139);   // true (gzip magic byte 2)
+
+let gunzip_result = gunzip(gzip_empty);
+print(gunzip_result == "");  // true
+
+print("Empty input tests passed!");

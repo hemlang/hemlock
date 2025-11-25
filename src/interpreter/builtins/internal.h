@@ -183,4 +183,13 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
 Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *ctx);
 
+// Compression builtins (compression.c)
+Value builtin_zlib_compress(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_zlib_decompress(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_gzip_compress(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_gzip_decompress(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_zlib_compress_bound(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H

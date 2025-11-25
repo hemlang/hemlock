@@ -134,6 +134,14 @@ static BuiltinInfo builtins[] = {
     {"__lws_ws_server_create", builtin_lws_ws_server_create},
     {"__lws_ws_server_accept", builtin_lws_ws_server_accept},
     {"__lws_ws_server_close", builtin_lws_ws_server_close},
+    // Compression builtins (use stdlib/compression.hml module for public API)
+    {"__zlib_compress", builtin_zlib_compress},
+    {"__zlib_decompress", builtin_zlib_decompress},
+    {"__gzip_compress", builtin_gzip_compress},
+    {"__gzip_decompress", builtin_gzip_decompress},
+    {"__zlib_compress_bound", builtin_zlib_compress_bound},
+    {"__crc32", builtin_crc32},
+    {"__adler32", builtin_adler32},
     {NULL, NULL}  // Sentinel
 };
 

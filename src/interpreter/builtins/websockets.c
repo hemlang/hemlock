@@ -1,9 +1,20 @@
 // libwebsockets builtins for Hemlock
 // Provides both HTTP and WebSocket functionality as static builtins
+// Compiles with stubs if libwebsockets.h is not available
 
 #define _DEFAULT_SOURCE  // For usleep()
 
 #include "internal.h"
+
+// Check if libwebsockets is available
+// HAVE_LIBWEBSOCKETS is defined by Makefile if pkg-config finds libwebsockets
+// or if /usr/include/libwebsockets.h exists
+#ifndef HAVE_LIBWEBSOCKETS
+#  define HAVE_LIBWEBSOCKETS 0
+#endif
+
+#if HAVE_LIBWEBSOCKETS
+
 #include <libwebsockets.h>
 #include <pthread.h>
 
@@ -330,6 +341,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     // Note: POST body handling in libwebsockets is complex
     // This is a simplified version - real implementation would need WRITABLE callback
     (void)post_body;  // Suppress warning - not fully implemented yet
+    (void)content_type;
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(context);
@@ -1171,3 +1183,112 @@ Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *c
 
     return val_null();
 }
+
+#else  // !HAVE_LIBWEBSOCKETS
+
+// ========== STUB IMPLEMENTATIONS (libwebsockets not available) ==========
+
+Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args; (void)ctx;
+    return val_null();
+}
+
+Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args; (void)ctx;
+    return val_null();
+}
+
+Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args; (void)ctx;
+    return val_null();
+}
+
+Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args; (void)ctx;
+    return val_i32(1);
+}
+
+Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket server not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket server not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args; (void)ctx;
+    return val_null();
+}
+
+#endif  // HAVE_LIBWEBSOCKETS

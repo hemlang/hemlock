@@ -1,0 +1,40 @@
+// Test different compression levels
+import { compress, decompress, LEVEL_NONE, LEVEL_FASTEST, LEVEL_DEFAULT, LEVEL_BEST } from "@stdlib/compression";
+
+// Create a compressible string
+let original = "";
+let i = 0;
+while (i < 50) {
+    original = original + "AAAAAAAAAA BBBBBBBBBB CCCCCCCCCC DDDDDDDDDD ";
+    i = i + 1;
+}
+
+// Test no compression (level 0)
+let compressed_none = compress(original, LEVEL_NONE);
+let restored_none = decompress(compressed_none);
+print(restored_none == original);  // true
+
+// Test fastest compression (level 1)
+let compressed_fast = compress(original, LEVEL_FASTEST);
+let restored_fast = decompress(compressed_fast);
+print(restored_fast == original);  // true
+
+// Test default compression (level 6)
+let compressed_default = compress(original, LEVEL_DEFAULT);
+let restored_default = decompress(compressed_default);
+print(restored_default == original);  // true
+
+// Test best compression (level 9)
+let compressed_best = compress(original, LEVEL_BEST);
+let restored_best = decompress(compressed_best);
+print(restored_best == original);  // true
+
+// Level 0 should be larger than level 9 for compressible data
+print(compressed_none.length >= compressed_best.length);  // true
+
+// All should decompress correctly
+print(restored_none == restored_fast);  // true
+print(restored_fast == restored_default);  // true
+print(restored_default == restored_best);  // true
+
+print("Compression levels tests passed!");
