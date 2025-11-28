@@ -217,6 +217,31 @@ double hml_round(double x);
 double hml_abs_f64(double x);
 int64_t hml_abs_i64(int64_t x);
 
+// ========== CLOSURE SUPPORT ==========
+
+// Closure environment structure
+typedef struct HmlClosureEnv {
+    HmlValue *captured;     // Array of captured values
+    int num_captured;       // Number of captured values
+    int ref_count;          // Reference count
+} HmlClosureEnv;
+
+// Create a new closure environment with given capacity
+HmlClosureEnv* hml_closure_env_new(int num_vars);
+
+// Free a closure environment
+void hml_closure_env_free(HmlClosureEnv *env);
+
+// Retain/release closure environment
+void hml_closure_env_retain(HmlClosureEnv *env);
+void hml_closure_env_release(HmlClosureEnv *env);
+
+// Get captured value from environment
+HmlValue hml_closure_env_get(HmlClosureEnv *env, int index);
+
+// Set captured value in environment
+void hml_closure_env_set(HmlClosureEnv *env, int index, HmlValue val);
+
 // ========== UTILITY MACROS ==========
 
 // Create a string literal value (compile-time optimization)

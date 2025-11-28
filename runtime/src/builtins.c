@@ -741,41 +741,83 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
             exit(1);
         }
 
-        // Cast to appropriate function type based on number of params
-        switch (num_args) {
-            case 0: {
-                typedef HmlValue (*Fn0)(void);
-                Fn0 f = (Fn0)fn_ptr;
-                return f();
+        // Check if this is a closure (has environment)
+        void *closure_env = fn.as.as_function->closure_env;
+
+        if (closure_env) {
+            // Closure: first argument is the environment
+            switch (num_args) {
+                case 0: {
+                    typedef HmlValue (*Fn0)(HmlClosureEnv*);
+                    Fn0 f = (Fn0)fn_ptr;
+                    return f((HmlClosureEnv*)closure_env);
+                }
+                case 1: {
+                    typedef HmlValue (*Fn1)(HmlClosureEnv*, HmlValue);
+                    Fn1 f = (Fn1)fn_ptr;
+                    return f((HmlClosureEnv*)closure_env, args[0]);
+                }
+                case 2: {
+                    typedef HmlValue (*Fn2)(HmlClosureEnv*, HmlValue, HmlValue);
+                    Fn2 f = (Fn2)fn_ptr;
+                    return f((HmlClosureEnv*)closure_env, args[0], args[1]);
+                }
+                case 3: {
+                    typedef HmlValue (*Fn3)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue);
+                    Fn3 f = (Fn3)fn_ptr;
+                    return f((HmlClosureEnv*)closure_env, args[0], args[1], args[2]);
+                }
+                case 4: {
+                    typedef HmlValue (*Fn4)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue);
+                    Fn4 f = (Fn4)fn_ptr;
+                    return f((HmlClosureEnv*)closure_env, args[0], args[1], args[2], args[3]);
+                }
+                case 5: {
+                    typedef HmlValue (*Fn5)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+                    Fn5 f = (Fn5)fn_ptr;
+                    return f((HmlClosureEnv*)closure_env, args[0], args[1], args[2], args[3], args[4]);
+                }
+                default:
+                    fprintf(stderr, "Runtime error: Closures with more than 5 arguments not supported\n");
+                    exit(1);
             }
-            case 1: {
-                typedef HmlValue (*Fn1)(HmlValue);
-                Fn1 f = (Fn1)fn_ptr;
-                return f(args[0]);
+        } else {
+            // Regular function: no environment
+            switch (num_args) {
+                case 0: {
+                    typedef HmlValue (*Fn0)(void);
+                    Fn0 f = (Fn0)fn_ptr;
+                    return f();
+                }
+                case 1: {
+                    typedef HmlValue (*Fn1)(HmlValue);
+                    Fn1 f = (Fn1)fn_ptr;
+                    return f(args[0]);
+                }
+                case 2: {
+                    typedef HmlValue (*Fn2)(HmlValue, HmlValue);
+                    Fn2 f = (Fn2)fn_ptr;
+                    return f(args[0], args[1]);
+                }
+                case 3: {
+                    typedef HmlValue (*Fn3)(HmlValue, HmlValue, HmlValue);
+                    Fn3 f = (Fn3)fn_ptr;
+                    return f(args[0], args[1], args[2]);
+                }
+                case 4: {
+                    typedef HmlValue (*Fn4)(HmlValue, HmlValue, HmlValue, HmlValue);
+                    Fn4 f = (Fn4)fn_ptr;
+                    return f(args[0], args[1], args[2], args[3]);
+                }
+                case 5: {
+                    typedef HmlValue (*Fn5)(HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+                    Fn5 f = (Fn5)fn_ptr;
+                    return f(args[0], args[1], args[2], args[3], args[4]);
+                }
+                default:
+                    fprintf(stderr, "Runtime error: Functions with more than 5 arguments not supported\n");
+                    exit(1);
             }
-            case 2: {
-                typedef HmlValue (*Fn2)(HmlValue, HmlValue);
-                Fn2 f = (Fn2)fn_ptr;
-                return f(args[0], args[1]);
-            }
-            case 3: {
-                typedef HmlValue (*Fn3)(HmlValue, HmlValue, HmlValue);
-                Fn3 f = (Fn3)fn_ptr;
-                return f(args[0], args[1], args[2]);
-            }
-            case 4: {
-                typedef HmlValue (*Fn4)(HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn4 f = (Fn4)fn_ptr;
-                return f(args[0], args[1], args[2], args[3]);
-            }
-            case 5: {
-                typedef HmlValue (*Fn5)(HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn5 f = (Fn5)fn_ptr;
-                return f(args[0], args[1], args[2], args[3], args[4]);
-            }
-            default:
-                fprintf(stderr, "Runtime error: Functions with more than 5 arguments not supported\n");
-                exit(1);
         }
     }
 

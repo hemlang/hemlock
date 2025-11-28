@@ -82,7 +82,7 @@ for test_file in "$TEST_DIR"/*.hml; do
 
     # Compile Hemlock to C
     c_file="$TEMP_DIR/${test_name}.c"
-    if ! ./hemlockc -c "$test_file" -o "$c_file" > /tmp/hemlockc_err.log 2>&1; then
+    if ! ./hemlockc "$test_file" -c --emit-c "$c_file" > /tmp/hemlockc_err.log 2>&1; then
         echo -e "${RED}✗${NC} $test_name ${RED}(compilation to C failed)${NC}"
         cat /tmp/hemlockc_err.log
         ((FAIL_COUNT++))
