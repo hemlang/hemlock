@@ -1,0 +1,34 @@
+// Test try/catch/finally
+
+// Basic try/catch
+try {
+    print("try block");
+    throw "error!";
+    print("never reached");
+} catch (e) {
+    print("caught");
+    print(e);
+}
+
+print("---");
+
+// Try/finally without throw
+try {
+    print("try 2");
+} finally {
+    print("finally 2");
+}
+
+print("---");
+
+// Try/catch/finally with throw
+try {
+    print("try 3");
+    throw "boom";
+} catch (e) {
+    print("caught 3");
+} finally {
+    print("finally 3");
+}
+
+print("done");

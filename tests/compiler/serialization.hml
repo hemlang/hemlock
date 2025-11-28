@@ -1,0 +1,30 @@
+// Test JSON serialization and deserialization
+
+// Serialize simple object
+let obj = { name: "Alice", age: 30, active: true };
+let json = obj.serialize();
+print(json);
+
+// Deserialize JSON back to object
+let parsed = json.deserialize();
+print(parsed.name);
+print(parsed.age);
+print(parsed.active);
+
+// Nested object with array
+let nested = { user: { name: "Bob" }, items: [10, 20] };
+let nested_json = nested.serialize();
+print(nested_json);
+
+// Deserialize nested
+let parsed_nested = nested_json.deserialize();
+print(parsed_nested.user.name);
+print(parsed_nested.items[1]);
+
+// Deserialize JSON array string
+let arr_json = "[1, 2, 3]";
+let parsed_arr = arr_json.deserialize();
+print(parsed_arr[0]);
+print(parsed_arr[2]);
+
+print("done");

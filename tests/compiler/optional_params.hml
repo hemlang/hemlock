@@ -1,0 +1,28 @@
+// Test optional parameters
+
+// Function with one optional parameter
+fn greet(name, greeting?: "Hello") {
+    print(greeting + " " + name);
+}
+
+greet("Alice");              // Hello Alice
+greet("Bob", "Hi");          // Hi Bob
+
+// Function with multiple optional parameters
+fn format(value, prefix?: "[", suffix?: "]") {
+    print(prefix + value + suffix);
+}
+
+format("test");              // [test]
+format("test", "(");         // (test]
+format("test", "<", ">");    // <test>
+
+// Optional parameter with numeric default
+fn multiply(x, factor?: 2) {
+    return x * factor;
+}
+
+print(multiply(5));      // 10
+print(multiply(5, 3));   // 15
+
+print("done");

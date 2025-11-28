@@ -1,0 +1,44 @@
+// Test string methods
+
+let s = "hello world";
+
+// Length
+print(s.length);
+
+// Substring and slice
+print(s.substr(0, 5));
+print(s.slice(6, 11));
+
+// Find and contains
+print(s.find("world"));
+print(s.contains("hello"));
+print(s.contains("xyz"));
+
+// Case conversion
+print(s.to_upper());
+print(s.to_lower());
+
+// Trim
+let padded = "  trimmed  ";
+print(padded.trim());
+
+// Split
+let csv = "a,b,c";
+let parts = csv.split(",");
+print(parts[0]);
+print(parts[1]);
+print(parts[2]);
+print(parts.length);
+
+// Starts/ends with
+print(s.starts_with("hello"));
+print(s.ends_with("world"));
+
+// Replace
+print(s.replace("world", "there"));
+print("foo foo foo".replace_all("foo", "bar"));
+
+// Repeat
+print("ab".repeat(3));
+
+print("done");

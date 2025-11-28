@@ -195,3 +195,12 @@ all-compiler: all compiler
 .PHONY: test-compiler
 test-compiler: compiler
 	@bash tests/compiler/run_compiler_tests.sh
+
+# Run parity test suite (tests that must pass on both interpreter and compiler)
+.PHONY: parity
+parity: $(TARGET) compiler
+	@bash tests/parity/run_parity_tests.sh
+
+# Run all test suites
+.PHONY: test-all
+test-all: test test-compiler parity

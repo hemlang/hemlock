@@ -1,0 +1,22 @@
+// Test random builtins
+
+// Test rand returns value in [0, 1)
+seed(42);
+let r1 = rand();
+print(r1 >= 0.0);
+print(r1 < 1.0);
+
+// Test seeding produces reproducible results
+seed(12345);
+let r2 = rand();
+seed(12345);
+let r3 = rand();
+print(r2 == r3);
+
+// Test multiple calls to rand produce different values
+seed(100);
+let a = rand();
+let b = rand();
+print(a != b);
+
+print("done");

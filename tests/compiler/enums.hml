@@ -1,0 +1,44 @@
+// Test enums
+
+// Simple enum (auto values: 0, 1, 2)
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+print(Color.RED);    // 0
+print(Color.GREEN);  // 1
+print(Color.BLUE);   // 2
+
+// Enum with explicit values
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 100
+}
+
+print(Status.OK);       // 0
+print(Status.ERROR);    // 1
+print(Status.PENDING);  // 100
+
+// Using enum in switch
+let color = Color.GREEN;
+switch (color) {
+    case Color.RED:
+        print("red");
+        break;
+    case Color.GREEN:
+        print("green");
+        break;
+    case Color.BLUE:
+        print("blue");
+        break;
+}
+
+// Comparison
+if (color == Color.GREEN) {
+    print("is green");
+}
+
+print("done");

@@ -67,8 +67,8 @@ is_error_test() {
 echo -e "${BLUE}Running tests...${NC}"
 echo ""
 
-# Find all test files
-TEST_FILES=$(find "$TEST_DIR" -name "*.hml" | sort)
+# Find all test files (excluding compiler and parity directories which have their own test runners)
+TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do

@@ -1,0 +1,32 @@
+// Test for-in loop - array iteration
+
+// Test 1: Simple value iteration
+let arr = [10, 20, 30];
+for (let val in arr) {
+    print(val);
+}
+
+// Test 2: Index and value iteration
+print("---");
+let names = ["Alice", "Bob", "Charlie"];
+for (let i, name in names) {
+    print(i);
+    print(name);
+}
+
+// Test 3: Empty array
+print("---");
+let empty = [];
+for (let x in empty) {
+    print("should not print");
+}
+print("done");
+
+// Test 4: Nested loops
+print("---");
+let matrix = [[1, 2], [3, 4]];
+for (let row in matrix) {
+    for (let val in row) {
+        print(val);
+    }
+}

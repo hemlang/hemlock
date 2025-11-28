@@ -172,7 +172,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     const char *runtime_path = opts->runtime_path ? opts->runtime_path : ".";
 
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread",
+        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread -lffi -ldl",
         opts->cc, opt_flag, opts->output_file, c_file,
         runtime_path, runtime_path);
 

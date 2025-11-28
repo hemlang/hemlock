@@ -1,0 +1,45 @@
+// Test switch statements
+
+let x = 2;
+
+switch (x) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    case 3:
+        print("three");
+        break;
+    default:
+        print("other");
+        break;
+}
+
+// String switch
+let color = "green";
+switch (color) {
+    case "red":
+        print("stop");
+        break;
+    case "green":
+        print("go");
+        break;
+    default:
+        print("unknown");
+        break;
+}
+
+// Default case
+let y = 100;
+switch (y) {
+    case 1:
+        print("one");
+        break;
+    default:
+        print("default");
+        break;
+}
+
+print("done");

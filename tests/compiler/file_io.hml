@@ -1,0 +1,26 @@
+// Test file I/O operations
+
+// Write a test file
+let f = open("/tmp/hemlock_test.txt", "w");
+f.write("Hello, World!\n");
+f.write("Line 2\n");
+f.close();
+
+// Read the file back
+let f2 = open("/tmp/hemlock_test.txt", "r");
+let content = f2.read();
+print(content);
+f2.close();
+
+// Test seek and tell
+let f3 = open("/tmp/hemlock_test.txt", "r");
+let pos1 = f3.tell();
+print(pos1);
+f3.seek(7);
+let pos2 = f3.tell();
+print(pos2);
+let rest = f3.read();
+print(rest);
+f3.close();
+
+print("done");

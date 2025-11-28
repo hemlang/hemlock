@@ -1,0 +1,31 @@
+// Test string interpolation with template strings
+
+// Basic variable interpolation
+let name = "Alice";
+let greeting = `Hello, ${name}!`;
+print(greeting);
+
+// Multiple interpolations
+let age = 30;
+let msg = `${name} is ${age} years old.`;
+print(msg);
+
+// Expression interpolation
+let x = 10;
+let y = 20;
+let result = `Sum: ${x + y}, Product: ${x * y}`;
+print(result);
+
+// Nested property access
+let person = { name: "Bob", city: "NYC" };
+print(`${person.name} lives in ${person.city}`);
+
+// Empty interpolation (edge case)
+let empty = `start  end`;
+print(empty);
+
+// Just a plain template string
+let plain = `no interpolation here`;
+print(plain);
+
+print("done");

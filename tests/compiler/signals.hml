@@ -1,0 +1,27 @@
+// Test signal handling
+
+// Test signal constants exist
+print("Testing signal constants:");
+print(SIGINT);
+print(SIGTERM);
+print(SIGUSR1);
+print(SIGUSR2);
+
+// Test registering a signal handler (no closures - signal handlers are C callbacks)
+fn my_handler(signum) {
+    print("Handler called with signal:");
+    print(signum);
+}
+
+// Register handler for SIGUSR1
+signal(SIGUSR1, my_handler);
+
+// Raise SIGUSR1 multiple times
+print("Raising SIGUSR1:");
+raise(SIGUSR1);
+raise(SIGUSR1);
+
+// Test resetting handler to default
+signal(SIGUSR1, null);
+
+print("done");

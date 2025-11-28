@@ -1,0 +1,38 @@
+// Test optional chaining
+
+// Test with null object
+let obj = null;
+let result = obj?.name;
+print(result);
+
+// Test with non-null object
+let person = { name: "Alice", age: 30 };
+let name = person?.name;
+print(name);
+
+// Test chained optional access
+let data = { user: { profile: { email: "test@example.com" } } };
+let email = data?.user?.profile?.email;
+print(email);
+
+// Test optional chaining returning null for missing property
+let empty = {};
+let missing = empty?.nonexistent;
+print(missing);
+
+// Test optional indexing with array
+let arr = [1, 2, 3];
+let first = arr?.[0];
+print(first);
+
+// Test optional indexing with null
+let nullArr = null;
+let nullResult = nullArr?.[0];
+print(nullResult);
+
+// Test null coalesce with optional chaining
+let user = null;
+let defaultName = user?.name ?? "default";
+print(defaultName);
+
+print("done");

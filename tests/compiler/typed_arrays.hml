@@ -1,0 +1,20 @@
+// Test typed arrays
+
+// Typed array of i32
+let nums: array<i32> = [1, 2, 3, 4, 5];
+print(nums[0]);
+print(nums.length);
+
+// Typed array of string
+let names: array<string> = ["Alice", "Bob", "Charlie"];
+print(names[0]);
+print(names.length);
+
+// Untyped array (explicit)
+let mixed: array = [1, "hello", true];
+print(mixed[0]);
+print(mixed[1]);
+print(mixed[2]);
+print(mixed.length);
+
+print("done");

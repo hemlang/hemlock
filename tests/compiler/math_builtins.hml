@@ -1,0 +1,43 @@
+// Test math builtins
+
+// sqrt
+let x = sqrt(16.0);
+print(x);
+
+let y = sqrt(25.0);
+print(y);
+
+// floor, ceil, round
+print(floor(3.7));
+print(ceil(3.2));
+print(round(3.5));
+print(round(3.4));
+
+// abs
+print(abs(-5));
+print(abs(5));
+print(abs(-3.14));
+
+// min, max
+print(min(10, 5));
+print(max(10, 5));
+print(min(3.14, 2.71));
+print(max(3.14, 2.71));
+
+// pow, exp, log
+print(pow(2, 3));
+print(pow(2.0, 0.5));
+
+// trunc
+print(trunc(3.9));
+print(trunc(-3.9));
+
+// Trig functions (just test they work, not exact values)
+let pi = 3.14159265359;
+let sinval = sin(0.0);
+print(sinval);
+
+let cosval = cos(0.0);
+print(cosval);
+
+print("done");

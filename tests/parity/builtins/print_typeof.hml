@@ -1,0 +1,16 @@
+// Test print and typeof builtins
+
+print(typeof(42));
+print(typeof(3.14));
+print(typeof("hello"));
+print(typeof(true));
+print(typeof(null));
+print(typeof([1, 2, 3]));
+print(typeof({ x: 1 }));
+
+fn test() {
+    return 1;
+}
+print(typeof(test));
+
+print("done");

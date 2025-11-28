@@ -1,0 +1,36 @@
+// Test functions
+
+fn add(a, b) {
+    return a + b;
+}
+
+print(add(2, 3));
+
+fn greet(name) {
+    return "Hello, " + name;
+}
+
+print(greet("World"));
+
+// Recursion
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+print(factorial(5));
+
+// Higher-order function
+fn apply(f, x) {
+    return f(x);
+}
+
+fn twice(n) {
+    return n * 2;
+}
+
+print(apply(twice, 5));
+
+print("done");

@@ -1,0 +1,32 @@
+// Test sizeof builtin
+
+// Integer types
+print(sizeof("i8"));
+print(sizeof("i16"));
+print(sizeof("i32"));
+print(sizeof("i64"));
+
+// Unsigned types
+print(sizeof("u8"));
+print(sizeof("u16"));
+print(sizeof("u32"));
+print(sizeof("u64"));
+
+// Float types
+print(sizeof("f32"));
+print(sizeof("f64"));
+
+// Other types
+print(sizeof("bool"));
+print(sizeof("ptr"));
+print(sizeof("rune"));
+
+// Aliases
+print(sizeof("integer"));
+print(sizeof("number"));
+print(sizeof("byte"));
+
+// Unknown type returns 0
+print(sizeof("unknown"));
+
+print("done");

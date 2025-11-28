@@ -1,0 +1,32 @@
+// Test bitwise operators
+
+// Basic bitwise operations
+let a = 12;  // 1100 in binary
+let b = 10;  // 1010 in binary
+
+// AND
+print(a & b);   // 8  (1000)
+
+// OR
+print(a | b);   // 14 (1110)
+
+// XOR
+print(a ^ b);   // 6  (0110)
+
+// Left shift
+print(a << 2);  // 48 (110000)
+
+// Right shift
+print(a >> 1);  // 6  (110)
+
+// NOT (bitwise complement) - signed int gives -16 for 15
+let c = 15;
+print(~c);        // -16 (for signed i32)
+
+// Combined operations
+print((5 & 3) | 8);  // 1 | 8 = 9
+
+// Shift with addition
+print(1 << 3);  // 8
+
+print("done");

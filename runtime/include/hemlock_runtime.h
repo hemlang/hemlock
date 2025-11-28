@@ -68,10 +68,58 @@ HmlValue hml_read_line(void);
 // Type checking
 const char* hml_typeof(HmlValue val);
 void hml_check_type(HmlValue val, HmlValueType expected, const char *var_name);
+int hml_values_equal(HmlValue left, HmlValue right);
 
 // Assertions
 void hml_assert(HmlValue condition, HmlValue message);
 void hml_panic(HmlValue message);
+
+// Command execution
+HmlValue hml_exec(HmlValue command);
+
+// ========== MATH OPERATIONS ==========
+
+HmlValue hml_sqrt(HmlValue x);
+HmlValue hml_sin(HmlValue x);
+HmlValue hml_cos(HmlValue x);
+HmlValue hml_tan(HmlValue x);
+HmlValue hml_asin(HmlValue x);
+HmlValue hml_acos(HmlValue x);
+HmlValue hml_atan(HmlValue x);
+HmlValue hml_floor(HmlValue x);
+HmlValue hml_ceil(HmlValue x);
+HmlValue hml_round(HmlValue x);
+HmlValue hml_trunc(HmlValue x);
+HmlValue hml_abs(HmlValue x);
+HmlValue hml_pow(HmlValue base, HmlValue exp);
+HmlValue hml_exp(HmlValue x);
+HmlValue hml_log(HmlValue x);
+HmlValue hml_min(HmlValue a, HmlValue b);
+HmlValue hml_max(HmlValue a, HmlValue b);
+HmlValue hml_rand(void);
+void hml_seed(HmlValue seed);
+
+// ========== TIME OPERATIONS ==========
+
+HmlValue hml_now(void);
+HmlValue hml_time_ms(void);
+HmlValue hml_clock(void);
+void hml_sleep(HmlValue seconds);
+
+// ========== ENVIRONMENT OPERATIONS ==========
+
+HmlValue hml_getenv(HmlValue name);
+void hml_setenv(HmlValue name, HmlValue value);
+void hml_exit(HmlValue code);
+HmlValue hml_get_pid(void);
+
+// ========== I/O OPERATIONS ==========
+
+HmlValue hml_read_line(void);
+
+// ========== TYPE OPERATIONS ==========
+
+HmlValue hml_sizeof(HmlValue type_name);
 
 // ========== STRING OPERATIONS ==========
 
@@ -121,6 +169,10 @@ HmlValue hml_array_length(HmlValue arr);
 HmlValue hml_array_get(HmlValue arr, HmlValue index);
 void hml_array_set(HmlValue arr, HmlValue index, HmlValue val);
 
+// Typed array support
+void hml_array_set_element_type(HmlValue arr, HmlValueType element_type);
+HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type);
+
 // Higher-order array operations
 HmlValue hml_array_map(HmlValue arr, HmlValue callback);
 HmlValue hml_array_filter(HmlValue arr, HmlValue predicate);
@@ -131,6 +183,14 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial);
 HmlValue hml_object_get_field(HmlValue obj, const char *field);
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val);
 int hml_object_has_field(HmlValue obj, const char *field);
+
+// ========== SERIALIZATION (JSON) ==========
+
+// Serialize a value to JSON string
+HmlValue hml_serialize(HmlValue val);
+
+// Deserialize JSON string to value
+HmlValue hml_deserialize(HmlValue json_str);
 
 // ========== MEMORY OPERATIONS ==========
 
@@ -148,10 +208,13 @@ HmlValue hml_buffer_length(HmlValue buf);
 
 // ========== FUNCTION CALLS ==========
 
+// Global self reference for method calls (thread-local for safety)
+extern __thread HmlValue hml_self;
+
 // Call a function value with arguments
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args);
 
-// Call a method on an object
+// Call a method on an object (sets hml_self before calling)
 HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int num_args);
 
 // ========== EXCEPTION HANDLING ==========
@@ -201,21 +264,79 @@ HmlValue hml_file_seek(HmlValue file, HmlValue position);
 HmlValue hml_file_tell(HmlValue file);
 void hml_file_close(HmlValue file);
 
-// ========== MATH FUNCTIONS ==========
+// ========== SIGNAL HANDLING ==========
 
-double hml_sin(double x);
-double hml_cos(double x);
-double hml_tan(double x);
-double hml_sqrt(double x);
-double hml_pow(double base, double exp);
-double hml_exp(double x);
-double hml_log(double x);
-double hml_log10(double x);
-double hml_floor(double x);
-double hml_ceil(double x);
-double hml_round(double x);
-double hml_abs_f64(double x);
-int64_t hml_abs_i64(int64_t x);
+// Maximum signal number supported
+#define HML_MAX_SIGNAL 64
+
+// Register a signal handler (handler can be function or null to reset)
+// Returns previous handler
+HmlValue hml_signal(HmlValue signum, HmlValue handler);
+
+// Raise a signal to the current process
+HmlValue hml_raise(HmlValue signum);
+
+// ========== TYPE DEFINITIONS (DUCK TYPING) ==========
+
+// Register a type definition
+void hml_register_type(const char *name, HmlTypeField *fields, int num_fields);
+
+// Lookup a type definition by name
+HmlTypeDef* hml_lookup_type(const char *name);
+
+// Validate an object against a type definition (duck typing)
+// Returns the object with optional fields filled in, or exits on type error
+HmlValue hml_validate_object_type(HmlValue obj, const char *type_name);
+
+// ========== CLOSURE SUPPORT ==========
+
+// Closure environment structure
+typedef struct HmlClosureEnv {
+    HmlValue *captured;     // Array of captured values
+    int num_captured;       // Number of captured values
+    int ref_count;          // Reference count
+} HmlClosureEnv;
+
+// Create a new closure environment with given capacity
+HmlClosureEnv* hml_closure_env_new(int num_vars);
+
+// Free a closure environment
+void hml_closure_env_free(HmlClosureEnv *env);
+
+// Retain/release closure environment
+void hml_closure_env_retain(HmlClosureEnv *env);
+void hml_closure_env_release(HmlClosureEnv *env);
+
+// Get captured value from environment
+HmlValue hml_closure_env_get(HmlClosureEnv *env, int index);
+
+// Set captured value in environment
+void hml_closure_env_set(HmlClosureEnv *env, int index, HmlValue val);
+
+// ========== FFI (Foreign Function Interface) ==========
+
+// FFI type identifiers for argument/return types
+typedef enum {
+    HML_FFI_VOID,
+    HML_FFI_I8, HML_FFI_I16, HML_FFI_I32, HML_FFI_I64,
+    HML_FFI_U8, HML_FFI_U16, HML_FFI_U32, HML_FFI_U64,
+    HML_FFI_F32, HML_FFI_F64,
+    HML_FFI_PTR,
+    HML_FFI_STRING,
+} HmlFFIType;
+
+// Load a shared library, returns opaque handle
+HmlValue hml_ffi_load(const char *path);
+
+// Close a library handle
+void hml_ffi_close(HmlValue lib);
+
+// Get a function pointer from a library
+void* hml_ffi_sym(HmlValue lib, const char *name);
+
+// Call an FFI function with given arguments and types
+// types array contains: [return_type, arg1_type, arg2_type, ...]
+HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *types);
 
 // ========== UTILITY MACROS ==========
 

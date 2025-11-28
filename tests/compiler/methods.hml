@@ -1,0 +1,48 @@
+// Test string and array methods
+
+// String methods
+let s = "hello world";
+print(s.length);
+
+let sub = s.substr(0, 5);
+print(sub);
+
+let upper = s.to_upper();
+print(upper);
+
+let idx = s.find("world");
+print(idx);
+
+let has = s.contains("ell");
+print(has);
+
+let trimmed = "  hi  ".trim();
+print(trimmed);
+
+// Array methods
+let arr = [1, 2, 3];
+print(arr.length);
+
+arr.push(4);
+print(arr.length);
+
+let first = arr.first();
+print(first);
+
+let last = arr.last();
+print(last);
+
+let found = arr.find(3);
+print(found);
+
+let has_two = arr.contains(2);
+print(has_two);
+
+// Slice
+let slice = arr.slice(1, 3);
+print(slice.length);
+
+// Join
+let words = ["a", "b", "c"];
+let joined = words.join("-");
+print(joined);

@@ -1,0 +1,36 @@
+// Test object literals and methods
+
+// Basic object
+let point = { x: 10, y: 20 };
+print(point.x);
+print(point.y);
+
+// Object with method using self
+let counter = {
+    count: 0,
+    increment: fn() {
+        self.count = self.count + 1;
+    },
+    get: fn() {
+        return self.count;
+    }
+};
+
+counter.increment();
+counter.increment();
+print(counter.get());
+
+// Nested objects
+let person = {
+    name: "Alice",
+    address: {
+        city: "NYC",
+        zip: 10001
+    }
+};
+print(person.name);
+print(person.address.city);
+
+// Object field assignment
+point.z = 30;
+print(point.z);

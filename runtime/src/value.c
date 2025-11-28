@@ -606,3 +606,62 @@ const char* hml_typeof_str(HmlValue val) {
     }
     return hml_type_name(val.type);
 }
+
+// ========== CLOSURE ENVIRONMENT ==========
+
+HmlClosureEnv* hml_closure_env_new(int num_vars) {
+    HmlClosureEnv *env = malloc(sizeof(HmlClosureEnv));
+    env->captured = calloc(num_vars, sizeof(HmlValue));
+    env->num_captured = num_vars;
+    env->ref_count = 1;
+
+    // Initialize all captured values to null
+    for (int i = 0; i < num_vars; i++) {
+        env->captured[i] = hml_val_null();
+    }
+
+    return env;
+}
+
+void hml_closure_env_free(HmlClosureEnv *env) {
+    if (env) {
+        // Release all captured values
+        for (int i = 0; i < env->num_captured; i++) {
+            hml_release(&env->captured[i]);
+        }
+        free(env->captured);
+        free(env);
+    }
+}
+
+void hml_closure_env_retain(HmlClosureEnv *env) {
+    if (env) {
+        env->ref_count++;
+    }
+}
+
+void hml_closure_env_release(HmlClosureEnv *env) {
+    if (env) {
+        env->ref_count--;
+        if (env->ref_count <= 0) {
+            hml_closure_env_free(env);
+        }
+    }
+}
+
+HmlValue hml_closure_env_get(HmlClosureEnv *env, int index) {
+    if (env && index >= 0 && index < env->num_captured) {
+        HmlValue val = env->captured[index];
+        hml_retain(&val);
+        return val;
+    }
+    return hml_val_null();
+}
+
+void hml_closure_env_set(HmlClosureEnv *env, int index, HmlValue val) {
+    if (env && index >= 0 && index < env->num_captured) {
+        hml_release(&env->captured[index]);
+        env->captured[index] = val;
+        hml_retain(&env->captured[index]);
+    }
+}

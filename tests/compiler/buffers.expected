@@ -1,0 +1,13 @@
+Created buffer
+10
+65
+66
+67
+72
+105
+Allocated p
+Freed p
+Allocated 16 bytes
+Reallocated to 64 bytes
+Freed reallocated p
+done

@@ -1,0 +1,40 @@
+// Test buffer operations
+
+// Create buffer
+let buf = buffer(10);
+print("Created buffer");
+
+// Check length
+print(buf.length);
+
+// Set and get values
+buf[0] = 65;
+buf[1] = 66;
+buf[2] = 67;
+print(buf[0]);
+print(buf[1]);
+print(buf[2]);
+
+// Set values again
+buf[3] = 72;  // 'H'
+buf[4] = 105; // 'i'
+print(buf[3]);
+print(buf[4]);
+
+// Test alloc and free
+let p = alloc(32);
+print("Allocated p");
+free(p);
+print("Freed p");
+
+// Test realloc
+let p2 = alloc(16);
+print("Allocated 16 bytes");
+p2 = realloc(p2, 64);
+print("Reallocated to 64 bytes");
+free(p2);
+print("Freed reallocated p");
+
+// Free buffer at the end
+free(buf);
+print("done");

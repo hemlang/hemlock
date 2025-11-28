@@ -1,0 +1,30 @@
+// Test type definitions with duck typing
+
+// Define a simple type
+define Person {
+    name: string,
+    age: i32,
+}
+
+// Create an object that matches the type
+let p: Person = { name: "Alice", age: 30 };
+print(p.name);
+print(p.age);
+
+// Define a type with optional field
+define Config {
+    host: string,
+    port?: 8080,
+}
+
+// Create config with optional field defaulted
+let c1: Config = { host: "localhost" };
+print(c1.host);
+print(c1.port);
+
+// Create config with optional field specified
+let c2: Config = { host: "example.com", port: 3000 };
+print(c2.host);
+print(c2.port);
+
+print("done");

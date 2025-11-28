@@ -1,0 +1,74 @@
+// Test switch statements
+
+// Test 1: Basic switch with integers
+let x = 2;
+switch (x) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    case 3:
+        print("three");
+        break;
+    default:
+        print("other");
+        break;
+}
+
+// Test 2: Switch with strings
+let color = "green";
+switch (color) {
+    case "red":
+        print("stop");
+        break;
+    case "yellow":
+        print("slow");
+        break;
+    case "green":
+        print("go");
+        break;
+    default:
+        print("unknown");
+        break;
+}
+
+// Test 3: Switch with default only
+let y = 100;
+switch (y) {
+    case 1:
+        print("one");
+        break;
+    default:
+        print("default");
+        break;
+}
+
+// Test 4: No matching case, no default
+let z = 99;
+switch (z) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+}
+
+// Test 5: Switch with expressions
+let a = 5;
+let b = 3;
+switch (a + b) {
+    case 7:
+        print("seven");
+        break;
+    case 8:
+        print("eight");
+        break;
+    case 9:
+        print("nine");
+        break;
+}
+
+print("done");

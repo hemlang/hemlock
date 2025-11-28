@@ -10,6 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <dlfcn.h>
+#include <ffi.h>
 
 // ========== GLOBAL STATE ==========
 
@@ -187,17 +193,42 @@ void hml_eprint(HmlValue val) {
     fflush(stderr);
 }
 
-HmlValue hml_read_line(void) {
-    char buffer[4096];
-    if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
-        // Remove trailing newline
-        int len = strlen(buffer);
-        if (len > 0 && buffer[len - 1] == '\n') {
-            buffer[len - 1] = '\0';
-        }
-        return hml_val_string(buffer);
+// ========== VALUE COMPARISON ==========
+
+int hml_values_equal(HmlValue left, HmlValue right) {
+    // Null comparison
+    if (left.type == HML_VAL_NULL || right.type == HML_VAL_NULL) {
+        return (left.type == HML_VAL_NULL && right.type == HML_VAL_NULL);
     }
-    return hml_val_null();
+
+    // Boolean comparison
+    if (left.type == HML_VAL_BOOL && right.type == HML_VAL_BOOL) {
+        return (left.as.as_bool == right.as.as_bool);
+    }
+
+    // String comparison
+    if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
+        if (!left.as.as_string || !right.as.as_string) return 0;
+        return (strcmp(left.as.as_string->data, right.as.as_string->data) == 0);
+    }
+
+    // Numeric comparison
+    if (hml_is_numeric(left) && hml_is_numeric(right)) {
+        double l = hml_to_f64(left);
+        double r = hml_to_f64(right);
+        return (l == r);
+    }
+
+    // Reference equality for arrays/objects
+    if (left.type == HML_VAL_ARRAY && right.type == HML_VAL_ARRAY) {
+        return (left.as.as_array == right.as.as_array);
+    }
+    if (left.type == HML_VAL_OBJECT && right.type == HML_VAL_OBJECT) {
+        return (left.as.as_object == right.as.as_object);
+    }
+
+    // Different types are not equal
+    return 0;
 }
 
 // ========== TYPE CHECKING ==========
@@ -232,6 +263,274 @@ void hml_panic(HmlValue message) {
     print_value_to(stderr, message);
     fprintf(stderr, "\n");
     exit(1);
+}
+
+// ========== COMMAND EXECUTION ==========
+
+HmlValue hml_exec(HmlValue command) {
+    if (command.type != HML_VAL_STRING || !command.as.as_string) {
+        fprintf(stderr, "Runtime error: exec() argument must be a string\n");
+        exit(1);
+    }
+
+    HmlString *cmd_str = command.as.as_string;
+    char *ccmd = malloc(cmd_str->length + 1);
+    if (!ccmd) {
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        exit(1);
+    }
+    memcpy(ccmd, cmd_str->data, cmd_str->length);
+    ccmd[cmd_str->length] = '\0';
+
+    // Open pipe to read command output
+    FILE *pipe = popen(ccmd, "r");
+    if (!pipe) {
+        fprintf(stderr, "Runtime error: Failed to execute command '%s': %s\n", ccmd, strerror(errno));
+        free(ccmd);
+        exit(1);
+    }
+
+    // Read output into buffer
+    char *output_buffer = NULL;
+    size_t output_size = 0;
+    size_t output_capacity = 4096;
+    output_buffer = malloc(output_capacity);
+    if (!output_buffer) {
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        pclose(pipe);
+        free(ccmd);
+        exit(1);
+    }
+
+    char chunk[4096];
+    size_t bytes_read;
+    while ((bytes_read = fread(chunk, 1, sizeof(chunk), pipe)) > 0) {
+        // Grow buffer if needed
+        while (output_size + bytes_read > output_capacity) {
+            output_capacity *= 2;
+            char *new_buffer = realloc(output_buffer, output_capacity);
+            if (!new_buffer) {
+                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                free(output_buffer);
+                pclose(pipe);
+                free(ccmd);
+                exit(1);
+            }
+            output_buffer = new_buffer;
+        }
+        memcpy(output_buffer + output_size, chunk, bytes_read);
+        output_size += bytes_read;
+    }
+
+    // Get exit code
+    int status = pclose(pipe);
+    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    free(ccmd);
+
+    // Ensure string is null-terminated
+    if (output_size >= output_capacity) {
+        output_capacity = output_size + 1;
+        char *new_buffer = realloc(output_buffer, output_capacity);
+        if (!new_buffer) {
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            free(output_buffer);
+            exit(1);
+        }
+        output_buffer = new_buffer;
+    }
+    output_buffer[output_size] = '\0';
+
+    // Create result object with output and exit_code
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
+    free(output_buffer);
+
+    return result;
+}
+
+// ========== MATH OPERATIONS ==========
+
+HmlValue hml_sqrt(HmlValue x) {
+    return hml_val_f64(sqrt(hml_to_f64(x)));
+}
+
+HmlValue hml_sin(HmlValue x) {
+    return hml_val_f64(sin(hml_to_f64(x)));
+}
+
+HmlValue hml_cos(HmlValue x) {
+    return hml_val_f64(cos(hml_to_f64(x)));
+}
+
+HmlValue hml_tan(HmlValue x) {
+    return hml_val_f64(tan(hml_to_f64(x)));
+}
+
+HmlValue hml_asin(HmlValue x) {
+    return hml_val_f64(asin(hml_to_f64(x)));
+}
+
+HmlValue hml_acos(HmlValue x) {
+    return hml_val_f64(acos(hml_to_f64(x)));
+}
+
+HmlValue hml_atan(HmlValue x) {
+    return hml_val_f64(atan(hml_to_f64(x)));
+}
+
+HmlValue hml_floor(HmlValue x) {
+    return hml_val_f64(floor(hml_to_f64(x)));
+}
+
+HmlValue hml_ceil(HmlValue x) {
+    return hml_val_f64(ceil(hml_to_f64(x)));
+}
+
+HmlValue hml_round(HmlValue x) {
+    return hml_val_f64(round(hml_to_f64(x)));
+}
+
+HmlValue hml_trunc(HmlValue x) {
+    return hml_val_f64(trunc(hml_to_f64(x)));
+}
+
+HmlValue hml_abs(HmlValue x) {
+    double val = hml_to_f64(x);
+    return hml_val_f64(val < 0 ? -val : val);
+}
+
+HmlValue hml_pow(HmlValue base, HmlValue exp) {
+    return hml_val_f64(pow(hml_to_f64(base), hml_to_f64(exp)));
+}
+
+HmlValue hml_exp(HmlValue x) {
+    return hml_val_f64(exp(hml_to_f64(x)));
+}
+
+HmlValue hml_log(HmlValue x) {
+    return hml_val_f64(log(hml_to_f64(x)));
+}
+
+HmlValue hml_min(HmlValue a, HmlValue b) {
+    double va = hml_to_f64(a);
+    double vb = hml_to_f64(b);
+    return hml_val_f64(va < vb ? va : vb);
+}
+
+HmlValue hml_max(HmlValue a, HmlValue b) {
+    double va = hml_to_f64(a);
+    double vb = hml_to_f64(b);
+    return hml_val_f64(va > vb ? va : vb);
+}
+
+static int g_rand_seeded = 0;
+
+HmlValue hml_rand(void) {
+    if (!g_rand_seeded) {
+        srand((unsigned int)time(NULL));
+        g_rand_seeded = 1;
+    }
+    return hml_val_f64((double)rand() / RAND_MAX);
+}
+
+void hml_seed(HmlValue seed) {
+    srand((unsigned int)hml_to_i32(seed));
+    g_rand_seeded = 1;
+}
+
+// ========== TIME OPERATIONS ==========
+
+HmlValue hml_now(void) {
+    return hml_val_i64((int64_t)time(NULL));
+}
+
+HmlValue hml_time_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return hml_val_i64((int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+HmlValue hml_clock(void) {
+    return hml_val_f64((double)clock() / CLOCKS_PER_SEC);
+}
+
+void hml_sleep(HmlValue seconds) {
+    double secs = hml_to_f64(seconds);
+    struct timespec ts;
+    ts.tv_sec = (time_t)secs;
+    ts.tv_nsec = (long)((secs - ts.tv_sec) * 1e9);
+    nanosleep(&ts, NULL);
+}
+
+// ========== ENVIRONMENT OPERATIONS ==========
+
+HmlValue hml_getenv(HmlValue name) {
+    if (name.type != HML_VAL_STRING || !name.as.as_string) {
+        return hml_val_null();
+    }
+    char *value = getenv(name.as.as_string->data);
+    if (!value) {
+        return hml_val_null();
+    }
+    return hml_val_string(value);
+}
+
+void hml_setenv(HmlValue name, HmlValue value) {
+    if (name.type != HML_VAL_STRING || !name.as.as_string) {
+        return;
+    }
+    if (value.type != HML_VAL_STRING || !value.as.as_string) {
+        return;
+    }
+    setenv(name.as.as_string->data, value.as.as_string->data, 1);
+}
+
+void hml_exit(HmlValue code) {
+    exit(hml_to_i32(code));
+}
+
+HmlValue hml_get_pid(void) {
+    return hml_val_i32((int32_t)getpid());
+}
+
+// ========== I/O OPERATIONS ==========
+
+HmlValue hml_read_line(void) {
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read = getline(&line, &len, stdin);
+    if (read == -1) {
+        free(line);
+        return hml_val_null();
+    }
+    // Remove trailing newline
+    if (read > 0 && line[read - 1] == '\n') {
+        line[read - 1] = '\0';
+        read--;
+    }
+    HmlValue result = hml_val_string(line);
+    free(line);
+    return result;
+}
+
+// ========== TYPE OPERATIONS ==========
+
+HmlValue hml_sizeof(HmlValue type_name) {
+    if (type_name.type != HML_VAL_STRING || !type_name.as.as_string) {
+        return hml_val_i32(0);
+    }
+    const char *name = type_name.as.as_string->data;
+    if (strcmp(name, "i8") == 0 || strcmp(name, "u8") == 0 || strcmp(name, "byte") == 0) return hml_val_i32(1);
+    if (strcmp(name, "i16") == 0 || strcmp(name, "u16") == 0) return hml_val_i32(2);
+    if (strcmp(name, "i32") == 0 || strcmp(name, "u32") == 0 || strcmp(name, "integer") == 0) return hml_val_i32(4);
+    if (strcmp(name, "i64") == 0 || strcmp(name, "u64") == 0) return hml_val_i32(8);
+    if (strcmp(name, "f32") == 0) return hml_val_i32(4);
+    if (strcmp(name, "f64") == 0 || strcmp(name, "number") == 0) return hml_val_i32(8);
+    if (strcmp(name, "bool") == 0) return hml_val_i32(1);
+    if (strcmp(name, "ptr") == 0) return hml_val_i32(8);
+    if (strcmp(name, "rune") == 0) return hml_val_i32(4);
+    return hml_val_i32(0);
 }
 
 // ========== BINARY OPERATIONS ==========
@@ -525,6 +824,516 @@ HmlValue hml_to_string(HmlValue val) {
     return hml_val_string(buffer);
 }
 
+// ========== STRING METHODS ==========
+
+HmlValue hml_string_length(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_i32(0);
+    }
+    HmlString *s = str.as.as_string;
+    // For now, return byte length (UTF-8 codepoint counting can be added later)
+    return hml_val_i32(s->length);
+}
+
+HmlValue hml_string_byte_length(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_i32(0);
+    }
+    return hml_val_i32(str.as.as_string->length);
+}
+
+HmlValue hml_string_char_at(HmlValue str, HmlValue index) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_null();
+    }
+    HmlString *s = str.as.as_string;
+    int32_t idx = hml_to_i32(index);
+    if (idx < 0 || idx >= s->length) {
+        return hml_val_null();
+    }
+    // Return as rune (byte value for ASCII)
+    return hml_val_rune((uint32_t)(unsigned char)s->data[idx]);
+}
+
+HmlValue hml_string_byte_at(HmlValue str, HmlValue index) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_null();
+    }
+    HmlString *s = str.as.as_string;
+    int32_t idx = hml_to_i32(index);
+    if (idx < 0 || idx >= s->length) {
+        return hml_val_null();
+    }
+    return hml_val_u8((uint8_t)s->data[idx]);
+}
+
+HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    int32_t start_idx = hml_to_i32(start);
+    int32_t len = hml_to_i32(length);
+
+    // Clamp bounds
+    if (start_idx < 0) start_idx = 0;
+    if (start_idx >= s->length) return hml_val_string("");
+    if (len < 0) len = 0;
+    if (start_idx + len > s->length) len = s->length - start_idx;
+
+    char *result = malloc(len + 1);
+    memcpy(result, s->data + start_idx, len);
+    result[len] = '\0';
+    return hml_val_string_owned(result, len, len + 1);
+}
+
+HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    int32_t start_idx = hml_to_i32(start);
+    int32_t end_idx = hml_to_i32(end);
+
+    // Clamp bounds
+    if (start_idx < 0) start_idx = 0;
+    if (start_idx > s->length) start_idx = s->length;
+    if (end_idx < start_idx) end_idx = start_idx;
+    if (end_idx > s->length) end_idx = s->length;
+
+    int len = end_idx - start_idx;
+    char *result = malloc(len + 1);
+    memcpy(result, s->data + start_idx, len);
+    result[len] = '\0';
+    return hml_val_string_owned(result, len, len + 1);
+}
+
+HmlValue hml_string_find(HmlValue str, HmlValue needle) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        needle.type != HML_VAL_STRING || !needle.as.as_string) {
+        return hml_val_i32(-1);
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *n = needle.as.as_string;
+
+    if (n->length == 0) return hml_val_i32(0);
+    if (n->length > s->length) return hml_val_i32(-1);
+
+    for (int i = 0; i <= s->length - n->length; i++) {
+        if (memcmp(s->data + i, n->data, n->length) == 0) {
+            return hml_val_i32(i);
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_string_contains(HmlValue str, HmlValue needle) {
+    HmlValue pos = hml_string_find(str, needle);
+    return hml_val_bool(pos.as.as_i32 >= 0);
+}
+
+HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
+    HmlValue result = hml_val_array();
+
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        delimiter.type != HML_VAL_STRING || !delimiter.as.as_string) {
+        return result;
+    }
+
+    HmlString *s = str.as.as_string;
+    HmlString *d = delimiter.as.as_string;
+
+    if (d->length == 0) {
+        // Split into individual characters
+        for (int i = 0; i < s->length; i++) {
+            char *c = malloc(2);
+            c[0] = s->data[i];
+            c[1] = '\0';
+            HmlValue part_val = hml_val_string_owned(c, 1, 2);
+            hml_array_push(result, part_val);
+        }
+        return result;
+    }
+
+    int start = 0;
+    for (int i = 0; i <= s->length - d->length; i++) {
+        if (memcmp(s->data + i, d->data, d->length) == 0) {
+            int len = i - start;
+            char *part = malloc(len + 1);
+            memcpy(part, s->data + start, len);
+            part[len] = '\0';
+            HmlValue part_val = hml_val_string_owned(part, len, len + 1);
+            hml_array_push(result, part_val);
+            i += d->length - 1;
+            start = i + 1;
+        }
+    }
+
+    // Add remaining part
+    int len = s->length - start;
+    char *part = malloc(len + 1);
+    memcpy(part, s->data + start, len);
+    part[len] = '\0';
+    HmlValue part_val = hml_val_string_owned(part, len, len + 1);
+    hml_array_push(result, part_val);
+
+    return result;
+}
+
+HmlValue hml_string_trim(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    int start = 0;
+    int end = s->length - 1;
+
+    while (start < s->length && (s->data[start] == ' ' || s->data[start] == '\t' ||
+                                  s->data[start] == '\n' || s->data[start] == '\r')) {
+        start++;
+    }
+
+    while (end >= start && (s->data[end] == ' ' || s->data[end] == '\t' ||
+                            s->data[end] == '\n' || s->data[end] == '\r')) {
+        end--;
+    }
+
+    int len = end - start + 1;
+    if (len <= 0) return hml_val_string("");
+
+    char *result = malloc(len + 1);
+    memcpy(result, s->data + start, len);
+    result[len] = '\0';
+    return hml_val_string_owned(result, len, len + 1);
+}
+
+HmlValue hml_string_to_upper(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    char *result = malloc(s->length + 1);
+    for (int i = 0; i < s->length; i++) {
+        char c = s->data[i];
+        if (c >= 'a' && c <= 'z') {
+            result[i] = c - 32;
+        } else {
+            result[i] = c;
+        }
+    }
+    result[s->length] = '\0';
+    return hml_val_string_owned(result, s->length, s->length + 1);
+}
+
+HmlValue hml_string_to_lower(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    char *result = malloc(s->length + 1);
+    for (int i = 0; i < s->length; i++) {
+        char c = s->data[i];
+        if (c >= 'A' && c <= 'Z') {
+            result[i] = c + 32;
+        } else {
+            result[i] = c;
+        }
+    }
+    result[s->length] = '\0';
+    return hml_val_string_owned(result, s->length, s->length + 1);
+}
+
+HmlValue hml_string_starts_with(HmlValue str, HmlValue prefix) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        prefix.type != HML_VAL_STRING || !prefix.as.as_string) {
+        return hml_val_bool(0);
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *p = prefix.as.as_string;
+    if (p->length > s->length) return hml_val_bool(0);
+    return hml_val_bool(memcmp(s->data, p->data, p->length) == 0);
+}
+
+HmlValue hml_string_ends_with(HmlValue str, HmlValue suffix) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        suffix.type != HML_VAL_STRING || !suffix.as.as_string) {
+        return hml_val_bool(0);
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *p = suffix.as.as_string;
+    if (p->length > s->length) return hml_val_bool(0);
+    int offset = s->length - p->length;
+    return hml_val_bool(memcmp(s->data + offset, p->data, p->length) == 0);
+}
+
+HmlValue hml_string_replace(HmlValue str, HmlValue old, HmlValue new_str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        old.type != HML_VAL_STRING || !old.as.as_string ||
+        new_str.type != HML_VAL_STRING || !new_str.as.as_string) {
+        return str;
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *o = old.as.as_string;
+    HmlString *n = new_str.as.as_string;
+
+    if (o->length == 0) {
+        hml_retain(&str);
+        return str;
+    }
+
+    // Find first occurrence
+    int pos = -1;
+    for (int i = 0; i <= s->length - o->length; i++) {
+        if (memcmp(s->data + i, o->data, o->length) == 0) {
+            pos = i;
+            break;
+        }
+    }
+
+    if (pos == -1) {
+        hml_retain(&str);
+        return str;
+    }
+
+    int new_len = s->length - o->length + n->length;
+    char *result = malloc(new_len + 1);
+    memcpy(result, s->data, pos);
+    memcpy(result + pos, n->data, n->length);
+    memcpy(result + pos + n->length, s->data + pos + o->length, s->length - pos - o->length);
+    result[new_len] = '\0';
+
+    return hml_val_string_owned(result, new_len, new_len + 1);
+}
+
+HmlValue hml_string_replace_all(HmlValue str, HmlValue old, HmlValue new_str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        old.type != HML_VAL_STRING || !old.as.as_string ||
+        new_str.type != HML_VAL_STRING || !new_str.as.as_string) {
+        return str;
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *o = old.as.as_string;
+    HmlString *n = new_str.as.as_string;
+
+    if (o->length == 0) {
+        hml_retain(&str);
+        return str;
+    }
+
+    // Count occurrences
+    int count = 0;
+    for (int i = 0; i <= s->length - o->length; i++) {
+        if (memcmp(s->data + i, o->data, o->length) == 0) {
+            count++;
+            i += o->length - 1;
+        }
+    }
+
+    if (count == 0) {
+        hml_retain(&str);
+        return str;
+    }
+
+    int new_len = s->length - (count * o->length) + (count * n->length);
+    char *result = malloc(new_len + 1);
+    int result_pos = 0;
+
+    for (int i = 0; i < s->length; ) {
+        if (i <= s->length - o->length && memcmp(s->data + i, o->data, o->length) == 0) {
+            memcpy(result + result_pos, n->data, n->length);
+            result_pos += n->length;
+            i += o->length;
+        } else {
+            result[result_pos++] = s->data[i++];
+        }
+    }
+    result[new_len] = '\0';
+
+    return hml_val_string_owned(result, new_len, new_len + 1);
+}
+
+HmlValue hml_string_repeat(HmlValue str, HmlValue count) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    int32_t n = hml_to_i32(count);
+    if (n <= 0) return hml_val_string("");
+
+    int new_len = s->length * n;
+    char *result = malloc(new_len + 1);
+    for (int i = 0; i < n; i++) {
+        memcpy(result + i * s->length, s->data, s->length);
+    }
+    result[new_len] = '\0';
+
+    return hml_val_string_owned(result, new_len, new_len + 1);
+}
+
+// String indexing (returns char at position as rune)
+HmlValue hml_string_index(HmlValue str, HmlValue index) {
+    return hml_string_char_at(str, index);
+}
+
+void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue rune) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        fprintf(stderr, "Runtime error: String index assignment requires string\n");
+        exit(1);
+    }
+    if (rune.type != HML_VAL_RUNE) {
+        fprintf(stderr, "Runtime error: String index assignment requires rune value\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlString *s = str.as.as_string;
+
+    if (idx < 0 || idx >= s->length) {
+        fprintf(stderr, "Runtime error: String index %d out of bounds\n", idx);
+        exit(1);
+    }
+
+    // For simplicity, only support single-byte characters in assignment
+    // Full UTF-8 would require resizing the string
+    if (rune.as.as_rune < 128) {
+        s->data[idx] = (char)rune.as.as_rune;
+    } else {
+        fprintf(stderr, "Runtime error: String assignment of multi-byte runes not yet supported\n");
+        exit(1);
+    }
+}
+
+// Buffer indexing
+HmlValue hml_buffer_get(HmlValue buf, HmlValue index) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        fprintf(stderr, "Runtime error: Buffer index requires buffer\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlBuffer *b = buf.as.as_buffer;
+
+    if (idx < 0 || idx >= b->length) {
+        fprintf(stderr, "Runtime error: Buffer index %d out of bounds (length %d)\n", idx, b->length);
+        exit(1);
+    }
+
+    uint8_t *data = (uint8_t *)b->data;
+    return hml_val_u8(data[idx]);
+}
+
+void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        fprintf(stderr, "Runtime error: Buffer index assignment requires buffer\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlBuffer *b = buf.as.as_buffer;
+
+    if (idx < 0 || idx >= b->length) {
+        fprintf(stderr, "Runtime error: Buffer index %d out of bounds (length %d)\n", idx, b->length);
+        exit(1);
+    }
+
+    uint8_t *data = (uint8_t *)b->data;
+    data[idx] = (uint8_t)hml_to_i32(val);
+}
+
+HmlValue hml_buffer_length(HmlValue buf) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        fprintf(stderr, "Runtime error: length requires buffer\n");
+        exit(1);
+    }
+    return hml_val_i32(buf.as.as_buffer->length);
+}
+
+// ========== MEMORY OPERATIONS ==========
+
+HmlValue hml_alloc(int32_t size) {
+    if (size <= 0) {
+        fprintf(stderr, "Runtime error: alloc() requires positive size\n");
+        exit(1);
+    }
+    void *ptr = malloc(size);
+    if (!ptr) {
+        fprintf(stderr, "Runtime error: alloc() failed to allocate %d bytes\n", size);
+        exit(1);
+    }
+    return hml_val_ptr(ptr);
+}
+
+void hml_free(HmlValue ptr_or_buffer) {
+    if (ptr_or_buffer.type == HML_VAL_PTR) {
+        if (ptr_or_buffer.as.as_ptr) {
+            free(ptr_or_buffer.as.as_ptr);
+        }
+    } else if (ptr_or_buffer.type == HML_VAL_BUFFER) {
+        if (ptr_or_buffer.as.as_buffer) {
+            if (ptr_or_buffer.as.as_buffer->data) {
+                free(ptr_or_buffer.as.as_buffer->data);
+            }
+            free(ptr_or_buffer.as.as_buffer);
+        }
+    } else {
+        fprintf(stderr, "Runtime error: free() requires pointer or buffer\n");
+        exit(1);
+    }
+}
+
+HmlValue hml_realloc(HmlValue ptr, int32_t new_size) {
+    if (ptr.type != HML_VAL_PTR) {
+        fprintf(stderr, "Runtime error: realloc() requires pointer\n");
+        exit(1);
+    }
+    if (new_size <= 0) {
+        fprintf(stderr, "Runtime error: realloc() requires positive size\n");
+        exit(1);
+    }
+    void *new_ptr = realloc(ptr.as.as_ptr, new_size);
+    if (!new_ptr) {
+        fprintf(stderr, "Runtime error: realloc() failed to allocate %d bytes\n", new_size);
+        exit(1);
+    }
+    return hml_val_ptr(new_ptr);
+}
+
+void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
+    if (ptr.type == HML_VAL_PTR) {
+        memset(ptr.as.as_ptr, byte_val, size);
+    } else if (ptr.type == HML_VAL_BUFFER) {
+        memset(ptr.as.as_buffer->data, byte_val, size);
+    } else {
+        fprintf(stderr, "Runtime error: memset() requires pointer or buffer\n");
+        exit(1);
+    }
+}
+
+void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
+    void *dest_ptr = NULL;
+    void *src_ptr = NULL;
+
+    if (dest.type == HML_VAL_PTR) {
+        dest_ptr = dest.as.as_ptr;
+    } else if (dest.type == HML_VAL_BUFFER) {
+        dest_ptr = dest.as.as_buffer->data;
+    } else {
+        fprintf(stderr, "Runtime error: memcpy() dest requires pointer or buffer\n");
+        exit(1);
+    }
+
+    if (src.type == HML_VAL_PTR) {
+        src_ptr = src.as.as_ptr;
+    } else if (src.type == HML_VAL_BUFFER) {
+        src_ptr = src.as.as_buffer->data;
+    } else {
+        fprintf(stderr, "Runtime error: memcpy() src requires pointer or buffer\n");
+        exit(1);
+    }
+
+    memcpy(dest_ptr, src_ptr, size);
+}
+
 // ========== ARRAY OPERATIONS ==========
 
 void hml_array_push(HmlValue arr, HmlValue val) {
@@ -592,6 +1401,449 @@ HmlValue hml_array_length(HmlValue arr) {
     return hml_val_i32(arr.as.as_array->length);
 }
 
+HmlValue hml_array_pop(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: pop() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (a->length == 0) {
+        return hml_val_null();
+    }
+
+    HmlValue result = a->elements[a->length - 1];
+    // Don't release - we're transferring ownership
+    a->length--;
+    return result;
+}
+
+HmlValue hml_array_shift(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: shift() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (a->length == 0) {
+        return hml_val_null();
+    }
+
+    HmlValue result = a->elements[0];
+    // Shift elements left
+    for (int i = 0; i < a->length - 1; i++) {
+        a->elements[i] = a->elements[i + 1];
+    }
+    a->length--;
+    return result;
+}
+
+void hml_array_unshift(HmlValue arr, HmlValue val) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: unshift() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // Grow if needed
+    if (a->length >= a->capacity) {
+        int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
+        a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        a->capacity = new_cap;
+    }
+
+    // Shift elements right
+    for (int i = a->length; i > 0; i--) {
+        a->elements[i] = a->elements[i - 1];
+    }
+
+    a->elements[0] = val;
+    hml_retain(&a->elements[0]);
+    a->length++;
+}
+
+void hml_array_insert(HmlValue arr, HmlValue index, HmlValue val) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: insert() requires array\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlArray *a = arr.as.as_array;
+
+    if (idx < 0 || idx > a->length) {
+        fprintf(stderr, "Runtime error: insert index %d out of bounds (length %d)\n", idx, a->length);
+        exit(1);
+    }
+
+    // Grow if needed
+    if (a->length >= a->capacity) {
+        int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
+        a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        a->capacity = new_cap;
+    }
+
+    // Shift elements right from idx
+    for (int i = a->length; i > idx; i--) {
+        a->elements[i] = a->elements[i - 1];
+    }
+
+    a->elements[idx] = val;
+    hml_retain(&a->elements[idx]);
+    a->length++;
+}
+
+HmlValue hml_array_remove(HmlValue arr, HmlValue index) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: remove() requires array\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlArray *a = arr.as.as_array;
+
+    if (idx < 0 || idx >= a->length) {
+        fprintf(stderr, "Runtime error: remove index %d out of bounds (length %d)\n", idx, a->length);
+        exit(1);
+    }
+
+    HmlValue result = a->elements[idx];
+    // Shift elements left
+    for (int i = idx; i < a->length - 1; i++) {
+        a->elements[i] = a->elements[i + 1];
+    }
+    a->length--;
+    return result;
+}
+
+HmlValue hml_array_find(HmlValue arr, HmlValue val) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: find() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        if (hml_values_equal(a->elements[i], val)) {
+            return hml_val_i32(i);
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_array_contains(HmlValue arr, HmlValue val) {
+    HmlValue idx = hml_array_find(arr, val);
+    return hml_val_bool(idx.as.as_i32 >= 0);
+}
+
+HmlValue hml_array_slice(HmlValue arr, HmlValue start, HmlValue end) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: slice() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    int s = hml_to_i32(start);
+    int e = hml_to_i32(end);
+
+    // Clamp values
+    if (s < 0) s = 0;
+    if (e > a->length) e = a->length;
+    if (s > e) s = e;
+
+    int new_len = e - s;
+    HmlArray *result = malloc(sizeof(HmlArray));
+    result->ref_count = 1;
+    result->length = new_len;
+    result->capacity = (new_len > 0) ? new_len : 1;
+    result->elements = malloc(result->capacity * sizeof(HmlValue));
+    result->element_type = HML_VAL_NULL;
+
+    for (int i = 0; i < new_len; i++) {
+        result->elements[i] = a->elements[s + i];
+        hml_retain(&result->elements[i]);
+    }
+
+    HmlValue val;
+    val.type = HML_VAL_ARRAY;
+    val.as.as_array = result;
+    return val;
+}
+
+HmlValue hml_array_join(HmlValue arr, HmlValue delimiter) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: join() requires array\n");
+        exit(1);
+    }
+    if (delimiter.type != HML_VAL_STRING) {
+        fprintf(stderr, "Runtime error: join() requires string delimiter\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    const char *delim = delimiter.as.as_string->data;
+    int delim_len = delimiter.as.as_string->length;
+
+    if (a->length == 0) {
+        return hml_val_string("");
+    }
+
+    // Calculate total length
+    int total_len = 0;
+    for (int i = 0; i < a->length; i++) {
+        HmlValue str = hml_to_string(a->elements[i]);
+        total_len += str.as.as_string->length;
+        if (i < a->length - 1) {
+            total_len += delim_len;
+        }
+        hml_release(&str);
+    }
+
+    char *result = malloc(total_len + 1);
+    int pos = 0;
+    for (int i = 0; i < a->length; i++) {
+        HmlValue str = hml_to_string(a->elements[i]);
+        memcpy(result + pos, str.as.as_string->data, str.as.as_string->length);
+        pos += str.as.as_string->length;
+        hml_release(&str);
+        if (i < a->length - 1) {
+            memcpy(result + pos, delim, delim_len);
+            pos += delim_len;
+        }
+    }
+    result[total_len] = '\0';
+
+    return hml_val_string_owned(result, total_len, total_len + 1);
+}
+
+HmlValue hml_array_concat(HmlValue arr1, HmlValue arr2) {
+    if (arr1.type != HML_VAL_ARRAY || !arr1.as.as_array) {
+        fprintf(stderr, "Runtime error: concat() requires array\n");
+        exit(1);
+    }
+    if (arr2.type != HML_VAL_ARRAY || !arr2.as.as_array) {
+        fprintf(stderr, "Runtime error: concat() requires array argument\n");
+        exit(1);
+    }
+
+    HmlArray *a1 = arr1.as.as_array;
+    HmlArray *a2 = arr2.as.as_array;
+    int new_len = a1->length + a2->length;
+
+    HmlArray *result = malloc(sizeof(HmlArray));
+    result->ref_count = 1;
+    result->length = new_len;
+    result->capacity = (new_len > 0) ? new_len : 1;
+    result->elements = malloc(result->capacity * sizeof(HmlValue));
+    result->element_type = HML_VAL_NULL;
+
+    for (int i = 0; i < a1->length; i++) {
+        result->elements[i] = a1->elements[i];
+        hml_retain(&result->elements[i]);
+    }
+    for (int i = 0; i < a2->length; i++) {
+        result->elements[a1->length + i] = a2->elements[i];
+        hml_retain(&result->elements[a1->length + i]);
+    }
+
+    HmlValue val;
+    val.type = HML_VAL_ARRAY;
+    val.as.as_array = result;
+    return val;
+}
+
+void hml_array_reverse(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: reverse() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length / 2; i++) {
+        HmlValue tmp = a->elements[i];
+        a->elements[i] = a->elements[a->length - 1 - i];
+        a->elements[a->length - 1 - i] = tmp;
+    }
+}
+
+HmlValue hml_array_first(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: first() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (a->length == 0) {
+        return hml_val_null();
+    }
+
+    HmlValue result = a->elements[0];
+    hml_retain(&result);
+    return result;
+}
+
+HmlValue hml_array_last(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: last() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (a->length == 0) {
+        return hml_val_null();
+    }
+
+    HmlValue result = a->elements[a->length - 1];
+    hml_retain(&result);
+    return result;
+}
+
+void hml_array_clear(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: clear() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        hml_release(&a->elements[i]);
+    }
+    a->length = 0;
+}
+
+// ========== TYPED ARRAY SUPPORT ==========
+
+void hml_array_set_element_type(HmlValue arr, HmlValueType element_type) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: cannot set element type on non-array\n");
+        exit(1);
+    }
+    arr.as.as_array->element_type = element_type;
+}
+
+// Helper: Check if value type matches expected element type
+static int hml_type_matches(HmlValue val, HmlValueType expected) {
+    if (expected == HML_VAL_NULL) return 1;  // Untyped, accept anything
+    return val.type == expected;
+}
+
+// Validate and set element type constraint on array
+HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: Expected array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // If HML_VAL_NULL, it's an untyped array - no constraint
+    if (element_type == HML_VAL_NULL) {
+        return arr;
+    }
+
+    // Validate all existing elements match the type constraint
+    for (int i = 0; i < a->length; i++) {
+        if (!hml_type_matches(a->elements[i], element_type)) {
+            fprintf(stderr, "Runtime error: Array element type mismatch at index %d: expected %s, got %s\n",
+                    i, hml_type_name(element_type), hml_type_name(a->elements[i].type));
+            exit(1);
+        }
+    }
+
+    // Set the element type constraint
+    a->element_type = element_type;
+    return arr;
+}
+
+// ========== HIGHER-ORDER ARRAY FUNCTIONS ==========
+
+HmlValue hml_array_map(HmlValue arr, HmlValue callback) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: map() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    HmlValue result = hml_val_array();
+
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[1] = { a->elements[i] };
+        HmlValue mapped = hml_call_function(callback, args, 1);
+        hml_array_push(result, mapped);
+        hml_release(&mapped);
+    }
+
+    return result;
+}
+
+HmlValue hml_array_filter(HmlValue arr, HmlValue predicate) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: filter() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    HmlValue result = hml_val_array();
+
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[1] = { a->elements[i] };
+        HmlValue keep = hml_call_function(predicate, args, 1);
+        if (hml_to_bool(keep)) {
+            HmlValue elem = a->elements[i];
+            hml_retain(&elem);
+            hml_array_push(result, elem);
+            hml_release(&elem);
+        }
+        hml_release(&keep);
+    }
+
+    return result;
+}
+
+HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: reduce() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // Handle empty array
+    if (a->length == 0) {
+        if (initial.type == HML_VAL_NULL) {
+            fprintf(stderr, "Runtime error: reduce() of empty array with no initial value\n");
+            exit(1);
+        }
+        hml_retain(&initial);
+        return initial;
+    }
+
+    // Determine starting accumulator and index
+    HmlValue acc;
+    int start_idx;
+    if (initial.type == HML_VAL_NULL) {
+        // No initial value - use first element
+        acc = a->elements[0];
+        hml_retain(&acc);
+        start_idx = 1;
+    } else {
+        acc = initial;
+        hml_retain(&acc);
+        start_idx = 0;
+    }
+
+    // Reduce
+    for (int i = start_idx; i < a->length; i++) {
+        HmlValue args[2] = { acc, a->elements[i] };
+        HmlValue new_acc = hml_call_function(reducer, args, 2);
+        hml_release(&acc);
+        acc = new_acc;
+    }
+
+    return acc;
+}
+
 // ========== OBJECT OPERATIONS ==========
 
 HmlValue hml_object_get_field(HmlValue obj, const char *field) {
@@ -656,6 +1908,438 @@ int hml_object_has_field(HmlValue obj, const char *field) {
         }
     }
     return 0;
+}
+
+// ========== SERIALIZATION (JSON) ==========
+
+// Visited set for cycle detection
+typedef struct HmlVisitedSet {
+    void **items;
+    int count;
+    int capacity;
+} HmlVisitedSet;
+
+static void visited_init(HmlVisitedSet *set) {
+    set->items = NULL;
+    set->count = 0;
+    set->capacity = 0;
+}
+
+static void visited_free(HmlVisitedSet *set) {
+    free(set->items);
+}
+
+static int visited_contains(HmlVisitedSet *set, void *ptr) {
+    for (int i = 0; i < set->count; i++) {
+        if (set->items[i] == ptr) return 1;
+    }
+    return 0;
+}
+
+static void visited_add(HmlVisitedSet *set, void *ptr) {
+    if (set->count >= set->capacity) {
+        int new_cap = (set->capacity == 0) ? 16 : set->capacity * 2;
+        set->items = realloc(set->items, new_cap * sizeof(void*));
+        set->capacity = new_cap;
+    }
+    set->items[set->count++] = ptr;
+}
+
+// Escape string for JSON
+static char* json_escape_string(const char *str) {
+    if (!str) return strdup("");
+
+    int len = strlen(str);
+    char *escaped = malloc(len * 2 + 1);  // Worst case: every char escaped
+    char *p = escaped;
+
+    while (*str) {
+        switch (*str) {
+            case '"':  *p++ = '\\'; *p++ = '"'; break;
+            case '\\': *p++ = '\\'; *p++ = '\\'; break;
+            case '\n': *p++ = '\\'; *p++ = 'n'; break;
+            case '\r': *p++ = '\\'; *p++ = 'r'; break;
+            case '\t': *p++ = '\\'; *p++ = 't'; break;
+            default:   *p++ = *str; break;
+        }
+        str++;
+    }
+    *p = '\0';
+    return escaped;
+}
+
+// Forward declaration
+static char* serialize_value_impl(HmlValue val, HmlVisitedSet *visited);
+
+static char* serialize_value_impl(HmlValue val, HmlVisitedSet *visited) {
+    char buffer[256];
+
+    switch (val.type) {
+        case HML_VAL_I8:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i8);
+            return strdup(buffer);
+        case HML_VAL_I16:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i16);
+            return strdup(buffer);
+        case HML_VAL_I32:
+            snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
+            return strdup(buffer);
+        case HML_VAL_I64:
+            snprintf(buffer, sizeof(buffer), "%ld", val.as.as_i64);
+            return strdup(buffer);
+        case HML_VAL_U8:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
+            return strdup(buffer);
+        case HML_VAL_U16:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u16);
+            return strdup(buffer);
+        case HML_VAL_U32:
+            snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
+            return strdup(buffer);
+        case HML_VAL_U64:
+            snprintf(buffer, sizeof(buffer), "%lu", val.as.as_u64);
+            return strdup(buffer);
+        case HML_VAL_F32:
+            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
+            return strdup(buffer);
+        case HML_VAL_F64:
+            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f64);
+            return strdup(buffer);
+        case HML_VAL_BOOL:
+            return strdup(val.as.as_bool ? "true" : "false");
+        case HML_VAL_STRING: {
+            char *escaped = json_escape_string(val.as.as_string->data);
+            int len = strlen(escaped) + 3;
+            char *result = malloc(len);
+            snprintf(result, len, "\"%s\"", escaped);
+            free(escaped);
+            return result;
+        }
+        case HML_VAL_NULL:
+            return strdup("null");
+        case HML_VAL_OBJECT: {
+            HmlObject *obj = val.as.as_object;
+            if (!obj) return strdup("null");
+
+            // Check for cycles
+            if (visited_contains(visited, obj)) {
+                fprintf(stderr, "Runtime error: serialize() detected circular reference\n");
+                exit(1);
+            }
+            visited_add(visited, obj);
+
+            // Build JSON object
+            size_t capacity = 256;
+            size_t len = 0;
+            char *json = malloc(capacity);
+            json[len++] = '{';
+
+            for (int i = 0; i < obj->num_fields; i++) {
+                char *escaped_name = json_escape_string(obj->field_names[i]);
+                char *value_str = serialize_value_impl(obj->field_values[i], visited);
+
+                size_t needed = len + strlen(escaped_name) + strlen(value_str) + 10;
+                while (capacity < needed) capacity *= 2;
+                json = realloc(json, capacity);
+
+                len += snprintf(json + len, capacity - len, "\"%s\":%s",
+                               escaped_name, value_str);
+
+                if (i < obj->num_fields - 1) json[len++] = ',';
+
+                free(escaped_name);
+                free(value_str);
+            }
+
+            json[len++] = '}';
+            json[len] = '\0';
+            return json;
+        }
+        case HML_VAL_ARRAY: {
+            HmlArray *arr = val.as.as_array;
+            if (!arr) return strdup("null");
+
+            // Check for cycles
+            if (visited_contains(visited, arr)) {
+                fprintf(stderr, "Runtime error: serialize() detected circular reference\n");
+                exit(1);
+            }
+            visited_add(visited, arr);
+
+            // Build JSON array
+            size_t capacity = 256;
+            size_t len = 0;
+            char *json = malloc(capacity);
+            json[len++] = '[';
+
+            for (int i = 0; i < arr->length; i++) {
+                char *elem_str = serialize_value_impl(arr->elements[i], visited);
+
+                size_t needed = len + strlen(elem_str) + 2;
+                while (capacity < needed) capacity *= 2;
+                json = realloc(json, capacity);
+
+                len += snprintf(json + len, capacity - len, "%s", elem_str);
+
+                if (i < arr->length - 1) json[len++] = ',';
+
+                free(elem_str);
+            }
+
+            json[len++] = ']';
+            json[len] = '\0';
+            return json;
+        }
+        default:
+            fprintf(stderr, "Runtime error: Cannot serialize value of this type\n");
+            exit(1);
+    }
+}
+
+HmlValue hml_serialize(HmlValue val) {
+    HmlVisitedSet visited;
+    visited_init(&visited);
+
+    char *json = serialize_value_impl(val, &visited);
+
+    visited_free(&visited);
+
+    return hml_val_string_owned(json, strlen(json), strlen(json) + 1);
+}
+
+// JSON Parser state
+typedef struct {
+    const char *input;
+    int pos;
+} HmlJSONParser;
+
+static void json_skip_whitespace(HmlJSONParser *p) {
+    while (p->input[p->pos] == ' ' || p->input[p->pos] == '\t' ||
+           p->input[p->pos] == '\n' || p->input[p->pos] == '\r') {
+        p->pos++;
+    }
+}
+
+// Forward declarations
+static HmlValue json_parse_value(HmlJSONParser *p);
+static HmlValue json_parse_string(HmlJSONParser *p);
+static HmlValue json_parse_number(HmlJSONParser *p);
+static HmlValue json_parse_object(HmlJSONParser *p);
+static HmlValue json_parse_array(HmlJSONParser *p);
+
+static HmlValue json_parse_string(HmlJSONParser *p) {
+    if (p->input[p->pos] != '"') {
+        fprintf(stderr, "Runtime error: Expected '\"' in JSON\n");
+        exit(1);
+    }
+    p->pos++;  // skip opening quote
+
+    int len = 0;
+    char *buf = malloc(256);
+    int capacity = 256;
+
+    while (p->input[p->pos] != '"' && p->input[p->pos] != '\0') {
+        if (len >= capacity - 1) {
+            capacity *= 2;
+            buf = realloc(buf, capacity);
+        }
+
+        if (p->input[p->pos] == '\\') {
+            p->pos++;
+            switch (p->input[p->pos]) {
+                case 'n': buf[len++] = '\n'; break;
+                case 'r': buf[len++] = '\r'; break;
+                case 't': buf[len++] = '\t'; break;
+                case '"': buf[len++] = '"'; break;
+                case '\\': buf[len++] = '\\'; break;
+                default:
+                    free(buf);
+                    fprintf(stderr, "Runtime error: Invalid escape sequence in JSON\n");
+                    exit(1);
+            }
+            p->pos++;
+        } else {
+            buf[len++] = p->input[p->pos++];
+        }
+    }
+
+    if (p->input[p->pos] != '"') {
+        free(buf);
+        fprintf(stderr, "Runtime error: Unterminated string in JSON\n");
+        exit(1);
+    }
+    p->pos++;  // skip closing quote
+
+    buf[len] = '\0';
+    HmlValue result = hml_val_string_owned(buf, len, capacity);
+    return result;
+}
+
+static HmlValue json_parse_number(HmlJSONParser *p) {
+    int start = p->pos;
+    int is_float = 0;
+
+    if (p->input[p->pos] == '-') p->pos++;
+
+    while (p->input[p->pos] >= '0' && p->input[p->pos] <= '9') p->pos++;
+
+    if (p->input[p->pos] == '.') {
+        is_float = 1;
+        p->pos++;
+        while (p->input[p->pos] >= '0' && p->input[p->pos] <= '9') p->pos++;
+    }
+
+    char *num_str = strndup(p->input + start, p->pos - start);
+    HmlValue result;
+    if (is_float) {
+        result = hml_val_f64(atof(num_str));
+    } else {
+        result = hml_val_i32(atoi(num_str));
+    }
+    free(num_str);
+    return result;
+}
+
+static HmlValue json_parse_object(HmlJSONParser *p) {
+    if (p->input[p->pos] != '{') {
+        fprintf(stderr, "Runtime error: Expected '{' in JSON\n");
+        exit(1);
+    }
+    p->pos++;
+
+    HmlValue obj = hml_val_object();
+
+    json_skip_whitespace(p);
+
+    if (p->input[p->pos] == '}') {
+        p->pos++;
+        return obj;
+    }
+
+    while (p->input[p->pos] != '}' && p->input[p->pos] != '\0') {
+        json_skip_whitespace(p);
+
+        HmlValue name_val = json_parse_string(p);
+        char *field_name = strdup(name_val.as.as_string->data);
+        hml_release(&name_val);
+
+        json_skip_whitespace(p);
+
+        if (p->input[p->pos] != ':') {
+            free(field_name);
+            fprintf(stderr, "Runtime error: Expected ':' in JSON object\n");
+            exit(1);
+        }
+        p->pos++;
+
+        json_skip_whitespace(p);
+
+        HmlValue field_value = json_parse_value(p);
+        hml_object_set_field(obj, field_name, field_value);
+        hml_release(&field_value);
+        free(field_name);
+
+        json_skip_whitespace(p);
+
+        if (p->input[p->pos] == ',') {
+            p->pos++;
+        } else if (p->input[p->pos] != '}') {
+            fprintf(stderr, "Runtime error: Expected ',' or '}' in JSON object\n");
+            exit(1);
+        }
+    }
+
+    if (p->input[p->pos] != '}') {
+        fprintf(stderr, "Runtime error: Unterminated object in JSON\n");
+        exit(1);
+    }
+    p->pos++;
+
+    return obj;
+}
+
+static HmlValue json_parse_array(HmlJSONParser *p) {
+    if (p->input[p->pos] != '[') {
+        fprintf(stderr, "Runtime error: Expected '[' in JSON\n");
+        exit(1);
+    }
+    p->pos++;
+
+    HmlValue arr = hml_val_array();
+
+    json_skip_whitespace(p);
+
+    if (p->input[p->pos] == ']') {
+        p->pos++;
+        return arr;
+    }
+
+    while (p->input[p->pos] != ']' && p->input[p->pos] != '\0') {
+        json_skip_whitespace(p);
+
+        HmlValue elem = json_parse_value(p);
+        hml_array_push(arr, elem);
+        hml_release(&elem);
+
+        json_skip_whitespace(p);
+
+        if (p->input[p->pos] == ',') {
+            p->pos++;
+        } else if (p->input[p->pos] != ']') {
+            fprintf(stderr, "Runtime error: Expected ',' or ']' in JSON array\n");
+            exit(1);
+        }
+    }
+
+    if (p->input[p->pos] != ']') {
+        fprintf(stderr, "Runtime error: Unterminated array in JSON\n");
+        exit(1);
+    }
+    p->pos++;
+
+    return arr;
+}
+
+static HmlValue json_parse_value(HmlJSONParser *p) {
+    json_skip_whitespace(p);
+
+    char c = p->input[p->pos];
+
+    if (c == '"') return json_parse_string(p);
+    if (c == '{') return json_parse_object(p);
+    if (c == '[') return json_parse_array(p);
+    if (c == 't' && strncmp(p->input + p->pos, "true", 4) == 0) {
+        p->pos += 4;
+        return hml_val_bool(1);
+    }
+    if (c == 'f' && strncmp(p->input + p->pos, "false", 5) == 0) {
+        p->pos += 5;
+        return hml_val_bool(0);
+    }
+    if (c == 'n' && strncmp(p->input + p->pos, "null", 4) == 0) {
+        p->pos += 4;
+        return hml_val_null();
+    }
+    if (c == '-' || (c >= '0' && c <= '9')) {
+        return json_parse_number(p);
+    }
+
+    fprintf(stderr, "Runtime error: Unexpected character '%c' in JSON\n", c);
+    exit(1);
+}
+
+HmlValue hml_deserialize(HmlValue json_str) {
+    if (json_str.type != HML_VAL_STRING || !json_str.as.as_string) {
+        fprintf(stderr, "Runtime error: deserialize() requires string argument\n");
+        exit(1);
+    }
+
+    HmlJSONParser parser = {
+        .input = json_str.as.as_string->data,
+        .pos = 0
+    };
+
+    return json_parse_value(&parser);
 }
 
 // ========== EXCEPTION HANDLING ==========
@@ -741,37 +2425,54 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
             exit(1);
         }
 
-        // Cast to appropriate function type based on number of params
-        switch (num_args) {
+        // Check if this is a closure (has environment)
+        void *closure_env = fn.as.as_function->closure_env;
+        int num_params = fn.as.as_function->num_params;
+
+        // Build args array with nulls for missing optional parameters
+        // Use num_params (from function definition) to determine how many args to pass
+        HmlValue padded_args[6] = {0};  // Max 5 params + 1 for safety
+        for (int i = 0; i < num_params && i < 5; i++) {
+            if (i < num_args) {
+                padded_args[i] = args[i];
+            } else {
+                padded_args[i] = hml_val_null();  // Fill missing with null for optional params
+            }
+        }
+
+        // Use num_params for the function signature since that's how many params it expects
+        HmlClosureEnv *env = closure_env ? (HmlClosureEnv*)closure_env : NULL;
+
+        switch (num_params) {
             case 0: {
-                typedef HmlValue (*Fn0)(void);
+                typedef HmlValue (*Fn0)(HmlClosureEnv*);
                 Fn0 f = (Fn0)fn_ptr;
-                return f();
+                return f(env);
             }
             case 1: {
-                typedef HmlValue (*Fn1)(HmlValue);
+                typedef HmlValue (*Fn1)(HmlClosureEnv*, HmlValue);
                 Fn1 f = (Fn1)fn_ptr;
-                return f(args[0]);
+                return f(env, padded_args[0]);
             }
             case 2: {
-                typedef HmlValue (*Fn2)(HmlValue, HmlValue);
+                typedef HmlValue (*Fn2)(HmlClosureEnv*, HmlValue, HmlValue);
                 Fn2 f = (Fn2)fn_ptr;
-                return f(args[0], args[1]);
+                return f(env, padded_args[0], padded_args[1]);
             }
             case 3: {
-                typedef HmlValue (*Fn3)(HmlValue, HmlValue, HmlValue);
+                typedef HmlValue (*Fn3)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue);
                 Fn3 f = (Fn3)fn_ptr;
-                return f(args[0], args[1], args[2]);
+                return f(env, padded_args[0], padded_args[1], padded_args[2]);
             }
             case 4: {
-                typedef HmlValue (*Fn4)(HmlValue, HmlValue, HmlValue, HmlValue);
+                typedef HmlValue (*Fn4)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue);
                 Fn4 f = (Fn4)fn_ptr;
-                return f(args[0], args[1], args[2], args[3]);
+                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3]);
             }
             case 5: {
-                typedef HmlValue (*Fn5)(HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+                typedef HmlValue (*Fn5)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
                 Fn5 f = (Fn5)fn_ptr;
-                return f(args[0], args[1], args[2], args[3], args[4]);
+                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4]);
             }
             default:
                 fprintf(stderr, "Runtime error: Functions with more than 5 arguments not supported\n");
@@ -783,18 +2484,862 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
     exit(1);
 }
 
-// ========== MATH FUNCTIONS ==========
+// Thread-local self for method calls
+__thread HmlValue hml_self = {0};
 
-double hml_sin(double x) { return sin(x); }
-double hml_cos(double x) { return cos(x); }
-double hml_tan(double x) { return tan(x); }
-double hml_sqrt(double x) { return sqrt(x); }
-double hml_pow(double base, double exp) { return pow(base, exp); }
-double hml_exp(double x) { return exp(x); }
-double hml_log(double x) { return log(x); }
-double hml_log10(double x) { return log10(x); }
-double hml_floor(double x) { return floor(x); }
-double hml_ceil(double x) { return ceil(x); }
-double hml_round(double x) { return round(x); }
-double hml_abs_f64(double x) { return fabs(x); }
-int64_t hml_abs_i64(int64_t x) { return llabs(x); }
+HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int num_args) {
+    if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
+        fprintf(stderr, "Runtime error: Cannot call method on non-object\n");
+        exit(1);
+    }
+
+    // Get the method function from the object
+    HmlValue fn = hml_object_get_field(obj, method);
+    if (fn.type == HML_VAL_NULL) {
+        fprintf(stderr, "Runtime error: Object has no method '%s'\n", method);
+        exit(1);
+    }
+
+    // Save previous self and set new one
+    HmlValue prev_self = hml_self;
+    hml_self = obj;
+    hml_retain(&hml_self);
+
+    // Call the method
+    HmlValue result = hml_call_function(fn, args, num_args);
+
+    // Restore previous self
+    hml_release(&hml_self);
+    hml_self = prev_self;
+
+    hml_release(&fn);
+    return result;
+}
+
+// ========== FILE I/O ==========
+
+HmlValue hml_open(HmlValue path, HmlValue mode) {
+    if (path.type != HML_VAL_STRING) {
+        fprintf(stderr, "Error: open() expects string path\n");
+        exit(1);
+    }
+
+    const char *path_str = path.as.as_string->data;
+    const char *mode_str = "r";
+
+    if (mode.type == HML_VAL_STRING) {
+        mode_str = mode.as.as_string->data;
+    }
+
+    FILE *fp = fopen(path_str, mode_str);
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s'\n", path_str);
+        exit(1);
+    }
+
+    HmlFileHandle *fh = malloc(sizeof(HmlFileHandle));
+    fh->fp = fp;
+    fh->path = strdup(path_str);
+    fh->mode = strdup(mode_str);
+    fh->closed = 0;
+
+    HmlValue result;
+    result.type = HML_VAL_FILE;
+    result.as.as_file = fh;
+    return result;
+}
+
+HmlValue hml_file_read(HmlValue file, HmlValue size) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: read() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    int32_t read_size = 0;
+    if (size.type == HML_VAL_I32) {
+        read_size = size.as.as_i32;
+    } else if (size.type == HML_VAL_I64) {
+        read_size = (int32_t)size.as.as_i64;
+    }
+
+    if (read_size <= 0) {
+        return hml_file_read_all(file);
+    }
+
+    char *buffer = malloc(read_size + 1);
+    size_t bytes_read = fread(buffer, 1, read_size, (FILE*)fh->fp);
+    buffer[bytes_read] = '\0';
+
+    HmlValue result = hml_val_string(buffer);
+    free(buffer);
+    return result;
+}
+
+HmlValue hml_file_read_all(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: read() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    FILE *fp = (FILE*)fh->fp;
+    long start_pos = ftell(fp);
+
+    fseek(fp, 0, SEEK_END);
+    long end_pos = ftell(fp);
+    fseek(fp, start_pos, SEEK_SET);
+
+    long size = end_pos - start_pos;
+    char *buffer = malloc(size + 1);
+    size_t bytes_read = fread(buffer, 1, size, fp);
+    buffer[bytes_read] = '\0';
+
+    HmlValue result = hml_val_string(buffer);
+    free(buffer);
+    return result;
+}
+
+HmlValue hml_file_write(HmlValue file, HmlValue data) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: write() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot write to closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    const char *str = "";
+    if (data.type == HML_VAL_STRING) {
+        str = data.as.as_string->data;
+    }
+
+    size_t bytes_written = fwrite(str, 1, strlen(str), (FILE*)fh->fp);
+    return hml_val_i32((int32_t)bytes_written);
+}
+
+HmlValue hml_file_seek(HmlValue file, HmlValue position) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: seek() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot seek in closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    long pos = 0;
+    if (position.type == HML_VAL_I32) {
+        pos = position.as.as_i32;
+    } else if (position.type == HML_VAL_I64) {
+        pos = (long)position.as.as_i64;
+    }
+
+    fseek((FILE*)fh->fp, pos, SEEK_SET);
+    return hml_val_i32((int32_t)ftell((FILE*)fh->fp));
+}
+
+HmlValue hml_file_tell(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: tell() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot tell position in closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    return hml_val_i32((int32_t)ftell((FILE*)fh->fp));
+}
+
+void hml_file_close(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        return;
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (!fh->closed) {
+        fclose((FILE*)fh->fp);
+        fh->closed = 1;
+    }
+}
+
+// ========== ASYNC / CONCURRENCY ==========
+
+#include <pthread.h>
+#include <stdatomic.h>
+
+static atomic_int g_next_task_id = 1;
+
+// Thread wrapper function
+static void* task_thread_wrapper(void* arg) {
+    HmlTask *task = (HmlTask*)arg;
+
+    // Mark as running
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    task->state = HML_TASK_RUNNING;
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Get function info
+    HmlFunction *fn = task->function.as.as_function;
+    void *fn_ptr = fn->fn_ptr;
+    void *closure_env = fn->closure_env;
+
+    // Call function with arguments based on num_args
+    HmlValue result;
+    typedef HmlValue (*Fn0)(void*);
+    typedef HmlValue (*Fn1)(void*, HmlValue);
+    typedef HmlValue (*Fn2)(void*, HmlValue, HmlValue);
+    typedef HmlValue (*Fn3)(void*, HmlValue, HmlValue, HmlValue);
+    typedef HmlValue (*Fn4)(void*, HmlValue, HmlValue, HmlValue, HmlValue);
+    typedef HmlValue (*Fn5)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+
+    switch (task->num_args) {
+        case 0:
+            result = ((Fn0)fn_ptr)(closure_env);
+            break;
+        case 1:
+            result = ((Fn1)fn_ptr)(closure_env, task->args[0]);
+            break;
+        case 2:
+            result = ((Fn2)fn_ptr)(closure_env, task->args[0], task->args[1]);
+            break;
+        case 3:
+            result = ((Fn3)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2]);
+            break;
+        case 4:
+            result = ((Fn4)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3]);
+            break;
+        case 5:
+            result = ((Fn5)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4]);
+            break;
+        default:
+            result = hml_val_null();
+            break;
+    }
+
+    // Store result and mark as completed
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    task->result = result;
+    task->state = HML_TASK_COMPLETED;
+    pthread_cond_signal((pthread_cond_t*)task->cond);
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    return NULL;
+}
+
+HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
+    if (fn.type != HML_VAL_FUNCTION) {
+        fprintf(stderr, "Error: spawn() expects a function\n");
+        exit(1);
+    }
+
+    // Create task
+    HmlTask *task = malloc(sizeof(HmlTask));
+    task->id = atomic_fetch_add(&g_next_task_id, 1);
+    task->state = HML_TASK_READY;
+    task->result = hml_val_null();
+    task->joined = 0;
+    task->detached = 0;
+    task->ref_count = 1;
+
+    // Store function and args
+    task->function = fn;
+    hml_retain(&task->function);
+    task->num_args = num_args;
+    if (num_args > 0) {
+        task->args = malloc(sizeof(HmlValue) * num_args);
+        for (int i = 0; i < num_args; i++) {
+            task->args[i] = args[i];
+            hml_retain(&task->args[i]);
+        }
+    } else {
+        task->args = NULL;
+    }
+
+    // Initialize mutex and condition variable
+    task->mutex = malloc(sizeof(pthread_mutex_t));
+    task->cond = malloc(sizeof(pthread_cond_t));
+    pthread_mutex_init((pthread_mutex_t*)task->mutex, NULL);
+    pthread_cond_init((pthread_cond_t*)task->cond, NULL);
+
+    // Create thread
+    task->thread = malloc(sizeof(pthread_t));
+    pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+
+    // Return task value
+    HmlValue result;
+    result.type = HML_VAL_TASK;
+    result.as.as_task = task;
+    return result;
+}
+
+HmlValue hml_join(HmlValue task_val) {
+    if (task_val.type != HML_VAL_TASK) {
+        fprintf(stderr, "Error: join() expects a task\n");
+        exit(1);
+    }
+
+    HmlTask *task = task_val.as.as_task;
+
+    if (task->joined) {
+        fprintf(stderr, "Error: Task already joined\n");
+        exit(1);
+    }
+
+    if (task->detached) {
+        fprintf(stderr, "Error: Cannot join a detached task\n");
+        exit(1);
+    }
+
+    // Wait for task to complete
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    while (task->state != HML_TASK_COMPLETED) {
+        pthread_cond_wait((pthread_cond_t*)task->cond, (pthread_mutex_t*)task->mutex);
+    }
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Join the thread
+    pthread_join(*(pthread_t*)task->thread, NULL);
+    task->joined = 1;
+
+    // Return result (retained)
+    HmlValue result = task->result;
+    hml_retain(&result);
+    return result;
+}
+
+void hml_detach(HmlValue task_val) {
+    if (task_val.type != HML_VAL_TASK) {
+        fprintf(stderr, "Error: detach() expects a task\n");
+        exit(1);
+    }
+
+    HmlTask *task = task_val.as.as_task;
+
+    if (task->joined) {
+        fprintf(stderr, "Error: Cannot detach an already joined task\n");
+        exit(1);
+    }
+
+    if (task->detached) {
+        return; // Already detached
+    }
+
+    task->detached = 1;
+    pthread_detach(*(pthread_t*)task->thread);
+}
+
+// Channel functions
+HmlValue hml_channel(int32_t capacity) {
+    HmlChannel *ch = malloc(sizeof(HmlChannel));
+    ch->capacity = capacity;
+    ch->buffer = malloc(sizeof(HmlValue) * capacity);
+    ch->head = 0;
+    ch->tail = 0;
+    ch->count = 0;
+    ch->closed = 0;
+    ch->ref_count = 1;
+
+    ch->mutex = malloc(sizeof(pthread_mutex_t));
+    ch->not_empty = malloc(sizeof(pthread_cond_t));
+    ch->not_full = malloc(sizeof(pthread_cond_t));
+    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
+
+    HmlValue result;
+    result.type = HML_VAL_CHANNEL;
+    result.as.as_channel = ch;
+    return result;
+}
+
+void hml_channel_send(HmlValue channel, HmlValue value) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        fprintf(stderr, "Error: send() expects a channel\n");
+        exit(1);
+    }
+
+    HmlChannel *ch = channel.as.as_channel;
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+
+    // Wait while buffer is full
+    while (ch->count == ch->capacity && !ch->closed) {
+        pthread_cond_wait((pthread_cond_t*)ch->not_full, (pthread_mutex_t*)ch->mutex);
+    }
+
+    if (ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        fprintf(stderr, "Error: Cannot send on closed channel\n");
+        exit(1);
+    }
+
+    // Add value to buffer
+    ch->buffer[ch->tail] = value;
+    hml_retain(&ch->buffer[ch->tail]);
+    ch->tail = (ch->tail + 1) % ch->capacity;
+    ch->count++;
+
+    pthread_cond_signal((pthread_cond_t*)ch->not_empty);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+}
+
+HmlValue hml_channel_recv(HmlValue channel) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        fprintf(stderr, "Error: recv() expects a channel\n");
+        exit(1);
+    }
+
+    HmlChannel *ch = channel.as.as_channel;
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+
+    // Wait while buffer is empty
+    while (ch->count == 0 && !ch->closed) {
+        pthread_cond_wait((pthread_cond_t*)ch->not_empty, (pthread_mutex_t*)ch->mutex);
+    }
+
+    if (ch->count == 0 && ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        return hml_val_null();
+    }
+
+    // Get value from buffer
+    HmlValue value = ch->buffer[ch->head];
+    ch->head = (ch->head + 1) % ch->capacity;
+    ch->count--;
+
+    pthread_cond_signal((pthread_cond_t*)ch->not_full);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+
+    return value;
+}
+
+void hml_channel_close(HmlValue channel) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        return;
+    }
+
+    HmlChannel *ch = channel.as.as_channel;
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    ch->closed = 1;
+    pthread_cond_broadcast((pthread_cond_t*)ch->not_empty);
+    pthread_cond_broadcast((pthread_cond_t*)ch->not_full);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+}
+
+// ========== SIGNAL HANDLING ==========
+
+#include <signal.h>
+#include <errno.h>
+
+// Global signal handler table (signal number -> Hemlock function value)
+static HmlValue g_signal_handlers[HML_MAX_SIGNAL];
+static int g_signal_handlers_initialized = 0;
+
+static void init_signal_handlers(void) {
+    if (g_signal_handlers_initialized) return;
+    for (int i = 0; i < HML_MAX_SIGNAL; i++) {
+        g_signal_handlers[i] = hml_val_null();
+    }
+    g_signal_handlers_initialized = 1;
+}
+
+// C signal handler that invokes Hemlock function values
+static void hml_c_signal_handler(int signum) {
+    if (signum < 0 || signum >= HML_MAX_SIGNAL) return;
+
+    HmlValue handler = g_signal_handlers[signum];
+    if (handler.type == HML_VAL_NULL) return;
+
+    if (handler.type == HML_VAL_FUNCTION) {
+        // Call the function with signal number as argument
+        HmlValue sig_arg = hml_val_i32(signum);
+        hml_call_function(handler, &sig_arg, 1);
+    }
+}
+
+HmlValue hml_signal(HmlValue signum, HmlValue handler) {
+    init_signal_handlers();
+
+    // Validate signum
+    if (signum.type != HML_VAL_I32) {
+        fprintf(stderr, "Runtime error: signal() signum must be an integer\n");
+        exit(1);
+    }
+
+    int sig = signum.as.as_i32;
+    if (sig < 0 || sig >= HML_MAX_SIGNAL) {
+        fprintf(stderr, "Runtime error: signal() signum %d out of range [0, %d)\n", sig, HML_MAX_SIGNAL);
+        exit(1);
+    }
+
+    // Validate handler is function or null
+    if (handler.type != HML_VAL_NULL && handler.type != HML_VAL_FUNCTION) {
+        fprintf(stderr, "Runtime error: signal() handler must be a function or null\n");
+        exit(1);
+    }
+
+    // Get previous handler for return
+    HmlValue prev = g_signal_handlers[sig];
+    hml_retain(&prev);
+
+    // Release old handler and store new one
+    hml_release(&g_signal_handlers[sig]);
+    g_signal_handlers[sig] = handler;
+    hml_retain(&g_signal_handlers[sig]);
+
+    // Install or reset C signal handler
+    struct sigaction sa;
+    if (handler.type != HML_VAL_NULL) {
+        sa.sa_handler = hml_c_signal_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        if (sigaction(sig, &sa, NULL) != 0) {
+            fprintf(stderr, "Runtime error: signal() failed for signal %d: %s\n", sig, strerror(errno));
+            exit(1);
+        }
+    } else {
+        sa.sa_handler = SIG_DFL;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        if (sigaction(sig, &sa, NULL) != 0) {
+            fprintf(stderr, "Runtime error: signal() failed to reset signal %d: %s\n", sig, strerror(errno));
+            exit(1);
+        }
+    }
+
+    return prev;
+}
+
+HmlValue hml_raise(HmlValue signum) {
+    if (signum.type != HML_VAL_I32) {
+        fprintf(stderr, "Runtime error: raise() signum must be an integer\n");
+        exit(1);
+    }
+
+    int sig = signum.as.as_i32;
+    if (sig < 0 || sig >= HML_MAX_SIGNAL) {
+        fprintf(stderr, "Runtime error: raise() signum %d out of range [0, %d)\n", sig, HML_MAX_SIGNAL);
+        exit(1);
+    }
+
+    if (raise(sig) != 0) {
+        fprintf(stderr, "Runtime error: raise() failed for signal %d: %s\n", sig, strerror(errno));
+        exit(1);
+    }
+
+    return hml_val_null();
+}
+
+// ========== TYPE DEFINITIONS (DUCK TYPING) ==========
+
+// Type registry
+static HmlTypeDef *g_type_registry = NULL;
+static int g_type_count = 0;
+static int g_type_capacity = 0;
+
+void hml_register_type(const char *name, HmlTypeField *fields, int num_fields) {
+    // Initialize registry if needed
+    if (g_type_registry == NULL) {
+        g_type_capacity = 16;
+        g_type_registry = malloc(sizeof(HmlTypeDef) * g_type_capacity);
+    }
+
+    // Grow if needed
+    if (g_type_count >= g_type_capacity) {
+        g_type_capacity *= 2;
+        g_type_registry = realloc(g_type_registry, sizeof(HmlTypeDef) * g_type_capacity);
+    }
+
+    // Add type definition
+    HmlTypeDef *type = &g_type_registry[g_type_count++];
+    type->name = strdup(name);
+    type->num_fields = num_fields;
+    type->fields = malloc(sizeof(HmlTypeField) * num_fields);
+
+    for (int i = 0; i < num_fields; i++) {
+        type->fields[i].name = strdup(fields[i].name);
+        type->fields[i].type_kind = fields[i].type_kind;
+        type->fields[i].is_optional = fields[i].is_optional;
+        type->fields[i].default_value = fields[i].default_value;
+        hml_retain(&type->fields[i].default_value);
+    }
+}
+
+HmlTypeDef* hml_lookup_type(const char *name) {
+    for (int i = 0; i < g_type_count; i++) {
+        if (strcmp(g_type_registry[i].name, name) == 0) {
+            return &g_type_registry[i];
+        }
+    }
+    return NULL;
+}
+
+HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
+    if (obj.type != HML_VAL_OBJECT) {
+        fprintf(stderr, "Error: Expected object for type '%s', got %s\n",
+                type_name, hml_typeof(obj));
+        exit(1);
+    }
+
+    HmlTypeDef *type = hml_lookup_type(type_name);
+    if (!type) {
+        fprintf(stderr, "Error: Unknown type '%s'\n", type_name);
+        exit(1);
+    }
+
+    HmlObject *o = obj.as.as_object;
+
+    // Check each required field
+    for (int i = 0; i < type->num_fields; i++) {
+        HmlTypeField *field = &type->fields[i];
+
+        // Find field in object
+        int found = 0;
+        for (int j = 0; j < o->num_fields; j++) {
+            if (strcmp(o->field_names[j], field->name) == 0) {
+                found = 1;
+                // Type check if field has a specific type
+                if (field->type_kind >= 0) {
+                    HmlValue val = o->field_values[j];
+                    int type_ok = 0;
+
+                    switch (field->type_kind) {
+                        case HML_VAL_I8: case HML_VAL_I16: case HML_VAL_I32: case HML_VAL_I64:
+                        case HML_VAL_U8: case HML_VAL_U16: case HML_VAL_U32: case HML_VAL_U64:
+                            type_ok = (val.type >= HML_VAL_I8 && val.type <= HML_VAL_U64);
+                            break;
+                        case HML_VAL_F32: case HML_VAL_F64:
+                            type_ok = (val.type == HML_VAL_F32 || val.type == HML_VAL_F64);
+                            break;
+                        case HML_VAL_BOOL:
+                            type_ok = (val.type == HML_VAL_BOOL);
+                            break;
+                        case HML_VAL_STRING:
+                            type_ok = (val.type == HML_VAL_STRING);
+                            break;
+                        default:
+                            type_ok = 1;  // Accept any type
+                            break;
+                    }
+
+                    if (!type_ok) {
+                        fprintf(stderr, "Error: Field '%s' has wrong type for '%s'\n",
+                                field->name, type_name);
+                        exit(1);
+                    }
+                }
+                break;
+            }
+        }
+
+        if (!found) {
+            if (field->is_optional) {
+                // Add default value
+                hml_object_set_field(obj, field->name, field->default_value);
+            } else {
+                fprintf(stderr, "Error: Object missing required field '%s' for type '%s'\n",
+                        field->name, type_name);
+                exit(1);
+            }
+        }
+    }
+
+    // Set the object's type name
+    if (o->type_name) free(o->type_name);
+    o->type_name = strdup(type_name);
+
+    return obj;
+}
+
+// ========== FFI (Foreign Function Interface) ==========
+
+HmlValue hml_ffi_load(const char *path) {
+    void *handle = dlopen(path, RTLD_LAZY);
+    if (!handle) {
+        fprintf(stderr, "Runtime error: Failed to load library '%s': %s\n", path, dlerror());
+        exit(1);
+    }
+    return hml_val_ptr(handle);
+}
+
+void hml_ffi_close(HmlValue lib) {
+    if (lib.type == HML_VAL_PTR && lib.as.as_ptr) {
+        dlclose(lib.as.as_ptr);
+    }
+}
+
+void* hml_ffi_sym(HmlValue lib, const char *name) {
+    if (lib.type != HML_VAL_PTR || !lib.as.as_ptr) {
+        fprintf(stderr, "Runtime error: ffi_sym requires library handle\n");
+        exit(1);
+    }
+    dlerror(); // Clear errors
+    void *sym = dlsym(lib.as.as_ptr, name);
+    char *error = dlerror();
+    if (error) {
+        fprintf(stderr, "Runtime error: Failed to find symbol '%s': %s\n", name, error);
+        exit(1);
+    }
+    return sym;
+}
+
+// Convert HmlFFIType to libffi type
+static ffi_type* hml_ffi_type_to_ffi(HmlFFIType type) {
+    switch (type) {
+        case HML_FFI_VOID:   return &ffi_type_void;
+        case HML_FFI_I8:     return &ffi_type_sint8;
+        case HML_FFI_I16:    return &ffi_type_sint16;
+        case HML_FFI_I32:    return &ffi_type_sint32;
+        case HML_FFI_I64:    return &ffi_type_sint64;
+        case HML_FFI_U8:     return &ffi_type_uint8;
+        case HML_FFI_U16:    return &ffi_type_uint16;
+        case HML_FFI_U32:    return &ffi_type_uint32;
+        case HML_FFI_U64:    return &ffi_type_uint64;
+        case HML_FFI_F32:    return &ffi_type_float;
+        case HML_FFI_F64:    return &ffi_type_double;
+        case HML_FFI_PTR:    return &ffi_type_pointer;
+        case HML_FFI_STRING: return &ffi_type_pointer;
+        default:
+            fprintf(stderr, "Runtime error: Unknown FFI type: %d\n", type);
+            exit(1);
+    }
+}
+
+// Convert HmlValue to C value for FFI call
+static void hml_value_to_ffi(HmlValue val, HmlFFIType type, void *out) {
+    switch (type) {
+        case HML_FFI_I8:     *(int8_t*)out = (int8_t)hml_to_i32(val); break;
+        case HML_FFI_I16:    *(int16_t*)out = (int16_t)hml_to_i32(val); break;
+        case HML_FFI_I32:    *(int32_t*)out = hml_to_i32(val); break;
+        case HML_FFI_I64:    *(int64_t*)out = hml_to_i64(val); break;
+        case HML_FFI_U8:     *(uint8_t*)out = (uint8_t)hml_to_i32(val); break;
+        case HML_FFI_U16:    *(uint16_t*)out = (uint16_t)hml_to_i32(val); break;
+        case HML_FFI_U32:    *(uint32_t*)out = (uint32_t)hml_to_i32(val); break;
+        case HML_FFI_U64:    *(uint64_t*)out = (uint64_t)hml_to_i64(val); break;
+        case HML_FFI_F32:    *(float*)out = (float)hml_to_f64(val); break;
+        case HML_FFI_F64:    *(double*)out = hml_to_f64(val); break;
+        case HML_FFI_PTR:
+            if (val.type == HML_VAL_PTR) *(void**)out = val.as.as_ptr;
+            else if (val.type == HML_VAL_BUFFER) *(void**)out = val.as.as_buffer->data;
+            else *(void**)out = NULL;
+            break;
+        case HML_FFI_STRING:
+            if (val.type == HML_VAL_STRING && val.as.as_string)
+                *(char**)out = val.as.as_string->data;
+            else
+                *(char**)out = NULL;
+            break;
+        default:
+            fprintf(stderr, "Runtime error: Cannot convert to FFI type: %d\n", type);
+            exit(1);
+    }
+}
+
+// Convert C value to HmlValue after FFI call
+static HmlValue hml_ffi_to_value(void *result, HmlFFIType type) {
+    switch (type) {
+        case HML_FFI_VOID:   return hml_val_null();
+        case HML_FFI_I8:     return hml_val_i32(*(int8_t*)result);
+        case HML_FFI_I16:    return hml_val_i32(*(int16_t*)result);
+        case HML_FFI_I32:    return hml_val_i32(*(int32_t*)result);
+        case HML_FFI_I64:    return hml_val_i64(*(int64_t*)result);
+        case HML_FFI_U8:     return hml_val_u8(*(uint8_t*)result);
+        case HML_FFI_U16:    return hml_val_u16(*(uint16_t*)result);
+        case HML_FFI_U32:    return hml_val_u32(*(uint32_t*)result);
+        case HML_FFI_U64:    return hml_val_u64(*(uint64_t*)result);
+        case HML_FFI_F32:    return hml_val_f32(*(float*)result);
+        case HML_FFI_F64:    return hml_val_f64(*(double*)result);
+        case HML_FFI_PTR:    return hml_val_ptr(*(void**)result);
+        case HML_FFI_STRING: {
+            char *s = *(char**)result;
+            if (s) return hml_val_string(s);
+            return hml_val_null();
+        }
+        default:
+            fprintf(stderr, "Runtime error: Cannot convert from FFI type: %d\n", type);
+            exit(1);
+    }
+}
+
+HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *types) {
+    if (!func_ptr) {
+        fprintf(stderr, "Runtime error: FFI call with null function pointer\n");
+        exit(1);
+    }
+
+    // types[0] is return type, types[1..] are arg types
+    HmlFFIType return_type = types[0];
+
+    // Prepare libffi call interface
+    ffi_cif cif;
+    ffi_type **arg_types = NULL;
+    void **arg_values = NULL;
+    void **arg_storage = NULL;
+
+    if (num_args > 0) {
+        arg_types = malloc(num_args * sizeof(ffi_type*));
+        arg_values = malloc(num_args * sizeof(void*));
+        arg_storage = malloc(num_args * sizeof(void*));
+
+        for (int i = 0; i < num_args; i++) {
+            arg_types[i] = hml_ffi_type_to_ffi(types[i + 1]);
+            arg_storage[i] = malloc(8); // Max size for any arg
+            hml_value_to_ffi(args[i], types[i + 1], arg_storage[i]);
+            arg_values[i] = arg_storage[i];
+        }
+    }
+
+    ffi_type *ret_type = hml_ffi_type_to_ffi(return_type);
+    ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, num_args, ret_type, arg_types);
+
+    if (status != FFI_OK) {
+        fprintf(stderr, "Runtime error: Failed to prepare FFI call\n");
+        exit(1);
+    }
+
+    // Call the function
+    union {
+        int8_t i8; int16_t i16; int32_t i32; int64_t i64;
+        uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
+        float f32; double f64;
+        void *ptr;
+    } result;
+
+    ffi_call(&cif, func_ptr, &result, arg_values);
+
+    // Convert result
+    HmlValue ret = hml_ffi_to_value(&result, return_type);
+
+    // Cleanup
+    if (num_args > 0) {
+        for (int i = 0; i < num_args; i++) {
+            free(arg_storage[i]);
+        }
+        free(arg_types);
+        free(arg_values);
+        free(arg_storage);
+    }
+
+    return ret;
+}

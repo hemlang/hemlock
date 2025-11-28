@@ -21,6 +21,13 @@ typedef struct HmlFileHandle HmlFileHandle;
 typedef struct HmlTask HmlTask;
 typedef struct HmlChannel HmlChannel;
 
+// Task states
+typedef enum {
+    HML_TASK_READY = 0,
+    HML_TASK_RUNNING = 1,
+    HML_TASK_COMPLETED = 2
+} HmlTaskState;
+
 // Value types (same as interpreter)
 typedef enum {
     HML_VAL_I8,
@@ -137,13 +144,18 @@ struct HmlFileHandle {
 // Task (async)
 struct HmlTask {
     int id;
-    int state;              // TASK_READY, TASK_RUNNING, etc.
+    int state;              // HML_TASK_READY, HML_TASK_RUNNING, HML_TASK_COMPLETED
     HmlValue result;
     int joined;
     int detached;
     void *thread;           // pthread_t
     void *mutex;            // pthread_mutex_t
+    void *cond;             // pthread_cond_t for join
     int ref_count;
+    // For storing function and args to call
+    HmlValue function;
+    HmlValue *args;
+    int num_args;
 };
 
 // Channel (for async communication)
@@ -159,6 +171,20 @@ struct HmlChannel {
     void *not_full;         // pthread_cond_t
     int ref_count;
 };
+
+// Type definition for duck typing
+typedef struct HmlTypeField {
+    char *name;
+    int type_kind;          // HML_VAL_* type or -1 for any
+    int is_optional;
+    HmlValue default_value;
+} HmlTypeField;
+
+typedef struct HmlTypeDef {
+    char *name;
+    HmlTypeField *fields;
+    int num_fields;
+} HmlTypeDef;
 
 // ========== VALUE CONSTRUCTORS ==========
 

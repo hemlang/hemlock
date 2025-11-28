@@ -1,0 +1,11 @@
+Testing signal constants:
+2
+15
+10
+12
+Raising SIGUSR1:
+Handler called with signal:
+10
+Handler called with signal:
+10
+done

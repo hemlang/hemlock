@@ -1,0 +1,20 @@
+// Test exec() builtin for command execution
+
+// Test basic command
+let result = exec("echo hello");
+print(result.output);
+print(result.exit_code);
+
+// Test command with newline stripped
+let r2 = exec("echo -n world");
+print(r2.output);
+
+// Test exit code
+let r3 = exec("exit 0");
+print(r3.exit_code);
+
+// Test command that fails
+let r4 = exec("exit 42");
+print(r4.exit_code);
+
+print("done");

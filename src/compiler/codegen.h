@@ -10,6 +10,33 @@
 #include "../../include/ast.h"
 #include <stdio.h>
 
+// Forward declaration for closure info
+typedef struct ClosureInfo ClosureInfo;
+typedef struct DeferEntry DeferEntry;
+
+// Deferred expression entry for LIFO execution
+struct DeferEntry {
+    Expr *expr;           // The expression to defer
+    DeferEntry *next;     // Next entry (forms a stack)
+};
+
+// Closure information for anonymous functions
+struct ClosureInfo {
+    char *func_name;        // Generated function name
+    char **captured_vars;   // Names of captured variables
+    int num_captured;       // Number of captured variables
+    Expr *func_expr;        // The function expression
+    ClosureInfo *next;      // Linked list of closures
+};
+
+// Scope tracking for variable resolution
+typedef struct Scope {
+    char **vars;            // Variables in this scope
+    int num_vars;           // Number of variables
+    int capacity;           // Capacity
+    struct Scope *parent;   // Parent scope
+} Scope;
+
 // Code generation context
 typedef struct {
     FILE *output;           // Output file/stream
@@ -21,6 +48,15 @@ typedef struct {
     char **local_vars;      // Stack of local variable names
     int num_locals;         // Number of local variables
     int local_capacity;     // Capacity of local vars array
+
+    // Closure support
+    Scope *current_scope;   // Current variable scope
+    ClosureInfo *closures;  // List of closures to generate
+    char **func_params;     // Current function parameters
+    int num_func_params;    // Number of current function parameters
+
+    // Defer support
+    DeferEntry *defer_stack;  // Stack of deferred expressions (LIFO)
 } CodegenContext;
 
 // Initialize code generation context
@@ -78,5 +114,63 @@ const char* codegen_hml_binary_op(BinaryOp op);
 
 // Helper: Get the HmlUnaryOp enum name
 const char* codegen_hml_unary_op(UnaryOp op);
+
+// ========== SCOPE MANAGEMENT ==========
+
+// Create a new scope
+Scope* scope_new(Scope *parent);
+
+// Free a scope
+void scope_free(Scope *scope);
+
+// Add a variable to the current scope
+void scope_add_var(Scope *scope, const char *name);
+
+// Check if a variable is in the given scope (not parents)
+int scope_has_var(Scope *scope, const char *name);
+
+// Check if a variable is defined in scope or any parent
+int scope_is_defined(Scope *scope, const char *name);
+
+// Push a new scope onto the stack
+void codegen_push_scope(CodegenContext *ctx);
+
+// Pop the current scope
+void codegen_pop_scope(CodegenContext *ctx);
+
+// ========== DEFER SUPPORT ==========
+
+// Push a deferred expression onto the defer stack
+void codegen_defer_push(CodegenContext *ctx, Expr *expr);
+
+// Generate code to execute all defers in LIFO order (and clear the stack)
+void codegen_defer_execute_all(CodegenContext *ctx);
+
+// Clear the defer stack without generating code (for cleanup)
+void codegen_defer_clear(CodegenContext *ctx);
+
+// ========== CLOSURE ANALYSIS ==========
+
+// Free variable info for a function
+typedef struct {
+    char **vars;
+    int num_vars;
+    int capacity;
+} FreeVarSet;
+
+// Find free variables in an expression
+void find_free_vars(Expr *expr, Scope *local_scope, FreeVarSet *free_vars);
+
+// Find free variables in a statement
+void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars);
+
+// Add a free variable if not already present
+void free_var_set_add(FreeVarSet *set, const char *var);
+
+// Create a new free variable set
+FreeVarSet* free_var_set_new(void);
+
+// Free a free variable set
+void free_var_set_free(FreeVarSet *set);
 
 #endif // HEMLOCK_CODEGEN_H

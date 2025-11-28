@@ -1,0 +1,13 @@
+// Test command-line arguments array exists and is accessible
+
+// Test args is an array with length property
+print(typeof(args));
+
+// Test we can access args.length (will be 0 if no args passed)
+print(args.length >= 0);
+
+// Test args array methods work
+let pushed = args.length;
+print(pushed >= 0);
+
+print("done");

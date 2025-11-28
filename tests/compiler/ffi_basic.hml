@@ -1,0 +1,18 @@
+// Test basic FFI functionality with strlen
+
+// Import libc
+import "libc.so.6";
+
+// Declare external function
+extern fn strlen(s: string): i32;
+
+// Test strlen
+let len = strlen("hello");
+print("strlen test:");
+print(len);
+
+// Test with longer string
+let len2 = strlen("hello world");
+print(len2);
+
+print("done");

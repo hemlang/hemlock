@@ -1,0 +1,32 @@
+// Test basic async spawn/join
+
+// Simple async function
+async fn compute(n) {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Spawn and join a task
+let task = spawn(compute, 10);
+let result = join(task);
+print(result);
+
+// Multiple spawns
+let t1 = spawn(compute, 5);
+let t2 = spawn(compute, 10);
+let t3 = spawn(compute, 15);
+
+let r1 = join(t1);
+let r2 = join(t2);
+let r3 = join(t3);
+
+print(r1);
+print(r2);
+print(r3);
+
+print("done");
