@@ -1,0 +1,61 @@
+// Test array methods
+
+let arr = [1, 2, 3];
+
+// Push/pop
+arr.push(4);
+print(arr.length);
+let popped = arr.pop();
+print(popped);
+print(arr.length);
+
+// Shift/unshift
+arr.unshift(0);
+print(arr[0]);
+let shifted = arr.shift();
+print(shifted);
+
+// First/last
+print(arr.first());
+print(arr.last());
+
+// Find/contains
+print(arr.find(2));
+print(arr.find(99));
+print(arr.contains(3));
+print(arr.contains(99));
+
+// Slice
+let sliced = arr.slice(0, 2);
+print(sliced.length);
+print(sliced[0]);
+print(sliced[1]);
+
+// Join
+let joined = arr.join("-");
+print(joined);
+
+// Concat
+let arr2 = [4, 5];
+let combined = arr.concat(arr2);
+print(combined.length);
+
+// Reverse (in-place)
+let rev = [1, 2, 3];
+rev.reverse();
+print(rev[0]);
+print(rev[2]);
+
+// Insert/remove
+let arr3 = [1, 3];
+arr3.insert(1, 2);
+print(arr3[1]);
+let removed = arr3.remove(1);
+print(removed);
+
+// Clear
+let arr4 = [1, 2, 3];
+arr4.clear();
+print(arr4.length);
+
+print("done");

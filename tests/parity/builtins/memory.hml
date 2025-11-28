@@ -1,0 +1,25 @@
+// Test memory builtins
+
+// alloc and free
+let p = alloc(64);
+print(p != null);
+free(p);
+
+// buffer
+let buf = buffer(32);
+print(buf.length);
+
+buf[0] = 65;
+buf[1] = 66;
+print(buf[0]);
+print(buf[1]);
+
+free(buf);
+
+// memset
+let p2 = alloc(16);
+memset(p2, 0, 16);
+print("memset ok");
+free(p2);
+
+print("done");

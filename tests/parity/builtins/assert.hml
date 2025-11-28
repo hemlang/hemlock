@@ -1,0 +1,12 @@
+// Test assert builtin
+
+assert(true);
+assert(1 == 1);
+assert(5 > 3);
+assert("hello" == "hello");
+
+let x = 10;
+assert(x == 10);
+
+print("all assertions passed");
+print("done");

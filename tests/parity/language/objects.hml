@@ -1,0 +1,38 @@
+// Test objects
+
+let obj = { name: "Alice", age: 30 };
+print(obj.name);
+print(obj.age);
+
+// Modification
+obj.age = 31;
+print(obj.age);
+
+// Add new field
+obj.city = "NYC";
+print(obj.city);
+
+// Nested objects
+let data = {
+    user: {
+        profile: {
+            email: "test@example.com"
+        }
+    }
+};
+print(data.user.profile.email);
+
+// Object with method
+let counter = {
+    count: 0,
+    increment: fn() {
+        self.count = self.count + 1;
+        return self.count;
+    }
+};
+
+print(counter.increment());
+print(counter.increment());
+print(counter.count);
+
+print("done");

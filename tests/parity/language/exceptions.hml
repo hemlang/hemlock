@@ -1,0 +1,33 @@
+// Test exception handling
+
+// Basic try/catch
+try {
+    throw "error message";
+} catch (e) {
+    print(e);
+}
+
+// Try without throw
+try {
+    print("no error");
+} catch (e) {
+    print("should not reach");
+}
+
+// Finally always runs
+try {
+    print("try block");
+} finally {
+    print("finally block");
+}
+
+// Catch and finally
+try {
+    throw "oops";
+} catch (e) {
+    print("caught");
+} finally {
+    print("cleanup");
+}
+
+print("done");

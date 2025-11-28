@@ -1,0 +1,25 @@
+// Test while and for loops
+
+// While loop
+let i = 0;
+while (i < 3) {
+    print(i);
+    i = i + 1;
+}
+
+// For loop
+for (let j = 0; j < 3; j = j + 1) {
+    print(j);
+}
+
+// Break
+let k = 0;
+while (true) {
+    if (k >= 2) {
+        break;
+    }
+    print(k);
+    k = k + 1;
+}
+
+print("done");

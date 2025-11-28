@@ -1,0 +1,28 @@
+// Test arrays
+
+let arr = [1, 2, 3, 4, 5];
+print(arr[0]);
+print(arr[4]);
+print(arr.length);
+
+// Modification
+arr[0] = 10;
+print(arr[0]);
+
+// For-in loop
+let sum = 0;
+for (let x in [1, 2, 3]) {
+    sum = sum + x;
+}
+print(sum);
+
+// Nested arrays
+let nested = [[1, 2], [3, 4]];
+print(nested[0][0]);
+print(nested[1][1]);
+
+// Mixed types
+let mixed = [1, "hello", true, null];
+print(mixed[1]);
+
+print("done");
