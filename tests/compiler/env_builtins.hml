@@ -1,0 +1,20 @@
+// Test environment builtins
+
+// Test get_pid returns positive number
+let pid = get_pid();
+print(pid > 0);
+
+// Test getenv returns null for non-existent variable
+let missing = getenv("__TEST_NONEXISTENT_VAR__");
+print(missing == null);
+
+// Test setenv and getenv work together
+setenv("__TEST_VAR__", "hello");
+let val = getenv("__TEST_VAR__");
+print(val);
+
+// PATH should exist
+let path = getenv("PATH");
+print(path != null);
+
+print("done");

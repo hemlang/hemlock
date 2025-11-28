@@ -77,6 +77,50 @@ void hml_panic(HmlValue message);
 // Command execution
 HmlValue hml_exec(HmlValue command);
 
+// ========== MATH OPERATIONS ==========
+
+HmlValue hml_sqrt(HmlValue x);
+HmlValue hml_sin(HmlValue x);
+HmlValue hml_cos(HmlValue x);
+HmlValue hml_tan(HmlValue x);
+HmlValue hml_asin(HmlValue x);
+HmlValue hml_acos(HmlValue x);
+HmlValue hml_atan(HmlValue x);
+HmlValue hml_floor(HmlValue x);
+HmlValue hml_ceil(HmlValue x);
+HmlValue hml_round(HmlValue x);
+HmlValue hml_trunc(HmlValue x);
+HmlValue hml_abs(HmlValue x);
+HmlValue hml_pow(HmlValue base, HmlValue exp);
+HmlValue hml_exp(HmlValue x);
+HmlValue hml_log(HmlValue x);
+HmlValue hml_min(HmlValue a, HmlValue b);
+HmlValue hml_max(HmlValue a, HmlValue b);
+HmlValue hml_rand(void);
+void hml_seed(HmlValue seed);
+
+// ========== TIME OPERATIONS ==========
+
+HmlValue hml_now(void);
+HmlValue hml_time_ms(void);
+HmlValue hml_clock(void);
+void hml_sleep(HmlValue seconds);
+
+// ========== ENVIRONMENT OPERATIONS ==========
+
+HmlValue hml_getenv(HmlValue name);
+void hml_setenv(HmlValue name, HmlValue value);
+void hml_exit(HmlValue code);
+HmlValue hml_get_pid(void);
+
+// ========== I/O OPERATIONS ==========
+
+HmlValue hml_read_line(void);
+
+// ========== TYPE OPERATIONS ==========
+
+HmlValue hml_sizeof(HmlValue type_name);
+
 // ========== STRING OPERATIONS ==========
 
 HmlValue hml_string_concat(HmlValue a, HmlValue b);
@@ -231,22 +275,6 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler);
 
 // Raise a signal to the current process
 HmlValue hml_raise(HmlValue signum);
-
-// ========== MATH FUNCTIONS ==========
-
-double hml_sin(double x);
-double hml_cos(double x);
-double hml_tan(double x);
-double hml_sqrt(double x);
-double hml_pow(double base, double exp);
-double hml_exp(double x);
-double hml_log(double x);
-double hml_log10(double x);
-double hml_floor(double x);
-double hml_ceil(double x);
-double hml_round(double x);
-double hml_abs_f64(double x);
-int64_t hml_abs_i64(int64_t x);
 
 // ========== TYPE DEFINITIONS (DUCK TYPING) ==========
 

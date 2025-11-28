@@ -1,0 +1,22 @@
+// Test time builtins
+
+// now() returns a timestamp
+let t = now();
+print(t > 0);
+
+// time_ms() returns milliseconds
+let ms = time_ms();
+print(ms > 0);
+
+// clock() returns CPU time
+let c = clock();
+print(c >= 0.0);
+
+// Test sleep with tiny duration (0.001 seconds = 1ms)
+let before = time_ms();
+sleep(0.001);
+let after = time_ms();
+// After should be >= before (sleep may wake up early)
+print(after >= before);
+
+print("done");

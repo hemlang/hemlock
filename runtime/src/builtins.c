@@ -11,6 +11,8 @@
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <time.h>
+#include <unistd.h>
 #include <sys/wait.h>
 #include <dlfcn.h>
 #include <ffi.h>
@@ -191,19 +193,6 @@ void hml_eprint(HmlValue val) {
     fflush(stderr);
 }
 
-HmlValue hml_read_line(void) {
-    char buffer[4096];
-    if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
-        // Remove trailing newline
-        int len = strlen(buffer);
-        if (len > 0 && buffer[len - 1] == '\n') {
-            buffer[len - 1] = '\0';
-        }
-        return hml_val_string(buffer);
-    }
-    return hml_val_null();
-}
-
 // ========== VALUE COMPARISON ==========
 
 int hml_values_equal(HmlValue left, HmlValue right) {
@@ -358,6 +347,190 @@ HmlValue hml_exec(HmlValue command) {
     free(output_buffer);
 
     return result;
+}
+
+// ========== MATH OPERATIONS ==========
+
+HmlValue hml_sqrt(HmlValue x) {
+    return hml_val_f64(sqrt(hml_to_f64(x)));
+}
+
+HmlValue hml_sin(HmlValue x) {
+    return hml_val_f64(sin(hml_to_f64(x)));
+}
+
+HmlValue hml_cos(HmlValue x) {
+    return hml_val_f64(cos(hml_to_f64(x)));
+}
+
+HmlValue hml_tan(HmlValue x) {
+    return hml_val_f64(tan(hml_to_f64(x)));
+}
+
+HmlValue hml_asin(HmlValue x) {
+    return hml_val_f64(asin(hml_to_f64(x)));
+}
+
+HmlValue hml_acos(HmlValue x) {
+    return hml_val_f64(acos(hml_to_f64(x)));
+}
+
+HmlValue hml_atan(HmlValue x) {
+    return hml_val_f64(atan(hml_to_f64(x)));
+}
+
+HmlValue hml_floor(HmlValue x) {
+    return hml_val_f64(floor(hml_to_f64(x)));
+}
+
+HmlValue hml_ceil(HmlValue x) {
+    return hml_val_f64(ceil(hml_to_f64(x)));
+}
+
+HmlValue hml_round(HmlValue x) {
+    return hml_val_f64(round(hml_to_f64(x)));
+}
+
+HmlValue hml_trunc(HmlValue x) {
+    return hml_val_f64(trunc(hml_to_f64(x)));
+}
+
+HmlValue hml_abs(HmlValue x) {
+    double val = hml_to_f64(x);
+    return hml_val_f64(val < 0 ? -val : val);
+}
+
+HmlValue hml_pow(HmlValue base, HmlValue exp) {
+    return hml_val_f64(pow(hml_to_f64(base), hml_to_f64(exp)));
+}
+
+HmlValue hml_exp(HmlValue x) {
+    return hml_val_f64(exp(hml_to_f64(x)));
+}
+
+HmlValue hml_log(HmlValue x) {
+    return hml_val_f64(log(hml_to_f64(x)));
+}
+
+HmlValue hml_min(HmlValue a, HmlValue b) {
+    double va = hml_to_f64(a);
+    double vb = hml_to_f64(b);
+    return hml_val_f64(va < vb ? va : vb);
+}
+
+HmlValue hml_max(HmlValue a, HmlValue b) {
+    double va = hml_to_f64(a);
+    double vb = hml_to_f64(b);
+    return hml_val_f64(va > vb ? va : vb);
+}
+
+static int g_rand_seeded = 0;
+
+HmlValue hml_rand(void) {
+    if (!g_rand_seeded) {
+        srand((unsigned int)time(NULL));
+        g_rand_seeded = 1;
+    }
+    return hml_val_f64((double)rand() / RAND_MAX);
+}
+
+void hml_seed(HmlValue seed) {
+    srand((unsigned int)hml_to_i32(seed));
+    g_rand_seeded = 1;
+}
+
+// ========== TIME OPERATIONS ==========
+
+HmlValue hml_now(void) {
+    return hml_val_i64((int64_t)time(NULL));
+}
+
+HmlValue hml_time_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return hml_val_i64((int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+HmlValue hml_clock(void) {
+    return hml_val_f64((double)clock() / CLOCKS_PER_SEC);
+}
+
+void hml_sleep(HmlValue seconds) {
+    double secs = hml_to_f64(seconds);
+    struct timespec ts;
+    ts.tv_sec = (time_t)secs;
+    ts.tv_nsec = (long)((secs - ts.tv_sec) * 1e9);
+    nanosleep(&ts, NULL);
+}
+
+// ========== ENVIRONMENT OPERATIONS ==========
+
+HmlValue hml_getenv(HmlValue name) {
+    if (name.type != HML_VAL_STRING || !name.as.as_string) {
+        return hml_val_null();
+    }
+    char *value = getenv(name.as.as_string->data);
+    if (!value) {
+        return hml_val_null();
+    }
+    return hml_val_string(value);
+}
+
+void hml_setenv(HmlValue name, HmlValue value) {
+    if (name.type != HML_VAL_STRING || !name.as.as_string) {
+        return;
+    }
+    if (value.type != HML_VAL_STRING || !value.as.as_string) {
+        return;
+    }
+    setenv(name.as.as_string->data, value.as.as_string->data, 1);
+}
+
+void hml_exit(HmlValue code) {
+    exit(hml_to_i32(code));
+}
+
+HmlValue hml_get_pid(void) {
+    return hml_val_i32((int32_t)getpid());
+}
+
+// ========== I/O OPERATIONS ==========
+
+HmlValue hml_read_line(void) {
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read = getline(&line, &len, stdin);
+    if (read == -1) {
+        free(line);
+        return hml_val_null();
+    }
+    // Remove trailing newline
+    if (read > 0 && line[read - 1] == '\n') {
+        line[read - 1] = '\0';
+        read--;
+    }
+    HmlValue result = hml_val_string(line);
+    free(line);
+    return result;
+}
+
+// ========== TYPE OPERATIONS ==========
+
+HmlValue hml_sizeof(HmlValue type_name) {
+    if (type_name.type != HML_VAL_STRING || !type_name.as.as_string) {
+        return hml_val_i32(0);
+    }
+    const char *name = type_name.as.as_string->data;
+    if (strcmp(name, "i8") == 0 || strcmp(name, "u8") == 0 || strcmp(name, "byte") == 0) return hml_val_i32(1);
+    if (strcmp(name, "i16") == 0 || strcmp(name, "u16") == 0) return hml_val_i32(2);
+    if (strcmp(name, "i32") == 0 || strcmp(name, "u32") == 0 || strcmp(name, "integer") == 0) return hml_val_i32(4);
+    if (strcmp(name, "i64") == 0 || strcmp(name, "u64") == 0) return hml_val_i32(8);
+    if (strcmp(name, "f32") == 0) return hml_val_i32(4);
+    if (strcmp(name, "f64") == 0 || strcmp(name, "number") == 0) return hml_val_i32(8);
+    if (strcmp(name, "bool") == 0) return hml_val_i32(1);
+    if (strcmp(name, "ptr") == 0) return hml_val_i32(8);
+    if (strcmp(name, "rune") == 0) return hml_val_i32(4);
+    return hml_val_i32(0);
 }
 
 // ========== BINARY OPERATIONS ==========
@@ -2877,22 +3050,6 @@ HmlValue hml_raise(HmlValue signum) {
 
     return hml_val_null();
 }
-
-// ========== MATH FUNCTIONS ==========
-
-double hml_sin(double x) { return sin(x); }
-double hml_cos(double x) { return cos(x); }
-double hml_tan(double x) { return tan(x); }
-double hml_sqrt(double x) { return sqrt(x); }
-double hml_pow(double base, double exp) { return pow(base, exp); }
-double hml_exp(double x) { return exp(x); }
-double hml_log(double x) { return log(x); }
-double hml_log10(double x) { return log10(x); }
-double hml_floor(double x) { return floor(x); }
-double hml_ceil(double x) { return ceil(x); }
-double hml_round(double x) { return round(x); }
-double hml_abs_f64(double x) { return fabs(x); }
-int64_t hml_abs_i64(int64_t x) { return llabs(x); }
 
 // ========== TYPE DEFINITIONS (DUCK TYPING) ==========
 
