@@ -752,6 +752,92 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rand_range, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__seed") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_seed, 1, 0);", result);
+            // Handle time functions (builtins)
+            } else if (strcmp(expr->as.ident, "__now") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_now, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__time_ms") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_time_ms, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__clock") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clock, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__sleep") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sleep, 1, 0);", result);
+            // Handle datetime functions (builtins)
+            } else if (strcmp(expr->as.ident, "__localtime") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_localtime, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__gmtime") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gmtime, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__mktime") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mktime, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__strftime") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strftime, 2, 0);", result);
+            // Handle environment functions (builtins)
+            } else if (strcmp(expr->as.ident, "__getenv") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getenv, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__setenv") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_setenv, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__unsetenv") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_unsetenv, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__exit") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exit, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__get_pid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_pid, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__getppid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getppid, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__getuid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getuid, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__geteuid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_geteuid, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__getgid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getgid, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__getegid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getegid, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__exec") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 0);", result);
+            // Handle process functions (builtins)
+            } else if (strcmp(expr->as.ident, "__kill") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_kill, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__fork") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_fork, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__wait") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_wait, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__waitpid") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_waitpid, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__abort") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abort, 0, 0);", result);
+            // Handle filesystem functions (builtins)
+            } else if (strcmp(expr->as.ident, "__exists") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__read_file") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_file, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__write_file") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_file, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__append_file") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_append_file, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__remove_file") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_file, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__rename") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rename, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__copy_file") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_copy_file, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__is_file") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_file, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__is_dir") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_dir, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__file_stat") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_file_stat, 1, 0);", result);
+            // Handle directory functions (builtins)
+            } else if (strcmp(expr->as.ident, "__make_dir") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_make_dir, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__remove_dir") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_dir, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__list_dir") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_list_dir, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__cwd") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cwd, 0, 0);", result);
+            } else if (strcmp(expr->as.ident, "__chdir") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_chdir, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__absolute_path") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_absolute_path, 1, 0);", result);
             } else {
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
             }

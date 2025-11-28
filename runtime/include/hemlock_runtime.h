@@ -141,12 +141,66 @@ HmlValue hml_time_ms(void);
 HmlValue hml_clock(void);
 void hml_sleep(HmlValue seconds);
 
+// Time builtin wrappers
+HmlValue hml_builtin_now(HmlClosureEnv *env);
+HmlValue hml_builtin_time_ms(HmlClosureEnv *env);
+HmlValue hml_builtin_clock(HmlClosureEnv *env);
+HmlValue hml_builtin_sleep(HmlClosureEnv *env, HmlValue seconds);
+
+// ========== DATETIME OPERATIONS ==========
+
+HmlValue hml_localtime(HmlValue timestamp);
+HmlValue hml_gmtime(HmlValue timestamp);
+HmlValue hml_mktime(HmlValue time_obj);
+HmlValue hml_strftime(HmlValue format, HmlValue time_obj);
+
+// Datetime builtin wrappers
+HmlValue hml_builtin_localtime(HmlClosureEnv *env, HmlValue timestamp);
+HmlValue hml_builtin_gmtime(HmlClosureEnv *env, HmlValue timestamp);
+HmlValue hml_builtin_mktime(HmlClosureEnv *env, HmlValue time_obj);
+HmlValue hml_builtin_strftime(HmlClosureEnv *env, HmlValue format, HmlValue time_obj);
+
 // ========== ENVIRONMENT OPERATIONS ==========
 
 HmlValue hml_getenv(HmlValue name);
 void hml_setenv(HmlValue name, HmlValue value);
 void hml_exit(HmlValue code);
 HmlValue hml_get_pid(void);
+HmlValue hml_exec(HmlValue command);
+
+// Environment builtin wrappers
+HmlValue hml_builtin_getenv(HmlClosureEnv *env, HmlValue name);
+HmlValue hml_builtin_setenv(HmlClosureEnv *env, HmlValue name, HmlValue value);
+HmlValue hml_builtin_unsetenv(HmlClosureEnv *env, HmlValue name);
+HmlValue hml_builtin_exit(HmlClosureEnv *env, HmlValue code);
+HmlValue hml_builtin_get_pid(HmlClosureEnv *env);
+HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command);
+
+// ========== PROCESS OPERATIONS ==========
+
+HmlValue hml_getppid(void);
+HmlValue hml_getuid(void);
+HmlValue hml_geteuid(void);
+HmlValue hml_getgid(void);
+HmlValue hml_getegid(void);
+HmlValue hml_unsetenv(HmlValue name);
+HmlValue hml_kill(HmlValue pid, HmlValue sig);
+HmlValue hml_fork(void);
+HmlValue hml_wait(void);
+HmlValue hml_waitpid(HmlValue pid, HmlValue options);
+void hml_abort(void);
+
+// Process builtin wrappers
+HmlValue hml_builtin_getppid(HmlClosureEnv *env);
+HmlValue hml_builtin_getuid(HmlClosureEnv *env);
+HmlValue hml_builtin_geteuid(HmlClosureEnv *env);
+HmlValue hml_builtin_getgid(HmlClosureEnv *env);
+HmlValue hml_builtin_getegid(HmlClosureEnv *env);
+HmlValue hml_builtin_kill(HmlClosureEnv *env, HmlValue pid, HmlValue sig);
+HmlValue hml_builtin_fork(HmlClosureEnv *env);
+HmlValue hml_builtin_wait(HmlClosureEnv *env);
+HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options);
+HmlValue hml_builtin_abort(HmlClosureEnv *env);
 
 // ========== I/O OPERATIONS ==========
 
@@ -298,6 +352,47 @@ HmlValue hml_file_write(HmlValue file, HmlValue data);
 HmlValue hml_file_seek(HmlValue file, HmlValue position);
 HmlValue hml_file_tell(HmlValue file);
 void hml_file_close(HmlValue file);
+
+// ========== FILESYSTEM OPERATIONS ==========
+
+HmlValue hml_exists(HmlValue path);
+HmlValue hml_read_file(HmlValue path);
+HmlValue hml_write_file(HmlValue path, HmlValue content);
+HmlValue hml_append_file(HmlValue path, HmlValue content);
+HmlValue hml_remove_file(HmlValue path);
+HmlValue hml_rename_file(HmlValue old_path, HmlValue new_path);
+HmlValue hml_copy_file(HmlValue src_path, HmlValue dest_path);
+HmlValue hml_is_file(HmlValue path);
+HmlValue hml_is_dir(HmlValue path);
+HmlValue hml_file_stat(HmlValue path);
+
+// ========== DIRECTORY OPERATIONS ==========
+
+HmlValue hml_make_dir(HmlValue path, HmlValue mode);
+HmlValue hml_remove_dir(HmlValue path);
+HmlValue hml_list_dir(HmlValue path);
+HmlValue hml_cwd(void);
+HmlValue hml_chdir(HmlValue path);
+HmlValue hml_absolute_path(HmlValue path);
+
+// ========== FILESYSTEM BUILTIN WRAPPERS ==========
+
+HmlValue hml_builtin_exists(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_read_file(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_write_file(HmlClosureEnv *env, HmlValue path, HmlValue content);
+HmlValue hml_builtin_append_file(HmlClosureEnv *env, HmlValue path, HmlValue content);
+HmlValue hml_builtin_remove_file(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_rename(HmlClosureEnv *env, HmlValue old_path, HmlValue new_path);
+HmlValue hml_builtin_copy_file(HmlClosureEnv *env, HmlValue src, HmlValue dest);
+HmlValue hml_builtin_is_file(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_is_dir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_file_stat(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_make_dir(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_remove_dir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_list_dir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_cwd(HmlClosureEnv *env);
+HmlValue hml_builtin_chdir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_absolute_path(HmlClosureEnv *env, HmlValue path);
 
 // ========== SIGNAL HANDLING ==========
 

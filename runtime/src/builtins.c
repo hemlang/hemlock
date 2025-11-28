@@ -14,6 +14,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <limits.h>
 #include <dlfcn.h>
 #include <ffi.h>
 
@@ -600,6 +604,177 @@ HmlValue hml_builtin_seed(HmlClosureEnv *env, HmlValue seed) {
     return hml_seed_val(seed);
 }
 
+// Time builtin wrappers
+HmlValue hml_builtin_now(HmlClosureEnv *env) {
+    (void)env;
+    return hml_now();
+}
+
+HmlValue hml_builtin_time_ms(HmlClosureEnv *env) {
+    (void)env;
+    return hml_time_ms();
+}
+
+HmlValue hml_builtin_clock(HmlClosureEnv *env) {
+    (void)env;
+    return hml_clock();
+}
+
+HmlValue hml_builtin_sleep(HmlClosureEnv *env, HmlValue seconds) {
+    (void)env;
+    hml_sleep(seconds);
+    return hml_val_null();
+}
+
+// Env builtin wrappers
+HmlValue hml_builtin_getenv(HmlClosureEnv *env, HmlValue name) {
+    (void)env;
+    return hml_getenv(name);
+}
+
+HmlValue hml_builtin_setenv(HmlClosureEnv *env, HmlValue name, HmlValue value) {
+    (void)env;
+    hml_setenv(name, value);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_exit(HmlClosureEnv *env, HmlValue code) {
+    (void)env;
+    hml_exit(code);
+    return hml_val_null();  // Never reached
+}
+
+HmlValue hml_builtin_get_pid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_get_pid();
+}
+
+HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command) {
+    (void)env;
+    return hml_exec(command);
+}
+
+// Process ID builtins
+HmlValue hml_getppid(void) {
+    return hml_val_i32((int32_t)getppid());
+}
+
+HmlValue hml_getuid(void) {
+    return hml_val_i32((int32_t)getuid());
+}
+
+HmlValue hml_geteuid(void) {
+    return hml_val_i32((int32_t)geteuid());
+}
+
+HmlValue hml_getgid(void) {
+    return hml_val_i32((int32_t)getgid());
+}
+
+HmlValue hml_getegid(void) {
+    return hml_val_i32((int32_t)getegid());
+}
+
+HmlValue hml_unsetenv(HmlValue name) {
+    if (name.type != HML_VAL_STRING || !name.as.as_string) {
+        return hml_val_null();
+    }
+    unsetenv(name.as.as_string->data);
+    return hml_val_null();
+}
+
+HmlValue hml_kill(HmlValue pid, HmlValue sig) {
+    int p = hml_to_i32(pid);
+    int s = hml_to_i32(sig);
+    int result = kill(p, s);
+    return hml_val_i32(result);
+}
+
+HmlValue hml_fork(void) {
+    pid_t pid = fork();
+    return hml_val_i32((int32_t)pid);
+}
+
+HmlValue hml_wait(void) {
+    int status;
+    pid_t pid = wait(&status);
+    // Return object with pid and status
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "pid", hml_val_i32((int32_t)pid));
+    hml_object_set_field(obj, "status", hml_val_i32(status));
+    return obj;
+}
+
+HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
+    int status;
+    pid_t result = waitpid(hml_to_i32(pid), &status, hml_to_i32(options));
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "pid", hml_val_i32((int32_t)result));
+    hml_object_set_field(obj, "status", hml_val_i32(status));
+    return obj;
+}
+
+void hml_abort(void) {
+    abort();
+}
+
+// Process builtin wrappers
+HmlValue hml_builtin_getppid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getppid();
+}
+
+HmlValue hml_builtin_getuid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getuid();
+}
+
+HmlValue hml_builtin_geteuid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_geteuid();
+}
+
+HmlValue hml_builtin_getgid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getgid();
+}
+
+HmlValue hml_builtin_getegid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getegid();
+}
+
+HmlValue hml_builtin_unsetenv(HmlClosureEnv *env, HmlValue name) {
+    (void)env;
+    return hml_unsetenv(name);
+}
+
+HmlValue hml_builtin_kill(HmlClosureEnv *env, HmlValue pid, HmlValue sig) {
+    (void)env;
+    return hml_kill(pid, sig);
+}
+
+HmlValue hml_builtin_fork(HmlClosureEnv *env) {
+    (void)env;
+    return hml_fork();
+}
+
+HmlValue hml_builtin_wait(HmlClosureEnv *env) {
+    (void)env;
+    return hml_wait();
+}
+
+HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options) {
+    (void)env;
+    return hml_waitpid(pid, options);
+}
+
+HmlValue hml_builtin_abort(HmlClosureEnv *env) {
+    (void)env;
+    hml_abort();
+    return hml_val_null();  // Never reached
+}
+
 // ========== TIME OPERATIONS ==========
 
 HmlValue hml_now(void) {
@@ -622,6 +797,162 @@ void hml_sleep(HmlValue seconds) {
     ts.tv_sec = (time_t)secs;
     ts.tv_nsec = (long)((secs - ts.tv_sec) * 1e9);
     nanosleep(&ts, NULL);
+}
+
+// ========== DATETIME OPERATIONS ==========
+
+// Convert Unix timestamp to local time components
+HmlValue hml_localtime(HmlValue timestamp) {
+    time_t ts = (time_t)hml_to_i64(timestamp);
+    struct tm *tm_info = localtime(&ts);
+
+    if (!tm_info) {
+        fprintf(stderr, "Error: localtime() failed to convert timestamp\n");
+        exit(1);
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "year", hml_val_i32(tm_info->tm_year + 1900));
+    hml_object_set_field(obj, "month", hml_val_i32(tm_info->tm_mon + 1));  // 1-12
+    hml_object_set_field(obj, "day", hml_val_i32(tm_info->tm_mday));
+    hml_object_set_field(obj, "hour", hml_val_i32(tm_info->tm_hour));
+    hml_object_set_field(obj, "minute", hml_val_i32(tm_info->tm_min));
+    hml_object_set_field(obj, "second", hml_val_i32(tm_info->tm_sec));
+    hml_object_set_field(obj, "weekday", hml_val_i32(tm_info->tm_wday));  // 0=Sunday
+    hml_object_set_field(obj, "yearday", hml_val_i32(tm_info->tm_yday + 1));  // 1-366
+    hml_object_set_field(obj, "isdst", hml_val_bool(tm_info->tm_isdst > 0));
+
+    return obj;
+}
+
+// Convert Unix timestamp to UTC time components
+HmlValue hml_gmtime(HmlValue timestamp) {
+    time_t ts = (time_t)hml_to_i64(timestamp);
+    struct tm *tm_info = gmtime(&ts);
+
+    if (!tm_info) {
+        fprintf(stderr, "Error: gmtime() failed to convert timestamp\n");
+        exit(1);
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "year", hml_val_i32(tm_info->tm_year + 1900));
+    hml_object_set_field(obj, "month", hml_val_i32(tm_info->tm_mon + 1));  // 1-12
+    hml_object_set_field(obj, "day", hml_val_i32(tm_info->tm_mday));
+    hml_object_set_field(obj, "hour", hml_val_i32(tm_info->tm_hour));
+    hml_object_set_field(obj, "minute", hml_val_i32(tm_info->tm_min));
+    hml_object_set_field(obj, "second", hml_val_i32(tm_info->tm_sec));
+    hml_object_set_field(obj, "weekday", hml_val_i32(tm_info->tm_wday));  // 0=Sunday
+    hml_object_set_field(obj, "yearday", hml_val_i32(tm_info->tm_yday + 1));  // 1-366
+    hml_object_set_field(obj, "isdst", hml_val_bool(0));  // UTC has no DST
+
+    return obj;
+}
+
+// Convert time components to Unix timestamp
+HmlValue hml_mktime(HmlValue time_obj) {
+    if (time_obj.type != HML_VAL_OBJECT || !time_obj.as.as_object) {
+        fprintf(stderr, "Error: mktime() requires an object argument\n");
+        exit(1);
+    }
+
+    struct tm tm_info = {0};
+
+    HmlValue year = hml_object_get_field(time_obj, "year");
+    HmlValue month = hml_object_get_field(time_obj, "month");
+    HmlValue day = hml_object_get_field(time_obj, "day");
+    HmlValue hour = hml_object_get_field(time_obj, "hour");
+    HmlValue minute = hml_object_get_field(time_obj, "minute");
+    HmlValue second = hml_object_get_field(time_obj, "second");
+
+    if (year.type == HML_VAL_NULL || month.type == HML_VAL_NULL || day.type == HML_VAL_NULL) {
+        fprintf(stderr, "Error: mktime() requires year, month, and day fields\n");
+        exit(1);
+    }
+
+    tm_info.tm_year = hml_to_i32(year) - 1900;
+    tm_info.tm_mon = hml_to_i32(month) - 1;  // 0-11
+    tm_info.tm_mday = hml_to_i32(day);
+    tm_info.tm_hour = hour.type != HML_VAL_NULL ? hml_to_i32(hour) : 0;
+    tm_info.tm_min = minute.type != HML_VAL_NULL ? hml_to_i32(minute) : 0;
+    tm_info.tm_sec = second.type != HML_VAL_NULL ? hml_to_i32(second) : 0;
+    tm_info.tm_isdst = -1;  // Auto-determine DST
+
+    time_t timestamp = mktime(&tm_info);
+    if (timestamp == -1) {
+        fprintf(stderr, "Error: mktime() failed to convert time components\n");
+        exit(1);
+    }
+
+    return hml_val_i64((int64_t)timestamp);
+}
+
+// Format date/time using strftime
+HmlValue hml_strftime(HmlValue format, HmlValue time_obj) {
+    if (format.type != HML_VAL_STRING || !format.as.as_string) {
+        fprintf(stderr, "Error: strftime() format must be a string\n");
+        exit(1);
+    }
+    if (time_obj.type != HML_VAL_OBJECT || !time_obj.as.as_object) {
+        fprintf(stderr, "Error: strftime() time components must be an object\n");
+        exit(1);
+    }
+
+    struct tm tm_info = {0};
+
+    HmlValue year = hml_object_get_field(time_obj, "year");
+    HmlValue month = hml_object_get_field(time_obj, "month");
+    HmlValue day = hml_object_get_field(time_obj, "day");
+    HmlValue hour = hml_object_get_field(time_obj, "hour");
+    HmlValue minute = hml_object_get_field(time_obj, "minute");
+    HmlValue second = hml_object_get_field(time_obj, "second");
+    HmlValue weekday = hml_object_get_field(time_obj, "weekday");
+    HmlValue yearday = hml_object_get_field(time_obj, "yearday");
+
+    if (year.type == HML_VAL_NULL || month.type == HML_VAL_NULL || day.type == HML_VAL_NULL) {
+        fprintf(stderr, "Error: strftime() requires year, month, and day fields\n");
+        exit(1);
+    }
+
+    tm_info.tm_year = hml_to_i32(year) - 1900;
+    tm_info.tm_mon = hml_to_i32(month) - 1;  // 0-11
+    tm_info.tm_mday = hml_to_i32(day);
+    tm_info.tm_hour = hour.type != HML_VAL_NULL ? hml_to_i32(hour) : 0;
+    tm_info.tm_min = minute.type != HML_VAL_NULL ? hml_to_i32(minute) : 0;
+    tm_info.tm_sec = second.type != HML_VAL_NULL ? hml_to_i32(second) : 0;
+    tm_info.tm_wday = weekday.type != HML_VAL_NULL ? hml_to_i32(weekday) : 0;
+    tm_info.tm_yday = yearday.type != HML_VAL_NULL ? hml_to_i32(yearday) - 1 : 0;
+    tm_info.tm_isdst = -1;
+
+    char buffer[256];
+    size_t len = strftime(buffer, sizeof(buffer), format.as.as_string->data, &tm_info);
+    if (len == 0) {
+        fprintf(stderr, "Error: strftime() formatting failed\n");
+        exit(1);
+    }
+
+    return hml_val_string(buffer);
+}
+
+// Datetime builtin wrappers
+HmlValue hml_builtin_localtime(HmlClosureEnv *env, HmlValue timestamp) {
+    (void)env;
+    return hml_localtime(timestamp);
+}
+
+HmlValue hml_builtin_gmtime(HmlClosureEnv *env, HmlValue timestamp) {
+    (void)env;
+    return hml_gmtime(timestamp);
+}
+
+HmlValue hml_builtin_mktime(HmlClosureEnv *env, HmlValue time_obj) {
+    (void)env;
+    return hml_mktime(time_obj);
+}
+
+HmlValue hml_builtin_strftime(HmlClosureEnv *env, HmlValue format, HmlValue time_obj) {
+    (void)env;
+    return hml_strftime(format, time_obj);
 }
 
 // ========== ENVIRONMENT OPERATIONS ==========
@@ -2840,6 +3171,393 @@ void hml_file_close(HmlValue file) {
         fclose((FILE*)fh->fp);
         fh->closed = 1;
     }
+}
+
+// ========== FILESYSTEM OPERATIONS ==========
+
+HmlValue hml_exists(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        return hml_val_bool(0);
+    }
+    struct stat st;
+    return hml_val_bool(stat(path.as.as_string->data, &st) == 0);
+}
+
+HmlValue hml_read_file(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: read_file() requires a string path\n");
+        exit(1);
+    }
+
+    FILE *fp = fopen(path.as.as_string->data, "r");
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    char *buffer = malloc(size + 1);
+    if (!buffer) {
+        fclose(fp);
+        fprintf(stderr, "Error: read_file() memory allocation failed\n");
+        exit(1);
+    }
+
+    size_t read_size = fread(buffer, 1, size, fp);
+    buffer[read_size] = '\0';
+    fclose(fp);
+
+    HmlValue result = hml_val_string(buffer);
+    free(buffer);
+    return result;
+}
+
+HmlValue hml_write_file(HmlValue path, HmlValue content) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: write_file() requires a string path\n");
+        exit(1);
+    }
+    if (content.type != HML_VAL_STRING || !content.as.as_string) {
+        fprintf(stderr, "Error: write_file() requires string content\n");
+        exit(1);
+    }
+
+    FILE *fp = fopen(path.as.as_string->data, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    fwrite(content.as.as_string->data, 1, content.as.as_string->length, fp);
+    fclose(fp);
+    return hml_val_null();
+}
+
+HmlValue hml_append_file(HmlValue path, HmlValue content) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: append_file() requires a string path\n");
+        exit(1);
+    }
+    if (content.type != HML_VAL_STRING || !content.as.as_string) {
+        fprintf(stderr, "Error: append_file() requires string content\n");
+        exit(1);
+    }
+
+    FILE *fp = fopen(path.as.as_string->data, "a");
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    fwrite(content.as.as_string->data, 1, content.as.as_string->length, fp);
+    fclose(fp);
+    return hml_val_null();
+}
+
+HmlValue hml_remove_file(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: remove_file() requires a string path\n");
+        exit(1);
+    }
+
+    if (unlink(path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to remove '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_rename_file(HmlValue old_path, HmlValue new_path) {
+    if (old_path.type != HML_VAL_STRING || !old_path.as.as_string) {
+        fprintf(stderr, "Error: rename() requires string old_path\n");
+        exit(1);
+    }
+    if (new_path.type != HML_VAL_STRING || !new_path.as.as_string) {
+        fprintf(stderr, "Error: rename() requires string new_path\n");
+        exit(1);
+    }
+
+    if (rename(old_path.as.as_string->data, new_path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to rename '%s' to '%s': %s\n",
+            old_path.as.as_string->data, new_path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_copy_file(HmlValue src_path, HmlValue dest_path) {
+    if (src_path.type != HML_VAL_STRING || !src_path.as.as_string) {
+        fprintf(stderr, "Error: copy_file() requires string src_path\n");
+        exit(1);
+    }
+    if (dest_path.type != HML_VAL_STRING || !dest_path.as.as_string) {
+        fprintf(stderr, "Error: copy_file() requires string dest_path\n");
+        exit(1);
+    }
+
+    FILE *src_fp = fopen(src_path.as.as_string->data, "rb");
+    if (!src_fp) {
+        fprintf(stderr, "Error: Failed to open source '%s': %s\n",
+            src_path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    FILE *dest_fp = fopen(dest_path.as.as_string->data, "wb");
+    if (!dest_fp) {
+        fclose(src_fp);
+        fprintf(stderr, "Error: Failed to open destination '%s': %s\n",
+            dest_path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    char buffer[8192];
+    size_t n;
+    while ((n = fread(buffer, 1, sizeof(buffer), src_fp)) > 0) {
+        if (fwrite(buffer, 1, n, dest_fp) != n) {
+            fclose(src_fp);
+            fclose(dest_fp);
+            fprintf(stderr, "Error: Failed to write to '%s': %s\n",
+                dest_path.as.as_string->data, strerror(errno));
+            exit(1);
+        }
+    }
+
+    fclose(src_fp);
+    fclose(dest_fp);
+    return hml_val_null();
+}
+
+HmlValue hml_is_file(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        return hml_val_bool(0);
+    }
+    struct stat st;
+    if (stat(path.as.as_string->data, &st) != 0) {
+        return hml_val_bool(0);
+    }
+    return hml_val_bool(S_ISREG(st.st_mode));
+}
+
+HmlValue hml_is_dir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        return hml_val_bool(0);
+    }
+    struct stat st;
+    if (stat(path.as.as_string->data, &st) != 0) {
+        return hml_val_bool(0);
+    }
+    return hml_val_bool(S_ISDIR(st.st_mode));
+}
+
+HmlValue hml_file_stat(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: file_stat() requires a string path\n");
+        exit(1);
+    }
+
+    struct stat st;
+    if (stat(path.as.as_string->data, &st) != 0) {
+        fprintf(stderr, "Error: Failed to stat '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "size", hml_val_i64(st.st_size));
+    hml_object_set_field(obj, "atime", hml_val_i64(st.st_atime));
+    hml_object_set_field(obj, "mtime", hml_val_i64(st.st_mtime));
+    hml_object_set_field(obj, "ctime", hml_val_i64(st.st_ctime));
+    hml_object_set_field(obj, "mode", hml_val_u32(st.st_mode));
+    hml_object_set_field(obj, "is_file", hml_val_bool(S_ISREG(st.st_mode)));
+    hml_object_set_field(obj, "is_dir", hml_val_bool(S_ISDIR(st.st_mode)));
+    return obj;
+}
+
+// ========== DIRECTORY OPERATIONS ==========
+
+HmlValue hml_make_dir(HmlValue path, HmlValue mode) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: make_dir() requires a string path\n");
+        exit(1);
+    }
+
+    uint32_t dir_mode = 0755;  // Default mode
+    if (mode.type == HML_VAL_U32) {
+        dir_mode = mode.as.as_u32;
+    } else if (mode.type == HML_VAL_I32) {
+        dir_mode = (uint32_t)mode.as.as_i32;
+    }
+
+    if (mkdir(path.as.as_string->data, dir_mode) != 0) {
+        fprintf(stderr, "Error: Failed to create directory '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_remove_dir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: remove_dir() requires a string path\n");
+        exit(1);
+    }
+
+    if (rmdir(path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to remove directory '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_list_dir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: list_dir() requires a string path\n");
+        exit(1);
+    }
+
+    DIR *dir = opendir(path.as.as_string->data);
+    if (!dir) {
+        fprintf(stderr, "Error: Failed to open directory '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    HmlValue arr = hml_val_array();
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip "." and ".."
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        hml_array_push(arr, hml_val_string(entry->d_name));
+    }
+
+    closedir(dir);
+    return arr;
+}
+
+HmlValue hml_cwd(void) {
+    char buffer[PATH_MAX];
+    if (getcwd(buffer, sizeof(buffer)) == NULL) {
+        fprintf(stderr, "Error: Failed to get current directory: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(buffer);
+}
+
+HmlValue hml_chdir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: chdir() requires a string path\n");
+        exit(1);
+    }
+
+    if (chdir(path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to change directory to '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_absolute_path(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: absolute_path() requires a string path\n");
+        exit(1);
+    }
+
+    char buffer[PATH_MAX];
+    if (realpath(path.as.as_string->data, buffer) == NULL) {
+        fprintf(stderr, "Error: Failed to resolve path '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(buffer);
+}
+
+// ========== FILESYSTEM BUILTIN WRAPPERS ==========
+
+HmlValue hml_builtin_exists(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_exists(path);
+}
+
+HmlValue hml_builtin_read_file(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_read_file(path);
+}
+
+HmlValue hml_builtin_write_file(HmlClosureEnv *env, HmlValue path, HmlValue content) {
+    (void)env;
+    return hml_write_file(path, content);
+}
+
+HmlValue hml_builtin_append_file(HmlClosureEnv *env, HmlValue path, HmlValue content) {
+    (void)env;
+    return hml_append_file(path, content);
+}
+
+HmlValue hml_builtin_remove_file(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_remove_file(path);
+}
+
+HmlValue hml_builtin_rename(HmlClosureEnv *env, HmlValue old_path, HmlValue new_path) {
+    (void)env;
+    return hml_rename_file(old_path, new_path);
+}
+
+HmlValue hml_builtin_copy_file(HmlClosureEnv *env, HmlValue src, HmlValue dest) {
+    (void)env;
+    return hml_copy_file(src, dest);
+}
+
+HmlValue hml_builtin_is_file(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_is_file(path);
+}
+
+HmlValue hml_builtin_is_dir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_is_dir(path);
+}
+
+HmlValue hml_builtin_file_stat(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_file_stat(path);
+}
+
+HmlValue hml_builtin_make_dir(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
+    (void)env;
+    return hml_make_dir(path, mode);
+}
+
+HmlValue hml_builtin_remove_dir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_remove_dir(path);
+}
+
+HmlValue hml_builtin_list_dir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_list_dir(path);
+}
+
+HmlValue hml_builtin_cwd(HmlClosureEnv *env) {
+    (void)env;
+    return hml_cwd();
+}
+
+HmlValue hml_builtin_chdir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_chdir(path);
+}
+
+HmlValue hml_builtin_absolute_path(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_absolute_path(path);
 }
 
 // ========== ASYNC / CONCURRENCY ==========

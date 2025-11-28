@@ -1,7 +1,7 @@
 # Hemlock Runtime Library Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L
+CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 LDFLAGS = -lm -lpthread
 
 SRC_DIR = src
