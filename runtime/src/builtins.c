@@ -1685,6 +1685,437 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
     return result;
 }
 
+// ========== FILE I/O ==========
+
+HmlValue hml_open(HmlValue path, HmlValue mode) {
+    if (path.type != HML_VAL_STRING) {
+        fprintf(stderr, "Error: open() expects string path\n");
+        exit(1);
+    }
+
+    const char *path_str = path.as.as_string->data;
+    const char *mode_str = "r";
+
+    if (mode.type == HML_VAL_STRING) {
+        mode_str = mode.as.as_string->data;
+    }
+
+    FILE *fp = fopen(path_str, mode_str);
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s'\n", path_str);
+        exit(1);
+    }
+
+    HmlFileHandle *fh = malloc(sizeof(HmlFileHandle));
+    fh->fp = fp;
+    fh->path = strdup(path_str);
+    fh->mode = strdup(mode_str);
+    fh->closed = 0;
+
+    HmlValue result;
+    result.type = HML_VAL_FILE;
+    result.as.as_file = fh;
+    return result;
+}
+
+HmlValue hml_file_read(HmlValue file, HmlValue size) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: read() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    int32_t read_size = 0;
+    if (size.type == HML_VAL_I32) {
+        read_size = size.as.as_i32;
+    } else if (size.type == HML_VAL_I64) {
+        read_size = (int32_t)size.as.as_i64;
+    }
+
+    if (read_size <= 0) {
+        return hml_file_read_all(file);
+    }
+
+    char *buffer = malloc(read_size + 1);
+    size_t bytes_read = fread(buffer, 1, read_size, (FILE*)fh->fp);
+    buffer[bytes_read] = '\0';
+
+    HmlValue result = hml_val_string(buffer);
+    free(buffer);
+    return result;
+}
+
+HmlValue hml_file_read_all(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: read() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    FILE *fp = (FILE*)fh->fp;
+    long start_pos = ftell(fp);
+
+    fseek(fp, 0, SEEK_END);
+    long end_pos = ftell(fp);
+    fseek(fp, start_pos, SEEK_SET);
+
+    long size = end_pos - start_pos;
+    char *buffer = malloc(size + 1);
+    size_t bytes_read = fread(buffer, 1, size, fp);
+    buffer[bytes_read] = '\0';
+
+    HmlValue result = hml_val_string(buffer);
+    free(buffer);
+    return result;
+}
+
+HmlValue hml_file_write(HmlValue file, HmlValue data) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: write() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot write to closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    const char *str = "";
+    if (data.type == HML_VAL_STRING) {
+        str = data.as.as_string->data;
+    }
+
+    size_t bytes_written = fwrite(str, 1, strlen(str), (FILE*)fh->fp);
+    return hml_val_i32((int32_t)bytes_written);
+}
+
+HmlValue hml_file_seek(HmlValue file, HmlValue position) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: seek() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot seek in closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    long pos = 0;
+    if (position.type == HML_VAL_I32) {
+        pos = position.as.as_i32;
+    } else if (position.type == HML_VAL_I64) {
+        pos = (long)position.as.as_i64;
+    }
+
+    fseek((FILE*)fh->fp, pos, SEEK_SET);
+    return hml_val_i32((int32_t)ftell((FILE*)fh->fp));
+}
+
+HmlValue hml_file_tell(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        fprintf(stderr, "Error: tell() expects file object\n");
+        exit(1);
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        fprintf(stderr, "Error: Cannot tell position in closed file '%s'\n", fh->path);
+        exit(1);
+    }
+
+    return hml_val_i32((int32_t)ftell((FILE*)fh->fp));
+}
+
+void hml_file_close(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        return;
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (!fh->closed) {
+        fclose((FILE*)fh->fp);
+        fh->closed = 1;
+    }
+}
+
+// ========== ASYNC / CONCURRENCY ==========
+
+#include <pthread.h>
+#include <stdatomic.h>
+
+static atomic_int g_next_task_id = 1;
+
+// Thread wrapper function
+static void* task_thread_wrapper(void* arg) {
+    HmlTask *task = (HmlTask*)arg;
+
+    // Mark as running
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    task->state = HML_TASK_RUNNING;
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Get function info
+    HmlFunction *fn = task->function.as.as_function;
+    void *fn_ptr = fn->fn_ptr;
+    void *closure_env = fn->closure_env;
+
+    // Call function with arguments based on num_args
+    HmlValue result;
+    typedef HmlValue (*Fn0)(void*);
+    typedef HmlValue (*Fn1)(void*, HmlValue);
+    typedef HmlValue (*Fn2)(void*, HmlValue, HmlValue);
+    typedef HmlValue (*Fn3)(void*, HmlValue, HmlValue, HmlValue);
+    typedef HmlValue (*Fn4)(void*, HmlValue, HmlValue, HmlValue, HmlValue);
+    typedef HmlValue (*Fn5)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+
+    switch (task->num_args) {
+        case 0:
+            result = ((Fn0)fn_ptr)(closure_env);
+            break;
+        case 1:
+            result = ((Fn1)fn_ptr)(closure_env, task->args[0]);
+            break;
+        case 2:
+            result = ((Fn2)fn_ptr)(closure_env, task->args[0], task->args[1]);
+            break;
+        case 3:
+            result = ((Fn3)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2]);
+            break;
+        case 4:
+            result = ((Fn4)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3]);
+            break;
+        case 5:
+            result = ((Fn5)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4]);
+            break;
+        default:
+            result = hml_val_null();
+            break;
+    }
+
+    // Store result and mark as completed
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    task->result = result;
+    task->state = HML_TASK_COMPLETED;
+    pthread_cond_signal((pthread_cond_t*)task->cond);
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    return NULL;
+}
+
+HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
+    if (fn.type != HML_VAL_FUNCTION) {
+        fprintf(stderr, "Error: spawn() expects a function\n");
+        exit(1);
+    }
+
+    // Create task
+    HmlTask *task = malloc(sizeof(HmlTask));
+    task->id = atomic_fetch_add(&g_next_task_id, 1);
+    task->state = HML_TASK_READY;
+    task->result = hml_val_null();
+    task->joined = 0;
+    task->detached = 0;
+    task->ref_count = 1;
+
+    // Store function and args
+    task->function = fn;
+    hml_retain(&task->function);
+    task->num_args = num_args;
+    if (num_args > 0) {
+        task->args = malloc(sizeof(HmlValue) * num_args);
+        for (int i = 0; i < num_args; i++) {
+            task->args[i] = args[i];
+            hml_retain(&task->args[i]);
+        }
+    } else {
+        task->args = NULL;
+    }
+
+    // Initialize mutex and condition variable
+    task->mutex = malloc(sizeof(pthread_mutex_t));
+    task->cond = malloc(sizeof(pthread_cond_t));
+    pthread_mutex_init((pthread_mutex_t*)task->mutex, NULL);
+    pthread_cond_init((pthread_cond_t*)task->cond, NULL);
+
+    // Create thread
+    task->thread = malloc(sizeof(pthread_t));
+    pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+
+    // Return task value
+    HmlValue result;
+    result.type = HML_VAL_TASK;
+    result.as.as_task = task;
+    return result;
+}
+
+HmlValue hml_join(HmlValue task_val) {
+    if (task_val.type != HML_VAL_TASK) {
+        fprintf(stderr, "Error: join() expects a task\n");
+        exit(1);
+    }
+
+    HmlTask *task = task_val.as.as_task;
+
+    if (task->joined) {
+        fprintf(stderr, "Error: Task already joined\n");
+        exit(1);
+    }
+
+    if (task->detached) {
+        fprintf(stderr, "Error: Cannot join a detached task\n");
+        exit(1);
+    }
+
+    // Wait for task to complete
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    while (task->state != HML_TASK_COMPLETED) {
+        pthread_cond_wait((pthread_cond_t*)task->cond, (pthread_mutex_t*)task->mutex);
+    }
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Join the thread
+    pthread_join(*(pthread_t*)task->thread, NULL);
+    task->joined = 1;
+
+    // Return result (retained)
+    HmlValue result = task->result;
+    hml_retain(&result);
+    return result;
+}
+
+void hml_detach(HmlValue task_val) {
+    if (task_val.type != HML_VAL_TASK) {
+        fprintf(stderr, "Error: detach() expects a task\n");
+        exit(1);
+    }
+
+    HmlTask *task = task_val.as.as_task;
+
+    if (task->joined) {
+        fprintf(stderr, "Error: Cannot detach an already joined task\n");
+        exit(1);
+    }
+
+    if (task->detached) {
+        return; // Already detached
+    }
+
+    task->detached = 1;
+    pthread_detach(*(pthread_t*)task->thread);
+}
+
+// Channel functions
+HmlValue hml_channel(int32_t capacity) {
+    HmlChannel *ch = malloc(sizeof(HmlChannel));
+    ch->capacity = capacity;
+    ch->buffer = malloc(sizeof(HmlValue) * capacity);
+    ch->head = 0;
+    ch->tail = 0;
+    ch->count = 0;
+    ch->closed = 0;
+    ch->ref_count = 1;
+
+    ch->mutex = malloc(sizeof(pthread_mutex_t));
+    ch->not_empty = malloc(sizeof(pthread_cond_t));
+    ch->not_full = malloc(sizeof(pthread_cond_t));
+    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
+
+    HmlValue result;
+    result.type = HML_VAL_CHANNEL;
+    result.as.as_channel = ch;
+    return result;
+}
+
+void hml_channel_send(HmlValue channel, HmlValue value) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        fprintf(stderr, "Error: send() expects a channel\n");
+        exit(1);
+    }
+
+    HmlChannel *ch = channel.as.as_channel;
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+
+    // Wait while buffer is full
+    while (ch->count == ch->capacity && !ch->closed) {
+        pthread_cond_wait((pthread_cond_t*)ch->not_full, (pthread_mutex_t*)ch->mutex);
+    }
+
+    if (ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        fprintf(stderr, "Error: Cannot send on closed channel\n");
+        exit(1);
+    }
+
+    // Add value to buffer
+    ch->buffer[ch->tail] = value;
+    hml_retain(&ch->buffer[ch->tail]);
+    ch->tail = (ch->tail + 1) % ch->capacity;
+    ch->count++;
+
+    pthread_cond_signal((pthread_cond_t*)ch->not_empty);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+}
+
+HmlValue hml_channel_recv(HmlValue channel) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        fprintf(stderr, "Error: recv() expects a channel\n");
+        exit(1);
+    }
+
+    HmlChannel *ch = channel.as.as_channel;
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+
+    // Wait while buffer is empty
+    while (ch->count == 0 && !ch->closed) {
+        pthread_cond_wait((pthread_cond_t*)ch->not_empty, (pthread_mutex_t*)ch->mutex);
+    }
+
+    if (ch->count == 0 && ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        return hml_val_null();
+    }
+
+    // Get value from buffer
+    HmlValue value = ch->buffer[ch->head];
+    ch->head = (ch->head + 1) % ch->capacity;
+    ch->count--;
+
+    pthread_cond_signal((pthread_cond_t*)ch->not_full);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+
+    return value;
+}
+
+void hml_channel_close(HmlValue channel) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        return;
+    }
+
+    HmlChannel *ch = channel.as.as_channel;
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    ch->closed = 1;
+    pthread_cond_broadcast((pthread_cond_t*)ch->not_empty);
+    pthread_cond_broadcast((pthread_cond_t*)ch->not_full);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+}
+
 // ========== MATH FUNCTIONS ==========
 
 double hml_sin(double x) { return sin(x); }
