@@ -979,6 +979,100 @@ void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val) {
     data[idx] = (uint8_t)hml_to_i32(val);
 }
 
+HmlValue hml_buffer_length(HmlValue buf) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        fprintf(stderr, "Runtime error: length requires buffer\n");
+        exit(1);
+    }
+    return hml_val_i32(buf.as.as_buffer->length);
+}
+
+// ========== MEMORY OPERATIONS ==========
+
+HmlValue hml_alloc(int32_t size) {
+    if (size <= 0) {
+        fprintf(stderr, "Runtime error: alloc() requires positive size\n");
+        exit(1);
+    }
+    void *ptr = malloc(size);
+    if (!ptr) {
+        fprintf(stderr, "Runtime error: alloc() failed to allocate %d bytes\n", size);
+        exit(1);
+    }
+    return hml_val_ptr(ptr);
+}
+
+void hml_free(HmlValue ptr_or_buffer) {
+    if (ptr_or_buffer.type == HML_VAL_PTR) {
+        if (ptr_or_buffer.as.as_ptr) {
+            free(ptr_or_buffer.as.as_ptr);
+        }
+    } else if (ptr_or_buffer.type == HML_VAL_BUFFER) {
+        if (ptr_or_buffer.as.as_buffer) {
+            if (ptr_or_buffer.as.as_buffer->data) {
+                free(ptr_or_buffer.as.as_buffer->data);
+            }
+            free(ptr_or_buffer.as.as_buffer);
+        }
+    } else {
+        fprintf(stderr, "Runtime error: free() requires pointer or buffer\n");
+        exit(1);
+    }
+}
+
+HmlValue hml_realloc(HmlValue ptr, int32_t new_size) {
+    if (ptr.type != HML_VAL_PTR) {
+        fprintf(stderr, "Runtime error: realloc() requires pointer\n");
+        exit(1);
+    }
+    if (new_size <= 0) {
+        fprintf(stderr, "Runtime error: realloc() requires positive size\n");
+        exit(1);
+    }
+    void *new_ptr = realloc(ptr.as.as_ptr, new_size);
+    if (!new_ptr) {
+        fprintf(stderr, "Runtime error: realloc() failed to allocate %d bytes\n", new_size);
+        exit(1);
+    }
+    return hml_val_ptr(new_ptr);
+}
+
+void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
+    if (ptr.type == HML_VAL_PTR) {
+        memset(ptr.as.as_ptr, byte_val, size);
+    } else if (ptr.type == HML_VAL_BUFFER) {
+        memset(ptr.as.as_buffer->data, byte_val, size);
+    } else {
+        fprintf(stderr, "Runtime error: memset() requires pointer or buffer\n");
+        exit(1);
+    }
+}
+
+void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
+    void *dest_ptr = NULL;
+    void *src_ptr = NULL;
+
+    if (dest.type == HML_VAL_PTR) {
+        dest_ptr = dest.as.as_ptr;
+    } else if (dest.type == HML_VAL_BUFFER) {
+        dest_ptr = dest.as.as_buffer->data;
+    } else {
+        fprintf(stderr, "Runtime error: memcpy() dest requires pointer or buffer\n");
+        exit(1);
+    }
+
+    if (src.type == HML_VAL_PTR) {
+        src_ptr = src.as.as_ptr;
+    } else if (src.type == HML_VAL_BUFFER) {
+        src_ptr = src.as.as_buffer->data;
+    } else {
+        fprintf(stderr, "Runtime error: memcpy() src requires pointer or buffer\n");
+        exit(1);
+    }
+
+    memcpy(dest_ptr, src_ptr, size);
+}
+
 // ========== ARRAY OPERATIONS ==========
 
 void hml_array_push(HmlValue arr, HmlValue val) {

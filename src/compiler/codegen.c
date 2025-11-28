@@ -873,6 +873,78 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // Handle alloc builtin
+                if (strcmp(fn_name, "alloc") == 0 && expr->as.call.num_args == 1) {
+                    char *size = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_alloc(hml_to_i32(%s));", result, size);
+                    codegen_writeln(ctx, "hml_release(&%s);", size);
+                    free(size);
+                    break;
+                }
+
+                // Handle free builtin
+                if (strcmp(fn_name, "free") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "hml_free(%s);", ptr);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // Handle buffer builtin
+                if (strcmp(fn_name, "buffer") == 0 && expr->as.call.num_args == 1) {
+                    char *size = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_buffer(hml_to_i32(%s));", result, size);
+                    codegen_writeln(ctx, "hml_release(&%s);", size);
+                    free(size);
+                    break;
+                }
+
+                // Handle memset builtin
+                if (strcmp(fn_name, "memset") == 0 && expr->as.call.num_args == 3) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *byte_val = codegen_expr(ctx, expr->as.call.args[1]);
+                    char *size = codegen_expr(ctx, expr->as.call.args[2]);
+                    codegen_writeln(ctx, "hml_memset(%s, (uint8_t)hml_to_i32(%s), hml_to_i32(%s));", ptr, byte_val, size);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", byte_val);
+                    codegen_writeln(ctx, "hml_release(&%s);", size);
+                    free(ptr);
+                    free(byte_val);
+                    free(size);
+                    break;
+                }
+
+                // Handle memcpy builtin
+                if (strcmp(fn_name, "memcpy") == 0 && expr->as.call.num_args == 3) {
+                    char *dest = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *src = codegen_expr(ctx, expr->as.call.args[1]);
+                    char *size = codegen_expr(ctx, expr->as.call.args[2]);
+                    codegen_writeln(ctx, "hml_memcpy(%s, %s, hml_to_i32(%s));", dest, src, size);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    codegen_writeln(ctx, "hml_release(&%s);", dest);
+                    codegen_writeln(ctx, "hml_release(&%s);", src);
+                    codegen_writeln(ctx, "hml_release(&%s);", size);
+                    free(dest);
+                    free(src);
+                    free(size);
+                    break;
+                }
+
+                // Handle realloc builtin
+                if (strcmp(fn_name, "realloc") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *size = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_realloc(%s, hml_to_i32(%s));", result, ptr, size);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", size);
+                    free(ptr);
+                    free(size);
+                    break;
+                }
+
                 // Handle user-defined function by name (hml_fn_<name>)
                 if (codegen_is_local(ctx, fn_name)) {
                     // It's a local function variable - call through hml_call_function
@@ -1147,6 +1219,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_string_length(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_buffer_length(%s);", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
