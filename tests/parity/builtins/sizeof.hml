@@ -1,0 +1,13 @@
+// Test sizeof builtin
+
+print(sizeof("i8"));
+print(sizeof("i16"));
+print(sizeof("i32"));
+print(sizeof("u8"));
+print(sizeof("u16"));
+print(sizeof("u32"));
+print(sizeof("f32"));
+print(sizeof("f64"));
+print(sizeof("ptr"));
+
+print("done");

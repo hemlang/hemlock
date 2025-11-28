@@ -1,0 +1,19 @@
+// Test command execution
+
+// Simple echo command
+let r = exec("echo hello");
+print(r.output);
+print(r.exit_code);
+
+// Command with exit code
+let r2 = exec("true");
+print(r2.exit_code);
+
+let r3 = exec("false");
+print(r3.exit_code);
+
+// Multiple words
+let r4 = exec("echo one two three");
+print(r4.output);
+
+print("done");

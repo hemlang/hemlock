@@ -1,0 +1,28 @@
+// Test JSON serialization and deserialization
+
+// Basic object serialization
+let obj = { x: 10, y: 20 };
+let json = obj.serialize();
+print(json);
+
+// Deserialize back
+let restored = json.deserialize();
+print(restored.x);
+print(restored.y);
+
+// Nested object
+let nested = { inner: { a: 1, b: 2 }, outer: 3 };
+let json2 = nested.serialize();
+print(json2);
+
+// Object with array
+let with_arr = { items: [1, 2, 3] };
+print(with_arr.serialize());
+
+// Round-trip
+let data = { name: "test", values: [1, 2, 3] };
+let roundtrip = data.serialize().deserialize();
+print(roundtrip.name);
+print(roundtrip.values[1]);
+
+print("done");

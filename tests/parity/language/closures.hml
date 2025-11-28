@@ -1,0 +1,25 @@
+// Test closures - capturing variables from enclosing scope
+
+// Closure factory (makeAdder pattern)
+fn makeAdder(n) {
+    return fn(x) {
+        return n + x;
+    };
+}
+
+let add5 = makeAdder(5);
+let add10 = makeAdder(10);
+print(add5(3));
+print(add10(3));
+
+// Multiple captures from function parameter
+fn makeMultiplier(a, b) {
+    return fn(x) {
+        return a * x + b;
+    };
+}
+
+let mult = makeMultiplier(2, 3);
+print(mult(5));
+
+print("done");

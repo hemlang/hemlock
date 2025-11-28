@@ -1,0 +1,31 @@
+// Test enum declarations and usage
+
+// Simple enum with auto values
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+print(Color.RED);
+print(Color.GREEN);
+print(Color.BLUE);
+
+// Enum with explicit values
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 100
+}
+
+print(Status.OK);
+print(Status.ERROR);
+print(Status.PENDING);
+
+// Enum comparison
+let color = Color.GREEN;
+if (color == Color.GREEN) {
+    print("is green");
+}
+
+print("done");

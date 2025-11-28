@@ -1,0 +1,22 @@
+// Test math builtins
+
+// Floor, ceil, round
+print(floor(3.7));
+print(ceil(3.2));
+print(round(3.5));
+
+// Square root
+print(sqrt(16.0));
+print(sqrt(25.0));
+
+// Power
+print(pow(2.0, 3.0));
+print(pow(3.0, 2.0));
+
+// Trigonometry
+let sin_val = sin(0.0);
+let cos_val = cos(0.0);
+print(sin_val == 0);
+print(cos_val == 1);
+
+print("done");

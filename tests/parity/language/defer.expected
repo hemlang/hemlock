@@ -1,0 +1,12 @@
+work
+cleanup
+---
+start
+third
+second
+first
+---
+before return
+always runs
+42
+done

@@ -1,0 +1,24 @@
+// Test buffer operations
+
+// Create buffer
+let buf = buffer(10);
+print(buf.length);
+
+// Set and get values
+buf[0] = 65;
+buf[1] = 66;
+buf[2] = 67;
+print(buf[0]);
+print(buf[1]);
+print(buf[2]);
+
+// Modify
+buf[0] = 100;
+print(buf[0]);
+
+// alloc and free
+let raw = alloc(10);
+free(raw);
+free(buf);
+
+print("done");

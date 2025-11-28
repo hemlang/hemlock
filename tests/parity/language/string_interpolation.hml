@@ -1,0 +1,26 @@
+// Test string interpolation with backticks
+
+let name = "Alice";
+let age = 30;
+
+// Basic interpolation
+print(`Hello, ${name}!`);
+
+// Multiple interpolations
+print(`${name} is ${age} years old.`);
+
+// Expressions
+let x = 10;
+let y = 20;
+print(`Sum: ${x + y}`);
+print(`Product: ${x * y}`);
+
+// Array access in interpolation
+let arr = [1, 2, 3];
+print(`First: ${arr[0]}, Last: ${arr[2]}`);
+print(`Length: ${arr.length}`);
+
+// Escape sequences
+print(`Price: \$100`);
+
+print("done");

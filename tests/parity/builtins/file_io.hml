@@ -1,0 +1,29 @@
+// Test file I/O operations
+
+// Write to file
+let f = open("/tmp/hemlock_parity_test.txt", "w");
+f.write("Hello, World!\n");
+f.write("Line 2\n");
+f.close();
+
+// Read from file
+let f2 = open("/tmp/hemlock_parity_test.txt", "r");
+let content = f2.read();
+print(content);
+f2.close();
+
+// Append mode
+let f3 = open("/tmp/hemlock_parity_test.txt", "a");
+f3.write("Line 3\n");
+f3.close();
+
+// Read appended content
+let f4 = open("/tmp/hemlock_parity_test.txt", "r");
+let full = f4.read();
+f4.close();
+
+// Check line count
+let lines = full.split("\n");
+print(lines.length);
+
+print("done");

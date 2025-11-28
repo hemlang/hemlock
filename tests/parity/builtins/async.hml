@@ -1,0 +1,29 @@
+// Test async operations
+
+// Simple async function
+async fn compute(n) {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Spawn and join
+let task1 = spawn(compute, 5);
+let task2 = spawn(compute, 10);
+
+let result1 = join(task1);
+let result2 = join(task2);
+
+print(result1);  // 0+1+2+3+4 = 10
+print(result2);  // 0+1+...+9 = 45
+
+// Await syntax
+let task3 = spawn(compute, 3);
+let result3 = await task3;
+print(result3);  // 0+1+2 = 3
+
+print("done");

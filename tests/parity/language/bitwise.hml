@@ -1,0 +1,27 @@
+// Test bitwise operators
+
+let a = 12;  // 1100 in binary
+let b = 10;  // 1010 in binary
+
+// Bitwise AND
+print(a & b);  // 8 (1000)
+
+// Bitwise OR
+print(a | b);  // 14 (1110)
+
+// Bitwise XOR
+print(a ^ b);  // 6 (0110)
+
+// Left shift
+print(a << 2);  // 48 (110000)
+
+// Right shift
+print(a >> 1);  // 6 (110)
+
+// Bitwise NOT
+print(~0);  // -1
+
+// Compound expressions
+print((5 & 3) | (2 << 1));  // 5
+
+print("done");

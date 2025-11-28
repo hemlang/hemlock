@@ -1,0 +1,30 @@
+// Test defer statement - LIFO order execution
+
+fn test_single_defer() {
+    defer print("cleanup");
+    print("work");
+    return null;
+}
+
+fn test_multiple_defers() {
+    defer print("first");
+    defer print("second");
+    defer print("third");
+    print("start");
+    return null;
+}
+
+fn test_early_return() {
+    defer print("always runs");
+    print("before return");
+    return 42;
+}
+
+// Run tests
+test_single_defer();
+print("---");
+test_multiple_defers();
+print("---");
+let result = test_early_return();
+print(result);
+print("done");

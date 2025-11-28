@@ -1,0 +1,28 @@
+// Test optional parameters with default values
+
+fn greet(name, greeting?: "Hello") {
+    return greeting + " " + name;
+}
+
+print(greet("Alice"));
+print(greet("Bob", "Hi"));
+
+// Multiple optional parameters
+fn add(a, b?: 10, c?: 100) {
+    return a + b + c;
+}
+
+print(add(1));
+print(add(1, 2));
+print(add(1, 2, 3));
+
+// All optional
+fn test(x?: 1, y?: 2) {
+    return x + y;
+}
+
+print(test());
+print(test(10));
+print(test(10, 20));
+
+print("done");

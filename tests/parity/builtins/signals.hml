@@ -1,0 +1,16 @@
+// Test signal handling - simplified for parity
+
+fn handle_signal(sig) {
+    print("signal received");
+}
+
+// Register handler
+signal(SIGUSR1, handle_signal);
+
+// Raise signal
+raise(SIGUSR1);
+
+// Reset to default
+signal(SIGUSR1, null);
+
+print("done");

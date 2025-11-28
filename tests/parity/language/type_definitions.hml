@@ -1,0 +1,21 @@
+// Test type definitions and duck typing
+
+define Person {
+    name: string,
+    age: i32
+}
+
+// Create object and assign to typed variable
+let p = { name: "Alice", age: 30 };
+let typed_p: Person = p;
+
+print(typed_p.name);
+print(typed_p.age);
+print(typeof(typed_p));
+
+// Extra fields are allowed
+let p2: Person = { name: "Bob", age: 25, city: "NYC" };
+print(p2.name);
+print(p2.city);
+
+print("done");

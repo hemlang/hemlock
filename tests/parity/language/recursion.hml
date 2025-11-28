@@ -1,0 +1,34 @@
+// Test recursive functions
+
+// Factorial
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+print(factorial(5));
+print(factorial(6));
+
+// Fibonacci
+fn fib(n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+print(fib(10));
+
+// Sum of array (recursive)
+fn sum_arr(arr, i) {
+    if (i >= arr.length) {
+        return 0;
+    }
+    return arr[i] + sum_arr(arr, i + 1);
+}
+
+print(sum_arr([1, 2, 3, 4, 5], 0));
+
+print("done");

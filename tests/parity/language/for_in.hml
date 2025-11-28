@@ -1,0 +1,17 @@
+// Test for-in loops
+
+// Array iteration
+let arr = [10, 20, 30, 40];
+for (let x in arr) {
+    print(x);
+}
+
+// Nested for-in
+let matrix = [[1, 2], [3, 4]];
+for (let row in matrix) {
+    for (let val in row) {
+        print(val);
+    }
+}
+
+print("done");
