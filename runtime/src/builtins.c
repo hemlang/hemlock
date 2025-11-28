@@ -909,6 +909,76 @@ HmlValue hml_string_repeat(HmlValue str, HmlValue count) {
     return hml_val_string_owned(result, new_len, new_len + 1);
 }
 
+// String indexing (returns char at position as rune)
+HmlValue hml_string_index(HmlValue str, HmlValue index) {
+    return hml_string_char_at(str, index);
+}
+
+void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue rune) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        fprintf(stderr, "Runtime error: String index assignment requires string\n");
+        exit(1);
+    }
+    if (rune.type != HML_VAL_RUNE) {
+        fprintf(stderr, "Runtime error: String index assignment requires rune value\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlString *s = str.as.as_string;
+
+    if (idx < 0 || idx >= s->length) {
+        fprintf(stderr, "Runtime error: String index %d out of bounds\n", idx);
+        exit(1);
+    }
+
+    // For simplicity, only support single-byte characters in assignment
+    // Full UTF-8 would require resizing the string
+    if (rune.as.as_rune < 128) {
+        s->data[idx] = (char)rune.as.as_rune;
+    } else {
+        fprintf(stderr, "Runtime error: String assignment of multi-byte runes not yet supported\n");
+        exit(1);
+    }
+}
+
+// Buffer indexing
+HmlValue hml_buffer_get(HmlValue buf, HmlValue index) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        fprintf(stderr, "Runtime error: Buffer index requires buffer\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlBuffer *b = buf.as.as_buffer;
+
+    if (idx < 0 || idx >= b->length) {
+        fprintf(stderr, "Runtime error: Buffer index %d out of bounds (length %d)\n", idx, b->length);
+        exit(1);
+    }
+
+    uint8_t *data = (uint8_t *)b->data;
+    return hml_val_u8(data[idx]);
+}
+
+void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        fprintf(stderr, "Runtime error: Buffer index assignment requires buffer\n");
+        exit(1);
+    }
+
+    int idx = hml_to_i32(index);
+    HmlBuffer *b = buf.as.as_buffer;
+
+    if (idx < 0 || idx >= b->length) {
+        fprintf(stderr, "Runtime error: Buffer index %d out of bounds (length %d)\n", idx, b->length);
+        exit(1);
+    }
+
+    uint8_t *data = (uint8_t *)b->data;
+    data[idx] = (uint8_t)hml_to_i32(val);
+}
+
 // ========== ARRAY OPERATIONS ==========
 
 void hml_array_push(HmlValue arr, HmlValue val) {
@@ -1287,6 +1357,94 @@ void hml_array_clear(HmlValue arr) {
     a->length = 0;
 }
 
+// ========== HIGHER-ORDER ARRAY FUNCTIONS ==========
+
+HmlValue hml_array_map(HmlValue arr, HmlValue callback) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: map() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    HmlValue result = hml_val_array();
+
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[1] = { a->elements[i] };
+        HmlValue mapped = hml_call_function(callback, args, 1);
+        hml_array_push(result, mapped);
+        hml_release(&mapped);
+    }
+
+    return result;
+}
+
+HmlValue hml_array_filter(HmlValue arr, HmlValue predicate) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: filter() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+    HmlValue result = hml_val_array();
+
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[1] = { a->elements[i] };
+        HmlValue keep = hml_call_function(predicate, args, 1);
+        if (hml_to_bool(keep)) {
+            HmlValue elem = a->elements[i];
+            hml_retain(&elem);
+            hml_array_push(result, elem);
+            hml_release(&elem);
+        }
+        hml_release(&keep);
+    }
+
+    return result;
+}
+
+HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        fprintf(stderr, "Runtime error: reduce() requires array\n");
+        exit(1);
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // Handle empty array
+    if (a->length == 0) {
+        if (initial.type == HML_VAL_NULL) {
+            fprintf(stderr, "Runtime error: reduce() of empty array with no initial value\n");
+            exit(1);
+        }
+        hml_retain(&initial);
+        return initial;
+    }
+
+    // Determine starting accumulator and index
+    HmlValue acc;
+    int start_idx;
+    if (initial.type == HML_VAL_NULL) {
+        // No initial value - use first element
+        acc = a->elements[0];
+        hml_retain(&acc);
+        start_idx = 1;
+    } else {
+        acc = initial;
+        hml_retain(&acc);
+        start_idx = 0;
+    }
+
+    // Reduce
+    for (int i = start_idx; i < a->length; i++) {
+        HmlValue args[2] = { acc, a->elements[i] };
+        HmlValue new_acc = hml_call_function(reducer, args, 2);
+        hml_release(&acc);
+        acc = new_acc;
+    }
+
+    return acc;
+}
+
 // ========== OBJECT OPERATIONS ==========
 
 HmlValue hml_object_get_field(HmlValue obj, const char *field) {
@@ -1477,37 +1635,38 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
                     exit(1);
             }
         } else {
-            // Regular function: no environment
+            // Regular function without captured variables - still pass NULL as closure env
+            // since generated code always expects HmlClosureEnv* as first parameter
             switch (num_args) {
                 case 0: {
-                    typedef HmlValue (*Fn0)(void);
+                    typedef HmlValue (*Fn0)(HmlClosureEnv*);
                     Fn0 f = (Fn0)fn_ptr;
-                    return f();
+                    return f(NULL);
                 }
                 case 1: {
-                    typedef HmlValue (*Fn1)(HmlValue);
+                    typedef HmlValue (*Fn1)(HmlClosureEnv*, HmlValue);
                     Fn1 f = (Fn1)fn_ptr;
-                    return f(args[0]);
+                    return f(NULL, args[0]);
                 }
                 case 2: {
-                    typedef HmlValue (*Fn2)(HmlValue, HmlValue);
+                    typedef HmlValue (*Fn2)(HmlClosureEnv*, HmlValue, HmlValue);
                     Fn2 f = (Fn2)fn_ptr;
-                    return f(args[0], args[1]);
+                    return f(NULL, args[0], args[1]);
                 }
                 case 3: {
-                    typedef HmlValue (*Fn3)(HmlValue, HmlValue, HmlValue);
+                    typedef HmlValue (*Fn3)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue);
                     Fn3 f = (Fn3)fn_ptr;
-                    return f(args[0], args[1], args[2]);
+                    return f(NULL, args[0], args[1], args[2]);
                 }
                 case 4: {
-                    typedef HmlValue (*Fn4)(HmlValue, HmlValue, HmlValue, HmlValue);
+                    typedef HmlValue (*Fn4)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue);
                     Fn4 f = (Fn4)fn_ptr;
-                    return f(args[0], args[1], args[2], args[3]);
+                    return f(NULL, args[0], args[1], args[2], args[3]);
                 }
                 case 5: {
-                    typedef HmlValue (*Fn5)(HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+                    typedef HmlValue (*Fn5)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
                     Fn5 f = (Fn5)fn_ptr;
-                    return f(args[0], args[1], args[2], args[3], args[4]);
+                    return f(NULL, args[0], args[1], args[2], args[3], args[4]);
                 }
                 default:
                     fprintf(stderr, "Runtime error: Functions with more than 5 arguments not supported\n");
@@ -1518,6 +1677,38 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
 
     fprintf(stderr, "Runtime error: Cannot call non-function value (type: %s)\n", hml_typeof_str(fn));
     exit(1);
+}
+
+// Thread-local self for method calls
+__thread HmlValue hml_self = {0};
+
+HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int num_args) {
+    if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
+        fprintf(stderr, "Runtime error: Cannot call method on non-object\n");
+        exit(1);
+    }
+
+    // Get the method function from the object
+    HmlValue fn = hml_object_get_field(obj, method);
+    if (fn.type == HML_VAL_NULL) {
+        fprintf(stderr, "Runtime error: Object has no method '%s'\n", method);
+        exit(1);
+    }
+
+    // Save previous self and set new one
+    HmlValue prev_self = hml_self;
+    hml_self = obj;
+    hml_retain(&hml_self);
+
+    // Call the method
+    HmlValue result = hml_call_function(fn, args, num_args);
+
+    // Restore previous self
+    hml_release(&hml_self);
+    hml_self = prev_self;
+
+    hml_release(&fn);
+    return result;
 }
 
 // ========== MATH FUNCTIONS ==========

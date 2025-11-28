@@ -631,8 +631,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             break;
 
         case EXPR_IDENT:
-            // Reference the variable directly
-            codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+            // Handle 'self' specially - maps to hml_self global
+            if (strcmp(expr->as.ident, "self") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_self;", result);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+            }
             codegen_writeln(ctx, "hml_retain(&%s);", result);
             break;
 
@@ -747,7 +751,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     // It's a local function variable - call through hml_call_function
                     // Fall through to generic handling
                 } else {
-                    // Try to call as hml_fn_<name> directly
+                    // Try to call as hml_fn_<name> directly with NULL for closure env
                     char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
                     for (int i = 0; i < expr->as.call.num_args; i++) {
                         arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
@@ -755,10 +759,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                     codegen_write(ctx, "");
                     codegen_indent(ctx);
-                    fprintf(ctx->output, "HmlValue %s = hml_fn_%s(", result, fn_name);
+                    // All functions use closure env as first param for uniform calling convention
+                    fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                     for (int i = 0; i < expr->as.call.num_args; i++) {
-                        if (i > 0) fprintf(ctx->output, ", ");
-                        fprintf(ctx->output, "%s", arg_temps[i]);
+                        fprintf(ctx->output, ", %s", arg_temps[i]);
                     }
                     fprintf(ctx->output, ");\n");
 
@@ -883,10 +887,35 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 } else if (strcmp(method, "clear") == 0 && expr->as.call.num_args == 0) {
                     codegen_writeln(ctx, "hml_array_clear(%s);", obj_val);
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                } else if (strcmp(method, "map") == 0 && expr->as.call.num_args == 1) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_array_map(%s, %s);",
+                                  result, obj_val, arg_temps[0]);
+                } else if (strcmp(method, "filter") == 0 && expr->as.call.num_args == 1) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_array_filter(%s, %s);",
+                                  result, obj_val, arg_temps[0]);
+                } else if (strcmp(method, "reduce") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
+                    if (expr->as.call.num_args == 2) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, %s);",
+                                      result, obj_val, arg_temps[0], arg_temps[1]);
+                    } else {
+                        // No initial value - use first element
+                        codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, hml_val_null());",
+                                      result, obj_val, arg_temps[0]);
+                    }
                 } else {
-                    // Unknown method - fall through to generic handling
-                    codegen_writeln(ctx, "// Unknown method: %s", method);
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    // Unknown built-in method - try as object method call
+                    if (expr->as.call.num_args > 0) {
+                        codegen_writeln(ctx, "HmlValue _method_args%d[%d];", ctx->temp_counter, expr->as.call.num_args);
+                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                            codegen_writeln(ctx, "_method_args%d[%d] = %s;", ctx->temp_counter, i, arg_temps[i]);
+                        }
+                        codegen_writeln(ctx, "HmlValue %s = hml_call_method(%s, \"%s\", _method_args%d, %d);",
+                                      result, obj_val, method, ctx->temp_counter, expr->as.call.num_args);
+                        ctx->temp_counter++;
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_call_method(%s, \"%s\", NULL, 0);",
+                                      result, obj_val, method);
+                    }
                 }
 
                 // Release temporaries
@@ -1571,14 +1600,16 @@ static int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
 
 // Generate a top-level function declaration
 static void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
-    // Generate function signature
-    codegen_write(ctx, "HmlValue hml_fn_%s(", name);
+    // Generate function signature with closure env for uniform calling convention
+    // Even named functions take HmlClosureEnv* as first param (unused, passed as NULL)
+    codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
     for (int i = 0; i < func->as.function.num_params; i++) {
-        if (i > 0) codegen_write(ctx, ", ");
-        codegen_write(ctx, "HmlValue %s", func->as.function.param_names[i]);
+        codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[i]);
     }
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
+    // Suppress unused parameter warning
+    codegen_writeln(ctx, "(void)_closure_env;");
 
     // Save locals and defer state
     int saved_num_locals = ctx->num_locals;
@@ -1783,10 +1814,10 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         char *name;
         Expr *func;
         if (is_function_def(stmts[i], &name, &func)) {
-            codegen_write(ctx, "HmlValue hml_fn_%s(", name);
+            // All functions use closure env as first param for uniform calling convention
+            codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
             for (int j = 0; j < func->as.function.num_params; j++) {
-                if (j > 0) codegen_write(ctx, ", ");
-                codegen_write(ctx, "HmlValue %s", func->as.function.param_names[j]);
+                codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[j]);
             }
             codegen_write(ctx, ");\n");
         }

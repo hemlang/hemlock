@@ -1,0 +1,36 @@
+// Test higher-order array functions
+
+// Map - double each number
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(x) {
+    return x * 2;
+});
+print(doubled[0]);
+print(doubled[2]);
+print(doubled[4]);
+
+print("---");
+
+// Filter - keep even numbers
+let evens = nums.filter(fn(x) {
+    return x % 2 == 0;
+});
+print(evens.length);
+print(evens[0]);
+print(evens[1]);
+
+print("---");
+
+// Reduce - sum
+let sum = nums.reduce(fn(acc, x) {
+    return acc + x;
+}, 0);
+print(sum);
+
+// Reduce - without initial value
+let product = [1, 2, 3, 4].reduce(fn(acc, x) {
+    return acc * x;
+});
+print(product);
+
+print("done");

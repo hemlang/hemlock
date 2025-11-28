@@ -149,10 +149,13 @@ HmlValue hml_buffer_length(HmlValue buf);
 
 // ========== FUNCTION CALLS ==========
 
+// Global self reference for method calls (thread-local for safety)
+extern __thread HmlValue hml_self;
+
 // Call a function value with arguments
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args);
 
-// Call a method on an object
+// Call a method on an object (sets hml_self before calling)
 HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int num_args);
 
 // ========== EXCEPTION HANDLING ==========
