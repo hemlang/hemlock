@@ -1,0 +1,13 @@
+// Test named imports
+import { add, multiply, PI } from "./helper.hml";
+
+// Test imported function
+let sum = add(2, 3);
+print(sum);
+
+// Test another imported function
+let product = multiply(4, 5);
+print(product);
+
+// Test imported constant
+print(PI);

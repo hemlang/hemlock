@@ -1,0 +1,5 @@
+// Test chained imports (module imports from another module)
+import { square, sum_of_squares } from "./math_utils.hml";
+
+print(square(5));
+print(sum_of_squares(3, 4));

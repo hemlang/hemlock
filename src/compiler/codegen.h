@@ -13,6 +13,8 @@
 // Forward declaration for closure info
 typedef struct ClosureInfo ClosureInfo;
 typedef struct DeferEntry DeferEntry;
+typedef struct CompiledModule CompiledModule;
+typedef struct ModuleCache ModuleCache;
 
 // Deferred expression entry for LIFO execution
 struct DeferEntry {
@@ -37,6 +39,54 @@ typedef struct Scope {
     struct Scope *parent;   // Parent scope
 } Scope;
 
+// ========== MODULE COMPILATION ==========
+
+// Module loading state (for circular dependency detection)
+typedef enum {
+    MOD_UNLOADED,
+    MOD_LOADING,
+    MOD_LOADED
+} ModuleState;
+
+// Exported symbol from a module
+typedef struct {
+    char *name;             // Export name
+    char *mangled_name;     // C variable name (module prefix + name)
+} ExportedSymbol;
+
+// Import binding: maps local name to mangled name
+typedef struct {
+    char *local_name;       // Name used in this module (e.g., "plus" if aliased)
+    char *original_name;    // Original export name (e.g., "multiply")
+    char *module_prefix;    // Module prefix (e.g., "_mod1_")
+    int is_function;        // Whether this is a function binding
+} ImportBinding;
+
+// Compiled module tracking
+struct CompiledModule {
+    char *absolute_path;        // Resolved absolute path (cache key)
+    char *module_prefix;        // Unique prefix for this module's symbols
+    ModuleState state;          // Loading state for cycle detection
+    Stmt **statements;          // Parsed AST
+    int num_statements;
+    ExportedSymbol *exports;    // Exported symbols
+    int num_exports;
+    int export_capacity;
+    ImportBinding *imports;     // Import bindings for this module
+    int num_imports;
+    int import_capacity;
+    CompiledModule *next;       // Linked list
+};
+
+// Module cache for tracking all compiled modules
+struct ModuleCache {
+    CompiledModule *modules;    // Linked list of modules
+    char *current_dir;          // Current working directory
+    char *stdlib_path;          // Path to standard library
+    char *main_file_dir;        // Directory of the main file being compiled
+    int module_counter;         // Counter for generating unique module prefixes
+};
+
 // Code generation context
 typedef struct {
     FILE *output;           // Output file/stream
@@ -57,6 +107,10 @@ typedef struct {
 
     // Defer support
     DeferEntry *defer_stack;  // Stack of deferred expressions (LIFO)
+
+    // Module support
+    ModuleCache *module_cache;          // Cache of compiled modules
+    CompiledModule *current_module;     // Module currently being compiled (NULL for main)
 } CodegenContext;
 
 // Initialize code generation context
@@ -172,5 +226,34 @@ FreeVarSet* free_var_set_new(void);
 
 // Free a free variable set
 void free_var_set_free(FreeVarSet *set);
+
+// ========== MODULE COMPILATION ==========
+
+// Initialize module cache
+ModuleCache* module_cache_new(const char *main_file_path);
+
+// Free module cache
+void module_cache_free(ModuleCache *cache);
+
+// Resolve a module path (handles @stdlib/, relative, absolute)
+char* module_resolve_path(ModuleCache *cache, const char *importer_path, const char *import_path);
+
+// Compile a module (recursively compiles dependencies)
+CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path);
+
+// Get a cached module by path
+CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path);
+
+// Add an export to a module
+void module_add_export(CompiledModule *module, const char *name, const char *mangled_name);
+
+// Find an export in a module by name
+ExportedSymbol* module_find_export(CompiledModule *module, const char *name);
+
+// Generate unique module prefix
+char* module_gen_prefix(ModuleCache *cache);
+
+// Set the module cache for a codegen context
+void codegen_set_module_cache(CodegenContext *ctx, ModuleCache *cache);
 
 #endif // HEMLOCK_CODEGEN_H

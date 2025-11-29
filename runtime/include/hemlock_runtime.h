@@ -11,6 +11,9 @@
 #include "hemlock_value.h"
 #include <setjmp.h>
 
+// Forward declarations
+typedef struct HmlClosureEnv HmlClosureEnv;
+
 // ========== RUNTIME INITIALIZATION ==========
 
 // Initialize the Hemlock runtime (call at start of main)
@@ -96,8 +99,40 @@ HmlValue hml_exp(HmlValue x);
 HmlValue hml_log(HmlValue x);
 HmlValue hml_min(HmlValue a, HmlValue b);
 HmlValue hml_max(HmlValue a, HmlValue b);
+HmlValue hml_clamp(HmlValue x, HmlValue min_val, HmlValue max_val);
+HmlValue hml_log10(HmlValue x);
+HmlValue hml_log2(HmlValue x);
+HmlValue hml_atan2(HmlValue y, HmlValue x);
 HmlValue hml_rand(void);
+HmlValue hml_rand_range(HmlValue min_val, HmlValue max_val);
+HmlValue hml_seed_val(HmlValue seed);
 void hml_seed(HmlValue seed);
+
+// Builtin wrappers for compiler (match calling convention: HmlClosureEnv*, args...)
+HmlValue hml_builtin_sin(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_cos(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_tan(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_asin(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_acos(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_atan(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_atan2(HmlClosureEnv *env, HmlValue y, HmlValue x);
+HmlValue hml_builtin_sqrt(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_pow(HmlClosureEnv *env, HmlValue base, HmlValue exp);
+HmlValue hml_builtin_exp(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_log(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_log10(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_log2(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_floor(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_ceil(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_round(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_trunc(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_abs(HmlClosureEnv *env, HmlValue x);
+HmlValue hml_builtin_min(HmlClosureEnv *env, HmlValue a, HmlValue b);
+HmlValue hml_builtin_max(HmlClosureEnv *env, HmlValue a, HmlValue b);
+HmlValue hml_builtin_clamp(HmlClosureEnv *env, HmlValue x, HmlValue lo, HmlValue hi);
+HmlValue hml_builtin_rand(HmlClosureEnv *env);
+HmlValue hml_builtin_rand_range(HmlClosureEnv *env, HmlValue min_val, HmlValue max_val);
+HmlValue hml_builtin_seed(HmlClosureEnv *env, HmlValue seed);
 
 // ========== TIME OPERATIONS ==========
 
@@ -106,12 +141,66 @@ HmlValue hml_time_ms(void);
 HmlValue hml_clock(void);
 void hml_sleep(HmlValue seconds);
 
+// Time builtin wrappers
+HmlValue hml_builtin_now(HmlClosureEnv *env);
+HmlValue hml_builtin_time_ms(HmlClosureEnv *env);
+HmlValue hml_builtin_clock(HmlClosureEnv *env);
+HmlValue hml_builtin_sleep(HmlClosureEnv *env, HmlValue seconds);
+
+// ========== DATETIME OPERATIONS ==========
+
+HmlValue hml_localtime(HmlValue timestamp);
+HmlValue hml_gmtime(HmlValue timestamp);
+HmlValue hml_mktime(HmlValue time_obj);
+HmlValue hml_strftime(HmlValue format, HmlValue time_obj);
+
+// Datetime builtin wrappers
+HmlValue hml_builtin_localtime(HmlClosureEnv *env, HmlValue timestamp);
+HmlValue hml_builtin_gmtime(HmlClosureEnv *env, HmlValue timestamp);
+HmlValue hml_builtin_mktime(HmlClosureEnv *env, HmlValue time_obj);
+HmlValue hml_builtin_strftime(HmlClosureEnv *env, HmlValue format, HmlValue time_obj);
+
 // ========== ENVIRONMENT OPERATIONS ==========
 
 HmlValue hml_getenv(HmlValue name);
 void hml_setenv(HmlValue name, HmlValue value);
 void hml_exit(HmlValue code);
 HmlValue hml_get_pid(void);
+HmlValue hml_exec(HmlValue command);
+
+// Environment builtin wrappers
+HmlValue hml_builtin_getenv(HmlClosureEnv *env, HmlValue name);
+HmlValue hml_builtin_setenv(HmlClosureEnv *env, HmlValue name, HmlValue value);
+HmlValue hml_builtin_unsetenv(HmlClosureEnv *env, HmlValue name);
+HmlValue hml_builtin_exit(HmlClosureEnv *env, HmlValue code);
+HmlValue hml_builtin_get_pid(HmlClosureEnv *env);
+HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command);
+
+// ========== PROCESS OPERATIONS ==========
+
+HmlValue hml_getppid(void);
+HmlValue hml_getuid(void);
+HmlValue hml_geteuid(void);
+HmlValue hml_getgid(void);
+HmlValue hml_getegid(void);
+HmlValue hml_unsetenv(HmlValue name);
+HmlValue hml_kill(HmlValue pid, HmlValue sig);
+HmlValue hml_fork(void);
+HmlValue hml_wait(void);
+HmlValue hml_waitpid(HmlValue pid, HmlValue options);
+void hml_abort(void);
+
+// Process builtin wrappers
+HmlValue hml_builtin_getppid(HmlClosureEnv *env);
+HmlValue hml_builtin_getuid(HmlClosureEnv *env);
+HmlValue hml_builtin_geteuid(HmlClosureEnv *env);
+HmlValue hml_builtin_getgid(HmlClosureEnv *env);
+HmlValue hml_builtin_getegid(HmlClosureEnv *env);
+HmlValue hml_builtin_kill(HmlClosureEnv *env, HmlValue pid, HmlValue sig);
+HmlValue hml_builtin_fork(HmlClosureEnv *env);
+HmlValue hml_builtin_wait(HmlClosureEnv *env);
+HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options);
+HmlValue hml_builtin_abort(HmlClosureEnv *env);
 
 // ========== I/O OPERATIONS ==========
 
@@ -263,6 +352,119 @@ HmlValue hml_file_write(HmlValue file, HmlValue data);
 HmlValue hml_file_seek(HmlValue file, HmlValue position);
 HmlValue hml_file_tell(HmlValue file);
 void hml_file_close(HmlValue file);
+
+// ========== FILESYSTEM OPERATIONS ==========
+
+HmlValue hml_exists(HmlValue path);
+HmlValue hml_read_file(HmlValue path);
+HmlValue hml_write_file(HmlValue path, HmlValue content);
+HmlValue hml_append_file(HmlValue path, HmlValue content);
+HmlValue hml_remove_file(HmlValue path);
+HmlValue hml_rename_file(HmlValue old_path, HmlValue new_path);
+HmlValue hml_copy_file(HmlValue src_path, HmlValue dest_path);
+HmlValue hml_is_file(HmlValue path);
+HmlValue hml_is_dir(HmlValue path);
+HmlValue hml_file_stat(HmlValue path);
+
+// ========== DIRECTORY OPERATIONS ==========
+
+HmlValue hml_make_dir(HmlValue path, HmlValue mode);
+HmlValue hml_remove_dir(HmlValue path);
+HmlValue hml_list_dir(HmlValue path);
+HmlValue hml_cwd(void);
+HmlValue hml_chdir(HmlValue path);
+HmlValue hml_absolute_path(HmlValue path);
+
+// ========== FILESYSTEM BUILTIN WRAPPERS ==========
+
+HmlValue hml_builtin_exists(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_read_file(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_write_file(HmlClosureEnv *env, HmlValue path, HmlValue content);
+HmlValue hml_builtin_append_file(HmlClosureEnv *env, HmlValue path, HmlValue content);
+HmlValue hml_builtin_remove_file(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_rename(HmlClosureEnv *env, HmlValue old_path, HmlValue new_path);
+HmlValue hml_builtin_copy_file(HmlClosureEnv *env, HmlValue src, HmlValue dest);
+HmlValue hml_builtin_is_file(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_is_dir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_file_stat(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_make_dir(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_remove_dir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_list_dir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_cwd(HmlClosureEnv *env);
+HmlValue hml_builtin_chdir(HmlClosureEnv *env, HmlValue path);
+HmlValue hml_builtin_absolute_path(HmlClosureEnv *env, HmlValue path);
+
+// ========== SYSTEM INFO OPERATIONS ==========
+
+HmlValue hml_platform(void);
+HmlValue hml_arch(void);
+HmlValue hml_hostname(void);
+HmlValue hml_username(void);
+HmlValue hml_homedir(void);
+HmlValue hml_cpu_count(void);
+HmlValue hml_total_memory(void);
+HmlValue hml_free_memory(void);
+HmlValue hml_os_version(void);
+HmlValue hml_os_name(void);
+HmlValue hml_tmpdir(void);
+HmlValue hml_uptime(void);
+
+// System info builtin wrappers
+HmlValue hml_builtin_platform(HmlClosureEnv *env);
+HmlValue hml_builtin_arch(HmlClosureEnv *env);
+HmlValue hml_builtin_hostname(HmlClosureEnv *env);
+HmlValue hml_builtin_username(HmlClosureEnv *env);
+HmlValue hml_builtin_homedir(HmlClosureEnv *env);
+HmlValue hml_builtin_cpu_count(HmlClosureEnv *env);
+HmlValue hml_builtin_total_memory(HmlClosureEnv *env);
+HmlValue hml_builtin_free_memory(HmlClosureEnv *env);
+HmlValue hml_builtin_os_version(HmlClosureEnv *env);
+HmlValue hml_builtin_os_name(HmlClosureEnv *env);
+HmlValue hml_builtin_tmpdir(HmlClosureEnv *env);
+HmlValue hml_builtin_uptime(HmlClosureEnv *env);
+
+// ========== COMPRESSION OPERATIONS ==========
+
+HmlValue hml_zlib_compress(HmlValue data, HmlValue level);
+HmlValue hml_zlib_decompress(HmlValue data, HmlValue max_size);
+HmlValue hml_gzip_compress(HmlValue data, HmlValue level);
+HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size);
+HmlValue hml_zlib_compress_bound(HmlValue source_len);
+HmlValue hml_crc32_val(HmlValue data);
+HmlValue hml_adler32_val(HmlValue data);
+
+// Compression builtin wrappers
+HmlValue hml_builtin_zlib_compress(HmlClosureEnv *env, HmlValue data, HmlValue level);
+HmlValue hml_builtin_zlib_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size);
+HmlValue hml_builtin_gzip_compress(HmlClosureEnv *env, HmlValue data, HmlValue level);
+HmlValue hml_builtin_gzip_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size);
+HmlValue hml_builtin_zlib_compress_bound(HmlClosureEnv *env, HmlValue source_len);
+HmlValue hml_builtin_crc32(HmlClosureEnv *env, HmlValue data);
+HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data);
+
+// ========== INTERNAL HELPER OPERATIONS ==========
+
+HmlValue hml_read_u32(HmlValue ptr);
+HmlValue hml_read_u64(HmlValue ptr);
+HmlValue hml_strerror(void);
+HmlValue hml_dirent_name(HmlValue ptr);
+HmlValue hml_string_to_cstr(HmlValue str);
+HmlValue hml_cstr_to_string(HmlValue ptr);
+
+// Internal helper builtin wrappers
+HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_read_u64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_strerror(HmlClosureEnv *env);
+HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
+HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr);
+
+// ========== DNS/NETWORKING OPERATIONS ==========
+
+HmlValue hml_dns_resolve(HmlValue hostname);
+
+// DNS builtin wrapper
+HmlValue hml_builtin_dns_resolve(HmlClosureEnv *env, HmlValue hostname);
 
 // ========== SIGNAL HANDLING ==========
 

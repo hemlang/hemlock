@@ -1,0 +1,10 @@
+// Math utilities that use helper
+import { add, multiply } from "./helper.hml";
+
+export fn square(x) {
+    return multiply(x, x);
+}
+
+export fn sum_of_squares(a, b) {
+    return add(square(a), square(b));
+}

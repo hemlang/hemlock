@@ -1,0 +1,8 @@
+// Test namespace imports
+import * as math from "./helper.hml";
+
+// Use namespace to access exports
+print(math.add(5, 3));
+print(math.multiply(6, 7));
+print(math.PI);
+print(math.greeting);

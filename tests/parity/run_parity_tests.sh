@@ -76,7 +76,7 @@ run_test() {
     "$HEMLOCKC" "$test_file" -o "$TEMP_DIR/$test_name" 2>/dev/null || compile_exit=$?
 
     if [ $compile_exit -eq 0 ]; then
-        compiler_output=$("$TEMP_DIR/$test_name" 2>&1) || run_exit=$?
+        compiler_output=$(LD_LIBRARY_PATH="$ROOT_DIR" "$TEMP_DIR/$test_name" 2>&1) || run_exit=$?
     fi
 
     # Compare results
@@ -131,7 +131,7 @@ find_tests() {
 }
 
 # Run tests in each category
-for category in language builtins methods; do
+for category in language builtins methods modules; do
     category_dir="$SCRIPT_DIR/$category"
     if [ -d "$category_dir" ]; then
         test_files=$(find_tests "$category_dir")

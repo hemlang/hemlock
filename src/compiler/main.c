@@ -10,12 +10,56 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <limits.h>
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
 #include "../../include/ast.h"
 #include "codegen.h"
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 #define HEMLOCKC_VERSION "0.1.0"
+
+// Get directory containing the hemlockc executable (cross-platform)
+static char* get_self_dir(void) {
+    static char path[PATH_MAX];
+
+#ifdef __APPLE__
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) != 0) {
+        return NULL;
+    }
+    // Resolve symlinks
+    char *real = realpath(path, NULL);
+    if (real) {
+        strncpy(path, real, sizeof(path) - 1);
+        path[sizeof(path) - 1] = '\0';
+        free(real);
+    }
+#elif defined(__linux__)
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (len == -1) {
+        return NULL;
+    }
+    path[len] = '\0';
+#else
+    // Fallback: try /proc/self/exe anyway
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (len == -1) {
+        return NULL;
+    }
+    path[len] = '\0';
+#endif
+
+    // Find last slash and truncate to get directory
+    char *last_slash = strrchr(path, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+    }
+    return path;
+}
 
 // Command-line options
 typedef struct {
@@ -168,13 +212,26 @@ static int compile_c(const Options *opts, const char *c_file) {
     char opt_flag[4];
     snprintf(opt_flag, sizeof(opt_flag), "-O%d", opts->optimize);
 
-    // Determine runtime path
-    const char *runtime_path = opts->runtime_path ? opts->runtime_path : ".";
+    // Determine runtime path (relative to hemlockc location)
+    const char *runtime_path = opts->runtime_path;
+    if (!runtime_path) {
+        runtime_path = get_self_dir();
+        if (!runtime_path) {
+            runtime_path = ".";
+        }
+    }
+
+    // Build link command
+    // Check if -lz is linkable (same check as runtime Makefile)
+    char zlib_flag[8] = "";
+    if (system("echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null") == 0) {
+        strcpy(zlib_flag, " -lz");
+    }
 
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread -lffi -ldl",
+        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s",
         opts->cc, opt_flag, opts->output_file, c_file,
-        runtime_path, runtime_path);
+        runtime_path, runtime_path, zlib_flag);
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);
@@ -263,9 +320,14 @@ int main(int argc, char **argv) {
         printf("Generating C code to %s...\n", c_file);
     }
 
+    // Initialize module cache for import support
+    ModuleCache *module_cache = module_cache_new(opts.input_file);
+
     CodegenContext *ctx = codegen_new(output);
+    codegen_set_module_cache(ctx, module_cache);
     codegen_program(ctx, statements, stmt_count);
     codegen_free(ctx);
+    module_cache_free(module_cache);
     fclose(output);
 
     // Cleanup AST

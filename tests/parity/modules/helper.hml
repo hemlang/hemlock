@@ -1,0 +1,12 @@
+// Helper module for testing imports
+export let greeting = "Hello";
+
+export fn add(a, b) {
+    return a + b;
+}
+
+export fn multiply(a, b) {
+    return a * b;
+}
+
+export const PI = 3.14159;

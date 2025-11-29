@@ -14,8 +14,26 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/utsname.h>
+#include <dirent.h>
+#include <limits.h>
 #include <dlfcn.h>
 #include <ffi.h>
+#include <pwd.h>
+
+#ifdef HML_HAVE_ZLIB
+#include <zlib.h>
+#endif
+
+#ifdef __linux__
+#include <sys/sysinfo.h>
+#endif
+
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
 
 // ========== GLOBAL STATE ==========
 
@@ -412,6 +430,18 @@ HmlValue hml_log(HmlValue x) {
     return hml_val_f64(log(hml_to_f64(x)));
 }
 
+HmlValue hml_log10(HmlValue x) {
+    return hml_val_f64(log10(hml_to_f64(x)));
+}
+
+HmlValue hml_log2(HmlValue x) {
+    return hml_val_f64(log2(hml_to_f64(x)));
+}
+
+HmlValue hml_atan2(HmlValue y, HmlValue x) {
+    return hml_val_f64(atan2(hml_to_f64(y), hml_to_f64(x)));
+}
+
 HmlValue hml_min(HmlValue a, HmlValue b) {
     double va = hml_to_f64(a);
     double vb = hml_to_f64(b);
@@ -424,6 +454,15 @@ HmlValue hml_max(HmlValue a, HmlValue b) {
     return hml_val_f64(va > vb ? va : vb);
 }
 
+HmlValue hml_clamp(HmlValue x, HmlValue min_val, HmlValue max_val) {
+    double v = hml_to_f64(x);
+    double lo = hml_to_f64(min_val);
+    double hi = hml_to_f64(max_val);
+    if (v < lo) return hml_val_f64(lo);
+    if (v > hi) return hml_val_f64(hi);
+    return hml_val_f64(v);
+}
+
 static int g_rand_seeded = 0;
 
 HmlValue hml_rand(void) {
@@ -434,9 +473,320 @@ HmlValue hml_rand(void) {
     return hml_val_f64((double)rand() / RAND_MAX);
 }
 
+HmlValue hml_rand_range(HmlValue min_val, HmlValue max_val) {
+    if (!g_rand_seeded) {
+        srand((unsigned int)time(NULL));
+        g_rand_seeded = 1;
+    }
+    double lo = hml_to_f64(min_val);
+    double hi = hml_to_f64(max_val);
+    double r = (double)rand() / RAND_MAX;
+    return hml_val_f64(lo + r * (hi - lo));
+}
+
+HmlValue hml_seed_val(HmlValue seed) {
+    srand((unsigned int)hml_to_i32(seed));
+    g_rand_seeded = 1;
+    return hml_val_null();
+}
+
 void hml_seed(HmlValue seed) {
     srand((unsigned int)hml_to_i32(seed));
     g_rand_seeded = 1;
+}
+
+// ========== BUILTIN WRAPPERS FOR COMPILER ==========
+// These match the compiler's function calling convention: (HmlClosureEnv*, HmlValue args...)
+
+HmlValue hml_builtin_sin(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_sin(x);
+}
+
+HmlValue hml_builtin_cos(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_cos(x);
+}
+
+HmlValue hml_builtin_tan(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_tan(x);
+}
+
+HmlValue hml_builtin_asin(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_asin(x);
+}
+
+HmlValue hml_builtin_acos(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_acos(x);
+}
+
+HmlValue hml_builtin_atan(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_atan(x);
+}
+
+HmlValue hml_builtin_atan2(HmlClosureEnv *env, HmlValue y, HmlValue x) {
+    (void)env;
+    return hml_atan2(y, x);
+}
+
+HmlValue hml_builtin_sqrt(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_sqrt(x);
+}
+
+HmlValue hml_builtin_pow(HmlClosureEnv *env, HmlValue base, HmlValue exp) {
+    (void)env;
+    return hml_pow(base, exp);
+}
+
+HmlValue hml_builtin_exp(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_exp(x);
+}
+
+HmlValue hml_builtin_log(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_log(x);
+}
+
+HmlValue hml_builtin_log10(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_log10(x);
+}
+
+HmlValue hml_builtin_log2(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_log2(x);
+}
+
+HmlValue hml_builtin_floor(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_floor(x);
+}
+
+HmlValue hml_builtin_ceil(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_ceil(x);
+}
+
+HmlValue hml_builtin_round(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_round(x);
+}
+
+HmlValue hml_builtin_trunc(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_trunc(x);
+}
+
+HmlValue hml_builtin_abs(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_abs(x);
+}
+
+HmlValue hml_builtin_min(HmlClosureEnv *env, HmlValue a, HmlValue b) {
+    (void)env;
+    return hml_min(a, b);
+}
+
+HmlValue hml_builtin_max(HmlClosureEnv *env, HmlValue a, HmlValue b) {
+    (void)env;
+    return hml_max(a, b);
+}
+
+HmlValue hml_builtin_clamp(HmlClosureEnv *env, HmlValue x, HmlValue lo, HmlValue hi) {
+    (void)env;
+    return hml_clamp(x, lo, hi);
+}
+
+HmlValue hml_builtin_rand(HmlClosureEnv *env) {
+    (void)env;
+    return hml_rand();
+}
+
+HmlValue hml_builtin_rand_range(HmlClosureEnv *env, HmlValue min_val, HmlValue max_val) {
+    (void)env;
+    return hml_rand_range(min_val, max_val);
+}
+
+HmlValue hml_builtin_seed(HmlClosureEnv *env, HmlValue seed) {
+    (void)env;
+    return hml_seed_val(seed);
+}
+
+// Time builtin wrappers
+HmlValue hml_builtin_now(HmlClosureEnv *env) {
+    (void)env;
+    return hml_now();
+}
+
+HmlValue hml_builtin_time_ms(HmlClosureEnv *env) {
+    (void)env;
+    return hml_time_ms();
+}
+
+HmlValue hml_builtin_clock(HmlClosureEnv *env) {
+    (void)env;
+    return hml_clock();
+}
+
+HmlValue hml_builtin_sleep(HmlClosureEnv *env, HmlValue seconds) {
+    (void)env;
+    hml_sleep(seconds);
+    return hml_val_null();
+}
+
+// Env builtin wrappers
+HmlValue hml_builtin_getenv(HmlClosureEnv *env, HmlValue name) {
+    (void)env;
+    return hml_getenv(name);
+}
+
+HmlValue hml_builtin_setenv(HmlClosureEnv *env, HmlValue name, HmlValue value) {
+    (void)env;
+    hml_setenv(name, value);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_exit(HmlClosureEnv *env, HmlValue code) {
+    (void)env;
+    hml_exit(code);
+    return hml_val_null();  // Never reached
+}
+
+HmlValue hml_builtin_get_pid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_get_pid();
+}
+
+HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command) {
+    (void)env;
+    return hml_exec(command);
+}
+
+// Process ID builtins
+HmlValue hml_getppid(void) {
+    return hml_val_i32((int32_t)getppid());
+}
+
+HmlValue hml_getuid(void) {
+    return hml_val_i32((int32_t)getuid());
+}
+
+HmlValue hml_geteuid(void) {
+    return hml_val_i32((int32_t)geteuid());
+}
+
+HmlValue hml_getgid(void) {
+    return hml_val_i32((int32_t)getgid());
+}
+
+HmlValue hml_getegid(void) {
+    return hml_val_i32((int32_t)getegid());
+}
+
+HmlValue hml_unsetenv(HmlValue name) {
+    if (name.type != HML_VAL_STRING || !name.as.as_string) {
+        return hml_val_null();
+    }
+    unsetenv(name.as.as_string->data);
+    return hml_val_null();
+}
+
+HmlValue hml_kill(HmlValue pid, HmlValue sig) {
+    int p = hml_to_i32(pid);
+    int s = hml_to_i32(sig);
+    int result = kill(p, s);
+    return hml_val_i32(result);
+}
+
+HmlValue hml_fork(void) {
+    pid_t pid = fork();
+    return hml_val_i32((int32_t)pid);
+}
+
+HmlValue hml_wait(void) {
+    int status;
+    pid_t pid = wait(&status);
+    // Return object with pid and status
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "pid", hml_val_i32((int32_t)pid));
+    hml_object_set_field(obj, "status", hml_val_i32(status));
+    return obj;
+}
+
+HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
+    int status;
+    pid_t result = waitpid(hml_to_i32(pid), &status, hml_to_i32(options));
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "pid", hml_val_i32((int32_t)result));
+    hml_object_set_field(obj, "status", hml_val_i32(status));
+    return obj;
+}
+
+void hml_abort(void) {
+    abort();
+}
+
+// Process builtin wrappers
+HmlValue hml_builtin_getppid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getppid();
+}
+
+HmlValue hml_builtin_getuid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getuid();
+}
+
+HmlValue hml_builtin_geteuid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_geteuid();
+}
+
+HmlValue hml_builtin_getgid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getgid();
+}
+
+HmlValue hml_builtin_getegid(HmlClosureEnv *env) {
+    (void)env;
+    return hml_getegid();
+}
+
+HmlValue hml_builtin_unsetenv(HmlClosureEnv *env, HmlValue name) {
+    (void)env;
+    return hml_unsetenv(name);
+}
+
+HmlValue hml_builtin_kill(HmlClosureEnv *env, HmlValue pid, HmlValue sig) {
+    (void)env;
+    return hml_kill(pid, sig);
+}
+
+HmlValue hml_builtin_fork(HmlClosureEnv *env) {
+    (void)env;
+    return hml_fork();
+}
+
+HmlValue hml_builtin_wait(HmlClosureEnv *env) {
+    (void)env;
+    return hml_wait();
+}
+
+HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options) {
+    (void)env;
+    return hml_waitpid(pid, options);
+}
+
+HmlValue hml_builtin_abort(HmlClosureEnv *env) {
+    (void)env;
+    hml_abort();
+    return hml_val_null();  // Never reached
 }
 
 // ========== TIME OPERATIONS ==========
@@ -461,6 +811,162 @@ void hml_sleep(HmlValue seconds) {
     ts.tv_sec = (time_t)secs;
     ts.tv_nsec = (long)((secs - ts.tv_sec) * 1e9);
     nanosleep(&ts, NULL);
+}
+
+// ========== DATETIME OPERATIONS ==========
+
+// Convert Unix timestamp to local time components
+HmlValue hml_localtime(HmlValue timestamp) {
+    time_t ts = (time_t)hml_to_i64(timestamp);
+    struct tm *tm_info = localtime(&ts);
+
+    if (!tm_info) {
+        fprintf(stderr, "Error: localtime() failed to convert timestamp\n");
+        exit(1);
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "year", hml_val_i32(tm_info->tm_year + 1900));
+    hml_object_set_field(obj, "month", hml_val_i32(tm_info->tm_mon + 1));  // 1-12
+    hml_object_set_field(obj, "day", hml_val_i32(tm_info->tm_mday));
+    hml_object_set_field(obj, "hour", hml_val_i32(tm_info->tm_hour));
+    hml_object_set_field(obj, "minute", hml_val_i32(tm_info->tm_min));
+    hml_object_set_field(obj, "second", hml_val_i32(tm_info->tm_sec));
+    hml_object_set_field(obj, "weekday", hml_val_i32(tm_info->tm_wday));  // 0=Sunday
+    hml_object_set_field(obj, "yearday", hml_val_i32(tm_info->tm_yday + 1));  // 1-366
+    hml_object_set_field(obj, "isdst", hml_val_bool(tm_info->tm_isdst > 0));
+
+    return obj;
+}
+
+// Convert Unix timestamp to UTC time components
+HmlValue hml_gmtime(HmlValue timestamp) {
+    time_t ts = (time_t)hml_to_i64(timestamp);
+    struct tm *tm_info = gmtime(&ts);
+
+    if (!tm_info) {
+        fprintf(stderr, "Error: gmtime() failed to convert timestamp\n");
+        exit(1);
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "year", hml_val_i32(tm_info->tm_year + 1900));
+    hml_object_set_field(obj, "month", hml_val_i32(tm_info->tm_mon + 1));  // 1-12
+    hml_object_set_field(obj, "day", hml_val_i32(tm_info->tm_mday));
+    hml_object_set_field(obj, "hour", hml_val_i32(tm_info->tm_hour));
+    hml_object_set_field(obj, "minute", hml_val_i32(tm_info->tm_min));
+    hml_object_set_field(obj, "second", hml_val_i32(tm_info->tm_sec));
+    hml_object_set_field(obj, "weekday", hml_val_i32(tm_info->tm_wday));  // 0=Sunday
+    hml_object_set_field(obj, "yearday", hml_val_i32(tm_info->tm_yday + 1));  // 1-366
+    hml_object_set_field(obj, "isdst", hml_val_bool(0));  // UTC has no DST
+
+    return obj;
+}
+
+// Convert time components to Unix timestamp
+HmlValue hml_mktime(HmlValue time_obj) {
+    if (time_obj.type != HML_VAL_OBJECT || !time_obj.as.as_object) {
+        fprintf(stderr, "Error: mktime() requires an object argument\n");
+        exit(1);
+    }
+
+    struct tm tm_info = {0};
+
+    HmlValue year = hml_object_get_field(time_obj, "year");
+    HmlValue month = hml_object_get_field(time_obj, "month");
+    HmlValue day = hml_object_get_field(time_obj, "day");
+    HmlValue hour = hml_object_get_field(time_obj, "hour");
+    HmlValue minute = hml_object_get_field(time_obj, "minute");
+    HmlValue second = hml_object_get_field(time_obj, "second");
+
+    if (year.type == HML_VAL_NULL || month.type == HML_VAL_NULL || day.type == HML_VAL_NULL) {
+        fprintf(stderr, "Error: mktime() requires year, month, and day fields\n");
+        exit(1);
+    }
+
+    tm_info.tm_year = hml_to_i32(year) - 1900;
+    tm_info.tm_mon = hml_to_i32(month) - 1;  // 0-11
+    tm_info.tm_mday = hml_to_i32(day);
+    tm_info.tm_hour = hour.type != HML_VAL_NULL ? hml_to_i32(hour) : 0;
+    tm_info.tm_min = minute.type != HML_VAL_NULL ? hml_to_i32(minute) : 0;
+    tm_info.tm_sec = second.type != HML_VAL_NULL ? hml_to_i32(second) : 0;
+    tm_info.tm_isdst = -1;  // Auto-determine DST
+
+    time_t timestamp = mktime(&tm_info);
+    if (timestamp == -1) {
+        fprintf(stderr, "Error: mktime() failed to convert time components\n");
+        exit(1);
+    }
+
+    return hml_val_i64((int64_t)timestamp);
+}
+
+// Format date/time using strftime
+HmlValue hml_strftime(HmlValue format, HmlValue time_obj) {
+    if (format.type != HML_VAL_STRING || !format.as.as_string) {
+        fprintf(stderr, "Error: strftime() format must be a string\n");
+        exit(1);
+    }
+    if (time_obj.type != HML_VAL_OBJECT || !time_obj.as.as_object) {
+        fprintf(stderr, "Error: strftime() time components must be an object\n");
+        exit(1);
+    }
+
+    struct tm tm_info = {0};
+
+    HmlValue year = hml_object_get_field(time_obj, "year");
+    HmlValue month = hml_object_get_field(time_obj, "month");
+    HmlValue day = hml_object_get_field(time_obj, "day");
+    HmlValue hour = hml_object_get_field(time_obj, "hour");
+    HmlValue minute = hml_object_get_field(time_obj, "minute");
+    HmlValue second = hml_object_get_field(time_obj, "second");
+    HmlValue weekday = hml_object_get_field(time_obj, "weekday");
+    HmlValue yearday = hml_object_get_field(time_obj, "yearday");
+
+    if (year.type == HML_VAL_NULL || month.type == HML_VAL_NULL || day.type == HML_VAL_NULL) {
+        fprintf(stderr, "Error: strftime() requires year, month, and day fields\n");
+        exit(1);
+    }
+
+    tm_info.tm_year = hml_to_i32(year) - 1900;
+    tm_info.tm_mon = hml_to_i32(month) - 1;  // 0-11
+    tm_info.tm_mday = hml_to_i32(day);
+    tm_info.tm_hour = hour.type != HML_VAL_NULL ? hml_to_i32(hour) : 0;
+    tm_info.tm_min = minute.type != HML_VAL_NULL ? hml_to_i32(minute) : 0;
+    tm_info.tm_sec = second.type != HML_VAL_NULL ? hml_to_i32(second) : 0;
+    tm_info.tm_wday = weekday.type != HML_VAL_NULL ? hml_to_i32(weekday) : 0;
+    tm_info.tm_yday = yearday.type != HML_VAL_NULL ? hml_to_i32(yearday) - 1 : 0;
+    tm_info.tm_isdst = -1;
+
+    char buffer[256];
+    size_t len = strftime(buffer, sizeof(buffer), format.as.as_string->data, &tm_info);
+    if (len == 0) {
+        fprintf(stderr, "Error: strftime() formatting failed\n");
+        exit(1);
+    }
+
+    return hml_val_string(buffer);
+}
+
+// Datetime builtin wrappers
+HmlValue hml_builtin_localtime(HmlClosureEnv *env, HmlValue timestamp) {
+    (void)env;
+    return hml_localtime(timestamp);
+}
+
+HmlValue hml_builtin_gmtime(HmlClosureEnv *env, HmlValue timestamp) {
+    (void)env;
+    return hml_gmtime(timestamp);
+}
+
+HmlValue hml_builtin_mktime(HmlClosureEnv *env, HmlValue time_obj) {
+    (void)env;
+    return hml_mktime(time_obj);
+}
+
+HmlValue hml_builtin_strftime(HmlClosureEnv *env, HmlValue format, HmlValue time_obj) {
+    (void)env;
+    return hml_strftime(format, time_obj);
 }
 
 // ========== ENVIRONMENT OPERATIONS ==========
@@ -2681,6 +3187,656 @@ void hml_file_close(HmlValue file) {
     }
 }
 
+// ========== SYSTEM INFO OPERATIONS ==========
+
+HmlValue hml_platform(void) {
+#ifdef __linux__
+    return hml_val_string("linux");
+#elif defined(__APPLE__)
+    return hml_val_string("macos");
+#elif defined(_WIN32) || defined(_WIN64)
+    return hml_val_string("windows");
+#else
+    return hml_val_string("unknown");
+#endif
+}
+
+HmlValue hml_arch(void) {
+    struct utsname info;
+    if (uname(&info) != 0) {
+        fprintf(stderr, "Error: arch() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(info.machine);
+}
+
+HmlValue hml_hostname(void) {
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
+        fprintf(stderr, "Error: hostname() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(hostname);
+}
+
+HmlValue hml_username(void) {
+    // Try getlogin_r first
+    char username[256];
+    if (getlogin_r(username, sizeof(username)) == 0) {
+        return hml_val_string(username);
+    }
+
+    // Fall back to getpwuid
+    struct passwd *pw = getpwuid(getuid());
+    if (pw != NULL && pw->pw_name != NULL) {
+        return hml_val_string(pw->pw_name);
+    }
+
+    // Fall back to environment variable
+    char *env_user = getenv("USER");
+    if (env_user != NULL) {
+        return hml_val_string(env_user);
+    }
+
+    fprintf(stderr, "Error: username() failed: could not determine username\n");
+    exit(1);
+}
+
+HmlValue hml_homedir(void) {
+    // Try HOME environment variable first
+    char *home = getenv("HOME");
+    if (home != NULL) {
+        return hml_val_string(home);
+    }
+
+    // Fall back to getpwuid
+    struct passwd *pw = getpwuid(getuid());
+    if (pw != NULL && pw->pw_dir != NULL) {
+        return hml_val_string(pw->pw_dir);
+    }
+
+    fprintf(stderr, "Error: homedir() failed: could not determine home directory\n");
+    exit(1);
+}
+
+HmlValue hml_cpu_count(void) {
+    long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (nprocs < 1) {
+        nprocs = 1;  // Default to 1 if we can't determine
+    }
+    return hml_val_i32((int32_t)nprocs);
+}
+
+HmlValue hml_total_memory(void) {
+#ifdef __linux__
+    struct sysinfo info;
+    if (sysinfo(&info) != 0) {
+        fprintf(stderr, "Error: total_memory() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_i64((int64_t)info.totalram * (int64_t)info.mem_unit);
+#elif defined(__APPLE__)
+    int mib[2] = {CTL_HW, HW_MEMSIZE};
+    int64_t memsize;
+    size_t len = sizeof(memsize);
+    if (sysctl(mib, 2, &memsize, &len, NULL, 0) != 0) {
+        fprintf(stderr, "Error: total_memory() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_i64(memsize);
+#else
+    // Fallback: use sysconf
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (pages < 0 || page_size < 0) {
+        fprintf(stderr, "Error: total_memory() failed: could not determine memory\n");
+        exit(1);
+    }
+    return hml_val_i64((int64_t)pages * (int64_t)page_size);
+#endif
+}
+
+HmlValue hml_free_memory(void) {
+#ifdef __linux__
+    struct sysinfo info;
+    if (sysinfo(&info) != 0) {
+        fprintf(stderr, "Error: free_memory() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    int64_t free_mem = (int64_t)info.freeram * (int64_t)info.mem_unit;
+    int64_t buffers = (int64_t)info.bufferram * (int64_t)info.mem_unit;
+    return hml_val_i64(free_mem + buffers);
+#elif defined(__APPLE__)
+    int mib[2] = {CTL_HW, HW_MEMSIZE};
+    int64_t memsize;
+    size_t len = sizeof(memsize);
+    if (sysctl(mib, 2, &memsize, &len, NULL, 0) != 0) {
+        fprintf(stderr, "Error: free_memory() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    long avail_pages = sysconf(_SC_AVPHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (avail_pages >= 0 && page_size >= 0) {
+        return hml_val_i64((int64_t)avail_pages * (int64_t)page_size);
+    }
+    return hml_val_i64(memsize / 10);
+#else
+    long avail_pages = sysconf(_SC_AVPHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (avail_pages < 0 || page_size < 0) {
+        fprintf(stderr, "Error: free_memory() failed: could not determine free memory\n");
+        exit(1);
+    }
+    return hml_val_i64((int64_t)avail_pages * (int64_t)page_size);
+#endif
+}
+
+HmlValue hml_os_version(void) {
+    struct utsname info;
+    if (uname(&info) != 0) {
+        fprintf(stderr, "Error: os_version() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(info.release);
+}
+
+HmlValue hml_os_name(void) {
+    struct utsname info;
+    if (uname(&info) != 0) {
+        fprintf(stderr, "Error: os_name() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(info.sysname);
+}
+
+HmlValue hml_tmpdir(void) {
+    char *tmpdir = getenv("TMPDIR");
+    if (tmpdir != NULL && tmpdir[0] != '\0') {
+        return hml_val_string(tmpdir);
+    }
+    tmpdir = getenv("TMP");
+    if (tmpdir != NULL && tmpdir[0] != '\0') {
+        return hml_val_string(tmpdir);
+    }
+    tmpdir = getenv("TEMP");
+    if (tmpdir != NULL && tmpdir[0] != '\0') {
+        return hml_val_string(tmpdir);
+    }
+    return hml_val_string("/tmp");
+}
+
+HmlValue hml_uptime(void) {
+#ifdef __linux__
+    struct sysinfo info;
+    if (sysinfo(&info) != 0) {
+        fprintf(stderr, "Error: uptime() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_i64((int64_t)info.uptime);
+#elif defined(__APPLE__)
+    struct timeval boottime;
+    size_t len = sizeof(boottime);
+    int mib[2] = {CTL_KERN, KERN_BOOTTIME};
+    if (sysctl(mib, 2, &boottime, &len, NULL, 0) != 0) {
+        fprintf(stderr, "Error: uptime() failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    time_t now = time(NULL);
+    return hml_val_i64((int64_t)(now - boottime.tv_sec));
+#else
+    fprintf(stderr, "Error: uptime() not supported on this platform\n");
+    exit(1);
+#endif
+}
+
+// System info builtin wrappers
+HmlValue hml_builtin_platform(HmlClosureEnv *env) {
+    (void)env;
+    return hml_platform();
+}
+
+HmlValue hml_builtin_arch(HmlClosureEnv *env) {
+    (void)env;
+    return hml_arch();
+}
+
+HmlValue hml_builtin_hostname(HmlClosureEnv *env) {
+    (void)env;
+    return hml_hostname();
+}
+
+HmlValue hml_builtin_username(HmlClosureEnv *env) {
+    (void)env;
+    return hml_username();
+}
+
+HmlValue hml_builtin_homedir(HmlClosureEnv *env) {
+    (void)env;
+    return hml_homedir();
+}
+
+HmlValue hml_builtin_cpu_count(HmlClosureEnv *env) {
+    (void)env;
+    return hml_cpu_count();
+}
+
+HmlValue hml_builtin_total_memory(HmlClosureEnv *env) {
+    (void)env;
+    return hml_total_memory();
+}
+
+HmlValue hml_builtin_free_memory(HmlClosureEnv *env) {
+    (void)env;
+    return hml_free_memory();
+}
+
+HmlValue hml_builtin_os_version(HmlClosureEnv *env) {
+    (void)env;
+    return hml_os_version();
+}
+
+HmlValue hml_builtin_os_name(HmlClosureEnv *env) {
+    (void)env;
+    return hml_os_name();
+}
+
+HmlValue hml_builtin_tmpdir(HmlClosureEnv *env) {
+    (void)env;
+    return hml_tmpdir();
+}
+
+HmlValue hml_builtin_uptime(HmlClosureEnv *env) {
+    (void)env;
+    return hml_uptime();
+}
+
+// ========== FILESYSTEM OPERATIONS ==========
+
+HmlValue hml_exists(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        return hml_val_bool(0);
+    }
+    struct stat st;
+    return hml_val_bool(stat(path.as.as_string->data, &st) == 0);
+}
+
+HmlValue hml_read_file(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: read_file() requires a string path\n");
+        exit(1);
+    }
+
+    FILE *fp = fopen(path.as.as_string->data, "r");
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    char *buffer = malloc(size + 1);
+    if (!buffer) {
+        fclose(fp);
+        fprintf(stderr, "Error: read_file() memory allocation failed\n");
+        exit(1);
+    }
+
+    size_t read_size = fread(buffer, 1, size, fp);
+    buffer[read_size] = '\0';
+    fclose(fp);
+
+    HmlValue result = hml_val_string(buffer);
+    free(buffer);
+    return result;
+}
+
+HmlValue hml_write_file(HmlValue path, HmlValue content) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: write_file() requires a string path\n");
+        exit(1);
+    }
+    if (content.type != HML_VAL_STRING || !content.as.as_string) {
+        fprintf(stderr, "Error: write_file() requires string content\n");
+        exit(1);
+    }
+
+    FILE *fp = fopen(path.as.as_string->data, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    fwrite(content.as.as_string->data, 1, content.as.as_string->length, fp);
+    fclose(fp);
+    return hml_val_null();
+}
+
+HmlValue hml_append_file(HmlValue path, HmlValue content) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: append_file() requires a string path\n");
+        exit(1);
+    }
+    if (content.type != HML_VAL_STRING || !content.as.as_string) {
+        fprintf(stderr, "Error: append_file() requires string content\n");
+        exit(1);
+    }
+
+    FILE *fp = fopen(path.as.as_string->data, "a");
+    if (!fp) {
+        fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    fwrite(content.as.as_string->data, 1, content.as.as_string->length, fp);
+    fclose(fp);
+    return hml_val_null();
+}
+
+HmlValue hml_remove_file(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: remove_file() requires a string path\n");
+        exit(1);
+    }
+
+    if (unlink(path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to remove '%s': %s\n", path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_rename_file(HmlValue old_path, HmlValue new_path) {
+    if (old_path.type != HML_VAL_STRING || !old_path.as.as_string) {
+        fprintf(stderr, "Error: rename() requires string old_path\n");
+        exit(1);
+    }
+    if (new_path.type != HML_VAL_STRING || !new_path.as.as_string) {
+        fprintf(stderr, "Error: rename() requires string new_path\n");
+        exit(1);
+    }
+
+    if (rename(old_path.as.as_string->data, new_path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to rename '%s' to '%s': %s\n",
+            old_path.as.as_string->data, new_path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_copy_file(HmlValue src_path, HmlValue dest_path) {
+    if (src_path.type != HML_VAL_STRING || !src_path.as.as_string) {
+        fprintf(stderr, "Error: copy_file() requires string src_path\n");
+        exit(1);
+    }
+    if (dest_path.type != HML_VAL_STRING || !dest_path.as.as_string) {
+        fprintf(stderr, "Error: copy_file() requires string dest_path\n");
+        exit(1);
+    }
+
+    FILE *src_fp = fopen(src_path.as.as_string->data, "rb");
+    if (!src_fp) {
+        fprintf(stderr, "Error: Failed to open source '%s': %s\n",
+            src_path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    FILE *dest_fp = fopen(dest_path.as.as_string->data, "wb");
+    if (!dest_fp) {
+        fclose(src_fp);
+        fprintf(stderr, "Error: Failed to open destination '%s': %s\n",
+            dest_path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    char buffer[8192];
+    size_t n;
+    while ((n = fread(buffer, 1, sizeof(buffer), src_fp)) > 0) {
+        if (fwrite(buffer, 1, n, dest_fp) != n) {
+            fclose(src_fp);
+            fclose(dest_fp);
+            fprintf(stderr, "Error: Failed to write to '%s': %s\n",
+                dest_path.as.as_string->data, strerror(errno));
+            exit(1);
+        }
+    }
+
+    fclose(src_fp);
+    fclose(dest_fp);
+    return hml_val_null();
+}
+
+HmlValue hml_is_file(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        return hml_val_bool(0);
+    }
+    struct stat st;
+    if (stat(path.as.as_string->data, &st) != 0) {
+        return hml_val_bool(0);
+    }
+    return hml_val_bool(S_ISREG(st.st_mode));
+}
+
+HmlValue hml_is_dir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        return hml_val_bool(0);
+    }
+    struct stat st;
+    if (stat(path.as.as_string->data, &st) != 0) {
+        return hml_val_bool(0);
+    }
+    return hml_val_bool(S_ISDIR(st.st_mode));
+}
+
+HmlValue hml_file_stat(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: file_stat() requires a string path\n");
+        exit(1);
+    }
+
+    struct stat st;
+    if (stat(path.as.as_string->data, &st) != 0) {
+        fprintf(stderr, "Error: Failed to stat '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "size", hml_val_i64(st.st_size));
+    hml_object_set_field(obj, "atime", hml_val_i64(st.st_atime));
+    hml_object_set_field(obj, "mtime", hml_val_i64(st.st_mtime));
+    hml_object_set_field(obj, "ctime", hml_val_i64(st.st_ctime));
+    hml_object_set_field(obj, "mode", hml_val_u32(st.st_mode));
+    hml_object_set_field(obj, "is_file", hml_val_bool(S_ISREG(st.st_mode)));
+    hml_object_set_field(obj, "is_dir", hml_val_bool(S_ISDIR(st.st_mode)));
+    return obj;
+}
+
+// ========== DIRECTORY OPERATIONS ==========
+
+HmlValue hml_make_dir(HmlValue path, HmlValue mode) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: make_dir() requires a string path\n");
+        exit(1);
+    }
+
+    uint32_t dir_mode = 0755;  // Default mode
+    if (mode.type == HML_VAL_U32) {
+        dir_mode = mode.as.as_u32;
+    } else if (mode.type == HML_VAL_I32) {
+        dir_mode = (uint32_t)mode.as.as_i32;
+    }
+
+    if (mkdir(path.as.as_string->data, dir_mode) != 0) {
+        fprintf(stderr, "Error: Failed to create directory '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_remove_dir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: remove_dir() requires a string path\n");
+        exit(1);
+    }
+
+    if (rmdir(path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to remove directory '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_list_dir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: list_dir() requires a string path\n");
+        exit(1);
+    }
+
+    DIR *dir = opendir(path.as.as_string->data);
+    if (!dir) {
+        fprintf(stderr, "Error: Failed to open directory '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+
+    HmlValue arr = hml_val_array();
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip "." and ".."
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        hml_array_push(arr, hml_val_string(entry->d_name));
+    }
+
+    closedir(dir);
+    return arr;
+}
+
+HmlValue hml_cwd(void) {
+    char buffer[PATH_MAX];
+    if (getcwd(buffer, sizeof(buffer)) == NULL) {
+        fprintf(stderr, "Error: Failed to get current directory: %s\n", strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(buffer);
+}
+
+HmlValue hml_chdir(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: chdir() requires a string path\n");
+        exit(1);
+    }
+
+    if (chdir(path.as.as_string->data) != 0) {
+        fprintf(stderr, "Error: Failed to change directory to '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_absolute_path(HmlValue path) {
+    if (path.type != HML_VAL_STRING || !path.as.as_string) {
+        fprintf(stderr, "Error: absolute_path() requires a string path\n");
+        exit(1);
+    }
+
+    char buffer[PATH_MAX];
+    if (realpath(path.as.as_string->data, buffer) == NULL) {
+        fprintf(stderr, "Error: Failed to resolve path '%s': %s\n",
+            path.as.as_string->data, strerror(errno));
+        exit(1);
+    }
+    return hml_val_string(buffer);
+}
+
+// ========== FILESYSTEM BUILTIN WRAPPERS ==========
+
+HmlValue hml_builtin_exists(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_exists(path);
+}
+
+HmlValue hml_builtin_read_file(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_read_file(path);
+}
+
+HmlValue hml_builtin_write_file(HmlClosureEnv *env, HmlValue path, HmlValue content) {
+    (void)env;
+    return hml_write_file(path, content);
+}
+
+HmlValue hml_builtin_append_file(HmlClosureEnv *env, HmlValue path, HmlValue content) {
+    (void)env;
+    return hml_append_file(path, content);
+}
+
+HmlValue hml_builtin_remove_file(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_remove_file(path);
+}
+
+HmlValue hml_builtin_rename(HmlClosureEnv *env, HmlValue old_path, HmlValue new_path) {
+    (void)env;
+    return hml_rename_file(old_path, new_path);
+}
+
+HmlValue hml_builtin_copy_file(HmlClosureEnv *env, HmlValue src, HmlValue dest) {
+    (void)env;
+    return hml_copy_file(src, dest);
+}
+
+HmlValue hml_builtin_is_file(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_is_file(path);
+}
+
+HmlValue hml_builtin_is_dir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_is_dir(path);
+}
+
+HmlValue hml_builtin_file_stat(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_file_stat(path);
+}
+
+HmlValue hml_builtin_make_dir(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
+    (void)env;
+    return hml_make_dir(path, mode);
+}
+
+HmlValue hml_builtin_remove_dir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_remove_dir(path);
+}
+
+HmlValue hml_builtin_list_dir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_list_dir(path);
+}
+
+HmlValue hml_builtin_cwd(HmlClosureEnv *env) {
+    (void)env;
+    return hml_cwd();
+}
+
+HmlValue hml_builtin_chdir(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_chdir(path);
+}
+
+HmlValue hml_builtin_absolute_path(HmlClosureEnv *env, HmlValue path) {
+    (void)env;
+    return hml_absolute_path(path);
+}
+
 // ========== ASYNC / CONCURRENCY ==========
 
 #include <pthread.h>
@@ -3342,4 +4498,545 @@ HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *
     }
 
     return ret;
+}
+
+// ========== COMPRESSION OPERATIONS ==========
+
+#ifdef HML_HAVE_ZLIB
+
+// zlib_compress(data: string, level: i32) -> buffer
+HmlValue hml_zlib_compress(HmlValue data, HmlValue level_val) {
+    if (data.type != HML_VAL_STRING || !data.as.as_string) {
+        fprintf(stderr, "Runtime error: zlib_compress() first argument must be string\n");
+        exit(1);
+    }
+
+    int level = (int)level_val.as.as_i32;
+    if (level < -1 || level > 9) {
+        fprintf(stderr, "Runtime error: zlib_compress() level must be -1 to 9\n");
+        exit(1);
+    }
+
+    HmlString *str = data.as.as_string;
+
+    // Handle empty input
+    if (str->length == 0) {
+        HmlValue buf = hml_val_buffer(1);
+        buf.as.as_buffer->length = 0;
+        return buf;
+    }
+
+    // Calculate maximum compressed size
+    uLong source_len = str->length;
+    uLong dest_len = compressBound(source_len);
+
+    // Allocate destination buffer
+    Bytef *dest = malloc(dest_len);
+    if (!dest) {
+        fprintf(stderr, "Runtime error: zlib_compress() memory allocation failed\n");
+        exit(1);
+    }
+
+    // Compress
+    int result = compress2(dest, &dest_len, (const Bytef *)str->data, source_len, level);
+
+    if (result != Z_OK) {
+        free(dest);
+        fprintf(stderr, "Runtime error: zlib_compress() compression failed\n");
+        exit(1);
+    }
+
+    // Create buffer with compressed data
+    HmlValue buf = hml_val_buffer((int32_t)dest_len);
+    memcpy(buf.as.as_buffer->data, dest, dest_len);
+    free(dest);
+
+    return buf;
+}
+
+// zlib_decompress(data: buffer, max_size: i64) -> string
+HmlValue hml_zlib_decompress(HmlValue data, HmlValue max_size_val) {
+    if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
+        fprintf(stderr, "Runtime error: zlib_decompress() first argument must be buffer\n");
+        exit(1);
+    }
+
+    size_t max_size = (size_t)max_size_val.as.as_i64;
+    HmlBuffer *buf = data.as.as_buffer;
+
+    // Handle empty input
+    if (buf->length == 0) {
+        return hml_val_string("");
+    }
+
+    // Allocate destination buffer
+    uLong dest_len = max_size;
+    Bytef *dest = malloc(dest_len);
+    if (!dest) {
+        fprintf(stderr, "Runtime error: zlib_decompress() memory allocation failed\n");
+        exit(1);
+    }
+
+    // Decompress
+    int result = uncompress(dest, &dest_len, (const Bytef *)buf->data, buf->length);
+
+    if (result != Z_OK) {
+        free(dest);
+        fprintf(stderr, "Runtime error: zlib_decompress() decompression failed\n");
+        exit(1);
+    }
+
+    // Create string from decompressed data
+    char *result_str = malloc(dest_len + 1);
+    if (!result_str) {
+        free(dest);
+        fprintf(stderr, "Runtime error: zlib_decompress() memory allocation failed\n");
+        exit(1);
+    }
+    memcpy(result_str, dest, dest_len);
+    result_str[dest_len] = '\0';
+    free(dest);
+
+    HmlValue ret = hml_val_string(result_str);
+    free(result_str);
+    return ret;
+}
+
+// gzip_compress(data: string, level: i32) -> buffer
+HmlValue hml_gzip_compress(HmlValue data, HmlValue level_val) {
+    if (data.type != HML_VAL_STRING || !data.as.as_string) {
+        fprintf(stderr, "Runtime error: gzip_compress() first argument must be string\n");
+        exit(1);
+    }
+
+    int level = (int)level_val.as.as_i32;
+    if (level < -1 || level > 9) {
+        fprintf(stderr, "Runtime error: gzip_compress() level must be -1 to 9\n");
+        exit(1);
+    }
+
+    HmlString *str = data.as.as_string;
+
+    // Handle empty input - gzip still produces header/trailer
+    if (str->length == 0) {
+        unsigned char empty_gzip[] = {
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+            0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        HmlValue buf = hml_val_buffer(sizeof(empty_gzip));
+        memcpy(buf.as.as_buffer->data, empty_gzip, sizeof(empty_gzip));
+        return buf;
+    }
+
+    // Initialize z_stream for gzip compression
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+
+    // windowBits = 15 + 16 = 31 for gzip format
+    int ret = deflateInit2(&strm, level, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY);
+    if (ret != Z_OK) {
+        fprintf(stderr, "Runtime error: gzip_compress() initialization failed\n");
+        exit(1);
+    }
+
+    // Calculate output buffer size
+    uLong dest_len = compressBound(str->length) + 18;
+    Bytef *dest = malloc(dest_len);
+    if (!dest) {
+        deflateEnd(&strm);
+        fprintf(stderr, "Runtime error: gzip_compress() memory allocation failed\n");
+        exit(1);
+    }
+
+    // Set input/output
+    strm.next_in = (Bytef *)str->data;
+    strm.avail_in = str->length;
+    strm.next_out = dest;
+    strm.avail_out = dest_len;
+
+    // Compress all at once
+    ret = deflate(&strm, Z_FINISH);
+    if (ret != Z_STREAM_END) {
+        free(dest);
+        deflateEnd(&strm);
+        fprintf(stderr, "Runtime error: gzip_compress() compression failed\n");
+        exit(1);
+    }
+
+    size_t output_len = strm.total_out;
+    deflateEnd(&strm);
+
+    HmlValue buf = hml_val_buffer((int32_t)output_len);
+    memcpy(buf.as.as_buffer->data, dest, output_len);
+    free(dest);
+
+    return buf;
+}
+
+// gzip_decompress(data: buffer, max_size: i64) -> string
+HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size_val) {
+    if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
+        fprintf(stderr, "Runtime error: gzip_decompress() first argument must be buffer\n");
+        exit(1);
+    }
+
+    size_t max_size = (size_t)max_size_val.as.as_i64;
+    HmlBuffer *buf = data.as.as_buffer;
+
+    // Handle empty input
+    if (buf->length == 0) {
+        fprintf(stderr, "Runtime error: gzip_decompress() requires non-empty input\n");
+        exit(1);
+    }
+
+    // Verify gzip magic bytes
+    unsigned char *buf_data = (unsigned char *)buf->data;
+    if (buf->length < 10 || buf_data[0] != 0x1f || buf_data[1] != 0x8b) {
+        fprintf(stderr, "Runtime error: gzip_decompress() invalid gzip data\n");
+        exit(1);
+    }
+
+    // Initialize z_stream for gzip decompression
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+
+    // windowBits = 15 + 16 = 31 for gzip format
+    int ret = inflateInit2(&strm, 15 + 16);
+    if (ret != Z_OK) {
+        fprintf(stderr, "Runtime error: gzip_decompress() initialization failed\n");
+        exit(1);
+    }
+
+    // Allocate destination buffer
+    Bytef *dest = malloc(max_size);
+    if (!dest) {
+        inflateEnd(&strm);
+        fprintf(stderr, "Runtime error: gzip_decompress() memory allocation failed\n");
+        exit(1);
+    }
+
+    // Set input/output
+    strm.next_in = (Bytef *)buf->data;
+    strm.avail_in = buf->length;
+    strm.next_out = dest;
+    strm.avail_out = max_size;
+
+    // Decompress
+    ret = inflate(&strm, Z_FINISH);
+    if (ret != Z_STREAM_END) {
+        free(dest);
+        inflateEnd(&strm);
+        fprintf(stderr, "Runtime error: gzip_decompress() decompression failed\n");
+        exit(1);
+    }
+
+    size_t output_len = strm.total_out;
+    inflateEnd(&strm);
+
+    // Create string from decompressed data
+    char *result_str = malloc(output_len + 1);
+    if (!result_str) {
+        free(dest);
+        fprintf(stderr, "Runtime error: gzip_decompress() memory allocation failed\n");
+        exit(1);
+    }
+    memcpy(result_str, dest, output_len);
+    result_str[output_len] = '\0';
+    free(dest);
+
+    HmlValue result = hml_val_string(result_str);
+    free(result_str);
+    return result;
+}
+
+// zlib_compress_bound(source_len: i64) -> i64
+HmlValue hml_zlib_compress_bound(HmlValue source_len_val) {
+    uLong source_len = (uLong)source_len_val.as.as_i64;
+    uLong bound = compressBound(source_len);
+    return hml_val_i64((int64_t)bound);
+}
+
+// crc32(data: buffer) -> u32
+HmlValue hml_crc32_val(HmlValue data) {
+    if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
+        fprintf(stderr, "Runtime error: crc32() argument must be buffer\n");
+        exit(1);
+    }
+
+    HmlBuffer *buf = data.as.as_buffer;
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, (const Bytef *)buf->data, buf->length);
+
+    return hml_val_u32((uint32_t)crc);
+}
+
+// adler32(data: buffer) -> u32
+HmlValue hml_adler32_val(HmlValue data) {
+    if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
+        fprintf(stderr, "Runtime error: adler32() argument must be buffer\n");
+        exit(1);
+    }
+
+    HmlBuffer *buf = data.as.as_buffer;
+    uLong adler = adler32(0L, Z_NULL, 0);
+    adler = adler32(adler, (const Bytef *)buf->data, buf->length);
+
+    return hml_val_u32((uint32_t)adler);
+}
+
+// Compression builtin wrappers
+HmlValue hml_builtin_zlib_compress(HmlClosureEnv *env, HmlValue data, HmlValue level) {
+    (void)env;
+    return hml_zlib_compress(data, level);
+}
+
+HmlValue hml_builtin_zlib_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size) {
+    (void)env;
+    return hml_zlib_decompress(data, max_size);
+}
+
+HmlValue hml_builtin_gzip_compress(HmlClosureEnv *env, HmlValue data, HmlValue level) {
+    (void)env;
+    return hml_gzip_compress(data, level);
+}
+
+HmlValue hml_builtin_gzip_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size) {
+    (void)env;
+    return hml_gzip_decompress(data, max_size);
+}
+
+HmlValue hml_builtin_zlib_compress_bound(HmlClosureEnv *env, HmlValue source_len) {
+    (void)env;
+    return hml_zlib_compress_bound(source_len);
+}
+
+HmlValue hml_builtin_crc32(HmlClosureEnv *env, HmlValue data) {
+    (void)env;
+    return hml_crc32_val(data);
+}
+
+HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
+    (void)env;
+    return hml_adler32_val(data);
+}
+
+#else /* !HML_HAVE_ZLIB */
+
+// Stub implementations when zlib is not available
+HmlValue hml_zlib_compress(HmlValue data, HmlValue level_val) {
+    (void)data; (void)level_val;
+    fprintf(stderr, "Runtime error: zlib_compress() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_zlib_decompress(HmlValue data, HmlValue max_size_val) {
+    (void)data; (void)max_size_val;
+    fprintf(stderr, "Runtime error: zlib_decompress() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_gzip_compress(HmlValue data, HmlValue level_val) {
+    (void)data; (void)level_val;
+    fprintf(stderr, "Runtime error: gzip_compress() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size_val) {
+    (void)data; (void)max_size_val;
+    fprintf(stderr, "Runtime error: gzip_decompress() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_zlib_compress_bound(HmlValue source_len_val) {
+    (void)source_len_val;
+    fprintf(stderr, "Runtime error: zlib_compress_bound() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_crc32_val(HmlValue data) {
+    (void)data;
+    fprintf(stderr, "Runtime error: crc32() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_adler32_val(HmlValue data) {
+    (void)data;
+    fprintf(stderr, "Runtime error: adler32() not available - zlib not installed\n");
+    exit(1);
+}
+
+HmlValue hml_builtin_zlib_compress(HmlClosureEnv *env, HmlValue data, HmlValue level) {
+    (void)env;
+    return hml_zlib_compress(data, level);
+}
+
+HmlValue hml_builtin_zlib_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size) {
+    (void)env;
+    return hml_zlib_decompress(data, max_size);
+}
+
+HmlValue hml_builtin_gzip_compress(HmlClosureEnv *env, HmlValue data, HmlValue level) {
+    (void)env;
+    return hml_gzip_compress(data, level);
+}
+
+HmlValue hml_builtin_gzip_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size) {
+    (void)env;
+    return hml_gzip_decompress(data, max_size);
+}
+
+HmlValue hml_builtin_zlib_compress_bound(HmlClosureEnv *env, HmlValue source_len) {
+    (void)env;
+    return hml_zlib_compress_bound(source_len);
+}
+
+HmlValue hml_builtin_crc32(HmlClosureEnv *env, HmlValue data) {
+    (void)env;
+    return hml_crc32_val(data);
+}
+
+HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
+    (void)env;
+    return hml_adler32_val(data);
+}
+
+#endif /* HML_HAVE_ZLIB */
+
+// ========== INTERNAL HELPER OPERATIONS ==========
+
+// Read a u32 value from a pointer
+HmlValue hml_read_u32(HmlValue ptr_val) {
+    if (ptr_val.type != HML_VAL_PTR) {
+        fprintf(stderr, "Runtime error: __read_u32() requires a pointer\n");
+        exit(1);
+    }
+    uint32_t *ptr = (uint32_t*)ptr_val.as.as_ptr;
+    return hml_val_u32(*ptr);
+}
+
+// Read a u64 value from a pointer
+HmlValue hml_read_u64(HmlValue ptr_val) {
+    if (ptr_val.type != HML_VAL_PTR) {
+        fprintf(stderr, "Runtime error: __read_u64() requires a pointer\n");
+        exit(1);
+    }
+    uint64_t *ptr = (uint64_t*)ptr_val.as.as_ptr;
+    return hml_val_u64(*ptr);
+}
+
+// Get the last error string (strerror(errno))
+HmlValue hml_strerror(void) {
+    return hml_val_string(strerror(errno));
+}
+
+// Get the name field from a dirent structure
+HmlValue hml_dirent_name(HmlValue ptr_val) {
+    if (ptr_val.type != HML_VAL_PTR) {
+        fprintf(stderr, "Runtime error: __dirent_name() requires a pointer\n");
+        exit(1);
+    }
+    struct dirent *entry = (struct dirent*)ptr_val.as.as_ptr;
+    return hml_val_string(entry->d_name);
+}
+
+// Convert a Hemlock string to a C string (returns allocated ptr)
+HmlValue hml_string_to_cstr(HmlValue str_val) {
+    if (str_val.type != HML_VAL_STRING) {
+        fprintf(stderr, "Runtime error: __string_to_cstr() requires a string\n");
+        exit(1);
+    }
+    HmlString *str = str_val.as.as_string;
+    char *cstr = malloc(str->length + 1);
+    if (!cstr) {
+        fprintf(stderr, "Runtime error: __string_to_cstr() memory allocation failed\n");
+        exit(1);
+    }
+    memcpy(cstr, str->data, str->length);
+    cstr[str->length] = '\0';
+    return hml_val_ptr(cstr);
+}
+
+// Convert a C string (ptr) to a Hemlock string
+HmlValue hml_cstr_to_string(HmlValue ptr_val) {
+    if (ptr_val.type != HML_VAL_PTR) {
+        fprintf(stderr, "Runtime error: __cstr_to_string() requires a pointer\n");
+        exit(1);
+    }
+    char *cstr = (char*)ptr_val.as.as_ptr;
+    if (!cstr) {
+        return hml_val_string("");
+    }
+    return hml_val_string(cstr);
+}
+
+// Wrapper functions for internal helpers
+HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    return hml_read_u32(ptr);
+}
+
+HmlValue hml_builtin_read_u64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    return hml_read_u64(ptr);
+}
+
+HmlValue hml_builtin_strerror(HmlClosureEnv *env) {
+    (void)env;
+    return hml_strerror();
+}
+
+HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    return hml_dirent_name(ptr);
+}
+
+HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str) {
+    (void)env;
+    return hml_string_to_cstr(str);
+}
+
+HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    return hml_cstr_to_string(ptr);
+}
+
+// ========== DNS/NETWORKING OPERATIONS ==========
+
+#include <netdb.h>
+#include <arpa/inet.h>
+
+// Resolve a hostname to IP address string
+HmlValue hml_dns_resolve(HmlValue hostname_val) {
+    if (hostname_val.type != HML_VAL_STRING) {
+        fprintf(stderr, "Runtime error: dns_resolve() requires a string hostname\n");
+        exit(1);
+    }
+
+    HmlString *str = hostname_val.as.as_string;
+    // Create null-terminated string
+    char *hostname = malloc(str->length + 1);
+    if (!hostname) {
+        fprintf(stderr, "Runtime error: dns_resolve() memory allocation failed\n");
+        exit(1);
+    }
+    memcpy(hostname, str->data, str->length);
+    hostname[str->length] = '\0';
+
+    struct hostent *host = gethostbyname(hostname);
+    free(hostname);
+
+    if (!host) {
+        fprintf(stderr, "Runtime error: Failed to resolve hostname\n");
+        exit(1);
+    }
+
+    // Return first IPv4 address
+    char *ip = inet_ntoa(*(struct in_addr *)host->h_addr_list[0]);
+    return hml_val_string(ip);
+}
+
+// Wrapper function for dns_resolve
+HmlValue hml_builtin_dns_resolve(HmlClosureEnv *env, HmlValue hostname) {
+    (void)env;
+    return hml_dns_resolve(hostname);
 }

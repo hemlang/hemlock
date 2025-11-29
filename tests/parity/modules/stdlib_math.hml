@@ -1,0 +1,20 @@
+// Test @stdlib/math imports
+import { PI, sqrt, abs, sin, cos, floor, ceil, min, max } from "@stdlib/math";
+
+// Test constants
+print(PI);
+
+// Test single-arg functions
+print(sqrt(16.0));
+print(abs(-42));
+print(floor(3.7));
+print(ceil(3.2));
+
+// Test two-arg functions
+print(min(10, 5));
+print(max(10, 5));
+
+// Test trig
+let angle = PI / 2.0;
+print(floor(sin(angle) * 100.0));
+print(floor(cos(0.0) * 100.0));
