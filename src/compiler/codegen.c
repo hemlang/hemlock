@@ -1119,6 +1119,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // Handle task_debug_info builtin
+                if (strcmp(fn_name, "task_debug_info") == 0 && expr->as.call.num_args == 1) {
+                    char *task_val = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "hml_task_debug_info(%s);", task_val);
+                    codegen_writeln(ctx, "hml_release(&%s);", task_val);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    free(task_val);
+                    break;
+                }
+
                 // Handle channel builtin
                 if (strcmp(fn_name, "channel") == 0 && expr->as.call.num_args == 1) {
                     char *cap = codegen_expr(ctx, expr->as.call.args[0]);
@@ -1286,6 +1296,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // atan2(y, x)
+                if (strcmp(fn_name, "atan2") == 0 && expr->as.call.num_args == 2) {
+                    char *y_arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *x_arg = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_atan2(%s, %s);", result, y_arg, x_arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", y_arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", x_arg);
+                    free(y_arg);
+                    free(x_arg);
+                    break;
+                }
+
                 // floor(x)
                 if (strcmp(fn_name, "floor") == 0 && expr->as.call.num_args == 1) {
                     char *arg = codegen_expr(ctx, expr->as.call.args[0]);
@@ -1356,6 +1378,24 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 if (strcmp(fn_name, "log") == 0 && expr->as.call.num_args == 1) {
                     char *arg = codegen_expr(ctx, expr->as.call.args[0]);
                     codegen_writeln(ctx, "HmlValue %s = hml_log(%s);", result, arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", arg);
+                    free(arg);
+                    break;
+                }
+
+                // log10(x)
+                if (strcmp(fn_name, "log10") == 0 && expr->as.call.num_args == 1) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_log10(%s);", result, arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", arg);
+                    free(arg);
+                    break;
+                }
+
+                // log2(x)
+                if (strcmp(fn_name, "log2") == 0 && expr->as.call.num_args == 1) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_log2(%s);", result, arg);
                     codegen_writeln(ctx, "hml_release(&%s);", arg);
                     free(arg);
                     break;
@@ -1452,6 +1492,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
                     free(name_arg);
                     free(value_arg);
+                    break;
+                }
+
+                // unsetenv(name)
+                if (strcmp(fn_name, "unsetenv") == 0 && expr->as.call.num_args == 1) {
+                    char *name_arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "hml_unsetenv(%s);", name_arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", name_arg);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    free(name_arg);
                     break;
                 }
 

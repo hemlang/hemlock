@@ -11,8 +11,13 @@ print(round(2.5));
 // Test pow
 print(pow(2.0, 3.0));
 
-// Test log
+// Test log functions
 print(log(1.0));
+print(log10(100.0));
+print(log2(8.0));
+
+// Test atan2
+print(atan2(1.0, 1.0));
 
 // Environment functions
 let test_var = getenv("PATH");

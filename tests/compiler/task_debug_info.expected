@@ -1,0 +1,11 @@
+Before join:
+=== Task Debug Info ===
+Task ID: 1
+State: COMPLETED
+Joined: false
+Detached: false
+Ref Count: 2
+Has Result: true
+======================
+45
+done

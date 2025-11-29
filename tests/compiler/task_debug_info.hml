@@ -1,0 +1,24 @@
+// Test task_debug_info builtin
+
+async fn work(n: i32): i32 {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Spawn a task
+let t = spawn(work, 10);
+
+// Print debug info before join
+print("Before join:");
+task_debug_info(t);
+
+// Wait for result
+let result = join(t);
+print(result);
+
+print("done");

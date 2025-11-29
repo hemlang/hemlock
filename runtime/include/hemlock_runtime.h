@@ -338,6 +338,7 @@ void hml_defer_execute_all(void);
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args);
 HmlValue hml_join(HmlValue task);
 void hml_detach(HmlValue task);
+void hml_task_debug_info(HmlValue task);
 
 // Channels
 HmlValue hml_channel(int32_t capacity);

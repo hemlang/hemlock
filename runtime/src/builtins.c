@@ -4086,6 +4086,36 @@ void hml_detach(HmlValue task_val) {
     pthread_detach(*(pthread_t*)task->thread);
 }
 
+// task_debug_info(task) - Print debug information about a task
+void hml_task_debug_info(HmlValue task_val) {
+    if (task_val.type != HML_VAL_TASK) {
+        fprintf(stderr, "Error: task_debug_info() expects a task\n");
+        exit(1);
+    }
+
+    HmlTask *task = task_val.as.as_task;
+
+    // Lock mutex to safely read task state
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+
+    printf("=== Task Debug Info ===\n");
+    printf("Task ID: %d\n", task->id);
+    printf("State: ");
+    switch (task->state) {
+        case HML_TASK_READY: printf("READY\n"); break;
+        case HML_TASK_RUNNING: printf("RUNNING\n"); break;
+        case HML_TASK_COMPLETED: printf("COMPLETED\n"); break;
+        default: printf("UNKNOWN\n"); break;
+    }
+    printf("Joined: %s\n", task->joined ? "true" : "false");
+    printf("Detached: %s\n", task->detached ? "true" : "false");
+    printf("Ref Count: %d\n", task->ref_count);
+    printf("Has Result: %s\n", task->result.type != HML_VAL_NULL ? "true" : "false");
+    printf("======================\n");
+
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+}
+
 // Channel functions
 HmlValue hml_channel(int32_t capacity) {
     HmlChannel *ch = malloc(sizeof(HmlChannel));
