@@ -22,6 +22,11 @@
 #include <dlfcn.h>
 #include <ffi.h>
 #include <pwd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <fcntl.h>
 
 #ifdef HML_HAVE_ZLIB
 #include <zlib.h>
@@ -4441,6 +4446,444 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
     return obj;
 }
 
+// ========== SOCKET OPERATIONS ==========
+
+// socket_create(domain, type, protocol) -> socket
+HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protocol) {
+    int d = hml_to_i32(domain);
+    int t = hml_to_i32(sock_type);
+    int p = hml_to_i32(protocol);
+
+    int fd = socket(d, t, p);
+    if (fd < 0) {
+        fprintf(stderr, "Runtime error: Failed to create socket: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    HmlSocket *sock = malloc(sizeof(HmlSocket));
+    sock->fd = fd;
+    sock->address = NULL;
+    sock->port = 0;
+    sock->domain = d;
+    sock->type = t;
+    sock->closed = 0;
+    sock->listening = 0;
+
+    return hml_val_socket(sock);
+}
+
+// socket.bind(address, port)
+void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: bind() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot bind closed socket\n");
+        exit(1);
+    }
+
+    const char *addr_str = hml_to_string_ptr(address);
+    int p = hml_to_i32(port);
+
+    if (sock->domain != AF_INET) {
+        fprintf(stderr, "Runtime error: Only AF_INET sockets supported currently\n");
+        exit(1);
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(p);
+
+    if (strcmp(addr_str, "0.0.0.0") == 0) {
+        addr.sin_addr.s_addr = INADDR_ANY;
+    } else if (inet_pton(AF_INET, addr_str, &addr.sin_addr) != 1) {
+        fprintf(stderr, "Runtime error: Invalid IP address: %s\n", addr_str);
+        exit(1);
+    }
+
+    if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        fprintf(stderr, "Runtime error: Failed to bind socket to %s:%d: %s\n",
+                addr_str, p, strerror(errno));
+        exit(1);
+    }
+
+    if (sock->address) free(sock->address);
+    sock->address = strdup(addr_str);
+    sock->port = p;
+}
+
+// socket.listen(backlog)
+void hml_socket_listen(HmlValue socket_val, HmlValue backlog) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: listen() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot listen on closed socket\n");
+        exit(1);
+    }
+
+    int bl = hml_to_i32(backlog);
+    if (listen(sock->fd, bl) < 0) {
+        fprintf(stderr, "Runtime error: Failed to listen on socket: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    sock->listening = 1;
+}
+
+// socket.accept() -> socket
+HmlValue hml_socket_accept(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: accept() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot accept on closed socket\n");
+        exit(1);
+    }
+
+    if (!sock->listening) {
+        fprintf(stderr, "Runtime error: Socket must be listening before accept()\n");
+        exit(1);
+    }
+
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+
+    int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    if (client_fd < 0) {
+        fprintf(stderr, "Runtime error: Failed to accept connection: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    HmlSocket *client_sock = malloc(sizeof(HmlSocket));
+    client_sock->fd = client_fd;
+    client_sock->domain = sock->domain;
+    client_sock->type = sock->type;
+    client_sock->closed = 0;
+    client_sock->listening = 0;
+
+    char addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str));
+    client_sock->address = strdup(addr_str);
+    client_sock->port = ntohs(client_addr.sin_port);
+
+    return hml_val_socket(client_sock);
+}
+
+// socket.connect(address, port)
+void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: connect() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot connect closed socket\n");
+        exit(1);
+    }
+
+    const char *addr_str = hml_to_string_ptr(address);
+    int p = hml_to_i32(port);
+
+    struct hostent *host = gethostbyname(addr_str);
+    if (!host) {
+        fprintf(stderr, "Runtime error: Failed to resolve hostname '%s'\n", addr_str);
+        exit(1);
+    }
+
+    if (sock->domain != AF_INET) {
+        fprintf(stderr, "Runtime error: Only AF_INET sockets supported currently\n");
+        exit(1);
+    }
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(p);
+    memcpy(&server_addr.sin_addr.s_addr, host->h_addr_list[0], host->h_length);
+
+    if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        fprintf(stderr, "Runtime error: Failed to connect to %s:%d: %s\n",
+                addr_str, p, strerror(errno));
+        exit(1);
+    }
+
+    if (sock->address) free(sock->address);
+    sock->address = strdup(addr_str);
+    sock->port = p;
+}
+
+// socket.send(data) -> i32 (bytes sent)
+HmlValue hml_socket_send(HmlValue socket_val, HmlValue data) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: send() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot send on closed socket\n");
+        exit(1);
+    }
+
+    const void *buf;
+    size_t len;
+
+    if (data.type == HML_VAL_STRING && data.as.as_string) {
+        buf = data.as.as_string->data;
+        len = data.as.as_string->length;
+    } else if (data.type == HML_VAL_BUFFER && data.as.as_buffer) {
+        buf = data.as.as_buffer->data;
+        len = data.as.as_buffer->length;
+    } else {
+        fprintf(stderr, "Runtime error: send() expects string or buffer\n");
+        exit(1);
+    }
+
+    ssize_t sent = send(sock->fd, buf, len, 0);
+    if (sent < 0) {
+        fprintf(stderr, "Runtime error: Failed to send data: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    return hml_val_i32((int32_t)sent);
+}
+
+// socket.recv(size) -> buffer
+HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: recv() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot recv on closed socket\n");
+        exit(1);
+    }
+
+    int sz = hml_to_i32(size);
+    if (sz <= 0) {
+        return hml_val_buffer(0);
+    }
+
+    void *buf = malloc(sz);
+    ssize_t received = recv(sock->fd, buf, sz, 0);
+    if (received < 0) {
+        free(buf);
+        fprintf(stderr, "Runtime error: Failed to receive data: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    HmlBuffer *hbuf = malloc(sizeof(HmlBuffer));
+    hbuf->data = buf;
+    hbuf->length = (int)received;
+    hbuf->capacity = sz;
+    hbuf->ref_count = 1;
+
+    HmlValue result;
+    result.type = HML_VAL_BUFFER;
+    result.as.as_buffer = hbuf;
+    return result;
+}
+
+// socket.sendto(address, port, data) -> i32
+HmlValue hml_socket_sendto(HmlValue socket_val, HmlValue address, HmlValue port, HmlValue data) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: sendto() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot sendto on closed socket\n");
+        exit(1);
+    }
+
+    const char *addr_str = hml_to_string_ptr(address);
+    int p = hml_to_i32(port);
+
+    const void *buf;
+    size_t len;
+
+    if (data.type == HML_VAL_STRING && data.as.as_string) {
+        buf = data.as.as_string->data;
+        len = data.as.as_string->length;
+    } else if (data.type == HML_VAL_BUFFER && data.as.as_buffer) {
+        buf = data.as.as_buffer->data;
+        len = data.as.as_buffer->length;
+    } else {
+        fprintf(stderr, "Runtime error: sendto() data must be string or buffer\n");
+        exit(1);
+    }
+
+    if (sock->domain != AF_INET) {
+        fprintf(stderr, "Runtime error: Only AF_INET sockets supported currently\n");
+        exit(1);
+    }
+
+    struct sockaddr_in dest_addr;
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(p);
+
+    if (inet_pton(AF_INET, addr_str, &dest_addr.sin_addr) != 1) {
+        fprintf(stderr, "Runtime error: Invalid IP address: %s\n", addr_str);
+        exit(1);
+    }
+
+    ssize_t sent = sendto(sock->fd, buf, len, 0,
+            (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+
+    if (sent < 0) {
+        fprintf(stderr, "Runtime error: Failed to sendto %s:%d: %s\n",
+                addr_str, p, strerror(errno));
+        exit(1);
+    }
+
+    return hml_val_i32((int32_t)sent);
+}
+
+// socket.recvfrom(size) -> { data: buffer, address: string, port: i32 }
+HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: recvfrom() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot recvfrom on closed socket\n");
+        exit(1);
+    }
+
+    int sz = hml_to_i32(size);
+    if (sz <= 0) {
+        fprintf(stderr, "Runtime error: recvfrom() size must be positive\n");
+        exit(1);
+    }
+
+    void *buf = malloc(sz);
+    struct sockaddr_in src_addr;
+    socklen_t addr_len = sizeof(src_addr);
+
+    ssize_t received = recvfrom(sock->fd, buf, sz, 0,
+            (struct sockaddr *)&src_addr, &addr_len);
+
+    if (received < 0) {
+        free(buf);
+        fprintf(stderr, "Runtime error: Failed to recvfrom: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // Create buffer for data
+    HmlBuffer *hbuf = malloc(sizeof(HmlBuffer));
+    hbuf->data = buf;
+    hbuf->length = (int)received;
+    hbuf->capacity = sz;
+    hbuf->ref_count = 1;
+
+    // Get source address and port
+    char addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &src_addr.sin_addr, addr_str, sizeof(addr_str));
+    int src_port = ntohs(src_addr.sin_port);
+
+    // Create result object { data, address, port }
+    HmlValue result = hml_val_object();
+    HmlValue data_val;
+    data_val.type = HML_VAL_BUFFER;
+    data_val.as.as_buffer = hbuf;
+
+    hml_object_set_field(result, "data", data_val);
+    hml_object_set_field(result, "address", hml_val_string(addr_str));
+    hml_object_set_field(result, "port", hml_val_i32(src_port));
+
+    return result;
+}
+
+// socket.setsockopt(level, option, value)
+void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option, HmlValue value) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: setsockopt() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot setsockopt on closed socket\n");
+        exit(1);
+    }
+
+    int lvl = hml_to_i32(level);
+    int opt = hml_to_i32(option);
+    int val = hml_to_i32(value);
+
+    if (setsockopt(sock->fd, lvl, opt, &val, sizeof(val)) < 0) {
+        fprintf(stderr, "Runtime error: Failed to set socket option: %s\n", strerror(errno));
+        exit(1);
+    }
+}
+
+// socket.close()
+void hml_socket_close(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: close() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    // Idempotent - safe to call multiple times
+    if (!sock->closed && sock->fd >= 0) {
+        close(sock->fd);
+        sock->fd = -1;
+        sock->closed = 1;
+    }
+}
+
+// Socket property getters
+HmlValue hml_socket_get_fd(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        return hml_val_i32(-1);
+    }
+    return hml_val_i32(socket_val.as.as_socket->fd);
+}
+
+HmlValue hml_socket_get_address(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        return hml_val_null();
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+    if (sock->address) {
+        return hml_val_string(sock->address);
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_socket_get_port(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        return hml_val_i32(0);
+    }
+    return hml_val_i32(socket_val.as.as_socket->port);
+}
+
+HmlValue hml_socket_get_closed(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        return hml_val_bool(1);
+    }
+    return hml_val_bool(socket_val.as.as_socket->closed);
+}
+
 // ========== FFI (Foreign Function Interface) ==========
 
 HmlValue hml_ffi_load(const char *path) {
@@ -5152,4 +5595,86 @@ HmlValue hml_dns_resolve(HmlValue hostname_val) {
 HmlValue hml_builtin_dns_resolve(HmlClosureEnv *env, HmlValue hostname) {
     (void)env;
     return hml_dns_resolve(hostname);
+}
+
+// ========== SOCKET BUILTIN WRAPPERS ==========
+
+HmlValue hml_builtin_socket_create(HmlClosureEnv *env, HmlValue domain, HmlValue sock_type, HmlValue protocol) {
+    (void)env;
+    return hml_socket_create(domain, sock_type, protocol);
+}
+
+HmlValue hml_builtin_socket_bind(HmlClosureEnv *env, HmlValue socket_val, HmlValue address, HmlValue port) {
+    (void)env;
+    hml_socket_bind(socket_val, address, port);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_socket_listen(HmlClosureEnv *env, HmlValue socket_val, HmlValue backlog) {
+    (void)env;
+    hml_socket_listen(socket_val, backlog);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_socket_accept(HmlClosureEnv *env, HmlValue socket_val) {
+    (void)env;
+    return hml_socket_accept(socket_val);
+}
+
+HmlValue hml_builtin_socket_connect(HmlClosureEnv *env, HmlValue socket_val, HmlValue address, HmlValue port) {
+    (void)env;
+    hml_socket_connect(socket_val, address, port);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_socket_close(HmlClosureEnv *env, HmlValue socket_val) {
+    (void)env;
+    hml_socket_close(socket_val);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_socket_send(HmlClosureEnv *env, HmlValue socket_val, HmlValue data) {
+    (void)env;
+    return hml_socket_send(socket_val, data);
+}
+
+HmlValue hml_builtin_socket_recv(HmlClosureEnv *env, HmlValue socket_val, HmlValue size) {
+    (void)env;
+    return hml_socket_recv(socket_val, size);
+}
+
+HmlValue hml_builtin_socket_sendto(HmlClosureEnv *env, HmlValue socket_val, HmlValue address, HmlValue port, HmlValue data) {
+    (void)env;
+    return hml_socket_sendto(socket_val, address, port, data);
+}
+
+HmlValue hml_builtin_socket_recvfrom(HmlClosureEnv *env, HmlValue socket_val, HmlValue size) {
+    (void)env;
+    return hml_socket_recvfrom(socket_val, size);
+}
+
+HmlValue hml_builtin_socket_setsockopt(HmlClosureEnv *env, HmlValue socket_val, HmlValue level, HmlValue option, HmlValue value) {
+    (void)env;
+    hml_socket_setsockopt(socket_val, level, option, value);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_socket_get_fd(HmlClosureEnv *env, HmlValue socket_val) {
+    (void)env;
+    return hml_socket_get_fd(socket_val);
+}
+
+HmlValue hml_builtin_socket_get_address(HmlClosureEnv *env, HmlValue socket_val) {
+    (void)env;
+    return hml_socket_get_address(socket_val);
+}
+
+HmlValue hml_builtin_socket_get_port(HmlClosureEnv *env, HmlValue socket_val) {
+    (void)env;
+    return hml_socket_get_port(socket_val);
+}
+
+HmlValue hml_builtin_socket_get_closed(HmlClosureEnv *env, HmlValue socket_val) {
+    (void)env;
+    return hml_socket_get_closed(socket_val);
 }

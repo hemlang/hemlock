@@ -692,6 +692,25 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGSTOP);", result);
             } else if (strcmp(expr->as.ident, "SIGTSTP") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTSTP);", result);
+            // Handle socket constants
+            } else if (strcmp(expr->as.ident, "AF_INET") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET);", result);
+            } else if (strcmp(expr->as.ident, "AF_INET6") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET6);", result);
+            } else if (strcmp(expr->as.ident, "SOCK_STREAM") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SOCK_STREAM);", result);
+            } else if (strcmp(expr->as.ident, "SOCK_DGRAM") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SOCK_DGRAM);", result);
+            } else if (strcmp(expr->as.ident, "SOL_SOCKET") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SOL_SOCKET);", result);
+            } else if (strcmp(expr->as.ident, "SO_REUSEADDR") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SO_REUSEADDR);", result);
+            } else if (strcmp(expr->as.ident, "SO_KEEPALIVE") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SO_KEEPALIVE);", result);
+            } else if (strcmp(expr->as.ident, "SO_RCVTIMEO") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SO_RCVTIMEO);", result);
+            } else if (strcmp(expr->as.ident, "SO_SNDTIMEO") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SO_SNDTIMEO);", result);
             // Handle math constants (builtins)
             } else if (strcmp(expr->as.ident, "__PI") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_f64(3.14159265358979323846);", result);
@@ -894,6 +913,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // DNS/Networking builtins
             } else if (strcmp(expr->as.ident, "dns_resolve") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dns_resolve, 1, 0);", result);
+            // Socket builtins
+            } else if (strcmp(expr->as.ident, "socket_create") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_socket_create, 3, 0);", result);
             // Unprefixed aliases for math functions (for parity with interpreter)
             } else if (strcmp(expr->as.ident, "sin") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sin, 1, 0);", result);
@@ -1551,6 +1573,32 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // ========== SOCKET BUILTINS ==========
+
+                // socket_create(domain, type, protocol)
+                if (strcmp(fn_name, "socket_create") == 0 && expr->as.call.num_args == 3) {
+                    char *domain = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *sock_type = codegen_expr(ctx, expr->as.call.args[1]);
+                    char *protocol = codegen_expr(ctx, expr->as.call.args[2]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_socket_create(%s, %s, %s);", result, domain, sock_type, protocol);
+                    codegen_writeln(ctx, "hml_release(&%s);", domain);
+                    codegen_writeln(ctx, "hml_release(&%s);", sock_type);
+                    codegen_writeln(ctx, "hml_release(&%s);", protocol);
+                    free(domain);
+                    free(sock_type);
+                    free(protocol);
+                    break;
+                }
+
+                // dns_resolve(hostname)
+                if (strcmp(fn_name, "dns_resolve") == 0 && expr->as.call.num_args == 1) {
+                    char *hostname = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_dns_resolve(%s);", result, hostname);
+                    codegen_writeln(ctx, "hml_release(&%s);", hostname);
+                    free(hostname);
+                    break;
+                }
+
                 // Handle user-defined function by name (hml_fn_<name>)
                 if (codegen_is_local(ctx, fn_name)) {
                     // It's a local function variable - call through hml_call_function
@@ -1727,11 +1775,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 } else if (strcmp(method, "tell") == 0 && expr->as.call.num_args == 0) {
                     codegen_writeln(ctx, "HmlValue %s = hml_file_tell(%s);", result, obj_val);
                 } else if (strcmp(method, "close") == 0 && expr->as.call.num_args == 0) {
-                    // Handle both file.close() and channel.close()
+                    // Handle file.close(), channel.close(), and socket.close()
                     codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
                     codegen_writeln(ctx, "    hml_file_close(%s);", obj_val);
                     codegen_writeln(ctx, "} else if (%s.type == HML_VAL_CHANNEL) {", obj_val);
                     codegen_writeln(ctx, "    hml_channel_close(%s);", obj_val);
+                    codegen_writeln(ctx, "} else if (%s.type == HML_VAL_SOCKET) {", obj_val);
+                    codegen_writeln(ctx, "    hml_socket_close(%s);", obj_val);
                     codegen_writeln(ctx, "}");
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
                 } else if (strcmp(method, "map") == 0 && expr->as.call.num_args == 1) {
@@ -1749,12 +1799,48 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, hml_val_null());",
                                       result, obj_val, arg_temps[0]);
                     }
-                // Channel methods
+                // Channel methods (also handle socket variants)
                 } else if (strcmp(method, "send") == 0 && expr->as.call.num_args == 1) {
-                    codegen_writeln(ctx, "hml_channel_send(%s, %s);", obj_val, arg_temps[0]);
+                    // Channel send or socket send
+                    codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
+                    codegen_writeln(ctx, "    hml_channel_send(%s, %s);", obj_val, arg_temps[0]);
+                    codegen_writeln(ctx, "}");
+                    codegen_writeln(ctx, "HmlValue %s;", result);
+                    codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+                    codegen_writeln(ctx, "    %s = hml_socket_send(%s, %s);", result, obj_val, arg_temps[0]);
+                    codegen_writeln(ctx, "} else {");
+                    codegen_writeln(ctx, "    %s = hml_val_null();", result);
+                    codegen_writeln(ctx, "}");
+                } else if (strcmp(method, "recv") == 0) {
+                    // Channel recv (no args) or socket recv (1 arg for size)
+                    codegen_writeln(ctx, "HmlValue %s;", result);
+                    if (expr->as.call.num_args == 0) {
+                        codegen_writeln(ctx, "%s = hml_channel_recv(%s);", result, obj_val);
+                    } else {
+                        codegen_writeln(ctx, "%s = hml_socket_recv(%s, %s);", result, obj_val, arg_temps[0]);
+                    }
+                // Socket-specific methods
+                } else if (strcmp(method, "bind") == 0 && expr->as.call.num_args == 2) {
+                    codegen_writeln(ctx, "hml_socket_bind(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-                } else if (strcmp(method, "recv") == 0 && expr->as.call.num_args == 0) {
-                    codegen_writeln(ctx, "HmlValue %s = hml_channel_recv(%s);", result, obj_val);
+                } else if (strcmp(method, "listen") == 0 && expr->as.call.num_args == 1) {
+                    codegen_writeln(ctx, "hml_socket_listen(%s, %s);", obj_val, arg_temps[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                } else if (strcmp(method, "accept") == 0 && expr->as.call.num_args == 0) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_socket_accept(%s);", result, obj_val);
+                } else if (strcmp(method, "connect") == 0 && expr->as.call.num_args == 2) {
+                    codegen_writeln(ctx, "hml_socket_connect(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                } else if (strcmp(method, "sendto") == 0 && expr->as.call.num_args == 3) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_socket_sendto(%s, %s, %s, %s);",
+                                  result, obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+                } else if (strcmp(method, "recvfrom") == 0 && expr->as.call.num_args == 1) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_socket_recvfrom(%s, %s);",
+                                  result, obj_val, arg_temps[0]);
+                } else if (strcmp(method, "setsockopt") == 0 && expr->as.call.num_args == 3) {
+                    codegen_writeln(ctx, "hml_socket_setsockopt(%s, %s, %s, %s);",
+                                  obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
                 // Serialization methods
                 } else if (strcmp(method, "serialize") == 0 && expr->as.call.num_args == 0) {
                     codegen_writeln(ctx, "HmlValue %s = hml_serialize(%s);", result, obj_val);
@@ -1851,6 +1937,51 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_object_get_field(%s, \"length\");", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            // Socket properties: fd, address, port, closed
+            } else if (strcmp(expr->as.get_property.property, "fd") == 0) {
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_socket_get_fd(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, \"fd\");", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (strcmp(expr->as.get_property.property, "address") == 0) {
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_socket_get_address(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, \"address\");", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (strcmp(expr->as.get_property.property, "port") == 0) {
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_socket_get_port(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, \"port\");", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (strcmp(expr->as.get_property.property, "closed") == 0) {
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_socket_get_closed(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, \"closed\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else {
@@ -3257,7 +3388,10 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, " */\n\n");
     codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
     codegen_write(ctx, "#include <setjmp.h>\n");
-    codegen_write(ctx, "#include <signal.h>\n\n");
+    codegen_write(ctx, "#include <signal.h>\n");
+    codegen_write(ctx, "#include <sys/socket.h>\n");
+    codegen_write(ctx, "#include <netinet/in.h>\n");
+    codegen_write(ctx, "#include <arpa/inet.h>\n\n");
 
     // Signal constants
     codegen_write(ctx, "// Signal constants\n");

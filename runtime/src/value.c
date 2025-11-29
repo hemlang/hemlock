@@ -229,6 +229,13 @@ HmlValue hml_val_builtin_fn(HmlBuiltinFn fn) {
     return v;
 }
 
+HmlValue hml_val_socket(HmlSocket *sock) {
+    HmlValue v;
+    v.type = HML_VAL_SOCKET;
+    v.as.as_socket = sock;
+    return v;
+}
+
 // ========== REFERENCE COUNTING ==========
 
 void hml_retain(HmlValue *val) {
@@ -594,6 +601,7 @@ const char* hml_type_name(HmlValueType type) {
         case HML_VAL_BUILTIN_FN: return "builtin_fn";
         case HML_VAL_TASK:    return "task";
         case HML_VAL_CHANNEL: return "channel";
+        case HML_VAL_SOCKET:  return "socket";
         case HML_VAL_NULL:    return "null";
         default:              return "unknown";
     }

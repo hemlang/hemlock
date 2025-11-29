@@ -1,0 +1,33 @@
+// Test socket builtins for compiler
+
+// Test socket constants are available
+print(AF_INET);
+print(SOCK_STREAM);
+print(SOCK_DGRAM);
+print(SOL_SOCKET);
+print(SO_REUSEADDR);
+
+// Test socket creation (TCP)
+let tcp_sock = socket_create(AF_INET, SOCK_STREAM, 0);
+print(typeof(tcp_sock));
+
+// Test socket properties
+let fd = tcp_sock.fd;
+print(fd > 0);
+print(tcp_sock.closed);
+
+// Test socket close
+tcp_sock.close();
+print(tcp_sock.closed);
+
+// Test UDP socket creation
+let udp_sock = socket_create(AF_INET, SOCK_DGRAM, 0);
+print(typeof(udp_sock));
+udp_sock.close();
+print(udp_sock.closed);
+
+// Test DNS resolve
+let ip = dns_resolve("localhost");
+print(ip);
+
+print("done");

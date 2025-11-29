@@ -20,6 +20,7 @@ typedef struct HmlFunction HmlFunction;
 typedef struct HmlFileHandle HmlFileHandle;
 typedef struct HmlTask HmlTask;
 typedef struct HmlChannel HmlChannel;
+typedef struct HmlSocket HmlSocket;
 
 // Task states
 typedef enum {
@@ -52,6 +53,7 @@ typedef enum {
     HML_VAL_BUILTIN_FN,
     HML_VAL_TASK,
     HML_VAL_CHANNEL,
+    HML_VAL_SOCKET,
     HML_VAL_NULL,
 } HmlValueType;
 
@@ -85,6 +87,7 @@ typedef struct HmlValue {
         HmlBuiltinFn as_builtin_fn;
         HmlTask *as_task;
         HmlChannel *as_channel;
+        HmlSocket *as_socket;
     } as;
 } HmlValue;
 
@@ -172,6 +175,17 @@ struct HmlChannel {
     int ref_count;
 };
 
+// Socket (TCP/UDP networking)
+struct HmlSocket {
+    int fd;                 // File descriptor
+    char *address;          // Bound/connected address
+    int port;               // Bound/connected port
+    int domain;             // AF_INET, AF_INET6
+    int type;               // SOCK_STREAM, SOCK_DGRAM
+    int closed;             // 1 if closed
+    int listening;          // 1 if in listening mode
+};
+
 // Type definition for duck typing
 typedef struct HmlTypeField {
     char *name;
@@ -210,6 +224,7 @@ HmlValue hml_val_null(void);
 HmlValue hml_val_function(void *fn_ptr, int num_params, int is_async);
 HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int is_async);
 HmlValue hml_val_builtin_fn(HmlBuiltinFn fn);
+HmlValue hml_val_socket(HmlSocket *sock);
 
 // ========== REFERENCE COUNTING ==========
 
