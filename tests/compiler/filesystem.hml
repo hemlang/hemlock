@@ -1,0 +1,89 @@
+// Test filesystem builtins
+
+let test_dir = "/tmp/hemlock_fs_test";
+let test_file = "/tmp/hemlock_fs_test/test.txt";
+
+// Clean up any previous test artifacts
+if (exists(test_dir)) {
+    if (exists(test_file)) {
+        remove_file(test_file);
+    }
+    remove_dir(test_dir);
+}
+
+// Test cwd() - returns current working directory
+let current = cwd();
+print(typeof(current) == "string");  // true
+print(current.length > 0);  // true
+
+// Test exists() - check if path exists
+print(exists("/tmp"));  // true
+print(exists("/nonexistent_path_12345"));  // false
+
+// Test is_dir()
+print(is_dir("/tmp"));  // true
+print(is_dir("/etc/passwd"));  // false (it's a file)
+
+// Test is_file()
+print(is_file("/etc/passwd"));  // true
+print(is_file("/tmp"));  // false (it's a directory)
+
+// Test make_dir()
+make_dir(test_dir);
+print(exists(test_dir));  // true
+print(is_dir(test_dir));  // true
+
+// Test write_file()
+write_file(test_file, "Hello, World!");
+print(exists(test_file));  // true
+print(is_file(test_file));  // true
+
+// Test read_file()
+let content = read_file(test_file);
+print(content == "Hello, World!");  // true
+
+// Test append_file()
+append_file(test_file, "\nGoodbye!");
+let updated = read_file(test_file);
+print(updated == "Hello, World!\nGoodbye!");  // true
+
+// Test copy_file()
+let copy_path = "/tmp/hemlock_fs_test/copy.txt";
+copy_file(test_file, copy_path);
+print(exists(copy_path));  // true
+let copied = read_file(copy_path);
+print(copied == updated);  // true
+
+// Test rename()
+let renamed_path = "/tmp/hemlock_fs_test/renamed.txt";
+rename(copy_path, renamed_path);
+print(exists(renamed_path));  // true
+print(exists(copy_path));  // false
+
+// Test list_dir()
+let entries = list_dir(test_dir);
+print(entries.length == 2);  // true (test.txt and renamed.txt)
+
+// Test file_stat()
+let stat = file_stat(test_file);
+print(stat.size > 0);  // true
+print(stat.is_file == true);  // true
+print(stat.is_dir == false);  // true
+
+// Test absolute_path()
+let abs = absolute_path(test_file);
+print(abs.starts_with("/"));  // true
+
+// Test chdir()
+let original_dir = cwd();
+chdir("/tmp");
+print(cwd() == "/tmp");  // true
+chdir(original_dir);  // restore
+
+// Clean up
+remove_file(test_file);
+remove_file(renamed_path);
+remove_dir(test_dir);
+print(exists(test_dir));  // false
+
+print("All filesystem tests passed!");

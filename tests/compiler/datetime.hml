@@ -1,0 +1,36 @@
+// Test datetime builtins
+
+// Get current timestamp
+let ts = now();
+print(ts > 0);
+
+// localtime - convert timestamp to time object
+let local = localtime(ts);
+print(local.year >= 2024);
+print(local.month >= 1 && local.month <= 12);
+print(local.day >= 1 && local.day <= 31);
+print(local.hour >= 0 && local.hour <= 23);
+print(local.minute >= 0 && local.minute <= 59);
+print(local.second >= 0 && local.second <= 60);
+
+// gmtime - convert timestamp to UTC time object
+let utc = gmtime(ts);
+print(utc.year >= 2024);
+print(utc.month >= 1 && utc.month <= 12);
+
+// mktime - convert time object back to timestamp
+let ts2 = mktime(local);
+print(ts2 > 0);
+
+// strftime - format time
+let formatted = strftime("%Y", local);
+print(formatted.length == 4);
+
+// Test with fixed timestamp (2024-01-01 00:00:00 UTC approximately)
+let fixed_ts = 1704067200;
+let fixed_local = gmtime(fixed_ts);
+print(fixed_local.year == 2024);
+print(fixed_local.month == 1);
+print(fixed_local.day == 1);
+
+print("done");

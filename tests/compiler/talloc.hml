@@ -1,0 +1,26 @@
+// Test talloc builtin - typed allocation
+
+// Allocate space for 10 i32 values (40 bytes)
+let p1 = talloc("i32", 10);
+print("allocated i32 array");
+
+// Allocate space for 5 i64 values (40 bytes)
+let p2 = talloc("i64", 5);
+print("allocated i64 array");
+
+// Allocate space for 100 bytes
+let p3 = talloc("u8", 100);
+print("allocated u8 array");
+
+// Allocate space for 8 pointers (64 bytes)
+let p4 = talloc("ptr", 8);
+print("allocated ptr array");
+
+// Free all allocated memory
+free(p1);
+free(p2);
+free(p3);
+free(p4);
+
+print("freed all");
+print("done");

@@ -1,0 +1,32 @@
+// Test HTTP/WebSocket builtins codegen
+// Without libwebsockets installed, actual calls exit with error.
+// This test verifies function-as-value (EXPR_IDENT) codegen works.
+
+// Test that HTTP functions are recognized as function values
+let get_fn = __lws_http_get;
+print(typeof(get_fn) == "function");
+
+let post_fn = __lws_http_post;
+print(typeof(post_fn) == "function");
+
+let status_fn = __lws_response_status;
+print(typeof(status_fn) == "function");
+
+let body_fn = __lws_response_body;
+print(typeof(body_fn) == "function");
+
+let headers_fn = __lws_response_headers;
+print(typeof(headers_fn) == "function");
+
+let free_fn = __lws_response_free;
+print(typeof(free_fn) == "function");
+
+// Test that functions can be stored in arrays
+let funcs = [get_fn, post_fn, status_fn, body_fn, headers_fn, free_fn];
+print(funcs.length == 6);
+
+// Verify functions stored in array are still functions
+print(typeof(funcs[0]) == "function");
+print(typeof(funcs[5]) == "function");
+
+print("done");

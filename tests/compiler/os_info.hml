@@ -1,0 +1,59 @@
+// Test OS info builtins
+
+// Test platform() - should return "linux", "macos", or "windows"
+let plat = platform();
+print(typeof(plat) == "string");  // true
+
+// Test arch() - should return architecture like "x86_64"
+let cpu_arch = arch();
+print(typeof(cpu_arch) == "string");  // true
+print(cpu_arch.length > 0);  // true
+
+// Test hostname()
+let host = hostname();
+print(typeof(host) == "string");  // true
+print(host.length > 0);  // true
+
+// Test username()
+let user = username();
+print(typeof(user) == "string");  // true
+print(user.length > 0);  // true
+
+// Test homedir()
+let home = homedir();
+print(typeof(home) == "string");  // true
+print(home.length > 0);  // true
+
+// Test cpu_count() - should return positive integer
+let cpus = cpu_count();
+print(cpus >= 1);  // true
+
+// Test total_memory() - should return positive i64
+let total_mem = total_memory();
+print(total_mem > 0);  // true
+
+// Test free_memory() - should return positive i64
+let free_mem = free_memory();
+print(free_mem > 0);  // true
+print(free_mem <= total_mem);  // true
+
+// Test os_version()
+let version = os_version();
+print(typeof(version) == "string");  // true
+print(version.length > 0);  // true
+
+// Test os_name()
+let name = os_name();
+print(typeof(name) == "string");  // true
+print(name.length > 0);  // true
+
+// Test tmpdir()
+let tmp = tmpdir();
+print(typeof(tmp) == "string");  // true
+print(tmp.length > 0);  // true
+
+// Test uptime() - should return positive i64 (seconds)
+let up = uptime();
+print(up > 0);  // true
+
+print("All OS info tests passed!");

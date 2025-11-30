@@ -1,0 +1,35 @@
+// Test process management builtins
+
+// Test process ID functions
+let pid = get_pid();
+print(pid > 0);
+
+let ppid = getppid();
+print(ppid > 0);
+
+let uid = getuid();
+print(uid >= 0);
+
+let euid = geteuid();
+print(euid >= 0);
+
+let gid = getgid();
+print(gid >= 0);
+
+let egid = getegid();
+print(egid >= 0);
+
+// Test that IDs are consistent
+print(uid == getuid());
+print(gid == getgid());
+print(pid == get_pid());
+
+// Test exec
+let result = exec("echo hello");
+print(result.exit_code == 0);
+print(result.output == "hello\n");
+
+// Note: fork/wait/waitpid/kill not tested here as they're
+// complex to test reliably in a test harness
+
+print("done");

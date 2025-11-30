@@ -40,4 +40,21 @@ print(sinval);
 let cosval = cos(0.0);
 print(cosval);
 
+// clamp
+print(clamp(5, 0, 10));   // 5 (in range)
+print(clamp(-5, 0, 10));  // 0 (below min)
+print(clamp(15, 0, 10));  // 10 (above max)
+
+// rand_range - just test it runs (seeded for reproducibility)
+seed(42);
+let r = rand_range(0.0, 10.0);
+print(r >= 0.0 && r <= 10.0);  // true
+
+// log10, log2
+print(log10(100.0));  // 2
+print(log2(8.0));     // 3
+
+// atan2
+print(atan2(1.0, 1.0) > 0.0);  // true (pi/4 radians)
+
 print("done");

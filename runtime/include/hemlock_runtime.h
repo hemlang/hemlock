@@ -289,6 +289,8 @@ HmlValue hml_realloc(HmlValue ptr, int32_t new_size);
 void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size);
 void hml_memcpy(HmlValue dest, HmlValue src, int32_t size);
 int32_t hml_sizeof_type(HmlValueType type);
+HmlValue hml_talloc(HmlValue type_name, HmlValue count);
+HmlValue hml_builtin_talloc(HmlClosureEnv *env, HmlValue type_name, HmlValue count);
 
 // Buffer operations
 HmlValue hml_buffer_get(HmlValue buf, HmlValue index);
@@ -336,6 +338,7 @@ void hml_defer_execute_all(void);
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args);
 HmlValue hml_join(HmlValue task);
 void hml_detach(HmlValue task);
+void hml_task_debug_info(HmlValue task);
 
 // Channels
 HmlValue hml_channel(int32_t capacity);
@@ -466,6 +469,48 @@ HmlValue hml_dns_resolve(HmlValue hostname);
 // DNS builtin wrapper
 HmlValue hml_builtin_dns_resolve(HmlClosureEnv *env, HmlValue hostname);
 
+// ========== SOCKET OPERATIONS ==========
+
+// Socket creation and lifecycle
+HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protocol);
+void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port);
+void hml_socket_listen(HmlValue socket_val, HmlValue backlog);
+HmlValue hml_socket_accept(HmlValue socket_val);
+void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port);
+void hml_socket_close(HmlValue socket_val);
+
+// Socket I/O
+HmlValue hml_socket_send(HmlValue socket_val, HmlValue data);
+HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size);
+HmlValue hml_socket_sendto(HmlValue socket_val, HmlValue address, HmlValue port, HmlValue data);
+HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size);
+
+// Socket options
+void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option, HmlValue value);
+
+// Socket property getters
+HmlValue hml_socket_get_fd(HmlValue socket_val);
+HmlValue hml_socket_get_address(HmlValue socket_val);
+HmlValue hml_socket_get_port(HmlValue socket_val);
+HmlValue hml_socket_get_closed(HmlValue socket_val);
+
+// Socket builtin wrappers
+HmlValue hml_builtin_socket_create(HmlClosureEnv *env, HmlValue domain, HmlValue sock_type, HmlValue protocol);
+HmlValue hml_builtin_socket_bind(HmlClosureEnv *env, HmlValue socket_val, HmlValue address, HmlValue port);
+HmlValue hml_builtin_socket_listen(HmlClosureEnv *env, HmlValue socket_val, HmlValue backlog);
+HmlValue hml_builtin_socket_accept(HmlClosureEnv *env, HmlValue socket_val);
+HmlValue hml_builtin_socket_connect(HmlClosureEnv *env, HmlValue socket_val, HmlValue address, HmlValue port);
+HmlValue hml_builtin_socket_close(HmlClosureEnv *env, HmlValue socket_val);
+HmlValue hml_builtin_socket_send(HmlClosureEnv *env, HmlValue socket_val, HmlValue data);
+HmlValue hml_builtin_socket_recv(HmlClosureEnv *env, HmlValue socket_val, HmlValue size);
+HmlValue hml_builtin_socket_sendto(HmlClosureEnv *env, HmlValue socket_val, HmlValue address, HmlValue port, HmlValue data);
+HmlValue hml_builtin_socket_recvfrom(HmlClosureEnv *env, HmlValue socket_val, HmlValue size);
+HmlValue hml_builtin_socket_setsockopt(HmlClosureEnv *env, HmlValue socket_val, HmlValue level, HmlValue option, HmlValue value);
+HmlValue hml_builtin_socket_get_fd(HmlClosureEnv *env, HmlValue socket_val);
+HmlValue hml_builtin_socket_get_address(HmlClosureEnv *env, HmlValue socket_val);
+HmlValue hml_builtin_socket_get_port(HmlClosureEnv *env, HmlValue socket_val);
+HmlValue hml_builtin_socket_get_closed(HmlClosureEnv *env, HmlValue socket_val);
+
 // ========== SIGNAL HANDLING ==========
 
 // Maximum signal number supported
@@ -539,6 +584,35 @@ void* hml_ffi_sym(HmlValue lib, const char *name);
 // Call an FFI function with given arguments and types
 // types array contains: [return_type, arg1_type, arg2_type, ...]
 HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *types);
+
+// ========== HTTP/WEBSOCKET FUNCTIONS ==========
+// These require libwebsockets at runtime
+
+// HTTP GET request
+HmlValue hml_lws_http_get(HmlValue url);
+
+// HTTP POST request
+HmlValue hml_lws_http_post(HmlValue url, HmlValue body, HmlValue content_type);
+
+// Get HTTP response status code
+HmlValue hml_lws_response_status(HmlValue resp);
+
+// Get HTTP response body
+HmlValue hml_lws_response_body(HmlValue resp);
+
+// Get HTTP response headers
+HmlValue hml_lws_response_headers(HmlValue resp);
+
+// Free HTTP response
+HmlValue hml_lws_response_free(HmlValue resp);
+
+// Builtin wrappers for function-as-value
+HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url);
+HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp);
+HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue resp);
+HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp);
+HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp);
 
 // ========== UTILITY MACROS ==========
 

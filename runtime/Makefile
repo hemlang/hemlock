@@ -11,6 +11,20 @@ ifeq ($(ZLIB_CHECK),yes)
     LDFLAGS += -lz
 endif
 
+# Check if libwebsockets is available
+LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
+ifeq ($(LWS_CHECK),yes)
+    CFLAGS += -DHML_HAVE_LIBWEBSOCKETS $(shell pkg-config --cflags libwebsockets)
+    LDFLAGS += $(shell pkg-config --libs libwebsockets)
+else
+    # Fallback: check if header exists directly
+    LWS_HEADER_CHECK := $(shell test -f /usr/include/libwebsockets.h && echo yes)
+    ifeq ($(LWS_HEADER_CHECK),yes)
+        CFLAGS += -DHML_HAVE_LIBWEBSOCKETS
+        LDFLAGS += -lwebsockets -lssl -lcrypto
+    endif
+endif
+
 SRC_DIR = src
 BUILD_DIR = build
 INCLUDE_DIR = include

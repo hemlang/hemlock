@@ -1,0 +1,36 @@
+// Test unprefixed builtin aliases
+
+// Math functions (using direct function call)
+print(sin(0.0));
+print(cos(0.0));
+print(sqrt(4.0));
+print(floor(3.7));
+print(ceil(2.3));
+print(round(2.5));
+
+// Test pow
+print(pow(2.0, 3.0));
+
+// Test log functions
+print(log(1.0));
+print(log10(100.0));
+print(log2(8.0));
+
+// Test atan2
+print(atan2(1.0, 1.0));
+
+// Environment functions
+let test_var = getenv("PATH");
+if (test_var != null) {
+    print("PATH exists");
+} else {
+    print("PATH not found");
+}
+
+// get_pid should return a positive integer
+let pid = get_pid();
+if (pid > 0) {
+    print("PID is positive");
+}
+
+print("done");

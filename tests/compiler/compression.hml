@@ -1,0 +1,54 @@
+// Test compression builtins
+
+// Create a buffer with test data for crc32/adler32
+let buf = buffer(5);
+buf[0] = 104; // 'h'
+buf[1] = 101; // 'e'
+buf[2] = 108; // 'l'
+buf[3] = 108; // 'l'
+buf[4] = 111; // 'o'
+
+// Test crc32 - buffer based
+let crc = crc32(buf);
+print(crc > 0);
+
+// Test adler32 - buffer based
+let adler = adler32(buf);
+print(adler > 0);
+
+// Test zlib_compress_bound
+let bound = zlib_compress_bound(100);
+print(bound > 100);
+
+// Test zlib compress/decompress roundtrip - string based
+let original = "Hello, World! This is a test string for compression testing.";
+let compressed = zlib_compress(original, 6);
+print(compressed.length > 0);
+
+let decompressed = zlib_decompress(compressed, 1000);
+print(decompressed == original);
+
+// Test gzip compress/decompress roundtrip - string based
+let gzip_compressed = gzip_compress(original, 6);
+print(gzip_compressed.length > 0);
+
+let gzip_decompressed = gzip_decompress(gzip_compressed, 1000);
+print(gzip_decompressed == original);
+
+// Test that crc32 is deterministic
+let buf2 = buffer(4);
+buf2[0] = 116; // 't'
+buf2[1] = 101; // 'e'
+buf2[2] = 115; // 's'
+buf2[3] = 116; // 't'
+
+let crc1 = crc32(buf2);
+let crc2 = crc32(buf2);
+print(crc1 == crc2);
+
+// Test that adler32 is deterministic
+let adler1 = adler32(buf2);
+let adler2 = adler32(buf2);
+print(adler1 == adler2);
+
+print("done");

@@ -1,0 +1,6 @@
+allocated i32 array
+allocated i64 array
+allocated u8 array
+allocated ptr array
+freed all
+done

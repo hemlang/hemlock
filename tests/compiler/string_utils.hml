@@ -1,0 +1,27 @@
+// Test string utility builtins
+
+// Test to_string
+print(to_string(42) == "42");
+print(to_string(3.14) == "3.14");
+print(to_string(true) == "true");
+print(to_string(false) == "false");
+print(to_string(null) == "null");
+print(to_string("hello") == "hello");
+
+// Test string_byte_length
+print(string_byte_length("hello") == 5);
+print(string_byte_length("") == 0);
+
+// strerror() returns the last errno message
+// Just test it returns a string
+let err = strerror();
+print(typeof(err) == "string");
+
+// Test string_to_cstr and cstr_to_string roundtrip
+let original = "Hello, World!";
+let cstr = string_to_cstr(original);
+print(cstr != null);
+let restored = cstr_to_string(cstr);
+print(restored == original);
+
+print("done");
