@@ -323,6 +323,11 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
         return;
     }
 
+    // Set current source file for stack traces
+    const char *previous_file = get_current_source_file();
+    char *saved_file = previous_file ? strdup(previous_file) : NULL;
+    set_current_source_file(module->absolute_path);
+
     // First, execute all imported modules
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
@@ -454,6 +459,12 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 
     // Save the module's environment as exports
     module->exports_env = module_env;
+
+    // Restore previous source file
+    set_current_source_file(saved_file);
+    if (saved_file) {
+        free(saved_file);
+    }
 }
 
 // ========== HIGH-LEVEL API ==========

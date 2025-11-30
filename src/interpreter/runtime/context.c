@@ -1,5 +1,23 @@
 #include "internal.h"
 
+// ========== CURRENT SOURCE FILE TRACKING ==========
+
+static char *current_source_file = NULL;
+
+void set_current_source_file(const char *file) {
+    if (current_source_file) {
+        free(current_source_file);
+        current_source_file = NULL;
+    }
+    if (file) {
+        current_source_file = strdup(file);
+    }
+}
+
+const char* get_current_source_file(void) {
+    return current_source_file;
+}
+
 // ========== EXECUTION CONTEXT IMPLEMENTATION ==========
 
 ExecutionContext* exec_context_new(void) {
@@ -40,6 +58,16 @@ void call_stack_init(CallStack *stack) {
 }
 
 void call_stack_push(CallStack *stack, const char *function_name) {
+    call_stack_push_full(stack, function_name, NULL, 0);
+}
+
+// Push with line number (uses current source file)
+void call_stack_push_line(CallStack *stack, const char *function_name, int line) {
+    call_stack_push_full(stack, function_name, get_current_source_file(), line);
+}
+
+// Push with full info
+void call_stack_push_full(CallStack *stack, const char *function_name, const char *source_file, int line) {
     if (stack->capacity == 0) {
         call_stack_init(stack);
     }
@@ -55,22 +83,18 @@ void call_stack_push(CallStack *stack, const char *function_name) {
     }
 
     stack->frames[stack->count].function_name = strdup(function_name);
-    stack->frames[stack->count].line = 0;  // Set by caller
+    stack->frames[stack->count].source_file = source_file ? strdup(source_file) : NULL;
+    stack->frames[stack->count].line = line;
     stack->count++;
-}
-
-// Push with line number
-void call_stack_push_line(CallStack *stack, const char *function_name, int line) {
-    call_stack_push(stack, function_name);
-    if (stack->count > 0) {
-        stack->frames[stack->count - 1].line = line;
-    }
 }
 
 void call_stack_pop(CallStack *stack) {
     if (stack->count > 0) {
         stack->count--;
         free(stack->frames[stack->count].function_name);
+        if (stack->frames[stack->count].source_file) {
+            free(stack->frames[stack->count].source_file);
+        }
     }
 }
 
@@ -81,12 +105,27 @@ void call_stack_print(CallStack *stack) {
 
     fprintf(stderr, "\nStack trace (most recent call first):\n");
     for (int i = stack->count - 1; i >= 0; i--) {
-        if (stack->frames[i].line > 0) {
-            fprintf(stderr, "  at %s() (line %d)\n",
-                    stack->frames[i].function_name,
-                    stack->frames[i].line);
+        CallFrame *frame = &stack->frames[i];
+
+        if (frame->source_file && frame->line > 0) {
+            // Full info: file:line
+            fprintf(stderr, "    at %s (%s:%d)\n",
+                    frame->function_name,
+                    frame->source_file,
+                    frame->line);
+        } else if (frame->line > 0) {
+            // Line only
+            fprintf(stderr, "    at %s (line %d)\n",
+                    frame->function_name,
+                    frame->line);
+        } else if (frame->source_file) {
+            // File only
+            fprintf(stderr, "    at %s (%s)\n",
+                    frame->function_name,
+                    frame->source_file);
         } else {
-            fprintf(stderr, "  at %s()\n", stack->frames[i].function_name);
+            // No location info
+            fprintf(stderr, "    at %s\n", frame->function_name);
         }
     }
 }
@@ -94,6 +133,9 @@ void call_stack_print(CallStack *stack) {
 void call_stack_free(CallStack *stack) {
     for (int i = 0; i < stack->count; i++) {
         free(stack->frames[i].function_name);
+        if (stack->frames[i].source_file) {
+            free(stack->frames[i].source_file);
+        }
     }
     free(stack->frames);
     stack->frames = NULL;

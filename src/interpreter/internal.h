@@ -34,7 +34,8 @@ typedef struct {
 
 typedef struct {
     char *function_name;
-    int line;  // Future: add line number tracking
+    char *source_file;  // Source file name (optional, can be NULL)
+    int line;           // Line number of the call site
 } CallFrame;
 
 typedef struct {
@@ -283,9 +284,14 @@ void exec_context_free(ExecutionContext *ctx);
 void call_stack_init(CallStack *stack);
 void call_stack_push(CallStack *stack, const char *function_name);
 void call_stack_push_line(CallStack *stack, const char *function_name, int line);
+void call_stack_push_full(CallStack *stack, const char *function_name, const char *source_file, int line);
 void call_stack_pop(CallStack *stack);
 void call_stack_print(CallStack *stack);
 void call_stack_free(CallStack *stack);
+
+// Current source file tracking (for stack traces)
+void set_current_source_file(const char *file);
+const char* get_current_source_file(void);
 
 // Defer stack helpers
 void defer_stack_init(DeferStack *stack);

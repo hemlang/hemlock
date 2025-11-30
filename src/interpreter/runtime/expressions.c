@@ -952,9 +952,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
 
-                // Push call onto stack trace (with line number from function body)
-                int line = (fn->body != NULL) ? fn->body->line : 0;
-                call_stack_push_line(&ctx->call_stack, fn_name, line);
+                // Push call onto stack trace (with line number from call site)
+                call_stack_push_line(&ctx->call_stack, fn_name, expr->line);
 
                 // Create call environment with closure_env as parent
                 Environment *call_env = env_new(fn->closure_env);

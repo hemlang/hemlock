@@ -359,6 +359,7 @@ Expr* postfix(Parser *p) {
             expr = expr_index(expr, index);
         } else if (match(p, TOK_LPAREN)) {
             // Function call: func(...) or obj.method(...)
+            int call_line = p->previous.line;  // Save line of '(' for stack trace
             Expr **args = NULL;
             int num_args = 0;
 
@@ -373,6 +374,7 @@ Expr* postfix(Parser *p) {
 
             consume(p, TOK_RPAREN, "Expect ')' after arguments");
             expr = expr_call(expr, args, num_args);
+            expr->line = call_line;  // Set line number for stack trace
         } else if (match(p, TOK_PLUS_PLUS)) {
             // Postfix increment: x++
             expr = expr_postfix_inc(expr);

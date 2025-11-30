@@ -475,6 +475,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             ctx->exception_state.exception_value = eval_expr(stmt->as.throw_stmt.value, env, ctx);
             value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
+
+            // Push throw location onto stack trace
+            call_stack_push_line(&ctx->call_stack, "<throw>", stmt->line);
             break;
         }
 
@@ -569,9 +572,10 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
 
         // Check for uncaught exception
         if (ctx->exception_state.is_throwing) {
-            fprintf(stderr, "Runtime error: ");
-            print_value(ctx->exception_state.exception_value);
-            fprintf(stderr, "\n");
+            // Convert exception value to string for stderr output
+            char *error_msg = value_to_string(ctx->exception_state.exception_value);
+            fprintf(stderr, "Uncaught exception: %s\n", error_msg);
+            free(error_msg);
             // Print stack trace
             call_stack_print(&ctx->call_stack);
             // Clear stack for next execution (REPL mode)

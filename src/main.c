@@ -118,6 +118,9 @@ static void run_file(const char *path, int argc, char **argv) {
     // Initialize FFI
     ffi_init();
 
+    // Set current source file for stack traces
+    set_current_source_file(path);
+
     // Check if file uses modules
     if (has_modules(source)) {
         // Use module system
@@ -136,8 +139,9 @@ static void run_file(const char *path, int argc, char **argv) {
         exec_context_free(ctx);
         free(source);
 
-        // Cleanup FFI
+        // Cleanup FFI and source file tracking
         ffi_cleanup();
+        set_current_source_file(NULL);
 
         if (result != 0) {
             exit(1);
@@ -147,8 +151,9 @@ static void run_file(const char *path, int argc, char **argv) {
         run_source(source, argc, argv);
         free(source);
 
-        // Cleanup FFI
+        // Cleanup FFI and source file tracking
         ffi_cleanup();
+        set_current_source_file(NULL);
     }
 }
 

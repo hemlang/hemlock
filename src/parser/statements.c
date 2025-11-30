@@ -756,9 +756,12 @@ not_function:
     }
 
     if (match(p, TOK_THROW)) {
+        int throw_line = p->previous.line;  // Save line of 'throw' for stack trace
         Expr *value = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after throw statement");
-        return stmt_throw(value);
+        Stmt *stmt = stmt_throw(value);
+        stmt->line = throw_line;  // Set line number for stack trace
+        return stmt;
     }
 
     if (match(p, TOK_DEFER)) {
