@@ -8,35 +8,43 @@ This guide will help you build and install Hemlock on your system.
 
 Hemlock requires the following dependencies to build:
 
-- **C Compiler**: GCC or Clang
+- **C Compiler**: GCC or Clang (C11 standard)
 - **Make**: GNU Make
-- **libffi-dev**: Foreign Function Interface library (for FFI support)
+- **libffi**: Foreign Function Interface library (for FFI support)
+- **OpenSSL**: Cryptographic library (for hash functions: md5, sha1, sha256)
+- **libwebsockets**: WebSocket and HTTP client/server support
+- **zlib**: Compression library
 
 ### Installing Dependencies
+
+**macOS:**
+```bash
+# Install Homebrew if not already installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Install dependencies via Homebrew
+brew install libffi openssl@3 libwebsockets
+```
+
+**Note for macOS users**: The Makefile automatically detects Homebrew installations and sets the correct include/library paths. Hemlock supports both Intel (x86_64) and Apple Silicon (arm64) architectures.
 
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential libffi-dev
+sudo apt-get install build-essential libffi-dev libssl-dev libwebsockets-dev zlib1g-dev
 ```
 
 **Fedora/RHEL:**
 ```bash
-sudo dnf install gcc make libffi-devel
+sudo dnf install gcc make libffi-devel openssl-devel libwebsockets-devel zlib-devel
 ```
 
 **Arch Linux:**
 ```bash
-sudo pacman -S base-devel libffi
-```
-
-**macOS:**
-```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-
-# Install libffi via Homebrew
-brew install libffi
+sudo pacman -S base-devel libffi openssl libwebsockets zlib
 ```
 
 ## Building from Source
@@ -165,7 +173,38 @@ make clean && make
 
 ## Troubleshooting
 
-### libffi Not Found
+### macOS: Library Not Found Errors
+
+If you get errors about missing libraries (`-lcrypto`, `-lffi`, etc.):
+
+1. Ensure Homebrew dependencies are installed:
+   ```bash
+   brew install libffi openssl@3 libwebsockets
+   ```
+
+2. Verify Homebrew paths:
+   ```bash
+   brew --prefix libffi
+   brew --prefix openssl
+   ```
+
+3. The Makefile should auto-detect these paths. If it doesn't, check that `brew` is in your PATH:
+   ```bash
+   which brew
+   ```
+
+### macOS: BSD Type Errors (`u_int`, `u_char` not found)
+
+If you see errors about unknown type names like `u_int` or `u_char`:
+
+1. This is fixed in v1.0.0+ by using `_DARWIN_C_SOURCE` instead of `_POSIX_C_SOURCE`
+2. Ensure you have the latest version of the code
+3. Clean and rebuild:
+   ```bash
+   make clean && make
+   ```
+
+### Linux: libffi Not Found
 
 If you get errors about missing `ffi.h` or `-lffi`:
 
@@ -183,12 +222,20 @@ If you get errors about missing `ffi.h` or `-lffi`:
 
 If you encounter compilation errors:
 
-1. Ensure you have a C99-compatible compiler
-2. Try using GCC instead of Clang (or vice versa):
+1. Ensure you have a C11-compatible compiler
+2. On macOS, try using Clang (default):
+   ```bash
+   make CC=clang
+   ```
+3. On Linux, try using GCC:
    ```bash
    make CC=gcc
    ```
-3. Check that all dependencies are installed
+4. Check that all dependencies are installed
+5. Try rebuilding from scratch:
+   ```bash
+   make clean && make
+   ```
 
 ### Test Failures
 
@@ -199,7 +246,15 @@ If tests fail:
    ```bash
    make clean && make test
    ```
-3. Report the issue on GitHub with the test output
+3. On macOS, ensure you have the latest Xcode Command Line Tools:
+   ```bash
+   xcode-select --install
+   ```
+4. Report the issue on GitHub with:
+   - Your platform (macOS version / Linux distro)
+   - Architecture (x86_64 / arm64)
+   - Test output
+   - Output of `make -v` and `gcc --version` (or `clang --version`)
 
 ## Next Steps
 
