@@ -79,3 +79,6 @@ install_manifest.txt
 tags
 TAGS
 cscope.*
+
+# Generated documentation
+docs/docs.html
