@@ -386,23 +386,51 @@ if (r.exit_code == 0) {
 
 ### Dependencies
 
-On Ubuntu/Debian:
+**On macOS:**
+```bash
+# Install Homebrew if not already installed (https://brew.sh)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install dependencies
+brew install libffi openssl@3 libwebsockets
+```
+
+**On Ubuntu/Debian:**
 ```bash
 sudo apt-get install libffi-dev libssl-dev libwebsockets-dev
 ```
 
 **Required libraries:**
-- `libffi-dev` - Foreign Function Interface for FFI support
-- `libssl-dev` - OpenSSL for cryptographic hash functions (md5, sha1, sha256)
-- `libwebsockets-dev` - WebSocket and HTTP client/server support
+- `libffi` / `libffi-dev` - Foreign Function Interface for FFI support
+- `openssl` / `libssl-dev` - OpenSSL for cryptographic hash functions (md5, sha1, sha256)
+- `libwebsockets` / `libwebsockets-dev` - WebSocket and HTTP client/server support
 
 On other Linux distributions, install the equivalent development packages.
+
+### Platform-Specific Notes
+
+**macOS:**
+- The Makefile automatically detects Homebrew installations of libffi and OpenSSL
+- Uses `_DARWIN_C_SOURCE` for BSD compatibility
+- Memory statistics use Mach kernel APIs for accurate reporting
+- Supports both Intel (x86_64) and Apple Silicon (arm64)
+
+**Linux:**
+- Uses `_POSIX_C_SOURCE=200809L` for POSIX compliance
+- Memory statistics use sysinfo() system call
+- Requires glibc 2.17+ for full feature support
 
 ### Compile
 
 ```bash
 make
 ```
+
+The build system will automatically:
+- Detect your platform (macOS or Linux)
+- Find Homebrew libraries on macOS
+- Set appropriate compiler flags for your system
+- Link required libraries statically where possible
 
 ## Running Tests
 

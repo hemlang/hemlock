@@ -7,7 +7,13 @@
 #endif
 
 #ifdef __APPLE__
+#include <sys/types.h>
 #include <sys/sysctl.h>
+#include <mach/mach.h>
+#include <mach/vm_statistics.h>
+#include <mach/mach_types.h>
+#include <mach/mach_init.h>
+#include <mach/mach_host.h>
 #endif
 
 // Get platform name (linux, macos, windows)
@@ -215,37 +221,46 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
     int64_t buffers = (int64_t)info.bufferram * (int64_t)info.mem_unit;
     return val_i64(free_mem + buffers);
 #elif defined(__APPLE__)
-    // On macOS, use vm_statistics to get free pages
-    int mib[2] = {CTL_HW, HW_MEMSIZE};
-    int64_t memsize;
-    size_t len = sizeof(memsize);
-    if (sysctl(mib, 2, &memsize, &len, NULL, 0) != 0) {
+    // On macOS, use vm_statistics to get free memory
+    mach_port_t host_port = mach_host_self();
+    vm_size_t page_size;
+    vm_statistics64_data_t vm_stat;
+    mach_msg_type_number_t host_size = sizeof(vm_stat) / sizeof(integer_t);
+    
+    if (host_page_size(host_port, &page_size) != KERN_SUCCESS) {
         char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: %s", strerror(errno));
+        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not get page size");
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
-    // Approximate free memory using available pages
+    
+    if (host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t)&vm_stat, &host_size) != KERN_SUCCESS) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not get VM statistics");
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    
+    // Calculate free memory: free pages + inactive pages (can be reclaimed)
+    int64_t free_memory = (int64_t)(vm_stat.free_count + vm_stat.inactive_count) * (int64_t)page_size;
+    return val_i64(free_memory);
+#else
+    // Fallback: use sysconf for available pages if _SC_AVPHYS_PAGES exists
+    #ifdef _SC_AVPHYS_PAGES
     long avail_pages = sysconf(_SC_AVPHYS_PAGES);
     long page_size = sysconf(_SC_PAGE_SIZE);
     if (avail_pages >= 0 && page_size >= 0) {
         return val_i64((int64_t)avail_pages * (int64_t)page_size);
     }
-    // Fallback: estimate as 10% of total (not great but better than nothing)
-    return val_i64(memsize / 10);
-#else
-    // Fallback: use sysconf for available pages
-    long avail_pages = sysconf(_SC_AVPHYS_PAGES);
-    long page_size = sysconf(_SC_PAGE_SIZE);
-    if (avail_pages < 0 || page_size < 0) {
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not determine free memory");
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
-        return val_null();
-    }
-    return val_i64((int64_t)avail_pages * (int64_t)page_size);
+    #endif
+    
+    char error_msg[256];
+    snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not determine free memory");
+    ctx->exception_state.exception_value = val_string(error_msg);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
 #endif
 }
 

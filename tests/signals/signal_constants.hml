@@ -1,12 +1,22 @@
-// Test that signal constants are defined
+// Test that signal constants are defined and have expected values
+// Note: Some signal values differ between Linux and macOS
+// We test portable signals with known values, and just verify others exist
+
+// These signals have the same values on Linux and macOS
 assert(SIGINT == 2);
 assert(SIGTERM == 15);
 assert(SIGHUP == 1);
 assert(SIGQUIT == 3);
 assert(SIGABRT == 6);
-assert(SIGUSR1 == 10);
-assert(SIGUSR2 == 12);
 assert(SIGALRM == 14);
 assert(SIGPIPE == 13);
+
+// These signals exist but have platform-specific values
+// SIGUSR1: Linux=10, macOS=30
+// SIGUSR2: Linux=12, macOS=31
+// Just verify they are defined and positive
+assert(SIGUSR1 > 0);
+assert(SIGUSR2 > 0);
+assert(SIGUSR1 != SIGUSR2);
 
 print("PASS: signal_constants");

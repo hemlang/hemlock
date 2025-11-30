@@ -1,13 +1,44 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc
+# Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
+ifeq ($(shell uname),Darwin)
+    CFLAGS = -Wall -Wextra -std=c11 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc
+else
+    CFLAGS = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc
+endif
 SRC_DIR = src
 BUILD_DIR = build
+
+# Detect libffi and OpenSSL (Homebrew on macOS puts them in non-standard locations)
+ifeq ($(shell uname),Darwin)
+    # On macOS, prefer Homebrew's libffi (system pkg-config points to SDK without headers)
+    BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
+    ifneq ($(BREW_LIBFFI),)
+        CFLAGS += -I$(BREW_LIBFFI)/include
+        LDFLAGS_LIBFFI = -L$(BREW_LIBFFI)/lib
+    endif
+
+    # On macOS, also need Homebrew's OpenSSL
+    BREW_OPENSSL := $(shell brew --prefix openssl 2>/dev/null)
+    ifneq ($(BREW_OPENSSL),)
+        CFLAGS += -I$(BREW_OPENSSL)/include
+        LDFLAGS_OPENSSL = -L$(BREW_OPENSSL)/lib
+    endif
+else
+    # On Linux, use pkg-config if available
+    LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
+    LIBFFI_LIBS := $(shell pkg-config --libs-only-L libffi 2>/dev/null)
+    ifneq ($(LIBFFI_CFLAGS),)
+        CFLAGS += $(LIBFFI_CFLAGS)
+        LDFLAGS_LIBFFI = $(LIBFFI_LIBS)
+    endif
+    LDFLAGS_OPENSSL =
+endif
 
 # Check if libwebsockets is available
 HAS_LIBWEBSOCKETS := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo 1 || (test -f /usr/include/libwebsockets.h && echo 1 || echo 0))
 
 # Base libraries (always required)
-LDFLAGS = -lm -lpthread -lffi -ldl -lz -lcrypto
+LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto
 
 # Conditionally add libwebsockets
 ifeq ($(HAS_LIBWEBSOCKETS),1)
