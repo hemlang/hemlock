@@ -32,9 +32,9 @@ This compiles `lws_wrapper.c` → `lws_wrapper.so`
 
 ### Usage
 
-Two stdlib modules can use this wrapper:
+The wrapper is used by:
 
-1. **@stdlib/http** (`stdlib/http_lws.hml`) - HTTP client with SSL
+1. **@stdlib/http** (`stdlib/http.hml`) - HTTP client with SSL (uses `__lws_*` builtins)
 2. **@stdlib/websocket** (`stdlib/websocket.hml`) - WebSocket client/server with SSL
 
 ### Current Status
@@ -43,14 +43,12 @@ Two stdlib modules can use this wrapper:
 - ⏳ Requires libwebsockets installation
 - ⏳ Hemlock FFI modules need testing
 
-### Alternative: Pure Hemlock Implementations
+### Note on HTTP Implementation
 
-If you don't want to install libwebsockets, use the pure Hemlock versions:
+The `@stdlib/http` module uses libwebsockets via built-in `__lws_*` functions that are
+statically linked into the Hemlock interpreter. No separate FFI wrapper is needed for HTTP.
 
-- **@stdlib/http** (`stdlib/http.hml`) - Uses curl via `exec()` (already works!)
-- **@stdlib/websocket_pure** (`stdlib/websocket_pure.hml`) - Pure Hemlock WebSocket (educational, no SSL)
-
-The pure versions work TODAY without any C dependencies!
+The `lws_wrapper.so` is primarily used for WebSocket functionality.
 
 ## Future C Modules
 

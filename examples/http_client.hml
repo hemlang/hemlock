@@ -1,5 +1,5 @@
 // HTTP Client Example
-// Demonstrates @stdlib/http (curl wrapper)
+// Demonstrates @stdlib/http (uses libwebsockets)
 
 import * as http from "@stdlib/http";
 
@@ -76,6 +76,3 @@ try {
 
 print("");
 print("=== All Examples Complete ===");
-print("");
-print("Note: This uses @stdlib/http which wraps curl via exec()");
-print("For native libwebsockets HTTP, use @stdlib/http_lws (requires libwebsockets-dev)");
