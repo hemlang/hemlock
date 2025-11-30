@@ -90,16 +90,30 @@ Sublime Text can use the TextMate grammar:
 
 ## Language Server Protocol (LSP)
 
-LSP support is planned for the future. This will provide:
+Hemlock includes a built-in LSP server! Run it with:
 
-- **Diagnostics** (syntax errors, type warnings)
-- **Go to definition**
-- **Autocomplete**
-- **Hover documentation**
-- **Find references**
-- **Rename refactoring**
+```bash
+hemlock lsp              # stdio transport (for editors)
+hemlock lsp --tcp 6969   # TCP transport (for debugging)
+```
 
-See `../docs/LSP.md` (coming soon) for development progress.
+### Current LSP Features
+
+- **Real-time Diagnostics** - Syntax errors as you type
+- **Hover Information** - Documentation for keywords and types
+- **Code Completion** - Suggestions for keywords, types, and built-ins
+- **Document Symbols** - Outline view of functions, variables, enums
+
+### Planned LSP Features
+
+- Go to definition
+- Find references
+- Rename refactoring
+
+### Editor Integration
+
+The VS Code extension (`vscode/hemlock`) includes full LSP client support.
+For other editors, configure them to run `hemlock lsp --stdio` as the language server.
 
 ## Contributing
 

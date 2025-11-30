@@ -7,6 +7,7 @@
 #include "interpreter.h"
 #include "module.h"
 #include "interpreter/internal.h"
+#include "lsp/lsp.h"
 
 #define HEMLOCK_VERSION "1.0.0"
 #define HEMLOCK_BUILD_DATE __DATE__
@@ -236,10 +237,15 @@ static void print_version(void) {
 static void print_help(const char *program) {
     printf("Hemlock - A systems scripting language\n\n");
     printf("USAGE:\n");
-    printf("    %s [OPTIONS] [FILE] [ARGS...]\n\n", program);
+    printf("    %s [OPTIONS] [FILE] [ARGS...]\n", program);
+    printf("    %s lsp [--stdio | --tcp PORT]\n\n", program);
     printf("ARGUMENTS:\n");
     printf("    <FILE>       Hemlock script file to execute (.hml)\n");
     printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
+    printf("SUBCOMMANDS:\n");
+    printf("    lsp          Start Language Server Protocol server\n");
+    printf("        --stdio      Use stdio transport (default)\n");
+    printf("        --tcp PORT   Use TCP transport on specified port\n\n");
     printf("OPTIONS:\n");
     printf("    -h, --help       Display this help message\n");
     printf("    -v, --version    Display version information\n");
@@ -250,8 +256,50 @@ static void print_help(const char *program) {
     printf("    %s script.hml          # Run script.hml\n", program);
     printf("    %s script.hml arg1 arg2    # Run script with arguments\n", program);
     printf("    %s -c 'print(\"Hello\");'    # Execute code string\n", program);
-    printf("    %s -i script.hml       # Run script then start REPL\n\n", program);
+    printf("    %s -i script.hml       # Run script then start REPL\n", program);
+    printf("    %s lsp                 # Start LSP server (stdio)\n", program);
+    printf("    %s lsp --tcp 6969      # Start LSP server (TCP)\n\n", program);
     printf("For more information, visit: https://github.com/nbeerbower/hemlock\n");
+}
+
+// Run LSP server
+static int run_lsp(int argc, char **argv) {
+    int use_tcp = 0;
+    int tcp_port = 6969;
+
+    // Parse LSP-specific options
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--stdio") == 0) {
+            use_tcp = 0;
+        } else if (strcmp(argv[i], "--tcp") == 0) {
+            use_tcp = 1;
+            if (i + 1 < argc) {
+                tcp_port = atoi(argv[i + 1]);
+                i++;
+            }
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Hemlock LSP Server\n\n");
+            printf("USAGE:\n");
+            printf("    hemlock lsp [OPTIONS]\n\n");
+            printf("OPTIONS:\n");
+            printf("    --stdio          Use stdio transport (default)\n");
+            printf("    --tcp PORT       Use TCP transport on specified port\n");
+            printf("    -h, --help       Display this help message\n");
+            return 0;
+        }
+    }
+
+    LSPServer *server = lsp_server_create();
+
+    int result;
+    if (use_tcp) {
+        result = lsp_server_run_tcp(server, tcp_port);
+    } else {
+        result = lsp_server_run_stdio(server);
+    }
+
+    lsp_server_free(server);
+    return result;
 }
 
 int main(int argc, char **argv) {
@@ -259,6 +307,11 @@ int main(int argc, char **argv) {
     const char *file_to_run = NULL;
     const char *command_to_run = NULL;
     int first_script_arg = 0;  // Index of first argument to pass to script
+
+    // Check for LSP subcommand first
+    if (argc >= 2 && strcmp(argv[1], "lsp") == 0) {
+        return run_lsp(argc, argv);
+    }
 
     // Parse command-line flags
     for (int i = 1; i < argc; i++) {

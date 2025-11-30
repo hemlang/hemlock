@@ -1,15 +1,23 @@
 {
   "name": "hemlock",
   "displayName": "Hemlock",
-  "description": "Syntax highlighting for Hemlock programming language",
-  "version": "0.1.0",
+  "description": "Language support for Hemlock - syntax highlighting, diagnostics, hover, and completions",
+  "version": "0.2.0",
   "publisher": "hemlock",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nbeerbower/hemlock"
+  },
   "engines": {
-    "vscode": "^1.50.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onLanguage:hemlock"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
@@ -30,6 +38,44 @@
         "scopeName": "source.hemlock",
         "path": "./syntaxes/hemlock.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Hemlock",
+      "properties": {
+        "hemlock.serverPath": {
+          "type": "string",
+          "default": "hemlock",
+          "description": "Path to the Hemlock executable (must support 'hemlock lsp' command)"
+        },
+        "hemlock.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Hemlock language server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
   }
 }
