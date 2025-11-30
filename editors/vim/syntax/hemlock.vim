@@ -1,15 +1,15 @@
 " Vim syntax file
 " Language: Hemlock
 " Maintainer: Hemlock Contributors
-" Latest Revision: 2025-01-22
+" Latest Revision: 2025-11-30
 
 if exists("b:current_syntax")
   finish
 endif
 
 " Keywords
-syn keyword hemlockKeyword let fn if else while for return break continue switch case default defer
-syn keyword hemlockKeyword import from define
+syn keyword hemlockKeyword let fn if else while for in return break continue switch case default defer
+syn keyword hemlockKeyword import from export define enum const
 syn keyword hemlockAsync async await spawn join detach
 syn keyword hemlockException try catch finally throw panic
 syn keyword hemlockSelf self args contained
@@ -17,7 +17,7 @@ syn keyword hemlockSelf self args contained
 " Types
 syn keyword hemlockType i8 i16 i32 i64 u8 u16 u32 u64 f32 f64
 syn keyword hemlockType bool string rune ptr buffer array object void null
-syn keyword hemlockType integer number byte
+syn keyword hemlockType integer number byte file task channel
 
 " Constants
 syn keyword hemlockBoolean true false
@@ -35,8 +35,9 @@ syn keyword hemlockMathConst PI E TAU INF NAN
 syn keyword hemlockRegexConst REG_ICASE
 
 " Built-in functions
-syn keyword hemlockBuiltin print typeof alloc free memset memcpy realloc
+syn keyword hemlockBuiltin print typeof alloc free memset memcpy realloc talloc sizeof
 syn keyword hemlockBuiltin buffer channel signal raise open exec assert
+syn keyword hemlockBuiltin now sleep time_ms clock localtime gmtime mktime strftime
 
 " Operators
 syn match hemlockOperator "\v\+|-|\*|\/|%"
@@ -59,6 +60,11 @@ syn match hemlockUnicodeEscape contained "\\u{[0-9a-fA-F]\{1,6\}}"
 
 " Runes (character literals)
 syn region hemlockRune start="'" end="'" contains=hemlockEscape,hemlockUnicodeEscape
+
+" Template strings (backtick strings with ${} interpolation)
+syn region hemlockTemplateString start='`' end='`' contains=hemlockTemplateInterpolation,hemlockEscape,hemlockUnicodeEscape,hemlockTemplateEscape
+syn region hemlockTemplateInterpolation matchgroup=hemlockInterpolationDelim start='\${' end='}' contained contains=TOP
+syn match hemlockTemplateEscape contained "\\[\$`]"
 
 " Comments
 syn keyword hemlockTodo TODO FIXME XXX NOTE contained
@@ -91,6 +97,9 @@ hi def link hemlockBinary Number
 hi def link hemlockOctal Number
 hi def link hemlockString String
 hi def link hemlockRune Character
+hi def link hemlockTemplateString String
+hi def link hemlockTemplateEscape SpecialChar
+hi def link hemlockInterpolationDelim Special
 hi def link hemlockEscape SpecialChar
 hi def link hemlockUnicodeEscape SpecialChar
 hi def link hemlockComment Comment

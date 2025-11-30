@@ -10,6 +10,19 @@
 import { sin, cos, PI } from "@stdlib/math";
 import * as fs from "@stdlib/fs";
 
+// Enums
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 100
+}
+
 // Type definitions
 define Person {
     name: string,
@@ -54,6 +67,16 @@ let emoji = '🚀';
 let newline = '\n';
 let unicode_rune = '\u{1F600}';
 let escaped_quote = '\'';
+
+// Template strings (with ${} interpolation)
+let name = "World";
+let template = `Hello, ${name}!`;
+let complex = `Sum: ${1 + 2 + 3}, Product: ${2 * 3 * 4}`;
+let nested = `Outer: ${`Inner: ${42}`}`;
+let escaped_template = `Price: \$100, Use \` for code`;
+let multiline_template = `Line 1
+Line 2
+Line 3`;
 
 // Arrays and objects
 let numbers = [1, 2, 3, 4, 5];
@@ -104,6 +127,39 @@ fn test_loops() {
         }
         print(j);
     }
+
+    // For-in loop
+    let items = ["apple", "banana", "cherry"];
+    for (item in items) {
+        print(`Item: ${item}`);
+    }
+}
+
+// Using enums
+fn get_status_message(s: Status): string {
+    switch (s) {
+        case Status.OK:
+            return "Success";
+        case Status.ERROR:
+            return "Failed";
+        case Status.PENDING:
+            return "In progress";
+        default:
+            return "Unknown";
+    }
+}
+
+// Type examples with file, task, channel
+fn type_examples() {
+    // File type
+    let f: file = open("test.txt", "r");
+    defer f.close();
+
+    // Task and channel types (async context)
+    let ch: channel = channel(10);
+
+    // These would be task types
+    // let t: task = spawn(some_async_fn, arg);
 }
 
 // Operators
@@ -215,6 +271,20 @@ fn test_builtins() {
     let t = typeof(42);
     assert(true);
     panic("Emergency exit!");
+}
+
+// Time and datetime builtins
+fn test_time() {
+    let timestamp = now();
+    let ms = time_ms();
+    let cpu_time = clock();
+    sleep(0.1);  // Sleep for 100ms
+
+    // Datetime formatting
+    let local = localtime(timestamp);
+    let utc = gmtime(timestamp);
+    let formatted = strftime("%Y-%m-%d %H:%M:%S", local);
+    let epoch = mktime(local);
 }
 
 // Channel communication

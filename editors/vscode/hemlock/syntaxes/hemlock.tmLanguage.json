@@ -7,6 +7,7 @@
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#constants" },
+    { "include": "#template-strings" },
     { "include": "#strings" },
     { "include": "#runes" },
     { "include": "#numbers" },
@@ -32,7 +33,7 @@
       "patterns": [
         {
           "name": "keyword.control.hemlock",
-          "match": "\\b(if|else|while|for|return|break|continue|switch|case|default)\\b"
+          "match": "\\b(if|else|while|for|in|return|break|continue|switch|case|default)\\b"
         },
         {
           "name": "keyword.control.async.hemlock",
@@ -48,7 +49,7 @@
         },
         {
           "name": "keyword.control.import.hemlock",
-          "match": "\\b(import|from)\\b"
+          "match": "\\b(import|from|export)\\b"
         },
         {
           "name": "storage.type.function.hemlock",
@@ -56,7 +57,11 @@
         },
         {
           "name": "storage.type.hemlock",
-          "match": "\\b(let|define)\\b"
+          "match": "\\b(let|define|const)\\b"
+        },
+        {
+          "name": "storage.type.enum.hemlock",
+          "match": "\\b(enum)\\b"
         },
         {
           "name": "variable.language.hemlock",
@@ -72,7 +77,7 @@
         },
         {
           "name": "storage.type.primitive.hemlock",
-          "match": "\\b(bool|string|rune|ptr|buffer|array|object|void|null)\\b"
+          "match": "\\b(bool|string|rune|ptr|buffer|array|object|void|null|file|task|channel)\\b"
         },
         {
           "name": "storage.type.alias.hemlock",
@@ -138,6 +143,35 @@
         }
       ]
     },
+    "template-strings": {
+      "patterns": [
+        {
+          "name": "string.template.hemlock",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "meta.template.expression.hemlock",
+              "begin": "\\$\\{",
+              "beginCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.begin.hemlock" }
+              },
+              "end": "\\}",
+              "endCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.end.hemlock" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            },
+            {
+              "name": "constant.character.escape.hemlock",
+              "match": "\\\\(n|t|r|\\\\|\"|'|0|`|\\$|u\\{[0-9a-fA-F]{1,6}\\})"
+            }
+          ]
+        }
+      ]
+    },
     "numbers": {
       "patterns": [
         {
@@ -198,11 +232,15 @@
       "patterns": [
         {
           "name": "support.function.builtin.hemlock",
-          "match": "\\b(print|typeof|alloc|free|memset|memcpy|realloc|buffer|channel|signal|raise|open|exec|panic|assert)\\b"
+          "match": "\\b(print|typeof|alloc|free|memset|memcpy|realloc|talloc|sizeof|buffer|channel|signal|raise|open|exec|panic|assert)\\b"
         },
         {
           "name": "support.function.async.hemlock",
           "match": "\\b(spawn|join|detach)\\b"
+        },
+        {
+          "name": "support.function.time.hemlock",
+          "match": "\\b(now|sleep|time_ms|clock|localtime|gmtime|mktime|strftime)\\b"
         }
       ]
     }
