@@ -487,6 +487,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size);
 
 // Socket options
 void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option, HmlValue value);
+void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds);
 
 // Socket property getters
 HmlValue hml_socket_get_fd(HmlValue socket_val);
@@ -613,6 +614,38 @@ HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp);
+
+// WebSocket client functions
+HmlValue hml_lws_ws_connect(HmlValue url);
+HmlValue hml_lws_ws_send_text(HmlValue conn, HmlValue text);
+HmlValue hml_lws_ws_recv(HmlValue conn, HmlValue timeout_ms);
+HmlValue hml_lws_ws_close(HmlValue conn);
+HmlValue hml_lws_ws_is_closed(HmlValue conn);
+
+// WebSocket message functions
+HmlValue hml_lws_msg_type(HmlValue msg);
+HmlValue hml_lws_msg_text(HmlValue msg);
+HmlValue hml_lws_msg_len(HmlValue msg);
+HmlValue hml_lws_msg_free(HmlValue msg);
+
+// WebSocket server functions
+HmlValue hml_lws_ws_server_create(HmlValue host, HmlValue port);
+HmlValue hml_lws_ws_server_accept(HmlValue server, HmlValue timeout_ms);
+HmlValue hml_lws_ws_server_close(HmlValue server);
+
+// WebSocket builtin wrappers
+HmlValue hml_builtin_lws_ws_connect(HmlClosureEnv *env, HmlValue url);
+HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue conn, HmlValue text);
+HmlValue hml_builtin_lws_ws_recv(HmlClosureEnv *env, HmlValue conn, HmlValue timeout_ms);
+HmlValue hml_builtin_lws_ws_close(HmlClosureEnv *env, HmlValue conn);
+HmlValue hml_builtin_lws_ws_is_closed(HmlClosureEnv *env, HmlValue conn);
+HmlValue hml_builtin_lws_msg_type(HmlClosureEnv *env, HmlValue msg);
+HmlValue hml_builtin_lws_msg_text(HmlClosureEnv *env, HmlValue msg);
+HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue msg);
+HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg);
+HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port);
+HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);
+HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server);
 
 // ========== UTILITY MACROS ==========
 

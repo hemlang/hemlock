@@ -4835,6 +4835,37 @@ void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option,
     }
 }
 
+// socket.set_timeout(seconds)
+void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        fprintf(stderr, "Runtime error: set_timeout() expects a socket\n");
+        exit(1);
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        fprintf(stderr, "Runtime error: Cannot set_timeout on closed socket\n");
+        exit(1);
+    }
+
+    double seconds = hml_to_f64(seconds_val);
+
+    struct timeval timeout;
+    timeout.tv_sec = (long)seconds;
+    timeout.tv_usec = (long)((seconds - timeout.tv_sec) * 1000000);
+
+    // Set both recv and send timeouts
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        fprintf(stderr, "Runtime error: Failed to set receive timeout: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+        fprintf(stderr, "Runtime error: Failed to set send timeout: %s\n", strerror(errno));
+        exit(1);
+    }
+}
+
 // socket.close()
 void hml_socket_close(HmlValue socket_val) {
     if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
@@ -6071,6 +6102,706 @@ HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp) {
     return hml_lws_response_free(resp);
 }
 
+// ========== WEBSOCKET SUPPORT ==========
+
+// WebSocket message structure
+typedef struct hml_ws_message {
+    unsigned char *data;
+    size_t len;
+    int is_binary;
+    struct hml_ws_message *next;
+} hml_ws_message_t;
+
+// WebSocket connection structure
+typedef struct {
+    struct lws_context *context;
+    struct lws *wsi;
+    hml_ws_message_t *msg_queue_head;
+    hml_ws_message_t *msg_queue_tail;
+    int closed;
+    int failed;
+    int established;
+    char *send_buffer;
+    size_t send_len;
+    int send_pending;
+    pthread_t service_thread;
+    volatile int shutdown;
+    int has_own_thread;
+    int owns_memory;
+} hml_ws_connection_t;
+
+// WebSocket server structure
+typedef struct {
+    struct lws_context *context;
+    struct lws *pending_wsi;
+    hml_ws_connection_t *pending_conn;
+    int port;
+    int closed;
+    pthread_t service_thread;
+    volatile int shutdown;
+    pthread_mutex_t pending_mutex;
+} hml_ws_server_t;
+
+// Forward declarations for callbacks
+static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                           void *user, void *in, size_t len);
+static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                                  void *user, void *in, size_t len);
+
+// Service thread for WebSocket clients
+static void* hml_ws_service_thread(void *arg) {
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)arg;
+    while (!conn->shutdown) {
+        lws_service(conn->context, 50);
+    }
+    return NULL;
+}
+
+// Service thread for WebSocket servers
+static void* hml_ws_server_service_thread(void *arg) {
+    hml_ws_server_t *server = (hml_ws_server_t *)arg;
+    while (!server->shutdown) {
+        lws_service(server->context, 50);
+    }
+    return NULL;
+}
+
+// WebSocket client callback
+static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                           void *user, void *in, size_t len) {
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)user;
+
+    switch (reason) {
+        case LWS_CALLBACK_CLIENT_ESTABLISHED:
+            if (conn) {
+                conn->wsi = wsi;
+                conn->established = 1;
+            }
+            break;
+
+        case LWS_CALLBACK_CLIENT_RECEIVE:
+            if (conn) {
+                hml_ws_message_t *msg = malloc(sizeof(hml_ws_message_t));
+                if (!msg) break;
+
+                msg->len = len;
+                msg->data = malloc(len + 1);
+                if (!msg->data) {
+                    free(msg);
+                    break;
+                }
+                memcpy(msg->data, in, len);
+                msg->data[len] = '\0';
+                msg->is_binary = lws_frame_is_binary(wsi);
+                msg->next = NULL;
+
+                if (conn->msg_queue_tail) {
+                    conn->msg_queue_tail->next = msg;
+                } else {
+                    conn->msg_queue_head = msg;
+                }
+                conn->msg_queue_tail = msg;
+            }
+            break;
+
+        case LWS_CALLBACK_CLIENT_WRITEABLE:
+            if (conn && conn->send_pending && conn->send_buffer) {
+                lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
+                         conn->send_len, LWS_WRITE_TEXT);
+                free(conn->send_buffer);
+                conn->send_buffer = NULL;
+                conn->send_pending = 0;
+            }
+            break;
+
+        case LWS_CALLBACK_CLOSED:
+            if (conn) {
+                conn->closed = 1;
+            }
+            break;
+
+        case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+            if (conn) {
+                conn->failed = 1;
+                conn->closed = 1;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+// WebSocket server callback
+static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                                  void *user, void *in, size_t len) {
+    hml_ws_server_t *server = (hml_ws_server_t *)lws_context_user(lws_get_context(wsi));
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)user;
+
+    switch (reason) {
+        case LWS_CALLBACK_ESTABLISHED:
+            if (conn) {
+                conn->wsi = wsi;
+                conn->context = lws_get_context(wsi);
+                conn->shutdown = 0;
+                conn->has_own_thread = 0;
+                conn->owns_memory = 0;
+            }
+            if (server) {
+                pthread_mutex_lock(&server->pending_mutex);
+                if (!server->pending_wsi) {
+                    server->pending_wsi = wsi;
+                    server->pending_conn = conn;
+                }
+                pthread_mutex_unlock(&server->pending_mutex);
+            }
+            break;
+
+        case LWS_CALLBACK_RECEIVE:
+            if (conn) {
+                hml_ws_message_t *msg = malloc(sizeof(hml_ws_message_t));
+                if (!msg) break;
+
+                msg->len = len;
+                msg->data = malloc(len + 1);
+                if (!msg->data) {
+                    free(msg);
+                    break;
+                }
+                memcpy(msg->data, in, len);
+                msg->data[len] = '\0';
+                msg->is_binary = lws_frame_is_binary(wsi);
+                msg->next = NULL;
+
+                if (conn->msg_queue_tail) {
+                    conn->msg_queue_tail->next = msg;
+                } else {
+                    conn->msg_queue_head = msg;
+                }
+                conn->msg_queue_tail = msg;
+            }
+            break;
+
+        case LWS_CALLBACK_SERVER_WRITEABLE:
+            if (conn && conn->send_pending && conn->send_buffer) {
+                lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
+                         conn->send_len, LWS_WRITE_TEXT);
+                free(conn->send_buffer);
+                conn->send_buffer = NULL;
+                conn->send_pending = 0;
+            }
+            break;
+
+        case LWS_CALLBACK_CLOSED:
+            if (conn) {
+                conn->closed = 1;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+// Parse WebSocket URL
+static int hml_parse_ws_url(const char *url, char *host, int *port, char *path, int *ssl) {
+    *ssl = 0;
+    *port = 80;
+    strcpy(path, "/");
+
+    if (strncmp(url, "wss://", 6) == 0) {
+        *ssl = 1;
+        *port = 443;
+        const char *rest = url + 6;
+        const char *slash = strchr(rest, '/');
+        const char *colon = strchr(rest, ':');
+
+        if (colon && (!slash || colon < slash)) {
+            size_t host_len = colon - rest;
+            if (host_len >= 256) return -1;
+            strncpy(host, rest, host_len);
+            host[host_len] = '\0';
+            *port = atoi(colon + 1);
+            if (slash) {
+                strncpy(path, slash, 511);
+                path[511] = '\0';
+            }
+        } else if (slash) {
+            size_t host_len = slash - rest;
+            if (host_len >= 256) return -1;
+            strncpy(host, rest, host_len);
+            host[host_len] = '\0';
+            strncpy(path, slash, 511);
+            path[511] = '\0';
+        } else {
+            strncpy(host, rest, 255);
+            host[255] = '\0';
+        }
+    } else if (strncmp(url, "ws://", 5) == 0) {
+        const char *rest = url + 5;
+        const char *slash = strchr(rest, '/');
+        const char *colon = strchr(rest, ':');
+
+        if (colon && (!slash || colon < slash)) {
+            size_t host_len = colon - rest;
+            if (host_len >= 256) return -1;
+            strncpy(host, rest, host_len);
+            host[host_len] = '\0';
+            *port = atoi(colon + 1);
+            if (slash) {
+                strncpy(path, slash, 511);
+                path[511] = '\0';
+            }
+        } else if (slash) {
+            size_t host_len = slash - rest;
+            if (host_len >= 256) return -1;
+            strncpy(host, rest, host_len);
+            host[host_len] = '\0';
+            strncpy(path, slash, 511);
+            path[511] = '\0';
+        } else {
+            strncpy(host, rest, 255);
+            host[255] = '\0';
+        }
+    } else {
+        return -1;
+    }
+
+    return 0;
+}
+
+// __lws_ws_connect(url: string): ptr
+HmlValue hml_lws_ws_connect(HmlValue url_val) {
+    if (url_val.type != HML_VAL_STRING) {
+        fprintf(stderr, "Runtime error: __lws_ws_connect() expects string URL\n");
+        exit(1);
+    }
+
+    const char *url = url_val.as.as_string->data;
+    char host[256], path[512];
+    int port, ssl;
+
+    if (hml_parse_ws_url(url, host, &port, path, &ssl) < 0) {
+        fprintf(stderr, "Runtime error: Invalid WebSocket URL (must start with ws:// or wss://)\n");
+        exit(1);
+    }
+
+    hml_ws_connection_t *conn = calloc(1, sizeof(hml_ws_connection_t));
+    if (!conn) {
+        fprintf(stderr, "Runtime error: Failed to allocate WebSocket connection\n");
+        exit(1);
+    }
+    conn->owns_memory = 1;
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+
+    static const struct lws_protocols ws_protocols[] = {
+        { "ws", hml_ws_callback, 0, 4096, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = ws_protocols;
+
+    conn->context = lws_create_context(&info);
+    if (!conn->context) {
+        free(conn);
+        fprintf(stderr, "Runtime error: Failed to create libwebsockets context\n");
+        exit(1);
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = conn->context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.protocol = ws_protocols[0].name;
+    connect_info.userdata = conn;
+    connect_info.pwsi = &conn->wsi;
+
+    if (ssl) {
+        connect_info.ssl_connection = LCCSCF_USE_SSL |
+                                       LCCSCF_ALLOW_SELFSIGNED |
+                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(conn->context);
+        free(conn);
+        fprintf(stderr, "Runtime error: Failed to connect WebSocket\n");
+        exit(1);
+    }
+
+    // Wait for connection (timeout 10 seconds)
+    int timeout = 100;
+    while (timeout-- > 0 && !conn->closed && !conn->failed && !conn->established) {
+        lws_service(conn->context, 100);
+    }
+
+    if (conn->failed || conn->closed || !conn->established) {
+        lws_context_destroy(conn->context);
+        free(conn);
+        fprintf(stderr, "Runtime error: WebSocket connection failed or timed out\n");
+        exit(1);
+    }
+
+    // Start service thread
+    conn->shutdown = 0;
+    conn->has_own_thread = 1;
+    if (pthread_create(&conn->service_thread, NULL, hml_ws_service_thread, conn) != 0) {
+        lws_context_destroy(conn->context);
+        free(conn);
+        fprintf(stderr, "Runtime error: Failed to create WebSocket service thread\n");
+        exit(1);
+    }
+
+    return hml_val_ptr(conn);
+}
+
+// __lws_ws_send_text(conn: ptr, text: string): i32
+HmlValue hml_lws_ws_send_text(HmlValue conn_val, HmlValue text_val) {
+    if (conn_val.type != HML_VAL_PTR || text_val.type != HML_VAL_STRING) {
+        return hml_val_i32(-1);
+    }
+
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
+    if (!conn || conn->closed) {
+        return hml_val_i32(-1);
+    }
+
+    const char *text = text_val.as.as_string->data;
+    size_t len = strlen(text);
+
+    unsigned char *buf = malloc(LWS_PRE + len);
+    if (!buf) {
+        return hml_val_i32(-1);
+    }
+
+    memcpy(buf + LWS_PRE, text, len);
+    int written = lws_write(conn->wsi, buf + LWS_PRE, len, LWS_WRITE_TEXT);
+    free(buf);
+
+    if (written < 0) {
+        return hml_val_i32(-1);
+    }
+
+    lws_cancel_service(conn->context);
+    return hml_val_i32(0);
+}
+
+// __lws_ws_recv(conn: ptr, timeout_ms: i32): ptr
+HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
+    if (conn_val.type != HML_VAL_PTR) {
+        return hml_val_null();
+    }
+
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
+    if (!conn || conn->closed) {
+        return hml_val_null();
+    }
+
+    int timeout_ms = hml_to_i32(timeout_val);
+    int iterations = timeout_ms > 0 ? (timeout_ms / 10) : -1;
+
+    while (iterations != 0) {
+        if (conn->msg_queue_head) {
+            hml_ws_message_t *msg = conn->msg_queue_head;
+            conn->msg_queue_head = msg->next;
+            if (!conn->msg_queue_head) {
+                conn->msg_queue_tail = NULL;
+            }
+            msg->next = NULL;
+            return hml_val_ptr(msg);
+        }
+
+        usleep(10000);  // 10ms sleep
+        if (conn->closed) return hml_val_null();
+        if (iterations > 0) iterations--;
+    }
+
+    return hml_val_null();
+}
+
+// __lws_msg_type(msg: ptr): i32
+HmlValue hml_lws_msg_type(HmlValue msg_val) {
+    if (msg_val.type != HML_VAL_PTR) {
+        return hml_val_i32(0);
+    }
+
+    hml_ws_message_t *msg = (hml_ws_message_t *)msg_val.as.as_ptr;
+    if (!msg) {
+        return hml_val_i32(0);
+    }
+
+    return hml_val_i32(msg->is_binary ? 2 : 1);
+}
+
+// __lws_msg_text(msg: ptr): string
+HmlValue hml_lws_msg_text(HmlValue msg_val) {
+    if (msg_val.type != HML_VAL_PTR) {
+        return hml_val_string("");
+    }
+
+    hml_ws_message_t *msg = (hml_ws_message_t *)msg_val.as.as_ptr;
+    if (!msg || !msg->data) {
+        return hml_val_string("");
+    }
+
+    return hml_val_string((const char *)msg->data);
+}
+
+// __lws_msg_len(msg: ptr): i32
+HmlValue hml_lws_msg_len(HmlValue msg_val) {
+    if (msg_val.type != HML_VAL_PTR) {
+        return hml_val_i32(0);
+    }
+
+    hml_ws_message_t *msg = (hml_ws_message_t *)msg_val.as.as_ptr;
+    if (!msg) {
+        return hml_val_i32(0);
+    }
+
+    return hml_val_i32((int32_t)msg->len);
+}
+
+// __lws_msg_free(msg: ptr): null
+HmlValue hml_lws_msg_free(HmlValue msg_val) {
+    if (msg_val.type == HML_VAL_PTR) {
+        hml_ws_message_t *msg = (hml_ws_message_t *)msg_val.as.as_ptr;
+        if (msg) {
+            if (msg->data) free(msg->data);
+            free(msg);
+        }
+    }
+    return hml_val_null();
+}
+
+// __lws_ws_close(conn: ptr): null
+HmlValue hml_lws_ws_close(HmlValue conn_val) {
+    if (conn_val.type != HML_VAL_PTR) {
+        return hml_val_null();
+    }
+
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
+    if (conn) {
+        conn->closed = 1;
+        conn->shutdown = 1;
+
+        if (conn->has_own_thread) {
+            pthread_join(conn->service_thread, NULL);
+        }
+
+        hml_ws_message_t *msg = conn->msg_queue_head;
+        while (msg) {
+            hml_ws_message_t *next = msg->next;
+            if (msg->data) free(msg->data);
+            free(msg);
+            msg = next;
+        }
+
+        if (conn->send_buffer) {
+            free(conn->send_buffer);
+        }
+
+        if (conn->has_own_thread && conn->context) {
+            lws_context_destroy(conn->context);
+        }
+
+        if (conn->owns_memory) {
+            free(conn);
+        }
+    }
+
+    return hml_val_null();
+}
+
+// __lws_ws_is_closed(conn: ptr): i32
+HmlValue hml_lws_ws_is_closed(HmlValue conn_val) {
+    if (conn_val.type != HML_VAL_PTR) {
+        return hml_val_i32(1);
+    }
+
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
+    return hml_val_i32(conn ? conn->closed : 1);
+}
+
+// __lws_ws_server_create(host: string, port: i32): ptr
+HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
+    if (host_val.type != HML_VAL_STRING) {
+        fprintf(stderr, "Runtime error: __lws_ws_server_create() expects string host\n");
+        exit(1);
+    }
+
+    const char *host = host_val.as.as_string->data;
+    int port = hml_to_i32(port_val);
+
+    hml_ws_server_t *server = calloc(1, sizeof(hml_ws_server_t));
+    if (!server) {
+        fprintf(stderr, "Runtime error: Failed to allocate WebSocket server\n");
+        exit(1);
+    }
+
+    server->port = port;
+    pthread_mutex_init(&server->pending_mutex, NULL);
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.port = port;
+    info.iface = host;
+    info.user = server;
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
+    static const struct lws_protocols server_protocols[] = {
+        { "ws", hml_ws_server_callback, sizeof(hml_ws_connection_t), 4096, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = server_protocols;
+
+    server->context = lws_create_context(&info);
+    if (!server->context) {
+        pthread_mutex_destroy(&server->pending_mutex);
+        free(server);
+        fprintf(stderr, "Runtime error: Failed to create WebSocket server context\n");
+        exit(1);
+    }
+
+    server->shutdown = 0;
+    if (pthread_create(&server->service_thread, NULL, hml_ws_server_service_thread, server) != 0) {
+        lws_context_destroy(server->context);
+        pthread_mutex_destroy(&server->pending_mutex);
+        free(server);
+        fprintf(stderr, "Runtime error: Failed to create WebSocket server thread\n");
+        exit(1);
+    }
+
+    return hml_val_ptr(server);
+}
+
+// __lws_ws_server_accept(server: ptr, timeout_ms: i32): ptr
+HmlValue hml_lws_ws_server_accept(HmlValue server_val, HmlValue timeout_val) {
+    if (server_val.type != HML_VAL_PTR) {
+        return hml_val_null();
+    }
+
+    hml_ws_server_t *server = (hml_ws_server_t *)server_val.as.as_ptr;
+    if (!server || server->closed) {
+        return hml_val_null();
+    }
+
+    int timeout_ms = hml_to_i32(timeout_val);
+    int iterations = timeout_ms > 0 ? (timeout_ms / 10) : -1;
+
+    while (iterations != 0) {
+        pthread_mutex_lock(&server->pending_mutex);
+        hml_ws_connection_t *conn = NULL;
+        if (server->pending_wsi) {
+            conn = server->pending_conn;
+            server->pending_wsi = NULL;
+            server->pending_conn = NULL;
+        }
+        pthread_mutex_unlock(&server->pending_mutex);
+
+        if (conn) {
+            return hml_val_ptr(conn);
+        }
+
+        usleep(10000);  // 10ms sleep
+        if (iterations > 0) iterations--;
+    }
+
+    return hml_val_null();
+}
+
+// __lws_ws_server_close(server: ptr): null
+HmlValue hml_lws_ws_server_close(HmlValue server_val) {
+    if (server_val.type != HML_VAL_PTR) {
+        return hml_val_null();
+    }
+
+    hml_ws_server_t *server = (hml_ws_server_t *)server_val.as.as_ptr;
+    if (server) {
+        server->closed = 1;
+        server->shutdown = 1;
+        pthread_join(server->service_thread, NULL);
+        pthread_mutex_destroy(&server->pending_mutex);
+        if (server->context) {
+            lws_context_destroy(server->context);
+        }
+        free(server);
+    }
+
+    return hml_val_null();
+}
+
+// WebSocket builtin wrappers
+HmlValue hml_builtin_lws_ws_connect(HmlClosureEnv *env, HmlValue url) {
+    (void)env;
+    return hml_lws_ws_connect(url);
+}
+
+HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue conn, HmlValue text) {
+    (void)env;
+    return hml_lws_ws_send_text(conn, text);
+}
+
+HmlValue hml_builtin_lws_ws_recv(HmlClosureEnv *env, HmlValue conn, HmlValue timeout_ms) {
+    (void)env;
+    return hml_lws_ws_recv(conn, timeout_ms);
+}
+
+HmlValue hml_builtin_lws_ws_close(HmlClosureEnv *env, HmlValue conn) {
+    (void)env;
+    return hml_lws_ws_close(conn);
+}
+
+HmlValue hml_builtin_lws_ws_is_closed(HmlClosureEnv *env, HmlValue conn) {
+    (void)env;
+    return hml_lws_ws_is_closed(conn);
+}
+
+HmlValue hml_builtin_lws_msg_type(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_type(msg);
+}
+
+HmlValue hml_builtin_lws_msg_text(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_text(msg);
+}
+
+HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_len(msg);
+}
+
+HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_free(msg);
+}
+
+HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port) {
+    (void)env;
+    return hml_lws_ws_server_create(host, port);
+}
+
+HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms) {
+    (void)env;
+    return hml_lws_ws_server_accept(server, timeout_ms);
+}
+
+HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server) {
+    (void)env;
+    return hml_lws_ws_server_close(server);
+}
+
 #else  // !HML_HAVE_LIBWEBSOCKETS
 
 // Stub implementations
@@ -6137,6 +6868,133 @@ HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp) {
 HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp) {
     (void)env;
     return hml_lws_response_free(resp);
+}
+
+// WebSocket stub implementations
+HmlValue hml_lws_ws_connect(HmlValue url_val) {
+    (void)url_val;
+    fprintf(stderr, "Runtime error: WebSocket support not available (libwebsockets not installed)\n");
+    exit(1);
+}
+
+HmlValue hml_lws_ws_send_text(HmlValue conn_val, HmlValue text_val) {
+    (void)conn_val; (void)text_val;
+    fprintf(stderr, "Runtime error: WebSocket support not available (libwebsockets not installed)\n");
+    exit(1);
+}
+
+HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
+    (void)conn_val; (void)timeout_val;
+    fprintf(stderr, "Runtime error: WebSocket support not available (libwebsockets not installed)\n");
+    exit(1);
+}
+
+HmlValue hml_lws_ws_close(HmlValue conn_val) {
+    (void)conn_val;
+    return hml_val_null();
+}
+
+HmlValue hml_lws_ws_is_closed(HmlValue conn_val) {
+    (void)conn_val;
+    return hml_val_i32(1);
+}
+
+HmlValue hml_lws_msg_type(HmlValue msg_val) {
+    (void)msg_val;
+    return hml_val_i32(0);
+}
+
+HmlValue hml_lws_msg_text(HmlValue msg_val) {
+    (void)msg_val;
+    return hml_val_string("");
+}
+
+HmlValue hml_lws_msg_len(HmlValue msg_val) {
+    (void)msg_val;
+    return hml_val_i32(0);
+}
+
+HmlValue hml_lws_msg_free(HmlValue msg_val) {
+    (void)msg_val;
+    return hml_val_null();
+}
+
+HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
+    (void)host_val; (void)port_val;
+    fprintf(stderr, "Runtime error: WebSocket support not available (libwebsockets not installed)\n");
+    exit(1);
+}
+
+HmlValue hml_lws_ws_server_accept(HmlValue server_val, HmlValue timeout_val) {
+    (void)server_val; (void)timeout_val;
+    fprintf(stderr, "Runtime error: WebSocket support not available (libwebsockets not installed)\n");
+    exit(1);
+}
+
+HmlValue hml_lws_ws_server_close(HmlValue server_val) {
+    (void)server_val;
+    return hml_val_null();
+}
+
+// WebSocket builtin wrapper stubs
+HmlValue hml_builtin_lws_ws_connect(HmlClosureEnv *env, HmlValue url) {
+    (void)env;
+    return hml_lws_ws_connect(url);
+}
+
+HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue conn, HmlValue text) {
+    (void)env;
+    return hml_lws_ws_send_text(conn, text);
+}
+
+HmlValue hml_builtin_lws_ws_recv(HmlClosureEnv *env, HmlValue conn, HmlValue timeout_ms) {
+    (void)env;
+    return hml_lws_ws_recv(conn, timeout_ms);
+}
+
+HmlValue hml_builtin_lws_ws_close(HmlClosureEnv *env, HmlValue conn) {
+    (void)env;
+    return hml_lws_ws_close(conn);
+}
+
+HmlValue hml_builtin_lws_ws_is_closed(HmlClosureEnv *env, HmlValue conn) {
+    (void)env;
+    return hml_lws_ws_is_closed(conn);
+}
+
+HmlValue hml_builtin_lws_msg_type(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_type(msg);
+}
+
+HmlValue hml_builtin_lws_msg_text(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_text(msg);
+}
+
+HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_len(msg);
+}
+
+HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_free(msg);
+}
+
+HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port) {
+    (void)env;
+    return hml_lws_ws_server_create(host, port);
+}
+
+HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms) {
+    (void)env;
+    return hml_lws_ws_server_accept(server, timeout_ms);
+}
+
+HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server) {
+    (void)env;
+    return hml_lws_ws_server_close(server);
 }
 
 #endif  // HML_HAVE_LIBWEBSOCKETS
