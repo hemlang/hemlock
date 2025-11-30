@@ -27,14 +27,81 @@ static FFIState g_ffi_state = {NULL, 0, 0, NULL};
 // Thread-safety: Mutex for FFI library cache access
 static pthread_mutex_t ffi_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// ========== PLATFORM-SPECIFIC LIBRARY PATH TRANSLATION ==========
+
+#ifdef __APPLE__
+#include <sys/stat.h>
+
+// Check if a file exists
+static int file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+// Translate Linux library names to macOS equivalents
+static const char* translate_library_path(const char *path) {
+    // libc.so.6 -> libSystem.B.dylib (macOS system C library)
+    if (strcmp(path, "libc.so.6") == 0) {
+        return "libSystem.B.dylib";
+    }
+    // libcrypto.so.3 -> Homebrew OpenSSL (avoid macOS SIP restrictions)
+    // macOS system libcrypto triggers security warnings and may abort
+    if (strcmp(path, "libcrypto.so.3") == 0 || strcmp(path, "libcrypto.dylib") == 0) {
+        // Try Homebrew paths (Apple Silicon first, then Intel)
+        if (file_exists("/opt/homebrew/opt/openssl@3/lib/libcrypto.dylib")) {
+            return "/opt/homebrew/opt/openssl@3/lib/libcrypto.dylib";
+        }
+        if (file_exists("/usr/local/opt/openssl@3/lib/libcrypto.dylib")) {
+            return "/usr/local/opt/openssl@3/lib/libcrypto.dylib";
+        }
+        // Fallback to generic name (may trigger warning on macOS)
+        return "libcrypto.dylib";
+    }
+    // Generic .so to .dylib translation (e.g., libfoo.so -> libfoo.dylib)
+    // Only translate if it ends with .so or .so.N
+    static char translated[512];
+    size_t len = strlen(path);
+    
+    // Check for .so.N pattern (e.g., libfoo.so.6)
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos != NULL) {
+        size_t base_len = so_pos - path;
+        if (base_len < sizeof(translated) - 7) {
+            strncpy(translated, path, base_len);
+            strcpy(translated + base_len, ".dylib");
+            return translated;
+        }
+    }
+    
+    // Check for .so at end (e.g., libfoo.so)
+    if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        if (len < sizeof(translated) - 4) {
+            strncpy(translated, path, len - 3);
+            strcpy(translated + len - 3, ".dylib");
+            return translated;
+        }
+    }
+    
+    return path;  // No translation needed
+}
+#endif
+
 // ========== LIBRARY LOADING ==========
 
 FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
     pthread_mutex_lock(&ffi_cache_mutex);
 
-    // Check if library is already loaded
+#ifdef __APPLE__
+    // Translate Linux library names to macOS equivalents
+    const char *actual_path = translate_library_path(path);
+#else
+    const char *actual_path = path;
+#endif
+
+    // Check if library is already loaded (check both original and translated paths)
     for (int i = 0; i < g_ffi_state.num_libraries; i++) {
-        if (strcmp(g_ffi_state.libraries[i]->path, path) == 0) {
+        if (strcmp(g_ffi_state.libraries[i]->path, path) == 0 ||
+            strcmp(g_ffi_state.libraries[i]->path, actual_path) == 0) {
             FFILibrary *lib = g_ffi_state.libraries[i];
             pthread_mutex_unlock(&ffi_cache_mutex);
             return lib;
@@ -42,7 +109,7 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
     }
 
     // Open library with RTLD_LAZY (resolve symbols on first call)
-    void *handle = dlopen(path, RTLD_LAZY);
+    void *handle = dlopen(actual_path, RTLD_LAZY);
     if (handle == NULL) {
         pthread_mutex_unlock(&ffi_cache_mutex);
         ctx->exception_state.is_throwing = 1;
