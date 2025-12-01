@@ -4430,7 +4430,15 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             // Use _main_ prefix to avoid C name conflicts
             if (stmt->as.let.value) {
                 char *value = codegen_expr(ctx, stmt->as.let.value);
-                codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
+                // Check if there's a custom object type annotation (for duck typing)
+                if (stmt->as.let.type_annotation &&
+                    stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                    stmt->as.let.type_annotation->type_name) {
+                    codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
+                                  stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                } else {
+                    codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
+                }
                 free(value);
 
                 // Check if this was a self-referential closure
