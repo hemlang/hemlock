@@ -130,14 +130,28 @@ static void print_value_to(FILE *out, HmlValue val) {
                 fprintf(out, "%s", val.as.as_string->data);
             }
             break;
-        case HML_VAL_RUNE:
-            // Print as character if printable ASCII, else as U+XXXX
-            if (val.as.as_rune >= 0x20 && val.as.as_rune < 0x7F) {
-                fprintf(out, "'%c'", (char)val.as.as_rune);
+        case HML_VAL_RUNE: {
+            // Convert rune to UTF-8 string (match interpreter behavior)
+            uint32_t r = val.as.as_rune;
+            char utf8[5] = {0};
+            if (r < 0x80) {
+                utf8[0] = (char)r;
+            } else if (r < 0x800) {
+                utf8[0] = 0xC0 | (r >> 6);
+                utf8[1] = 0x80 | (r & 0x3F);
+            } else if (r < 0x10000) {
+                utf8[0] = 0xE0 | (r >> 12);
+                utf8[1] = 0x80 | ((r >> 6) & 0x3F);
+                utf8[2] = 0x80 | (r & 0x3F);
             } else {
-                fprintf(out, "U+%04X", val.as.as_rune);
+                utf8[0] = 0xF0 | (r >> 18);
+                utf8[1] = 0x80 | ((r >> 12) & 0x3F);
+                utf8[2] = 0x80 | ((r >> 6) & 0x3F);
+                utf8[3] = 0x80 | (r & 0x3F);
             }
+            fprintf(out, "%s", utf8);
             break;
+        }
         case HML_VAL_NULL:
             fprintf(out, "null");
             break;
@@ -156,14 +170,8 @@ static void print_value_to(FILE *out, HmlValue val) {
                 fprintf(out, "[");
                 for (int i = 0; i < val.as.as_array->length; i++) {
                     if (i > 0) fprintf(out, ", ");
-                    // Print string elements with quotes
-                    if (val.as.as_array->elements[i].type == HML_VAL_STRING) {
-                        fprintf(out, "\"");
-                        print_value_to(out, val.as.as_array->elements[i]);
-                        fprintf(out, "\"");
-                    } else {
-                        print_value_to(out, val.as.as_array->elements[i]);
-                    }
+                    // Print all elements consistently (no special quotes for strings)
+                    print_value_to(out, val.as.as_array->elements[i]);
                 }
                 fprintf(out, "]");
             } else {

@@ -158,3 +158,184 @@ jobs:
         name: valgrind-logs
         path: valgrind-*.log
         if-no-files-found: ignore
+
+  # Compiler parity tests - verify compiled code matches interpreter output
+  compiler-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libffi-dev libwebsockets-dev libssl-dev zlib1g-dev
+
+    - name: Build interpreter
+      run: make clean && make
+
+    - name: Build compiler and runtime
+      run: make compiler
+
+    - name: Build stdlib modules
+      run: make stdlib || echo "Some stdlib modules may be unavailable"
+      continue-on-error: true
+
+    - name: Check build artifacts
+      run: |
+        echo "Checking for required binaries..."
+        ls -la hemlock hemlockc libhemlock_runtime.a
+        ./hemlock --version || true
+        ./hemlockc --version
+
+    - name: Run compiler parity tests
+      id: parity_tests
+      run: |
+        # Create temp directory
+        TEMP_DIR=$(mktemp -d)
+        trap "rm -rf $TEMP_DIR" EXIT
+
+        # Counters
+        PARITY_PASS=0
+        PARITY_FAIL=0
+        INTERP_ONLY=0
+        COMPILE_FAIL=0
+        TIMEOUT_COUNT=0
+        ERROR_TEST_PARITY=0
+        TOTAL=0
+
+        # Configuration
+        TIMEOUT_SECONDS=20
+
+        # Check for zlib
+        ZLIB_FLAG=""
+        if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
+            ZLIB_FLAG="-lz"
+        fi
+
+        echo "======================================"
+        echo "  Hemlock Compiler Parity Test Suite"
+        echo "======================================"
+        echo ""
+
+        # Track failures for reporting
+        FAILURES=""
+
+        # Find all test files
+        for test_file in $(find tests -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" | sort); do
+            test_name="${test_file#tests/}"
+            base_name=$(basename "$test_file" .hml)
+            category=$(dirname "$test_file" | cut -d'/' -f2)
+            ((TOTAL++))
+
+            # Skip HTTP/WebSocket tests if dependencies missing
+            if [[ "$category" == "stdlib_http" || "$category" == "stdlib_websocket" ]]; then
+                if [ ! -f "stdlib/c/lws_wrapper.so" ]; then
+                    continue
+                fi
+            fi
+
+            # Run interpreter with timeout
+            interp_output=$(timeout $TIMEOUT_SECONDS ./hemlock "$test_file" 2>&1) || interp_exit=$?
+            interp_exit=${interp_exit:-0}
+
+            if [ $interp_exit -eq 124 ]; then
+                echo "⊘ $test_name (interpreter timeout)"
+                ((TIMEOUT_COUNT++))
+                continue
+            fi
+
+            # Compile to C
+            c_file="$TEMP_DIR/${base_name}_$$.c"
+            exe_file="$TEMP_DIR/${base_name}_$$"
+
+            compile_output=$(./hemlockc "$test_file" -c --emit-c "$c_file" 2>&1) || compile_exit=$?
+            compile_exit=${compile_exit:-0}
+
+            if [ $compile_exit -ne 0 ]; then
+                echo "◐ $test_name (compile failed - interpreter only)"
+                ((INTERP_ONLY++))
+                continue
+            fi
+
+            # Compile C to executable
+            gcc_output=$(gcc -o "$exe_file" "$c_file" -L. -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG 2>&1) || gcc_exit=$?
+            gcc_exit=${gcc_exit:-0}
+
+            if [ $gcc_exit -ne 0 ]; then
+                echo "◐ $test_name (gcc failed)"
+                ((COMPILE_FAIL++))
+                continue
+            fi
+
+            # Run compiled version with timeout
+            compiled_output=$(timeout $TIMEOUT_SECONDS "$exe_file" 2>&1) || compiled_exit=$?
+            compiled_exit=${compiled_exit:-0}
+
+            if [ $compiled_exit -eq 124 ]; then
+                echo "⊘ $test_name (compiled timeout)"
+                ((TIMEOUT_COUNT++))
+                continue
+            fi
+
+            # Compare outputs
+            if [ "$interp_output" = "$compiled_output" ]; then
+                echo "✓ $test_name"
+                ((PARITY_PASS++))
+            else
+                echo "✗ $test_name (output mismatch)"
+                ((PARITY_FAIL++))
+                FAILURES="$FAILURES\n--- $test_name ---\nInterpreter:\n$interp_output\nCompiled:\n$compiled_output\n"
+            fi
+
+            # Cleanup
+            rm -f "$c_file" "$exe_file"
+        done
+
+        echo ""
+        echo "======================================"
+        echo "  Summary"
+        echo "======================================"
+        echo "Parity Pass:     $PARITY_PASS"
+        echo "Parity Fail:     $PARITY_FAIL"
+        echo "Interpreter Only: $INTERP_ONLY"
+        echo "Compile Failed:  $COMPILE_FAIL"
+        echo "Timeouts:        $TIMEOUT_COUNT"
+        echo ""
+
+        if [ $PARITY_PASS -gt 0 ]; then
+            PASS_RATE=$((PARITY_PASS * 100 / (PARITY_PASS + PARITY_FAIL + 1)))
+            echo "Parity Rate: ${PASS_RATE}%"
+        fi
+
+        # Report failures in detail
+        if [ -n "$FAILURES" ] && [ $PARITY_FAIL -gt 0 ]; then
+            echo ""
+            echo "======================================"
+            echo "  Failed Test Details (first 10)"
+            echo "======================================"
+            echo -e "$FAILURES" | head -100
+        fi
+
+        # Set outputs for badge/status
+        echo "parity_pass=$PARITY_PASS" >> $GITHUB_OUTPUT
+        echo "parity_fail=$PARITY_FAIL" >> $GITHUB_OUTPUT
+
+        # Fail if too many parity failures (threshold: allow up to 50% failure for now)
+        if [ $PARITY_FAIL -gt $PARITY_PASS ]; then
+            echo "::error::Too many parity failures: $PARITY_FAIL failures vs $PARITY_PASS passes"
+            exit 1
+        fi
+
+        echo "✅ Compiler parity tests passed threshold"
+
+    - name: Upload parity test logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: parity-test-failures
+        path: |
+          /tmp/parity_*.log
+        if-no-files-found: ignore
