@@ -43,6 +43,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->main_vars = NULL;
     ctx->num_main_vars = 0;
     ctx->main_vars_capacity = 0;
+    ctx->main_funcs = NULL;
+    ctx->num_main_funcs = 0;
+    ctx->main_funcs_capacity = 0;
     return ctx;
 }
 
@@ -88,6 +91,14 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->main_vars[i]);
             }
             free(ctx->main_vars);
+        }
+
+        // Free main file functions tracking
+        if (ctx->main_funcs) {
+            for (int i = 0; i < ctx->num_main_funcs; i++) {
+                free(ctx->main_funcs[i]);
+            }
+            free(ctx->main_funcs);
         }
 
         free(ctx);
@@ -175,6 +186,25 @@ void codegen_add_main_var(CodegenContext *ctx, const char *name) {
 int codegen_is_main_var(CodegenContext *ctx, const char *name) {
     for (int i = 0; i < ctx->num_main_vars; i++) {
         if (strcmp(ctx->main_vars[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Main file function definitions (subset of main_vars that are actual function defs)
+void codegen_add_main_func(CodegenContext *ctx, const char *name) {
+    if (ctx->num_main_funcs >= ctx->main_funcs_capacity) {
+        int new_cap = (ctx->main_funcs_capacity == 0) ? 16 : ctx->main_funcs_capacity * 2;
+        ctx->main_funcs = realloc(ctx->main_funcs, new_cap * sizeof(char*));
+        ctx->main_funcs_capacity = new_cap;
+    }
+    ctx->main_funcs[ctx->num_main_funcs++] = strdup(name);
+}
+
+int codegen_is_main_func(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_main_funcs; i++) {
+        if (strcmp(ctx->main_funcs[i], name) == 0) {
             return 1;
         }
     }
@@ -1117,8 +1147,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     // Not a local variable, use module prefix
                     codegen_writeln(ctx, "HmlValue %s = %s%s;", result,
                                   ctx->current_module->module_prefix, expr->as.ident);
-                } else if (!codegen_is_local(ctx, expr->as.ident) && codegen_is_main_var(ctx, expr->as.ident)) {
+                } else if (codegen_is_main_var(ctx, expr->as.ident)) {
                     // Main file top-level variable - use _main_ prefix
+                    // Check this BEFORE local check since function names are added as locals for tracking
                     codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident);
                 } else {
                     // Local variable
@@ -2466,7 +2497,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
 
                 // Handle user-defined function by name (hml_fn_<name>)
-                if (codegen_is_local(ctx, fn_name)) {
+                // Main file functions should use generic call path (hml_call_function)
+                // to properly handle optional parameters with defaults
+                if (codegen_is_main_var(ctx, fn_name)) {
+                    // Main file variable (function def or closure) - use generic call path
+                    // This ensures optional parameters get default values via runtime handling
+                    // Fall through to generic handling
+                } else if (codegen_is_local(ctx, fn_name)) {
                     // It's a local function variable - call through hml_call_function
                     // Fall through to generic handling
                 } else {
@@ -2500,7 +2537,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                                     ctx->current_module->module_prefix, fn_name);
                         }
                     } else {
-                        // Main file function
+                        // Main file function definition - call directly
                         fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                     }
                     for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -2794,9 +2831,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                         ctx->current_module->module_prefix, var_name);
                 var_name = prefixed_name;
-            } else if (!codegen_is_local(ctx, expr->as.assign.name) &&
-                       codegen_is_main_var(ctx, expr->as.assign.name)) {
+            } else if (codegen_is_main_var(ctx, expr->as.assign.name)) {
                 // Main file top-level variable - use _main_ prefix
+                // Check this BEFORE local check since function names are added as locals for tracking
                 snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", expr->as.assign.name);
                 var_name = prefixed_name;
             }
@@ -3026,8 +3063,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlClosureEnv *_env_%d = hml_closure_env_new(%d);",
                               env_id, captured->num_vars);
                 for (int i = 0; i < captured->num_vars; i++) {
-                    codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
-                                  env_id, i, captured->vars[i]);
+                    // Check if captured variable is a main file variable (needs _main_ prefix)
+                    if (codegen_is_main_var(ctx, captured->vars[i])) {
+                        codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, _main_%s);",
+                                      env_id, i, captured->vars[i]);
+                    } else {
+                        codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
+                                      env_id, i, captured->vars[i]);
+                    }
                 }
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)_env_%d, %d, %d);",
                               result, func_name, env_id, expr->as.function.num_params, expr->as.function.is_async);
@@ -4262,6 +4305,27 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     FILE *module_impl_buffer = tmpfile();
     FILE *saved_output = ctx->output;
 
+    // Pre-pass: Collect all main file variable names BEFORE generating code
+    // This ensures codegen_is_main_var() works during main() body generation
+    for (int i = 0; i < stmt_count; i++) {
+        Stmt *stmt = stmts[i];
+        // Unwrap export statements
+        if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration && stmt->as.export_stmt.declaration) {
+            stmt = stmt->as.export_stmt.declaration;
+        }
+
+        char *name;
+        Expr *func;
+        if (is_function_def(stmt, &name, &func)) {
+            codegen_add_main_var(ctx, name);
+            codegen_add_main_func(ctx, name);  // Also track as function definition
+        } else if (stmt->type == STMT_CONST) {
+            codegen_add_main_var(ctx, stmt->as.const_stmt.name);
+        } else if (stmt->type == STMT_LET) {
+            codegen_add_main_var(ctx, stmt->as.let.name);
+        }
+    }
+
     // Generate module functions first (to collect closures)
     if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;
@@ -4445,6 +4509,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
 
     // Static globals for top-level function variables (so closures can access them)
     // Use _main_ prefix to avoid C name conflicts (e.g., kill, exit, fork)
+    // Note: main_vars are already collected in the pre-pass above
     int has_toplevel_funcs = 0;
     for (int i = 0; i < stmt_count; i++) {
         char *name;
@@ -4455,7 +4520,6 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 has_toplevel_funcs = 1;
             }
             codegen_write(ctx, "static HmlValue _main_%s = {0};\n", name);
-            codegen_add_main_var(ctx, name);
         }
     }
     if (has_toplevel_funcs) {
@@ -4464,6 +4528,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
 
     // Static globals for top-level const and let declarations (so functions can access them)
     // Use _main_ prefix to avoid C name conflicts
+    // Note: main_vars are already collected in the pre-pass above
     int has_toplevel_vars = 0;
     for (int i = 0; i < stmt_count; i++) {
         Stmt *stmt = stmts[i];
@@ -4478,7 +4543,6 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 has_toplevel_vars = 1;
             }
             codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.const_stmt.name);
-            codegen_add_main_var(ctx, stmt->as.const_stmt.name);
         } else if (stmt->type == STMT_LET) {
             // Check if this is NOT a function definition (those are handled above)
             char *name;
@@ -4489,7 +4553,6 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     has_toplevel_vars = 1;
                 }
                 codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.let.name);
-                codegen_add_main_var(ctx, stmt->as.let.name);
             }
         }
     }
