@@ -2518,7 +2518,8 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
 
 HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
-        fprintf(stderr, "Runtime error: Property access requires object\n");
+        fprintf(stderr, "Runtime error: Property access requires object (trying to get '%s' from type %s)\n",
+                field, hml_typeof_str(obj));
         exit(1);
     }
 

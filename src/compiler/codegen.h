@@ -27,6 +27,7 @@ struct ClosureInfo {
     char *func_name;        // Generated function name
     char **captured_vars;   // Names of captured variables
     int num_captured;       // Number of captured variables
+    int *shared_env_indices;  // Indices into shared env for each captured var, or NULL if not using shared env
     Expr *func_expr;        // The function expression
     CompiledModule *source_module;  // Module where closure was defined (for function resolution)
     ClosureInfo *next;      // Linked list of closures
@@ -108,6 +109,15 @@ typedef struct {
 
     // Defer support
     DeferEntry *defer_stack;  // Stack of deferred expressions (LIFO)
+
+    // Current closure being generated (for mutable captured variable support)
+    ClosureInfo *current_closure;  // NULL if not in a closure body
+
+    // Shared environment support (for multiple closures capturing same variables)
+    char *shared_env_name;          // Name of shared environment variable (e.g., "_shared_env_5")
+    char **shared_env_vars;         // Variables in the shared environment
+    int shared_env_num_vars;        // Number of variables in shared environment
+    int shared_env_capacity;        // Capacity of shared_env_vars array
 
     // Last created closure (for self-reference fixup in let statements)
     int last_closure_env_id;       // -1 if no closure, otherwise the env counter
