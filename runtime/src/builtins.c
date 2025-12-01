@@ -77,9 +77,9 @@ void hml_runtime_cleanup(void) {
 HmlValue hml_get_args(void) {
     HmlValue arr = hml_val_array();
 
-    // Skip the first argument (program name), start from index 1
-    // args[0] in Hemlock is the script filename
-    for (int i = 1; i < g_argc; i++) {
+    // For compiled binaries, argv[0] is the program name which becomes args[0]
+    // This matches interpreter behavior where args[0] is the script filename
+    for (int i = 0; i < g_argc; i++) {
         HmlValue str = hml_val_string(g_argv[i]);
         hml_array_push(arr, str);
     }
