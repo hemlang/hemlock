@@ -1630,12 +1630,40 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
 
                 // Handle detach builtin
-                if (strcmp(fn_name, "detach") == 0 && expr->as.call.num_args == 1) {
-                    char *task_val = codegen_expr(ctx, expr->as.call.args[0]);
-                    codegen_writeln(ctx, "hml_detach(%s);", task_val);
-                    codegen_writeln(ctx, "hml_release(&%s);", task_val);
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-                    free(task_val);
+                // detach(task) - detach an already-spawned task
+                // detach(fn, args...) - spawn and immediately detach (fire-and-forget)
+                if (strcmp(fn_name, "detach") == 0 && expr->as.call.num_args >= 1) {
+                    if (expr->as.call.num_args == 1) {
+                        // detach(task) - existing behavior
+                        char *task_val = codegen_expr(ctx, expr->as.call.args[0]);
+                        codegen_writeln(ctx, "hml_detach(%s);", task_val);
+                        codegen_writeln(ctx, "hml_release(&%s);", task_val);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                        free(task_val);
+                    } else {
+                        // detach(fn, args...) - spawn and detach
+                        char *fn_val = codegen_expr(ctx, expr->as.call.args[0]);
+                        int num_spawn_args = expr->as.call.num_args - 1;
+                        int args_counter = ctx->temp_counter++;
+
+                        // Build args array
+                        codegen_writeln(ctx, "HmlValue _detach_args%d[%d];", args_counter, num_spawn_args);
+                        for (int i = 0; i < num_spawn_args; i++) {
+                            char *arg = codegen_expr(ctx, expr->as.call.args[i + 1]);
+                            codegen_writeln(ctx, "_detach_args%d[%d] = %s;", args_counter, i, arg);
+                            free(arg);
+                        }
+
+                        // Spawn then immediately detach
+                        int task_counter = ctx->temp_counter++;
+                        codegen_writeln(ctx, "HmlValue _detach_task%d = hml_spawn(%s, _detach_args%d, %d);",
+                                      task_counter, fn_val, args_counter, num_spawn_args);
+                        codegen_writeln(ctx, "hml_detach(_detach_task%d);", task_counter);
+                        codegen_writeln(ctx, "hml_release(&_detach_task%d);", task_counter);
+                        codegen_writeln(ctx, "hml_release(&%s);", fn_val);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                        free(fn_val);
+                    }
                     break;
                 }
 
@@ -2204,6 +2232,29 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 // sizeof(type_name)
                 if ((strcmp(fn_name, "sizeof") == 0 || strcmp(fn_name, "__sizeof") == 0) && expr->as.call.num_args == 1) {
+                    // Check if argument is a type name identifier
+                    Expr *arg_expr = expr->as.call.args[0];
+                    if (arg_expr->type == EXPR_IDENT) {
+                        const char *type_name = arg_expr->as.ident;
+                        // List of valid type names
+                        if (strcmp(type_name, "i8") == 0 || strcmp(type_name, "i16") == 0 ||
+                            strcmp(type_name, "i32") == 0 || strcmp(type_name, "i64") == 0 ||
+                            strcmp(type_name, "u8") == 0 || strcmp(type_name, "u16") == 0 ||
+                            strcmp(type_name, "u32") == 0 || strcmp(type_name, "u64") == 0 ||
+                            strcmp(type_name, "f32") == 0 || strcmp(type_name, "f64") == 0 ||
+                            strcmp(type_name, "bool") == 0 || strcmp(type_name, "ptr") == 0 ||
+                            strcmp(type_name, "rune") == 0 || strcmp(type_name, "byte") == 0 ||
+                            strcmp(type_name, "integer") == 0 || strcmp(type_name, "number") == 0) {
+                            // Type name - convert to string literal
+                            char *arg_temp = codegen_temp(ctx);
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_string(\"%s\");", arg_temp, type_name);
+                            codegen_writeln(ctx, "HmlValue %s = hml_sizeof(%s);", result, arg_temp);
+                            codegen_writeln(ctx, "hml_release(&%s);", arg_temp);
+                            free(arg_temp);
+                            break;
+                        }
+                    }
+                    // Fall through: evaluate as expression (for dynamic type checking)
                     char *arg = codegen_expr(ctx, expr->as.call.args[0]);
                     codegen_writeln(ctx, "HmlValue %s = hml_sizeof(%s);", result, arg);
                     codegen_writeln(ctx, "hml_release(&%s);", arg);
@@ -2213,12 +2264,39 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 // talloc(type_name, count)
                 if ((strcmp(fn_name, "talloc") == 0 || strcmp(fn_name, "__talloc") == 0) && expr->as.call.num_args == 2) {
-                    char *type_arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    // Check if first argument is a type name identifier
+                    Expr *type_expr = expr->as.call.args[0];
+                    char *type_arg = NULL;
+                    int type_is_temp = 0;
+                    if (type_expr->type == EXPR_IDENT) {
+                        const char *type_name = type_expr->as.ident;
+                        // List of valid type names
+                        if (strcmp(type_name, "i8") == 0 || strcmp(type_name, "i16") == 0 ||
+                            strcmp(type_name, "i32") == 0 || strcmp(type_name, "i64") == 0 ||
+                            strcmp(type_name, "u8") == 0 || strcmp(type_name, "u16") == 0 ||
+                            strcmp(type_name, "u32") == 0 || strcmp(type_name, "u64") == 0 ||
+                            strcmp(type_name, "f32") == 0 || strcmp(type_name, "f64") == 0 ||
+                            strcmp(type_name, "bool") == 0 || strcmp(type_name, "ptr") == 0 ||
+                            strcmp(type_name, "rune") == 0 || strcmp(type_name, "byte") == 0 ||
+                            strcmp(type_name, "integer") == 0 || strcmp(type_name, "number") == 0) {
+                            // Type name - convert to string literal
+                            type_arg = codegen_temp(ctx);
+                            type_is_temp = 1;
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_string(\"%s\");", type_arg, type_name);
+                        }
+                    }
+                    if (!type_arg) {
+                        type_arg = codegen_expr(ctx, type_expr);
+                    }
                     char *count_arg = codegen_expr(ctx, expr->as.call.args[1]);
                     codegen_writeln(ctx, "HmlValue %s = hml_talloc(%s, %s);", result, type_arg, count_arg);
                     codegen_writeln(ctx, "hml_release(&%s);", type_arg);
                     codegen_writeln(ctx, "hml_release(&%s);", count_arg);
-                    free(type_arg);
+                    if (type_is_temp) {
+                        free(type_arg);
+                    } else {
+                        free(type_arg);
+                    }
                     free(count_arg);
                     break;
                 }
@@ -3567,7 +3645,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_PREFIX_INC: {
             // ++x is equivalent to x = x + 1, returns new value
             if (expr->as.prefix_inc.operand->type == EXPR_IDENT) {
-                const char *var = expr->as.prefix_inc.operand->as.ident;
+                const char *raw_var = expr->as.prefix_inc.operand->as.ident;
+                const char *var = raw_var;
+                char prefixed_name[256];
+                if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                            ctx->current_module->module_prefix, raw_var);
+                    var = prefixed_name;
+                } else if (codegen_is_main_var(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
+                    var = prefixed_name;
+                }
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
@@ -3579,7 +3667,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
         case EXPR_PREFIX_DEC: {
             if (expr->as.prefix_dec.operand->type == EXPR_IDENT) {
-                const char *var = expr->as.prefix_dec.operand->as.ident;
+                const char *raw_var = expr->as.prefix_dec.operand->as.ident;
+                const char *var = raw_var;
+                char prefixed_name[256];
+                if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                            ctx->current_module->module_prefix, raw_var);
+                    var = prefixed_name;
+                } else if (codegen_is_main_var(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
+                    var = prefixed_name;
+                }
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
@@ -3592,7 +3690,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_POSTFIX_INC: {
             // x++ returns old value, then increments
             if (expr->as.postfix_inc.operand->type == EXPR_IDENT) {
-                const char *var = expr->as.postfix_inc.operand->as.ident;
+                const char *raw_var = expr->as.postfix_inc.operand->as.ident;
+                const char *var = raw_var;
+                char prefixed_name[256];
+                if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                            ctx->current_module->module_prefix, raw_var);
+                    var = prefixed_name;
+                } else if (codegen_is_main_var(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
+                    var = prefixed_name;
+                }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var);
@@ -3604,7 +3712,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
         case EXPR_POSTFIX_DEC: {
             if (expr->as.postfix_dec.operand->type == EXPR_IDENT) {
-                const char *var = expr->as.postfix_dec.operand->as.ident;
+                const char *raw_var = expr->as.postfix_dec.operand->as.ident;
+                const char *var = raw_var;
+                char prefixed_name[256];
+                if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                            ctx->current_module->module_prefix, raw_var);
+                    var = prefixed_name;
+                } else if (codegen_is_main_var(ctx, raw_var)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
+                    var = prefixed_name;
+                }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var);
@@ -4156,8 +4274,21 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
         case STMT_ENUM: {
             // Generate enum as a const object with variant values
-            char *enum_name = stmt->as.enum_decl.name;
-            codegen_writeln(ctx, "HmlValue %s = hml_val_object();", enum_name);
+            const char *raw_enum_name = stmt->as.enum_decl.name;
+
+            // Determine the correct variable name with prefix
+            char prefixed_name[256];
+            const char *enum_name = raw_enum_name;
+            if (ctx->current_module && !codegen_is_local(ctx, raw_enum_name)) {
+                snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                        ctx->current_module->module_prefix, raw_enum_name);
+                enum_name = prefixed_name;
+            } else if (codegen_is_main_var(ctx, raw_enum_name)) {
+                snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_enum_name);
+                enum_name = prefixed_name;
+            }
+
+            codegen_writeln(ctx, "%s = hml_val_object();", enum_name);
 
             int next_value = 0;
             for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
@@ -4185,8 +4316,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
-            // Add enum as local variable
-            codegen_add_local(ctx, enum_name);
+            // Add enum as local variable (using raw name for lookup)
+            codegen_add_local(ctx, raw_enum_name);
             break;
         }
 
@@ -4904,6 +5035,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_add_main_var(ctx, stmt->as.const_stmt.name);
         } else if (stmt->type == STMT_LET) {
             codegen_add_main_var(ctx, stmt->as.let.name);
+        } else if (stmt->type == STMT_ENUM) {
+            codegen_add_main_var(ctx, stmt->as.enum_decl.name);
         }
     }
 
@@ -5198,6 +5331,27 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
     }
     if (has_toplevel_vars) {
+        codegen_write(ctx, "\n");
+    }
+
+    // Static globals for top-level enum declarations (so functions can access them)
+    int has_toplevel_enums = 0;
+    for (int i = 0; i < stmt_count; i++) {
+        Stmt *stmt = stmts[i];
+        // Unwrap export statements
+        if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration && stmt->as.export_stmt.declaration) {
+            stmt = stmt->as.export_stmt.declaration;
+        }
+
+        if (stmt->type == STMT_ENUM) {
+            if (!has_toplevel_enums) {
+                codegen_write(ctx, "// Top-level enum declarations (static for function access)\n");
+                has_toplevel_enums = 1;
+            }
+            codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.enum_decl.name);
+        }
+    }
+    if (has_toplevel_enums) {
         codegen_write(ctx, "\n");
     }
 
