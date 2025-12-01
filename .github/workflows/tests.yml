@@ -268,8 +268,8 @@ jobs:
                 continue
             fi
 
-            # Compile C to executable (need -I for runtime headers)
-            gcc_output=$(gcc -o "$exe_file" "$c_file" -I runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG 2>&1)
+            # Compile C to executable (need -I for runtime headers, -lwebsockets for HTTP/WS)
+            gcc_output=$(gcc -o "$exe_file" "$c_file" -I runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl -lwebsockets $ZLIB_FLAG 2>&1)
             gcc_exit=$?
 
             if [ $gcc_exit -ne 0 ]; then
