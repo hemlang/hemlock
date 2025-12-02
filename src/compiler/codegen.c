@@ -178,8 +178,15 @@ int codegen_is_local(CodegenContext *ctx, const char *name) {
     return 0;
 }
 
+// Forward declaration
+int codegen_is_main_var(CodegenContext *ctx, const char *name);
+
 // Main file variable tracking (to add prefix and avoid C name conflicts)
 void codegen_add_main_var(CodegenContext *ctx, const char *name) {
+    // Check for duplicates first to avoid GCC redefinition errors
+    if (codegen_is_main_var(ctx, name)) {
+        return;  // Already added, skip
+    }
     if (ctx->num_main_vars >= ctx->main_vars_capacity) {
         int new_cap = (ctx->main_vars_capacity == 0) ? 16 : ctx->main_vars_capacity * 2;
         ctx->main_vars = realloc(ctx->main_vars, new_cap * sizeof(char*));
@@ -4987,6 +4994,64 @@ static void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FI
     ctx->current_module = saved_module;
 }
 
+// Helper to collect all extern fn statements recursively (including from block scopes)
+typedef struct ExternFnList {
+    Stmt **stmts;
+    int count;
+    int capacity;
+} ExternFnList;
+
+static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list);
+
+static void collect_extern_fn_from_stmts(Stmt **stmts, int count, ExternFnList *list) {
+    for (int i = 0; i < count; i++) {
+        collect_extern_fn_from_stmt(stmts[i], list);
+    }
+}
+
+static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list) {
+    if (!stmt) return;
+
+    if (stmt->type == STMT_EXTERN_FN) {
+        // Check if already in list (avoid duplicates)
+        for (int i = 0; i < list->count; i++) {
+            if (strcmp(list->stmts[i]->as.extern_fn.function_name,
+                      stmt->as.extern_fn.function_name) == 0) {
+                return;  // Already collected
+            }
+        }
+        // Add to list
+        if (list->count >= list->capacity) {
+            list->capacity = list->capacity == 0 ? 16 : list->capacity * 2;
+            list->stmts = realloc(list->stmts, list->capacity * sizeof(Stmt*));
+        }
+        list->stmts[list->count++] = stmt;
+        return;
+    }
+
+    // Recursively check block statements
+    if (stmt->type == STMT_BLOCK) {
+        collect_extern_fn_from_stmts(stmt->as.block.statements, stmt->as.block.count, list);
+    } else if (stmt->type == STMT_IF) {
+        collect_extern_fn_from_stmt(stmt->as.if_stmt.then_branch, list);
+        collect_extern_fn_from_stmt(stmt->as.if_stmt.else_branch, list);
+    } else if (stmt->type == STMT_WHILE) {
+        collect_extern_fn_from_stmt(stmt->as.while_stmt.body, list);
+    } else if (stmt->type == STMT_FOR) {
+        collect_extern_fn_from_stmt(stmt->as.for_loop.body, list);
+    } else if (stmt->type == STMT_FOR_IN) {
+        collect_extern_fn_from_stmt(stmt->as.for_in.body, list);
+    } else if (stmt->type == STMT_TRY) {
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.try_block, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.catch_block, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.finally_block, list);
+    } else if (stmt->type == STMT_SWITCH) {
+        for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+            collect_extern_fn_from_stmt(stmt->as.switch_stmt.case_bodies[i], list);
+        }
+    }
+}
+
 void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     // Multi-pass approach:
     // 1. First pass through imports to compile all modules
@@ -5263,24 +5328,51 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, "#define SIGTSTP_VAL 20\n\n");
 
     // FFI: Global library handle and function pointer declarations
+    // Collect all extern fn declarations recursively (including from block scopes)
+    ExternFnList all_extern_fns = {NULL, 0, 0};
+    collect_extern_fn_from_stmts(stmts, stmt_count, &all_extern_fns);
+
     int has_ffi = 0;
     for (int i = 0; i < stmt_count; i++) {
-        if (stmts[i]->type == STMT_IMPORT_FFI || stmts[i]->type == STMT_EXTERN_FN) {
+        if (stmts[i]->type == STMT_IMPORT_FFI) {
             has_ffi = 1;
             break;
         }
     }
+    if (!has_ffi && all_extern_fns.count > 0) {
+        has_ffi = 1;
+    }
     if (has_ffi) {
         codegen_write(ctx, "// FFI globals\n");
         codegen_write(ctx, "static HmlValue _ffi_lib = {0};\n");
-        for (int i = 0; i < stmt_count; i++) {
-            if (stmts[i]->type == STMT_EXTERN_FN) {
-                codegen_write(ctx, "static void *_ffi_ptr_%s = NULL;\n",
-                            stmts[i]->as.extern_fn.function_name);
-            }
+        for (int i = 0; i < all_extern_fns.count; i++) {
+            codegen_write(ctx, "static void *_ffi_ptr_%s = NULL;\n",
+                        all_extern_fns.stmts[i]->as.extern_fn.function_name);
         }
         codegen_write(ctx, "\n");
     }
+
+    // Track declared static globals to avoid C redefinition errors
+    // (when Hemlock code redeclares a variable - that's a semantic error caught elsewhere)
+    char **declared_statics = NULL;
+    int num_declared_statics = 0;
+    int declared_statics_capacity = 0;
+
+    // Helper macro to check if variable was already declared
+    #define IS_STATIC_DECLARED(name) ({ \
+        int found = 0; \
+        for (int j = 0; j < num_declared_statics; j++) { \
+            if (strcmp(declared_statics[j], (name)) == 0) { found = 1; break; } \
+        } \
+        found; \
+    })
+    #define ADD_STATIC_DECLARED(name) do { \
+        if (num_declared_statics >= declared_statics_capacity) { \
+            declared_statics_capacity = declared_statics_capacity == 0 ? 16 : declared_statics_capacity * 2; \
+            declared_statics = realloc(declared_statics, declared_statics_capacity * sizeof(char*)); \
+        } \
+        declared_statics[num_declared_statics++] = strdup(name); \
+    } while(0)
 
     // Static globals for top-level function variables (so closures can access them)
     // Use _main_ prefix to avoid C name conflicts (e.g., kill, exit, fork)
@@ -5290,11 +5382,14 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         char *name;
         Expr *func;
         if (is_function_def(stmts[i], &name, &func)) {
-            if (!has_toplevel_funcs) {
-                codegen_write(ctx, "// Top-level function variables (static for closure access)\n");
-                has_toplevel_funcs = 1;
+            if (!IS_STATIC_DECLARED(name)) {
+                if (!has_toplevel_funcs) {
+                    codegen_write(ctx, "// Top-level function variables (static for closure access)\n");
+                    has_toplevel_funcs = 1;
+                }
+                codegen_write(ctx, "static HmlValue _main_%s = {0};\n", name);
+                ADD_STATIC_DECLARED(name);
             }
-            codegen_write(ctx, "static HmlValue _main_%s = {0};\n", name);
         }
     }
     if (has_toplevel_funcs) {
@@ -5313,21 +5408,27 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
 
         if (stmt->type == STMT_CONST) {
-            if (!has_toplevel_vars) {
-                codegen_write(ctx, "// Top-level variables (static for function access)\n");
-                has_toplevel_vars = 1;
+            if (!IS_STATIC_DECLARED(stmt->as.const_stmt.name)) {
+                if (!has_toplevel_vars) {
+                    codegen_write(ctx, "// Top-level variables (static for function access)\n");
+                    has_toplevel_vars = 1;
+                }
+                codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.const_stmt.name);
+                ADD_STATIC_DECLARED(stmt->as.const_stmt.name);
             }
-            codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.const_stmt.name);
         } else if (stmt->type == STMT_LET) {
             // Check if this is NOT a function definition (those are handled above)
             char *name;
             Expr *func;
             if (!is_function_def(stmt, &name, &func)) {
-                if (!has_toplevel_vars) {
-                    codegen_write(ctx, "// Top-level variables (static for function access)\n");
-                    has_toplevel_vars = 1;
+                if (!IS_STATIC_DECLARED(stmt->as.let.name)) {
+                    if (!has_toplevel_vars) {
+                        codegen_write(ctx, "// Top-level variables (static for function access)\n");
+                        has_toplevel_vars = 1;
+                    }
+                    codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.let.name);
+                    ADD_STATIC_DECLARED(stmt->as.let.name);
                 }
-                codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.let.name);
             }
         }
     }
@@ -5345,16 +5446,27 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
 
         if (stmt->type == STMT_ENUM) {
-            if (!has_toplevel_enums) {
-                codegen_write(ctx, "// Top-level enum declarations (static for function access)\n");
-                has_toplevel_enums = 1;
+            if (!IS_STATIC_DECLARED(stmt->as.enum_decl.name)) {
+                if (!has_toplevel_enums) {
+                    codegen_write(ctx, "// Top-level enum declarations (static for function access)\n");
+                    has_toplevel_enums = 1;
+                }
+                codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.enum_decl.name);
+                ADD_STATIC_DECLARED(stmt->as.enum_decl.name);
             }
-            codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.enum_decl.name);
         }
     }
     if (has_toplevel_enums) {
         codegen_write(ctx, "\n");
     }
+
+    // Clean up helper macros and memory
+    #undef IS_STATIC_DECLARED
+    #undef ADD_STATIC_DECLARED
+    for (int j = 0; j < num_declared_statics; j++) {
+        free(declared_statics[j]);
+    }
+    free(declared_statics);
 
     // Generate closure implementations to a buffer first (this may create nested closures)
     FILE *closure_buffer = tmpfile();
@@ -5463,16 +5575,16 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             }
             codegen_write(ctx, ");\n");
         }
-        // Forward declarations for extern functions
-        if (stmts[i]->type == STMT_EXTERN_FN) {
-            const char *fn_name = stmts[i]->as.extern_fn.function_name;
-            int num_params = stmts[i]->as.extern_fn.num_params;
-            codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", fn_name);
-            for (int j = 0; j < num_params; j++) {
-                codegen_write(ctx, ", HmlValue _arg%d", j);
-            }
-            codegen_write(ctx, ");\n");
+    }
+    // Forward declarations for extern functions (including from block scopes)
+    for (int i = 0; i < all_extern_fns.count; i++) {
+        const char *fn_name = all_extern_fns.stmts[i]->as.extern_fn.function_name;
+        int num_params = all_extern_fns.stmts[i]->as.extern_fn.num_params;
+        codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", fn_name);
+        for (int j = 0; j < num_params; j++) {
+            codegen_write(ctx, ", HmlValue _arg%d", j);
         }
+        codegen_write(ctx, ");\n");
     }
     codegen_write(ctx, "\n");
 
@@ -5488,83 +5600,83 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     }
     fclose(closure_buffer);
 
-    // FFI extern function wrapper implementations
-    for (int i = 0; i < stmt_count; i++) {
-        if (stmts[i]->type == STMT_EXTERN_FN) {
-            Stmt *stmt = stmts[i];
-            const char *fn_name = stmt->as.extern_fn.function_name;
-            int num_params = stmt->as.extern_fn.num_params;
-            Type *return_type = stmt->as.extern_fn.return_type;
+    // FFI extern function wrapper implementations (including from block scopes)
+    for (int i = 0; i < all_extern_fns.count; i++) {
+        Stmt *stmt = all_extern_fns.stmts[i];
+        const char *fn_name = stmt->as.extern_fn.function_name;
+        int num_params = stmt->as.extern_fn.num_params;
+        Type *return_type = stmt->as.extern_fn.return_type;
 
-            codegen_write(ctx, "// FFI wrapper for %s\n", fn_name);
-            codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_env", fn_name);
-            for (int j = 0; j < num_params; j++) {
-                codegen_write(ctx, ", HmlValue _arg%d", j);
-            }
-            codegen_write(ctx, ") {\n");
-            codegen_write(ctx, "    (void)_env;\n");
-            codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
-            codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
-            codegen_write(ctx, "    }\n");
-            codegen_write(ctx, "    HmlFFIType _types[%d];\n", num_params + 1);
-
-            // Return type
-            const char *ret_str = "HML_FFI_VOID";
-            if (return_type) {
-                switch (return_type->kind) {
-                    case TYPE_I8: ret_str = "HML_FFI_I8"; break;
-                    case TYPE_I16: ret_str = "HML_FFI_I16"; break;
-                    case TYPE_I32: ret_str = "HML_FFI_I32"; break;
-                    case TYPE_I64: ret_str = "HML_FFI_I64"; break;
-                    case TYPE_U8: ret_str = "HML_FFI_U8"; break;
-                    case TYPE_U16: ret_str = "HML_FFI_U16"; break;
-                    case TYPE_U32: ret_str = "HML_FFI_U32"; break;
-                    case TYPE_U64: ret_str = "HML_FFI_U64"; break;
-                    case TYPE_F32: ret_str = "HML_FFI_F32"; break;
-                    case TYPE_F64: ret_str = "HML_FFI_F64"; break;
-                    case TYPE_PTR: ret_str = "HML_FFI_PTR"; break;
-                    case TYPE_STRING: ret_str = "HML_FFI_STRING"; break;
-                    default: ret_str = "HML_FFI_I32"; break;
-                }
-            }
-            codegen_write(ctx, "    _types[0] = %s;\n", ret_str);
-
-            // Parameter types
-            for (int j = 0; j < num_params; j++) {
-                Type *ptype = stmt->as.extern_fn.param_types[j];
-                const char *type_str = "HML_FFI_I32";
-                if (ptype) {
-                    switch (ptype->kind) {
-                        case TYPE_I8: type_str = "HML_FFI_I8"; break;
-                        case TYPE_I16: type_str = "HML_FFI_I16"; break;
-                        case TYPE_I32: type_str = "HML_FFI_I32"; break;
-                        case TYPE_I64: type_str = "HML_FFI_I64"; break;
-                        case TYPE_U8: type_str = "HML_FFI_U8"; break;
-                        case TYPE_U16: type_str = "HML_FFI_U16"; break;
-                        case TYPE_U32: type_str = "HML_FFI_U32"; break;
-                        case TYPE_U64: type_str = "HML_FFI_U64"; break;
-                        case TYPE_F32: type_str = "HML_FFI_F32"; break;
-                        case TYPE_F64: type_str = "HML_FFI_F64"; break;
-                        case TYPE_PTR: type_str = "HML_FFI_PTR"; break;
-                        case TYPE_STRING: type_str = "HML_FFI_STRING"; break;
-                        default: type_str = "HML_FFI_I32"; break;
-                    }
-                }
-                codegen_write(ctx, "    _types[%d] = %s;\n", j + 1, type_str);
-            }
-
-            if (num_params > 0) {
-                codegen_write(ctx, "    HmlValue _args[%d];\n", num_params);
-                for (int j = 0; j < num_params; j++) {
-                    codegen_write(ctx, "    _args[%d] = _arg%d;\n", j, j);
-                }
-                codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, _args, %d, _types);\n", fn_name, num_params);
-            } else {
-                codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, NULL, 0, _types);\n", fn_name);
-            }
-            codegen_write(ctx, "}\n\n");
+        codegen_write(ctx, "// FFI wrapper for %s\n", fn_name);
+        codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_env", fn_name);
+        for (int j = 0; j < num_params; j++) {
+            codegen_write(ctx, ", HmlValue _arg%d", j);
         }
+        codegen_write(ctx, ") {\n");
+        codegen_write(ctx, "    (void)_env;\n");
+        codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
+        codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
+        codegen_write(ctx, "    }\n");
+        codegen_write(ctx, "    HmlFFIType _types[%d];\n", num_params + 1);
+
+        // Return type
+        const char *ret_str = "HML_FFI_VOID";
+        if (return_type) {
+            switch (return_type->kind) {
+                case TYPE_I8: ret_str = "HML_FFI_I8"; break;
+                case TYPE_I16: ret_str = "HML_FFI_I16"; break;
+                case TYPE_I32: ret_str = "HML_FFI_I32"; break;
+                case TYPE_I64: ret_str = "HML_FFI_I64"; break;
+                case TYPE_U8: ret_str = "HML_FFI_U8"; break;
+                case TYPE_U16: ret_str = "HML_FFI_U16"; break;
+                case TYPE_U32: ret_str = "HML_FFI_U32"; break;
+                case TYPE_U64: ret_str = "HML_FFI_U64"; break;
+                case TYPE_F32: ret_str = "HML_FFI_F32"; break;
+                case TYPE_F64: ret_str = "HML_FFI_F64"; break;
+                case TYPE_PTR: ret_str = "HML_FFI_PTR"; break;
+                case TYPE_STRING: ret_str = "HML_FFI_STRING"; break;
+                default: ret_str = "HML_FFI_I32"; break;
+            }
+        }
+        codegen_write(ctx, "    _types[0] = %s;\n", ret_str);
+
+        // Parameter types
+        for (int j = 0; j < num_params; j++) {
+            Type *ptype = stmt->as.extern_fn.param_types[j];
+            const char *type_str = "HML_FFI_I32";
+            if (ptype) {
+                switch (ptype->kind) {
+                    case TYPE_I8: type_str = "HML_FFI_I8"; break;
+                    case TYPE_I16: type_str = "HML_FFI_I16"; break;
+                    case TYPE_I32: type_str = "HML_FFI_I32"; break;
+                    case TYPE_I64: type_str = "HML_FFI_I64"; break;
+                    case TYPE_U8: type_str = "HML_FFI_U8"; break;
+                    case TYPE_U16: type_str = "HML_FFI_U16"; break;
+                    case TYPE_U32: type_str = "HML_FFI_U32"; break;
+                    case TYPE_U64: type_str = "HML_FFI_U64"; break;
+                    case TYPE_F32: type_str = "HML_FFI_F32"; break;
+                    case TYPE_F64: type_str = "HML_FFI_F64"; break;
+                    case TYPE_PTR: type_str = "HML_FFI_PTR"; break;
+                    case TYPE_STRING: type_str = "HML_FFI_STRING"; break;
+                    default: type_str = "HML_FFI_I32"; break;
+                }
+            }
+            codegen_write(ctx, "    _types[%d] = %s;\n", j + 1, type_str);
+        }
+
+        if (num_params > 0) {
+            codegen_write(ctx, "    HmlValue _args[%d];\n", num_params);
+            for (int j = 0; j < num_params; j++) {
+                codegen_write(ctx, "    _args[%d] = _arg%d;\n", j, j);
+            }
+            codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, _args, %d, _types);\n", fn_name, num_params);
+        } else {
+            codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, NULL, 0, _types);\n", fn_name);
+        }
+        codegen_write(ctx, "}\n\n");
     }
+    // Free the extern fn list
+    free(all_extern_fns.stmts);
 
     // Module function implementations (from buffer)
     if (ctx->module_cache && ctx->module_cache->modules) {
