@@ -51,6 +51,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->main_funcs = NULL;
     ctx->num_main_funcs = 0;
     ctx->main_funcs_capacity = 0;
+    ctx->main_imports = NULL;
+    ctx->num_main_imports = 0;
+    ctx->main_imports_capacity = 0;
     return ctx;
 }
 
@@ -221,6 +224,29 @@ int codegen_is_main_func(CodegenContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+// Main file import tracking (for function call resolution)
+void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const char *original_name, const char *module_prefix) {
+    if (ctx->num_main_imports >= ctx->main_imports_capacity) {
+        int new_cap = (ctx->main_imports_capacity == 0) ? 16 : ctx->main_imports_capacity * 2;
+        ctx->main_imports = realloc(ctx->main_imports, new_cap * sizeof(ImportBinding));
+        ctx->main_imports_capacity = new_cap;
+    }
+    ImportBinding *binding = &ctx->main_imports[ctx->num_main_imports++];
+    binding->local_name = strdup(local_name);
+    binding->original_name = strdup(original_name);
+    binding->module_prefix = strdup(module_prefix);
+    binding->is_function = 1;  // Assume it's a function for now
+}
+
+ImportBinding* codegen_find_main_import(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_main_imports; i++) {
+        if (strcmp(ctx->main_imports[i].local_name, name) == 0) {
+            return &ctx->main_imports[i];
+        }
+    }
+    return NULL;
 }
 
 // ========== STRING HELPERS ==========
@@ -2910,6 +2936,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     ImportBinding *import_binding = NULL;
                     if (ctx->current_module) {
                         import_binding = module_find_import(ctx->current_module, fn_name);
+                    } else {
+                        // Check main file imports
+                        import_binding = codegen_find_main_import(ctx, fn_name);
                     }
 
                     // Try to call as hml_fn_<name> directly with NULL for closure env
@@ -5103,6 +5132,32 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_add_main_var(ctx, stmt->as.let.name);
         } else if (stmt->type == STMT_ENUM) {
             codegen_add_main_var(ctx, stmt->as.enum_decl.name);
+        }
+    }
+
+    // Pre-pass: Collect import bindings for main file function call resolution
+    if (ctx->module_cache) {
+        for (int i = 0; i < stmt_count; i++) {
+            if (stmts[i]->type == STMT_IMPORT) {
+                Stmt *import_stmt = stmts[i];
+                char *import_path = import_stmt->as.import_stmt.module_path;
+                char *resolved = module_resolve_path(ctx->module_cache, NULL, import_path);
+                if (resolved) {
+                    CompiledModule *mod = module_get_cached(ctx->module_cache, resolved);
+                    if (mod) {
+                        // Add import bindings for named imports
+                        if (!import_stmt->as.import_stmt.is_namespace) {
+                            for (int j = 0; j < import_stmt->as.import_stmt.num_imports; j++) {
+                                const char *import_name = import_stmt->as.import_stmt.import_names[j];
+                                const char *alias = import_stmt->as.import_stmt.import_aliases[j];
+                                const char *local_name = alias ? alias : import_name;
+                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix);
+                            }
+                        }
+                    }
+                    free(resolved);
+                }
+            }
         }
     }
 

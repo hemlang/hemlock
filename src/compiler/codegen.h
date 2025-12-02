@@ -137,6 +137,11 @@ typedef struct {
     char **main_funcs;          // List of top-level function names in main file
     int num_main_funcs;         // Count of main file functions
     int main_funcs_capacity;    // Capacity of main_funcs array
+
+    // Main file imports (for function call resolution)
+    ImportBinding *main_imports;  // Import bindings for main file
+    int num_main_imports;         // Count of main file imports
+    int main_imports_capacity;    // Capacity of main_imports array
 } CodegenContext;
 
 // Initialize code generation context
