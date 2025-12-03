@@ -147,6 +147,13 @@ typedef struct {
     char **shadow_vars;           // Variables that shadow main vars (use bare name)
     int num_shadow_vars;          // Count of shadow variables
     int shadow_vars_capacity;     // Capacity of shadow_vars array
+
+    // Try-finally support (for return/break/continue to jump to finally first)
+    int try_finally_depth;        // Current nesting depth of try-finally blocks
+    char **finally_labels;        // Stack of finally labels (for goto)
+    char **return_value_vars;     // Stack of return value variable names
+    char **has_return_vars;       // Stack of "has return" flag variable names
+    int try_finally_capacity;     // Capacity of the stacks
 } CodegenContext;
 
 // Initialize code generation context

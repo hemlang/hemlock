@@ -57,6 +57,11 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->shadow_vars = NULL;
     ctx->num_shadow_vars = 0;
     ctx->shadow_vars_capacity = 0;
+    ctx->try_finally_depth = 0;
+    ctx->finally_labels = NULL;
+    ctx->return_value_vars = NULL;
+    ctx->has_return_vars = NULL;
+    ctx->try_finally_capacity = 0;
     return ctx;
 }
 
@@ -118,6 +123,18 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->shadow_vars[i]);
             }
             free(ctx->shadow_vars);
+        }
+
+        // Free try-finally tracking arrays
+        if (ctx->finally_labels) {
+            for (int i = 0; i < ctx->try_finally_depth; i++) {
+                free(ctx->finally_labels[i]);
+                free(ctx->return_value_vars[i]);
+                free(ctx->has_return_vars[i]);
+            }
+            free(ctx->finally_labels);
+            free(ctx->return_value_vars);
+            free(ctx->has_return_vars);
         }
 
         free(ctx);
@@ -237,6 +254,53 @@ void codegen_remove_shadow(CodegenContext *ctx, const char *name) {
             return;
         }
     }
+}
+
+// Try-finally context tracking (for return/break to jump to finally first)
+void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
+                              const char *return_value_var, const char *has_return_var) {
+    if (ctx->try_finally_depth >= ctx->try_finally_capacity) {
+        int new_cap = (ctx->try_finally_capacity == 0) ? 4 : ctx->try_finally_capacity * 2;
+        ctx->finally_labels = realloc(ctx->finally_labels, new_cap * sizeof(char*));
+        ctx->return_value_vars = realloc(ctx->return_value_vars, new_cap * sizeof(char*));
+        ctx->has_return_vars = realloc(ctx->has_return_vars, new_cap * sizeof(char*));
+        ctx->try_finally_capacity = new_cap;
+    }
+    ctx->finally_labels[ctx->try_finally_depth] = strdup(finally_label);
+    ctx->return_value_vars[ctx->try_finally_depth] = strdup(return_value_var);
+    ctx->has_return_vars[ctx->try_finally_depth] = strdup(has_return_var);
+    ctx->try_finally_depth++;
+}
+
+void codegen_pop_try_finally(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        ctx->try_finally_depth--;
+        free(ctx->finally_labels[ctx->try_finally_depth]);
+        free(ctx->return_value_vars[ctx->try_finally_depth]);
+        free(ctx->has_return_vars[ctx->try_finally_depth]);
+    }
+}
+
+// Get the current (innermost) try-finally context
+const char* codegen_get_finally_label(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        return ctx->finally_labels[ctx->try_finally_depth - 1];
+    }
+    return NULL;
+}
+
+const char* codegen_get_return_value_var(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        return ctx->return_value_vars[ctx->try_finally_depth - 1];
+    }
+    return NULL;
+}
+
+const char* codegen_get_has_return_var(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        return ctx->has_return_vars[ctx->try_finally_depth - 1];
+    }
+    return NULL;
 }
 
 // Forward declaration
@@ -4235,7 +4299,23 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_RETURN: {
-            if (ctx->defer_stack) {
+            // Check if we're inside a try-finally block
+            const char *finally_label = codegen_get_finally_label(ctx);
+            if (finally_label) {
+                // Inside try-finally: save return value and goto finally
+                const char *ret_var = codegen_get_return_value_var(ctx);
+                const char *has_ret = codegen_get_has_return_var(ctx);
+                if (stmt->as.return_stmt.value) {
+                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    codegen_writeln(ctx, "%s = %s;", ret_var, value);
+                    free(value);
+                } else {
+                    codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
+                }
+                codegen_writeln(ctx, "%s = 1;", has_ret);
+                codegen_writeln(ctx, "hml_exception_pop();");
+                codegen_writeln(ctx, "goto %s;", finally_label);
+            } else if (ctx->defer_stack) {
                 // We have defers - need to save return value, execute defers, then return
                 char *ret_val = codegen_temp(ctx);
                 if (stmt->as.return_stmt.value) {
@@ -4250,7 +4330,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "return %s;", ret_val);
                 free(ret_val);
             } else {
-                // No defers - simple return
+                // No defers or try-finally - simple return
                 if (stmt->as.return_stmt.value) {
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     codegen_writeln(ctx, "return %s;", value);
@@ -4279,8 +4359,28 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             int has_finally = stmt->as.try_stmt.finally_block != NULL;
             int has_catch = stmt->as.try_stmt.catch_block != NULL;
 
+            // Generate unique names for try-finally support (for return to jump to finally)
+            // This is only needed when inside a function (at top-level, no return is possible)
+            char *finally_label = NULL;
+            char *return_value_var = NULL;
+            char *has_return_var = NULL;
+            int needs_return_tracking = has_finally && ctx->in_function;
+
+            if (needs_return_tracking) {
+                finally_label = codegen_label(ctx);
+                return_value_var = codegen_temp(ctx);
+                has_return_var = codegen_temp(ctx);
+
+                // Declare variables for tracking return from try block
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", return_value_var);
+                codegen_writeln(ctx, "int %s = 0;", has_return_var);
+
+                // Push try-finally context so return statements inside use goto
+                codegen_push_try_finally(ctx, finally_label, return_value_var, has_return_var);
+            }
+
             if (has_finally && !has_catch) {
-                // try-finally without catch: need to track and re-throw
+                // Track exception state for try-finally without catch
                 codegen_writeln(ctx, "int _had_exception = 0;");
                 codegen_writeln(ctx, "HmlValue _saved_exception = hml_val_null();");
             }
@@ -4324,6 +4424,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Finally block
             if (has_finally) {
+                // Pop try-finally context before generating finally
+                // (return statements in finally should not jump to itself)
+                if (needs_return_tracking) {
+                    codegen_pop_try_finally(ctx);
+
+                    // Generate the finally label (jumped to from return statements in try)
+                    codegen_writeln(ctx, "%s:;", finally_label);
+                }
+
                 codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
 
                 // Re-throw saved exception if try threw and there was no catch
@@ -4333,6 +4442,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "hml_throw(_saved_exception);");
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");
+                }
+
+                // Check if we should return (from a return statement in the try block)
+                if (needs_return_tracking) {
+                    codegen_writeln(ctx, "if (%s) {", has_return_var);
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "return %s;", return_value_var);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+
+                    free(finally_label);
+                    free(return_value_var);
+                    free(has_return_var);
                 }
             }
 
@@ -4722,6 +4844,8 @@ static void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *n
     int saved_num_locals = ctx->num_locals;
     DeferEntry *saved_defer_stack = ctx->defer_stack;
     ctx->defer_stack = NULL;  // Start fresh for this function
+    int saved_in_function = ctx->in_function;
+    ctx->in_function = 1;  // We're now inside a function
 
     // Reset closure env tracking to prevent cross-function pollution
     ctx->last_closure_env_id = -1;
@@ -4766,10 +4890,11 @@ static void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *n
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals and defer state
+    // Restore locals, defer state, and in_function flag
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
+    ctx->in_function = saved_in_function;
 }
 
 // Generate a closure function (takes environment as first hidden parameter)
@@ -4784,7 +4909,7 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
 
-    // Save locals, defer state, module context, and current closure
+    // Save locals, defer state, module context, current closure, and in_function flag
     int saved_num_locals = ctx->num_locals;
     DeferEntry *saved_defer_stack = ctx->defer_stack;
     ctx->defer_stack = NULL;  // Start fresh for this function
@@ -4792,6 +4917,8 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     ctx->current_module = closure->source_module;  // Restore module context for function resolution
     ClosureInfo *saved_closure = ctx->current_closure;
     ctx->current_closure = closure;  // Track current closure for mutable captured variables
+    int saved_in_function = ctx->in_function;
+    ctx->in_function = 1;  // We're now inside a function
 
     // Reset closure env tracking to prevent cross-function pollution
     ctx->last_closure_env_id = -1;
@@ -4904,12 +5031,13 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals, defer state, module context, current closure, and clear shared environment
+    // Restore locals, defer state, module context, current closure, in_function flag, and clear shared environment
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
     ctx->current_module = saved_module;
     ctx->current_closure = saved_closure;
+    ctx->in_function = saved_in_function;
     shared_env_clear(ctx);  // Clear shared environment after generating this closure
 }
 
