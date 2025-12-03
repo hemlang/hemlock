@@ -181,6 +181,21 @@ int codegen_is_local(CodegenContext *ctx, const char *name) {
     return 0;
 }
 
+// Remove a local variable from scope (used for catch params that go out of scope)
+void codegen_remove_local(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_locals; i++) {
+        if (strcmp(ctx->local_vars[i], name) == 0) {
+            free(ctx->local_vars[i]);
+            // Shift remaining elements down
+            for (int j = i; j < ctx->num_locals - 1; j++) {
+                ctx->local_vars[j] = ctx->local_vars[j + 1];
+            }
+            ctx->num_locals--;
+            return;
+        }
+    }
+}
+
 // Forward declaration
 int codegen_is_main_var(CodegenContext *ctx, const char *name);
 
@@ -1485,12 +1500,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     } else {
                         codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
                     }
+                } else if (codegen_is_local(ctx, expr->as.ident)) {
+                    // Local variable - shadows main vars with same name (e.g., catch params)
+                    codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
                 } else if (codegen_is_main_var(ctx, expr->as.ident)) {
                     // Main file top-level variable - use _main_ prefix
-                    // Check this BEFORE local check since function names are added as locals for tracking
                     codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident);
                 } else {
-                    // Local variable
+                    // Undefined variable - will cause C compilation error
                     codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
                 }
             }
@@ -3316,9 +3333,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                         ctx->current_module->module_prefix, var_name);
                 var_name = prefixed_name;
+            } else if (codegen_is_local(ctx, var_name)) {
+                // Local variable - keep bare name (shadows main vars with same name)
+                // var_name stays as-is
             } else if (codegen_is_main_var(ctx, expr->as.assign.name)) {
                 // Main file top-level variable - use _main_ prefix
-                // Check this BEFORE local check since function names are added as locals for tracking
                 snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", expr->as.assign.name);
                 var_name = prefixed_name;
             }
@@ -4207,6 +4226,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
                 if (stmt->as.try_stmt.catch_param) {
                     codegen_writeln(ctx, "hml_release(&%s);", stmt->as.try_stmt.catch_param);
+                    // Remove catch param from locals so outer scope variable is used again
+                    codegen_remove_local(ctx, stmt->as.try_stmt.catch_param);
                 }
                 codegen_indent_dec(ctx);
             }

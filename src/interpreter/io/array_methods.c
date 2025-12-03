@@ -204,7 +204,9 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         }
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index > arr->length) {
-            return throw_runtime_error(ctx, "insert() index out of bounds");
+            char error_msg[128];
+            snprintf(error_msg, sizeof(error_msg), "insert index %d out of bounds (length %d)", index, arr->length);
+            return throw_runtime_error(ctx, error_msg);
         }
         // Check type constraint
         Value check_result = check_array_element_type_for_method(arr, args[1], ctx);
@@ -237,7 +239,9 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         }
         int32_t index = value_to_int(args[0]);
         if (index < 0 || index >= arr->length) {
-            return throw_runtime_error(ctx, "remove() index out of bounds");
+            char error_msg[128];
+            snprintf(error_msg, sizeof(error_msg), "remove index %d out of bounds (length %d)", index, arr->length);
+            return throw_runtime_error(ctx, error_msg);
         }
         Value removed = arr->elements[index];
         // Shift elements left from index

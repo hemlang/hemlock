@@ -464,12 +464,14 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
 
 void hml_assert(HmlValue condition, HmlValue message) {
     if (!hml_to_bool(condition)) {
-        fprintf(stderr, "Assertion failed");
+        // Throw catchable exception (match interpreter behavior)
+        HmlValue exception_msg;
         if (message.type == HML_VAL_STRING && message.as.as_string) {
-            fprintf(stderr, ": %s", message.as.as_string->data);
+            exception_msg = message;
+        } else {
+            exception_msg = hml_val_string("assertion failed");
         }
-        fprintf(stderr, "\n");
-        exit(1);
+        hml_throw(exception_msg);
     }
 }
 
@@ -2222,8 +2224,20 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
     int idx = hml_to_i32(index);
     HmlArray *a = arr.as.as_array;
 
-    if (idx < 0 || idx >= a->length) {
-        hml_runtime_error("Array index %d out of bounds (length %d)", idx, a->length);
+    if (idx < 0) {
+        hml_runtime_error("Negative array index not supported");
+    }
+
+    // Extend array if needed, filling with nulls (match interpreter behavior)
+    while (idx >= a->length) {
+        // Grow capacity if needed
+        if (a->length >= a->capacity) {
+            int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
+            a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+            a->capacity = new_cap;
+        }
+        a->elements[a->length] = hml_val_null();
+        a->length++;
     }
 
     hml_release(&a->elements[idx]);
