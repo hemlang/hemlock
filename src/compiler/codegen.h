@@ -142,6 +142,11 @@ typedef struct {
     ImportBinding *main_imports;  // Import bindings for main file
     int num_main_imports;         // Count of main file imports
     int main_imports_capacity;    // Capacity of main_imports array
+
+    // Shadow locals (like catch params that shadow main vars)
+    char **shadow_vars;           // Variables that shadow main vars (use bare name)
+    int num_shadow_vars;          // Count of shadow variables
+    int shadow_vars_capacity;     // Capacity of shadow_vars array
 } CodegenContext;
 
 // Initialize code generation context

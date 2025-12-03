@@ -422,7 +422,8 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 if (stmt->as.try_stmt.catch_block != NULL) {
                     // Create new scope for catch parameter
                     Environment *catch_env = env_new(env);
-                    env_set(catch_env, stmt->as.try_stmt.catch_param, ctx->exception_state.exception_value, ctx);
+                    // Use env_define (not env_set) to create a new variable that shadows outer scope
+                    env_define(catch_env, stmt->as.try_stmt.catch_param, ctx->exception_state.exception_value, 0, ctx);
 
                     // Clear exception state and release the exception value
                     // (env_set retained it, so we can release the context's reference)

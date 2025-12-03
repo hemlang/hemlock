@@ -87,6 +87,31 @@ HmlValue hml_get_args(void) {
     return arr;
 }
 
+// ========== UTF-8 ENCODING ==========
+
+// Encode a Unicode codepoint to UTF-8, returns the number of bytes written
+static int utf8_encode_rune(uint32_t codepoint, char *out) {
+    if (codepoint < 0x80) {
+        out[0] = (char)codepoint;
+        return 1;
+    } else if (codepoint < 0x800) {
+        out[0] = (char)(0xC0 | (codepoint >> 6));
+        out[1] = (char)(0x80 | (codepoint & 0x3F));
+        return 2;
+    } else if (codepoint < 0x10000) {
+        out[0] = (char)(0xE0 | (codepoint >> 12));
+        out[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (codepoint & 0x3F));
+        return 3;
+    } else {
+        out[0] = (char)(0xF0 | (codepoint >> 18));
+        out[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (codepoint & 0x3F));
+        return 4;
+    }
+}
+
 // ========== PRINT IMPLEMENTATION ==========
 
 // Helper to print a value to a file
@@ -131,25 +156,13 @@ static void print_value_to(FILE *out, HmlValue val) {
             }
             break;
         case HML_VAL_RUNE: {
-            // Convert rune to UTF-8 string (match interpreter behavior)
+            // Print rune as character if printable, otherwise as U+XXXX (match interpreter behavior)
             uint32_t r = val.as.as_rune;
-            char utf8[5] = {0};
-            if (r < 0x80) {
-                utf8[0] = (char)r;
-            } else if (r < 0x800) {
-                utf8[0] = 0xC0 | (r >> 6);
-                utf8[1] = 0x80 | (r & 0x3F);
-            } else if (r < 0x10000) {
-                utf8[0] = 0xE0 | (r >> 12);
-                utf8[1] = 0x80 | ((r >> 6) & 0x3F);
-                utf8[2] = 0x80 | (r & 0x3F);
+            if (r >= 32 && r < 127) {
+                fprintf(out, "'%c'", (char)r);
             } else {
-                utf8[0] = 0xF0 | (r >> 18);
-                utf8[1] = 0x80 | ((r >> 12) & 0x3F);
-                utf8[2] = 0x80 | ((r >> 6) & 0x3F);
-                utf8[3] = 0x80 | (r & 0x3F);
+                fprintf(out, "U+%04X", r);
             }
-            fprintf(out, "%s", utf8);
             break;
         }
         case HML_VAL_NULL:
@@ -430,6 +443,17 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         case HML_VAL_BOOL:
             return hml_val_bool(int_val != 0 || float_val != 0.0);
 
+        case HML_VAL_STRING:
+            // Allow conversion from rune to string (match interpreter behavior)
+            if (val.type == HML_VAL_RUNE) {
+                char rune_bytes[5];  // Max 4 bytes + null terminator
+                int rune_len = utf8_encode_rune(val.as.as_rune, rune_bytes);
+                rune_bytes[rune_len] = '\0';
+                return hml_val_string(rune_bytes);
+            }
+            hml_runtime_error("Cannot convert %s to string", hml_type_name(val.type));
+            return hml_val_null();
+
         default:
             // For other types, return as-is
             return val;
@@ -440,12 +464,14 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
 
 void hml_assert(HmlValue condition, HmlValue message) {
     if (!hml_to_bool(condition)) {
-        fprintf(stderr, "Assertion failed");
+        // Throw catchable exception (match interpreter behavior)
+        HmlValue exception_msg;
         if (message.type == HML_VAL_STRING && message.as.as_string) {
-            fprintf(stderr, ": %s", message.as.as_string->data);
+            exception_msg = message;
+        } else {
+            exception_msg = hml_val_string("assertion failed");
         }
-        fprintf(stderr, "\n");
-        exit(1);
+        hml_throw(exception_msg);
     }
 }
 
@@ -1244,6 +1270,21 @@ static HmlValueType promote_types(HmlValueType a, HmlValueType b) {
     return (type_priority(a) >= type_priority(b)) ? a : b;
 }
 
+// Create an integer result value with the correct type
+static HmlValue make_int_result(HmlValueType result_type, int64_t value) {
+    switch (result_type) {
+        case HML_VAL_I8:  return hml_val_i8((int8_t)value);
+        case HML_VAL_I16: return hml_val_i16((int16_t)value);
+        case HML_VAL_I32: return hml_val_i32((int32_t)value);
+        case HML_VAL_I64: return hml_val_i64(value);
+        case HML_VAL_U8:  return hml_val_u8((uint8_t)value);
+        case HML_VAL_U16: return hml_val_u16((uint16_t)value);
+        case HML_VAL_U32: return hml_val_u32((uint32_t)value);
+        case HML_VAL_U64: return hml_val_u64((uint64_t)value);
+        default:          return hml_val_i64(value);
+    }
+}
+
 HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
     // String concatenation
     if (op == HML_OP_ADD && (left.type == HML_VAL_STRING || right.type == HML_VAL_STRING)) {
@@ -1316,45 +1357,35 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
 
     switch (op) {
         case HML_OP_ADD:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l + r));
-            return hml_val_i64(l + r);
+            return make_int_result(result_type, l + r);
         case HML_OP_SUB:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l - r));
-            return hml_val_i64(l - r);
+            return make_int_result(result_type, l - r);
         case HML_OP_MUL:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l * r));
-            return hml_val_i64(l * r);
+            return make_int_result(result_type, l * r);
         case HML_OP_DIV:
             if (r == 0) {
                 hml_runtime_error("Division by zero");
             }
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l / r));
-            return hml_val_i64(l / r);
+            return make_int_result(result_type, l / r);
         case HML_OP_MOD:
             if (r == 0) {
                 hml_runtime_error("Division by zero");
             }
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l % r));
-            return hml_val_i64(l % r);
+            return make_int_result(result_type, l % r);
         case HML_OP_LESS:         return hml_val_bool(l < r);
         case HML_OP_LESS_EQUAL:   return hml_val_bool(l <= r);
         case HML_OP_GREATER:      return hml_val_bool(l > r);
         case HML_OP_GREATER_EQUAL: return hml_val_bool(l >= r);
         case HML_OP_BIT_AND:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l & r));
-            return hml_val_i64(l & r);
+            return make_int_result(result_type, l & r);
         case HML_OP_BIT_OR:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l | r));
-            return hml_val_i64(l | r);
+            return make_int_result(result_type, l | r);
         case HML_OP_BIT_XOR:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l ^ r));
-            return hml_val_i64(l ^ r);
+            return make_int_result(result_type, l ^ r);
         case HML_OP_LSHIFT:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l << r));
-            return hml_val_i64(l << r);
+            return make_int_result(result_type, l << r);
         case HML_OP_RSHIFT:
-            if (result_type == HML_VAL_I32) return hml_val_i32((int32_t)(l >> r));
-            return hml_val_i64(l >> r);
+            return make_int_result(result_type, l >> r);
         default:
             break;
     }
@@ -2193,8 +2224,20 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
     int idx = hml_to_i32(index);
     HmlArray *a = arr.as.as_array;
 
-    if (idx < 0 || idx >= a->length) {
-        hml_runtime_error("Array index %d out of bounds (length %d)", idx, a->length);
+    if (idx < 0) {
+        hml_runtime_error("Negative array index not supported");
+    }
+
+    // Extend array if needed, filling with nulls (match interpreter behavior)
+    while (idx >= a->length) {
+        // Grow capacity if needed
+        if (a->length >= a->capacity) {
+            int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
+            a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+            a->capacity = new_cap;
+        }
+        a->elements[a->length] = hml_val_null();
+        a->length++;
     }
 
     hml_release(&a->elements[idx]);
