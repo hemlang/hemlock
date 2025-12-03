@@ -4274,12 +4274,23 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "HmlExceptionContext *_ex_ctx = hml_exception_push();");
+
+            // Track if we need to re-throw after finally
+            int has_finally = stmt->as.try_stmt.finally_block != NULL;
+            int has_catch = stmt->as.try_stmt.catch_block != NULL;
+
+            if (has_finally && !has_catch) {
+                // try-finally without catch: need to track and re-throw
+                codegen_writeln(ctx, "int _had_exception = 0;");
+                codegen_writeln(ctx, "HmlValue _saved_exception = hml_val_null();");
+            }
+
             codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
             codegen_indent_inc(ctx);
             // Try block
             codegen_stmt(ctx, stmt->as.try_stmt.try_block);
             codegen_indent_dec(ctx);
-            if (stmt->as.try_stmt.catch_block) {
+            if (has_catch) {
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
                 // Catch block - declare catch param as shadow var to shadow main vars
@@ -4294,13 +4305,37 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_remove_shadow(ctx, stmt->as.try_stmt.catch_param);
                 }
                 codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (has_finally) {
+                // try-finally without catch: save exception for re-throw
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "_had_exception = 1;");
+                codegen_writeln(ctx, "_saved_exception = hml_exception_get_value();");
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else {
+                codegen_writeln(ctx, "}");
             }
-            codegen_writeln(ctx, "}");
-            // Finally block
-            if (stmt->as.try_stmt.finally_block) {
-                codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
-            }
+
+            // Pop exception context BEFORE finally block
+            // This ensures exceptions in finally go to outer handler
             codegen_writeln(ctx, "hml_exception_pop();");
+
+            // Finally block
+            if (has_finally) {
+                codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
+
+                // Re-throw saved exception if try threw and there was no catch
+                if (!has_catch) {
+                    codegen_writeln(ctx, "if (_had_exception) {");
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_throw(_saved_exception);");
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                }
+            }
+
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             break;
