@@ -302,14 +302,29 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            // Rune comparisons
+            // Rune comparisons (including ordering comparisons)
             if (left.type == VAL_RUNE && right.type == VAL_RUNE) {
-                if (expr->as.binary.op == OP_EQUAL) {
-                    binary_result = val_bool(left.as.as_rune == right.as.as_rune);
-                    goto binary_cleanup;
-                } else if (expr->as.binary.op == OP_NOT_EQUAL) {
-                    binary_result = val_bool(left.as.as_rune != right.as.as_rune);
-                    goto binary_cleanup;
+                switch (expr->as.binary.op) {
+                    case OP_EQUAL:
+                        binary_result = val_bool(left.as.as_rune == right.as.as_rune);
+                        goto binary_cleanup;
+                    case OP_NOT_EQUAL:
+                        binary_result = val_bool(left.as.as_rune != right.as.as_rune);
+                        goto binary_cleanup;
+                    case OP_LESS:
+                        binary_result = val_bool(left.as.as_rune < right.as.as_rune);
+                        goto binary_cleanup;
+                    case OP_LESS_EQUAL:
+                        binary_result = val_bool(left.as.as_rune <= right.as.as_rune);
+                        goto binary_cleanup;
+                    case OP_GREATER:
+                        binary_result = val_bool(left.as.as_rune > right.as.as_rune);
+                        goto binary_cleanup;
+                    case OP_GREATER_EQUAL:
+                        binary_result = val_bool(left.as.as_rune >= right.as.as_rune);
+                        goto binary_cleanup;
+                    default:
+                        break;  // Fall through for other operations
                 }
             }
 

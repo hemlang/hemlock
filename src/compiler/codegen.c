@@ -349,7 +349,7 @@ int codegen_is_main_func(CodegenContext *ctx, const char *name) {
 }
 
 // Main file import tracking (for function call resolution)
-void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const char *original_name, const char *module_prefix) {
+void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const char *original_name, const char *module_prefix, int is_function, int num_params) {
     if (ctx->num_main_imports >= ctx->main_imports_capacity) {
         int new_cap = (ctx->main_imports_capacity == 0) ? 16 : ctx->main_imports_capacity * 2;
         ctx->main_imports = realloc(ctx->main_imports, new_cap * sizeof(ImportBinding));
@@ -359,7 +359,8 @@ void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const 
     binding->local_name = strdup(local_name);
     binding->original_name = strdup(original_name);
     binding->module_prefix = strdup(module_prefix);
-    binding->is_function = 1;  // Assume it's a function for now
+    binding->is_function = is_function;
+    binding->num_params = num_params;
 }
 
 ImportBinding* codegen_find_main_import(CodegenContext *ctx, const char *name) {
@@ -3074,21 +3075,36 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Handle user-defined function by name (hml_fn_<name>)
                 // Main file functions should use generic call path (hml_call_function)
                 // to properly handle optional parameters with defaults
-                if (codegen_is_main_var(ctx, fn_name)) {
+
+                // Check if this is an imported function first (even if registered as local)
+                ImportBinding *import_binding = NULL;
+                if (ctx->current_module) {
+                    import_binding = module_find_import(ctx->current_module, fn_name);
+                } else {
+                    import_binding = codegen_find_main_import(ctx, fn_name);
+                }
+
+                if (codegen_is_main_var(ctx, fn_name) && !import_binding) {
                     // Main file variable (function def or closure) - use generic call path
                     // This ensures optional parameters get default values via runtime handling
                     // Fall through to generic handling
-                } else if (codegen_is_local(ctx, fn_name)) {
-                    // It's a local function variable - call through hml_call_function
+                } else if (codegen_is_local(ctx, fn_name) && !import_binding) {
+                    // It's a true local function variable (not an import) - call through hml_call_function
                     // Fall through to generic handling
                 } else {
-                    // Check if this is an imported function
-                    ImportBinding *import_binding = NULL;
-                    if (ctx->current_module) {
-                        import_binding = module_find_import(ctx->current_module, fn_name);
-                    } else {
-                        // Check main file imports
-                        import_binding = codegen_find_main_import(ctx, fn_name);
+                    // Direct call path for imported functions and module functions
+                    // import_binding was already set above
+
+                    // Determine the expected number of parameters for the function
+                    int expected_params = expr->as.call.num_args;  // Default to provided args
+                    if (import_binding && import_binding->is_function && import_binding->num_params > 0) {
+                        expected_params = import_binding->num_params;
+                    } else if (ctx->current_module && !import_binding) {
+                        // Look up export in current module for self-calls
+                        ExportedSymbol *exp = module_find_export(ctx->current_module, fn_name);
+                        if (exp && exp->is_function && exp->num_params > 0) {
+                            expected_params = exp->num_params;
+                        }
                     }
 
                     // Try to call as hml_fn_<name> directly with NULL for closure env
@@ -3118,8 +3134,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         // Main file function definition - call directly
                         fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                     }
+                    // Output provided arguments
                     for (int i = 0; i < expr->as.call.num_args; i++) {
                         fprintf(ctx->output, ", %s", arg_temps[i]);
+                    }
+                    // Fill in hml_val_null() for missing optional parameters
+                    for (int i = expr->as.call.num_args; i < expected_params; i++) {
+                        fprintf(ctx->output, ", hml_val_null()");
                     }
                     fprintf(ctx->output, ");\n");
 
@@ -3619,6 +3640,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "%s = hml_buffer_get(%s, %s);", result, obj, idx);
             codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+            codegen_indent_inc(ctx);
+            // Dynamic object property access with string key
+            codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
+            codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else {");
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "%s = hml_val_null();", result);
@@ -3646,6 +3672,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "hml_buffer_set(%s, %s, %s);", obj, idx, value);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+            codegen_indent_inc(ctx);
+            // Dynamic object property assignment with string key
+            codegen_writeln(ctx, "hml_object_set_field(%s, %s.as.as_string->data, %s);", obj, idx, value);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
@@ -5438,7 +5469,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                                 const char *import_name = import_stmt->as.import_stmt.import_names[j];
                                 const char *alias = import_stmt->as.import_stmt.import_aliases[j];
                                 const char *local_name = alias ? alias : import_name;
-                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix);
+                                // Look up export to get function info
+                                ExportedSymbol *exp = module_find_export(mod, import_name);
+                                int is_function = exp ? exp->is_function : 0;
+                                int num_params = exp ? exp->num_params : 0;
+                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix, is_function, num_params);
                             }
                         }
                     }
@@ -5897,11 +5932,15 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 if (stmt->type == STMT_EXPORT) continue;
                 // Check if it's a private const
                 if (stmt->type == STMT_CONST) {
+                    // Skip if already in exports (to avoid duplicate declaration)
+                    if (module_find_export(mod, stmt->as.const_stmt.name)) continue;
                     codegen_write(ctx, "static HmlValue %s%s = {0};\n",
                                 mod->module_prefix, stmt->as.const_stmt.name);
                 }
                 // Check if it's a private let (function or not)
                 if (stmt->type == STMT_LET) {
+                    // Skip if already in exports (to avoid duplicate declaration)
+                    if (module_find_export(mod, stmt->as.let.name)) continue;
                     codegen_write(ctx, "static HmlValue %s%s = {0};\n",
                                 mod->module_prefix, stmt->as.let.name);
                 }
@@ -6262,13 +6301,15 @@ CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path)
     return NULL;
 }
 
-void module_add_export(CompiledModule *module, const char *name, const char *mangled_name) {
+void module_add_export(CompiledModule *module, const char *name, const char *mangled_name, int is_function, int num_params) {
     if (module->num_exports >= module->export_capacity) {
         module->export_capacity = module->export_capacity == 0 ? 16 : module->export_capacity * 2;
         module->exports = realloc(module->exports, sizeof(ExportedSymbol) * module->export_capacity);
     }
     module->exports[module->num_exports].name = strdup(name);
     module->exports[module->num_exports].mangled_name = strdup(mangled_name);
+    module->exports[module->num_exports].is_function = is_function;
+    module->exports[module->num_exports].num_params = num_params;
     module->num_exports++;
 }
 
@@ -6281,7 +6322,7 @@ ExportedSymbol* module_find_export(CompiledModule *module, const char *name) {
     return NULL;
 }
 
-void module_add_import(CompiledModule *module, const char *local_name, const char *original_name, const char *module_prefix, int is_function) {
+void module_add_import(CompiledModule *module, const char *local_name, const char *original_name, const char *module_prefix, int is_function, int num_params) {
     if (module->num_imports >= module->import_capacity) {
         module->import_capacity = module->import_capacity == 0 ? 16 : module->import_capacity * 2;
         module->imports = realloc(module->imports, sizeof(ImportBinding) * module->import_capacity);
@@ -6290,6 +6331,7 @@ void module_add_import(CompiledModule *module, const char *local_name, const cha
     module->imports[module->num_imports].original_name = strdup(original_name);
     module->imports[module->num_imports].module_prefix = strdup(module_prefix);
     module->imports[module->num_imports].is_function = is_function;
+    module->imports[module->num_imports].num_params = num_params;
     module->num_imports++;
 }
 
@@ -6429,8 +6471,9 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
 
                     ExportedSymbol *exp = module_find_export(imported, import_name);
                     if (exp) {
-                        // Track this as an import binding with original name and module prefix
-                        module_add_import(module, bind_name, import_name, imported->module_prefix, 1);
+                        // Track this as an import binding with original name, module prefix, and func info
+                        module_add_import(module, bind_name, import_name, imported->module_prefix,
+                                        exp->is_function, exp->num_params);
                     }
                 }
             }
@@ -6444,27 +6487,86 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
             if (stmt->as.export_stmt.is_declaration) {
                 Stmt *decl = stmt->as.export_stmt.declaration;
                 const char *name = NULL;
+                int is_function = 0;
+                int num_params = 0;
                 if (decl->type == STMT_LET) {
                     name = decl->as.let.name;
+                    // Check if value is a function expression
+                    if (decl->as.let.value && decl->as.let.value->type == EXPR_FUNCTION) {
+                        is_function = 1;
+                        num_params = decl->as.let.value->as.function.num_params;
+                    }
                 } else if (decl->type == STMT_CONST) {
                     name = decl->as.const_stmt.name;
+                    // Check if value is a function expression
+                    if (decl->as.const_stmt.value && decl->as.const_stmt.value->type == EXPR_FUNCTION) {
+                        is_function = 1;
+                        num_params = decl->as.const_stmt.value->as.function.num_params;
+                    }
                 }
                 if (name) {
                     char mangled[256];
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
-                    module_add_export(module, name, mangled);
+                    module_add_export(module, name, mangled, is_function, num_params);
                 }
             } else if (!stmt->as.export_stmt.is_reexport) {
-                // Export list
+                // Export list - need to find the declaration to get function info
                 for (int j = 0; j < stmt->as.export_stmt.num_exports; j++) {
                     const char *name = stmt->as.export_stmt.export_names[j];
                     const char *alias = stmt->as.export_stmt.export_aliases[j];
                     const char *export_name = alias ? alias : name;
 
+                    // Look for the declaration to determine if it's a function
+                    int is_function = 0;
+                    int num_params = 0;
+                    for (int k = 0; k < module->num_statements; k++) {
+                        Stmt *s = module->statements[k];
+                        if (s->type == STMT_LET && strcmp(s->as.let.name, name) == 0) {
+                            if (s->as.let.value && s->as.let.value->type == EXPR_FUNCTION) {
+                                is_function = 1;
+                                num_params = s->as.let.value->as.function.num_params;
+                            }
+                            break;
+                        } else if (s->type == STMT_CONST && strcmp(s->as.const_stmt.name, name) == 0) {
+                            if (s->as.const_stmt.value && s->as.const_stmt.value->type == EXPR_FUNCTION) {
+                                is_function = 1;
+                                num_params = s->as.const_stmt.value->as.function.num_params;
+                            }
+                            break;
+                        }
+                    }
+
                     char mangled[256];
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
-                    module_add_export(module, export_name, mangled);
+                    module_add_export(module, export_name, mangled, is_function, num_params);
                 }
+            }
+        }
+    }
+
+    // Third pass: add implicit exports for top-level functions without explicit exports
+    // This allows modules to work without explicit export statements (like @stdlib modules)
+    for (int i = 0; i < module->num_statements; i++) {
+        Stmt *stmt = module->statements[i];
+        if (stmt->type == STMT_LET && stmt->as.let.value &&
+            stmt->as.let.value->type == EXPR_FUNCTION) {
+            const char *name = stmt->as.let.name;
+            // Check if already exported
+            if (!module_find_export(module, name)) {
+                char mangled[256];
+                snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
+                int num_params = stmt->as.let.value->as.function.num_params;
+                module_add_export(module, name, mangled, 1, num_params);
+            }
+        } else if (stmt->type == STMT_CONST && stmt->as.const_stmt.value &&
+                   stmt->as.const_stmt.value->type == EXPR_FUNCTION) {
+            const char *name = stmt->as.const_stmt.name;
+            // Check if already exported
+            if (!module_find_export(module, name)) {
+                char mangled[256];
+                snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
+                int num_params = stmt->as.const_stmt.value->as.function.num_params;
+                module_add_export(module, name, mangled, 1, num_params);
             }
         }
     }

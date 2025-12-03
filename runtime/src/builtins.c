@@ -1308,6 +1308,8 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = (left.as.as_bool == right.as.as_bool);
         } else if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
             equal = (strcmp(left.as.as_string->data, right.as.as_string->data) == 0);
+        } else if (left.type == HML_VAL_RUNE && right.type == HML_VAL_RUNE) {
+            equal = (left.as.as_rune == right.as.as_rune);
         } else if (hml_is_numeric(left) && hml_is_numeric(right)) {
             double l = hml_to_f64(left);
             double r = hml_to_f64(right);
@@ -1316,6 +1318,20 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = 0;  // Different types are not equal
         }
         return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
+    }
+
+    // Rune comparison operations (ordering)
+    if (left.type == HML_VAL_RUNE && right.type == HML_VAL_RUNE) {
+        uint32_t l = left.as.as_rune;
+        uint32_t r = right.as.as_rune;
+        switch (op) {
+            case HML_OP_LESS:          return hml_val_bool(l < r);
+            case HML_OP_LESS_EQUAL:    return hml_val_bool(l <= r);
+            case HML_OP_GREATER:       return hml_val_bool(l > r);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(l >= r);
+            default:
+                hml_runtime_error("Invalid operation for rune type");
+        }
     }
 
     // Numeric operations
