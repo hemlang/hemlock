@@ -228,10 +228,16 @@ static int compile_c(const Options *opts, const char *c_file) {
         strcpy(zlib_flag, " -lz");
     }
 
+    // Check if -lwebsockets is linkable
+    char websockets_flag[16] = "";
+    if (system("echo 'int main(){return 0;}' | gcc -x c - -lwebsockets -o /dev/null 2>/dev/null") == 0) {
+        strcpy(websockets_flag, " -lwebsockets");
+    }
+
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s",
+        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
-        runtime_path, runtime_path, zlib_flag);
+        runtime_path, runtime_path, zlib_flag, websockets_flag);
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);

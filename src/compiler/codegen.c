@@ -6225,6 +6225,14 @@ void module_cache_free(ModuleCache *cache) {
         }
         free(mod->exports);
 
+        // Free imports
+        for (int i = 0; i < mod->num_imports; i++) {
+            free(mod->imports[i].local_name);
+            free(mod->imports[i].original_name);
+            free(mod->imports[i].module_prefix);
+        }
+        free(mod->imports);
+
         free(mod);
         mod = next;
     }
@@ -6428,6 +6436,9 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     module->exports = NULL;
     module->num_exports = 0;
     module->export_capacity = 0;
+    module->imports = NULL;
+    module->num_imports = 0;
+    module->import_capacity = 0;
 
     // Add to cache (for cycle detection)
     module->next = cache->modules;

@@ -10,6 +10,9 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HEMLOCK="$ROOT_DIR/hemlock"
 HEMLOCKC="$ROOT_DIR/hemlockc"
 
+# Timeout for each test (in seconds)
+TEST_TIMEOUT=10
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -63,20 +66,34 @@ run_test() {
 
     local expected=$(cat "$expected_file")
 
-    # Run interpreter
+    # Run interpreter with timeout
     local interp_output
     local interp_exit=0
-    interp_output=$("$HEMLOCK" "$test_file" 2>&1) || interp_exit=$?
+    interp_output=$(timeout "$TEST_TIMEOUT" "$HEMLOCK" "$test_file" 2>&1) || interp_exit=$?
 
-    # Compile and run
+    # Check if interpreter timed out (exit code 124)
+    if [ $interp_exit -eq 124 ]; then
+        interp_output="[TIMEOUT after ${TEST_TIMEOUT}s]"
+    fi
+
+    # Compile and run with timeout
     local compile_exit=0
     local compiler_output
     local run_exit=0
 
-    "$HEMLOCKC" "$test_file" -o "$TEMP_DIR/$test_name" 2>/dev/null || compile_exit=$?
+    timeout "$TEST_TIMEOUT" "$HEMLOCKC" "$test_file" -o "$TEMP_DIR/$test_name" 2>/dev/null || compile_exit=$?
+
+    # Check if compilation timed out
+    if [ $compile_exit -eq 124 ]; then
+        compile_exit=1  # Treat timeout as compile failure
+    fi
 
     if [ $compile_exit -eq 0 ]; then
-        compiler_output=$(LD_LIBRARY_PATH="$ROOT_DIR" "$TEMP_DIR/$test_name" 2>&1) || run_exit=$?
+        compiler_output=$(timeout "$TEST_TIMEOUT" env LD_LIBRARY_PATH="$ROOT_DIR" "$TEMP_DIR/$test_name" 2>&1) || run_exit=$?
+        # Check if runtime timed out
+        if [ $run_exit -eq 124 ]; then
+            compiler_output="[TIMEOUT after ${TEST_TIMEOUT}s]"
+        fi
     fi
 
     # Compare results
