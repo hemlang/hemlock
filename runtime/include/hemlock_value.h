@@ -131,7 +131,8 @@ struct HmlObject {
 struct HmlFunction {
     void *fn_ptr;           // C function pointer
     void *closure_env;      // Closure environment (NULL if not a closure)
-    int num_params;
+    int num_params;         // Total number of parameters
+    int num_required;       // Number of required parameters (for arity checking)
     int is_async;
     int ref_count;
 };
@@ -221,8 +222,8 @@ HmlValue hml_val_buffer(int size);
 HmlValue hml_val_array(void);
 HmlValue hml_val_object(void);
 HmlValue hml_val_null(void);
-HmlValue hml_val_function(void *fn_ptr, int num_params, int is_async);
-HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int is_async);
+HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is_async);
+HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int num_required, int is_async);
 HmlValue hml_val_builtin_fn(HmlBuiltinFn fn);
 HmlValue hml_val_socket(HmlSocket *sock);
 

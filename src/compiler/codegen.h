@@ -54,6 +54,8 @@ typedef enum {
 typedef struct {
     char *name;             // Export name
     char *mangled_name;     // C variable name (module prefix + name)
+    int is_function;        // Whether this export is a function
+    int num_params;         // Number of parameters (for functions)
 } ExportedSymbol;
 
 // Import binding: maps local name to mangled name
@@ -62,6 +64,7 @@ typedef struct {
     char *original_name;    // Original export name (e.g., "multiply")
     char *module_prefix;    // Module prefix (e.g., "_mod1_")
     int is_function;        // Whether this is a function binding
+    int num_params;         // Number of parameters (for functions)
 } ImportBinding;
 
 // Compiled module tracking
@@ -147,6 +150,13 @@ typedef struct {
     char **shadow_vars;           // Variables that shadow main vars (use bare name)
     int num_shadow_vars;          // Count of shadow variables
     int shadow_vars_capacity;     // Capacity of shadow_vars array
+
+    // Try-finally support (for return/break/continue to jump to finally first)
+    int try_finally_depth;        // Current nesting depth of try-finally blocks
+    char **finally_labels;        // Stack of finally labels (for goto)
+    char **return_value_vars;     // Stack of return value variable names
+    char **has_return_vars;       // Stack of "has return" flag variable names
+    int try_finally_capacity;     // Capacity of the stacks
 } CodegenContext;
 
 // Initialize code generation context
@@ -281,7 +291,9 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path);
 CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path);
 
 // Add an export to a module
-void module_add_export(CompiledModule *module, const char *name, const char *mangled_name);
+// is_function: 1 if this is a function, 0 otherwise
+// num_params: number of parameters (only meaningful if is_function is 1)
+void module_add_export(CompiledModule *module, const char *name, const char *mangled_name, int is_function, int num_params);
 
 // Find an export in a module by name
 ExportedSymbol* module_find_export(CompiledModule *module, const char *name);

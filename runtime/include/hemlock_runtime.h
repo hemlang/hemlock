@@ -304,6 +304,10 @@ HmlValue hml_buffer_get(HmlValue buf, HmlValue index);
 void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val);
 HmlValue hml_buffer_length(HmlValue buf);
 
+// FFI callback operations
+HmlValue hml_callback_create(HmlValue fn, HmlValue arg_types, HmlValue ret_type);
+void hml_callback_free(HmlValue callback);
+
 // ========== FUNCTION CALLS ==========
 
 // Global self reference for method calls (thread-local for safety)
@@ -686,6 +690,15 @@ HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port);
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server);
+
+// ========== CALL STACK TRACKING ==========
+
+// Maximum call stack depth (matches interpreter's limit)
+#define HML_MAX_CALL_DEPTH 1000
+
+// Call depth tracking - called at function entry/exit to detect stack overflow
+void hml_call_enter(void);
+void hml_call_exit(void);
 
 // ========== UTILITY MACROS ==========
 

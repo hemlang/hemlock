@@ -57,6 +57,11 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->shadow_vars = NULL;
     ctx->num_shadow_vars = 0;
     ctx->shadow_vars_capacity = 0;
+    ctx->try_finally_depth = 0;
+    ctx->finally_labels = NULL;
+    ctx->return_value_vars = NULL;
+    ctx->has_return_vars = NULL;
+    ctx->try_finally_capacity = 0;
     return ctx;
 }
 
@@ -118,6 +123,18 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->shadow_vars[i]);
             }
             free(ctx->shadow_vars);
+        }
+
+        // Free try-finally tracking arrays
+        if (ctx->finally_labels) {
+            for (int i = 0; i < ctx->try_finally_depth; i++) {
+                free(ctx->finally_labels[i]);
+                free(ctx->return_value_vars[i]);
+                free(ctx->has_return_vars[i]);
+            }
+            free(ctx->finally_labels);
+            free(ctx->return_value_vars);
+            free(ctx->has_return_vars);
         }
 
         free(ctx);
@@ -239,6 +256,53 @@ void codegen_remove_shadow(CodegenContext *ctx, const char *name) {
     }
 }
 
+// Try-finally context tracking (for return/break to jump to finally first)
+void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
+                              const char *return_value_var, const char *has_return_var) {
+    if (ctx->try_finally_depth >= ctx->try_finally_capacity) {
+        int new_cap = (ctx->try_finally_capacity == 0) ? 4 : ctx->try_finally_capacity * 2;
+        ctx->finally_labels = realloc(ctx->finally_labels, new_cap * sizeof(char*));
+        ctx->return_value_vars = realloc(ctx->return_value_vars, new_cap * sizeof(char*));
+        ctx->has_return_vars = realloc(ctx->has_return_vars, new_cap * sizeof(char*));
+        ctx->try_finally_capacity = new_cap;
+    }
+    ctx->finally_labels[ctx->try_finally_depth] = strdup(finally_label);
+    ctx->return_value_vars[ctx->try_finally_depth] = strdup(return_value_var);
+    ctx->has_return_vars[ctx->try_finally_depth] = strdup(has_return_var);
+    ctx->try_finally_depth++;
+}
+
+void codegen_pop_try_finally(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        ctx->try_finally_depth--;
+        free(ctx->finally_labels[ctx->try_finally_depth]);
+        free(ctx->return_value_vars[ctx->try_finally_depth]);
+        free(ctx->has_return_vars[ctx->try_finally_depth]);
+    }
+}
+
+// Get the current (innermost) try-finally context
+const char* codegen_get_finally_label(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        return ctx->finally_labels[ctx->try_finally_depth - 1];
+    }
+    return NULL;
+}
+
+const char* codegen_get_return_value_var(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        return ctx->return_value_vars[ctx->try_finally_depth - 1];
+    }
+    return NULL;
+}
+
+const char* codegen_get_has_return_var(CodegenContext *ctx) {
+    if (ctx->try_finally_depth > 0) {
+        return ctx->has_return_vars[ctx->try_finally_depth - 1];
+    }
+    return NULL;
+}
+
 // Forward declaration
 int codegen_is_main_var(CodegenContext *ctx, const char *name);
 
@@ -285,7 +349,7 @@ int codegen_is_main_func(CodegenContext *ctx, const char *name) {
 }
 
 // Main file import tracking (for function call resolution)
-void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const char *original_name, const char *module_prefix) {
+void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const char *original_name, const char *module_prefix, int is_function, int num_params) {
     if (ctx->num_main_imports >= ctx->main_imports_capacity) {
         int new_cap = (ctx->main_imports_capacity == 0) ? 16 : ctx->main_imports_capacity * 2;
         ctx->main_imports = realloc(ctx->main_imports, new_cap * sizeof(ImportBinding));
@@ -295,7 +359,8 @@ void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const 
     binding->local_name = strdup(local_name);
     binding->original_name = strdup(original_name);
     binding->module_prefix = strdup(module_prefix);
-    binding->is_function = 1;  // Assume it's a function for now
+    binding->is_function = is_function;
+    binding->num_params = num_params;
 }
 
 ImportBinding* codegen_find_main_import(CodegenContext *ctx, const char *name) {
@@ -578,6 +643,18 @@ static void shared_env_clear(CodegenContext *ctx) {
     ctx->shared_env_capacity = 0;
 }
 
+// Helper to count required parameters (those without defaults)
+static int count_required_params(Expr **param_defaults, int num_params) {
+    if (!param_defaults) return num_params;  // No defaults array = all required
+    int required = 0;
+    for (int i = 0; i < num_params; i++) {
+        if (param_defaults[i] == NULL) {
+            required++;
+        }
+    }
+    return required;
+}
+
 // Forward declarations for scanning closures in function body
 static void scan_closures_expr(CodegenContext *ctx, Expr *expr, Scope *local_scope);
 static void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope);
@@ -785,6 +862,10 @@ static void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_sco
         case STMT_TRY:
             scan_closures_stmt(ctx, stmt->as.try_stmt.try_block, local_scope);
             if (stmt->as.try_stmt.catch_block) {
+                // Add catch param to scope so closures inside catch don't capture it
+                if (stmt->as.try_stmt.catch_param) {
+                    scope_add_var(local_scope, stmt->as.try_stmt.catch_param);
+                }
                 scan_closures_stmt(ctx, stmt->as.try_stmt.catch_block, local_scope);
             }
             if (stmt->as.try_stmt.finally_block) {
@@ -1183,342 +1264,342 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_f64(0.0/0.0);", result);
             // Handle math functions (builtins)
             } else if (strcmp(expr->as.ident, "__sin") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sin, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sin, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__cos") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cos, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cos, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__tan") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tan, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tan, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__asin") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_asin, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_asin, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__acos") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_acos, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_acos, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__atan") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__atan2") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan2, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan2, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__sqrt") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sqrt, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sqrt, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__pow") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_pow, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_pow, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__exp") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exp, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exp, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__log") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__log10") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log10, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log10, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__log2") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log2, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log2, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__floor") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_floor, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_floor, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__ceil") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ceil, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ceil, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__round") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_round, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_round, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__trunc") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunc, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunc, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__abs") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abs, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abs, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__min") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_min, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_min, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__max") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_max, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_max, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__clamp") == 0 || strcmp(expr->as.ident, "clamp") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clamp, 3, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clamp, 3, 3, 0);", result);
             } else if (strcmp(expr->as.ident, "__rand") == 0 || strcmp(expr->as.ident, "rand") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rand, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rand, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__rand_range") == 0 || strcmp(expr->as.ident, "rand_range") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rand_range, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rand_range, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__seed") == 0 || strcmp(expr->as.ident, "seed") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_seed, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_seed, 1, 1, 0);", result);
             // Handle time functions (builtins)
             } else if (strcmp(expr->as.ident, "__now") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_now, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_now, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__time_ms") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_time_ms, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_time_ms, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__clock") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clock, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clock, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__sleep") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sleep, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sleep, 1, 1, 0);", result);
             // Handle datetime functions (builtins)
             } else if (strcmp(expr->as.ident, "__localtime") == 0 || strcmp(expr->as.ident, "localtime") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_localtime, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_localtime, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__gmtime") == 0 || strcmp(expr->as.ident, "gmtime") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gmtime, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gmtime, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__mktime") == 0 || strcmp(expr->as.ident, "mktime") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mktime, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mktime, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__strftime") == 0 || strcmp(expr->as.ident, "strftime") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strftime, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strftime, 2, 2, 0);", result);
             // Handle environment functions (builtins)
             } else if (strcmp(expr->as.ident, "__getenv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getenv, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getenv, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__setenv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_setenv, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_setenv, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__unsetenv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_unsetenv, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_unsetenv, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__exit") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exit, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exit, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__get_pid") == 0 || strcmp(expr->as.ident, "get_pid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_pid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_pid, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__getppid") == 0 || strcmp(expr->as.ident, "getppid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getppid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getppid, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__getuid") == 0 || strcmp(expr->as.ident, "getuid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getuid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getuid, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__geteuid") == 0 || strcmp(expr->as.ident, "geteuid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_geteuid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_geteuid, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__getgid") == 0 || strcmp(expr->as.ident, "getgid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getgid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getgid, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__getegid") == 0 || strcmp(expr->as.ident, "getegid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getegid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getegid, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__exec") == 0 || strcmp(expr->as.ident, "exec") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 1, 0);", result);
             // Handle process functions (builtins)
             } else if (strcmp(expr->as.ident, "__kill") == 0 || strcmp(expr->as.ident, "kill") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_kill, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_kill, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__fork") == 0 || strcmp(expr->as.ident, "fork") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_fork, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_fork, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__wait") == 0 || strcmp(expr->as.ident, "wait") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_wait, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_wait, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__waitpid") == 0 || strcmp(expr->as.ident, "waitpid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_waitpid, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_waitpid, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__abort") == 0 || strcmp(expr->as.ident, "abort") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abort, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abort, 0, 0, 0);", result);
             // Handle filesystem functions (builtins)
             } else if (strcmp(expr->as.ident, "__exists") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__read_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_file, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_file, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__write_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_file, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_file, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__append_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_append_file, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_append_file, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__remove_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_file, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_file, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__rename") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rename, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rename, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__copy_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_copy_file, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_copy_file, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__is_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_file, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_file, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__is_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_dir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_dir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__file_stat") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_file_stat, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_file_stat, 1, 1, 0);", result);
             // Handle directory functions (builtins)
             } else if (strcmp(expr->as.ident, "__make_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_make_dir, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_make_dir, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__remove_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_dir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_dir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__list_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_list_dir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_list_dir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__cwd") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cwd, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cwd, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__chdir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_chdir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_chdir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__absolute_path") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_absolute_path, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_absolute_path, 1, 1, 0);", result);
             // Handle system info functions (builtins)
             } else if (strcmp(expr->as.ident, "__platform") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_platform, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_platform, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__arch") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_arch, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_arch, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__hostname") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hostname, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hostname, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__username") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_username, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_username, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__homedir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_homedir, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_homedir, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__cpu_count") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cpu_count, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cpu_count, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__total_memory") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_total_memory, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_total_memory, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__free_memory") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_free_memory, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_free_memory, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__os_version") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_version, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_version, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__os_name") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_name, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_name, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__tmpdir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tmpdir, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tmpdir, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__uptime") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_uptime, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_uptime, 0, 0, 0);", result);
             // Handle compression functions (builtins)
             } else if (strcmp(expr->as.ident, "__zlib_compress") == 0 || strcmp(expr->as.ident, "zlib_compress") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_zlib_compress, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_zlib_compress, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__zlib_decompress") == 0 || strcmp(expr->as.ident, "zlib_decompress") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_zlib_decompress, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_zlib_decompress, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__gzip_compress") == 0 || strcmp(expr->as.ident, "gzip_compress") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gzip_compress, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gzip_compress, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__gzip_decompress") == 0 || strcmp(expr->as.ident, "gzip_decompress") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gzip_decompress, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_gzip_decompress, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__zlib_compress_bound") == 0 || strcmp(expr->as.ident, "zlib_compress_bound") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_zlib_compress_bound, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_zlib_compress_bound, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__crc32") == 0 || strcmp(expr->as.ident, "crc32") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_crc32, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_crc32, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__adler32") == 0 || strcmp(expr->as.ident, "adler32") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_adler32, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_adler32, 1, 1, 0);", result);
             // Internal helper builtins
             } else if (strcmp(expr->as.ident, "__read_u32") == 0 || strcmp(expr->as.ident, "read_u32") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u32, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u32, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__read_u64") == 0 || strcmp(expr->as.ident, "read_u64") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u64, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u64, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__strerror") == 0 || strcmp(expr->as.ident, "strerror") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strerror, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strerror, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "__dirent_name") == 0 || strcmp(expr->as.ident, "dirent_name") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dirent_name, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dirent_name, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__string_to_cstr") == 0 || strcmp(expr->as.ident, "string_to_cstr") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_to_cstr, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_to_cstr, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__cstr_to_string") == 0 || strcmp(expr->as.ident, "cstr_to_string") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cstr_to_string, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cstr_to_string, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__to_string") == 0 || strcmp(expr->as.ident, "to_string") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_to_string, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_to_string, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__string_byte_length") == 0 || strcmp(expr->as.ident, "string_byte_length") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_byte_length, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_byte_length, 1, 1, 0);", result);
             // DNS/Networking builtins
             } else if (strcmp(expr->as.ident, "dns_resolve") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dns_resolve, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dns_resolve, 1, 1, 0);", result);
             // HTTP builtins (libwebsockets)
             } else if (strcmp(expr->as.ident, "__lws_http_get") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_get, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_get, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_http_post") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_post, 3, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_post, 3, 3, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_response_status") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_status, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_status, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_response_body") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_body, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_body, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_response_headers") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_headers, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_headers, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_response_free") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_free, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_free, 1, 1, 0);", result);
             // WebSocket builtins
             } else if (strcmp(expr->as.ident, "__lws_ws_connect") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_connect, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_connect, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_send_text") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_send_text, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_send_text, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_recv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_recv, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_recv, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_close") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_close, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_close, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_is_closed") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_is_closed, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_is_closed, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_msg_type") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_type, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_type, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_msg_text") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_text, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_text, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_msg_len") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_len, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_len, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_msg_free") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_free, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_free, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_server_create") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_server_create, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_server_create, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_server_accept") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_server_accept, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_server_accept, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_ws_server_close") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_server_close, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_server_close, 1, 1, 0);", result);
             // Socket builtins
             } else if (strcmp(expr->as.ident, "socket_create") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_socket_create, 3, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_socket_create, 3, 3, 0);", result);
             // OS info builtins
             } else if (strcmp(expr->as.ident, "platform") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_platform, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_platform, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "arch") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_arch, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_arch, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "hostname") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hostname, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hostname, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "username") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_username, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_username, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "homedir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_homedir, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_homedir, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "cpu_count") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cpu_count, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cpu_count, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "total_memory") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_total_memory, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_total_memory, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "free_memory") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_free_memory, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_free_memory, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "os_version") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_version, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_version, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "os_name") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_name, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_name, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "tmpdir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tmpdir, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tmpdir, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "uptime") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_uptime, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_uptime, 0, 0, 0);", result);
             // Filesystem builtins
             } else if (strcmp(expr->as.ident, "exists") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "read_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_file, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_file, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "write_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_file, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_file, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "append_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_append_file, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_append_file, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "remove_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_file, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_file, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "rename") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rename, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rename, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "copy_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_copy_file, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_copy_file, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "is_file") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_file, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_file, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "is_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_dir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_dir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "file_stat") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_file_stat, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_file_stat, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "make_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_make_dir, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_make_dir, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "remove_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_dir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_dir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "list_dir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_list_dir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_list_dir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "cwd") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cwd, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cwd, 0, 0, 0);", result);
             } else if (strcmp(expr->as.ident, "chdir") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_chdir, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_chdir, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "absolute_path") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_absolute_path, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_absolute_path, 1, 1, 0);", result);
             // Unprefixed aliases for math functions (for parity with interpreter)
             } else if (strcmp(expr->as.ident, "sin") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sin, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sin, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "cos") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cos, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cos, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "tan") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tan, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tan, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "asin") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_asin, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_asin, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "acos") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_acos, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_acos, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "atan") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "atan2") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan2, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atan2, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "sqrt") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sqrt, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sqrt, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "pow") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_pow, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_pow, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "exp") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exp, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exp, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "log") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "log10") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log10, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log10, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "log2") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log2, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_log2, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "floor") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_floor, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_floor, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "ceil") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ceil, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ceil, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "round") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_round, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_round, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "trunc") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunc, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunc, 1, 1, 0);", result);
             // Unprefixed aliases for environment functions (for parity with interpreter)
             } else if (strcmp(expr->as.ident, "getenv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getenv, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getenv, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "setenv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_setenv, 2, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_setenv, 2, 2, 0);", result);
             } else if (strcmp(expr->as.ident, "unsetenv") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_unsetenv, 1, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_unsetenv, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "get_pid") == 0) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_pid, 0, 0);", result);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_pid, 0, 0, 0);", result);
             } else {
                 // Check if this is an imported symbol
                 ImportBinding *import_binding = NULL;
@@ -1530,25 +1611,32 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     // Use the imported module's symbol
                     codegen_writeln(ctx, "HmlValue %s = %s%s;", result,
                                   import_binding->module_prefix, import_binding->original_name);
-                } else if (ctx->current_module && !codegen_is_local(ctx, expr->as.ident)) {
-                    // Not a local variable, use module prefix
-                    codegen_writeln(ctx, "HmlValue %s = %s%s;", result,
-                                  ctx->current_module->module_prefix, expr->as.ident);
-                } else if (ctx->current_module && codegen_is_local(ctx, expr->as.ident)) {
-                    // Local variable, but check if it's a module export (self-reference in closure)
-                    ExportedSymbol *exp = module_find_export(ctx->current_module, expr->as.ident);
-                    if (exp) {
-                        // Use the mangled export name to access module-level function
-                        codegen_writeln(ctx, "HmlValue %s = %s;", result, exp->mangled_name);
+                } else if (codegen_is_shadow(ctx, expr->as.ident)) {
+                    // Shadow variable (like catch param) - use bare name, shadows module vars
+                    // Must be checked BEFORE module prefix check
+                    codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                } else if (codegen_is_local(ctx, expr->as.ident)) {
+                    // Local variable - check context to determine how to access
+                    if (ctx->current_module) {
+                        // In a module - check if it's a module export (self-reference in closure)
+                        ExportedSymbol *exp = module_find_export(ctx->current_module, expr->as.ident);
+                        if (exp) {
+                            // Use the mangled export name to access module-level function
+                            codegen_writeln(ctx, "HmlValue %s = %s;", result, exp->mangled_name);
+                        } else {
+                            codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                        }
+                    } else if (codegen_is_main_var(ctx, expr->as.ident)) {
+                        // Main file top-level variable - use _main_ prefix
+                        codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident);
                     } else {
+                        // True local variable (not a main var) - use bare name
                         codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
                     }
-                } else if (codegen_is_shadow(ctx, expr->as.ident)) {
-                    // Shadow variable (like catch param) - use bare name, shadows main var
-                    codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
-                } else if (codegen_is_local(ctx, expr->as.ident) && !codegen_is_main_var(ctx, expr->as.ident)) {
-                    // True local variable (not a main var added for tracking) - use bare name
-                    codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                } else if (ctx->current_module) {
+                    // Not local, not shadow, have module - use module prefix
+                    codegen_writeln(ctx, "HmlValue %s = %s%s;", result,
+                                  ctx->current_module->module_prefix, expr->as.ident);
                 } else if (codegen_is_main_var(ctx, expr->as.ident)) {
                     // Main file top-level variable - use _main_ prefix
                     codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident);
@@ -3065,21 +3153,39 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Handle user-defined function by name (hml_fn_<name>)
                 // Main file functions should use generic call path (hml_call_function)
                 // to properly handle optional parameters with defaults
-                if (codegen_is_main_var(ctx, fn_name)) {
+
+                // Check if this is an imported function first (even if registered as local)
+                ImportBinding *import_binding = NULL;
+                if (ctx->current_module) {
+                    import_binding = module_find_import(ctx->current_module, fn_name);
+                } else {
+                    import_binding = codegen_find_main_import(ctx, fn_name);
+                }
+
+                if (codegen_is_main_var(ctx, fn_name) && !import_binding) {
                     // Main file variable (function def or closure) - use generic call path
                     // This ensures optional parameters get default values via runtime handling
                     // Fall through to generic handling
-                } else if (codegen_is_local(ctx, fn_name)) {
-                    // It's a local function variable - call through hml_call_function
+                } else if (codegen_is_local(ctx, fn_name) && !import_binding) {
+                    // It's a true local function variable (not an import) - call through hml_call_function
                     // Fall through to generic handling
+                } else if (import_binding && !import_binding->is_function) {
+                    // Imported variable that holds a function value (e.g., export let sleep = __sleep)
+                    // Fall through to generic call path - will use hml_call_function on the variable
                 } else {
-                    // Check if this is an imported function
-                    ImportBinding *import_binding = NULL;
-                    if (ctx->current_module) {
-                        import_binding = module_find_import(ctx->current_module, fn_name);
-                    } else {
-                        // Check main file imports
-                        import_binding = codegen_find_main_import(ctx, fn_name);
+                    // Direct call path for imported functions and module functions
+                    // import_binding was already set above
+
+                    // Determine the expected number of parameters for the function
+                    int expected_params = expr->as.call.num_args;  // Default to provided args
+                    if (import_binding && import_binding->is_function && import_binding->num_params > 0) {
+                        expected_params = import_binding->num_params;
+                    } else if (ctx->current_module && !import_binding) {
+                        // Look up export in current module for self-calls
+                        ExportedSymbol *exp = module_find_export(ctx->current_module, fn_name);
+                        if (exp && exp->is_function && exp->num_params > 0) {
+                            expected_params = exp->num_params;
+                        }
                     }
 
                     // Try to call as hml_fn_<name> directly with NULL for closure env
@@ -3109,8 +3215,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         // Main file function definition - call directly
                         fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                     }
+                    // Output provided arguments
                     for (int i = 0; i < expr->as.call.num_args; i++) {
                         fprintf(ctx->output, ", %s", arg_temps[i]);
+                    }
+                    // Fill in hml_val_null() for missing optional parameters
+                    for (int i = expr->as.call.num_args; i < expected_params; i++) {
+                        fprintf(ctx->output, ", hml_val_null()");
                     }
                     fprintf(ctx->output, ");\n");
 
@@ -3610,6 +3721,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "%s = hml_buffer_get(%s, %s);", result, obj, idx);
             codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+            codegen_indent_inc(ctx);
+            // Dynamic object property access with string key
+            codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
+            codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else {");
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "%s = hml_val_null();", result);
@@ -3637,6 +3753,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "hml_buffer_set(%s, %s, %s);", obj, idx, value);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+            codegen_indent_inc(ctx);
+            // Dynamic object property assignment with string key
+            codegen_writeln(ctx, "hml_object_set_field(%s, %s.as.as_string->data, %s);", obj, idx, value);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
@@ -3713,8 +3834,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 closure->captured_vars = NULL;
                 closure->num_captured = 0;
                 closure->shared_env_indices = NULL;
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)%s, %d, %d);",
-                              result, func_name, expr->as.function.num_params, expr->as.function.is_async);
+                int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)%s, %d, %d, %d);",
+                              result, func_name, expr->as.function.num_params, num_required, expr->as.function.is_async);
             } else if (ctx->shared_env_name) {
                 // Use the shared environment
                 // Store the captured variable names and their shared env indices
@@ -3750,8 +3872,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)%s, %d, %d);",
-                              result, func_name, ctx->shared_env_name, expr->as.function.num_params, expr->as.function.is_async);
+                int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)%s, %d, %d, %d);",
+                              result, func_name, ctx->shared_env_name, expr->as.function.num_params, num_required, expr->as.function.is_async);
 
                 // Track for self-reference fixup
                 ctx->last_closure_env_id = -1;  // Using shared env, different mechanism
@@ -3797,8 +3920,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                                       env_id, i, captured->vars[i]);
                     }
                 }
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)_env_%d, %d, %d);",
-                              result, func_name, env_id, expr->as.function.num_params, expr->as.function.is_async);
+                int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)_env_%d, %d, %d, %d);",
+                              result, func_name, env_id, expr->as.function.num_params, num_required, expr->as.function.is_async);
                 ctx->temp_counter++;
 
                 // Track this closure for potential self-reference fixup in let statements
@@ -3947,11 +4071,20 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         }
 
         case EXPR_AWAIT: {
-            // await expr is syntactic sugar for join(expr)
-            char *task = codegen_expr(ctx, expr->as.await_expr.awaited_expr);
-            codegen_writeln(ctx, "HmlValue %s = hml_join(%s);", result, task);
-            codegen_writeln(ctx, "hml_release(&%s);", task);
-            free(task);
+            // await expr - if value is a task, join it; otherwise return as-is
+            char *awaited = codegen_expr(ctx, expr->as.await_expr.awaited_expr);
+            codegen_writeln(ctx, "HmlValue %s;", result);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_TASK) {", awaited);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "%s = hml_join(%s);", result, awaited);
+            codegen_writeln(ctx, "hml_release(&%s);", awaited);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else {");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "%s = %s;", result, awaited);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            free(awaited);
             break;
         }
 
@@ -4298,7 +4431,23 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_RETURN: {
-            if (ctx->defer_stack) {
+            // Check if we're inside a try-finally block
+            const char *finally_label = codegen_get_finally_label(ctx);
+            if (finally_label) {
+                // Inside try-finally: save return value and goto finally
+                const char *ret_var = codegen_get_return_value_var(ctx);
+                const char *has_ret = codegen_get_has_return_var(ctx);
+                if (stmt->as.return_stmt.value) {
+                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    codegen_writeln(ctx, "%s = %s;", ret_var, value);
+                    free(value);
+                } else {
+                    codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
+                }
+                codegen_writeln(ctx, "%s = 1;", has_ret);
+                codegen_writeln(ctx, "hml_exception_pop();");
+                codegen_writeln(ctx, "goto %s;", finally_label);
+            } else if (ctx->defer_stack) {
                 // We have defers - need to save return value, execute defers, then return
                 char *ret_val = codegen_temp(ctx);
                 if (stmt->as.return_stmt.value) {
@@ -4310,15 +4459,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
                 // Execute all defers in LIFO order
                 codegen_defer_execute_all(ctx);
+                codegen_writeln(ctx, "hml_call_exit();");
                 codegen_writeln(ctx, "return %s;", ret_val);
                 free(ret_val);
             } else {
-                // No defers - simple return
+                // No defers or try-finally - simple return
+                // Evaluate expression first, then decrement call depth
                 if (stmt->as.return_stmt.value) {
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    codegen_writeln(ctx, "hml_call_exit();");
                     codegen_writeln(ctx, "return %s;", value);
                     free(value);
                 } else {
+                    codegen_writeln(ctx, "hml_call_exit();");
                     codegen_writeln(ctx, "return hml_val_null();");
                 }
             }
@@ -4337,12 +4490,43 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "HmlExceptionContext *_ex_ctx = hml_exception_push();");
+
+            // Track if we need to re-throw after finally
+            int has_finally = stmt->as.try_stmt.finally_block != NULL;
+            int has_catch = stmt->as.try_stmt.catch_block != NULL;
+
+            // Generate unique names for try-finally support (for return to jump to finally)
+            // This is only needed when inside a function (at top-level, no return is possible)
+            char *finally_label = NULL;
+            char *return_value_var = NULL;
+            char *has_return_var = NULL;
+            int needs_return_tracking = has_finally && ctx->in_function;
+
+            if (needs_return_tracking) {
+                finally_label = codegen_label(ctx);
+                return_value_var = codegen_temp(ctx);
+                has_return_var = codegen_temp(ctx);
+
+                // Declare variables for tracking return from try block
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", return_value_var);
+                codegen_writeln(ctx, "int %s = 0;", has_return_var);
+
+                // Push try-finally context so return statements inside use goto
+                codegen_push_try_finally(ctx, finally_label, return_value_var, has_return_var);
+            }
+
+            if (has_finally && !has_catch) {
+                // Track exception state for try-finally without catch
+                codegen_writeln(ctx, "int _had_exception = 0;");
+                codegen_writeln(ctx, "HmlValue _saved_exception = hml_val_null();");
+            }
+
             codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
             codegen_indent_inc(ctx);
             // Try block
             codegen_stmt(ctx, stmt->as.try_stmt.try_block);
             codegen_indent_dec(ctx);
-            if (stmt->as.try_stmt.catch_block) {
+            if (has_catch) {
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
                 // Catch block - declare catch param as shadow var to shadow main vars
@@ -4357,13 +4541,60 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_remove_shadow(ctx, stmt->as.try_stmt.catch_param);
                 }
                 codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (has_finally) {
+                // try-finally without catch: save exception for re-throw
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "_had_exception = 1;");
+                codegen_writeln(ctx, "_saved_exception = hml_exception_get_value();");
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else {
+                codegen_writeln(ctx, "}");
             }
-            codegen_writeln(ctx, "}");
-            // Finally block
-            if (stmt->as.try_stmt.finally_block) {
-                codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
-            }
+
+            // Pop exception context BEFORE finally block
+            // This ensures exceptions in finally go to outer handler
             codegen_writeln(ctx, "hml_exception_pop();");
+
+            // Finally block
+            if (has_finally) {
+                // Pop try-finally context before generating finally
+                // (return statements in finally should not jump to itself)
+                if (needs_return_tracking) {
+                    codegen_pop_try_finally(ctx);
+
+                    // Generate the finally label (jumped to from return statements in try)
+                    codegen_writeln(ctx, "%s:;", finally_label);
+                }
+
+                codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
+
+                // Re-throw saved exception if try threw and there was no catch
+                if (!has_catch) {
+                    codegen_writeln(ctx, "if (_had_exception) {");
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_throw(_saved_exception);");
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                }
+
+                // Check if we should return (from a return statement in the try block)
+                if (needs_return_tracking) {
+                    codegen_writeln(ctx, "if (%s) {", has_return_var);
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "return %s;", return_value_var);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+
+                    free(finally_label);
+                    free(return_value_var);
+                    free(has_return_var);
+                }
+            }
+
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             break;
@@ -4659,9 +4890,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             // Check if it's a function definition
                             if (decl->as.let.value->type == EXPR_FUNCTION) {
                                 Expr *func = decl->as.let.value;
-                                codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d);",
+                                int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
+                                codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d, %d);",
                                               mangled, ctx->current_module->module_prefix, name,
-                                              func->as.function.num_params, func->as.function.is_async);
+                                              func->as.function.num_params, num_required, func->as.function.is_async);
                             } else {
                                 char *val = codegen_expr(ctx, decl->as.let.value);
                                 codegen_writeln(ctx, "%s = %s;", mangled, val);
@@ -4749,6 +4981,8 @@ static void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *n
     int saved_num_locals = ctx->num_locals;
     DeferEntry *saved_defer_stack = ctx->defer_stack;
     ctx->defer_stack = NULL;  // Start fresh for this function
+    int saved_in_function = ctx->in_function;
+    ctx->in_function = 1;  // We're now inside a function
 
     // Reset closure env tracking to prevent cross-function pollution
     ctx->last_closure_env_id = -1;
@@ -4775,6 +5009,9 @@ static void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *n
         }
     }
 
+    // Track call depth for stack overflow detection
+    codegen_writeln(ctx, "hml_call_enter();");
+
     // Generate body
     if (func->as.function.body->type == STMT_BLOCK) {
         for (int i = 0; i < func->as.function.body->as.block.count; i++) {
@@ -4787,16 +5024,20 @@ static void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *n
     // Execute any remaining defers before implicit return
     codegen_defer_execute_all(ctx);
 
+    // Decrement call depth before implicit return
+    codegen_writeln(ctx, "hml_call_exit();");
+
     // Default return null
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals and defer state
+    // Restore locals, defer state, and in_function flag
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
+    ctx->in_function = saved_in_function;
 }
 
 // Generate a closure function (takes environment as first hidden parameter)
@@ -4811,7 +5052,7 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
 
-    // Save locals, defer state, module context, and current closure
+    // Save locals, defer state, module context, current closure, and in_function flag
     int saved_num_locals = ctx->num_locals;
     DeferEntry *saved_defer_stack = ctx->defer_stack;
     ctx->defer_stack = NULL;  // Start fresh for this function
@@ -4819,6 +5060,8 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     ctx->current_module = closure->source_module;  // Restore module context for function resolution
     ClosureInfo *saved_closure = ctx->current_closure;
     ctx->current_closure = closure;  // Track current closure for mutable captured variables
+    int saved_in_function = ctx->in_function;
+    ctx->in_function = 1;  // We're now inside a function
 
     // Reset closure env tracking to prevent cross-function pollution
     ctx->last_closure_env_id = -1;
@@ -4879,6 +5122,9 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         }
     }
 
+    // Track call depth for stack overflow detection
+    codegen_writeln(ctx, "hml_call_enter();");
+
     // Scan for all closures in the function body and set up a shared environment
     // This allows multiple closures within this function to share the same environment
     Scope *scan_scope = scope_new(NULL);
@@ -4925,18 +5171,22 @@ static void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         codegen_writeln(ctx, "hml_release(&%s);", closure->captured_vars[i]);
     }
 
+    // Decrement call depth before implicit return
+    codegen_writeln(ctx, "hml_call_exit();");
+
     // Default return null
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals, defer state, module context, current closure, and clear shared environment
+    // Restore locals, defer state, module context, current closure, in_function flag, and clear shared environment
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
     ctx->current_module = saved_module;
     ctx->current_closure = saved_closure;
+    ctx->in_function = saved_in_function;
     shared_env_clear(ctx);  // Clear shared environment after generating this closure
 }
 
@@ -5023,9 +5273,10 @@ static void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             // Function definition - already declared as global, just initialize
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
-            codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d);",
+            int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
+            codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d, %d);",
                           mangled, module->module_prefix, name,
-                          func->as.function.num_params, func->as.function.is_async);
+                          func->as.function.num_params, num_required, func->as.function.is_async);
         } else {
             // Regular statement
             codegen_stmt(ctx, stmt);
@@ -5299,7 +5550,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                                 const char *import_name = import_stmt->as.import_stmt.import_names[j];
                                 const char *alias = import_stmt->as.import_stmt.import_aliases[j];
                                 const char *local_name = alias ? alias : import_name;
-                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix);
+                                // Look up export to get function info
+                                ExportedSymbol *exp = module_find_export(mod, import_name);
+                                int is_function = exp ? exp->is_function : 0;
+                                int num_params = exp ? exp->num_params : 0;
+                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix, is_function, num_params);
                             }
                         }
                     }
@@ -5758,11 +6013,15 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 if (stmt->type == STMT_EXPORT) continue;
                 // Check if it's a private const
                 if (stmt->type == STMT_CONST) {
+                    // Skip if already in exports (to avoid duplicate declaration)
+                    if (module_find_export(mod, stmt->as.const_stmt.name)) continue;
                     codegen_write(ctx, "static HmlValue %s%s = {0};\n",
                                 mod->module_prefix, stmt->as.const_stmt.name);
                 }
                 // Check if it's a private let (function or not)
                 if (stmt->type == STMT_LET) {
+                    // Skip if already in exports (to avoid duplicate declaration)
+                    if (module_find_export(mod, stmt->as.let.name)) continue;
                     codegen_write(ctx, "static HmlValue %s%s = {0};\n",
                                 mod->module_prefix, stmt->as.let.name);
                 }
@@ -6047,6 +6306,14 @@ void module_cache_free(ModuleCache *cache) {
         }
         free(mod->exports);
 
+        // Free imports
+        for (int i = 0; i < mod->num_imports; i++) {
+            free(mod->imports[i].local_name);
+            free(mod->imports[i].original_name);
+            free(mod->imports[i].module_prefix);
+        }
+        free(mod->imports);
+
         free(mod);
         mod = next;
     }
@@ -6123,13 +6390,15 @@ CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path)
     return NULL;
 }
 
-void module_add_export(CompiledModule *module, const char *name, const char *mangled_name) {
+void module_add_export(CompiledModule *module, const char *name, const char *mangled_name, int is_function, int num_params) {
     if (module->num_exports >= module->export_capacity) {
         module->export_capacity = module->export_capacity == 0 ? 16 : module->export_capacity * 2;
         module->exports = realloc(module->exports, sizeof(ExportedSymbol) * module->export_capacity);
     }
     module->exports[module->num_exports].name = strdup(name);
     module->exports[module->num_exports].mangled_name = strdup(mangled_name);
+    module->exports[module->num_exports].is_function = is_function;
+    module->exports[module->num_exports].num_params = num_params;
     module->num_exports++;
 }
 
@@ -6142,7 +6411,7 @@ ExportedSymbol* module_find_export(CompiledModule *module, const char *name) {
     return NULL;
 }
 
-void module_add_import(CompiledModule *module, const char *local_name, const char *original_name, const char *module_prefix, int is_function) {
+void module_add_import(CompiledModule *module, const char *local_name, const char *original_name, const char *module_prefix, int is_function, int num_params) {
     if (module->num_imports >= module->import_capacity) {
         module->import_capacity = module->import_capacity == 0 ? 16 : module->import_capacity * 2;
         module->imports = realloc(module->imports, sizeof(ImportBinding) * module->import_capacity);
@@ -6151,6 +6420,7 @@ void module_add_import(CompiledModule *module, const char *local_name, const cha
     module->imports[module->num_imports].original_name = strdup(original_name);
     module->imports[module->num_imports].module_prefix = strdup(module_prefix);
     module->imports[module->num_imports].is_function = is_function;
+    module->imports[module->num_imports].num_params = num_params;
     module->num_imports++;
 }
 
@@ -6247,6 +6517,9 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     module->exports = NULL;
     module->num_exports = 0;
     module->export_capacity = 0;
+    module->imports = NULL;
+    module->num_imports = 0;
+    module->import_capacity = 0;
 
     // Add to cache (for cycle detection)
     module->next = cache->modules;
@@ -6290,8 +6563,9 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
 
                     ExportedSymbol *exp = module_find_export(imported, import_name);
                     if (exp) {
-                        // Track this as an import binding with original name and module prefix
-                        module_add_import(module, bind_name, import_name, imported->module_prefix, 1);
+                        // Track this as an import binding with original name, module prefix, and func info
+                        module_add_import(module, bind_name, import_name, imported->module_prefix,
+                                        exp->is_function, exp->num_params);
                     }
                 }
             }
@@ -6305,27 +6579,86 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
             if (stmt->as.export_stmt.is_declaration) {
                 Stmt *decl = stmt->as.export_stmt.declaration;
                 const char *name = NULL;
+                int is_function = 0;
+                int num_params = 0;
                 if (decl->type == STMT_LET) {
                     name = decl->as.let.name;
+                    // Check if value is a function expression
+                    if (decl->as.let.value && decl->as.let.value->type == EXPR_FUNCTION) {
+                        is_function = 1;
+                        num_params = decl->as.let.value->as.function.num_params;
+                    }
                 } else if (decl->type == STMT_CONST) {
                     name = decl->as.const_stmt.name;
+                    // Check if value is a function expression
+                    if (decl->as.const_stmt.value && decl->as.const_stmt.value->type == EXPR_FUNCTION) {
+                        is_function = 1;
+                        num_params = decl->as.const_stmt.value->as.function.num_params;
+                    }
                 }
                 if (name) {
                     char mangled[256];
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
-                    module_add_export(module, name, mangled);
+                    module_add_export(module, name, mangled, is_function, num_params);
                 }
             } else if (!stmt->as.export_stmt.is_reexport) {
-                // Export list
+                // Export list - need to find the declaration to get function info
                 for (int j = 0; j < stmt->as.export_stmt.num_exports; j++) {
                     const char *name = stmt->as.export_stmt.export_names[j];
                     const char *alias = stmt->as.export_stmt.export_aliases[j];
                     const char *export_name = alias ? alias : name;
 
+                    // Look for the declaration to determine if it's a function
+                    int is_function = 0;
+                    int num_params = 0;
+                    for (int k = 0; k < module->num_statements; k++) {
+                        Stmt *s = module->statements[k];
+                        if (s->type == STMT_LET && strcmp(s->as.let.name, name) == 0) {
+                            if (s->as.let.value && s->as.let.value->type == EXPR_FUNCTION) {
+                                is_function = 1;
+                                num_params = s->as.let.value->as.function.num_params;
+                            }
+                            break;
+                        } else if (s->type == STMT_CONST && strcmp(s->as.const_stmt.name, name) == 0) {
+                            if (s->as.const_stmt.value && s->as.const_stmt.value->type == EXPR_FUNCTION) {
+                                is_function = 1;
+                                num_params = s->as.const_stmt.value->as.function.num_params;
+                            }
+                            break;
+                        }
+                    }
+
                     char mangled[256];
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
-                    module_add_export(module, export_name, mangled);
+                    module_add_export(module, export_name, mangled, is_function, num_params);
                 }
+            }
+        }
+    }
+
+    // Third pass: add implicit exports for top-level functions without explicit exports
+    // This allows modules to work without explicit export statements (like @stdlib modules)
+    for (int i = 0; i < module->num_statements; i++) {
+        Stmt *stmt = module->statements[i];
+        if (stmt->type == STMT_LET && stmt->as.let.value &&
+            stmt->as.let.value->type == EXPR_FUNCTION) {
+            const char *name = stmt->as.let.name;
+            // Check if already exported
+            if (!module_find_export(module, name)) {
+                char mangled[256];
+                snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
+                int num_params = stmt->as.let.value->as.function.num_params;
+                module_add_export(module, name, mangled, 1, num_params);
+            }
+        } else if (stmt->type == STMT_CONST && stmt->as.const_stmt.value &&
+                   stmt->as.const_stmt.value->type == EXPR_FUNCTION) {
+            const char *name = stmt->as.const_stmt.name;
+            // Check if already exported
+            if (!module_find_export(module, name)) {
+                char mangled[256];
+                snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
+                int num_params = stmt->as.const_stmt.value->as.function.num_params;
+                module_add_export(module, name, mangled, 1, num_params);
             }
         }
     }

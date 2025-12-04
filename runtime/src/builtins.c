@@ -1308,6 +1308,8 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = (left.as.as_bool == right.as.as_bool);
         } else if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
             equal = (strcmp(left.as.as_string->data, right.as.as_string->data) == 0);
+        } else if (left.type == HML_VAL_RUNE && right.type == HML_VAL_RUNE) {
+            equal = (left.as.as_rune == right.as.as_rune);
         } else if (hml_is_numeric(left) && hml_is_numeric(right)) {
             double l = hml_to_f64(left);
             double r = hml_to_f64(right);
@@ -1316,6 +1318,20 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = 0;  // Different types are not equal
         }
         return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
+    }
+
+    // Rune comparison operations (ordering)
+    if (left.type == HML_VAL_RUNE && right.type == HML_VAL_RUNE) {
+        uint32_t l = left.as.as_rune;
+        uint32_t r = right.as.as_rune;
+        switch (op) {
+            case HML_OP_LESS:          return hml_val_bool(l < r);
+            case HML_OP_LESS_EQUAL:    return hml_val_bool(l <= r);
+            case HML_OP_GREATER:       return hml_val_bool(l > r);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(l >= r);
+            default:
+                hml_runtime_error("Invalid operation for rune type");
+        }
     }
 
     // Numeric operations
@@ -2022,6 +2038,26 @@ HmlValue hml_buffer_length(HmlValue buf) {
         hml_runtime_error("length requires buffer");
     }
     return hml_val_i32(buf.as.as_buffer->length);
+}
+
+// ========== FFI CALLBACK OPERATIONS ==========
+
+// Create an FFI callback that wraps a Hemlock function
+// This is a stub implementation - full FFI callbacks require libffi closure support
+HmlValue hml_callback_create(HmlValue fn, HmlValue arg_types, HmlValue ret_type) {
+    (void)fn;
+    (void)arg_types;
+    (void)ret_type;
+    // TODO: Implement proper FFI callback using ffi_prep_closure_loc
+    // For now, return null to indicate callbacks are not supported in compiled mode
+    hml_runtime_error("FFI callbacks not yet supported in compiled mode");
+    return hml_val_null();
+}
+
+// Free an FFI callback
+void hml_callback_free(HmlValue callback) {
+    (void)callback;
+    // No-op for stub implementation
 }
 
 // ========== MEMORY OPERATIONS ==========
@@ -3250,6 +3286,15 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
         // Check if this is a closure (has environment)
         void *closure_env = fn.as.as_function->closure_env;
         int num_params = fn.as.as_function->num_params;
+        int num_required = fn.as.as_function->num_required;
+
+        // Arity check: must have at least num_required args and at most num_params
+        if (num_args < num_required) {
+            hml_runtime_error("Function expects %d arguments, got %d", num_required, num_args);
+        }
+        if (num_args > num_params) {
+            hml_runtime_error("Function expects %d arguments, got %d", num_params, num_args);
+        }
 
         // Build args array with nulls for missing optional parameters
         // Use num_params (from function definition) to determine how many args to pass
@@ -4566,6 +4611,26 @@ void hml_channel_close(HmlValue channel) {
     pthread_cond_broadcast((pthread_cond_t*)ch->not_empty);
     pthread_cond_broadcast((pthread_cond_t*)ch->not_full);
     pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+}
+
+// ========== CALL STACK TRACKING ==========
+
+// Thread-local call depth counter for stack overflow detection
+static __thread int g_call_depth = 0;
+
+void hml_call_enter(void) {
+    g_call_depth++;
+    if (g_call_depth > HML_MAX_CALL_DEPTH) {
+        // Reset depth before throwing so exception handling works
+        g_call_depth = 0;
+        hml_runtime_error("Maximum call stack depth exceeded (infinite recursion?)");
+    }
+}
+
+void hml_call_exit(void) {
+    if (g_call_depth > 0) {
+        g_call_depth--;
+    }
 }
 
 // ========== SIGNAL HANDLING ==========

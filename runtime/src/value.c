@@ -192,7 +192,7 @@ HmlValue hml_val_null(void) {
     return v;
 }
 
-HmlValue hml_val_function(void *fn_ptr, int num_params, int is_async) {
+HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is_async) {
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
@@ -200,6 +200,7 @@ HmlValue hml_val_function(void *fn_ptr, int num_params, int is_async) {
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->num_params = num_params;
+    f->num_required = num_required;
     f->is_async = is_async;
     f->ref_count = 1;
 
@@ -207,7 +208,7 @@ HmlValue hml_val_function(void *fn_ptr, int num_params, int is_async) {
     return v;
 }
 
-HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int is_async) {
+HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int num_required, int is_async) {
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
@@ -215,6 +216,7 @@ HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int 
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->num_params = num_params;
+    f->num_required = num_required;
     f->is_async = is_async;
     f->ref_count = 1;
 
