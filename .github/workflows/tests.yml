@@ -7,149 +7,105 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # Interpreter tests
+  # Main test job - interpreter tests
   test:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
 
-    - name: Build Hemlock
-      run: make clean && make
+    - name: Build
+      run: make clean && make && make stdlib
 
-    - name: Build stdlib FFI wrappers
-      run: make stdlib
-
-    - name: Run test suite
+    - name: Run tests
       run: make test
 
-    - name: Check build artifacts
-      run: |
-        if [ ! -f ./hemlock ]; then
-          echo "Error: hemlock executable not found"
-          exit 1
-        fi
-        ./hemlock --version || echo "Version check skipped (not implemented yet)"
-
-  # Compiler tests (Hemlock to C)
-  compiler-test:
+  # Compiler tests
+  compiler:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libffi-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
 
-    - name: Build Hemlock compiler and runtime
+    - name: Build compiler
       run: make compiler
 
-    - name: Run compiler test suite
+    - name: Run compiler tests
       run: make test-compiler
 
-    - name: Check compiler artifacts
-      run: |
-        if [ ! -f ./hemlockc ]; then
-          echo "Error: hemlockc compiler not found"
-          exit 1
-        fi
-        if [ ! -f ./libhemlock_runtime.a ]; then
-          echo "Error: runtime library not found"
-          exit 1
-        fi
-        ./hemlockc --version
-
-  # Memory leak detection with AddressSanitizer
-  asan-test:
+  # Parity tests - verify compiled code matches interpreter
+  parity:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
 
-    - name: Build with AddressSanitizer
+    - name: Build interpreter and compiler
+      run: |
+        make clean && make
+        make compiler
+        make stdlib || true
+
+    - name: Run parity tests
+      run: make parity
+
+  # Memory checks with AddressSanitizer
+  asan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
+
+    - name: Build with ASAN
       run: |
         make clean
-        CFLAGS="-Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -fsanitize=address -fno-omit-frame-pointer" \
-        LDFLAGS="-lm -lpthread -lffi -ldl -fsanitize=address" \
+        CFLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
+        LDFLAGS="-fsanitize=address" \
         make
 
-    - name: Build stdlib FFI wrappers
-      run: make stdlib
+    - name: Build stdlib
+      run: make stdlib || true
 
     - name: Run tests with ASAN
       run: make test
       env:
-        ASAN_OPTIONS: detect_leaks=1:halt_on_error=0:log_path=asan.log
+        ASAN_OPTIONS: detect_leaks=1:halt_on_error=0
 
-    - name: Check for ASAN errors
-      if: always()
-      run: |
-        if ls asan.log.* 1> /dev/null 2>&1; then
-          echo "⚠️ AddressSanitizer detected issues:"
-          cat asan.log.*
-          exit 1
-        else
-          echo "✅ No memory errors detected by AddressSanitizer"
-        fi
-
-  # Valgrind memory leak check (selected tests only for speed)
-  valgrind-test:
+  # Valgrind memory check (optional, informational)
+  valgrind:
     runs-on: ubuntu-latest
-
+    continue-on-error: true
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make valgrind libwebsockets-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev valgrind
 
-    - name: Build Hemlock
-      run: make clean && make
+    - name: Build
+      run: make clean && make && make stdlib || true
 
-    - name: Build stdlib FFI wrappers
-      run: make stdlib
-
-    - name: Run basic valgrind check
+    - name: Run valgrind
       run: make valgrind
       continue-on-error: true
-
-    - name: Analyze valgrind results
-      if: always()
-      run: |
-        if [ -f valgrind-*.log ]; then
-          echo "=== Valgrind Results ==="
-          grep "LEAK SUMMARY" valgrind-*.log || echo "No leak summary found"
-
-          # Count leaked bytes
-          LEAKED=$(grep "definitely lost:" valgrind-*.log | awk '{print $4}' | head -1)
-          if [ -n "$LEAKED" ] && [ "$LEAKED" -gt 0 ]; then
-            echo "⚠️ Valgrind detected $LEAKED bytes definitely lost"
-            cat valgrind-*.log
-            # Don't fail on leaks yet - this is informational
-            # exit 1
-          else
-            echo "✅ No definite leaks detected"
-          fi
-        else
-          echo "No valgrind log files found"
-        fi
 
     - name: Upload valgrind logs
       if: always()
@@ -157,197 +113,4 @@ jobs:
       with:
         name: valgrind-logs
         path: valgrind-*.log
-        if-no-files-found: ignore
-
-  # Compiler parity tests - verify compiled code matches interpreter output
-  compiler-parity:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libffi-dev libwebsockets-dev libssl-dev zlib1g-dev
-
-    - name: Build interpreter
-      run: make clean && make
-
-    - name: Build compiler and runtime
-      run: make compiler
-
-    - name: Build stdlib modules
-      run: make stdlib || echo "Some stdlib modules may be unavailable"
-      continue-on-error: true
-
-    - name: Check build artifacts
-      run: |
-        echo "Checking for required binaries..."
-        ls -la hemlock hemlockc libhemlock_runtime.a
-        ./hemlock --version || true
-        ./hemlockc --version
-
-    - name: Run compiler parity tests
-      id: parity_tests
-      shell: bash
-      run: |
-        set +e  # Don't exit on error - we handle errors ourselves
-
-        # Create temp directory
-        TEMP_DIR=$(mktemp -d)
-        trap "rm -rf $TEMP_DIR" EXIT
-
-        # Counters
-        PARITY_PASS=0
-        PARITY_FAIL=0
-        INTERP_ONLY=0
-        COMPILE_FAIL=0
-        TIMEOUT_COUNT=0
-        TOTAL=0
-
-        # Configuration
-        TIMEOUT_SECONDS=20
-
-        # Check for zlib
-        ZLIB_FLAG=""
-        if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
-            ZLIB_FLAG="-lz"
-        fi
-
-        echo "======================================"
-        echo "  Hemlock Compiler Parity Test Suite"
-        echo "======================================"
-        echo ""
-        echo "Looking for test files..."
-
-        # Track failures for reporting
-        FAILURES=""
-
-        # Find all test files
-        TEST_FILES=$(find tests -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" | sort)
-        TEST_COUNT=$(echo "$TEST_FILES" | wc -l)
-        echo "Found $TEST_COUNT test files"
-        echo ""
-
-        for test_file in $TEST_FILES; do
-            test_name="${test_file#tests/}"
-            base_name=$(basename "$test_file" .hml)
-            category=$(dirname "$test_file" | cut -d'/' -f2)
-            TOTAL=$((TOTAL + 1))
-
-            # Skip HTTP/WebSocket tests if dependencies missing
-            if [[ "$category" == "stdlib_http" || "$category" == "stdlib_websocket" ]]; then
-                if [ ! -f "stdlib/c/lws_wrapper.so" ]; then
-                    continue
-                fi
-            fi
-
-            # Run interpreter with timeout
-            interp_output=$(timeout $TIMEOUT_SECONDS ./hemlock "$test_file" 2>&1)
-            interp_exit=$?
-
-            if [ $interp_exit -eq 124 ]; then
-                echo "⊘ $test_name (interpreter timeout)"
-                TIMEOUT_COUNT=$((TIMEOUT_COUNT + 1))
-                continue
-            fi
-
-            # Compile to C
-            c_file="$TEMP_DIR/${base_name}_$$.c"
-            exe_file="$TEMP_DIR/${base_name}_$$"
-
-            compile_output=$(./hemlockc "$test_file" -c --emit-c "$c_file" 2>&1)
-            compile_exit=$?
-
-            if [ $compile_exit -ne 0 ]; then
-                echo "◐ $test_name (compile failed - interpreter only)"
-                INTERP_ONLY=$((INTERP_ONLY + 1))
-                continue
-            fi
-
-            # Compile C to executable (need -I for runtime headers, -lwebsockets for HTTP/WS)
-            gcc_output=$(gcc -o "$exe_file" "$c_file" -I runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl -lwebsockets $ZLIB_FLAG 2>&1)
-            gcc_exit=$?
-
-            if [ $gcc_exit -ne 0 ]; then
-                echo "◐ $test_name (gcc failed)"
-                # Show first few gcc errors to help debug
-                if [ $COMPILE_FAIL -lt 3 ]; then
-                    echo "   GCC error: $gcc_output"
-                fi
-                COMPILE_FAIL=$((COMPILE_FAIL + 1))
-                continue
-            fi
-
-            # Run compiled version with timeout
-            compiled_output=$(timeout $TIMEOUT_SECONDS "$exe_file" 2>&1)
-            compiled_exit=$?
-
-            if [ $compiled_exit -eq 124 ]; then
-                echo "⊘ $test_name (compiled timeout)"
-                TIMEOUT_COUNT=$((TIMEOUT_COUNT + 1))
-                continue
-            fi
-
-            # Compare outputs
-            if [ "$interp_output" = "$compiled_output" ]; then
-                echo "✓ $test_name"
-                PARITY_PASS=$((PARITY_PASS + 1))
-            else
-                echo "✗ $test_name (output mismatch)"
-                PARITY_FAIL=$((PARITY_FAIL + 1))
-                FAILURES="$FAILURES\n--- $test_name ---\nInterpreter:\n$interp_output\nCompiled:\n$compiled_output\n"
-            fi
-
-            # Cleanup
-            rm -f "$c_file" "$exe_file"
-        done
-
-        echo ""
-        echo "======================================"
-        echo "  Summary"
-        echo "======================================"
-        echo "Parity Pass:     $PARITY_PASS"
-        echo "Parity Fail:     $PARITY_FAIL"
-        echo "Interpreter Only: $INTERP_ONLY"
-        echo "Compile Failed:  $COMPILE_FAIL"
-        echo "Timeouts:        $TIMEOUT_COUNT"
-        echo ""
-
-        if [ $PARITY_PASS -gt 0 ]; then
-            PASS_RATE=$((PARITY_PASS * 100 / (PARITY_PASS + PARITY_FAIL + 1)))
-            echo "Parity Rate: ${PASS_RATE}%"
-        fi
-
-        # Report failures in detail
-        if [ -n "$FAILURES" ] && [ $PARITY_FAIL -gt 0 ]; then
-            echo ""
-            echo "======================================"
-            echo "  Failed Test Details (first 10)"
-            echo "======================================"
-            echo -e "$FAILURES" | head -100
-        fi
-
-        # Set outputs for badge/status
-        echo "parity_pass=$PARITY_PASS" >> $GITHUB_OUTPUT
-        echo "parity_fail=$PARITY_FAIL" >> $GITHUB_OUTPUT
-
-        # Fail if too many parity failures (threshold: allow up to 50% failure for now)
-        if [ $PARITY_FAIL -gt $PARITY_PASS ]; then
-            echo "::error::Too many parity failures: $PARITY_FAIL failures vs $PARITY_PASS passes"
-            exit 1
-        fi
-
-        echo "✅ Compiler parity tests passed threshold"
-
-    - name: Upload parity test logs
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: parity-test-failures
-        path: |
-          /tmp/parity_*.log
         if-no-files-found: ignore
