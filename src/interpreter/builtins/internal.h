@@ -206,4 +206,12 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx);
 
+// FFI callback builtins (ffi_builtins.c)
+Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_callback_free(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_offset(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H

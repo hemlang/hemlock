@@ -185,6 +185,13 @@ static BuiltinInfo builtins[] = {
     {"setenv", builtin_setenv},
     {"unsetenv", builtin_unsetenv},
     {"get_pid", builtin_get_pid},
+    // FFI callback functions
+    {"callback", builtin_callback},
+    {"callback_free", builtin_callback_free},
+    {"ptr_read_i32", builtin_ptr_read_i32},
+    {"ptr_deref_i32", builtin_ptr_deref_i32},
+    {"ptr_write_i32", builtin_ptr_write_i32},
+    {"ptr_offset", builtin_ptr_offset},
     {NULL, NULL}  // Sentinel
 };
 

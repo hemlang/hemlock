@@ -1,0 +1,37 @@
+// Basic FFI callback test
+// This test verifies that callback() creates a valid function pointer
+// and that callback_free() properly cleans up
+
+import "libc.so.6";
+extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
+
+// Simple comparison function
+fn compare(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    return va - vb;
+}
+
+// Test 1: Create and use a callback
+let arr = alloc(12);  // 3 * 4 bytes
+ptr_write_i32(arr, 3);
+ptr_write_i32(ptr_offset(arr, 1, 4), 1);
+ptr_write_i32(ptr_offset(arr, 2, 4), 2);
+
+let cmp = callback(compare, ["ptr", "ptr"], "i32");
+qsort(arr, 3, 4, cmp);
+
+// Verify sorted: should be [1, 2, 3]
+let first = ptr_deref_i32(arr);
+let second = ptr_deref_i32(ptr_offset(arr, 1, 4));
+let third = ptr_deref_i32(ptr_offset(arr, 2, 4));
+
+assert(first == 1, "First element should be 1");
+assert(second == 2, "Second element should be 2");
+assert(third == 3, "Third element should be 3");
+
+// Cleanup
+callback_free(cmp);
+free(arr);
+
+print("PASS: basic_callback");

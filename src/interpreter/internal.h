@@ -263,12 +263,35 @@ typedef struct {
     int num_params;
 } FFIFunction;
 
+// FFI Callback structure - wraps a Hemlock function as a C function pointer
+typedef struct {
+    void *closure;           // ffi_closure (opaque)
+    void *code_ptr;          // C-callable function pointer
+    void *cif;               // ffi_cif (opaque)
+    void **arg_types;        // libffi argument types
+    void *return_type;       // libffi return type
+    Function *hemlock_fn;    // The Hemlock function to invoke
+    Type **hemlock_params;   // Hemlock parameter types (for marshalling)
+    Type *hemlock_return;    // Hemlock return type (for marshalling)
+    int num_params;          // Number of parameters
+    int id;                  // Unique callback ID (for debugging)
+} FFICallback;
+
 void ffi_init(void);
 void ffi_cleanup(void);
 void execute_import_ffi(Stmt *stmt, ExecutionContext *ctx);
 void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx);
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx);
 void ffi_free_function(FFIFunction *func);
+
+// FFI Callbacks - create C-callable function pointers from Hemlock functions
+FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_params, Type *return_type, ExecutionContext *ctx);
+void ffi_free_callback(FFICallback *cb);
+void* ffi_callback_get_ptr(FFICallback *cb);  // Get the C-callable function pointer
+int ffi_free_callback_by_ptr(void *code_ptr);  // Free callback by its code pointer
+
+// Type helpers for callback API
+Type* type_from_string(const char *name);  // Create a Type from a string like "i32", "ptr", etc.
 
 // ========== RUNTIME (runtime.c) ==========
 

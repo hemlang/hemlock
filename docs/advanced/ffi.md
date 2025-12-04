@@ -10,6 +10,9 @@ Hemlock provides **FFI (Foreign Function Interface)** to call C functions from s
 - [Basic Concepts](#basic-concepts)
 - [Use Cases](#use-cases)
 - [Future Development](#future-development)
+- [FFI Callbacks](#ffi-callbacks)
+- [Current Limitations](#current-limitations)
+- [Best Practices](#best-practices)
 
 ## Overview
 
@@ -37,18 +40,19 @@ FFI support is available in Hemlock v0.1 with the following features:
 - ✅ Automatic type conversion
 - ✅ libffi-based implementation
 - ✅ Dynamic library loading
+- ✅ **Function pointer callbacks** - Pass Hemlock functions to C
 
 **In Development:**
 - 🔄 Struct passing and return values
 - 🔄 Array/buffer handling
-- 🔄 Function pointer callbacks
 - 🔄 String marshaling helpers
 - 🔄 Error handling improvements
 
 **Test Coverage:**
-- 3 FFI tests passing (as of v0.1)
+- FFI tests passing including callback tests
 - Basic function calling verified
 - Type conversion tested
+- qsort callback integration tested
 
 ## Supported Types
 
@@ -235,14 +239,23 @@ let arr = [1, 2, 3, 4, 5];
 process_array(arr);  // Pass to C function
 ```
 
-**3. Function Pointer Callbacks**
+**3. Function Pointer Callbacks** ✅ (Implemented!)
 ```hemlock
-// Future: Pass Hemlock functions to C
-fn my_callback(x: i32): i32 {
-    return x * 2;
+// Pass Hemlock functions to C as callbacks
+fn my_compare(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    return va - vb;
 }
 
-c_function_with_callback(my_callback);
+// Create a C-callable function pointer
+let cmp = callback(my_compare, ["ptr", "ptr"], "i32");
+
+// Use with qsort or any C function expecting a callback
+qsort(arr, count, elem_size, cmp);
+
+// Clean up when done
+callback_free(cmp);
 ```
 
 **4. String Marshaling**
@@ -290,6 +303,128 @@ let result = sqrt(16.0);  // Type-checked
 - 🔄 FFI debugging tools
 - 🔄 Performance optimizations
 
+## FFI Callbacks
+
+Hemlock supports passing functions to C code as callbacks using libffi closures. This enables integration with C APIs that expect function pointers, such as `qsort`, event loops, and callback-based libraries.
+
+### Creating Callbacks
+
+Use `callback()` to create a C-callable function pointer from a Hemlock function:
+
+```hemlock
+// callback(function, param_types, return_type) -> ptr
+let cb = callback(my_function, ["ptr", "ptr"], "i32");
+```
+
+**Parameters:**
+- `function`: A Hemlock function to wrap
+- `param_types`: Array of type name strings (e.g., `["ptr", "i32"]`)
+- `return_type`: Return type string (e.g., `"i32"`, `"void"`)
+
+**Supported callback types:**
+- `"i8"`, `"i16"`, `"i32"`, `"i64"` - Signed integers
+- `"u8"`, `"u16"`, `"u32"`, `"u64"` - Unsigned integers
+- `"f32"`, `"f64"` - Floating point
+- `"ptr"` - Pointer
+- `"void"` - No return value
+- `"bool"` - Boolean
+
+### Example: qsort
+
+```hemlock
+import "libc.so.6";
+extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
+
+// Comparison function for integers (ascending order)
+fn compare_ints(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    if (va < vb) { return -1; }
+    if (va > vb) { return 1; }
+    return 0;
+}
+
+// Allocate array of 5 integers
+let arr = alloc(20);  // 5 * 4 bytes
+ptr_write_i32(arr, 5);
+ptr_write_i32(ptr_offset(arr, 1, 4), 2);
+ptr_write_i32(ptr_offset(arr, 2, 4), 8);
+ptr_write_i32(ptr_offset(arr, 3, 4), 1);
+ptr_write_i32(ptr_offset(arr, 4, 4), 9);
+
+// Create callback and sort
+let cmp = callback(compare_ints, ["ptr", "ptr"], "i32");
+qsort(arr, 5, 4, cmp);
+
+// Array is now sorted: [1, 2, 5, 8, 9]
+
+// Clean up
+callback_free(cmp);
+free(arr);
+```
+
+### Pointer Helper Functions
+
+Hemlock provides helper functions for working with raw pointers in callbacks:
+
+| Function | Description |
+|----------|-------------|
+| `ptr_deref_i32(ptr)` | Dereference pointer, read i32 |
+| `ptr_write_i32(ptr, value)` | Write i32 to pointer location |
+| `ptr_offset(ptr, index, size)` | Calculate offset: `ptr + index * size` |
+| `ptr_read_i32(ptr)` | Read i32 through pointer-to-pointer (for qsort) |
+
+### Freeing Callbacks
+
+**Important:** Always free callbacks when done to prevent memory leaks:
+
+```hemlock
+let cb = callback(my_fn, ["ptr"], "void");
+// ... use callback ...
+callback_free(cb);  // Free when done
+```
+
+Callbacks are also automatically freed when the program exits.
+
+### Closures in Callbacks
+
+Callbacks capture their closure environment, so they can access outer scope variables:
+
+```hemlock
+let multiplier = 10;
+
+fn scale(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    // Can access 'multiplier' from outer scope
+    return (va * multiplier) - (vb * multiplier);
+}
+
+let cmp = callback(scale, ["ptr", "ptr"], "i32");
+```
+
+### Thread Safety
+
+Callback invocations are serialized with a mutex to ensure thread safety, as the Hemlock interpreter is not fully thread-safe. This means:
+- Only one callback can execute at a time
+- Safe to use with multi-threaded C libraries
+- May impact performance if callbacks are called very frequently from multiple threads
+
+### Error Handling in Callbacks
+
+Exceptions thrown in callbacks cannot propagate to C code. Instead:
+- A warning is printed to stderr
+- The callback returns a default value (0 or NULL)
+- The exception is logged but not propagated
+
+```hemlock
+fn risky_callback(a: ptr): i32 {
+    throw "Something went wrong";  // Warning printed, returns 0
+}
+```
+
+For robust error handling, validate inputs and avoid throwing in callbacks.
+
 ## Current Limitations
 
 As of v0.1, FFI has the following limitations:
@@ -304,17 +439,13 @@ As of v0.1, FFI has the following limitations:
 
 **3. Limited Error Handling**
 - Basic error reporting
-- No detailed FFI error messages yet
+- Exceptions in callbacks cannot propagate to C
 
-**4. No Callback Support**
-- Cannot pass Hemlock functions to C
-- C functions with callbacks not yet supported
-
-**5. Manual Library Loading**
+**4. Manual Library Loading**
 - Must manually load libraries
 - No automatic binding generation
 
-**6. Platform-Specific Code**
+**5. Platform-Specific Code**
 - Library paths differ by platform
 - Must handle .so vs .dylib vs .dll
 
@@ -358,8 +489,9 @@ if (result == null) {
 
 ## Examples
 
-Detailed examples will be added as FFI documentation is expanded. For now, refer to:
-- Test suite: `/tests/ffi/` (3 tests)
+For working examples, refer to:
+- Callback tests: `/tests/ffi_callbacks/` - qsort callback examples
+- Stdlib FFI usage: `/stdlib/hash.hml`, `/stdlib/regex.hml`, `/stdlib/crypto.hml`
 - Example programs: `/examples/` (if available)
 
 ## Getting Help
@@ -379,12 +511,13 @@ Hemlock's FFI provides:
 - ✅ Automatic type conversion
 - ✅ libffi-based portability
 - ✅ Foundation for native library integration
+- ✅ **Function pointer callbacks** - pass Hemlock functions to C
 
-**Current status:** Basic FFI available in v0.1 with primitive types
+**Current status:** FFI available in v0.1 with primitive types and callback support
 
-**Coming soon:** Structs, arrays, callbacks, string marshaling
+**Coming soon:** Structs, arrays, string marshaling
 
-**Use cases:** System libraries, third-party libraries, performance-critical code, hardware access
+**Use cases:** System libraries, third-party libraries, qsort, event loops, callback-based APIs
 
 ---
 

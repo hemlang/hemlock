@@ -1,0 +1,147 @@
+// Test FFI callbacks with qsort from libc
+
+// Import libc for qsort
+import "libc.so.6";
+extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
+
+// Comparison function for integers (ascending order)
+// qsort passes pointers to elements, so we need to dereference them
+fn compare_ints(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    if (va < vb) {
+        return -1;
+    }
+    if (va > vb) {
+        return 1;
+    }
+    return 0;
+}
+
+// Test basic qsort with callback
+fn test_qsort() {
+    print("Testing qsort with FFI callback...");
+
+    // Allocate array of 5 integers (4 bytes each)
+    let arr = alloc(20);  // 5 * 4 bytes
+
+    // Initialize array: [5, 2, 8, 1, 9]
+    ptr_write_i32(arr, 5);
+    ptr_write_i32(ptr_offset(arr, 1, 4), 2);
+    ptr_write_i32(ptr_offset(arr, 2, 4), 8);
+    ptr_write_i32(ptr_offset(arr, 3, 4), 1);
+    ptr_write_i32(ptr_offset(arr, 4, 4), 9);
+
+    // Print before sorting
+    print("Before sort:");
+    let i = 0;
+    while (i < 5) {
+        let val = ptr_deref_i32(ptr_offset(arr, i, 4));
+        print(`  arr[${i}] = ${val}`);
+        i = i + 1;
+    }
+
+    // Create callback from comparison function
+    let cmp = callback(compare_ints, ["ptr", "ptr"], "i32");
+
+    // Sort the array
+    qsort(arr, 5, 4, cmp);
+
+    // Print after sorting
+    print("After sort:");
+    i = 0;
+    while (i < 5) {
+        let val = ptr_deref_i32(ptr_offset(arr, i, 4));
+        print(`  arr[${i}] = ${val}`);
+        i = i + 1;
+    }
+
+    // Verify sorted order
+    let sorted = true;
+    i = 0;
+    while (i < 4) {
+        let current = ptr_deref_i32(ptr_offset(arr, i, 4));
+        let next = ptr_deref_i32(ptr_offset(arr, i + 1, 4));
+        if (current > next) {
+            sorted = false;
+        }
+        i = i + 1;
+    }
+
+    if (sorted) {
+        print("PASS: Array is sorted correctly");
+    } else {
+        print("FAIL: Array is not sorted correctly");
+    }
+
+    // Clean up
+    callback_free(cmp);
+    free(arr);
+}
+
+// Comparison function for descending order
+fn compare_ints_desc(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    if (va > vb) {
+        return -1;
+    }
+    if (va < vb) {
+        return 1;
+    }
+    return 0;
+}
+
+// Test descending sort
+fn test_qsort_desc() {
+    print("\nTesting qsort descending with FFI callback...");
+
+    // Allocate array of 5 integers
+    let arr = alloc(20);
+
+    // Initialize array: [3, 1, 4, 1, 5]
+    ptr_write_i32(arr, 3);
+    ptr_write_i32(ptr_offset(arr, 1, 4), 1);
+    ptr_write_i32(ptr_offset(arr, 2, 4), 4);
+    ptr_write_i32(ptr_offset(arr, 3, 4), 1);
+    ptr_write_i32(ptr_offset(arr, 4, 4), 5);
+
+    // Create callback
+    let cmp = callback(compare_ints_desc, ["ptr", "ptr"], "i32");
+
+    // Sort
+    qsort(arr, 5, 4, cmp);
+
+    // Verify descending order
+    let sorted = true;
+    let i = 0;
+    while (i < 4) {
+        let current = ptr_deref_i32(ptr_offset(arr, i, 4));
+        let next = ptr_deref_i32(ptr_offset(arr, i + 1, 4));
+        if (current < next) {
+            sorted = false;
+        }
+        i = i + 1;
+    }
+
+    if (sorted) {
+        print("PASS: Array is sorted in descending order");
+    } else {
+        print("FAIL: Array is not sorted correctly");
+    }
+
+    // Verify first and last elements
+    let first = ptr_deref_i32(arr);
+    let last = ptr_deref_i32(ptr_offset(arr, 4, 4));
+    print(`First element: ${first} (expected: 5)`);
+    print(`Last element: ${last} (expected: 1)`);
+
+    // Clean up
+    callback_free(cmp);
+    free(arr);
+}
+
+// Run tests
+test_qsort();
+test_qsort_desc();
+print("\nAll callback tests completed!");
