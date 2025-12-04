@@ -161,6 +161,90 @@ else
     fail "Info command on .hmlb" "Expected output not found"
 fi
 
+# Test 13: Package single file (compressed)
+echo "Test 13: Package single file (compressed)"
+if $HEMLOCK --package tests/primitives/binary_literals.hml -o "$TMPDIR/pkg_single" 2>/dev/null; then
+    if [ -x "$TMPDIR/pkg_single" ]; then
+        pass "Packaged single file created and is executable"
+    else
+        fail "Package single file" "Output not executable"
+    fi
+else
+    fail "Package single file" "Package command failed"
+fi
+
+# Test 14: Run packaged single file
+echo "Test 14: Run packaged single file"
+if "$TMPDIR/pkg_single" >/dev/null 2>&1; then
+    pass "Packaged single file runs"
+else
+    fail "Packaged single file runs" "Execution failed"
+fi
+
+# Test 15: Package multi-module example (compressed)
+echo "Test 15: Package multi-module example"
+if $HEMLOCK --package examples/multi_module/main.hml -o "$TMPDIR/pkg_multi" 2>/dev/null; then
+    pass "Packaged multi-module example created"
+else
+    fail "Package multi-module" "Package command failed"
+fi
+
+# Test 16: Run packaged multi-module and verify output
+echo "Test 16: Run packaged multi-module"
+OUTPUT=$("$TMPDIR/pkg_multi" 2>&1)
+if echo "$OUTPUT" | grep -q "Example Complete"; then
+    pass "Packaged multi-module runs correctly"
+else
+    fail "Packaged multi-module runs" "Expected output not found"
+fi
+
+# Test 17: Packaged output matches original
+echo "Test 17: Packaged output matches original"
+ORIGINAL=$($HEMLOCK examples/multi_module/main.hml 2>&1)
+PACKAGED=$("$TMPDIR/pkg_multi" 2>&1)
+if [ "$ORIGINAL" = "$PACKAGED" ]; then
+    pass "Packaged output matches original"
+else
+    fail "Packaged output match" "Output differs from original"
+fi
+
+# Test 18: Package with --no-compress (uncompressed)
+echo "Test 18: Package with --no-compress"
+if $HEMLOCK --package examples/multi_module/main.hml --no-compress -o "$TMPDIR/pkg_nocompress" 2>/dev/null; then
+    # Uncompressed should be slightly larger
+    COMPRESSED_SIZE=$(stat -c%s "$TMPDIR/pkg_multi" 2>/dev/null || stat -f%z "$TMPDIR/pkg_multi")
+    UNCOMPRESSED_SIZE=$(stat -c%s "$TMPDIR/pkg_nocompress" 2>/dev/null || stat -f%z "$TMPDIR/pkg_nocompress")
+    if [ "$UNCOMPRESSED_SIZE" -ge "$COMPRESSED_SIZE" ]; then
+        pass "Uncompressed package created (size: $UNCOMPRESSED_SIZE >= $COMPRESSED_SIZE)"
+    else
+        fail "Uncompressed package" "Expected uncompressed to be >= compressed"
+    fi
+else
+    fail "Uncompressed package" "Package command failed"
+fi
+
+# Test 19: Run uncompressed package
+echo "Test 19: Run uncompressed package"
+OUTPUT=$("$TMPDIR/pkg_nocompress" 2>&1)
+if echo "$OUTPUT" | grep -q "Example Complete"; then
+    pass "Uncompressed package runs correctly"
+else
+    fail "Uncompressed package runs" "Expected output not found"
+fi
+
+# Test 20: Package with stdlib imports
+echo "Test 20: Package with stdlib imports"
+if $HEMLOCK --package tests/stdlib_collections/test_basic.hml -o "$TMPDIR/pkg_stdlib" 2>/dev/null; then
+    OUTPUT=$("$TMPDIR/pkg_stdlib" 2>&1)
+    if echo "$OUTPUT" | grep -q "All basic collections tests passed"; then
+        pass "Packaged stdlib works correctly"
+    else
+        fail "Packaged stdlib" "Execution failed"
+    fi
+else
+    fail "Package with stdlib" "Package command failed"
+fi
+
 echo ""
 echo "=== Results ==="
 echo -e "Passed: ${GREEN}$PASSED${NC}"
