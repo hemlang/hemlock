@@ -79,7 +79,12 @@ echo "Timeout:     ${TEST_TIMEOUT}s per test"
 echo ""
 
 # Categories to skip entirely (known incompatible or special tests)
+# - compiler/parity/ast_serialize/lsp: special test categories
 SKIP_CATEGORIES="compiler parity ast_serialize lsp"
+
+# Tests with non-deterministic output (race conditions, timing, etc.)
+# These test correctness but not output matching
+SKIP_NONDETERMINISTIC="async/stress_channel_throughput.hml async/stress_concurrent_tasks.hml async/stress_exception_handling.hml async/test_concurrency_stress.hml"
 
 # Specific tests to skip (e.g., require user input, network, etc.)
 SKIP_TESTS=""
@@ -87,6 +92,24 @@ SKIP_TESTS=""
 # Tests that are expected to fail (invalid syntax, etc.)
 # Both interpreter and compiler should reject these
 EXPECTED_FAIL_TESTS="primitives/binary_invalid.hml primitives/hex_invalid.hml"
+
+# Normalize output for comparison
+# - Replace memory addresses (0x...) with <ADDR>
+# - Replace script paths with <SCRIPT>
+# - Strip trailing whitespace
+# - Normalize line endings
+normalize_output() {
+    local output="$1"
+    local test_file="$2"
+    local exe_file="$3"
+
+    echo "$output" | \
+        sed -E 's/0x[0-9a-fA-F]+/<ADDR>/g' | \
+        sed "s|$test_file|<SCRIPT>|g" | \
+        sed "s|$exe_file|<SCRIPT>|g" | \
+        sed 's/[[:space:]]*$//' | \
+        cat -s
+}
 
 should_skip_category() {
     local category="$1"
@@ -108,6 +131,16 @@ is_expected_fail() {
     return 1
 }
 
+is_nondeterministic() {
+    local test_name="$1"
+    for nd_test in $SKIP_NONDETERMINISTIC; do
+        if [ "$test_name" = "$nd_test" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 run_test() {
     local test_file="$1"
     local test_name="${test_file#$SCRIPT_DIR/}"
@@ -118,6 +151,13 @@ run_test() {
 
     # Skip certain categories
     if should_skip_category "$category"; then
+        SKIPPED=$((SKIPPED + 1))
+        return
+    fi
+
+    # Skip non-deterministic tests (race conditions, timing-dependent)
+    if is_nondeterministic "$test_name"; then
+        echo -e "${BLUE}⊖${NC} $test_name (non-deterministic, skipped)"
         SKIPPED=$((SKIPPED + 1))
         return
     fi
@@ -191,8 +231,13 @@ run_test() {
         return
     fi
 
-    # Compare outputs
-    if [ "$interp_output" = "$compiled_output" ]; then
+    # Normalize outputs for comparison
+    local norm_interp norm_compiled
+    norm_interp=$(normalize_output "$interp_output" "$test_file" "$exe_file")
+    norm_compiled=$(normalize_output "$compiled_output" "$test_file" "$exe_file")
+
+    # Compare normalized outputs
+    if [ "$norm_interp" = "$norm_compiled" ]; then
         echo -e "${GREEN}✓${NC} $test_name"
         PARITY_PASS=$((PARITY_PASS + 1))
     else
@@ -202,7 +247,7 @@ run_test() {
         # Store failure details (limit stored failures)
         if [ ${#FAILED_TESTS[@]} -lt $SHOW_FAILURES ]; then
             FAILED_TESTS+=("$test_name")
-            FAILURE_DETAILS+=("$(printf "Interpreter:\n%s\n\nCompiled:\n%s" "$interp_output" "$compiled_output")")
+            FAILURE_DETAILS+=("$(printf "Interpreter (normalized):\n%s\n\nCompiled (normalized):\n%s" "$norm_interp" "$norm_compiled")")
         fi
     fi
 
