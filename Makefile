@@ -252,6 +252,11 @@ test-compiler: compiler
 parity: $(TARGET) compiler
 	@bash tests/parity/run_parity_tests.sh
 
+# Run full parity test (all interpreter tests through compiler)
+.PHONY: parity-full
+parity-full: $(TARGET) compiler
+	@bash tests/run_full_parity.sh
+
 # Run all test suites
 .PHONY: test-all
 test-all: test test-compiler parity
