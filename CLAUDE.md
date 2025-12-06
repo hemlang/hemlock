@@ -232,7 +232,7 @@ hemlock/
 │   ├── language-guide/   # Types, strings, arrays, etc.
 │   ├── reference/        # API references
 │   └── advanced/         # Async, FFI, signals, etc.
-├── tests/                # 618+ tests
+├── tests/                # 491 tests
 └── examples/             # Example programs
 ```
 
@@ -250,7 +250,7 @@ hemlock/
 ## Testing
 
 ```bash
-make test              # Run all 618+ tests
+make test              # Run all tests
 make test | grep async # Filter by category
 ```
 
@@ -272,7 +272,7 @@ Test categories: primitives, memory, strings, arrays, functions, objects, async,
 - File I/O, signal handling, command execution
 - Compiler backend (C code generation)
 - LSP server for IDE support
-- 479 tests (100% pass rate)
+- 491 tests (100% pass rate)
 
 ---
 

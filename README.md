@@ -101,7 +101,7 @@ sudo apt-get install libffi-dev libssl-dev libwebsockets-dev
 
 ```bash
 make        # Build hemlock
-make test   # Run 618+ tests
+make test   # Run all tests
 ```
 
 ### Install
@@ -159,7 +159,7 @@ Hemlock v1.0 is released with:
 - FFI for C interop
 - Compiler backend (C code generation)
 - LSP server for IDE support
-- 479 tests (100% pass rate)
+- 491 tests (100% pass rate)
 
 ## Philosophy
 
