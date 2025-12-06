@@ -26,6 +26,7 @@ Welcome to the Hemlock programming language documentation!
 
 ### Advanced Topics
 - [Async & Concurrency](advanced/async-concurrency.md) - True multi-threading with async/await
+- [Bundling & Packaging](advanced/bundling-packaging.md) - Create bundles and standalone executables
 - [Foreign Function Interface](advanced/ffi.md) - Call C functions from shared libraries
 - [File I/O](advanced/file-io.md) - File operations and resource management
 - [Signal Handling](advanced/signals.md) - POSIX signal handling

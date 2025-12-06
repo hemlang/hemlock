@@ -120,6 +120,34 @@ sudo make uninstall            # Remove installation
 ./hemlock                          # Start REPL
 ```
 
+## Bundling & Packaging
+
+Hemlock provides tools to bundle multi-file projects and create self-contained executables.
+
+### Bundle (Portable Bytecode)
+
+Resolve all imports and create a single distributable file:
+
+```bash
+./hemlock --bundle app.hml                    # Create app.hmlc
+./hemlock --bundle app.hml --compress         # Create app.hmlb (smaller)
+./hemlock --bundle app.hml -o dist/app.hmlc   # Custom output path
+```
+
+### Package (Self-Contained Executable)
+
+Create a standalone executable that includes the interpreter:
+
+```bash
+./hemlock --package app.hml                   # Create ./app executable
+./hemlock --package app.hml -o myapp          # Custom name
+./hemlock --package app.hml --no-compress     # Faster startup, larger file
+```
+
+The packaged executable runs anywhere without needing Hemlock installed.
+
+See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
+
 ## Project Status
 
 Hemlock v0.1 is released with:
