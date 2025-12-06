@@ -1,0 +1,22 @@
+// Simple ThreadPool test - minimal version
+import { ThreadPool } from "@stdlib/async";
+
+print("Creating pool...");
+let pool = ThreadPool(2);
+print("Pool created");
+
+fn square(n) {
+    return n * n;
+}
+
+print("Submitting task...");
+let future = pool.submit1(square, 5);
+print("Task submitted, getting result...");
+
+let result = future.get();
+print("Result: " + result);
+assert(result == 25);
+
+print("Shutting down...");
+pool.shutdown();
+print("PASS: basic ThreadPool test");

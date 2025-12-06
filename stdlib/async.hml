@@ -29,7 +29,7 @@ export fn ThreadPool(num_workers: i32) {
             }
 
             // Execute the task
-            let task_fn = task.fn;
+            let task_fn = task.func;
             let task_args = task.args;
             let result_ch = task.result_ch;
 
@@ -85,7 +85,7 @@ export fn ThreadPool(num_workers: i32) {
         // Send task to queue
         work_queue.send({
             id: task_id,
-            fn: task_fn,
+            func: task_fn,
             args: args_arr,
             result_ch: result_ch
         });
@@ -133,7 +133,7 @@ export fn ThreadPool(num_workers: i32) {
 
         work_queue.send({
             id: task_id,
-            fn: task_fn,
+            func: task_fn,
             args: [arg1],
             result_ch: result_ch
         });
@@ -176,7 +176,7 @@ export fn ThreadPool(num_workers: i32) {
 
         work_queue.send({
             id: task_id,
-            fn: task_fn,
+            func: task_fn,
             args: [arg1, arg2],
             result_ch: result_ch
         });
@@ -222,7 +222,7 @@ export fn ThreadPool(num_workers: i32) {
         }
 
         // Wait for all workers to finish
-        let i = 0;
+        i = 0;
         while (i < workers.length) {
             join(workers[i]);
             i = i + 1;
@@ -257,7 +257,7 @@ export fn parallel_map(arr, map_fn, num_workers?: 4) {
 
     // Collect results
     let results = [];
-    let i = 0;
+    i = 0;
     while (i < futures.length) {
         results.push(futures[i].get());
         i = i + 1;

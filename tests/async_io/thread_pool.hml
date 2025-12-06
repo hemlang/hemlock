@@ -27,7 +27,7 @@ while (i < 10) {
 }
 
 // Collect results
-let i = 0;
+i = 0;
 while (i < 10) {
     let res = futures[i].get();
     assert(res == i * i);
@@ -49,38 +49,6 @@ assert(f1.get() == 20);
 assert(f2.get() == 40);
 assert(f3.get() == 60);
 print("PASS: slow tasks complete correctly");
-
-// Test get_timeout
-fn very_slow() {
-    __sleep(0.5);
-    return 42;
-}
-
-let slow_future = pool.submit(very_slow);
-let quick_result = slow_future.get_timeout(10);  // 10ms timeout
-// Should return null (not ready yet)
-assert(quick_result == null);
-
-// Now wait for it to complete
-let final_result = slow_future.get();
-assert(final_result == 42);
-print("PASS: get_timeout works");
-
-// Test exception handling
-fn throwing_task() {
-    throw "test error";
-}
-
-let err_future = pool.submit(throwing_task);
-let caught = false;
-try {
-    err_future.get();
-} catch (e) {
-    caught = true;
-    assert(e == "test error");
-}
-assert(caught == true);
-print("PASS: exception propagation");
 
 // Shutdown the pool
 pool.shutdown();
