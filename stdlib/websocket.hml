@@ -23,13 +23,9 @@ define WebSocketMessage {
 
 // ========== WEBSOCKET CLIENT ==========
 
-define WebSocket {
-    handle: ptr,
-    url: string,
-    closed: bool,
-}
+// Note: handle is a websocket type (not ptr) - can be passed to spawned tasks
 
-export fn WebSocket(url: string): WebSocket {
+export fn WebSocket(url: string) {
     let handle = __lws_ws_connect(url);
 
     if (handle == null) {
@@ -123,14 +119,9 @@ export fn WebSocket(url: string): WebSocket {
 
 // ========== WEBSOCKET SERVER ==========
 
-define WebSocketServer {
-    handle: ptr,
-    host: string,
-    port: i32,
-    closed: bool,
-}
+// Note: handle is a websocket type (not ptr) - can be passed to spawned tasks
 
-export fn WebSocketServer(host: string, port: i32): WebSocketServer {
+export fn WebSocketServer(host: string, port: i32) {
     let handle = __lws_ws_server_create(host, port);
 
     if (handle == null) {
@@ -143,7 +134,7 @@ export fn WebSocketServer(host: string, port: i32): WebSocketServer {
         port: port,
         closed: false,
 
-        accept: fn(timeout_ms: i32): WebSocket {
+        accept: fn(timeout_ms: i32) {
             if (self.closed) {
                 throw "Cannot accept on closed WebSocket server";
             }

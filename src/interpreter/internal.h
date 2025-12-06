@@ -169,6 +169,12 @@ void file_free(FileHandle *file);
 Value val_socket(SocketHandle *sock);
 void socket_free(SocketHandle *sock);
 
+// WebSocket operations
+Value val_websocket(WebSocketHandle *ws);
+void websocket_free(WebSocketHandle *ws);
+void websocket_retain(WebSocketHandle *ws);
+void websocket_release(WebSocketHandle *ws);
+
 // Value cleanup and reference counting
 void value_free(Value val);
 void value_retain(Value val);

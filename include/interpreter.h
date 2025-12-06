@@ -27,6 +27,7 @@ typedef enum {
     VAL_OBJECT,         // JavaScript-style object
     VAL_FILE,           // File handle
     VAL_SOCKET,         // Socket handle
+    VAL_WEBSOCKET,      // WebSocket handle (client or server connection)
     VAL_TYPE,           // Represents a type (for sizeof, talloc, etc.)
     VAL_BUILTIN_FN,
     VAL_FUNCTION,       // User-defined function
@@ -86,6 +87,17 @@ typedef struct {
     int listening;       // Whether listening (server socket)
     int nonblocking;     // Whether socket is in non-blocking mode
 } SocketHandle;
+
+// WebSocket handle struct (wraps libwebsockets connection/server)
+typedef struct {
+    void *handle;        // Opaque pointer to ws_connection_t or ws_server_t
+    char *url;           // URL for clients, NULL for server connections
+    char *host;          // Host address for servers
+    int port;            // Port for servers
+    int closed;          // Whether connection is closed
+    int is_server;       // 1 if this is a server, 0 if client
+    int ref_count;       // Reference count for memory management
+} WebSocketHandle;
 
 // Object struct (JavaScript-style object)
 typedef struct {
@@ -180,6 +192,7 @@ typedef struct Value {
         Array *as_array;
         FileHandle *as_file;
         SocketHandle *as_socket;
+        WebSocketHandle *as_websocket;
         Object *as_object;
         TypeKind as_type;
         BuiltinFn as_builtin_fn;
@@ -271,6 +284,10 @@ void array_set(Array *arr, int index, Value val, ExecutionContext *ctx);
 
 // File operations
 void file_free(FileHandle *file);
+
+// WebSocket operations
+void websocket_free(WebSocketHandle *ws);
+Value val_websocket(WebSocketHandle *ws);
 
 // Object operations
 void object_free(Object *obj);

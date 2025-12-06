@@ -931,6 +931,17 @@ void print_value(Value val) {
             }
             break;
         }
+        case VAL_WEBSOCKET: {
+            WebSocketHandle *ws = val.as.as_websocket;
+            if (ws->closed) {
+                printf("<websocket (closed)>");
+            } else if (ws->is_server) {
+                printf("<websocket-server %s:%d>", ws->host ? ws->host : "0.0.0.0", ws->port);
+            } else {
+                printf("<websocket %s>", ws->url ? ws->url : "?");
+            }
+            break;
+        }
         case VAL_OBJECT:
             if (val.as.as_object->type_name) {
                 printf("<object:%s>", val.as.as_object->type_name);
@@ -1078,6 +1089,20 @@ char* value_to_string(Value val) {
                 return strdup(buffer);
             } else {
                 snprintf(buffer, sizeof(buffer), "<socket fd=%d>", sock->fd);
+                return strdup(buffer);
+            }
+        }
+        case VAL_WEBSOCKET: {
+            WebSocketHandle *ws = val.as.as_websocket;
+            if (ws->closed) {
+                return strdup("<websocket (closed)>");
+            } else if (ws->is_server) {
+                snprintf(buffer, sizeof(buffer), "<websocket-server %s:%d>",
+                       ws->host ? ws->host : "0.0.0.0", ws->port);
+                return strdup(buffer);
+            } else {
+                snprintf(buffer, sizeof(buffer), "<websocket %s>",
+                       ws->url ? ws->url : "?");
                 return strdup(buffer);
             }
         }
@@ -1247,6 +1272,11 @@ static void value_free_internal(Value val, VisitedSet *visited) {
         case VAL_SOCKET:
             if (val.as.as_socket) {
                 socket_free(val.as.as_socket);
+            }
+            break;
+        case VAL_WEBSOCKET:
+            if (val.as.as_websocket) {
+                websocket_free(val.as.as_websocket);
             }
             break;
         case VAL_OBJECT:
@@ -1506,6 +1536,11 @@ Value value_deep_copy(Value val) {
 
         case VAL_SOCKET:
             // Socket handles are OS resources - kernel handles concurrent access
+            // We share by reference (no deep copy needed)
+            return val;
+
+        case VAL_WEBSOCKET:
+            // WebSocket handles are OS resources - kernel handles concurrent access
             // We share by reference (no deep copy needed)
             return val;
 
