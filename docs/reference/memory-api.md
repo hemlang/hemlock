@@ -16,15 +16,17 @@ Hemlock provides **manual memory management** with explicit allocation and deall
 
 ### Internal Reference Counting
 
-The runtime uses reference counting internally to manage object lifetimes through scopes. This is **not** automatic cleanup - you must still call `free()`.
+The runtime uses reference counting internally to manage object lifetimes through scopes. For most local variables, cleanup is automatic.
 
-**What refcounting handles automatically:**
-- Releasing old values when variables are reassigned
-- Releasing local variables when scopes exit
-- Releasing container elements when containers are freed
+**Automatic (no `free()` needed):**
+- Local variables of refcounted types (buffer, array, object, string) are freed when scope exits
+- Old values are released when variables are reassigned
+- Container elements are released when containers are freed
 
-**What you must do manually:**
-- Call `free()` on buffers, arrays, and objects you allocate
+**Manual `free()` required:**
+- Raw pointers from `alloc()` - always
+- Early cleanup before scope ends
+- Long-lived/global data
 
 See [Memory Management Guide](../language-guide/memory.md#internal-reference-counting) for details.
 
@@ -75,7 +77,7 @@ free(p);
 
 **Safety:** Bounds-checked on index access
 
-**Refcounting:** Buffers are internally refcounted. When reassigned or when scope exits, ref_count is decremented. You must still call `free()` to deallocate.
+**Refcounting:** Buffers are internally refcounted. Automatically freed when scope exits or variable is reassigned. Use `free()` for early cleanup or long-lived data.
 
 **Examples:**
 ```hemlock

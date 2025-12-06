@@ -38,24 +38,46 @@ The runtime automatically manages reference counts when:
    free(arr);  // obj1 and obj2 get their ref_counts decremented
    ```
 
-### What You Must Still Do
+### When You Need `free()` vs When It's Automatic
 
-**You must explicitly call `free()` for:**
-- Raw pointers from `alloc()`
-- Buffers from `buffer()`
-- Arrays created with `[...]`
-- Objects created with `{...}`
+**Automatic (no `free()` needed):** Local variables of refcounted types are freed when scope exits:
 
 ```hemlock
-let buf = buffer(64);
-let arr = [1, 2, 3];
-let obj = { x: 10 };
-
-// These will NOT be freed automatically - you must call free()
-free(buf);
-free(arr);
-free(obj);
+fn process_data() {
+    let arr = [1, 2, 3];
+    let obj = { name: "test" };
+    let buf = buffer(64);
+    // ... use them ...
+}  // All automatically freed when function returns - no free() needed
 ```
+
+**Manual `free()` required:**
+
+1. **Raw pointers** - `alloc()` has no refcounting:
+   ```hemlock
+   let p = alloc(64);
+   // ... use p ...
+   free(p);  // Always required - will leak otherwise
+   ```
+
+2. **Early cleanup** - free before scope ends to release memory sooner:
+   ```hemlock
+   fn long_running() {
+       let big = buffer(10000000);  // 10MB
+       // ... done with big ...
+       free(big);  // Free now, don't wait for function to return
+       // ... more work that doesn't need big ...
+   }
+   ```
+
+3. **Long-lived data** - globals or data stored in persistent structures:
+   ```hemlock
+   let cache = {};  // Module-level, lives until program exit unless freed
+
+   fn cleanup() {
+       free(cache);  // Manual cleanup for long-lived data
+   }
+   ```
 
 ### Refcounting vs Garbage Collection
 
@@ -71,15 +93,15 @@ free(obj);
 
 | Type | Refcounted | Notes |
 |------|------------|-------|
-| `ptr` | ❌ No | Completely manual, no tracking |
-| `buffer` | ✅ Yes | Still requires `free()` |
-| `array` | ✅ Yes | Still requires `free()` |
-| `object` | ✅ Yes | Still requires `free()` |
-| `string` | ✅ Yes | Released automatically on reassignment |
-| `function` | ✅ Yes | For closure environments |
+| `ptr` | ❌ No | Always requires manual `free()` |
+| `buffer` | ✅ Yes | Auto-freed on scope exit; manual `free()` for early cleanup |
+| `array` | ✅ Yes | Auto-freed on scope exit; manual `free()` for early cleanup |
+| `object` | ✅ Yes | Auto-freed on scope exit; manual `free()` for early cleanup |
+| `string` | ✅ Yes | Fully automatic, no `free()` needed |
+| `function` | ✅ Yes | Fully automatic (closure environments) |
 | `task` | ✅ Yes | Thread-safe atomic refcounting |
 | `channel` | ✅ Yes | Thread-safe atomic refcounting |
-| Primitives | ❌ No | Stack-allocated, no heap |
+| Primitives | ❌ No | Stack-allocated, no heap allocation |
 
 ### Why This Design?
 
