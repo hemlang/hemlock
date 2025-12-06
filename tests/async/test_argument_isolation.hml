@@ -1,0 +1,59 @@
+// Test: Arguments passed to spawn are deep-copied for thread isolation
+// Modifications in the spawned task should NOT affect the parent's copy
+
+async fn modify_array(arr: array): array {
+    // Modify the array in the task
+    arr.push(999);
+    arr[0] = -1;
+    return arr;
+}
+
+async fn modify_object(obj: object): object {
+    // Modify the object in the task
+    obj.modified = true;
+    obj.value = 42;
+    return obj;
+}
+
+// Test 1: Array isolation
+let original_arr = [1, 2, 3];
+let t1 = spawn(modify_array, original_arr);
+let modified_arr = join(t1);
+
+// Original should be unchanged
+print(original_arr.length);  // Should be 3
+print(original_arr[0]);      // Should be 1
+
+// Modified should have changes
+print(modified_arr.length);  // Should be 4
+print(modified_arr[0]);      // Should be -1
+
+// Test 2: Object isolation
+let original_obj = { value: 10, name: "test" };
+let t2 = spawn(modify_object, original_obj);
+let modified_obj = join(t2);
+
+// Original should be unchanged
+print(original_obj.value);  // Should be 10
+
+// Modified should have changes
+print(modified_obj.value);  // Should be 42
+print(modified_obj.modified);  // Should be true
+
+// Test 3: Nested object isolation
+async fn modify_nested(data: object): object {
+    data.inner.count = 100;
+    return data;
+}
+
+let nested = { inner: { count: 0 } };
+let t3 = spawn(modify_nested, nested);
+let modified_nested = join(t3);
+
+// Original nested data should be unchanged
+print(nested.inner.count);  // Should be 0
+
+// Modified should have changes
+print(modified_nested.inner.count);  // Should be 100
+
+print("All isolation tests passed!");

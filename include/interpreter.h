@@ -250,6 +250,7 @@ Value val_null(void);
 
 // Value operations
 void print_value(Value val);
+Value value_deep_copy(Value val);  // Deep copy for thread isolation
 
 // String operations
 void string_free(String *str);

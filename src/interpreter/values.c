@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 // ========== FORWARD DECLARATIONS FOR CYCLE DETECTION ==========
 
@@ -29,16 +30,14 @@ void string_free(String *str) {
 
 void string_retain(String *str) {
     if (str) {
-        str->ref_count++;
+        __atomic_add_fetch(&str->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
 void string_release(String *str) {
     if (str) {
-        if (str->ref_count > 0) {
-            str->ref_count--;
-        }
-        if (str->ref_count == 0) {
+        int old_count = __atomic_sub_fetch(&str->ref_count, 1, __ATOMIC_SEQ_CST);
+        if (old_count == 0) {
             string_free(str);
         }
     }
@@ -199,7 +198,7 @@ void buffer_free(Buffer *buf) {
 
 void buffer_retain(Buffer *buf) {
     if (buf) {
-        buf->ref_count++;
+        __atomic_add_fetch(&buf->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
@@ -207,10 +206,8 @@ void buffer_release(Buffer *buf) {
     if (!buf) return;
     // Skip if already manually freed via builtin_free()
     if (is_manually_freed_pointer(buf)) return;
-    if (buf->ref_count > 0) {
-        buf->ref_count--;
-    }
-    if (buf->ref_count == 0) {
+    int old_count = __atomic_sub_fetch(&buf->ref_count, 1, __ATOMIC_SEQ_CST);
+    if (old_count == 0) {
         buffer_free(buf);
     }
 }
@@ -285,7 +282,7 @@ void array_free(Array *arr) {
 
 void array_retain(Array *arr) {
     if (arr) {
-        arr->ref_count++;
+        __atomic_add_fetch(&arr->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
@@ -293,10 +290,8 @@ void array_release(Array *arr) {
     if (!arr) return;
     // Skip if already manually freed via builtin_free()
     if (is_manually_freed_pointer(arr)) return;
-    if (arr->ref_count > 0) {
-        arr->ref_count--;
-    }
-    if (arr->ref_count == 0) {
+    int old_count = __atomic_sub_fetch(&arr->ref_count, 1, __ATOMIC_SEQ_CST);
+    if (old_count == 0) {
         array_free(arr);
     }
 }
@@ -431,7 +426,7 @@ void object_free(Object *obj) {
 
 void object_retain(Object *obj) {
     if (obj) {
-        obj->ref_count++;
+        __atomic_add_fetch(&obj->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
@@ -439,10 +434,8 @@ void object_release(Object *obj) {
     if (!obj) return;
     // Skip if already manually freed via builtin_free()
     if (is_manually_freed_pointer(obj)) return;
-    if (obj->ref_count > 0) {
-        obj->ref_count--;
-    }
-    if (obj->ref_count == 0) {
+    int old_count = __atomic_sub_fetch(&obj->ref_count, 1, __ATOMIC_SEQ_CST);
+    if (old_count == 0) {
         object_free(obj);
     }
 }
@@ -484,16 +477,14 @@ void function_free(Function *fn) {
 
 void function_retain(Function *fn) {
     if (fn) {
-        fn->ref_count++;
+        __atomic_add_fetch(&fn->ref_count, 1, __ATOMIC_SEQ_CST);
     }
 }
 
 void function_release(Function *fn) {
     if (fn) {
-        if (fn->ref_count > 0) {
-            fn->ref_count--;
-        }
-        if (fn->ref_count == 0) {
+        int old_count = __atomic_sub_fetch(&fn->ref_count, 1, __ATOMIC_SEQ_CST);
+        if (old_count == 0) {
             function_free(fn);
         }
     }
@@ -1405,4 +1396,145 @@ void value_release(Value val) {
         default:
             break;
     }
+}
+
+// ========== VALUE DEEP COPY (for thread isolation) ==========
+
+// Deep copy a value for passing to spawned tasks
+// This ensures tasks don't share mutable state with the parent thread
+Value value_deep_copy(Value val) {
+    Value result = {0};
+
+    switch (val.type) {
+        // Primitive types - just copy the value
+        case VAL_I8:
+        case VAL_I16:
+        case VAL_I32:
+        case VAL_I64:
+        case VAL_U8:
+        case VAL_U16:
+        case VAL_U32:
+        case VAL_U64:
+        case VAL_F32:
+        case VAL_F64:
+        case VAL_BOOL:
+        case VAL_RUNE:
+        case VAL_NULL:
+        case VAL_TYPE:
+        case VAL_BUILTIN_FN:
+            return val;  // Immutable, safe to share
+
+        case VAL_STRING:
+            if (val.as.as_string) {
+                // Create a new string with copied data
+                result.type = VAL_STRING;
+                result.as.as_string = string_copy(val.as.as_string);
+            } else {
+                result = val_null();
+            }
+            break;
+
+        case VAL_BUFFER:
+            if (val.as.as_buffer) {
+                Buffer *src = val.as.as_buffer;
+                result = val_buffer(src->length);
+                memcpy(result.as.as_buffer->data, src->data, src->length);
+            } else {
+                result = val_null();
+            }
+            break;
+
+        case VAL_ARRAY:
+            if (val.as.as_array) {
+                Array *src = val.as.as_array;
+                Array *dst = array_new();
+                // Copy element type if present
+                if (src->element_type) {
+                    dst->element_type = malloc(sizeof(Type));
+                    dst->element_type->kind = src->element_type->kind;
+                    dst->element_type->type_name = src->element_type->type_name ? strdup(src->element_type->type_name) : NULL;
+                    dst->element_type->element_type = NULL;  // Don't support nested typed arrays
+                }
+                // Deep copy each element
+                for (int i = 0; i < src->length; i++) {
+                    Value elem_copy = value_deep_copy(src->elements[i]);
+                    array_push(dst, elem_copy);
+                    value_release(elem_copy);  // array_push retains
+                }
+                result.type = VAL_ARRAY;
+                result.as.as_array = dst;
+            } else {
+                result = val_null();
+            }
+            break;
+
+        case VAL_OBJECT:
+            if (val.as.as_object) {
+                Object *src = val.as.as_object;
+                Object *dst = object_new(src->type_name, src->capacity);
+                // Deep copy each field
+                for (int i = 0; i < src->num_fields; i++) {
+                    // Grow if needed
+                    if (dst->num_fields >= dst->capacity) {
+                        dst->capacity *= 2;
+                        dst->field_names = realloc(dst->field_names, sizeof(char*) * dst->capacity);
+                        dst->field_values = realloc(dst->field_values, sizeof(Value) * dst->capacity);
+                    }
+                    dst->field_names[dst->num_fields] = strdup(src->field_names[i]);
+                    Value field_copy = value_deep_copy(src->field_values[i]);
+                    value_retain(field_copy);
+                    dst->field_values[dst->num_fields] = field_copy;
+                    dst->num_fields++;
+                }
+                result.type = VAL_OBJECT;
+                result.as.as_object = dst;
+            } else {
+                result = val_null();
+            }
+            break;
+
+        case VAL_PTR:
+            // Raw pointers cannot be deep copied safely - this is intentional
+            // Tasks should not share raw pointers; use channels or buffers instead
+            fprintf(stderr, "Runtime error: Cannot pass raw pointer to spawned task (use buffer or channel instead)\n");
+            exit(1);
+
+        case VAL_FILE:
+            // File handles are OS resources - kernel handles concurrent access
+            // We share by reference (no deep copy needed)
+            return val;
+
+        case VAL_SOCKET:
+            // Socket handles are OS resources - kernel handles concurrent access
+            // We share by reference (no deep copy needed)
+            return val;
+
+        case VAL_FUNCTION:
+            // Functions are retained (shared) but their closure env is isolated
+            // The spawn function will handle this specially
+            if (val.as.as_function) {
+                function_retain(val.as.as_function);
+            }
+            return val;
+
+        case VAL_FFI_FUNCTION:
+            // FFI functions are stateless, safe to share
+            return val;
+
+        case VAL_TASK:
+            // Task handles are retained (shared) - they're used for coordination
+            if (val.as.as_task) {
+                task_retain(val.as.as_task);
+            }
+            return val;
+
+        case VAL_CHANNEL:
+            // Channels are retained (shared) - they're the communication mechanism
+            if (val.as.as_channel) {
+                channel_retain(val.as.as_channel);
+            }
+            return val;
+    }
+
+    return result;
 }

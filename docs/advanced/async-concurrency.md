@@ -548,6 +548,104 @@ let c1 = join(t1);
 let c2 = join(t2);
 ```
 
+## Thread Safety Model
+
+Hemlock uses a **message-passing** concurrency model where tasks communicate via channels rather than shared mutable state.
+
+### Argument Isolation
+
+When you spawn a task, **arguments are deep-copied** to prevent data races:
+
+```hemlock
+async fn modify_array(arr: array): array {
+    arr.push(999);    // Modifies the COPY, not original
+    arr[0] = -1;
+    return arr;
+}
+
+let original = [1, 2, 3];
+let task = spawn(modify_array, original);
+let modified = join(task);
+
+print(original.length);  // 3 - unchanged!
+print(modified.length);  // 4 - has new element
+```
+
+**What gets deep-copied:**
+- Arrays (and all elements recursively)
+- Objects (and all fields recursively)
+- Strings
+- Buffers
+
+**What gets shared (reference retained):**
+- Channels (the communication mechanism - intentionally shared)
+- Task handles (for coordination)
+- Functions (code is immutable)
+- File handles (OS manages concurrent access)
+- Socket handles (OS manages concurrent access)
+
+**What cannot be passed:**
+- Raw pointers (`ptr`) - use `buffer` instead
+
+### Why Message-Passing?
+
+This follows Hemlock's "explicit over implicit" philosophy:
+
+```hemlock
+// BAD: Shared mutable state (would cause data races)
+let counter = { value: 0 };
+let t1 = spawn(fn() { counter.value = counter.value + 1; });  // Race!
+let t2 = spawn(fn() { counter.value = counter.value + 1; });  // Race!
+
+// GOOD: Message-passing via channels
+async fn increment(ch) {
+    let val = ch.recv();
+    ch.send(val + 1);
+}
+
+let ch = channel(1);
+ch.send(0);
+let t1 = spawn(increment, ch);
+join(t1);
+let result = ch.recv();  // 1 - no race condition
+```
+
+### Reference Counting Thread Safety
+
+All reference counting operations use **atomic operations** to prevent use-after-free bugs:
+- `string_retain/release` - atomic
+- `array_retain/release` - atomic
+- `object_retain/release` - atomic
+- `buffer_retain/release` - atomic
+- `function_retain/release` - atomic
+- `channel_retain/release` - atomic
+- `task_retain/release` - atomic
+
+This ensures safe memory management even when values are shared across threads.
+
+### Closure Environment Access
+
+Tasks have **read access** to the closure environment for:
+- Built-in functions (`print`, `len`, etc.)
+- Global function definitions
+- Constants
+
+However, **modifying variables from the parent scope is undefined behavior**:
+
+```hemlock
+let x = 10;
+
+async fn read_only(): i32 {
+    return x;  // OK: reading closure variable
+}
+
+async fn modify_closure() {
+    x = 20;  // UNDEFINED BEHAVIOR: don't do this!
+}
+```
+
+If you need to return data from a task, use the return value or channels.
+
 ## Current Limitations
 
 ### 1. No select() for Multiplexing
@@ -764,6 +862,8 @@ Hemlock's async/concurrency model provides:
 - ✅ Thread-safe channels for communication
 - ✅ Exception propagation across tasks
 - ✅ Proven performance on multi-core systems
+- ✅ **Argument isolation** - deep copy prevents data races
+- ✅ **Atomic reference counting** - safe memory management across threads
 
 This makes Hemlock suitable for:
 - Parallel computations
@@ -775,3 +875,4 @@ While avoiding the complexity of:
 - Manual thread management
 - Low-level synchronization primitives
 - Deadlock-prone lock-based designs
+- Shared mutable state bugs
