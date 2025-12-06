@@ -1,0 +1,828 @@
+/*
+ * Hemlock Code Generator - Statement Code Generation
+ *
+ * Handles code generation for all statement types.
+ */
+
+#include "codegen_internal.h"
+
+// ========== STATEMENT CODE GENERATION ==========
+
+void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
+    switch (stmt->type) {
+        case STMT_LET: {
+            codegen_add_local(ctx, stmt->as.let.name);
+            if (stmt->as.let.value) {
+                char *value = codegen_expr(ctx, stmt->as.let.value);
+                // Check if there's a custom object type annotation (for duck typing)
+                if (stmt->as.let.type_annotation &&
+                    stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                    stmt->as.let.type_annotation->type_name) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
+                                  stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                } else if (stmt->as.let.type_annotation &&
+                           stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
+                    // Typed array: let arr: array<type> = [...]
+                    Type *elem_type = stmt->as.let.type_annotation->element_type;
+                    const char *hml_type = "HML_VAL_NULL";  // Default to untyped
+                    if (elem_type) {
+                        switch (elem_type->kind) {
+                            case TYPE_I8:    hml_type = "HML_VAL_I8"; break;
+                            case TYPE_I16:   hml_type = "HML_VAL_I16"; break;
+                            case TYPE_I32:   hml_type = "HML_VAL_I32"; break;
+                            case TYPE_I64:   hml_type = "HML_VAL_I64"; break;
+                            case TYPE_U8:    hml_type = "HML_VAL_U8"; break;
+                            case TYPE_U16:   hml_type = "HML_VAL_U16"; break;
+                            case TYPE_U32:   hml_type = "HML_VAL_U32"; break;
+                            case TYPE_U64:   hml_type = "HML_VAL_U64"; break;
+                            case TYPE_F32:   hml_type = "HML_VAL_F32"; break;
+                            case TYPE_F64:   hml_type = "HML_VAL_F64"; break;
+                            case TYPE_BOOL:  hml_type = "HML_VAL_BOOL"; break;
+                            case TYPE_STRING: hml_type = "HML_VAL_STRING"; break;
+                            case TYPE_RUNE:  hml_type = "HML_VAL_RUNE"; break;
+                            default: hml_type = "HML_VAL_NULL"; break;
+                        }
+                    }
+                    codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
+                                  stmt->as.let.name, value, hml_type);
+                } else if (stmt->as.let.type_annotation) {
+                    // Primitive type annotation: let x: i64 = 0;
+                    // Convert value to the annotated type with range checking
+                    const char *hml_type = NULL;
+                    switch (stmt->as.let.type_annotation->kind) {
+                        case TYPE_I8:    hml_type = "HML_VAL_I8"; break;
+                        case TYPE_I16:   hml_type = "HML_VAL_I16"; break;
+                        case TYPE_I32:   hml_type = "HML_VAL_I32"; break;
+                        case TYPE_I64:   hml_type = "HML_VAL_I64"; break;
+                        case TYPE_U8:    hml_type = "HML_VAL_U8"; break;
+                        case TYPE_U16:   hml_type = "HML_VAL_U16"; break;
+                        case TYPE_U32:   hml_type = "HML_VAL_U32"; break;
+                        case TYPE_U64:   hml_type = "HML_VAL_U64"; break;
+                        case TYPE_F32:   hml_type = "HML_VAL_F32"; break;
+                        case TYPE_F64:   hml_type = "HML_VAL_F64"; break;
+                        case TYPE_BOOL:  hml_type = "HML_VAL_BOOL"; break;
+                        case TYPE_STRING: hml_type = "HML_VAL_STRING"; break;
+                        case TYPE_RUNE:  hml_type = "HML_VAL_RUNE"; break;
+                        default: break;
+                    }
+                    if (hml_type) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
+                                      stmt->as.let.name, value, hml_type);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = %s;", stmt->as.let.name, value);
+                    }
+                } else {
+                    codegen_writeln(ctx, "HmlValue %s = %s;", stmt->as.let.name, value);
+                }
+                free(value);
+
+                // Check if this was a self-referential function (e.g., let factorial = fn(n) { ... factorial(n-1) ... })
+                // If so, update the closure environment to point to the now-initialized variable
+                if (ctx->last_closure_env_id >= 0 && ctx->last_closure_captured) {
+                    for (int i = 0; i < ctx->last_closure_num_captured; i++) {
+                        if (strcmp(ctx->last_closure_captured[i], stmt->as.let.name) == 0) {
+                            codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
+                                          ctx->last_closure_env_id, i, stmt->as.let.name);
+                        }
+                    }
+                    // Reset the tracking - we've handled this closure
+                    ctx->last_closure_env_id = -1;
+                }
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", stmt->as.let.name);
+            }
+            break;
+        }
+
+        case STMT_CONST: {
+            codegen_add_local(ctx, stmt->as.const_stmt.name);
+            codegen_add_const(ctx, stmt->as.const_stmt.name);
+            if (stmt->as.const_stmt.value) {
+                char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
+                codegen_writeln(ctx, "const HmlValue %s = %s;", stmt->as.const_stmt.name, value);
+                free(value);
+            } else {
+                codegen_writeln(ctx, "const HmlValue %s = hml_val_null();", stmt->as.const_stmt.name);
+            }
+            break;
+        }
+
+        case STMT_EXPR: {
+            char *value = codegen_expr(ctx, stmt->as.expr);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(value);
+            break;
+        }
+
+        case STMT_IF: {
+            char *cond = codegen_expr(ctx, stmt->as.if_stmt.condition);
+            codegen_writeln(ctx, "if (hml_to_bool(%s)) {", cond);
+            codegen_indent_inc(ctx);
+            codegen_stmt(ctx, stmt->as.if_stmt.then_branch);
+            codegen_indent_dec(ctx);
+            if (stmt->as.if_stmt.else_branch) {
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_stmt(ctx, stmt->as.if_stmt.else_branch);
+                codegen_indent_dec(ctx);
+            }
+            codegen_writeln(ctx, "}");
+            codegen_writeln(ctx, "hml_release(&%s);", cond);
+            free(cond);
+            break;
+        }
+
+        case STMT_WHILE: {
+            ctx->loop_depth++;
+            codegen_writeln(ctx, "while (1) {");
+            codegen_indent_inc(ctx);
+            char *cond = codegen_expr(ctx, stmt->as.while_stmt.condition);
+            codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
+            codegen_writeln(ctx, "hml_release(&%s);", cond);
+            codegen_stmt(ctx, stmt->as.while_stmt.body);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            ctx->loop_depth--;
+            free(cond);
+            break;
+        }
+
+        case STMT_FOR: {
+            ctx->loop_depth++;
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+            // Initializer
+            if (stmt->as.for_loop.initializer) {
+                codegen_stmt(ctx, stmt->as.for_loop.initializer);
+            }
+            codegen_writeln(ctx, "while (1) {");
+            codegen_indent_inc(ctx);
+            // Condition
+            if (stmt->as.for_loop.condition) {
+                char *cond = codegen_expr(ctx, stmt->as.for_loop.condition);
+                codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
+                codegen_writeln(ctx, "hml_release(&%s);", cond);
+                free(cond);
+            }
+            // Body
+            codegen_stmt(ctx, stmt->as.for_loop.body);
+            // Increment
+            if (stmt->as.for_loop.increment) {
+                char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
+                codegen_writeln(ctx, "hml_release(&%s);", inc);
+                free(inc);
+            }
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            ctx->loop_depth--;
+            break;
+        }
+
+        case STMT_FOR_IN: {
+            // Generate for-in loop for arrays, objects, or strings
+            // for (let val in iterable) or for (let key, val in iterable)
+            ctx->loop_depth++;
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+
+            // Evaluate the iterable
+            char *iter_val = codegen_expr(ctx, stmt->as.for_in.iterable);
+            codegen_writeln(ctx, "hml_retain(&%s);", iter_val);
+
+            // Check for valid iterable type (array, object, or string)
+            codegen_writeln(ctx, "if (%s.type != HML_VAL_ARRAY && %s.type != HML_VAL_OBJECT && %s.type != HML_VAL_STRING) {",
+                          iter_val, iter_val, iter_val);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "hml_release(&%s);", iter_val);
+            codegen_writeln(ctx, "hml_runtime_error(\"for-in requires array, object, or string\");");
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            // Index counter
+            char *idx_var = codegen_temp(ctx);
+            codegen_writeln(ctx, "int32_t %s = 0;", idx_var);
+
+            // Get the length based on type
+            char *len_var = codegen_temp(ctx);
+            codegen_writeln(ctx, "int32_t %s;", len_var);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT) {", iter_val);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "%s = hml_object_num_fields(%s);", len_var, iter_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else {");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "%s = hml_array_length(%s).as.as_i32;", len_var, iter_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            codegen_writeln(ctx, "while (%s < %s) {", idx_var, len_var);
+            codegen_indent_inc(ctx);
+
+            // Create key and value variables based on iterable type
+            if (stmt->as.for_in.key_var) {
+                codegen_writeln(ctx, "HmlValue %s;", stmt->as.for_in.key_var);
+                codegen_add_local(ctx, stmt->as.for_in.key_var);
+            }
+            codegen_writeln(ctx, "HmlValue %s;", stmt->as.for_in.value_var);
+            codegen_add_local(ctx, stmt->as.for_in.value_var);
+
+            // Handle object iteration
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT) {", iter_val);
+            codegen_indent_inc(ctx);
+            if (stmt->as.for_in.key_var) {
+                codegen_writeln(ctx, "%s = hml_object_key_at(%s, %s);", stmt->as.for_in.key_var, iter_val, idx_var);
+            }
+            codegen_writeln(ctx, "%s = hml_object_value_at(%s, %s);", stmt->as.for_in.value_var, iter_val, idx_var);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else {");
+            codegen_indent_inc(ctx);
+            // Handle array/string iteration
+            if (stmt->as.for_in.key_var) {
+                codegen_writeln(ctx, "%s = hml_val_i32(%s);", stmt->as.for_in.key_var, idx_var);
+            }
+            char *idx_val = codegen_temp(ctx);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s);", idx_val, idx_var);
+            codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", stmt->as.for_in.value_var, iter_val, idx_val);
+            codegen_writeln(ctx, "hml_release(&%s);", idx_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            // Generate body
+            codegen_stmt(ctx, stmt->as.for_in.body);
+
+            // Release loop variables
+            if (stmt->as.for_in.key_var) {
+                codegen_writeln(ctx, "hml_release(&%s);", stmt->as.for_in.key_var);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", stmt->as.for_in.value_var);
+
+            // Increment index
+            codegen_writeln(ctx, "%s++;", idx_var);
+
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            // Cleanup
+            codegen_writeln(ctx, "hml_release(&%s);", iter_val);
+
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            ctx->loop_depth--;
+
+            free(iter_val);
+            free(len_var);
+            free(idx_var);
+            break;
+        }
+
+        case STMT_BLOCK: {
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                codegen_stmt(ctx, stmt->as.block.statements[i]);
+            }
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            break;
+        }
+
+        case STMT_RETURN: {
+            // Check if we're inside a try-finally block
+            const char *finally_label = codegen_get_finally_label(ctx);
+            if (finally_label) {
+                // Inside try-finally: save return value and goto finally
+                const char *ret_var = codegen_get_return_value_var(ctx);
+                const char *has_ret = codegen_get_has_return_var(ctx);
+                if (stmt->as.return_stmt.value) {
+                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    codegen_writeln(ctx, "%s = %s;", ret_var, value);
+                    free(value);
+                } else {
+                    codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
+                }
+                codegen_writeln(ctx, "%s = 1;", has_ret);
+                codegen_writeln(ctx, "hml_exception_pop();");
+                codegen_writeln(ctx, "goto %s;", finally_label);
+            } else if (ctx->defer_stack) {
+                // We have defers - need to save return value, execute defers, then return
+                char *ret_val = codegen_temp(ctx);
+                if (stmt->as.return_stmt.value) {
+                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", ret_val, value);
+                    free(value);
+                } else {
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", ret_val);
+                }
+                // Execute all defers in LIFO order
+                codegen_defer_execute_all(ctx);
+                // Execute any runtime defers (from loops)
+                codegen_writeln(ctx, "hml_defer_execute_all();");
+                codegen_writeln(ctx, "hml_call_exit();");
+                codegen_writeln(ctx, "return %s;", ret_val);
+                free(ret_val);
+            } else {
+                // No defers or try-finally - simple return
+                // Evaluate expression first, then decrement call depth
+                if (stmt->as.return_stmt.value) {
+                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    // Execute any runtime defers (from loops)
+                    codegen_writeln(ctx, "hml_defer_execute_all();");
+                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "return %s;", value);
+                    free(value);
+                } else {
+                    // Execute any runtime defers (from loops)
+                    codegen_writeln(ctx, "hml_defer_execute_all();");
+                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "return hml_val_null();");
+                }
+            }
+            break;
+        }
+
+        case STMT_BREAK:
+            codegen_writeln(ctx, "break;");
+            break;
+
+        case STMT_CONTINUE:
+            codegen_writeln(ctx, "continue;");
+            break;
+
+        case STMT_TRY: {
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "HmlExceptionContext *_ex_ctx = hml_exception_push();");
+
+            // Track if we need to re-throw after finally
+            int has_finally = stmt->as.try_stmt.finally_block != NULL;
+            int has_catch = stmt->as.try_stmt.catch_block != NULL;
+
+            // Generate unique names for try-finally support (for return to jump to finally)
+            // This is only needed when inside a function (at top-level, no return is possible)
+            char *finally_label = NULL;
+            char *return_value_var = NULL;
+            char *has_return_var = NULL;
+            int needs_return_tracking = has_finally && ctx->in_function;
+
+            if (needs_return_tracking) {
+                finally_label = codegen_label(ctx);
+                return_value_var = codegen_temp(ctx);
+                has_return_var = codegen_temp(ctx);
+
+                // Declare variables for tracking return from try block
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", return_value_var);
+                codegen_writeln(ctx, "int %s = 0;", has_return_var);
+
+                // Push try-finally context so return statements inside use goto
+                codegen_push_try_finally(ctx, finally_label, return_value_var, has_return_var);
+            }
+
+            if (has_finally && !has_catch) {
+                // Track exception state for try-finally without catch
+                codegen_writeln(ctx, "int _had_exception = 0;");
+                codegen_writeln(ctx, "HmlValue _saved_exception = hml_val_null();");
+            }
+
+            codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
+            codegen_indent_inc(ctx);
+            // Try block
+            codegen_stmt(ctx, stmt->as.try_stmt.try_block);
+            codegen_indent_dec(ctx);
+            if (has_catch) {
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                // Catch block - declare catch param as shadow var to shadow main vars
+                if (stmt->as.try_stmt.catch_param) {
+                    codegen_add_shadow(ctx, stmt->as.try_stmt.catch_param);
+                    codegen_writeln(ctx, "HmlValue %s = hml_exception_get_value();", stmt->as.try_stmt.catch_param);
+                }
+                codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
+                if (stmt->as.try_stmt.catch_param) {
+                    codegen_writeln(ctx, "hml_release(&%s);", stmt->as.try_stmt.catch_param);
+                    // Remove catch param from shadow vars so outer scope variable is used again
+                    codegen_remove_shadow(ctx, stmt->as.try_stmt.catch_param);
+                }
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (has_finally) {
+                // try-finally without catch: save exception for re-throw
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "_had_exception = 1;");
+                codegen_writeln(ctx, "_saved_exception = hml_exception_get_value();");
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else {
+                codegen_writeln(ctx, "}");
+            }
+
+            // Pop exception context BEFORE finally block
+            // This ensures exceptions in finally go to outer handler
+            codegen_writeln(ctx, "hml_exception_pop();");
+
+            // Finally block
+            if (has_finally) {
+                // Pop try-finally context before generating finally
+                // (return statements in finally should not jump to itself)
+                if (needs_return_tracking) {
+                    codegen_pop_try_finally(ctx);
+
+                    // Generate the finally label (jumped to from return statements in try)
+                    codegen_writeln(ctx, "%s:;", finally_label);
+                }
+
+                codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
+
+                // Re-throw saved exception if try threw and there was no catch
+                if (!has_catch) {
+                    codegen_writeln(ctx, "if (_had_exception) {");
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_throw(_saved_exception);");
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                }
+
+                // Check if we should return (from a return statement in the try block)
+                if (needs_return_tracking) {
+                    codegen_writeln(ctx, "if (%s) {", has_return_var);
+                    codegen_indent_inc(ctx);
+                    // Execute any runtime defers (from loops)
+                    codegen_writeln(ctx, "hml_defer_execute_all();");
+                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "return %s;", return_value_var);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+
+                    free(finally_label);
+                    free(return_value_var);
+                    free(has_return_var);
+                }
+            }
+
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            break;
+        }
+
+        case STMT_THROW: {
+            char *value = codegen_expr(ctx, stmt->as.throw_stmt.value);
+            // Execute defers before throwing (they must run)
+            if (ctx->defer_stack) {
+                codegen_defer_execute_all(ctx);
+            }
+            codegen_writeln(ctx, "hml_throw(%s);", value);
+            free(value);
+            break;
+        }
+
+        case STMT_SWITCH: {
+            // Generate switch using do-while(0) pattern so break works correctly
+            char *expr_val = codegen_expr(ctx, stmt->as.switch_stmt.expr);
+            int has_default = 0;
+            int default_idx = -1;
+
+            // Find default case
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (stmt->as.switch_stmt.case_values[i] == NULL) {
+                    has_default = 1;
+                    default_idx = i;
+                    break;
+                }
+            }
+
+            codegen_writeln(ctx, "do {");
+            codegen_indent_inc(ctx);
+
+            // Pre-generate all case values to avoid scoping issues
+            char **case_vals = malloc(stmt->as.switch_stmt.num_cases * sizeof(char*));
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (stmt->as.switch_stmt.case_values[i] == NULL) {
+                    case_vals[i] = NULL;
+                } else {
+                    case_vals[i] = codegen_expr(ctx, stmt->as.switch_stmt.case_values[i]);
+                }
+            }
+
+            // Generate case comparisons as if-else chain
+            int first_case = 1;
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (case_vals[i] == NULL) continue;  // Skip default
+
+                if (first_case) {
+                    codegen_writeln(ctx, "if (hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) {", expr_val, case_vals[i]);
+                    first_case = 0;
+                } else {
+                    codegen_writeln(ctx, "} else if (hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) {", expr_val, case_vals[i]);
+                }
+                codegen_indent_inc(ctx);
+                codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[i]);
+                codegen_indent_dec(ctx);
+            }
+
+            if (has_default) {
+                if (first_case) {
+                    // Only default case exists
+                    codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[default_idx]);
+                } else {
+                    codegen_writeln(ctx, "} else {");
+                    codegen_indent_inc(ctx);
+                    codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[default_idx]);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                }
+            } else if (!first_case) {
+                codegen_writeln(ctx, "}");
+            }
+
+            // Release case values
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (case_vals[i]) {
+                    codegen_writeln(ctx, "hml_release(&%s);", case_vals[i]);
+                    free(case_vals[i]);
+                }
+            }
+            free(case_vals);
+
+            codegen_writeln(ctx, "hml_release(&%s);", expr_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} while(0);");
+            free(expr_val);
+            break;
+        }
+
+        case STMT_DEFER: {
+            if (ctx->loop_depth > 0) {
+                // Inside a loop - use runtime defer stack
+                // For `defer foo()`, we need to push the function `foo` to be called later
+                if (stmt->as.defer_stmt.call->type == EXPR_CALL) {
+                    // Get the function being called
+                    char *fn_val = codegen_expr(ctx, stmt->as.defer_stmt.call->as.call.func);
+                    codegen_writeln(ctx, "hml_defer_push_call(%s);", fn_val);
+                    codegen_writeln(ctx, "hml_release(&%s);", fn_val);
+                    free(fn_val);
+                } else {
+                    // For non-call expressions, evaluate and push
+                    char *val = codegen_expr(ctx, stmt->as.defer_stmt.call);
+                    codegen_writeln(ctx, "hml_defer_push_call(%s);", val);
+                    codegen_writeln(ctx, "hml_release(&%s);", val);
+                    free(val);
+                }
+            } else {
+                // Not in a loop - use compile-time defer stack
+                codegen_defer_push(ctx, stmt->as.defer_stmt.call);
+            }
+            break;
+        }
+
+        case STMT_ENUM: {
+            // Generate enum as a const object with variant values
+            const char *raw_enum_name = stmt->as.enum_decl.name;
+
+            // Determine the correct variable name with prefix
+            char prefixed_name[256];
+            const char *enum_name = raw_enum_name;
+            if (ctx->current_module && !codegen_is_local(ctx, raw_enum_name)) {
+                snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                        ctx->current_module->module_prefix, raw_enum_name);
+                enum_name = prefixed_name;
+            } else if (codegen_is_main_var(ctx, raw_enum_name)) {
+                snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_enum_name);
+                enum_name = prefixed_name;
+            }
+
+            codegen_writeln(ctx, "%s = hml_val_object();", enum_name);
+
+            int next_value = 0;
+            for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
+                char *variant_name = stmt->as.enum_decl.variant_names[i];
+
+                if (stmt->as.enum_decl.variant_values[i]) {
+                    // Explicit value - generate and use it
+                    char *val = codegen_expr(ctx, stmt->as.enum_decl.variant_values[i]);
+                    codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);",
+                                  enum_name, variant_name, val);
+                    codegen_writeln(ctx, "hml_release(&%s);", val);
+
+                    // Extract numeric value for next_value calculation
+                    // For simplicity, assume explicit values are integer literals
+                    Expr *value_expr = stmt->as.enum_decl.variant_values[i];
+                    if (value_expr->type == EXPR_NUMBER && !value_expr->as.number.is_float) {
+                        next_value = (int)value_expr->as.number.int_value + 1;
+                    }
+                    free(val);
+                } else {
+                    // Auto-incrementing value
+                    codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", hml_val_i32(%d));",
+                                  enum_name, variant_name, next_value);
+                    next_value++;
+                }
+            }
+
+            // Add enum as local variable (using raw name for lookup)
+            codegen_add_local(ctx, raw_enum_name);
+            break;
+        }
+
+        case STMT_DEFINE_OBJECT: {
+            // Generate type definition registration at runtime
+            char *type_name = stmt->as.define_object.name;
+            int num_fields = stmt->as.define_object.num_fields;
+
+            // Generate field definitions array
+            codegen_writeln(ctx, "{");
+            ctx->indent++;
+            codegen_writeln(ctx, "HmlTypeField _type_fields_%s[%d];",
+                          type_name, num_fields > 0 ? num_fields : 1);
+
+            for (int i = 0; i < num_fields; i++) {
+                char *field_name = stmt->as.define_object.field_names[i];
+                Type *field_type = stmt->as.define_object.field_types[i];
+                int is_optional = stmt->as.define_object.field_optional[i];
+                Expr *default_expr = stmt->as.define_object.field_defaults[i];
+
+                // Map Type to HML_VAL_* type
+                int type_kind = -1;  // -1 means any type
+                if (field_type) {
+                    switch (field_type->kind) {
+                        case TYPE_I8:  type_kind = 0; break;  // HML_VAL_I8
+                        case TYPE_I16: type_kind = 1; break;  // HML_VAL_I16
+                        case TYPE_I32: type_kind = 2; break;  // HML_VAL_I32
+                        case TYPE_I64: type_kind = 3; break;  // HML_VAL_I64
+                        case TYPE_U8:  type_kind = 4; break;  // HML_VAL_U8
+                        case TYPE_U16: type_kind = 5; break;  // HML_VAL_U16
+                        case TYPE_U32: type_kind = 6; break;  // HML_VAL_U32
+                        case TYPE_U64: type_kind = 7; break;  // HML_VAL_U64
+                        case TYPE_F32: type_kind = 8; break;  // HML_VAL_F32
+                        case TYPE_F64: type_kind = 9; break;  // HML_VAL_F64
+                        case TYPE_BOOL: type_kind = 10; break; // HML_VAL_BOOL
+                        case TYPE_STRING: type_kind = 11; break; // HML_VAL_STRING
+                        default: type_kind = -1; break;
+                    }
+                }
+
+                codegen_writeln(ctx, "_type_fields_%s[%d].name = \"%s\";",
+                              type_name, i, field_name);
+                codegen_writeln(ctx, "_type_fields_%s[%d].type_kind = %d;",
+                              type_name, i, type_kind);
+                codegen_writeln(ctx, "_type_fields_%s[%d].is_optional = %d;",
+                              type_name, i, is_optional);
+
+                // Generate default value if present
+                if (default_expr) {
+                    char *default_val = codegen_expr(ctx, default_expr);
+                    codegen_writeln(ctx, "_type_fields_%s[%d].default_value = %s;",
+                                  type_name, i, default_val);
+                    free(default_val);
+                } else {
+                    codegen_writeln(ctx, "_type_fields_%s[%d].default_value = hml_val_null();",
+                                  type_name, i);
+                }
+            }
+
+            // Register the type
+            codegen_writeln(ctx, "hml_register_type(\"%s\", _type_fields_%s, %d);",
+                          type_name, type_name, num_fields);
+            ctx->indent--;
+            codegen_writeln(ctx, "}");
+            break;
+        }
+
+        case STMT_IMPORT: {
+            // Handle module imports
+            if (!ctx->module_cache) {
+                codegen_writeln(ctx, "// WARNING: import without module cache: \"%s\"", stmt->as.import_stmt.module_path);
+                break;
+            }
+
+            // Resolve the import path
+            const char *importer_path = ctx->current_module ? ctx->current_module->absolute_path : NULL;
+            char *resolved = module_resolve_path(ctx->module_cache, importer_path, stmt->as.import_stmt.module_path);
+            if (!resolved) {
+                codegen_writeln(ctx, "// ERROR: Could not resolve import \"%s\"", stmt->as.import_stmt.module_path);
+                break;
+            }
+
+            // Get or compile the module
+            CompiledModule *imported = module_get_cached(ctx->module_cache, resolved);
+            if (!imported) {
+                imported = module_compile(ctx, resolved);
+            }
+            free(resolved);
+
+            if (!imported) {
+                codegen_writeln(ctx, "// ERROR: Failed to compile import \"%s\"", stmt->as.import_stmt.module_path);
+                break;
+            }
+
+            // Generate import binding code
+            codegen_writeln(ctx, "// Import from \"%s\"", stmt->as.import_stmt.module_path);
+
+            if (stmt->as.import_stmt.is_namespace) {
+                // Namespace import: import * as name from "module"
+                // Create an object containing all exports
+                char *ns_name = stmt->as.import_stmt.namespace_name;
+
+                // Create namespace object with exports
+                codegen_writeln(ctx, "HmlValue %s = hml_val_object();", ns_name);
+                codegen_add_local(ctx, ns_name);
+
+                for (int i = 0; i < imported->num_exports; i++) {
+                    ExportedSymbol *exp = &imported->exports[i];
+                    codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", ns_name, exp->name, exp->mangled_name);
+                }
+            } else {
+                // Named imports: import { a, b as c } from "module"
+                for (int i = 0; i < stmt->as.import_stmt.num_imports; i++) {
+                    const char *import_name = stmt->as.import_stmt.import_names[i];
+                    const char *alias = stmt->as.import_stmt.import_aliases[i];
+                    const char *bind_name = alias ? alias : import_name;
+
+                    // Find the export in the imported module
+                    ExportedSymbol *exp = module_find_export(imported, import_name);
+                    if (exp) {
+                        codegen_writeln(ctx, "HmlValue %s = %s;", bind_name, exp->mangled_name);
+                        codegen_add_local(ctx, bind_name);
+                    } else {
+                        codegen_writeln(ctx, "// ERROR: '%s' not exported from module", import_name);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", bind_name);
+                        codegen_add_local(ctx, bind_name);
+                    }
+                }
+            }
+            break;
+        }
+
+        case STMT_EXPORT: {
+            // Handle export statements
+            if (stmt->as.export_stmt.is_declaration && stmt->as.export_stmt.declaration) {
+                // Export declaration: export let x = 1; or export fn foo() {}
+                Stmt *decl = stmt->as.export_stmt.declaration;
+
+                // If we're in a module context, use prefixed names
+                if (ctx->current_module) {
+                    const char *name = NULL;
+                    if (decl->type == STMT_LET) {
+                        name = decl->as.let.name;
+                    } else if (decl->type == STMT_CONST) {
+                        name = decl->as.const_stmt.name;
+                    }
+
+                    if (name) {
+                        // Generate assignment to global mangled name (already declared as static)
+                        char mangled[256];
+                        snprintf(mangled, sizeof(mangled), "%s%s", ctx->current_module->module_prefix, name);
+
+                        if (decl->type == STMT_LET && decl->as.let.value) {
+                            // Check if it's a function definition
+                            if (decl->as.let.value->type == EXPR_FUNCTION) {
+                                Expr *func = decl->as.let.value;
+                                int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
+                                codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d, %d);",
+                                              mangled, ctx->current_module->module_prefix, name,
+                                              func->as.function.num_params, num_required, func->as.function.is_async);
+                            } else {
+                                char *val = codegen_expr(ctx, decl->as.let.value);
+                                codegen_writeln(ctx, "%s = %s;", mangled, val);
+                                free(val);
+                            }
+                        } else if (decl->type == STMT_CONST && decl->as.const_stmt.value) {
+                            char *val = codegen_expr(ctx, decl->as.const_stmt.value);
+                            codegen_writeln(ctx, "%s = %s;", mangled, val);
+                            free(val);
+                        }
+                    } else {
+                        // For non-variable exports, just generate the declaration
+                        codegen_stmt(ctx, decl);
+                    }
+                } else {
+                    // Not in module context, just generate the declaration
+                    codegen_stmt(ctx, decl);
+                }
+            } else if (stmt->as.export_stmt.is_reexport) {
+                // Re-export: export { a, b } from "other"
+                // This is handled during module compilation, no runtime code needed
+                codegen_writeln(ctx, "// Re-export from \"%s\" (handled at compile time)", stmt->as.export_stmt.module_path);
+            } else {
+                // Export list: export { a, b }
+                // This just marks existing variables as exported, no code needed
+                codegen_writeln(ctx, "// Export list (handled at compile time)");
+            }
+            break;
+        }
+
+        case STMT_IMPORT_FFI:
+            // Load the FFI library - assigns to global _ffi_lib
+            codegen_writeln(ctx, "_ffi_lib = hml_ffi_load(\"%s\");", stmt->as.import_ffi.library_path);
+            break;
+
+        case STMT_EXTERN_FN:
+            // Wrapper function is generated in codegen_program, nothing to do here
+            break;
+
+        default:
+            codegen_writeln(ctx, "// Unsupported statement type %d", stmt->type);
+            break;
+    }
+}

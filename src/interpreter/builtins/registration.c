@@ -18,6 +18,7 @@ static BuiltinInfo builtins[] = {
     {"buffer", builtin_buffer},
     {"typeof", builtin_typeof},
     {"read_line", builtin_read_line},
+    {"string_concat_many", builtin_string_concat_many},
     {"eprint", builtin_eprint},
     {"open", builtin_open},
     {"assert", builtin_assert},

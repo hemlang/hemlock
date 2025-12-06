@@ -248,6 +248,7 @@ void print_value(Value val);
 // String operations
 void string_free(String *str);
 String* string_concat(String *a, String *b);
+String* string_concat_many(String **strings, int count);
 String* string_copy(String *str);
 
 // Buffer operations

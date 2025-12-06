@@ -111,6 +111,48 @@ String* string_concat(String *a, String *b) {
     return result;
 }
 
+String* string_concat_many(String **strings, int count) {
+    if (count == 0) {
+        return string_new("");
+    }
+    if (count == 1) {
+        return string_copy(strings[0]);
+    }
+
+    // Calculate total length in one pass
+    int total_len = 0;
+    for (int i = 0; i < count; i++) {
+        total_len += strings[i]->length;
+    }
+
+    // Allocate result string
+    String *result = malloc(sizeof(String));
+    if (!result) {
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+    result->length = total_len;
+    result->char_length = -1;  // Cache invalidated after concatenation
+    result->capacity = total_len + 1;
+    result->ref_count = 1;  // Start with 1 - caller owns the first reference
+    result->data = malloc(result->capacity);
+    if (!result->data) {
+        free(result);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+
+    // Copy all strings in one pass
+    int offset = 0;
+    for (int i = 0; i < count; i++) {
+        memcpy(result->data + offset, strings[i]->data, strings[i]->length);
+        offset += strings[i]->length;
+    }
+    result->data[total_len] = '\0';
+
+    return result;
+}
+
 Value val_string(const char *str) {
     Value v = {0};  // Zero-initialize entire struct
     v.type = VAL_STRING;

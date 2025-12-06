@@ -1,0 +1,44 @@
+// Test string_concat_many function for optimized string building
+
+// Test basic concatenation
+let parts = ["Hello", ", ", "World", "!"];
+let result = string_concat_many(parts);
+assert(result == "Hello, World!", "Basic concat failed");
+print(result);
+
+// Test empty array
+let empty = [];
+let empty_result = string_concat_many(empty);
+assert(empty_result == "", "Empty array should produce empty string");
+print("Empty: '" + empty_result + "'");
+
+// Test single element
+let single = ["only"];
+let single_result = string_concat_many(single);
+assert(single_result == "only", "Single element failed");
+print(single_result);
+
+// Test with empty strings in array
+let with_empty = ["a", "", "b", "", "c"];
+let with_empty_result = string_concat_many(with_empty);
+assert(with_empty_result == "abc", "Empty strings in array failed");
+print(with_empty_result);
+
+// Test building a longer string
+let words = ["The", " ", "quick", " ", "brown", " ", "fox"];
+let sentence = string_concat_many(words);
+assert(sentence == "The quick brown fox", "Sentence building failed");
+print(sentence);
+
+// Test with Unicode characters
+let unicode_parts = ["Hello ", "世界", " ", "🌍"];
+let unicode_result = string_concat_many(unicode_parts);
+print(unicode_result);
+
+// Test building a path
+let path_parts = ["/home", "/", "user", "/", "hemlock"];
+let path = string_concat_many(path_parts);
+assert(path == "/home/user/hemlock", "Path building failed");
+print(path);
+
+print("All string_concat_many tests passed!");
