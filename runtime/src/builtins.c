@@ -2086,7 +2086,7 @@ HmlValue hml_alloc(int32_t size) {
     }
     void *ptr = malloc(size);
     if (!ptr) {
-        hml_runtime_error("alloc() failed to allocate %d bytes", size);
+        return hml_val_null();
     }
     return hml_val_ptr(ptr);
 }
@@ -2142,7 +2142,7 @@ HmlValue hml_realloc(HmlValue ptr, int32_t new_size) {
     }
     void *new_ptr = realloc(ptr.as.as_ptr, new_size);
     if (!new_ptr) {
-        hml_runtime_error("realloc() failed to allocate %d bytes", new_size);
+        return hml_val_null();
     }
     return hml_val_ptr(new_ptr);
 }
@@ -2246,7 +2246,7 @@ HmlValue hml_talloc(HmlValue type_name, HmlValue count) {
     size_t total_size = (size_t)elem_size * (size_t)n;
     void *ptr = malloc(total_size);
     if (!ptr) {
-        hml_runtime_error("talloc() failed to allocate %zu bytes", total_size);
+        return hml_val_null();
     }
 
     return hml_val_ptr(ptr);

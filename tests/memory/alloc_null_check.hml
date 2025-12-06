@@ -1,0 +1,49 @@
+// Test that alloc returns non-null for successful allocations
+// and that the null-check pattern works correctly
+// Expected: PASS
+
+// Test alloc with null check
+let p = alloc(64);
+if (p == null) {
+    print("ERROR: alloc returned null unexpectedly");
+} else {
+    print("PASS: alloc returned valid pointer");
+    memset(p, 0, 64);
+    free(p);
+}
+
+// Test buffer with null check
+let buf = buffer(128);
+if (buf == null) {
+    print("ERROR: buffer returned null unexpectedly");
+} else {
+    print("PASS: buffer returned valid buffer");
+    buf[0] = 65;
+    free(buf);
+}
+
+// Test talloc with null check
+let arr = talloc(i32, 10);
+if (arr == null) {
+    print("ERROR: talloc returned null unexpectedly");
+} else {
+    print("PASS: talloc returned valid pointer");
+    free(arr);
+}
+
+// Test realloc with null check
+let p2 = alloc(32);
+if (p2 == null) {
+    print("ERROR: alloc for realloc test returned null");
+} else {
+    let p3 = realloc(p2, 64);
+    if (p3 == null) {
+        print("ERROR: realloc returned null unexpectedly");
+        free(p2);  // Original still valid on realloc failure
+    } else {
+        print("PASS: realloc returned valid pointer");
+        free(p3);
+    }
+}
+
+print("All null-check pattern tests passed");

@@ -51,8 +51,7 @@ Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
 
     void *ptr = malloc(size);
     if (ptr == NULL) {
-        fprintf(stderr, "Runtime error: alloc() failed to allocate memory\n");
-        exit(1);
+        return val_null();
     }
 
     return val_ptr(ptr);
@@ -286,8 +285,7 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
 
     void *ptr = malloc(total_size);
     if (ptr == NULL) {
-        fprintf(stderr, "Runtime error: talloc() failed to allocate memory\n");
-        exit(1);
+        return val_null();
     }
 
     return val_ptr(ptr);
@@ -320,8 +318,7 @@ Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx) {
 
     void *new_ptr = realloc(old_ptr, new_size);
     if (new_ptr == NULL) {
-        fprintf(stderr, "Runtime error: realloc() failed to allocate memory\n");
-        exit(1);
+        return val_null();
     }
 
     return val_ptr(new_ptr);

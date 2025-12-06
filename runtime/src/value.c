@@ -141,15 +141,21 @@ HmlValue hml_val_ptr(void *ptr) {
 }
 
 HmlValue hml_val_buffer(int size) {
-    HmlValue v;
-    v.type = HML_VAL_BUFFER;
-
     HmlBuffer *b = malloc(sizeof(HmlBuffer));
+    if (!b) {
+        return hml_val_null();
+    }
     b->data = calloc(size, 1);  // Zero-initialized
+    if (!b->data) {
+        free(b);
+        return hml_val_null();
+    }
     b->length = size;
     b->capacity = size;
     b->ref_count = 1;
 
+    HmlValue v;
+    v.type = HML_VAL_BUFFER;
     v.as.as_buffer = b;
     return v;
 }

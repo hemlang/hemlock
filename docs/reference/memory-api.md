@@ -119,7 +119,7 @@ let p2 = alloc(struct_size);
 **Behavior:**
 - Returns uninitialized memory
 - Memory must be manually freed
-- Returns valid pointer or crashes on allocation failure
+- Returns `null` on allocation failure (caller must check)
 
 **See Also:** `buffer()` for safer alternative
 
@@ -160,6 +160,7 @@ free(buf);
 **Behavior:**
 - Initializes memory to zero
 - Provides bounds checking on index access
+- Returns `null` on allocation failure (caller must check)
 - Must be manually freed
 
 ---
@@ -228,10 +229,11 @@ free(p);
 **Behavior:**
 - May move memory to new location
 - Preserves existing data (up to minimum of old/new size)
-- Old pointer is invalid after realloc (use returned pointer)
+- Old pointer is invalid after successful realloc (use returned pointer)
 - If new_size is smaller, data is truncated
+- Returns `null` on allocation failure (original pointer remains valid)
 
-**Important:** Always update your pointer variable with the result.
+**Important:** Always check for `null` and update your pointer variable with the result.
 
 ---
 
@@ -358,7 +360,7 @@ talloc(type, count: i32): ptr
 - `type` - Type to allocate
 - `count` - Number of elements
 
-**Returns:** Pointer to allocated array
+**Returns:** Pointer to allocated array, or `null` on allocation failure
 
 **Examples:**
 ```hemlock
@@ -368,6 +370,11 @@ let floats = talloc(f64, 50);    // Array of 50 f64s
 free(arr);
 free(floats);
 ```
+
+**Behavior:**
+- Returns uninitialized memory
+- Memory must be manually freed
+- Returns `null` on allocation failure (caller must check)
 
 ---
 
@@ -417,6 +424,9 @@ print(buf.capacity);        // 256
 ```hemlock
 // Allocate
 let p = alloc(1024);
+if (p == null) {
+    panic("allocation failed");
+}
 
 // Use
 memset(p, 0, 1024);
@@ -430,6 +440,9 @@ free(p);
 ```hemlock
 // Allocate buffer
 let buf = buffer(256);
+if (buf == null) {
+    panic("buffer allocation failed");
+}
 
 // Use with bounds checking
 let i = 0;
@@ -447,12 +460,21 @@ free(buf);
 ```hemlock
 let size = 100;
 let p = alloc(size);
+if (p == null) {
+    panic("allocation failed");
+}
 
 // ... use memory ...
 
-// Need more space
+// Need more space - check for failure
+let new_p = realloc(p, 200);
+if (new_p == null) {
+    // Original pointer still valid, clean up
+    free(p);
+    panic("realloc failed");
+}
+p = new_p;
 size = 200;
-p = realloc(p, size);
 
 // ... use expanded memory ...
 
@@ -548,6 +570,21 @@ let p = alloc(100);
 // ... use p ...
 free(p);
 // Don't keep other references to p
+```
+
+**6. Unchecked Allocation Failure**
+```hemlock
+// BAD: Not checking for null
+let p = alloc(1000000000);  // May fail on low memory
+memset(p, 0, 1000000000);   // CRASH: p is null
+
+// GOOD: Always check allocation result
+let p2 = alloc(1000000000);
+if (p2 == null) {
+    panic("out of memory");
+}
+memset(p2, 0, 1000000000);
+free(p2);
 ```
 
 ---

@@ -179,19 +179,18 @@ Value val_buffer(int size) {
         exit(1);
     }
 
-    Value v = {0};  // Zero-initialize entire struct
-    v.type = VAL_BUFFER;
     Buffer *buf = malloc(sizeof(Buffer));
     if (!buf) {
-        fprintf(stderr, "Runtime error: Memory allocation failed\n");
-        exit(1);
+        return val_null();
     }
     buf->data = malloc(size);
     if (buf->data == NULL) {
         free(buf);
-        fprintf(stderr, "Runtime error: Failed to allocate buffer\n");
-        exit(1);
+        return val_null();
     }
+
+    Value v = {0};  // Zero-initialize entire struct
+    v.type = VAL_BUFFER;
     buf->length = size;
     buf->capacity = size;
     buf->ref_count = 1;  // Start with 1 - caller owns the first reference
