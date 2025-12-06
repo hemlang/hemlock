@@ -1,0 +1,268 @@
+// Hemlock Standard Library: Async Utilities
+// This module provides ThreadPool for efficient task execution
+
+// ========== THREAD POOL ==========
+// A fixed-size thread pool for executing async tasks
+// Uses a work queue with worker threads for efficient task distribution
+
+export fn ThreadPool(num_workers: i32) {
+    if (num_workers <= 0) {
+        panic("ThreadPool requires at least 1 worker");
+    }
+
+    // Work queue (channel of tasks)
+    let work_queue = channel(1000);  // Buffer up to 1000 pending tasks
+    let result_channels = [];  // Array of result channels for futures
+    let next_task_id = 0;
+    let shutdown_flag = false;
+    let workers = [];
+
+    // Worker function - pulls tasks from queue and executes them
+    async fn worker_loop(queue, id) {
+        while (true) {
+            // Get next task from queue (blocking)
+            let task = queue.recv();
+
+            // Check for shutdown signal (null task)
+            if (task == null) {
+                break;
+            }
+
+            // Execute the task
+            let task_fn = task.fn;
+            let task_args = task.args;
+            let result_ch = task.result_ch;
+
+            try {
+                let result = null;
+                // Call function with args
+                if (task_args.length == 0) {
+                    result = task_fn();
+                } else if (task_args.length == 1) {
+                    result = task_fn(task_args[0]);
+                } else if (task_args.length == 2) {
+                    result = task_fn(task_args[0], task_args[1]);
+                } else if (task_args.length == 3) {
+                    result = task_fn(task_args[0], task_args[1], task_args[2]);
+                } else if (task_args.length == 4) {
+                    result = task_fn(task_args[0], task_args[1], task_args[2], task_args[3]);
+                } else {
+                    // For more args, would need apply() function
+                    panic("ThreadPool: too many arguments (max 4)");
+                }
+                result_ch.send({ success: true, value: result });
+            } catch (e) {
+                result_ch.send({ success: false, error: e });
+            }
+        }
+        return null;
+    }
+
+    // Start worker threads
+    let i = 0;
+    while (i < num_workers) {
+        let w = spawn(worker_loop, work_queue, i);
+        workers.push(w);
+        i = i + 1;
+    }
+
+    // Submit a task to the pool
+    // Returns a Future object with get() method
+    fn submit(task_fn) {
+        if (shutdown_flag) {
+            panic("ThreadPool is shutdown");
+        }
+
+        // Collect remaining arguments
+        let args_arr = [];
+        // Note: In Hemlock, we can't easily access variadic args
+        // So we'll just support submit(fn) for now
+
+        let result_ch = channel(1);
+        let task_id = next_task_id;
+        next_task_id = next_task_id + 1;
+
+        // Send task to queue
+        work_queue.send({
+            id: task_id,
+            fn: task_fn,
+            args: args_arr,
+            result_ch: result_ch
+        });
+
+        // Return a Future object
+        return {
+            id: task_id,
+
+            // Block until result is available
+            get: fn() {
+                let result = result_ch.recv();
+                result_ch.close();
+                if (result.success) {
+                    return result.value;
+                } else {
+                    throw result.error;
+                }
+            },
+
+            // Check if result is ready (non-blocking)
+            get_timeout: fn(timeout_ms) {
+                let result = result_ch.recv_timeout(timeout_ms);
+                if (result == null) {
+                    return null;  // Not ready yet
+                }
+                result_ch.close();
+                if (result.success) {
+                    return result.value;
+                } else {
+                    throw result.error;
+                }
+            }
+        };
+    }
+
+    // Submit with one argument
+    fn submit1(task_fn, arg1) {
+        if (shutdown_flag) {
+            panic("ThreadPool is shutdown");
+        }
+
+        let result_ch = channel(1);
+        let task_id = next_task_id;
+        next_task_id = next_task_id + 1;
+
+        work_queue.send({
+            id: task_id,
+            fn: task_fn,
+            args: [arg1],
+            result_ch: result_ch
+        });
+
+        return {
+            id: task_id,
+            get: fn() {
+                let result = result_ch.recv();
+                result_ch.close();
+                if (result.success) {
+                    return result.value;
+                } else {
+                    throw result.error;
+                }
+            },
+            get_timeout: fn(timeout_ms) {
+                let result = result_ch.recv_timeout(timeout_ms);
+                if (result == null) {
+                    return null;
+                }
+                result_ch.close();
+                if (result.success) {
+                    return result.value;
+                } else {
+                    throw result.error;
+                }
+            }
+        };
+    }
+
+    // Submit with two arguments
+    fn submit2(task_fn, arg1, arg2) {
+        if (shutdown_flag) {
+            panic("ThreadPool is shutdown");
+        }
+
+        let result_ch = channel(1);
+        let task_id = next_task_id;
+        next_task_id = next_task_id + 1;
+
+        work_queue.send({
+            id: task_id,
+            fn: task_fn,
+            args: [arg1, arg2],
+            result_ch: result_ch
+        });
+
+        return {
+            id: task_id,
+            get: fn() {
+                let result = result_ch.recv();
+                result_ch.close();
+                if (result.success) {
+                    return result.value;
+                } else {
+                    throw result.error;
+                }
+            },
+            get_timeout: fn(timeout_ms) {
+                let result = result_ch.recv_timeout(timeout_ms);
+                if (result == null) {
+                    return null;
+                }
+                result_ch.close();
+                if (result.success) {
+                    return result.value;
+                } else {
+                    throw result.error;
+                }
+            }
+        };
+    }
+
+    // Shutdown the pool gracefully
+    fn shutdown() {
+        if (shutdown_flag) {
+            return;  // Already shutdown
+        }
+        shutdown_flag = true;
+
+        // Send shutdown signals to all workers
+        let i = 0;
+        while (i < num_workers) {
+            work_queue.send(null);  // null = shutdown signal
+            i = i + 1;
+        }
+
+        // Wait for all workers to finish
+        let i = 0;
+        while (i < workers.length) {
+            join(workers[i]);
+            i = i + 1;
+        }
+
+        work_queue.close();
+    }
+
+    // Return the pool object
+    return {
+        submit: submit,
+        submit1: submit1,
+        submit2: submit2,
+        shutdown: shutdown,
+        num_workers: num_workers
+    };
+}
+
+// ========== PARALLEL MAP ==========
+// Map a function over an array using thread pool
+
+export fn parallel_map(arr, map_fn, num_workers?: 4) {
+    let pool = ThreadPool(num_workers);
+    let futures = [];
+
+    // Submit all tasks
+    let i = 0;
+    while (i < arr.length) {
+        futures.push(pool.submit1(map_fn, arr[i]));
+        i = i + 1;
+    }
+
+    // Collect results
+    let results = [];
+    let i = 0;
+    while (i < futures.length) {
+        results.push(futures[i].get());
+        i = i + 1;
+    }
+
+    pool.shutdown();
+    return results;
+}

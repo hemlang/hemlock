@@ -1,5 +1,7 @@
 #include "internal.h"
 #include <stdarg.h>
+#include <errno.h>
+#include <time.h>
 
 // ========== RUNTIME ERROR HELPER ==========
 
@@ -98,6 +100,122 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         pthread_mutex_unlock(mutex);
 
         return msg;
+    }
+
+    // recv_timeout(timeout_ms) - receive with timeout
+    if (strcmp(method, "recv_timeout") == 0) {
+        if (num_args != 1) {
+            return throw_runtime_error(ctx, "recv_timeout() expects 1 argument (timeout_ms)");
+        }
+
+        if (!is_integer(args[0])) {
+            return throw_runtime_error(ctx, "recv_timeout() timeout must be an integer");
+        }
+
+        int timeout_ms = value_to_int(args[0]);
+
+        // Calculate deadline
+        struct timespec deadline;
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+        if (deadline.tv_nsec >= 1000000000) {
+            deadline.tv_sec++;
+            deadline.tv_nsec -= 1000000000;
+        }
+
+        pthread_mutex_lock(mutex);
+
+        // Wait while buffer is empty and channel not closed
+        while (ch->count == 0 && !ch->closed) {
+            int rc = pthread_cond_timedwait(not_empty, mutex, &deadline);
+            if (rc == ETIMEDOUT) {
+                pthread_mutex_unlock(mutex);
+                return val_null();  // Timeout
+            }
+        }
+
+        // If channel is closed and empty, return null
+        if (ch->count == 0 && ch->closed) {
+            pthread_mutex_unlock(mutex);
+            return val_null();
+        }
+
+        // Get message from buffer
+        Value msg = ch->buffer[ch->head];
+        ch->head = (ch->head + 1) % ch->capacity;
+        ch->count--;
+
+        // Signal that buffer is not full
+        pthread_cond_signal(not_full);
+        pthread_mutex_unlock(mutex);
+
+        return msg;
+    }
+
+    // send_timeout(value, timeout_ms) - send with timeout
+    if (strcmp(method, "send_timeout") == 0) {
+        if (num_args != 2) {
+            return throw_runtime_error(ctx, "send_timeout() expects 2 arguments (value, timeout_ms)");
+        }
+
+        Value msg = args[0];
+
+        if (!is_integer(args[1])) {
+            return throw_runtime_error(ctx, "send_timeout() timeout must be an integer");
+        }
+
+        int timeout_ms = value_to_int(args[1]);
+
+        // Calculate deadline
+        struct timespec deadline;
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+        if (deadline.tv_nsec >= 1000000000) {
+            deadline.tv_sec++;
+            deadline.tv_nsec -= 1000000000;
+        }
+
+        pthread_mutex_lock(mutex);
+
+        // Check if channel is closed
+        if (ch->closed) {
+            pthread_mutex_unlock(mutex);
+            return throw_runtime_error(ctx, "cannot send to closed channel");
+        }
+
+        if (ch->capacity == 0) {
+            pthread_mutex_unlock(mutex);
+            return throw_runtime_error(ctx, "unbuffered channels not yet supported");
+        }
+
+        // Wait while buffer is full
+        while (ch->count >= ch->capacity && !ch->closed) {
+            int rc = pthread_cond_timedwait(not_full, mutex, &deadline);
+            if (rc == ETIMEDOUT) {
+                pthread_mutex_unlock(mutex);
+                return val_bool(0);  // Timeout - send failed
+            }
+        }
+
+        // Check again if closed after waking up
+        if (ch->closed) {
+            pthread_mutex_unlock(mutex);
+            return throw_runtime_error(ctx, "cannot send to closed channel");
+        }
+
+        // Add message to buffer
+        value_retain(msg);
+        ch->buffer[ch->tail] = msg;
+        ch->tail = (ch->tail + 1) % ch->capacity;
+        ch->count++;
+
+        // Signal that buffer is not empty
+        pthread_cond_signal(not_empty);
+        pthread_mutex_unlock(mutex);
+
+        return val_bool(1);  // Success
     }
 
     // close() - close the channel

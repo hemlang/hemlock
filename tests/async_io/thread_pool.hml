@@ -1,0 +1,105 @@
+// Test: ThreadPool from @stdlib/async
+// Tests thread pool for efficient task execution
+
+import { ThreadPool, parallel_map } from "@stdlib/async";
+
+// Test basic ThreadPool creation
+let pool = ThreadPool(4);
+assert(pool.num_workers == 4);
+print("PASS: ThreadPool created with 4 workers");
+
+// Test submit and get result
+fn square(n) {
+    return n * n;
+}
+
+let future = pool.submit1(square, 5);
+let result = future.get();
+assert(result == 25);
+print("PASS: submit and get result");
+
+// Test multiple concurrent tasks
+let futures = [];
+let i = 0;
+while (i < 10) {
+    futures.push(pool.submit1(square, i));
+    i = i + 1;
+}
+
+// Collect results
+let i = 0;
+while (i < 10) {
+    let res = futures[i].get();
+    assert(res == i * i);
+    i = i + 1;
+}
+print("PASS: multiple concurrent tasks");
+
+// Test task that takes time
+fn slow_task(n) {
+    __sleep(0.01);
+    return n * 2;
+}
+
+let f1 = pool.submit1(slow_task, 10);
+let f2 = pool.submit1(slow_task, 20);
+let f3 = pool.submit1(slow_task, 30);
+
+assert(f1.get() == 20);
+assert(f2.get() == 40);
+assert(f3.get() == 60);
+print("PASS: slow tasks complete correctly");
+
+// Test get_timeout
+fn very_slow() {
+    __sleep(0.5);
+    return 42;
+}
+
+let slow_future = pool.submit(very_slow);
+let quick_result = slow_future.get_timeout(10);  // 10ms timeout
+// Should return null (not ready yet)
+assert(quick_result == null);
+
+// Now wait for it to complete
+let final_result = slow_future.get();
+assert(final_result == 42);
+print("PASS: get_timeout works");
+
+// Test exception handling
+fn throwing_task() {
+    throw "test error";
+}
+
+let err_future = pool.submit(throwing_task);
+let caught = false;
+try {
+    err_future.get();
+} catch (e) {
+    caught = true;
+    assert(e == "test error");
+}
+assert(caught == true);
+print("PASS: exception propagation");
+
+// Shutdown the pool
+pool.shutdown();
+print("PASS: pool shutdown");
+
+// Test parallel_map helper
+fn double(x) {
+    return x * 2;
+}
+
+let input = [1, 2, 3, 4, 5];
+let output = parallel_map(input, double, 2);
+
+assert(output.length == 5);
+assert(output[0] == 2);
+assert(output[1] == 4);
+assert(output[2] == 6);
+assert(output[3] == 8);
+assert(output[4] == 10);
+print("PASS: parallel_map works");
+
+print("All ThreadPool tests passed!");

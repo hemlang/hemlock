@@ -29,6 +29,7 @@ static BuiltinInfo builtins[] = {
     {"join", builtin_join},
     {"detach", builtin_detach},
     {"channel", builtin_channel},
+    {"select", builtin_select},
     {"task_debug_info", builtin_task_debug_info},
     {"signal", builtin_signal},
     {"raise", builtin_raise},

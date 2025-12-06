@@ -119,6 +119,7 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_join(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_select(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx);
 
 // Filesystem builtins (filesystem.c)

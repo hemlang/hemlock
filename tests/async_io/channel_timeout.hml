@@ -1,0 +1,151 @@
+// Test: channel timed operations
+// Tests recv_timeout() and send_timeout()
+
+// Test recv_timeout with data available
+async fn test_recv_timeout_data() {
+    let ch = channel(10);
+    ch.send(42);
+
+    let result = ch.recv_timeout(100);
+    assert(result == 42);
+
+    ch.close();
+    return "ok";
+}
+
+let r1 = join(spawn(test_recv_timeout_data));
+assert(r1 == "ok");
+print("PASS: recv_timeout with data available");
+
+// Test recv_timeout that times out
+async fn test_recv_timeout_empty() {
+    let ch = channel(10);
+    // Don't send anything
+
+    let start = __time_ms();
+    let result = ch.recv_timeout(50);
+    let elapsed = __time_ms() - start;
+
+    // Should timeout (return null)
+    let timed_out = (result == null);
+    // Should have waited approximately 50ms
+    let waited = (elapsed >= 40);
+
+    ch.close();
+    return { timed_out: timed_out, waited: waited };
+}
+
+let r2 = join(spawn(test_recv_timeout_empty));
+assert(r2.timed_out == true);
+assert(r2.waited == true);
+print("PASS: recv_timeout times out on empty channel");
+
+// Test recv_timeout with delayed producer
+async fn test_recv_timeout_delayed() {
+    let ch = channel(10);
+
+    // Spawn producer that sends after delay
+    let producer = spawn(async fn(ch) {
+        __sleep(0.02);
+        ch.send("message");
+        return null;
+    }, ch);
+
+    // recv_timeout should wait and receive
+    let result = ch.recv_timeout(1000);
+    assert(result == "message");
+
+    join(producer);
+    ch.close();
+    return "ok";
+}
+
+let r3 = join(spawn(test_recv_timeout_delayed));
+assert(r3 == "ok");
+print("PASS: recv_timeout waits for delayed producer");
+
+// Test send_timeout with space available
+async fn test_send_timeout_space() {
+    let ch = channel(10);
+
+    let success = ch.send_timeout(42, 100);
+    assert(success == true);
+
+    let val = ch.recv();
+    assert(val == 42);
+
+    ch.close();
+    return "ok";
+}
+
+let r4 = join(spawn(test_send_timeout_space));
+assert(r4 == "ok");
+print("PASS: send_timeout with space available");
+
+// Test send_timeout that times out on full channel
+async fn test_send_timeout_full() {
+    let ch = channel(1);  // Capacity of 1
+    ch.send(1);  // Fill it up
+
+    let start = __time_ms();
+    let success = ch.send_timeout(2, 50);  // Should timeout
+    let elapsed = __time_ms() - start;
+
+    // Should timeout (return false)
+    let timed_out = (success == false);
+    // Should have waited approximately 50ms
+    let waited = (elapsed >= 40);
+
+    ch.close();
+    return { timed_out: timed_out, waited: waited };
+}
+
+let r5 = join(spawn(test_send_timeout_full));
+assert(r5.timed_out == true);
+assert(r5.waited == true);
+print("PASS: send_timeout times out on full channel");
+
+// Test send_timeout with delayed consumer
+async fn test_send_timeout_delayed_consumer() {
+    let ch = channel(1);
+    ch.send(1);  // Fill it up
+
+    // Spawn consumer that receives after delay
+    let consumer = spawn(async fn(ch) {
+        __sleep(0.02);
+        let val = ch.recv();
+        return val;
+    }, ch);
+
+    // send_timeout should wait and succeed
+    let success = ch.send_timeout(2, 1000);
+    assert(success == true);
+
+    join(consumer);
+    let val = ch.recv();
+    assert(val == 2);
+
+    ch.close();
+    return "ok";
+}
+
+let r6 = join(spawn(test_send_timeout_delayed_consumer));
+assert(r6 == "ok");
+print("PASS: send_timeout waits for delayed consumer");
+
+// Test recv_timeout on closed channel
+async fn test_recv_timeout_closed() {
+    let ch = channel(10);
+    ch.close();
+
+    let result = ch.recv_timeout(100);
+    assert(result == null);
+
+    return "ok";
+}
+
+let r7 = join(spawn(test_recv_timeout_closed));
+assert(r7 == "ok");
+print("PASS: recv_timeout on closed channel returns null");
+
+print("All channel timeout tests passed!");

@@ -335,6 +335,128 @@ Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx) {
     return val_channel(ch);
 }
 
+// select(channels: array<channel>, timeout_ms?: i32) -> { channel, value } | null
+// Wait for any of multiple channels to have data available
+Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "select() expects 1-2 arguments (channels, timeout_ms?)");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_ARRAY) {
+        runtime_error(ctx, "select() first argument must be an array of channels");
+        return val_null();
+    }
+
+    Array *channels = args[0].as.as_array;
+    int timeout_ms = -1;  // -1 means infinite
+
+    if (num_args > 1) {
+        if (!is_integer(args[1])) {
+            runtime_error(ctx, "select() timeout must be an integer (milliseconds)");
+            return val_null();
+        }
+        timeout_ms = value_to_int(args[1]);
+    }
+
+    if (channels->length == 0) {
+        runtime_error(ctx, "select() requires at least one channel");
+        return val_null();
+    }
+
+    // Validate all elements are channels
+    for (int i = 0; i < channels->length; i++) {
+        if (channels->elements[i].type != VAL_CHANNEL) {
+            runtime_error(ctx, "select() array must contain only channels");
+            return val_null();
+        }
+    }
+
+    // Calculate deadline
+    struct timespec deadline;
+    struct timespec *deadline_ptr = NULL;
+    if (timeout_ms >= 0) {
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+        if (deadline.tv_nsec >= 1000000000) {
+            deadline.tv_sec++;
+            deadline.tv_nsec -= 1000000000;
+        }
+        deadline_ptr = &deadline;
+    }
+
+    // Polling loop with sleep
+    // Check all channels, if none ready, sleep briefly and retry
+    while (1) {
+        // Check each channel for available data
+        for (int i = 0; i < channels->length; i++) {
+            Channel *ch = channels->elements[i].as.as_channel;
+            pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
+
+            pthread_mutex_lock(mutex);
+
+            // Check if channel has data
+            if (ch->count > 0) {
+                // Read the value
+                Value msg = ch->buffer[ch->head];
+                ch->head = (ch->head + 1) % ch->capacity;
+                ch->count--;
+
+                // Signal that buffer is not full
+                pthread_cond_signal((pthread_cond_t*)ch->not_full);
+                pthread_mutex_unlock(mutex);
+
+                // Create result object { channel, value }
+                Object *result = object_new(NULL, 2);
+                result->field_names[0] = strdup("channel");
+                result->field_values[0] = channels->elements[i];
+                value_retain(channels->elements[i]);
+                result->num_fields = 1;
+
+                result->field_names[1] = strdup("value");
+                result->field_values[1] = msg;
+                result->num_fields = 2;
+
+                return val_object(result);
+            }
+
+            // Check if channel is closed and empty
+            if (ch->closed) {
+                pthread_mutex_unlock(mutex);
+                // Return null for this closed channel
+                Object *result = object_new(NULL, 2);
+                result->field_names[0] = strdup("channel");
+                result->field_values[0] = channels->elements[i];
+                value_retain(channels->elements[i]);
+                result->num_fields = 1;
+
+                result->field_names[1] = strdup("value");
+                result->field_values[1] = val_null();
+                result->num_fields = 2;
+
+                return val_object(result);
+            }
+
+            pthread_mutex_unlock(mutex);
+        }
+
+        // Check timeout
+        if (deadline_ptr != NULL) {
+            struct timespec now;
+            clock_gettime(CLOCK_REALTIME, &now);
+            if (now.tv_sec > deadline_ptr->tv_sec ||
+                (now.tv_sec == deadline_ptr->tv_sec && now.tv_nsec >= deadline_ptr->tv_nsec)) {
+                return val_null();  // Timeout
+            }
+        }
+
+        // Brief sleep before retrying (1ms)
+        struct timespec sleep_time = { 0, 1000000 };  // 1ms
+        nanosleep(&sleep_time, NULL);
+    }
+}
+
 Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;
 

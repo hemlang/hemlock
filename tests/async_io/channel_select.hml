@@ -1,0 +1,148 @@
+// Test: channel select() for multiplexing
+// Tests waiting on multiple channels simultaneously
+
+// Test select with one channel that has data
+async fn test_select_single() {
+    let ch = channel(10);
+    ch.send(42);
+
+    let result = select([ch]);
+    assert(result != null);
+    assert(result.value == 42);
+
+    ch.close();
+    return "ok";
+}
+
+let r1 = join(spawn(test_select_single));
+assert(r1 == "ok");
+print("PASS: select with single channel");
+
+// Test select with multiple channels - returns first with data
+async fn test_select_multiple() {
+    let ch1 = channel(10);
+    let ch2 = channel(10);
+    let ch3 = channel(10);
+
+    // Send to ch2 only
+    ch2.send("from_ch2");
+
+    let result = select([ch1, ch2, ch3]);
+    assert(result != null);
+    assert(result.value == "from_ch2");
+
+    ch1.close();
+    ch2.close();
+    ch3.close();
+    return "ok";
+}
+
+let r2 = join(spawn(test_select_multiple));
+assert(r2 == "ok");
+print("PASS: select returns first channel with data");
+
+// Test select timeout
+async fn test_select_timeout() {
+    let ch = channel(10);
+    // Don't send anything
+
+    let start = __time_ms();
+    let result = select([ch], 50);  // 50ms timeout
+    let elapsed = __time_ms() - start;
+
+    // Should timeout (return null)
+    let timed_out = (result == null);
+    // Should have waited approximately 50ms
+    let waited = (elapsed >= 40);
+
+    ch.close();
+    return { timed_out: timed_out, waited: waited };
+}
+
+let r3 = join(spawn(test_select_timeout));
+assert(r3.timed_out == true);
+assert(r3.waited == true);
+print("PASS: select timeout works");
+
+// Test select with closed channel
+async fn test_select_closed() {
+    let ch = channel(10);
+    ch.close();
+
+    let result = select([ch]);
+    // Closed channel should return { channel, value: null }
+    assert(result != null);
+    assert(result.value == null);
+
+    return "ok";
+}
+
+let r4 = join(spawn(test_select_closed));
+assert(r4 == "ok");
+print("PASS: select handles closed channel");
+
+// Test select with producer sending data
+async fn test_select_with_producer() {
+    let ch1 = channel(10);
+    let ch2 = channel(10);
+
+    // Spawn producer that sends to ch2 after delay
+    let producer = spawn(async fn(ch) {
+        __sleep(0.02);
+        ch.send("delayed_message");
+        return null;
+    }, ch2);
+
+    // Select should wait and receive from ch2
+    let result = select([ch1, ch2], 1000);
+
+    assert(result != null);
+    assert(result.value == "delayed_message");
+
+    join(producer);
+    ch1.close();
+    ch2.close();
+    return "ok";
+}
+
+let r5 = join(spawn(test_select_with_producer));
+assert(r5 == "ok");
+print("PASS: select waits for producer");
+
+// Test select with multiple producers
+async fn test_select_multi_producer() {
+    let ch1 = channel(10);
+    let ch2 = channel(10);
+
+    // First producer (slower)
+    let p1 = spawn(async fn(ch) {
+        __sleep(0.05);
+        ch.send("from_p1");
+        return null;
+    }, ch1);
+
+    // Second producer (faster)
+    let p2 = spawn(async fn(ch) {
+        __sleep(0.02);
+        ch.send("from_p2");
+        return null;
+    }, ch2);
+
+    // Select should get message from faster producer (ch2)
+    let result = select([ch1, ch2], 1000);
+
+    assert(result != null);
+    assert(result.value == "from_p2");
+
+    join(p1);
+    join(p2);
+    ch1.close();
+    ch2.close();
+    return "ok";
+}
+
+let r6 = join(spawn(test_select_multi_producer));
+assert(r6 == "ok");
+print("PASS: select with multiple producers");
+
+print("All channel select tests passed!");
