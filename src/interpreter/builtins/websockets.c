@@ -5,6 +5,31 @@
 #define _DEFAULT_SOURCE  // For usleep()
 
 #include "internal.h"
+#include <stdatomic.h>
+
+// ========== WEBSOCKET HANDLE HELPERS ==========
+
+Value val_websocket(WebSocketHandle *ws) {
+    Value val;
+    val.type = VAL_WEBSOCKET;
+    val.as.as_websocket = ws;
+    return val;
+}
+
+void websocket_retain(WebSocketHandle *ws) {
+    if (ws) {
+        __atomic_add_fetch(&ws->ref_count, 1, __ATOMIC_SEQ_CST);
+    }
+}
+
+void websocket_release(WebSocketHandle *ws) {
+    if (ws) {
+        int old_count = __atomic_sub_fetch(&ws->ref_count, 1, __ATOMIC_SEQ_CST);
+        if (old_count == 0) {
+            websocket_free(ws);
+        }
+    }
+}
 
 // Check if libwebsockets is available
 // HAVE_LIBWEBSOCKETS is defined by Makefile if pkg-config finds libwebsockets
@@ -493,6 +518,101 @@ typedef struct ws_server {
     pthread_mutex_t pending_mutex;
 } ws_server_t;
 
+// Forward declarations for internal close functions
+static void ws_connection_close(ws_connection_t *conn);
+static void ws_server_close_internal(ws_server_t *server);
+
+// ========== WEBSOCKET HANDLE OPERATIONS ==========
+
+// Free a WebSocketHandle and its underlying connection
+void websocket_free(WebSocketHandle *ws) {
+    if (!ws) return;
+
+    if (!ws->closed && ws->handle) {
+        if (ws->is_server) {
+            ws_server_close_internal((ws_server_t *)ws->handle);
+        } else {
+            ws_connection_close((ws_connection_t *)ws->handle);
+        }
+    }
+
+    if (ws->url) free(ws->url);
+    if (ws->host) free(ws->host);
+    free(ws);
+}
+
+// Get a property from a WebSocket handle
+Value get_websocket_property(WebSocketHandle *ws, const char *property, ExecutionContext *ctx) {
+    (void)ctx;
+
+    if (strcmp(property, "url") == 0) {
+        return ws->url ? val_string(ws->url) : val_null();
+    } else if (strcmp(property, "host") == 0) {
+        return ws->host ? val_string(ws->host) : val_null();
+    } else if (strcmp(property, "port") == 0) {
+        return val_i32(ws->port);
+    } else if (strcmp(property, "closed") == 0) {
+        // Check actual connection state
+        if (ws->closed) return val_bool(1);
+        if (ws->handle) {
+            if (ws->is_server) {
+                return val_bool(((ws_server_t *)ws->handle)->closed);
+            } else {
+                return val_bool(((ws_connection_t *)ws->handle)->closed);
+            }
+        }
+        return val_bool(0);
+    }
+
+    return val_null();
+}
+
+// Internal helper to close a client connection
+static void ws_connection_close(ws_connection_t *conn) {
+    if (!conn) return;
+
+    conn->closed = 1;
+    conn->shutdown = 1;
+
+    if (conn->has_own_thread) {
+        pthread_join(conn->service_thread, NULL);
+    }
+
+    ws_message_t *msg = conn->msg_queue_head;
+    while (msg) {
+        ws_message_t *next = msg->next;
+        if (msg->data) free(msg->data);
+        free(msg);
+        msg = next;
+    }
+
+    if (conn->send_buffer) {
+        free(conn->send_buffer);
+    }
+
+    if (conn->has_own_thread && conn->context) {
+        lws_context_destroy(conn->context);
+    }
+
+    if (conn->owns_memory) {
+        free(conn);
+    }
+}
+
+// Internal helper to close a server
+static void ws_server_close_internal(ws_server_t *server) {
+    if (!server) return;
+
+    server->closed = 1;
+    server->shutdown = 1;
+    pthread_join(server->service_thread, NULL);
+    pthread_mutex_destroy(&server->pending_mutex);
+    if (server->context) {
+        lws_context_destroy(server->context);
+    }
+    free(server);
+}
+
 // Service thread for WebSocket clients
 static void* ws_service_thread(void *arg) {
     ws_connection_t *conn = (ws_connection_t *)arg;
@@ -827,10 +947,26 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    return val_ptr(conn);
+    // Create WebSocketHandle wrapper
+    WebSocketHandle *ws = calloc(1, sizeof(WebSocketHandle));
+    if (!ws) {
+        ws_connection_close(conn);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket handle");
+        return val_null();
+    }
+    ws->handle = conn;
+    ws->url = strdup(url);
+    ws->host = NULL;
+    ws->port = port;
+    ws->closed = 0;
+    ws->is_server = 0;
+    ws->ref_count = 1;
+
+    return val_websocket(ws);
 }
 
-// __lws_ws_send_text(conn: ptr, text: string): i32
+// __lws_ws_send_text(conn: websocket, text: string): i32
 Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         ctx->exception_state.is_throwing = 1;
@@ -838,13 +974,25 @@ Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx)
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR || args[1].type != VAL_STRING) {
+    if (args[1].type != VAL_STRING) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_text() expects (ptr, string)");
+        ctx->exception_state.exception_value = val_string("__lws_ws_send_text() expects string as second argument");
         return val_null();
     }
 
-    ws_connection_t *conn = (ws_connection_t *)args[0].as.as_ptr;
+    ws_connection_t *conn = NULL;
+    if (args[0].type == VAL_WEBSOCKET) {
+        WebSocketHandle *ws = args[0].as.as_websocket;
+        if (!ws || ws->closed) return val_i32(-1);
+        conn = (ws_connection_t *)ws->handle;
+    } else if (args[0].type == VAL_PTR) {
+        conn = (ws_connection_t *)args[0].as.as_ptr;
+    } else {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_ws_send_text() expects websocket or ptr");
+        return val_null();
+    }
+
     if (!conn || conn->closed) {
         return val_i32(-1);
     }
@@ -869,7 +1017,7 @@ Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx)
     return val_i32(0);
 }
 
-// __lws_ws_recv(conn: ptr, timeout_ms: i32): ptr
+// __lws_ws_recv(conn: websocket, timeout_ms: i32): ptr
 Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         ctx->exception_state.is_throwing = 1;
@@ -877,13 +1025,18 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
+    ws_connection_t *conn = NULL;
+    if (args[0].type == VAL_WEBSOCKET) {
+        WebSocketHandle *ws = args[0].as.as_websocket;
+        if (!ws || ws->closed) return val_null();
+        conn = (ws_connection_t *)ws->handle;
+    } else if (args[0].type == VAL_PTR) {
+        conn = (ws_connection_t *)args[0].as.as_ptr;
+    } else {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_recv() expects ptr as first argument");
+        ctx->exception_state.exception_value = val_string("__lws_ws_recv() expects websocket or ptr as first argument");
         return val_null();
     }
-
-    ws_connection_t *conn = (ws_connection_t *)args[0].as.as_ptr;
     if (!conn || conn->closed) {
         return val_null();
     }
@@ -991,7 +1144,7 @@ Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 }
 
-// __lws_ws_close(conn: ptr): null
+// __lws_ws_close(conn: websocket): null
 Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         ctx->exception_state.is_throwing = 1;
@@ -999,44 +1152,23 @@ Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        return val_null();
-    }
-
-    ws_connection_t *conn = (ws_connection_t *)args[0].as.as_ptr;
-    if (conn) {
-        conn->closed = 1;
-        conn->shutdown = 1;
-
-        if (conn->has_own_thread) {
-            pthread_join(conn->service_thread, NULL);
+    if (args[0].type == VAL_WEBSOCKET) {
+        WebSocketHandle *ws = args[0].as.as_websocket;
+        if (ws && !ws->closed && ws->handle) {
+            ws_connection_close((ws_connection_t *)ws->handle);
+            ws->closed = 1;
         }
-
-        ws_message_t *msg = conn->msg_queue_head;
-        while (msg) {
-            ws_message_t *next = msg->next;
-            if (msg->data) free(msg->data);
-            free(msg);
-            msg = next;
-        }
-
-        if (conn->send_buffer) {
-            free(conn->send_buffer);
-        }
-
-        if (conn->has_own_thread && conn->context) {
-            lws_context_destroy(conn->context);
-        }
-
-        if (conn->owns_memory) {
-            free(conn);
+    } else if (args[0].type == VAL_PTR) {
+        ws_connection_t *conn = (ws_connection_t *)args[0].as.as_ptr;
+        if (conn) {
+            ws_connection_close(conn);
         }
     }
 
     return val_null();
 }
 
-// __lws_ws_is_closed(conn: ptr): i32
+// __lws_ws_is_closed(conn: websocket): i32
 Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         ctx->exception_state.is_throwing = 1;
@@ -1044,12 +1176,18 @@ Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx)
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        return val_i32(1);
+    if (args[0].type == VAL_WEBSOCKET) {
+        WebSocketHandle *ws = args[0].as.as_websocket;
+        if (!ws) return val_i32(1);
+        if (ws->closed) return val_i32(1);
+        ws_connection_t *conn = (ws_connection_t *)ws->handle;
+        return val_i32(conn ? conn->closed : 1);
+    } else if (args[0].type == VAL_PTR) {
+        ws_connection_t *conn = (ws_connection_t *)args[0].as.as_ptr;
+        return val_i32(conn ? conn->closed : 1);
     }
 
-    ws_connection_t *conn = (ws_connection_t *)args[0].as.as_ptr;
-    return val_i32(conn ? conn->closed : 1);
+    return val_i32(1);
 }
 
 // __lws_ws_server_create(host: string, port: i32): ptr
@@ -1111,10 +1249,26 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
         return val_null();
     }
 
-    return val_ptr(server);
+    // Create WebSocketHandle wrapper for server
+    WebSocketHandle *ws = calloc(1, sizeof(WebSocketHandle));
+    if (!ws) {
+        ws_server_close_internal(server);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket server handle");
+        return val_null();
+    }
+    ws->handle = server;
+    ws->url = NULL;
+    ws->host = strdup(host);
+    ws->port = port;
+    ws->closed = 0;
+    ws->is_server = 1;
+    ws->ref_count = 1;
+
+    return val_websocket(ws);
 }
 
-// __lws_ws_server_accept(server: ptr, timeout_ms: i32): ptr
+// __lws_ws_server_accept(server: websocket, timeout_ms: i32): websocket
 Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         ctx->exception_state.is_throwing = 1;
@@ -1122,13 +1276,23 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
+    ws_server_t *server = NULL;
+    WebSocketHandle *server_ws = NULL;
+
+    if (args[0].type == VAL_WEBSOCKET) {
+        server_ws = args[0].as.as_websocket;
+        if (!server_ws || server_ws->closed || !server_ws->is_server) {
+            return val_null();
+        }
+        server = (ws_server_t *)server_ws->handle;
+    } else if (args[0].type == VAL_PTR) {
+        server = (ws_server_t *)args[0].as.as_ptr;
+    } else {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_server_accept() expects ptr server");
+        ctx->exception_state.exception_value = val_string("__lws_ws_server_accept() expects websocket server");
         return val_null();
     }
 
-    ws_server_t *server = (ws_server_t *)args[0].as.as_ptr;
     if (!server || server->closed) {
         return val_null();
     }
@@ -1147,7 +1311,20 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
         pthread_mutex_unlock(&server->pending_mutex);
 
         if (conn) {
-            return val_ptr(conn);
+            // Create WebSocketHandle wrapper for accepted connection
+            WebSocketHandle *ws = calloc(1, sizeof(WebSocketHandle));
+            if (!ws) {
+                return val_null();
+            }
+            ws->handle = conn;
+            ws->url = NULL;
+            ws->host = server_ws && server_ws->host ? strdup(server_ws->host) : NULL;
+            ws->port = server ? server->port : 0;
+            ws->closed = 0;
+            ws->is_server = 0;  // This is a client connection accepted by server
+            ws->ref_count = 1;
+
+            return val_websocket(ws);
         }
 
         usleep(10000);  // 10ms sleep
@@ -1157,7 +1334,7 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
     return val_null();
 }
 
-// __lws_ws_server_close(server: ptr): null
+// __lws_ws_server_close(server: websocket): null
 Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         ctx->exception_state.is_throwing = 1;
@@ -1165,20 +1342,18 @@ Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *c
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        return val_null();
-    }
-
-    ws_server_t *server = (ws_server_t *)args[0].as.as_ptr;
-    if (server) {
-        server->closed = 1;
-        server->shutdown = 1;
-        pthread_join(server->service_thread, NULL);
-        pthread_mutex_destroy(&server->pending_mutex);
-        if (server->context) {
-            lws_context_destroy(server->context);
+    if (args[0].type == VAL_WEBSOCKET) {
+        WebSocketHandle *ws = args[0].as.as_websocket;
+        if (ws && !ws->closed && ws->handle && ws->is_server) {
+            ws_server_close_internal((ws_server_t *)ws->handle);
+            ws->closed = 1;
+            ws->handle = NULL;  // Server memory is freed by ws_server_close_internal
         }
-        free(server);
+    } else if (args[0].type == VAL_PTR) {
+        ws_server_t *server = (ws_server_t *)args[0].as.as_ptr;
+        if (server) {
+            ws_server_close_internal(server);
+        }
     }
 
     return val_null();
@@ -1187,6 +1362,20 @@ Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *c
 #else  // !HAVE_LIBWEBSOCKETS
 
 // ========== STUB IMPLEMENTATIONS (libwebsockets not available) ==========
+
+// Stub websocket_free when libwebsockets is not available
+void websocket_free(WebSocketHandle *ws) {
+    if (!ws) return;
+    if (ws->url) free(ws->url);
+    if (ws->host) free(ws->host);
+    free(ws);
+}
+
+// Stub get_websocket_property
+Value get_websocket_property(WebSocketHandle *ws, const char *property, ExecutionContext *ctx) {
+    (void)ws; (void)property; (void)ctx;
+    return val_null();
+}
 
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;

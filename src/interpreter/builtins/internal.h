@@ -185,6 +185,13 @@ Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx)
 Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *ctx);
+// WebSocket handle helpers
+Value val_websocket(WebSocketHandle *ws);
+void websocket_free(WebSocketHandle *ws);
+void websocket_retain(WebSocketHandle *ws);
+void websocket_release(WebSocketHandle *ws);
+Value get_websocket_property(WebSocketHandle *ws, const char *property, ExecutionContext *ctx);
+Value call_websocket_method(WebSocketHandle *ws, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 
 // Compression builtins (compression.c)
 Value builtin_zlib_compress(Value *args, int num_args, ExecutionContext *ctx);
