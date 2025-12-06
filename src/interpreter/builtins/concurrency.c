@@ -20,10 +20,10 @@ static void* task_thread_wrapper(void* arg) {
     task->state = TASK_RUNNING;
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
-    // Create isolated environment for function execution
-    // THREAD SAFETY: task->env is NULL to ensure no shared state with parent
-    // Tasks communicate via channels, not shared variables
-    Environment *func_env = env_new(NULL);
+    // Create environment for function execution with closure env as parent
+    // This gives read access to builtins and global functions
+    // Arguments are deep-copied in spawn() so mutable data is isolated
+    Environment *func_env = env_new(task->env);
 
     // Bind parameters (these are deep-copied, so safe to use directly)
     for (int i = 0; i < fn->num_params && i < task->num_args; i++) {
@@ -101,10 +101,11 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     // Create task (atomically increment task ID for thread-safety)
-    // NOTE: We pass NULL for the closure environment to isolate the task
-    // Tasks should not access parent scope variables - use channels instead
+    // NOTE: We keep closure_env for read access to builtins and global functions
+    // Arguments are deep-copied above to prevent sharing mutable data
+    // Modifying parent scope variables from tasks is undefined behavior
     int task_id = atomic_fetch_add(&next_task_id, 1);
-    Task *task = task_new(task_id, fn, task_args, task_num_args, NULL);
+    Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
     // Allocate pthread_t
     task->thread = malloc(sizeof(pthread_t));
@@ -270,9 +271,10 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         // Create task (atomically increment task ID for thread-safety)
-        // NOTE: We pass NULL for the closure environment to isolate the task
+        // NOTE: We keep closure_env for read access to builtins and global functions
+        // Arguments are deep-copied above to prevent sharing mutable data
         int task_id = atomic_fetch_add(&next_task_id, 1);
-        Task *task = task_new(task_id, fn, task_args, task_num_args, NULL);
+        Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
         // Mark as detached before starting thread
         task->detached = 1;
