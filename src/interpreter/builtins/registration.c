@@ -122,7 +122,9 @@ static BuiltinInfo builtins[] = {
     {"__lws_http_post", builtin_lws_http_post},
     {"__lws_response_status", builtin_lws_response_status},
     {"__lws_response_body", builtin_lws_response_body},
+    {"__lws_response_body_binary", builtin_lws_response_body_binary},
     {"__lws_response_headers", builtin_lws_response_headers},
+    {"__lws_response_redirect", builtin_lws_response_redirect},
     {"__lws_response_free", builtin_lws_response_free},
     // WebSocket builtins
     {"__lws_ws_connect", builtin_lws_ws_connect},

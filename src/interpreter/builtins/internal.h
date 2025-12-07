@@ -169,7 +169,9 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_response_redirect(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx);
 // WebSocket builtins
 Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx);

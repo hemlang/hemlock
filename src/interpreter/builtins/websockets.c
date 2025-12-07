@@ -52,6 +52,7 @@ typedef struct {
     int status_code;
     int complete;
     int failed;
+    char *redirect_url;  // Location header for 3xx responses
 } http_response_t;
 
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
@@ -97,6 +98,18 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
             if (resp) {
                 resp->status_code = lws_http_client_http_response(wsi);
+
+                // Capture Location header for redirects (3xx responses)
+                if (resp->status_code >= 300 && resp->status_code < 400) {
+                    char location[1024];
+                    int loc_len = lws_hdr_copy(wsi, location, sizeof(location), WSI_TOKEN_HTTP_LOCATION);
+                    if (loc_len > 0) {
+                        location[loc_len] = '\0';
+                        resp->redirect_url = strdup(location);
+                        // Mark as complete - we'll handle redirect at hemlock layer
+                        resp->complete = 1;
+                    }
+                }
             }
             break;
 
@@ -262,9 +275,10 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     memset(&info, 0, sizeof(info));
     info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;  // 16KB for large headers (e.g., GitHub API)
 
     static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
+        { "http", http_callback, 0, 16384, 0, NULL, 0 },
         { NULL, NULL, 0, 0, 0, NULL, 0 }
     };
     info.protocols = protocols;
@@ -293,8 +307,11 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     struct lws *wsi;
     connect_info.pwsi = &wsi;
 
+    // Disable automatic redirects - we'll handle them at the hemlock layer
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
+        connect_info.ssl_connection |= LCCSCF_USE_SSL |
                                        LCCSCF_ALLOW_SELFSIGNED |
                                        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
     }
@@ -375,9 +392,10 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     memset(&info, 0, sizeof(info));
     info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;  // 16KB for large headers (e.g., GitHub API)
 
     static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
+        { "http", http_callback, 0, 16384, 0, NULL, 0 },
         { NULL, NULL, 0, 0, 0, NULL, 0 }
     };
     info.protocols = protocols;
@@ -406,8 +424,11 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     struct lws *wsi;
     connect_info.pwsi = &wsi;
 
+    // Disable automatic redirects - we'll handle them at the hemlock layer
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
+        connect_info.ssl_connection |= LCCSCF_USE_SSL |
                                        LCCSCF_ALLOW_SELFSIGNED |
                                        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
     }
@@ -489,6 +510,63 @@ Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx
     return val_string(resp->body);
 }
 
+// __lws_response_body_binary(resp: ptr): buffer
+// Returns the response body as a binary buffer (preserves null bytes)
+Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_response_body_binary() expects 1 argument");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_PTR) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_response_body_binary() expects ptr");
+        return val_null();
+    }
+
+    http_response_t *resp = (http_response_t *)args[0].as.as_ptr;
+    if (!resp || !resp->body || resp->body_len == 0) {
+        // Return empty buffer
+        Buffer *buf = malloc(sizeof(Buffer));
+        if (!buf) {
+            ctx->exception_state.is_throwing = 1;
+            ctx->exception_state.exception_value = val_string("Memory allocation failed");
+            return val_null();
+        }
+        buf->data = malloc(1);
+        buf->length = 0;
+        buf->capacity = 1;
+        buf->ref_count = 1;
+        atomic_store(&buf->freed, 0);
+        return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
+    }
+
+    // Create buffer with full binary data
+    Buffer *buf = malloc(sizeof(Buffer));
+    if (!buf) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Memory allocation failed");
+        return val_null();
+    }
+
+    buf->data = malloc(resp->body_len);
+    if (!buf->data) {
+        free(buf);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Memory allocation failed");
+        return val_null();
+    }
+
+    memcpy(buf->data, resp->body, resp->body_len);
+    buf->length = resp->body_len;
+    buf->capacity = resp->body_len;
+    buf->ref_count = 1;
+    atomic_store(&buf->freed, 0);
+
+    return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
+}
+
 // __lws_response_headers(resp: ptr): string
 Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
@@ -505,6 +583,28 @@ Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *
 
     // Headers not implemented yet
     return val_string("");
+}
+
+// __lws_response_redirect(resp: ptr): string
+Value builtin_lws_response_redirect(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_response_redirect() expects 1 argument");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_PTR) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_response_redirect() expects ptr");
+        return val_null();
+    }
+
+    http_response_t *resp = (http_response_t *)args[0].as.as_ptr;
+    if (!resp || !resp->redirect_url) {
+        return val_null();
+    }
+
+    return val_string(resp->redirect_url);
 }
 
 // __lws_response_free(resp: ptr): null
@@ -524,6 +624,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
     http_response_t *resp = (http_response_t *)args[0].as.as_ptr;
     if (resp) {
         if (resp->body) free(resp->body);
+        if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
     }
 
@@ -1450,7 +1551,19 @@ Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx
     return val_null();
 }
 
+Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
 Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_response_redirect(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
     runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
     return val_null();

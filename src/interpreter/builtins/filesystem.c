@@ -88,13 +88,18 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: write_file() requires string arguments\n");
+    if (args[0].type != VAL_STRING) {
+        fprintf(stderr, "Runtime error: write_file() requires string path\n");
+        exit(1);
+    }
+
+    // Accept both string and buffer content
+    if (args[1].type != VAL_STRING && args[1].type != VAL_BUFFER) {
+        fprintf(stderr, "Runtime error: write_file() requires string or buffer content\n");
         exit(1);
     }
 
     String *path = args[0].as.as_string;
-    String *content = args[1].as.as_string;
 
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
@@ -104,7 +109,8 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    FILE *fp = fopen(cpath, "w");
+    // Use binary mode to preserve all bytes
+    FILE *fp = fopen(cpath, "wb");
     if (!fp) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
@@ -114,7 +120,14 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    fwrite(content->data, 1, content->length, fp);
+    if (args[1].type == VAL_STRING) {
+        String *content = args[1].as.as_string;
+        fwrite(content->data, 1, content->length, fp);
+    } else {
+        Buffer *content = args[1].as.as_buffer;
+        fwrite(content->data, 1, content->length, fp);
+    }
+
     fclose(fp);
     free(cpath);
     return val_null();
