@@ -25,6 +25,32 @@ typedef struct {
     char *current_dir;
 } BundleContext;
 
+// Unprefixed builtin names that are already registered by the interpreter.
+// When bundling stdlib modules, we skip declarations that would shadow these.
+// This list must match the unprefixed aliases in builtins/registration.c
+static const char *BUILTIN_NAMES[] = {
+    // Math functions
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+    "sqrt", "pow", "exp", "log", "log10", "log2",
+    "floor", "ceil", "round", "trunc",
+    // Environment functions
+    "getenv", "setenv", "unsetenv", "get_pid",
+    // FFI callback functions
+    "callback", "callback_free",
+    "ptr_read_i32", "ptr_deref_i32", "ptr_write_i32", "ptr_offset",
+    NULL  // Sentinel
+};
+
+// Check if a name is a builtin that would conflict
+static int is_builtin_name(const char *name) {
+    for (int i = 0; BUILTIN_NAMES[i] != NULL; i++) {
+        if (strcmp(name, BUILTIN_NAMES[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // ========== FORWARD DECLARATIONS ==========
 
 static char* find_stdlib_path(void);
@@ -404,8 +430,27 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
         // Handle export declarations
         if (stmt->type == STMT_EXPORT) {
             if (stmt->as.export_stmt.is_declaration) {
+                Stmt *decl = stmt->as.export_stmt.declaration;
+                const char *decl_name = NULL;
+
+                // Get the declaration name
+                if (decl->type == STMT_LET) {
+                    decl_name = decl->as.let.name;
+                } else if (decl->type == STMT_CONST) {
+                    decl_name = decl->as.const_stmt.name;
+                }
+
+                // For stdlib modules, skip declarations that shadow builtins
+                // This prevents "Variable already defined" errors when bundling
+                if (decl_name && bundle->stdlib_path &&
+                    strstr(module->absolute_path, bundle->stdlib_path) != NULL &&
+                    is_builtin_name(decl_name)) {
+                    // Skip - this would shadow a builtin
+                    continue;
+                }
+
                 // Add the underlying declaration
-                add_flattened_stmt(bundle, stmt->as.export_stmt.declaration);
+                add_flattened_stmt(bundle, decl);
             }
             // Skip export lists and re-exports
             continue;

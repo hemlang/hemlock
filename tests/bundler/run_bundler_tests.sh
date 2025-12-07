@@ -245,6 +245,64 @@ else
     fail "Package with stdlib" "Package command failed"
 fi
 
+# Test 21: Stdlib deduplication (multiple files importing same stdlib module)
+echo "Test 21: Stdlib deduplication"
+mkdir -p "$TMPDIR/dedup_test"
+cat > "$TMPDIR/dedup_test/module_a.hml" << 'EOF'
+import { getenv } from "@stdlib/env";
+export fn get_home() { return getenv("HOME"); }
+EOF
+cat > "$TMPDIR/dedup_test/module_b.hml" << 'EOF'
+import { getenv } from "@stdlib/env";
+export fn get_user() { return getenv("USER"); }
+EOF
+cat > "$TMPDIR/dedup_test/main.hml" << 'EOF'
+import { get_home } from "./module_a";
+import { get_user } from "./module_b";
+print("Home: " + get_home());
+print("User: " + get_user());
+print("Dedup test passed!");
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/dedup_test/main.hml" -o "$TMPDIR/dedup.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/dedup.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Dedup test passed"; then
+        pass "Stdlib deduplication works correctly"
+    else
+        fail "Stdlib deduplication" "Execution failed: $OUTPUT"
+    fi
+else
+    fail "Stdlib deduplication bundle" "Bundle command failed"
+fi
+
+# Test 22: Multiple stdlib modules with shared dependencies
+echo "Test 22: Multiple stdlib modules"
+cat > "$TMPDIR/multi_stdlib_shared.hml" << 'EOF'
+import { getenv, setenv } from "@stdlib/env";
+import { sin, cos, PI } from "@stdlib/math";
+import { now } from "@stdlib/time";
+
+setenv("TEST_VAR", "hello");
+assert(getenv("TEST_VAR") == "hello", "setenv/getenv should work");
+assert(sin(0) == 0, "sin(0) should be 0");
+assert(cos(0) == 1, "cos(0) should be 1");
+assert(PI > 3.14, "PI should be > 3.14");
+let t = now();
+assert(t > 0, "now() should return positive timestamp");
+print("Multi-stdlib shared test passed!");
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/multi_stdlib_shared.hml" -o "$TMPDIR/multi_stdlib_shared.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/multi_stdlib_shared.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Multi-stdlib shared test passed"; then
+        pass "Multiple stdlib modules work correctly"
+    else
+        fail "Multiple stdlib modules" "Execution failed: $OUTPUT"
+    fi
+else
+    fail "Multiple stdlib modules bundle" "Bundle command failed"
+fi
+
 echo ""
 echo "=== Results ==="
 echo -e "Passed: ${GREEN}$PASSED${NC}"
