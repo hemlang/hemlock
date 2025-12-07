@@ -313,28 +313,42 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            // String comparisons
+            // String comparisons (including ordering comparisons)
             if (left.type == VAL_STRING && right.type == VAL_STRING) {
-                if (expr->as.binary.op == OP_EQUAL) {
-                    String *left_str = left.as.as_string;
-                    String *right_str = right.as.as_string;
-                    if (left_str->length != right_str->length) {
-                        binary_result = val_bool(0);
-                        goto binary_cleanup;
+                String *left_str = left.as.as_string;
+                String *right_str = right.as.as_string;
+                // Use memcmp for lexicographic comparison, comparing up to the shorter length
+                size_t min_len = left_str->length < right_str->length ? left_str->length : right_str->length;
+                int cmp = memcmp(left_str->data, right_str->data, min_len);
+                // If equal up to min_len, the shorter string is "less"
+                if (cmp == 0) {
+                    if (left_str->length < right_str->length) {
+                        cmp = -1;
+                    } else if (left_str->length > right_str->length) {
+                        cmp = 1;
                     }
-                    int cmp = memcmp(left_str->data, right_str->data, left_str->length);
-                    binary_result = val_bool(cmp == 0);
-                    goto binary_cleanup;
-                } else if (expr->as.binary.op == OP_NOT_EQUAL) {
-                    String *left_str = left.as.as_string;
-                    String *right_str = right.as.as_string;
-                    if (left_str->length != right_str->length) {
-                        binary_result = val_bool(1);
+                }
+                switch (expr->as.binary.op) {
+                    case OP_EQUAL:
+                        binary_result = val_bool(cmp == 0);
                         goto binary_cleanup;
-                    }
-                    int cmp = memcmp(left_str->data, right_str->data, left_str->length);
-                    binary_result = val_bool(cmp != 0);
-                    goto binary_cleanup;
+                    case OP_NOT_EQUAL:
+                        binary_result = val_bool(cmp != 0);
+                        goto binary_cleanup;
+                    case OP_LESS:
+                        binary_result = val_bool(cmp < 0);
+                        goto binary_cleanup;
+                    case OP_LESS_EQUAL:
+                        binary_result = val_bool(cmp <= 0);
+                        goto binary_cleanup;
+                    case OP_GREATER:
+                        binary_result = val_bool(cmp > 0);
+                        goto binary_cleanup;
+                    case OP_GREATER_EQUAL:
+                        binary_result = val_bool(cmp >= 0);
+                        goto binary_cleanup;
+                    default:
+                        break;  // Fall through for other operations
                 }
             }
 

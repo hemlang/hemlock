@@ -1,0 +1,21 @@
+// Test string comparison operators
+let a = "a" < "b";
+let b = "b" > "a";
+let c = "a" <= "a";
+let d = "a" <= "b";
+let e = "b" >= "b";
+let f = "b" >= "a";
+let g = "apple" < "banana";
+let h = "app" < "apple";
+let i = "hello" == "hello";
+let j = "hello" != "world";
+print(a);
+print(b);
+print(c);
+print(d);
+print(e);
+print(f);
+print(g);
+print(h);
+print(i);
+print(j);
