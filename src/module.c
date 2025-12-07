@@ -161,8 +161,9 @@ static char* find_hem_modules(const char *start_path) {
 
     // Walk up the directory tree looking for hem_modules
     while (1) {
-        snprintf(hem_modules_path, PATH_MAX, "%s/hem_modules", search_path);
-        if (access(hem_modules_path, F_OK) == 0) {
+        int ret = snprintf(hem_modules_path, PATH_MAX, "%s/hem_modules", search_path);
+        // Check if snprintf succeeded without truncation
+        if (ret > 0 && ret < PATH_MAX && access(hem_modules_path, F_OK) == 0) {
             return strdup(hem_modules_path);
         }
 
