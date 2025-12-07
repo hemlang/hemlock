@@ -1,0 +1,8 @@
+#!/usr/bin/env hemlock
+// Test that shebang works with real code
+fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+let result = add(10, 32);
+print(result);

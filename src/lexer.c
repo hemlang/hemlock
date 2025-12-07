@@ -549,6 +549,18 @@ void lexer_init(Lexer *lexer, const char *source) {
     lexer->start = source;
     lexer->current = source;
     lexer->line = 1;
+
+    // Skip shebang line if present (e.g., #!/usr/bin/env hemlock)
+    if (source[0] == '#' && source[1] == '!') {
+        while (*lexer->current != '\0' && *lexer->current != '\n') {
+            lexer->current++;
+        }
+        if (*lexer->current == '\n') {
+            lexer->current++;
+            lexer->line++;
+        }
+        lexer->start = lexer->current;
+    }
 }
 
 Token lexer_next(Lexer *lex) {

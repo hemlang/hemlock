@@ -1,0 +1,3 @@
+#!/usr/bin/env hemlock
+let x = 42;
+print(x);
