@@ -767,6 +767,7 @@ Type* parse_type(Parser *p) {
         case TOK_TYPE_PTR: kind = TYPE_PTR; break;
         case TOK_TYPE_BUFFER: kind = TYPE_BUFFER; break;
         case TOK_TYPE_VOID: kind = TYPE_VOID; break;
+        case TOK_NULL: kind = TYPE_NULL; break;
         default:
             error_at_current(p, "Expect type name");
             return type_new(TYPE_INFER);

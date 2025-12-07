@@ -1,0 +1,6 @@
+no_return called
+bare_return called
+explicit_return called
+no_return called
+null
+all tests passed

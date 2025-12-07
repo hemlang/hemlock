@@ -1145,7 +1145,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Check return type if specified
                 if (fn->return_type) {
-                    if (!ctx->return_state.is_returning) {
+                    // null return type allows functions to not return a value explicitly
+                    if (!ctx->return_state.is_returning && fn->return_type->kind != TYPE_NULL) {
                         runtime_error(ctx, "Function with return type must return a value");
                     }
                     result = convert_to_type(result, fn->return_type, call_env, ctx);

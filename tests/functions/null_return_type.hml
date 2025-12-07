@@ -1,0 +1,29 @@
+// Test null return type annotation
+
+// Function with null return type - no explicit return
+fn no_return(): null {
+    print("no_return called");
+}
+
+// Function with null return type - bare return
+fn bare_return(): null {
+    print("bare_return called");
+    return;
+}
+
+// Function with null return type - explicit return null
+fn explicit_return(): null {
+    print("explicit_return called");
+    return null;
+}
+
+// Call all functions
+no_return();
+bare_return();
+explicit_return();
+
+// Verify the return value is null
+let result = no_return();
+print(typeof(result));
+
+print("all tests passed");
