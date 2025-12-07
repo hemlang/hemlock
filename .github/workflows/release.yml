@@ -47,7 +47,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install libffi openssl@3 libwebsockets
+        brew install coreutils libffi openssl@3 libwebsockets
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
     - name: Build
       run: |
@@ -77,7 +78,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install libffi openssl@3 libwebsockets
+        brew install coreutils libffi openssl@3 libwebsockets
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
     - name: Build
       run: |
