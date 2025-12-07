@@ -857,7 +857,8 @@ static void print_help(const char *program) {
     printf("    -h, --help           Display this help message\n");
     printf("    -v, --version        Display version information\n");
     printf("    -i, --interactive    Start REPL after executing file\n");
-    printf("    -c, --command <CODE> Execute code string directly\n");
+    printf("    -e, -c, --command <CODE>\n");
+    printf("                         Execute code string directly\n");
     printf("    --compile <FILE>     Compile .hml to binary AST (.hmlc)\n");
     printf("    --bundle <FILE>      Bundle .hml with all imports into single file\n");
     printf("    --package <FILE>     Create self-contained executable (interpreter + bundle)\n");
@@ -872,7 +873,7 @@ static void print_help(const char *program) {
     printf("    %s script.hml          # Run script.hml\n", program);
     printf("    %s script.hmlc         # Run compiled script\n", program);
     printf("    %s script.hml arg1 arg2    # Run script with arguments\n", program);
-    printf("    %s -c 'print(\"Hello\");'    # Execute code string\n", program);
+    printf("    %s -e 'print(\"Hello\");'    # Execute code string (one-liner)\n", program);
     printf("    %s -i script.hml       # Run script then start REPL\n", program);
     printf("    %s --compile script.hml    # Compile to script.hmlc\n", program);
     printf("    %s --compile src.hml -o out.hmlc --debug\n", program);
@@ -971,9 +972,9 @@ int main(int argc, char **argv) {
             return 0;
         } else if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interactive") == 0) {
             interactive_mode = 1;
-        } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--command") == 0) {
+        } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--command") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: -c/--command requires a code argument\n");
+                fprintf(stderr, "Error: -e/-c/--command requires a code argument\n");
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
