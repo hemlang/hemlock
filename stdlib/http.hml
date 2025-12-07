@@ -8,7 +8,7 @@
 // ========== HTTP CLIENT IMPLEMENTATION ==========
 
 fn http_request(method, url, body, headers) {
-    let resp_ptr: ptr = null;
+    let resp_ptr = null;
 
     if (method == "GET") {
         resp_ptr = __lws_http_get(url);

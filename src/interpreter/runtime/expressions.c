@@ -915,30 +915,47 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 // Special handling for object built-in methods (e.g., serialize, keys)
+                // But user-defined methods take precedence over built-ins
                 if (method_self.type == VAL_OBJECT) {
                     const char *method = expr->as.call.func->as.get_property.property;
 
                     // Only handle built-in object methods here (serialize, keys)
+                    // BUT first check if the object has a user-defined method with this name
                     if (strcmp(method, "serialize") == 0 || strcmp(method, "keys") == 0) {
-                        // Evaluate arguments
-                        Value *args = NULL;
-                        if (expr->as.call.num_args > 0) {
-                            args = malloc(sizeof(Value) * expr->as.call.num_args);
-                            for (int i = 0; i < expr->as.call.num_args; i++) {
-                                args[i] = eval_expr(expr->as.call.args[i], env, ctx);
+                        // Check if object has a user-defined function with this name
+                        Object *obj = method_self.as.as_object;
+                        int has_user_method = 0;
+                        for (int i = 0; i < obj->num_fields; i++) {
+                            if (strcmp(obj->field_names[i], method) == 0 &&
+                                obj->field_values[i].type == VAL_FUNCTION) {
+                                has_user_method = 1;
+                                break;
                             }
                         }
 
-                        Value result = call_object_method(method_self.as.as_object, method, args, expr->as.call.num_args, ctx);
-                        // Release argument values (object methods don't retain them)
-                        if (args) {
-                            for (int i = 0; i < expr->as.call.num_args; i++) {
-                                value_release(args[i]);
+                        // Only use built-in if no user-defined method exists
+                        if (!has_user_method) {
+                            // Evaluate arguments
+                            Value *args = NULL;
+                            if (expr->as.call.num_args > 0) {
+                                args = malloc(sizeof(Value) * expr->as.call.num_args);
+                                for (int i = 0; i < expr->as.call.num_args; i++) {
+                                    args[i] = eval_expr(expr->as.call.args[i], env, ctx);
+                                }
                             }
-                            free(args);
+
+                            Value result = call_object_method(method_self.as.as_object, method, args, expr->as.call.num_args, ctx);
+                            // Release argument values (object methods don't retain them)
+                            if (args) {
+                                for (int i = 0; i < expr->as.call.num_args; i++) {
+                                    value_release(args[i]);
+                                }
+                                free(args);
+                            }
+                            value_release(method_self);  // Release method receiver
+                            return result;
                         }
-                        value_release(method_self);  // Release method receiver
-                        return result;
+                        // Has user method - fall through to user-defined method handling
                     }
                     // For user-defined methods, fall through to normal function call handling
                 }

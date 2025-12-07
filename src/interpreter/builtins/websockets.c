@@ -58,40 +58,89 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                          void *user, void *in, size_t len) {
     http_response_t *resp = (http_response_t *)user;
 
+    // Debug output (uncomment for debugging)
+    // fprintf(stderr, "[HTTP] callback reason: %d, resp=%p\n", reason, (void*)resp);
+
     switch (reason) {
+        case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+            // Add custom headers to the HTTP request
+            {
+                unsigned char **p = (unsigned char **)in;
+                unsigned char *end = (*p) + len;
+
+                // Add User-Agent header (required by GitHub API)
+                const char *ua = "User-Agent: hemlock/1.0\r\n";
+                size_t ua_len = strlen(ua);
+                if (end - *p >= (int)ua_len) {
+                    memcpy(*p, ua, ua_len);
+                    *p += ua_len;
+                }
+
+                // Add Accept header for JSON APIs
+                const char *accept = "Accept: application/json\r\n";
+                size_t accept_len = strlen(accept);
+                if (end - *p >= (int)accept_len) {
+                    memcpy(*p, accept, accept_len);
+                    *p += accept_len;
+                }
+            }
+            break;
+
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
             fprintf(stderr, "HTTP connection error: %s\n", in ? (char *)in : "unknown");
-            resp->failed = 1;
-            resp->complete = 1;
+            if (resp) {
+                resp->failed = 1;
+                resp->complete = 1;
+            }
             break;
 
         case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-            resp->status_code = lws_http_client_http_response(wsi);
+            if (resp) {
+                resp->status_code = lws_http_client_http_response(wsi);
+            }
             break;
 
-        case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-            // Accumulate response body
-            if (resp->body_len + len >= resp->body_capacity) {
-                resp->body_capacity = (resp->body_len + len + 1) * 2;
-                char *new_body = realloc(resp->body, resp->body_capacity);
-                if (!new_body) {
-                    resp->failed = 1;
-                    resp->complete = 1;
+        case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+            // This callback tells us there's data available - we must consume it
+            {
+                char buffer[4096 + LWS_PRE];
+                char *px = buffer + LWS_PRE;
+                int lenx = sizeof(buffer) - LWS_PRE;
+
+                if (lws_http_client_read(wsi, &px, &lenx) < 0)
                     return -1;
-                }
-                resp->body = new_body;
             }
-            memcpy(resp->body + resp->body_len, in, len);
-            resp->body_len += len;
-            resp->body[resp->body_len] = '\0';
+            return 0;
+
+        case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+            // Accumulate response body - this is called after lws_http_client_read
+            if (resp) {
+                if (resp->body_len + len >= resp->body_capacity) {
+                    resp->body_capacity = (resp->body_len + len + 1) * 2;
+                    char *new_body = realloc(resp->body, resp->body_capacity);
+                    if (!new_body) {
+                        resp->failed = 1;
+                        resp->complete = 1;
+                        return -1;
+                    }
+                    resp->body = new_body;
+                }
+                memcpy(resp->body + resp->body_len, in, len);
+                resp->body_len += len;
+                resp->body[resp->body_len] = '\0';
+            }
             return 0;
 
         case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-            resp->complete = 1;
+            if (resp) {
+                resp->complete = 1;
+            }
             break;
 
         case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-            resp->complete = 1;
+            if (resp) {
+                resp->complete = 1;
+            }
             break;
 
         default:

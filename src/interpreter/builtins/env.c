@@ -342,17 +342,21 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
-    if (num_args != 2) {
-        fprintf(stderr, "Runtime error: waitpid() expects 2 arguments (pid, options)\n");
+    if (num_args < 1 || num_args > 2) {
+        fprintf(stderr, "Runtime error: waitpid() expects 1-2 arguments (pid, [options])\n");
         exit(1);
     }
-    if (!is_integer(args[0]) || !is_integer(args[1])) {
-        fprintf(stderr, "Runtime error: waitpid() arguments must be integers\n");
+    if (!is_integer(args[0])) {
+        fprintf(stderr, "Runtime error: waitpid() pid must be an integer\n");
+        exit(1);
+    }
+    if (num_args == 2 && !is_integer(args[1])) {
+        fprintf(stderr, "Runtime error: waitpid() options must be an integer\n");
         exit(1);
     }
 
     pid_t pid = (pid_t)value_to_int(args[0]);
-    int options = value_to_int(args[1]);
+    int options = (num_args == 2) ? value_to_int(args[1]) : 0;
 
     int status;
     pid_t result_pid = waitpid(pid, &status, options);
