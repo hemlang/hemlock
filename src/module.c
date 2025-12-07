@@ -150,6 +150,50 @@ void module_cache_free(ModuleCache *cache) {
 
 // ========== PATH RESOLUTION ==========
 
+// Helper: Find hem_modules directory by walking up from a path
+static char* find_hem_modules(const char *start_path) {
+    char search_path[PATH_MAX];
+    char hem_modules_path[PATH_MAX];
+
+    // Make a copy of start_path
+    strncpy(search_path, start_path, PATH_MAX - 1);
+    search_path[PATH_MAX - 1] = '\0';
+
+    // Walk up the directory tree looking for hem_modules
+    while (1) {
+        snprintf(hem_modules_path, PATH_MAX, "%s/hem_modules", search_path);
+        if (access(hem_modules_path, F_OK) == 0) {
+            return strdup(hem_modules_path);
+        }
+
+        // Go up one directory
+        char *parent = dirname(search_path);
+        if (strcmp(parent, search_path) == 0 || strcmp(parent, "/") == 0) {
+            // Reached root, not found
+            break;
+        }
+        strncpy(search_path, parent, PATH_MAX - 1);
+    }
+
+    return NULL;
+}
+
+// Helper: Check if import path looks like a package (owner/repo format)
+static int is_package_import(const char *import_path) {
+    // Must not start with ./ or ../ or /
+    if (import_path[0] == '.' || import_path[0] == '/') {
+        return 0;
+    }
+
+    // Must contain exactly at least one slash (owner/repo)
+    const char *slash = strchr(import_path, '/');
+    if (!slash || slash == import_path) {
+        return 0;
+    }
+
+    return 1;
+}
+
 // Resolve relative or absolute path to absolute path
 char* resolve_module_path(ModuleCache *cache, const char *importer_path, const char *import_path) {
     char resolved[PATH_MAX];
@@ -170,6 +214,153 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
     else if (import_path[0] == '/') {
         // Already absolute
         strncpy(resolved, import_path, PATH_MAX);
+    }
+    // Check for package import (owner/repo or owner/repo/subpath)
+    else if (is_package_import(import_path)) {
+        // Try to find hem_modules directory
+        const char *search_from = importer_path ? importer_path : cache->current_dir;
+
+        // Make a copy for dirname since it may modify the string
+        char search_dir[PATH_MAX];
+        strncpy(search_dir, search_from, PATH_MAX - 1);
+        search_dir[PATH_MAX - 1] = '\0';
+
+        // If search_from is a file, get its directory
+        if (importer_path) {
+            dirname(search_dir);
+        }
+
+        char *hem_modules = find_hem_modules(search_dir);
+
+        if (hem_modules) {
+            // Parse owner/repo from import path
+            char owner[256], repo[256];
+            const char *subpath = NULL;
+
+            // Find first slash (after owner)
+            const char *first_slash = strchr(import_path, '/');
+            if (first_slash) {
+                size_t owner_len = first_slash - import_path;
+                if (owner_len >= sizeof(owner)) owner_len = sizeof(owner) - 1;
+                strncpy(owner, import_path, owner_len);
+                owner[owner_len] = '\0';
+
+                // Find second slash (after repo) if exists
+                const char *second_slash = strchr(first_slash + 1, '/');
+                if (second_slash) {
+                    size_t repo_len = second_slash - first_slash - 1;
+                    if (repo_len >= sizeof(repo)) repo_len = sizeof(repo) - 1;
+                    strncpy(repo, first_slash + 1, repo_len);
+                    repo[repo_len] = '\0';
+                    subpath = second_slash + 1;
+                } else {
+                    strncpy(repo, first_slash + 1, sizeof(repo) - 1);
+                    repo[sizeof(repo) - 1] = '\0';
+                }
+            }
+
+            // Try different resolution patterns per spec:
+            // 1. hem_modules/owner/repo/path.hml
+            // 2. hem_modules/owner/repo/path/index.hml
+            // 3. hem_modules/owner/repo/src/path.hml
+            // 4. hem_modules/owner/repo/src/path/index.hml
+            // For root imports (no subpath):
+            // - Read main from package.json, default to src/index.hml
+
+            char try_path[PATH_MAX];
+
+            if (subpath) {
+                // Has subpath - try direct file
+                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s.hml", hem_modules, owner, repo, subpath);
+                if (access(try_path, F_OK) == 0) {
+                    free(hem_modules);
+                    return strdup(try_path);
+                }
+
+                // Try as directory with index.hml
+                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s/index.hml", hem_modules, owner, repo, subpath);
+                if (access(try_path, F_OK) == 0) {
+                    free(hem_modules);
+                    return strdup(try_path);
+                }
+
+                // Try in src/ directory
+                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s.hml", hem_modules, owner, repo, subpath);
+                if (access(try_path, F_OK) == 0) {
+                    free(hem_modules);
+                    return strdup(try_path);
+                }
+
+                // Try in src/ as directory
+                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s/index.hml", hem_modules, owner, repo, subpath);
+                if (access(try_path, F_OK) == 0) {
+                    free(hem_modules);
+                    return strdup(try_path);
+                }
+            } else {
+                // No subpath - import root of package
+                // Try to read main from package.json
+                char pkg_json_path[PATH_MAX];
+                snprintf(pkg_json_path, PATH_MAX, "%s/%s/%s/package.json", hem_modules, owner, repo);
+
+                char main_file[256] = "src/index.hml";  // Default
+                FILE *pkg_file = fopen(pkg_json_path, "r");
+                if (pkg_file) {
+                    // Simple JSON parsing to find "main" field
+                    char line[1024];
+                    while (fgets(line, sizeof(line), pkg_file)) {
+                        char *main_pos = strstr(line, "\"main\"");
+                        if (main_pos) {
+                            char *colon = strchr(main_pos, ':');
+                            if (colon) {
+                                char *quote1 = strchr(colon, '"');
+                                if (quote1) {
+                                    char *quote2 = strchr(quote1 + 1, '"');
+                                    if (quote2) {
+                                        size_t len = quote2 - quote1 - 1;
+                                        if (len < sizeof(main_file)) {
+                                            strncpy(main_file, quote1 + 1, len);
+                                            main_file[len] = '\0';
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    fclose(pkg_file);
+                }
+
+                // Build path to main file
+                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s", hem_modules, owner, repo, main_file);
+
+                // Add .hml if not present
+                int path_len = strlen(try_path);
+                if (path_len < 4 || strcmp(try_path + path_len - 4, ".hml") != 0) {
+                    strncat(try_path, ".hml", PATH_MAX - path_len - 1);
+                }
+
+                if (access(try_path, F_OK) == 0) {
+                    free(hem_modules);
+                    return strdup(try_path);
+                }
+
+                // Fallback: try src/index.hml
+                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/index.hml", hem_modules, owner, repo);
+                if (access(try_path, F_OK) == 0) {
+                    free(hem_modules);
+                    return strdup(try_path);
+                }
+            }
+
+            // If nothing found in hem_modules, fall through to relative path resolution
+            // (package might not be installed yet)
+            free(hem_modules);
+        }
+
+        // Fall back to relative path resolution for uninstalled packages
+        // This will result in a "file not found" error, which is appropriate
+        snprintf(resolved, PATH_MAX, "%s/%s", cache->current_dir, import_path);
     } else {
         // Relative path - resolve relative to importer's directory
         const char *base_dir;
