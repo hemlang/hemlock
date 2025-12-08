@@ -2106,6 +2106,23 @@ HmlValue hml_string_bytes(HmlValue str) {
     return arr;
 }
 
+// Convert string to buffer (raw bytes)
+HmlValue hml_string_to_bytes(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        hml_runtime_error("to_bytes() requires string");
+    }
+
+    HmlString *s = str.as.as_string;
+    HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+    buf->data = malloc(s->length);
+    memcpy(buf->data, s->data, s->length);
+    buf->length = s->length;
+    buf->capacity = s->length;
+    buf->ref_count = 1;
+
+    return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+}
+
 // Buffer indexing
 HmlValue hml_buffer_get(HmlValue buf, HmlValue index) {
     if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
@@ -3569,6 +3586,9 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         }
         if (strcmp(method, "bytes") == 0 && num_args == 0) {
             return hml_string_bytes(obj);
+        }
+        if (strcmp(method, "to_bytes") == 0 && num_args == 0) {
+            return hml_string_to_bytes(obj);
         }
         if (strcmp(method, "substr") == 0 && num_args == 2) {
             return hml_string_substr(obj, args[0], args[1]);

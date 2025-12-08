@@ -244,6 +244,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue rune);
 // String to array conversion
 HmlValue hml_string_chars(HmlValue str);   // Returns array of runes
 HmlValue hml_string_bytes(HmlValue str);   // Returns array of u8 bytes
+HmlValue hml_string_to_bytes(HmlValue str); // Converts string to buffer
 
 // ========== ARRAY OPERATIONS ==========
 

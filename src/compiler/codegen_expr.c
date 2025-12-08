@@ -2199,6 +2199,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 } else if (strcmp(method, "byte_at") == 0 && expr->as.call.num_args == 1) {
                     codegen_writeln(ctx, "HmlValue %s = hml_string_byte_at(%s, %s);",
                                   result, obj_val, arg_temps[0]);
+                } else if (strcmp(method, "to_bytes") == 0 && expr->as.call.num_args == 0) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_string_to_bytes(%s);",
+                                  result, obj_val);
                 // Array methods - with runtime type check to also support object methods
                 } else if (strcmp(method, "push") == 0 && expr->as.call.num_args == 1) {
                     codegen_writeln(ctx, "HmlValue %s;", result);
