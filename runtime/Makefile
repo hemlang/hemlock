@@ -1,8 +1,32 @@
 # Hemlock Runtime Library Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
-LDFLAGS = -lm -lpthread
+LDFLAGS = -lm -lpthread -lffi
+
+# Platform-specific settings
+ifeq ($(shell uname),Darwin)
+    CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_DARWIN_C_SOURCE
+    # Detect libffi (Homebrew on macOS puts it in non-standard locations)
+    BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
+    ifneq ($(BREW_LIBFFI),)
+        CFLAGS += -I$(BREW_LIBFFI)/include
+        LDFLAGS += -L$(BREW_LIBFFI)/lib
+    endif
+    # Detect OpenSSL
+    BREW_OPENSSL := $(shell brew --prefix openssl 2>/dev/null)
+    ifneq ($(BREW_OPENSSL),)
+        CFLAGS += -I$(BREW_OPENSSL)/include
+        LDFLAGS += -L$(BREW_OPENSSL)/lib
+    endif
+else
+    CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+    LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
+    LIBFFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null)
+    ifneq ($(LIBFFI_CFLAGS),)
+        CFLAGS += $(LIBFFI_CFLAGS)
+        LDFLAGS += $(LIBFFI_LIBS)
+    endif
+endif
 
 # Check if zlib is available (both header AND library must exist)
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)

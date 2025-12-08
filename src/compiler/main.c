@@ -228,16 +228,48 @@ static int compile_c(const Options *opts, const char *c_file) {
         strcpy(zlib_flag, " -lz");
     }
 
-    // Check if -lwebsockets is linkable
+    // Platform-specific library paths
+    char extra_lib_paths[512] = "";
+#ifdef __APPLE__
+    // On macOS, check for Homebrew libffi and libwebsockets paths
+    FILE *fp = popen("brew --prefix libffi 2>/dev/null", "r");
+    if (fp) {
+        char libffi_path[256];
+        if (fgets(libffi_path, sizeof(libffi_path), fp)) {
+            libffi_path[strcspn(libffi_path, "\n")] = 0;
+            char tmp[128];
+            snprintf(tmp, sizeof(tmp), " -L%s/lib", libffi_path);
+            strcat(extra_lib_paths, tmp);
+        }
+        pclose(fp);
+    }
+    fp = popen("brew --prefix libwebsockets 2>/dev/null", "r");
+    if (fp) {
+        char lws_path[256];
+        if (fgets(lws_path, sizeof(lws_path), fp)) {
+            lws_path[strcspn(lws_path, "\n")] = 0;
+            char tmp[128];
+            snprintf(tmp, sizeof(tmp), " -L%s/lib", lws_path);
+            strcat(extra_lib_paths, tmp);
+        }
+        pclose(fp);
+    }
+#endif
+
+    // Check if -lwebsockets is linkable (with extra paths)
     char websockets_flag[16] = "";
-    if (system("echo 'int main(){return 0;}' | gcc -x c - -lwebsockets -o /dev/null 2>/dev/null") == 0) {
+    char ws_test_cmd[1024];
+    snprintf(ws_test_cmd, sizeof(ws_test_cmd),
+        "echo 'int main(){return 0;}' | gcc -x c - %s -lwebsockets -o /dev/null 2>/dev/null",
+        extra_lib_paths);
+    if (system(ws_test_cmd) == 0) {
         strcpy(websockets_flag, " -lwebsockets");
     }
 
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s",
+        "%s %s -o %s %s -I%s/runtime/include -L%s%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
-        runtime_path, runtime_path, zlib_flag, websockets_flag);
+        runtime_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag);
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);

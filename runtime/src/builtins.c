@@ -12,6 +12,7 @@
 #include <math.h>
 #include <errno.h>
 #include <time.h>
+#include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -38,6 +39,7 @@
 
 #ifdef __APPLE__
 #include <sys/sysctl.h>
+#include <mach/mach.h>
 #endif
 
 // ========== GLOBAL STATE ==========
@@ -3901,19 +3903,24 @@ HmlValue hml_free_memory(void) {
     int64_t buffers = (int64_t)info.bufferram * (int64_t)info.mem_unit;
     return hml_val_i64(free_mem + buffers);
 #elif defined(__APPLE__)
-    int mib[2] = {CTL_HW, HW_MEMSIZE};
-    int64_t memsize;
-    size_t len = sizeof(memsize);
-    if (sysctl(mib, 2, &memsize, &len, NULL, 0) != 0) {
-        fprintf(stderr, "Error: free_memory() failed: %s\n", strerror(errno));
-        exit(1);
+    // Use vm_statistics to get free memory on macOS
+    vm_size_t page_size;
+    vm_statistics64_data_t vm_stat;
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+
+    host_page_size(mach_host_self(), &page_size);
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                         (host_info64_t)&vm_stat, &count) != KERN_SUCCESS) {
+        // Fallback: return 10% of total memory
+        int mib[2] = {CTL_HW, HW_MEMSIZE};
+        int64_t memsize;
+        size_t len = sizeof(memsize);
+        sysctl(mib, 2, &memsize, &len, NULL, 0);
+        return hml_val_i64(memsize / 10);
     }
-    long avail_pages = sysconf(_SC_AVPHYS_PAGES);
-    long page_size = sysconf(_SC_PAGE_SIZE);
-    if (avail_pages >= 0 && page_size >= 0) {
-        return hml_val_i64((int64_t)avail_pages * (int64_t)page_size);
-    }
-    return hml_val_i64(memsize / 10);
+    // Free + inactive pages
+    int64_t free_mem = (int64_t)(vm_stat.free_count + vm_stat.inactive_count) * (int64_t)page_size;
+    return hml_val_i64(free_mem);
 #else
     long avail_pages = sysconf(_SC_AVPHYS_PAGES);
     long page_size = sysconf(_SC_PAGE_SIZE);
