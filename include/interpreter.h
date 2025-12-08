@@ -111,6 +111,9 @@ typedef struct {
     int capacity;
     int ref_count;       // Reference count for memory management
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
+    // Hash table for O(1) field lookup (linear probing)
+    int *hash_table;     // Array of field indices, -1 = empty slot
+    int hash_capacity;   // Size of hash table (usually 2x num_fields)
 } Object;
 
 // Function struct (user-defined function)
