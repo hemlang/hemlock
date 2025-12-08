@@ -417,6 +417,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
     frame->slots = vm->stack;
     frame->upvalues = NULL;
     frame->num_upvalues = 0;
+    frame->return_dest = 0;  // Not used for top-level
 
     // Ensure enough stack space
     while ((int)(vm->stack_top - vm->stack) + chunk->max_stack_size >= vm->stack_capacity) {
@@ -719,6 +720,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 int arg_count = b_;
                 int num_results = c;
                 (void)num_results; // TODO: handle multiple returns
+                int call_dest = a_;  // Where to store result
 
                 if (callee.type == VAL_BUILTIN_FN) {
                     // Call builtin
@@ -730,11 +732,62 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                     REG(a_) = result;
                 } else if (callee.type == VAL_FUNCTION) {
                     Function *fn = callee.as.as_function;
+                    Chunk *fn_chunk = (Chunk *)fn->bytecode_chunk;
 
-                    // TODO: Full function call with bytecode body
-                    // For now, this is a placeholder
-                    vm_runtime_error(vm, "User function calls not yet implemented in VM");
-                    return VM_RUNTIME_ERROR;
+                    if (!fn_chunk) {
+                        vm_runtime_error(vm, "Function has no bytecode (AST-only function)");
+                        return VM_RUNTIME_ERROR;
+                    }
+
+                    // Check arg count
+                    if (arg_count != fn->num_params) {
+                        vm_runtime_error(vm, "Expected %d arguments but got %d",
+                                        fn->num_params, arg_count);
+                        return VM_RUNTIME_ERROR;
+                    }
+
+                    // Check call stack depth
+                    if (vm->frame_count >= VM_MAX_FRAMES) {
+                        vm_runtime_error(vm, "Stack overflow (too many nested calls)");
+                        return VM_RUNTIME_ERROR;
+                    }
+
+                    // Set up new call frame
+                    CallFrame *new_frame = &vm->frames[vm->frame_count++];
+                    new_frame->chunk = fn_chunk;
+                    new_frame->ip = fn_chunk->code;
+                    new_frame->upvalues = NULL;
+                    new_frame->num_upvalues = 0;
+                    new_frame->return_dest = call_dest;  // Where to store result in caller
+
+                    // Ensure stack space
+                    while ((int)(vm->stack_top - vm->stack) + fn_chunk->max_stack_size >= vm->stack_capacity) {
+                        int old_offset = vm->stack_top - vm->stack;
+                        int old_slot_offset = frame->slots - vm->stack;
+                        vm->stack_capacity *= 2;
+                        vm->stack = realloc(vm->stack, vm->stack_capacity * sizeof(Value));
+                        vm->stack_top = vm->stack + old_offset;
+                        frame->slots = vm->stack + old_slot_offset;
+                    }
+
+                    // New frame's slots start where stack_top currently is
+                    new_frame->slots = vm->stack_top;
+
+                    // Copy arguments to new frame's first registers (params become locals 0..n-1)
+                    for (int i = 0; i < arg_count; i++) {
+                        new_frame->slots[i] = REG(a_ + 1 + i);
+                    }
+
+                    // Initialize remaining registers with null
+                    for (int i = arg_count; i < fn_chunk->max_stack_size; i++) {
+                        new_frame->slots[i] = val_null();
+                    }
+
+                    // Advance stack_top
+                    vm->stack_top = new_frame->slots + fn_chunk->max_stack_size;
+
+                    // Switch to new frame
+                    frame = new_frame;
                 } else {
                     vm_runtime_error(vm, "Can only call functions");
                     return VM_RUNTIME_ERROR;
@@ -745,6 +798,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             case BC_RETURN: {
                 int return_count = b_;
                 Value result = return_count > 0 ? REG(a_) : val_null();
+                int dest = frame->return_dest;  // Save before switching frames
 
                 // Close upvalues
                 vm_close_upvalues(vm, frame->slots);
@@ -761,16 +815,17 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
 
                 vm->frame_count--;
                 if (vm->frame_count == 0) {
-                    vm_pop(vm);  // Pop initial null
+                    // Top-level return - we're done
                     return VM_OK;
                 }
 
                 // Restore caller frame
-                frame = &vm->frames[vm->frame_count - 1];
-                vm->stack_top = frame->slots + frame->chunk->max_stack_size;
+                CallFrame *caller = &vm->frames[vm->frame_count - 1];
+                frame = caller;
+                vm->stack_top = caller->slots + caller->chunk->max_stack_size;
 
                 // Store result in caller's destination register
-                // (caller's instruction tells us where)
+                caller->slots[dest] = result;
                 break;
             }
 
@@ -789,6 +844,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 fn->closure_env = NULL;
                 fn->ref_count = 1;
                 fn->is_bound = false;
+                fn->bytecode_chunk = proto;  // Store bytecode chunk for VM calls
 
                 REG(a_) = val_function(fn);
 

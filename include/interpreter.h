@@ -128,6 +128,7 @@ typedef struct {
     Environment *closure_env;  // CAPTURED ENVIRONMENT
     int ref_count;             // Reference count for memory management
     int is_bound;              // If true, this is a bound method (don't free param arrays)
+    void *bytecode_chunk;      // For VM: pointer to Chunk* (NULL for AST interpreter)
 } Function;
 
 // Task states

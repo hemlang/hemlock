@@ -86,6 +86,55 @@ static void print_value_brief(Value v) {
     }
 }
 
+// Helper to check value type only
+static bool run_vm_test_type(const char *name, Stmt **stmts, int count,
+                             const char *check_var, ValueType expected_type) {
+    printf("  %-40s ", name);
+
+    Chunk *chunk = vm_compile_ast(stmts, count, "test");
+    if (!chunk) {
+        printf(RED "FAIL" RESET " (compile error)\n");
+        stats.failed++;
+        return false;
+    }
+
+    VM *vm = vm_new();
+    vm_register_all_builtins(vm);
+
+    VMResult result = vm_run(vm, chunk);
+    if (result != VM_OK) {
+        printf(RED "FAIL" RESET " (runtime: %s)\n", vm_get_error(vm));
+        stats.failed++;
+        vm_free(vm);
+        chunk_free(chunk);
+        return false;
+    }
+
+    Value actual;
+    if (!vm_get_global(vm, check_var, &actual)) {
+        printf(RED "FAIL" RESET " (var '%s' not found)\n", check_var);
+        stats.failed++;
+        vm_free(vm);
+        chunk_free(chunk);
+        return false;
+    }
+
+    if (actual.type != expected_type) {
+        printf(RED "FAIL" RESET " (type: expected %d, got %d)\n", expected_type, actual.type);
+        stats.failed++;
+        vm_free(vm);
+        chunk_free(chunk);
+        return false;
+    }
+
+    printf(GREEN "PASS" RESET "\n");
+    stats.passed++;
+
+    vm_free(vm);
+    chunk_free(chunk);
+    return true;
+}
+
 static bool run_vm_test(const char *name, Stmt **stmts, int count,
                         const char *check_var, Value expected, bool expect_error) {
     printf("  %-40s ", name);
@@ -579,6 +628,234 @@ static void test_builtins(void) {
     }
 }
 
+// ========== Arrays ==========
+
+static void test_arrays(void) {
+    printf("\n" YELLOW "=== Arrays ===" RESET "\n");
+
+    // Empty array
+    {
+        Expr **elems = NULL;
+        Stmt *s = stmt_let("arr", expr_array_literal(elems, 0));
+        Stmt *stmts[] = {s};
+        run_vm_test_type("empty array literal", stmts, 1, "arr", VAL_ARRAY);
+    }
+
+    // Array with elements
+    {
+        Expr **elems = malloc(3 * sizeof(Expr*));
+        elems[0] = expr_number(1);
+        elems[1] = expr_number(2);
+        elems[2] = expr_number(3);
+        Stmt *s = stmt_let("arr", expr_array_literal(elems, 3));
+        Stmt *stmts[] = {s};
+        run_vm_test_type("array [1,2,3]", stmts, 1, "arr", VAL_ARRAY);
+    }
+
+    // Array index read
+    {
+        Expr **elems = malloc(3 * sizeof(Expr*));
+        elems[0] = expr_number(10);
+        elems[1] = expr_number(20);
+        elems[2] = expr_number(30);
+        Stmt *let_arr = stmt_let("arr", expr_array_literal(elems, 3));
+        Stmt *let_x = stmt_let("x", expr_index(expr_ident("arr"), expr_number(1)));
+        Stmt *stmts[] = {let_arr, let_x};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 20};
+        run_vm_test("arr[1] == 20", stmts, 2, "x", expected, false);
+    }
+
+    // Array index write
+    {
+        Expr **elems = malloc(3 * sizeof(Expr*));
+        elems[0] = expr_number(1);
+        elems[1] = expr_number(2);
+        elems[2] = expr_number(3);
+        Stmt *let_arr = stmt_let("arr", expr_array_literal(elems, 3));
+        Stmt *set_idx = stmt_expr(expr_index_assign(expr_ident("arr"), expr_number(0), expr_number(99)));
+        Stmt *let_x = stmt_let("x", expr_index(expr_ident("arr"), expr_number(0)));
+        Stmt *stmts[] = {let_arr, set_idx, let_x};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 99};
+        run_vm_test("arr[0] = 99", stmts, 3, "x", expected, false);
+    }
+
+    // typeof array
+    {
+        Expr **elems = malloc(sizeof(Expr*));
+        elems[0] = expr_number(1);
+        Stmt *let_arr = stmt_let("arr", expr_array_literal(elems, 1));
+        Expr **args = malloc(sizeof(Expr*));
+        args[0] = expr_ident("arr");
+        Stmt *let_t = stmt_let("t", expr_call(expr_ident("typeof"), args, 1));
+        Stmt *stmts[] = {let_arr, let_t};
+        Value expected = val_string("array");
+        run_vm_test("typeof([1]) == 'array'", stmts, 2, "t", expected, false);
+    }
+}
+
+// ========== Objects ==========
+
+static void test_objects(void) {
+    printf("\n" YELLOW "=== Objects ===" RESET "\n");
+
+    // Empty object
+    {
+        Stmt *s = stmt_let("obj", expr_object_literal(NULL, NULL, 0));
+        Stmt *stmts[] = {s};
+        run_vm_test_type("empty object literal", stmts, 1, "obj", VAL_OBJECT);
+    }
+
+    // Object with fields
+    {
+        char **names = malloc(2 * sizeof(char*));
+        names[0] = strdup("x");
+        names[1] = strdup("y");
+        Expr **vals = malloc(2 * sizeof(Expr*));
+        vals[0] = expr_number(10);
+        vals[1] = expr_number(20);
+        Stmt *s = stmt_let("obj", expr_object_literal(names, vals, 2));
+        Stmt *stmts[] = {s};
+        run_vm_test_type("object {x:10, y:20}", stmts, 1, "obj", VAL_OBJECT);
+    }
+
+    // Object field read (via set_property for now since objects are created empty)
+    {
+        Stmt *let_obj = stmt_let("obj", expr_object_literal(NULL, NULL, 0));
+        Stmt *set_field = stmt_expr(expr_set_property(expr_ident("obj"), "x", expr_number(42)));
+        Stmt *let_x = stmt_let("x", expr_get_property(expr_ident("obj"), "x"));
+        Stmt *stmts[] = {let_obj, set_field, let_x};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 42};
+        run_vm_test("obj.x = 42, get obj.x", stmts, 3, "x", expected, false);
+    }
+
+    // Object field update
+    {
+        Stmt *let_obj = stmt_let("obj", expr_object_literal(NULL, NULL, 0));
+        Stmt *set1 = stmt_expr(expr_set_property(expr_ident("obj"), "val", expr_number(1)));
+        Stmt *set2 = stmt_expr(expr_set_property(expr_ident("obj"), "val", expr_number(2)));
+        Stmt *let_x = stmt_let("x", expr_get_property(expr_ident("obj"), "val"));
+        Stmt *stmts[] = {let_obj, set1, set2, let_x};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 2};
+        run_vm_test("object field update", stmts, 4, "x", expected, false);
+    }
+
+    // typeof object
+    {
+        Stmt *let_obj = stmt_let("obj", expr_object_literal(NULL, NULL, 0));
+        Expr **args = malloc(sizeof(Expr*));
+        args[0] = expr_ident("obj");
+        Stmt *let_t = stmt_let("t", expr_call(expr_ident("typeof"), args, 1));
+        Stmt *stmts[] = {let_obj, let_t};
+        Value expected = val_string("object");
+        run_vm_test("typeof({}) == 'object'", stmts, 2, "t", expected, false);
+    }
+}
+
+// ========== Functions (User-Defined) ==========
+
+static void test_functions(void) {
+    printf("\n" YELLOW "=== User Functions ===" RESET "\n");
+
+    // Simple function definition (no call yet - just create closure)
+    {
+        // fn() { return 42; }
+        Stmt *body = stmt_return(expr_number(42));
+        Expr *fn = expr_function(0, NULL, NULL, NULL, 0, NULL, body);
+        Stmt *let_f = stmt_let("f", fn);
+        Stmt *stmts[] = {let_f};
+        run_vm_test_type("define function", stmts, 1, "f", VAL_FUNCTION);
+    }
+
+    // Function call: fn() -> 42
+    {
+        // let f = fn() { return 42; };
+        // let x = f();
+        Stmt *body = stmt_return(expr_number(42));
+        Expr *fn = expr_function(0, NULL, NULL, NULL, 0, NULL, body);
+        Stmt *let_f = stmt_let("f", fn);
+        Stmt *let_x = stmt_let("x", expr_call(expr_ident("f"), NULL, 0));
+        Stmt *stmts[] = {let_f, let_x};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 42};
+        run_vm_test("call fn() -> 42", stmts, 2, "x", expected, false);
+    }
+
+    // Function with parameter: fn(x) { return x * 2; }
+    {
+        // let double = fn(x) { return x * 2; };
+        // let y = double(21);
+        char **params = malloc(sizeof(char*));
+        params[0] = strdup("x");
+        Expr *body_expr = expr_binary(expr_ident("x"), OP_MUL, expr_number(2));
+        Stmt *body = stmt_return(body_expr);
+        Expr *fn = expr_function(0, params, NULL, NULL, 1, NULL, body);
+        Stmt *let_f = stmt_let("double", fn);
+
+        Expr **args = malloc(sizeof(Expr*));
+        args[0] = expr_number(21);
+        Stmt *let_y = stmt_let("y", expr_call(expr_ident("double"), args, 1));
+        Stmt *stmts[] = {let_f, let_y};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 42};
+        run_vm_test("call fn(x) -> x*2", stmts, 2, "y", expected, false);
+    }
+
+    // Function with multiple parameters
+    {
+        // let add = fn(a, b) { return a + b; };
+        // let z = add(10, 32);
+        char **params = malloc(2 * sizeof(char*));
+        params[0] = strdup("a");
+        params[1] = strdup("b");
+        Expr *body_expr = expr_binary(expr_ident("a"), OP_ADD, expr_ident("b"));
+        Stmt *body = stmt_return(body_expr);
+        Expr *fn = expr_function(0, params, NULL, NULL, 2, NULL, body);
+        Stmt *let_f = stmt_let("add", fn);
+
+        Expr **args = malloc(2 * sizeof(Expr*));
+        args[0] = expr_number(10);
+        args[1] = expr_number(32);
+        Stmt *let_z = stmt_let("z", expr_call(expr_ident("add"), args, 2));
+        Stmt *stmts[] = {let_f, let_z};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 42};
+        run_vm_test("call fn(a,b) -> a+b", stmts, 2, "z", expected, false);
+    }
+
+    // Nested function calls
+    {
+        // let inc = fn(x) { return x + 1; };
+        // let result = inc(inc(inc(0)));  // Should be 3
+        char **params = malloc(sizeof(char*));
+        params[0] = strdup("x");
+        Expr *body_expr = expr_binary(expr_ident("x"), OP_ADD, expr_number(1));
+        Stmt *body = stmt_return(body_expr);
+        Expr *fn = expr_function(0, params, NULL, NULL, 1, NULL, body);
+        Stmt *let_inc = stmt_let("inc", fn);
+
+        // inc(0)
+        Expr **args1 = malloc(sizeof(Expr*));
+        args1[0] = expr_number(0);
+        Expr *call1 = expr_call(expr_ident("inc"), args1, 1);
+        // inc(inc(0))
+        Expr **args2 = malloc(sizeof(Expr*));
+        args2[0] = call1;
+        Expr *call2 = expr_call(expr_ident("inc"), args2, 1);
+        // inc(inc(inc(0)))
+        Expr **args3 = malloc(sizeof(Expr*));
+        args3[0] = call2;
+        Expr *call3 = expr_call(expr_ident("inc"), args3, 1);
+
+        Stmt *let_r = stmt_let("result", call3);
+        Stmt *stmts[] = {let_inc, let_r};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 3};
+        run_vm_test("nested calls inc(inc(inc(0)))", stmts, 2, "result", expected, false);
+    }
+
+    // Closure capture (SKIPPED for now)
+    {
+        printf("  %-40s " YELLOW "SKIP" RESET " (closures TODO)\n", "closure captures outer var");
+        stats.skipped++;
+    }
+}
+
 // ========== Summary ==========
 
 static void print_summary(void) {
@@ -615,6 +892,9 @@ int main(void) {
     test_control_flow();
     test_loops();
     test_builtins();
+    test_arrays();
+    test_objects();
+    test_functions();
 
     print_summary();
 

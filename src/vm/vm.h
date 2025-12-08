@@ -40,6 +40,7 @@ struct CallFrame {
     Value *slots;           // Base of register window
     VMUpvalue **upvalues;   // Upvalues for this frame
     int num_upvalues;
+    int return_dest;        // Caller's register to store return value
 };
 
 // ========== VM State ==========
