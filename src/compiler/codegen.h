@@ -165,6 +165,16 @@ typedef struct {
 
     // Loop tracking (for runtime defer support)
     int loop_depth;               // Current loop nesting depth (0 = not in loop)
+
+    // Switch tracking (for break/continue handling)
+    int switch_depth;             // Current switch nesting depth (0 = not in switch)
+    char **switch_end_labels;     // Stack of switch end labels (for break -> goto)
+    int switch_end_capacity;      // Capacity of switch_end_labels stack
+
+    // For-loop continue tracking (continue jumps to increment, not condition)
+    char **for_continue_labels;   // Stack of for-loop continue labels
+    int for_continue_depth;       // Current for-loop nesting depth
+    int for_continue_capacity;    // Capacity of for_continue_labels stack
 } CodegenContext;
 
 // Initialize code generation context

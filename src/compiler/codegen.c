@@ -62,6 +62,12 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->has_return_vars = NULL;
     ctx->try_finally_capacity = 0;
     ctx->loop_depth = 0;
+    ctx->switch_depth = 0;
+    ctx->switch_end_labels = NULL;
+    ctx->switch_end_capacity = 0;
+    ctx->for_continue_labels = NULL;
+    ctx->for_continue_depth = 0;
+    ctx->for_continue_capacity = 0;
     return ctx;
 }
 
@@ -143,6 +149,22 @@ void codegen_free(CodegenContext *ctx) {
             free(ctx->finally_labels);
             free(ctx->return_value_vars);
             free(ctx->has_return_vars);
+        }
+
+        // Free switch end labels stack
+        if (ctx->switch_end_labels) {
+            for (int i = 0; i < ctx->switch_depth; i++) {
+                free(ctx->switch_end_labels[i]);
+            }
+            free(ctx->switch_end_labels);
+        }
+
+        // Free for-continue labels stack
+        if (ctx->for_continue_labels) {
+            for (int i = 0; i < ctx->for_continue_depth; i++) {
+                free(ctx->for_continue_labels[i]);
+            }
+            free(ctx->for_continue_labels);
         }
 
         free(ctx);
@@ -326,6 +348,58 @@ const char* codegen_get_return_value_var(CodegenContext *ctx) {
 const char* codegen_get_has_return_var(CodegenContext *ctx) {
     if (ctx->try_finally_depth > 0) {
         return ctx->has_return_vars[ctx->try_finally_depth - 1];
+    }
+    return NULL;
+}
+
+// ========== SWITCH CONTEXT TRACKING ==========
+
+void codegen_push_switch(CodegenContext *ctx, const char *end_label) {
+    if (ctx->switch_depth >= ctx->switch_end_capacity) {
+        int new_cap = (ctx->switch_end_capacity == 0) ? 4 : ctx->switch_end_capacity * 2;
+        ctx->switch_end_labels = realloc(ctx->switch_end_labels, new_cap * sizeof(char*));
+        ctx->switch_end_capacity = new_cap;
+    }
+    ctx->switch_end_labels[ctx->switch_depth] = strdup(end_label);
+    ctx->switch_depth++;
+}
+
+void codegen_pop_switch(CodegenContext *ctx) {
+    if (ctx->switch_depth > 0) {
+        ctx->switch_depth--;
+        free(ctx->switch_end_labels[ctx->switch_depth]);
+    }
+}
+
+const char* codegen_get_switch_end_label(CodegenContext *ctx) {
+    if (ctx->switch_depth > 0) {
+        return ctx->switch_end_labels[ctx->switch_depth - 1];
+    }
+    return NULL;
+}
+
+// ========== FOR-LOOP CONTINUE TRACKING ==========
+
+void codegen_push_for_continue(CodegenContext *ctx, const char *continue_label) {
+    if (ctx->for_continue_depth >= ctx->for_continue_capacity) {
+        int new_cap = (ctx->for_continue_capacity == 0) ? 4 : ctx->for_continue_capacity * 2;
+        ctx->for_continue_labels = realloc(ctx->for_continue_labels, new_cap * sizeof(char*));
+        ctx->for_continue_capacity = new_cap;
+    }
+    ctx->for_continue_labels[ctx->for_continue_depth] = strdup(continue_label);
+    ctx->for_continue_depth++;
+}
+
+void codegen_pop_for_continue(CodegenContext *ctx) {
+    if (ctx->for_continue_depth > 0) {
+        ctx->for_continue_depth--;
+        free(ctx->for_continue_labels[ctx->for_continue_depth]);
+    }
+}
+
+const char* codegen_get_for_continue_label(CodegenContext *ctx) {
+    if (ctx->for_continue_depth > 0) {
+        return ctx->for_continue_labels[ctx->for_continue_depth - 1];
     }
     return NULL;
 }

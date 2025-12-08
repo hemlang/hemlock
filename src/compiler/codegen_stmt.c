@@ -155,6 +155,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (stmt->as.for_loop.initializer) {
                 codegen_stmt(ctx, stmt->as.for_loop.initializer);
             }
+            // Create continue label for this for loop (continue jumps here, before increment)
+            char *continue_label = codegen_label(ctx);
+            codegen_push_for_continue(ctx, continue_label);
+
             codegen_writeln(ctx, "while (1) {");
             codegen_indent_inc(ctx);
             // Condition
@@ -166,6 +170,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
             // Body
             codegen_stmt(ctx, stmt->as.for_loop.body);
+            // Continue label - continue jumps here to execute increment
+            codegen_writeln(ctx, "%s:;", continue_label);
             // Increment
             if (stmt->as.for_loop.increment) {
                 char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
@@ -176,6 +182,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "}");
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
+            codegen_pop_for_continue(ctx);
+            free(continue_label);
             ctx->loop_depth--;
             break;
         }
@@ -342,13 +350,27 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             break;
         }
 
-        case STMT_BREAK:
-            codegen_writeln(ctx, "break;");
+        case STMT_BREAK: {
+            // If inside a switch, use goto to exit (so continue still works for loops)
+            const char *switch_end = codegen_get_switch_end_label(ctx);
+            if (switch_end) {
+                codegen_writeln(ctx, "goto %s;", switch_end);
+            } else {
+                codegen_writeln(ctx, "break;");
+            }
             break;
+        }
 
-        case STMT_CONTINUE:
-            codegen_writeln(ctx, "continue;");
+        case STMT_CONTINUE: {
+            // If inside a for loop, use goto to jump to before the increment
+            const char *for_continue = codegen_get_for_continue_label(ctx);
+            if (for_continue) {
+                codegen_writeln(ctx, "goto %s;", for_continue);
+            } else {
+                codegen_writeln(ctx, "continue;");
+            }
             break;
+        }
 
         case STMT_TRY: {
             codegen_writeln(ctx, "{");
@@ -478,13 +500,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_SWITCH: {
-            // Generate switch using do-while(0) pattern so break works correctly
+            // Generate switch with fall-through using goto labels
+            // This matches interpreter behavior where execution continues
+            // from matched case until break is encountered
             char *expr_val = codegen_expr(ctx, stmt->as.switch_stmt.expr);
+            int num_cases = stmt->as.switch_stmt.num_cases;
             int has_default = 0;
             int default_idx = -1;
 
             // Find default case
-            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+            for (int i = 0; i < num_cases; i++) {
                 if (stmt->as.switch_stmt.case_values[i] == NULL) {
                     has_default = 1;
                     default_idx = i;
@@ -492,12 +517,22 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
-            codegen_writeln(ctx, "do {");
+            // Generate unique labels for this switch
+            char **case_labels = malloc(num_cases * sizeof(char*));
+            for (int i = 0; i < num_cases; i++) {
+                case_labels[i] = codegen_label(ctx);
+            }
+            char *end_label = codegen_label(ctx);
+
+            // Track switch context so break generates goto end_label
+            codegen_push_switch(ctx, end_label);
+
+            codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
 
             // Pre-generate all case values to avoid scoping issues
-            char **case_vals = malloc(stmt->as.switch_stmt.num_cases * sizeof(char*));
-            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+            char **case_vals = malloc(num_cases * sizeof(char*));
+            for (int i = 0; i < num_cases; i++) {
                 if (stmt->as.switch_stmt.case_values[i] == NULL) {
                     case_vals[i] = NULL;
                 } else {
@@ -505,39 +540,32 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
-            // Generate case comparisons as if-else chain
-            int first_case = 1;
-            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
-                if (case_vals[i] == NULL) continue;  // Skip default
-
-                if (first_case) {
-                    codegen_writeln(ctx, "if (hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) {", expr_val, case_vals[i]);
-                    first_case = 0;
-                } else {
-                    codegen_writeln(ctx, "} else if (hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) {", expr_val, case_vals[i]);
-                }
-                codegen_indent_inc(ctx);
-                codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[i]);
-                codegen_indent_dec(ctx);
+            // Generate case matching logic - jump to first matching case
+            for (int i = 0; i < num_cases; i++) {
+                if (case_vals[i] == NULL) continue;  // Skip default in matching
+                codegen_writeln(ctx, "if (hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) goto %s;",
+                              expr_val, case_vals[i], case_labels[i]);
             }
 
+            // If no case matched, jump to default or end
             if (has_default) {
-                if (first_case) {
-                    // Only default case exists
-                    codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[default_idx]);
-                } else {
-                    codegen_writeln(ctx, "} else {");
-                    codegen_indent_inc(ctx);
-                    codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[default_idx]);
-                    codegen_indent_dec(ctx);
-                    codegen_writeln(ctx, "}");
-                }
-            } else if (!first_case) {
-                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "goto %s;", case_labels[default_idx]);
+            } else {
+                codegen_writeln(ctx, "goto %s;", end_label);
             }
+
+            // Generate case bodies with labels - fall-through happens naturally
+            for (int i = 0; i < num_cases; i++) {
+                codegen_writeln(ctx, "%s:;", case_labels[i]);
+                codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[i]);
+                // No automatic break - fall through to next case
+            }
+
+            // End label for cleanup
+            codegen_writeln(ctx, "%s:;", end_label);
 
             // Release case values
-            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+            for (int i = 0; i < num_cases; i++) {
                 if (case_vals[i]) {
                     codegen_writeln(ctx, "hml_release(&%s);", case_vals[i]);
                     free(case_vals[i]);
@@ -547,7 +575,17 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             codegen_writeln(ctx, "hml_release(&%s);", expr_val);
             codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} while(0);");
+            codegen_writeln(ctx, "}");
+
+            // Pop switch context
+            codegen_pop_switch(ctx);
+
+            // Free labels
+            for (int i = 0; i < num_cases; i++) {
+                free(case_labels[i]);
+            }
+            free(case_labels);
+            free(end_label);
             free(expr_val);
             break;
         }

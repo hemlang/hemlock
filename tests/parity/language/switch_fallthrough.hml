@@ -1,0 +1,65 @@
+// Test switch fall-through behavior
+// Cases should fall through to subsequent cases unless break is used
+
+fn test_fallthrough(x) {
+    let result = "";
+    switch (x) {
+        case 1:
+            result = result + "one";
+            // No break - should fall through
+        case 2:
+            result = result + "two";
+            // No break - should fall through
+        case 3:
+            result = result + "three";
+            break;
+        case 4:
+            result = result + "four";
+            break;
+        default:
+            result = result + "default";
+            break;
+    }
+    return result;
+}
+
+// Test case 1: Should fall through 1 -> 2 -> 3 then break
+print(test_fallthrough(1));  // Should print: onetwothree
+
+// Test case 2: Should fall through 2 -> 3 then break
+print(test_fallthrough(2));  // Should print: twothree
+
+// Test case 3: Should just print three then break
+print(test_fallthrough(3));  // Should print: three
+
+// Test case 4: Should just print four then break
+print(test_fallthrough(4));  // Should print: four
+
+// Test case 5 (no match): Should print default
+print(test_fallthrough(5));  // Should print: default
+
+// Test default fallthrough
+fn test_default_fallthrough(x) {
+    let result = "";
+    switch (x) {
+        case 1:
+            result = result + "A";
+            break;
+        default:
+            result = result + "D";
+            // No break - should fall through to case 2
+        case 2:
+            result = result + "B";
+            break;
+    }
+    return result;
+}
+
+// Default with fall-through to case 2
+print(test_default_fallthrough(99));  // Should print: DB
+
+// Case 2 directly
+print(test_default_fallthrough(2));   // Should print: B
+
+// Case 1 with break
+print(test_default_fallthrough(1));   // Should print: A

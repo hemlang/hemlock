@@ -42,6 +42,16 @@ const char* codegen_get_finally_label(CodegenContext *ctx);
 const char* codegen_get_return_value_var(CodegenContext *ctx);
 const char* codegen_get_has_return_var(CodegenContext *ctx);
 
+// Switch context tracking (for break -> goto)
+void codegen_push_switch(CodegenContext *ctx, const char *end_label);
+void codegen_pop_switch(CodegenContext *ctx);
+const char* codegen_get_switch_end_label(CodegenContext *ctx);
+
+// For-loop continue tracking (continue -> goto increment label)
+void codegen_push_for_continue(CodegenContext *ctx, const char *continue_label);
+void codegen_pop_for_continue(CodegenContext *ctx);
+const char* codegen_get_for_continue_label(CodegenContext *ctx);
+
 // Main file variable tracking
 void codegen_add_main_var(CodegenContext *ctx, const char *name);
 int codegen_is_main_var(CodegenContext *ctx, const char *name);
