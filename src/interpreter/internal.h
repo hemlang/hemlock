@@ -209,6 +209,12 @@ int64_t value_to_int64(Value val);
 double value_to_float(Value val);
 int value_is_truthy(Value val);
 
+// Fast path macro for boolean truthy check (most common case in loops)
+#define VALUE_IS_TRUTHY_FAST(val) \
+    ((val).type == VAL_BOOL ? (val).as.as_bool : \
+     (val).type == VAL_I32 ? (val).as.as_i32 != 0 : \
+     value_is_truthy(val))
+
 // Type promotion and conversion
 int type_rank(ValueType type);
 ValueType promote_types(ValueType left, ValueType right);

@@ -183,6 +183,36 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value right = eval_expr(expr->as.binary.right, env, ctx);
             Value binary_result = val_null();  // Initialize to avoid undefined behavior
 
+            // FAST PATH: i32 operations (most common case in benchmarks)
+            // No refcounting needed for primitives, skip type promotion
+            if (left.type == VAL_I32 && right.type == VAL_I32) {
+                int32_t l = left.as.as_i32;
+                int32_t r = right.as.as_i32;
+                switch (expr->as.binary.op) {
+                    case OP_ADD: return val_i32(l + r);
+                    case OP_SUB: return val_i32(l - r);
+                    case OP_MUL: return val_i32(l * r);
+                    case OP_DIV:
+                        if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                        return val_i32(l / r);
+                    case OP_MOD:
+                        if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                        return val_i32(l % r);
+                    case OP_LESS: return val_bool(l < r);
+                    case OP_LESS_EQUAL: return val_bool(l <= r);
+                    case OP_GREATER: return val_bool(l > r);
+                    case OP_GREATER_EQUAL: return val_bool(l >= r);
+                    case OP_EQUAL: return val_bool(l == r);
+                    case OP_NOT_EQUAL: return val_bool(l != r);
+                    case OP_BIT_AND: return val_i32(l & r);
+                    case OP_BIT_OR: return val_i32(l | r);
+                    case OP_BIT_XOR: return val_i32(l ^ r);
+                    case OP_BIT_LSHIFT: return val_i32(l << r);
+                    case OP_BIT_RSHIFT: return val_i32(l >> r);
+                    default: break;  // Fall through to generic path
+                }
+            }
+
             // String concatenation
             if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_STRING) {
                 String *result = string_concat(left.as.as_string, right.as.as_string);
@@ -1293,6 +1323,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value object = eval_expr(expr->as.index.object, env, ctx);
             Value index_val = eval_expr(expr->as.index.index, env, ctx);
             Value result = {0};
+
+            // FAST PATH: array[i32] - most common indexing case
+            if (object.type == VAL_ARRAY && index_val.type == VAL_I32) {
+                Array *arr = object.as.as_array;
+                int32_t index = index_val.as.as_i32;
+                if (index >= 0 && index < arr->length) {
+                    result = arr->elements[index];
+                    VALUE_RETAIN(result);
+                    VALUE_RELEASE(object);
+                    return result;
+                }
+                // Fall through to normal path for bounds error
+            }
 
             // Object property access with string key
             if (object.type == VAL_OBJECT && index_val.type == VAL_STRING) {

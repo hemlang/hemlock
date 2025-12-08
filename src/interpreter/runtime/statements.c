@@ -36,7 +36,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         case STMT_IF: {
             Value condition = eval_expr(stmt->as.if_stmt.condition, env, ctx);
 
-            if (value_is_truthy(condition)) {
+            if (VALUE_IS_TRUTHY_FAST(condition)) {
                 VALUE_RELEASE(condition);  // Release condition before branching
                 eval_stmt(stmt->as.if_stmt.then_branch, env, ctx);
             } else if (stmt->as.if_stmt.else_branch != NULL) {
@@ -55,7 +55,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             for (;;) {
                 Value condition = eval_expr(stmt->as.while_stmt.condition, env, ctx);
 
-                if (!value_is_truthy(condition)) {
+                if (!VALUE_IS_TRUTHY_FAST(condition)) {
                     VALUE_RELEASE(condition);  // Release condition before breaking
                     break;
                 }
@@ -110,7 +110,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         VALUE_RELEASE(cond);  // Release condition before breaking
                         break;
                     }
-                    if (!value_is_truthy(cond)) {
+                    if (!VALUE_IS_TRUTHY_FAST(cond)) {
                         VALUE_RELEASE(cond);  // Release condition before breaking
                         break;
                     }

@@ -7,6 +7,16 @@
 
 // ========== ENVIRONMENT ==========
 
+// DJB2 hash function - fast and good distribution for variable names
+static uint32_t hash_string(const char *str) {
+    uint32_t hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+    return hash;
+}
+
 Environment* env_new(Environment *parent) {
     Environment *env = malloc(sizeof(Environment));
     if (!env) {
@@ -36,6 +46,21 @@ Environment* env_new(Environment *parent) {
         free(env);
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
+    }
+    // Initialize hash table (2x capacity for good load factor)
+    env->hash_capacity = 32;
+    env->hash_table = malloc(sizeof(int) * env->hash_capacity);
+    if (!env->hash_table) {
+        free(env->is_const);
+        free(env->values);
+        free(env->names);
+        free(env);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < env->hash_capacity; i++) {
+        env->hash_table[i] = -1;
     }
     env->parent = parent;
     // Retain parent environment if it exists
@@ -207,6 +232,10 @@ void env_clear(Environment *env) {
     }
     // Reset count but keep capacity and allocated arrays
     env->count = 0;
+    // Clear hash table (reset all slots to -1)
+    for (int i = 0; i < env->hash_capacity; i++) {
+        env->hash_table[i] = -1;
+    }
 }
 
 void env_free(Environment *env) {
@@ -218,6 +247,7 @@ void env_free(Environment *env) {
     free(env->names);
     free(env->values);
     free(env->is_const);
+    free(env->hash_table);
 
     // Release parent environment (may trigger cascade of frees)
     Environment *parent = env->parent;
@@ -248,6 +278,24 @@ void env_release(Environment *env) {
     }
 }
 
+// Rehash all entries into the hash table (called after growing)
+static void env_rehash(Environment *env) {
+    // Clear hash table
+    for (int i = 0; i < env->hash_capacity; i++) {
+        env->hash_table[i] = -1;
+    }
+    // Re-insert all entries
+    for (int i = 0; i < env->count; i++) {
+        uint32_t hash = hash_string(env->names[i]);
+        int slot = hash % env->hash_capacity;
+        // Linear probing to find empty slot
+        while (env->hash_table[slot] != -1) {
+            slot = (slot + 1) % env->hash_capacity;
+        }
+        env->hash_table[slot] = i;
+    }
+}
+
 static void env_grow(Environment *env) {
     env->capacity *= 2;
     char **new_names = realloc(env->names, sizeof(char*) * env->capacity);
@@ -270,41 +318,108 @@ static void env_grow(Environment *env) {
         exit(1);
     }
     env->is_const = new_is_const;
+
+    // Grow hash table (keep it at 2x capacity for good load factor)
+    env->hash_capacity = env->capacity * 2;
+    int *new_hash_table = realloc(env->hash_table, sizeof(int) * env->hash_capacity);
+    if (!new_hash_table) {
+        fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
+        exit(1);
+    }
+    env->hash_table = new_hash_table;
+
+    // Rehash all existing entries
+    env_rehash(env);
+}
+
+// O(1) hash table lookup - returns index or -1 if not found
+static int env_lookup(Environment *env, const char *name, uint32_t hash) {
+    int slot = hash % env->hash_capacity;
+    int start_slot = slot;
+
+    while (env->hash_table[slot] != -1) {
+        int idx = env->hash_table[slot];
+        if (strcmp(env->names[idx], name) == 0) {
+            return idx;
+        }
+        slot = (slot + 1) % env->hash_capacity;
+        if (slot == start_slot) break;  // Full loop, not found
+    }
+    return -1;
+}
+
+// Insert into hash table (assumes slot is available)
+static void env_hash_insert(Environment *env, const char *name, int index) {
+    uint32_t hash = hash_string(name);
+    int slot = hash % env->hash_capacity;
+
+    while (env->hash_table[slot] != -1) {
+        slot = (slot + 1) % env->hash_capacity;
+    }
+    env->hash_table[slot] = index;
 }
 
 // Define a new variable (for let/const declarations)
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx) {
-    // Check if variable already exists in current scope
-    for (int i = 0; i < env->count; i++) {
-        if (strcmp(env->names[i], name) == 0) {
-            // Throw exception instead of exiting
-            char error_msg[256];
-            snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
-            ctx->exception_state.exception_value = val_string(error_msg);
-            ctx->exception_state.is_throwing = 1;
-            return;
-        }
+    uint32_t hash = hash_string(name);
+
+    // Check if variable already exists in current scope using hash table
+    int existing = env_lookup(env, name, hash);
+    if (existing >= 0) {
+        // Throw exception instead of exiting
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return;
     }
 
-    // New variable
+    // New variable - grow if needed
     if (env->count >= env->capacity) {
         env_grow(env);
     }
 
-    env->names[env->count] = strdup(name);
+    int index = env->count;
+    env->names[index] = strdup(name);
     VALUE_RETAIN(value);  // Retain the value
-    env->values[env->count] = value;
-    env->is_const[env->count] = is_const;
+    env->values[index] = value;
+    env->is_const[index] = is_const;
     env->count++;
+
+    // Insert into hash table
+    env_hash_insert(env, name, index);
 }
 
 // Set a variable (for reassignment or implicit definition in loops/functions)
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx) {
-    // Check current scope
-    for (int i = 0; i < env->count; i++) {
-        if (strcmp(env->names[i], name) == 0) {
-            // Check if variable is const
-            if (env->is_const[i]) {
+    uint32_t hash = hash_string(name);
+
+    // Check current scope using hash table
+    int idx = env_lookup(env, name, hash);
+    if (idx >= 0) {
+        // Check if variable is const
+        if (env->is_const[idx]) {
+            // Throw exception instead of exiting
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
+            ctx->exception_state.exception_value = val_string(error_msg);
+            ctx->exception_state.is_throwing = 1;
+            return;
+        }
+        // Release old value, retain new value
+        VALUE_RELEASE(env->values[idx]);
+        VALUE_RETAIN(value);
+        env->values[idx] = value;
+        return;
+    }
+
+    // Check parent scopes using hash table
+    Environment *search_env = env->parent;
+    while (search_env != NULL) {
+        int pidx = env_lookup(search_env, name, hash);
+        if (pidx >= 0) {
+            // Found in parent scope - check if const
+            if (search_env->is_const[pidx]) {
                 // Throw exception instead of exiting
                 char error_msg[256];
                 snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
@@ -313,39 +428,13 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
                 return;
             }
             // Release old value, retain new value
-            VALUE_RELEASE(env->values[i]);
+            VALUE_RELEASE(search_env->values[pidx]);
             VALUE_RETAIN(value);
-            env->values[i] = value;
+            // Update parent scope variable
+            search_env->values[pidx] = value;
             return;
         }
-    }
-
-    // Check parent scope
-    if (env->parent != NULL) {
-        // Look for variable in parent scopes
-        Environment *search_env = env->parent;
-        while (search_env != NULL) {
-            for (int i = 0; i < search_env->count; i++) {
-                if (strcmp(search_env->names[i], name) == 0) {
-                    // Found in parent scope - check if const
-                    if (search_env->is_const[i]) {
-                        // Throw exception instead of exiting
-                        char error_msg[256];
-                        snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
-                        ctx->exception_state.exception_value = val_string(error_msg);
-                        ctx->exception_state.is_throwing = 1;
-                        return;
-                    }
-                    // Release old value, retain new value
-                    VALUE_RELEASE(search_env->values[i]);
-                    VALUE_RETAIN(value);
-                    // Update parent scope variable
-                    search_env->values[i] = value;
-                    return;
-                }
-            }
-            search_env = search_env->parent;
-        }
+        search_env = search_env->parent;
     }
 
     // Variable not found anywhere - create new mutable variable in current scope
@@ -354,26 +443,30 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
         env_grow(env);
     }
 
-    env->names[env->count] = strdup(name);
+    int index = env->count;
+    env->names[index] = strdup(name);
     VALUE_RETAIN(value);  // Retain the value
-    env->values[env->count] = value;
-    env->is_const[env->count] = 0;  // Always mutable for implicit variables
+    env->values[index] = value;
+    env->is_const[index] = 0;  // Always mutable for implicit variables
     env->count++;
+
+    // Insert into hash table
+    env_hash_insert(env, name, index);
 }
 
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
-    // Search current scope
-    for (int i = 0; i < env->count; i++) {
-        if (strcmp(env->names[i], name) == 0) {
-            Value val = env->values[i];
+    uint32_t hash = hash_string(name);
+
+    // Search current and parent scopes using hash table
+    Environment *search_env = env;
+    while (search_env != NULL) {
+        int idx = env_lookup(search_env, name, hash);
+        if (idx >= 0) {
+            Value val = search_env->values[idx];
             VALUE_RETAIN(val);  // Retain for the caller (caller now owns a reference)
             return val;
         }
-    }
-
-    // Search parent scope
-    if (env->parent != NULL) {
-        return env_get(env->parent, name, ctx);  // Recursive call will retain
+        search_env = search_env->parent;
     }
 
     // Variable not found - throw exception instead of exiting

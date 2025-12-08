@@ -220,6 +220,9 @@ typedef struct Environment {
     int capacity;
     int ref_count;  // Reference count for memory management
     struct Environment *parent;  // for nested scopes later
+    // Hash table for O(1) variable lookup (linear probing)
+    int *hash_table;     // Array of variable indices, -1 = empty slot
+    int hash_capacity;   // Size of hash table (usually 2x capacity)
 } Environment;
 
 // Public interface
