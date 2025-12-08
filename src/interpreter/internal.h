@@ -97,6 +97,7 @@ extern EnumTypeRegistry enum_types;
 
 Environment* env_new(Environment *parent);
 void env_free(Environment *env);
+void env_clear(Environment *env);  // Clear variables without deallocating (for loop reuse)
 void env_retain(Environment *env);
 void env_release(Environment *env);
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
@@ -156,6 +157,7 @@ Value val_array(Array *arr);
 Object* object_new(char *type_name, int initial_capacity);
 void object_free(Object *obj);
 Value val_object(Object *obj);
+int object_lookup_field(Object *obj, const char *name);  // O(1) field lookup using hash table
 
 // Function operations
 void function_free(Function *fn);

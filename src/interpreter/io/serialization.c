@@ -358,6 +358,8 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         obj->type_name = NULL;
         obj->ref_count = 1;  // Start with 1 - caller owns the first reference
         atomic_store(&obj->freed, 0);  // Not freed
+        obj->hash_table = NULL;  // No hash table for empty objects
+        obj->hash_capacity = 0;
         return val_object(obj);
     }
 
@@ -447,6 +449,8 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     obj->type_name = NULL;
     obj->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&obj->freed, 0);  // Not freed
+    obj->hash_table = NULL;  // No hash table - use linear search fallback
+    obj->hash_capacity = 0;
     return val_object(obj);
 }
 

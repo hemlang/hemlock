@@ -495,6 +495,108 @@ void function_release(Function *fn) {
     }
 }
 
+// DJB2 hash function for strings (fast and good distribution)
+static uint32_t djb2_hash(const char *str) {
+    uint32_t hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+    return hash;
+}
+
+// Initialize hash table for an object with given capacity
+static void object_hash_init(Object *obj, int hash_capacity) {
+    obj->hash_capacity = hash_capacity;
+    obj->hash_table = malloc(sizeof(int) * hash_capacity);
+    if (!obj->hash_table) {
+        fprintf(stderr, "Runtime error: Memory allocation failed for hash table\n");
+        exit(1);
+    }
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < hash_capacity; i++) {
+        obj->hash_table[i] = -1;
+    }
+}
+
+// Rebuild hash table (called when fields are added and hash table needs rehashing)
+static void object_hash_rebuild(Object *obj) {
+    // Use 2x num_fields as hash table size for good performance
+    int new_capacity = obj->num_fields < 4 ? 8 : obj->num_fields * 2;
+
+    free(obj->hash_table);
+    obj->hash_capacity = new_capacity;
+    obj->hash_table = malloc(sizeof(int) * new_capacity);
+    if (!obj->hash_table) {
+        fprintf(stderr, "Runtime error: Memory allocation failed for hash table\n");
+        exit(1);
+    }
+
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < new_capacity; i++) {
+        obj->hash_table[i] = -1;
+    }
+
+    // Rehash all existing fields
+    for (int i = 0; i < obj->num_fields; i++) {
+        uint32_t hash = djb2_hash(obj->field_names[i]);
+        int slot = hash % new_capacity;
+
+        // Linear probing to find empty slot
+        while (obj->hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        obj->hash_table[slot] = i;
+    }
+}
+
+// Look up field index by name, returns -1 if not found
+int object_lookup_field(Object *obj, const char *name) {
+    // Lazy hash table creation: if no hash table and we have fields, build it
+    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
+        object_hash_rebuild(obj);
+    }
+
+    if (!obj->hash_table || obj->hash_capacity == 0) {
+        // Still no hash table (empty object) - return not found
+        return -1;
+    }
+
+    uint32_t hash = djb2_hash(name);
+    int slot = hash % obj->hash_capacity;
+    int start_slot = slot;
+
+    // Linear probing
+    while (obj->hash_table[slot] != -1) {
+        int idx = obj->hash_table[slot];
+        if (strcmp(obj->field_names[idx], name) == 0) {
+            return idx;  // Found
+        }
+        slot = (slot + 1) % obj->hash_capacity;
+        if (slot == start_slot) {
+            break;  // Full circle, not found
+        }
+    }
+    return -1;  // Not found
+}
+
+// Add a field to object's hash table (called when field is added)
+static void object_hash_add(Object *obj, const char *name, int field_index) {
+    // Check if we need to rebuild (load factor > 0.7)
+    if (obj->num_fields * 10 > obj->hash_capacity * 7) {
+        object_hash_rebuild(obj);
+    }
+
+    uint32_t hash = djb2_hash(name);
+    int slot = hash % obj->hash_capacity;
+
+    // Linear probing to find empty slot
+    while (obj->hash_table[slot] != -1) {
+        slot = (slot + 1) % obj->hash_capacity;
+    }
+    obj->hash_table[slot] = field_index;
+}
+
 Object* object_new(char *type_name, int initial_capacity) {
     Object *obj = malloc(sizeof(Object));
     if (!obj) {
@@ -519,6 +621,11 @@ Object* object_new(char *type_name, int initial_capacity) {
     obj->capacity = initial_capacity;
     obj->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&obj->freed, 0);  // Not freed
+
+    // Hash table is built lazily on first lookup for efficiency
+    obj->hash_table = NULL;
+    obj->hash_capacity = 0;
+
     return obj;
 }
 
@@ -1217,6 +1324,8 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
     }
     free(obj->field_names);
     free(obj->field_values);
+    // Free hash table
+    if (obj->hash_table) free(obj->hash_table);
     free(obj);
 }
 

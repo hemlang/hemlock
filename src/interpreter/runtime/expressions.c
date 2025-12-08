@@ -939,12 +939,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         // Check if object has a user-defined function with this name
                         Object *obj = method_self.as.as_object;
                         int has_user_method = 0;
-                        for (int i = 0; i < obj->num_fields; i++) {
-                            if (strcmp(obj->field_names[i], method) == 0 &&
-                                obj->field_values[i].type == VAL_FUNCTION) {
-                                has_user_method = 1;
-                                break;
-                            }
+                        int method_idx = object_lookup_field(obj, method);
+                        if (method_idx >= 0 && obj->field_values[method_idx].type == VAL_FUNCTION) {
+                            has_user_method = 1;
                         }
 
                         // Only use built-in if no user-defined method exists
@@ -982,16 +979,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Get the method from the object directly
                 const char *method_name = expr->as.call.func->as.get_property.property;
                 Object *obj = method_self.as.as_object;
-                int found = 0;
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], method_name) == 0) {
-                        func = obj->field_values[i];
-                        VALUE_RETAIN(func);
-                        found = 1;
-                        break;
-                    }
-                }
-                if (!found) {
+                int method_idx = object_lookup_field(obj, method_name);
+                if (method_idx >= 0) {
+                    func = obj->field_values[method_idx];
+                    VALUE_RETAIN(func);
+                } else {
                     runtime_error(ctx, "Object has no method '%s'", method_name);
                     VALUE_RELEASE(method_self);
                     return val_null();
@@ -1246,17 +1238,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     runtime_error(ctx, "Array has no property '%s'", property);
                 }
             } else if (object.type == VAL_OBJECT) {
-                // Look up field in object
+                // Look up field in object using hash table
                 Object *obj = object.as.as_object;
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], property) == 0) {
-                        result = obj->field_values[i];
-                        // Retain the field value so it survives object release
-                        VALUE_RETAIN(result);
+                int idx = object_lookup_field(obj, property);
+                if (idx >= 0) {
+                    result = obj->field_values[idx];
+                    // Retain the field value so it survives object release
+                    VALUE_RETAIN(result);
 
-                        // If the result is a function, bind 'self' to the object
-                        // This enables method references like spawn(obj.method, ...)
-                        if (result.type == VAL_FUNCTION) {
+                    // If the result is a function, bind 'self' to the object
+                    // This enables method references like spawn(obj.method, ...)
+                    if (result.type == VAL_FUNCTION) {
                             Function *orig_fn = result.as.as_function;
 
                             // Create a new environment with 'self' bound
@@ -1284,9 +1276,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             return val_function(bound_fn);
                         }
 
-                        VALUE_RELEASE(object);
-                        return result;
-                    }
+                    VALUE_RELEASE(object);
+                    return result;
                 }
                 runtime_error(ctx, "Object has no field '%s'", property);
             } else {
@@ -1308,15 +1299,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Object *obj = object.as.as_object;
                 const char *key = index_val.as.as_string->data;
 
-                // Look up field by key
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], key) == 0) {
-                        result = obj->field_values[i];
-                        VALUE_RETAIN(result);
-                        VALUE_RELEASE(object);
-                        VALUE_RELEASE(index_val);
-                        return result;
-                    }
+                // Look up field by key using hash table
+                int idx = object_lookup_field(obj, key);
+                if (idx >= 0) {
+                    result = obj->field_values[idx];
+                    VALUE_RETAIN(result);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return result;
                 }
 
                 // Field not found, return null
@@ -1386,20 +1376,24 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Object *obj = object.as.as_object;
                 const char *key = index_val.as.as_string->data;
 
-                // Look for existing field
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], key) == 0) {
-                        // Update existing field
-                        VALUE_RELEASE(obj->field_values[i]);
-                        obj->field_values[i] = value;
-                        VALUE_RETAIN(value);
-                        VALUE_RELEASE(object);
-                        VALUE_RELEASE(index_val);
-                        return value;
-                    }
+                // Look for existing field using hash table
+                int idx = object_lookup_field(obj, key);
+                if (idx >= 0) {
+                    // Update existing field
+                    VALUE_RELEASE(obj->field_values[idx]);
+                    obj->field_values[idx] = value;
+                    VALUE_RETAIN(value);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return value;
                 }
 
-                // Add new field
+                // Add new field - invalidate hash table (will fall back to linear search)
+                if (obj->hash_table) {
+                    free(obj->hash_table);
+                    obj->hash_table = NULL;
+                    obj->hash_capacity = 0;
+                }
                 obj->num_fields++;
                 obj->field_names = realloc(obj->field_names, obj->num_fields * sizeof(char *));
                 obj->field_values = realloc(obj->field_values, obj->num_fields * sizeof(Value));
@@ -1586,21 +1580,27 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             Object *obj = object.as.as_object;
 
-            // Look for existing field
-            for (int i = 0; i < obj->num_fields; i++) {
-                if (strcmp(obj->field_names[i], property) == 0) {
-                    // Release old value, store new value (object now owns it)
-                    VALUE_RELEASE(obj->field_values[i]);
-                    obj->field_values[i] = value;
-                    // eval_expr gave us ownership, object now owns the value
-                    // Return the value (retained for caller)
-                    VALUE_RETAIN(value);
-                    VALUE_RELEASE(object);
-                    return value;
-                }
+            // Look for existing field using hash table
+            int idx = object_lookup_field(obj, property);
+            if (idx >= 0) {
+                // Release old value, store new value (object now owns it)
+                VALUE_RELEASE(obj->field_values[idx]);
+                obj->field_values[idx] = value;
+                // eval_expr gave us ownership, object now owns the value
+                // Return the value (retained for caller)
+                VALUE_RETAIN(value);
+                VALUE_RELEASE(object);
+                return value;
             }
 
             // Field doesn't exist - add it dynamically!
+            // Invalidate hash table (will be rebuilt on next lookup)
+            if (obj->hash_table) {
+                free(obj->hash_table);
+                obj->hash_table = NULL;
+                obj->hash_capacity = 0;
+            }
+
             if (obj->num_fields >= obj->capacity) {
                 // Grow arrays (handle capacity=0 case)
                 obj->capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;

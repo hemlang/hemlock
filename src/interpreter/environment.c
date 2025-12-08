@@ -198,6 +198,17 @@ void env_break_cycles(Environment *env) {
     // The set will be cleared by the caller after env_release()
 }
 
+// Clear all variables from environment without deallocating (for loop reuse)
+void env_clear(Environment *env) {
+    // Release all values and free names
+    for (int i = 0; i < env->count; i++) {
+        free(env->names[i]);
+        VALUE_RELEASE(env->values[i]);
+    }
+    // Reset count but keep capacity and allocated arrays
+    env->count = 0;
+}
+
 void env_free(Environment *env) {
     // Free all variable names and release values
     for (int i = 0; i < env->count; i++) {
