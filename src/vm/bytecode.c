@@ -8,111 +8,111 @@
 // Opcode names for debugging/disassembly
 const char *opcode_names[] = {
     // Load/Store
-    [OP_LOAD_CONST]     = "LOAD_CONST",
-    [OP_LOAD_NULL]      = "LOAD_NULL",
-    [OP_LOAD_TRUE]      = "LOAD_TRUE",
-    [OP_LOAD_FALSE]     = "LOAD_FALSE",
-    [OP_MOVE]           = "MOVE",
-    [OP_LOAD_LOCAL]     = "LOAD_LOCAL",
-    [OP_STORE_LOCAL]    = "STORE_LOCAL",
-    [OP_LOAD_UPVALUE]   = "LOAD_UPVALUE",
-    [OP_STORE_UPVALUE]  = "STORE_UPVALUE",
-    [OP_LOAD_GLOBAL]    = "LOAD_GLOBAL",
-    [OP_STORE_GLOBAL]   = "STORE_GLOBAL",
+    [BC_LOAD_CONST]     = "LOAD_CONST",
+    [BC_LOAD_NULL]      = "LOAD_NULL",
+    [BC_LOAD_TRUE]      = "LOAD_TRUE",
+    [BC_LOAD_FALSE]     = "LOAD_FALSE",
+    [BC_MOVE]           = "MOVE",
+    [BC_LOAD_LOCAL]     = "LOAD_LOCAL",
+    [BC_STORE_LOCAL]    = "STORE_LOCAL",
+    [BC_LOAD_UPVALUE]   = "LOAD_UPVALUE",
+    [BC_STORE_UPVALUE]  = "STORE_UPVALUE",
+    [BC_LOAD_GLOBAL]    = "LOAD_GLOBAL",
+    [BC_STORE_GLOBAL]   = "STORE_GLOBAL",
 
     // Arithmetic
-    [OP_ADD]            = "ADD",
-    [OP_SUB]            = "SUB",
-    [OP_MUL]            = "MUL",
-    [OP_DIV]            = "DIV",
-    [OP_MOD]            = "MOD",
-    [OP_POW]            = "POW",
-    [OP_NEG]            = "NEG",
+    [BC_ADD]            = "ADD",
+    [BC_SUB]            = "SUB",
+    [BC_MUL]            = "MUL",
+    [BC_DIV]            = "DIV",
+    [BC_MOD]            = "MOD",
+    [BC_POW]            = "POW",
+    [BC_NEG]            = "NEG",
 
     // Bitwise
-    [OP_BAND]           = "BAND",
-    [OP_BOR]            = "BOR",
-    [OP_BXOR]           = "BXOR",
-    [OP_BNOT]           = "BNOT",
-    [OP_SHL]            = "SHL",
-    [OP_SHR]            = "SHR",
+    [BC_BAND]           = "BAND",
+    [BC_BOR]            = "BOR",
+    [BC_BXOR]           = "BXOR",
+    [BC_BNOT]           = "BNOT",
+    [BC_SHL]            = "SHL",
+    [BC_SHR]            = "SHR",
 
     // Comparison
-    [OP_EQ]             = "EQ",
-    [OP_NE]             = "NE",
-    [OP_LT]             = "LT",
-    [OP_LE]             = "LE",
-    [OP_GT]             = "GT",
-    [OP_GE]             = "GE",
+    [BC_EQ]             = "EQ",
+    [BC_NE]             = "NE",
+    [BC_LT]             = "LT",
+    [BC_LE]             = "LE",
+    [BC_GT]             = "GT",
+    [BC_GE]             = "GE",
 
     // Logical
-    [OP_NOT]            = "NOT",
+    [BC_NOT]            = "NOT",
 
     // Control flow
-    [OP_JMP]            = "JMP",
-    [OP_JMP_IF_FALSE]   = "JMP_IF_FALSE",
-    [OP_JMP_IF_TRUE]    = "JMP_IF_TRUE",
-    [OP_LOOP]           = "LOOP",
+    [BC_JMP]            = "JMP",
+    [BC_JMP_IF_FALSE]   = "JMP_IF_FALSE",
+    [BC_JMP_IF_TRUE]    = "JMP_IF_TRUE",
+    [BC_LOOP]           = "LOOP",
 
     // Functions
-    [OP_CALL]           = "CALL",
-    [OP_RETURN]         = "RETURN",
-    [OP_CLOSURE]        = "CLOSURE",
-    [OP_TAILCALL]       = "TAILCALL",
+    [BC_CALL]           = "CALL",
+    [BC_RETURN]         = "RETURN",
+    [BC_CLOSURE]        = "CLOSURE",
+    [BC_TAILCALL]       = "TAILCALL",
 
     // Objects/Arrays
-    [OP_NEW_ARRAY]      = "NEW_ARRAY",
-    [OP_NEW_OBJECT]     = "NEW_OBJECT",
-    [OP_GET_INDEX]      = "GET_INDEX",
-    [OP_SET_INDEX]      = "SET_INDEX",
-    [OP_GET_FIELD]      = "GET_FIELD",
-    [OP_SET_FIELD]      = "SET_FIELD",
-    [OP_GET_FIELD_CHAIN] = "GET_FIELD_CHAIN",
+    [BC_NEW_ARRAY]      = "NEW_ARRAY",
+    [BC_NEW_OBJECT]     = "NEW_OBJECT",
+    [BC_GET_INDEX]      = "GET_INDEX",
+    [BC_SET_INDEX]      = "SET_INDEX",
+    [BC_GET_FIELD]      = "GET_FIELD",
+    [BC_SET_FIELD]      = "SET_FIELD",
+    [BC_GET_FIELD_CHAIN] = "GET_FIELD_CHAIN",
 
     // Type operations
-    [OP_TYPEOF]         = "TYPEOF",
-    [OP_CAST]           = "CAST",
-    [OP_INSTANCEOF]     = "INSTANCEOF",
+    [BC_TYPEOF]         = "TYPEOF",
+    [BC_CAST]           = "CAST",
+    [BC_INSTANCEOF]     = "INSTANCEOF",
 
     // Async
-    [OP_SPAWN]          = "SPAWN",
-    [OP_AWAIT]          = "AWAIT",
-    [OP_YIELD]          = "YIELD",
+    [BC_SPAWN]          = "SPAWN",
+    [BC_AWAIT]          = "AWAIT",
+    [BC_YIELD]          = "YIELD",
 
     // Exception handling
-    [OP_THROW]          = "THROW",
-    [OP_TRY_BEGIN]      = "TRY_BEGIN",
-    [OP_TRY_END]        = "TRY_END",
-    [OP_CATCH]          = "CATCH",
+    [BC_THROW]          = "THROW",
+    [BC_TRY_BEGIN]      = "TRY_BEGIN",
+    [BC_TRY_END]        = "TRY_END",
+    [BC_CATCH]          = "CATCH",
 
     // Defer
-    [OP_DEFER_PUSH]     = "DEFER_PUSH",
-    [OP_DEFER_POP]      = "DEFER_POP",
-    [OP_DEFER_EXEC_ALL] = "DEFER_EXEC_ALL",
+    [BC_DEFER_PUSH]     = "DEFER_PUSH",
+    [BC_DEFER_POP]      = "DEFER_POP",
+    [BC_DEFER_EXEC_ALL] = "DEFER_EXEC_ALL",
 
     // Increment/Decrement
-    [OP_INC]            = "INC",
-    [OP_DEC]            = "DEC",
+    [BC_INC]            = "INC",
+    [BC_DEC]            = "DEC",
 
     // String
-    [OP_CONCAT]         = "CONCAT",
+    [BC_CONCAT]         = "CONCAT",
 
     // Misc
-    [OP_NOP]            = "NOP",
-    [OP_PANIC]          = "PANIC",
-    [OP_ASSERT]         = "ASSERT",
-    [OP_PRINT]          = "PRINT",
+    [BC_NOP]            = "NOP",
+    [BC_PANIC]          = "PANIC",
+    [BC_ASSERT]         = "ASSERT",
+    [BC_PRINT]          = "PRINT",
 
     // Module
-    [OP_IMPORT]         = "IMPORT",
-    [OP_EXPORT]         = "EXPORT",
+    [BC_IMPORT]         = "IMPORT",
+    [BC_EXPORT]         = "EXPORT",
 
     // Builtin
-    [OP_CALL_BUILTIN]   = "CALL_BUILTIN",
+    [BC_CALL_BUILTIN]   = "CALL_BUILTIN",
 };
 
 const char* opcode_name(Opcode op) {
-    if (op >= 0 && op < OP_COUNT) {
+    if (op >= 0 && op < BC_COUNT) {
         return opcode_names[op];
     }
     return "UNKNOWN";
@@ -122,93 +122,93 @@ const char* opcode_name(Opcode op) {
 InstrFormat opcode_format(Opcode op) {
     switch (op) {
         // ABC format (3 registers)
-        case OP_ADD:
-        case OP_SUB:
-        case OP_MUL:
-        case OP_DIV:
-        case OP_MOD:
-        case OP_POW:
-        case OP_BAND:
-        case OP_BOR:
-        case OP_BXOR:
-        case OP_SHL:
-        case OP_SHR:
-        case OP_EQ:
-        case OP_NE:
-        case OP_LT:
-        case OP_LE:
-        case OP_GT:
-        case OP_GE:
-        case OP_CALL:
-        case OP_TAILCALL:
-        case OP_GET_INDEX:
-        case OP_SET_INDEX:
-        case OP_GET_FIELD:
-        case OP_SET_FIELD:
-        case OP_GET_FIELD_CHAIN:
-        case OP_CAST:
-        case OP_INSTANCEOF:
-        case OP_SPAWN:
-        case OP_CALL_BUILTIN:
+        case BC_ADD:
+        case BC_SUB:
+        case BC_MUL:
+        case BC_DIV:
+        case BC_MOD:
+        case BC_POW:
+        case BC_BAND:
+        case BC_BOR:
+        case BC_BXOR:
+        case BC_SHL:
+        case BC_SHR:
+        case BC_EQ:
+        case BC_NE:
+        case BC_LT:
+        case BC_LE:
+        case BC_GT:
+        case BC_GE:
+        case BC_CALL:
+        case BC_TAILCALL:
+        case BC_GET_INDEX:
+        case BC_SET_INDEX:
+        case BC_GET_FIELD:
+        case BC_SET_FIELD:
+        case BC_GET_FIELD_CHAIN:
+        case BC_CAST:
+        case BC_INSTANCEOF:
+        case BC_SPAWN:
+        case BC_CALL_BUILTIN:
             return FMT_ABC;
 
         // AB format (2 registers)
-        case OP_MOVE:
-        case OP_NEG:
-        case OP_BNOT:
-        case OP_NOT:
-        case OP_RETURN:
-        case OP_NEW_ARRAY:
-        case OP_NEW_OBJECT:
-        case OP_TYPEOF:
-        case OP_AWAIT:
-        case OP_ASSERT:
-        case OP_CONCAT:
+        case BC_MOVE:
+        case BC_NEG:
+        case BC_BNOT:
+        case BC_NOT:
+        case BC_RETURN:
+        case BC_NEW_ARRAY:
+        case BC_NEW_OBJECT:
+        case BC_TYPEOF:
+        case BC_AWAIT:
+        case BC_ASSERT:
+        case BC_CONCAT:
             return FMT_AB;
 
         // A format (1 register)
-        case OP_LOAD_NULL:
-        case OP_LOAD_TRUE:
-        case OP_LOAD_FALSE:
-        case OP_THROW:
-        case OP_CATCH:
-        case OP_DEFER_PUSH:
-        case OP_INC:
-        case OP_DEC:
-        case OP_PANIC:
-        case OP_PRINT:
-        case OP_YIELD:
+        case BC_LOAD_NULL:
+        case BC_LOAD_TRUE:
+        case BC_LOAD_FALSE:
+        case BC_THROW:
+        case BC_CATCH:
+        case BC_DEFER_PUSH:
+        case BC_INC:
+        case BC_DEC:
+        case BC_PANIC:
+        case BC_PRINT:
+        case BC_YIELD:
             return FMT_A;
 
         // ABx format (register + 16-bit unsigned)
-        case OP_LOAD_CONST:
-        case OP_LOAD_LOCAL:
-        case OP_STORE_LOCAL:
-        case OP_LOAD_UPVALUE:
-        case OP_STORE_UPVALUE:
-        case OP_LOAD_GLOBAL:
-        case OP_STORE_GLOBAL:
-        case OP_CLOSURE:
-        case OP_IMPORT:
-        case OP_EXPORT:
+        case BC_LOAD_CONST:
+        case BC_LOAD_LOCAL:
+        case BC_STORE_LOCAL:
+        case BC_LOAD_UPVALUE:
+        case BC_STORE_UPVALUE:
+        case BC_LOAD_GLOBAL:
+        case BC_STORE_GLOBAL:
+        case BC_CLOSURE:
+        case BC_IMPORT:
+        case BC_EXPORT:
             return FMT_ABx;
 
         // AsBx format (register + 16-bit signed)
-        case OP_JMP_IF_FALSE:
-        case OP_JMP_IF_TRUE:
-        case OP_TRY_BEGIN:
+        case BC_JMP_IF_FALSE:
+        case BC_JMP_IF_TRUE:
+        case BC_TRY_BEGIN:
             return FMT_AsBx;
 
         // sAx format (24-bit signed)
-        case OP_JMP:
-        case OP_LOOP:
+        case BC_JMP:
+        case BC_LOOP:
             return FMT_sAx;
 
         // No operands
-        case OP_TRY_END:
-        case OP_DEFER_POP:
-        case OP_DEFER_EXEC_ALL:
-        case OP_NOP:
+        case BC_TRY_END:
+        case BC_DEFER_POP:
+        case BC_DEFER_EXEC_ALL:
+        case BC_NOP:
             return FMT_NONE;
 
         default:

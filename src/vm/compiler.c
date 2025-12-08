@@ -273,7 +273,7 @@ static void compile_block(Compiler *compiler, Stmt **statements, int count);
 // Compile expression into dest_reg
 void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
     if (!expr) {
-        emit_abx(compiler, OP_LOAD_NULL, dest_reg, 0);
+        emit_abx(compiler, BC_LOAD_NULL, dest_reg, 0);
         return;
     }
 
@@ -292,33 +292,33 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
                     const_idx = chunk_add_constant_i64(compiler->chunk, val);
                 }
             }
-            emit_abx(compiler, OP_LOAD_CONST, dest_reg, const_idx);
+            emit_abx(compiler, BC_LOAD_CONST, dest_reg, const_idx);
             break;
         }
 
         case EXPR_BOOL:
             if (expr->as.boolean) {
-                emit_abx(compiler, OP_LOAD_TRUE, dest_reg, 0);
+                emit_abx(compiler, BC_LOAD_TRUE, dest_reg, 0);
             } else {
-                emit_abx(compiler, OP_LOAD_FALSE, dest_reg, 0);
+                emit_abx(compiler, BC_LOAD_FALSE, dest_reg, 0);
             }
             break;
 
         case EXPR_STRING: {
             int len = strlen(expr->as.string);
             int const_idx = chunk_add_constant_string(compiler->chunk, expr->as.string, len);
-            emit_abx(compiler, OP_LOAD_CONST, dest_reg, const_idx);
+            emit_abx(compiler, BC_LOAD_CONST, dest_reg, const_idx);
             break;
         }
 
         case EXPR_RUNE: {
             int const_idx = chunk_add_constant_rune(compiler->chunk, expr->as.rune);
-            emit_abx(compiler, OP_LOAD_CONST, dest_reg, const_idx);
+            emit_abx(compiler, BC_LOAD_CONST, dest_reg, const_idx);
             break;
         }
 
         case EXPR_NULL:
-            emit_abx(compiler, OP_LOAD_NULL, dest_reg, 0);
+            emit_abx(compiler, BC_LOAD_NULL, dest_reg, 0);
             break;
 
         case EXPR_IDENT: {
@@ -328,20 +328,20 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             int local = compiler_resolve_local(compiler, name);
             if (local != -1) {
                 // Local is stored in a register - move to dest
-                emit_abc(compiler, OP_MOVE, dest_reg, local, 0);
+                emit_abc(compiler, BC_MOVE, dest_reg, local, 0);
                 break;
             }
 
             // Try upvalue
             int upvalue = compiler_resolve_upvalue(compiler, name);
             if (upvalue != -1) {
-                emit_abx(compiler, OP_LOAD_UPVALUE, dest_reg, upvalue);
+                emit_abx(compiler, BC_LOAD_UPVALUE, dest_reg, upvalue);
                 break;
             }
 
             // Must be global
             int name_idx = chunk_add_constant_string(compiler->chunk, name, strlen(name));
-            emit_abx(compiler, OP_LOAD_GLOBAL, dest_reg, name_idx);
+            emit_abx(compiler, BC_LOAD_GLOBAL, dest_reg, name_idx);
             break;
         }
 
@@ -351,14 +351,14 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             // Short-circuit for && and ||
             if (op == OP_AND) {
                 compile_expression(compiler, expr->as.binary.left, dest_reg);
-                int jump = emit_jump_cond(compiler, OP_JMP_IF_FALSE, dest_reg);
+                int jump = emit_jump_cond(compiler, BC_JMP_IF_FALSE, dest_reg);
                 compile_expression(compiler, expr->as.binary.right, dest_reg);
                 patch_jump(compiler, jump);
                 break;
             }
             if (op == OP_OR) {
                 compile_expression(compiler, expr->as.binary.left, dest_reg);
-                int jump = emit_jump_cond(compiler, OP_JMP_IF_TRUE, dest_reg);
+                int jump = emit_jump_cond(compiler, BC_JMP_IF_TRUE, dest_reg);
                 compile_expression(compiler, expr->as.binary.right, dest_reg);
                 patch_jump(compiler, jump);
                 break;
@@ -374,25 +374,25 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
             Opcode bytecode_op;
             switch (op) {
-                case OP_ADD:           bytecode_op = OP_ADD; break;
-                case OP_SUB:           bytecode_op = OP_SUB; break;
-                case OP_MUL:           bytecode_op = OP_MUL; break;
-                case OP_DIV:           bytecode_op = OP_DIV; break;
-                case OP_MOD:           bytecode_op = OP_MOD; break;
-                case OP_EQUAL:         bytecode_op = OP_EQ; break;
-                case OP_NOT_EQUAL:     bytecode_op = OP_NE; break;
-                case OP_LESS:          bytecode_op = OP_LT; break;
-                case OP_LESS_EQUAL:    bytecode_op = OP_LE; break;
-                case OP_GREATER:       bytecode_op = OP_GT; break;
-                case OP_GREATER_EQUAL: bytecode_op = OP_GE; break;
-                case OP_BIT_AND:       bytecode_op = OP_BAND; break;
-                case OP_BIT_OR:        bytecode_op = OP_BOR; break;
-                case OP_BIT_XOR:       bytecode_op = OP_BXOR; break;
-                case OP_BIT_LSHIFT:    bytecode_op = OP_SHL; break;
-                case OP_BIT_RSHIFT:    bytecode_op = OP_SHR; break;
+                case OP_ADD:           bytecode_op = BC_ADD; break;
+                case OP_SUB:           bytecode_op = BC_SUB; break;
+                case OP_MUL:           bytecode_op = BC_MUL; break;
+                case OP_DIV:           bytecode_op = BC_DIV; break;
+                case OP_MOD:           bytecode_op = BC_MOD; break;
+                case OP_EQUAL:         bytecode_op = BC_EQ; break;
+                case OP_NOT_EQUAL:     bytecode_op = BC_NE; break;
+                case OP_LESS:          bytecode_op = BC_LT; break;
+                case OP_LESS_EQUAL:    bytecode_op = BC_LE; break;
+                case OP_GREATER:       bytecode_op = BC_GT; break;
+                case OP_GREATER_EQUAL: bytecode_op = BC_GE; break;
+                case OP_BIT_AND:       bytecode_op = BC_BAND; break;
+                case OP_BIT_OR:        bytecode_op = BC_BOR; break;
+                case OP_BIT_XOR:       bytecode_op = BC_BXOR; break;
+                case OP_BIT_LSHIFT:    bytecode_op = BC_SHL; break;
+                case OP_BIT_RSHIFT:    bytecode_op = BC_SHR; break;
                 default:
                     compiler_error(compiler, "Unknown binary operator");
-                    bytecode_op = OP_ADD;
+                    bytecode_op = BC_ADD;
             }
 
             emit_abc(compiler, bytecode_op, dest_reg, left_reg, right_reg);
@@ -405,13 +405,13 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
             switch (expr->as.unary.op) {
                 case UNARY_NOT:
-                    emit_abc(compiler, OP_NOT, dest_reg, dest_reg, 0);
+                    emit_abc(compiler, BC_NOT, dest_reg, dest_reg, 0);
                     break;
                 case UNARY_NEGATE:
-                    emit_abc(compiler, OP_NEG, dest_reg, dest_reg, 0);
+                    emit_abc(compiler, BC_NEG, dest_reg, dest_reg, 0);
                     break;
                 case UNARY_BIT_NOT:
-                    emit_abc(compiler, OP_BNOT, dest_reg, dest_reg, 0);
+                    emit_abc(compiler, BC_BNOT, dest_reg, dest_reg, 0);
                     break;
             }
             break;
@@ -419,10 +419,10 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
         case EXPR_TERNARY: {
             compile_expression(compiler, expr->as.ternary.condition, dest_reg);
-            int else_jump = emit_jump_cond(compiler, OP_JMP_IF_FALSE, dest_reg);
+            int else_jump = emit_jump_cond(compiler, BC_JMP_IF_FALSE, dest_reg);
 
             compile_expression(compiler, expr->as.ternary.true_expr, dest_reg);
-            int end_jump = emit_jump(compiler, OP_JMP);
+            int end_jump = emit_jump(compiler, BC_JMP);
 
             patch_jump(compiler, else_jump);
             compile_expression(compiler, expr->as.ternary.false_expr, dest_reg);
@@ -447,7 +447,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             }
 
             // CALL: A=base, B=num_args, C=num_results (1 for now)
-            emit_abc(compiler, OP_CALL, func_reg, num_args, 1);
+            emit_abc(compiler, BC_CALL, func_reg, num_args, 1);
 
             compiler_free_registers(compiler, state);
             // Result is in func_reg (dest_reg)
@@ -466,20 +466,20 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
                 if (compiler->locals[local].is_const) {
                     compiler_error(compiler, "Cannot assign to const variable");
                 }
-                emit_abc(compiler, OP_MOVE, local, dest_reg, 0);
+                emit_abc(compiler, BC_MOVE, local, dest_reg, 0);
                 break;
             }
 
             // Try upvalue
             int upvalue = compiler_resolve_upvalue(compiler, name);
             if (upvalue != -1) {
-                emit_abx(compiler, OP_STORE_UPVALUE, dest_reg, upvalue);
+                emit_abx(compiler, BC_STORE_UPVALUE, dest_reg, upvalue);
                 break;
             }
 
             // Global
             int name_idx = chunk_add_constant_string(compiler->chunk, name, strlen(name));
-            emit_abx(compiler, OP_STORE_GLOBAL, dest_reg, name_idx);
+            emit_abx(compiler, BC_STORE_GLOBAL, dest_reg, name_idx);
             break;
         }
 
@@ -492,7 +492,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             int name_idx = chunk_add_constant_string(compiler->chunk,
                                                      expr->as.get_property.property,
                                                      strlen(expr->as.get_property.property));
-            emit_abc(compiler, OP_GET_FIELD, dest_reg, obj_reg, name_idx);
+            emit_abc(compiler, BC_GET_FIELD, dest_reg, obj_reg, name_idx);
 
             compiler_free_registers(compiler, state);
             break;
@@ -509,7 +509,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             int name_idx = chunk_add_constant_string(compiler->chunk,
                                                      expr->as.set_property.property,
                                                      strlen(expr->as.set_property.property));
-            emit_abc(compiler, OP_SET_FIELD, obj_reg, name_idx, val_reg);
+            emit_abc(compiler, BC_SET_FIELD, obj_reg, name_idx, val_reg);
 
             compiler_free_registers(compiler, state);
             break;
@@ -523,7 +523,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             compile_expression(compiler, expr->as.index.object, obj_reg);
             compile_expression(compiler, expr->as.index.index, idx_reg);
 
-            emit_abc(compiler, OP_GET_INDEX, dest_reg, obj_reg, idx_reg);
+            emit_abc(compiler, BC_GET_INDEX, dest_reg, obj_reg, idx_reg);
 
             compiler_free_registers(compiler, state);
             break;
@@ -539,7 +539,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             compile_expression(compiler, expr->as.index_assign.index, idx_reg);
             compile_expression(compiler, expr->as.index_assign.value, val_reg);
 
-            emit_abc(compiler, OP_SET_INDEX, obj_reg, idx_reg, val_reg);
+            emit_abc(compiler, BC_SET_INDEX, obj_reg, idx_reg, val_reg);
 
             compiler_free_registers(compiler, state);
             break;
@@ -576,8 +576,8 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             }
 
             // Emit implicit return null
-            emit_abx(&nested, OP_LOAD_NULL, 0, 0);
-            emit_abc(&nested, OP_RETURN, 0, 1, 0);
+            emit_abx(&nested, BC_LOAD_NULL, 0, 0);
+            emit_abc(&nested, BC_RETURN, 0, 1, 0);
 
             compiler_end_scope(&nested);
 
@@ -593,7 +593,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             int proto_idx = chunk_add_proto(compiler->chunk, nested.chunk);
 
             // Emit closure instruction
-            emit_abx(compiler, OP_CLOSURE, dest_reg, proto_idx);
+            emit_abx(compiler, BC_CLOSURE, dest_reg, proto_idx);
             break;
         }
 
@@ -608,7 +608,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             }
 
             // NEW_ARRAY: A=dest, B=num_elements (elements in A+1..A+B)
-            emit_abc(compiler, OP_NEW_ARRAY, dest_reg, num_elements, 0);
+            emit_abc(compiler, BC_NEW_ARRAY, dest_reg, num_elements, 0);
 
             compiler_free_registers(compiler, state);
             break;
@@ -626,7 +626,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
             // NEW_OBJECT: A=dest, B=num_fields
             // Field names stored as constants, referenced during VM execution
-            emit_abc(compiler, OP_NEW_OBJECT, dest_reg, num_fields, 0);
+            emit_abc(compiler, BC_NEW_OBJECT, dest_reg, num_fields, 0);
 
             // Store field name indices in chunk for VM to use
             // (This is simplified - a full impl would store the mapping)
@@ -652,16 +652,16 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             int local = compiler_resolve_local(compiler, name);
 
             if (local != -1) {
-                Opcode op = (expr->type == EXPR_PREFIX_INC) ? OP_INC : OP_DEC;
+                Opcode op = (expr->type == EXPR_PREFIX_INC) ? BC_INC : BC_DEC;
                 emit_abc(compiler, op, local, 0, 0);
-                emit_abc(compiler, OP_MOVE, dest_reg, local, 0);
+                emit_abc(compiler, BC_MOVE, dest_reg, local, 0);
             } else {
                 // Global - load, modify, store
                 int name_idx = chunk_add_constant_string(compiler->chunk, name, strlen(name));
-                emit_abx(compiler, OP_LOAD_GLOBAL, dest_reg, name_idx);
-                Opcode op = (expr->type == EXPR_PREFIX_INC) ? OP_INC : OP_DEC;
+                emit_abx(compiler, BC_LOAD_GLOBAL, dest_reg, name_idx);
+                Opcode op = (expr->type == EXPR_PREFIX_INC) ? BC_INC : BC_DEC;
                 emit_abc(compiler, op, dest_reg, 0, 0);
-                emit_abx(compiler, OP_STORE_GLOBAL, dest_reg, name_idx);
+                emit_abx(compiler, BC_STORE_GLOBAL, dest_reg, name_idx);
             }
             break;
         }
@@ -683,21 +683,21 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
             if (local != -1) {
                 // Copy old value
-                emit_abc(compiler, OP_MOVE, dest_reg, local, 0);
+                emit_abc(compiler, BC_MOVE, dest_reg, local, 0);
                 // Increment/decrement in place
-                Opcode op = (expr->type == EXPR_POSTFIX_INC) ? OP_INC : OP_DEC;
+                Opcode op = (expr->type == EXPR_POSTFIX_INC) ? BC_INC : BC_DEC;
                 emit_abc(compiler, op, local, 0, 0);
             } else {
                 // Global
                 int name_idx = chunk_add_constant_string(compiler->chunk, name, strlen(name));
-                emit_abx(compiler, OP_LOAD_GLOBAL, dest_reg, name_idx);
+                emit_abx(compiler, BC_LOAD_GLOBAL, dest_reg, name_idx);
 
                 int temp_reg = compiler_alloc_register(compiler);
-                emit_abc(compiler, OP_MOVE, temp_reg, dest_reg, 0);
+                emit_abc(compiler, BC_MOVE, temp_reg, dest_reg, 0);
 
-                Opcode op = (expr->type == EXPR_POSTFIX_INC) ? OP_INC : OP_DEC;
+                Opcode op = (expr->type == EXPR_POSTFIX_INC) ? BC_INC : BC_DEC;
                 emit_abc(compiler, op, temp_reg, 0, 0);
-                emit_abx(compiler, OP_STORE_GLOBAL, temp_reg, name_idx);
+                emit_abx(compiler, BC_STORE_GLOBAL, temp_reg, name_idx);
 
                 compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
             }
@@ -706,7 +706,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
         case EXPR_AWAIT: {
             compile_expression(compiler, expr->as.await_expr.awaited_expr, dest_reg);
-            emit_abc(compiler, OP_AWAIT, dest_reg, dest_reg, 0);
+            emit_abc(compiler, BC_AWAIT, dest_reg, dest_reg, 0);
             break;
         }
 
@@ -720,7 +720,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             int const_idx = chunk_add_constant_string(compiler->chunk,
                                                       string_parts[0],
                                                       strlen(string_parts[0]));
-            emit_abx(compiler, OP_LOAD_CONST, result_reg, const_idx);
+            emit_abx(compiler, BC_LOAD_CONST, result_reg, const_idx);
 
             int state = compiler_register_state(compiler);
 
@@ -728,7 +728,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
                 // Concatenate expression part
                 int expr_reg = compiler_alloc_register(compiler);
                 compile_expression(compiler, expr_parts[i], expr_reg);
-                emit_abc(compiler, OP_CONCAT, result_reg, result_reg, expr_reg);
+                emit_abc(compiler, BC_CONCAT, result_reg, result_reg, expr_reg);
                 compiler_free_registers(compiler, state);
 
                 // Concatenate next string part
@@ -736,8 +736,8 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
                 const_idx = chunk_add_constant_string(compiler->chunk,
                                                       string_parts[i + 1],
                                                       strlen(string_parts[i + 1]));
-                emit_abx(compiler, OP_LOAD_CONST, str_reg, const_idx);
-                emit_abc(compiler, OP_CONCAT, result_reg, result_reg, str_reg);
+                emit_abx(compiler, BC_LOAD_CONST, str_reg, const_idx);
+                emit_abc(compiler, BC_CONCAT, result_reg, result_reg, str_reg);
                 compiler_free_registers(compiler, state);
             }
             break;
@@ -749,14 +749,14 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
             compile_expression(compiler, expr->as.optional_chain.object, obj_reg);
 
             // Check if null, jump to end if so
-            int null_jump = emit_jump_cond(compiler, OP_JMP_IF_FALSE, obj_reg);
+            int null_jump = emit_jump_cond(compiler, BC_JMP_IF_FALSE, obj_reg);
             // TODO: Need proper null check opcode
 
             if (expr->as.optional_chain.is_property) {
                 int name_idx = chunk_add_constant_string(compiler->chunk,
                                                         expr->as.optional_chain.property,
                                                         strlen(expr->as.optional_chain.property));
-                emit_abc(compiler, OP_GET_FIELD_CHAIN, dest_reg, obj_reg, name_idx);
+                emit_abc(compiler, BC_GET_FIELD_CHAIN, dest_reg, obj_reg, name_idx);
             } else if (expr->as.optional_chain.is_call) {
                 // Optional method call - compile args and call
                 // (simplified for now)
@@ -765,7 +765,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
                 int state = compiler_register_state(compiler);
                 int idx_reg = compiler_alloc_register(compiler);
                 compile_expression(compiler, expr->as.optional_chain.index, idx_reg);
-                emit_abc(compiler, OP_GET_INDEX, dest_reg, obj_reg, idx_reg);
+                emit_abc(compiler, BC_GET_INDEX, dest_reg, obj_reg, idx_reg);
                 compiler_free_registers(compiler, state);
             }
 
@@ -779,7 +779,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
             // If not null, skip right side
             // TODO: Need proper null check - for now use JMP_IF_TRUE
-            int skip_jump = emit_jump_cond(compiler, OP_JMP_IF_TRUE, dest_reg);
+            int skip_jump = emit_jump_cond(compiler, BC_JMP_IF_TRUE, dest_reg);
 
             compile_expression(compiler, expr->as.null_coalesce.right, dest_reg);
 
@@ -789,7 +789,7 @@ void compile_expression(Compiler *compiler, Expr *expr, int dest_reg) {
 
         default:
             compiler_error(compiler, "Unknown expression type");
-            emit_abx(compiler, OP_LOAD_NULL, dest_reg, 0);
+            emit_abx(compiler, BC_LOAD_NULL, dest_reg, 0);
             break;
     }
 }
@@ -816,7 +816,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                 if (init) {
                     compile_expression(compiler, init, local);
                 } else {
-                    emit_abx(compiler, OP_LOAD_NULL, local, 0);
+                    emit_abx(compiler, BC_LOAD_NULL, local, 0);
                 }
 
                 compiler_define_local(compiler, local);
@@ -826,11 +826,11 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                 if (init) {
                     compile_expression(compiler, init, reg);
                 } else {
-                    emit_abx(compiler, OP_LOAD_NULL, reg, 0);
+                    emit_abx(compiler, BC_LOAD_NULL, reg, 0);
                 }
 
                 int name_idx = chunk_add_constant_string(compiler->chunk, name, strlen(name));
-                emit_abx(compiler, OP_STORE_GLOBAL, reg, name_idx);
+                emit_abx(compiler, BC_STORE_GLOBAL, reg, name_idx);
                 compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
             }
             break;
@@ -848,12 +848,12 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             compile_expression(compiler, stmt->as.if_stmt.condition, cond_reg);
             compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
 
-            int else_jump = emit_jump_cond(compiler, OP_JMP_IF_FALSE, cond_reg);
+            int else_jump = emit_jump_cond(compiler, BC_JMP_IF_FALSE, cond_reg);
 
             compile_stmt(compiler, stmt->as.if_stmt.then_branch);
 
             if (stmt->as.if_stmt.else_branch) {
-                int end_jump = emit_jump(compiler, OP_JMP);
+                int end_jump = emit_jump(compiler, BC_JMP);
                 patch_jump(compiler, else_jump);
                 compile_stmt(compiler, stmt->as.if_stmt.else_branch);
                 patch_jump(compiler, end_jump);
@@ -881,13 +881,13 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             compile_expression(compiler, stmt->as.while_stmt.condition, cond_reg);
             compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
 
-            int exit_jump = emit_jump_cond(compiler, OP_JMP_IF_FALSE, cond_reg);
+            int exit_jump = emit_jump_cond(compiler, BC_JMP_IF_FALSE, cond_reg);
 
             compile_stmt(compiler, stmt->as.while_stmt.body);
 
             // Loop back
             int loop_offset = chunk_current_offset(compiler->chunk) - loop_start;
-            emit_sax(compiler, OP_LOOP, loop_offset);
+            emit_sax(compiler, BC_LOOP, loop_offset);
 
             patch_jump(compiler, exit_jump);
 
@@ -927,7 +927,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                 int cond_reg = compiler_alloc_register(compiler);
                 compile_expression(compiler, stmt->as.for_loop.condition, cond_reg);
                 compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
-                exit_jump = emit_jump_cond(compiler, OP_JMP_IF_FALSE, cond_reg);
+                exit_jump = emit_jump_cond(compiler, BC_JMP_IF_FALSE, cond_reg);
             }
 
             compile_stmt(compiler, stmt->as.for_loop.body);
@@ -941,7 +941,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
 
             // Loop back
             int loop_offset = chunk_current_offset(compiler->chunk) - loop_start;
-            emit_sax(compiler, OP_LOOP, loop_offset);
+            emit_sax(compiler, BC_LOOP, loop_offset);
 
             if (exit_jump != -1) {
                 patch_jump(compiler, exit_jump);
@@ -969,7 +969,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             // Index counter
             int idx_reg = compiler_alloc_register(compiler);
             int zero_idx = chunk_add_constant_i32(compiler->chunk, 0);
-            emit_abx(compiler, OP_LOAD_CONST, idx_reg, zero_idx);
+            emit_abx(compiler, BC_LOAD_CONST, idx_reg, zero_idx);
 
             // Loop variable
             int var_local = compiler_declare_local(compiler, stmt->as.for_in.value_var, false);
@@ -997,11 +997,11 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             compile_stmt(compiler, stmt->as.for_in.body);
 
             // Increment index
-            emit_abc(compiler, OP_INC, idx_reg, 0, 0);
+            emit_abc(compiler, BC_INC, idx_reg, 0, 0);
 
             // Loop back
             int loop_offset = chunk_current_offset(compiler->chunk) - loop_start;
-            emit_sax(compiler, OP_LOOP, loop_offset);
+            emit_sax(compiler, BC_LOOP, loop_offset);
 
             // Patch breaks
             for (int i = 0; i < loop.break_count; i++) {
@@ -1021,7 +1021,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             }
 
             // Execute defers before breaking
-            emit_abx(compiler, OP_DEFER_EXEC_ALL, 0, 0);
+            emit_abx(compiler, BC_DEFER_EXEC_ALL, 0, 0);
 
             // Add break jump to patch list
             Loop *loop = compiler->current_loop;
@@ -1030,7 +1030,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                 loop->breaks = realloc(loop->breaks, new_cap * sizeof(int));
                 loop->break_capacity = new_cap;
             }
-            loop->breaks[loop->break_count++] = emit_jump(compiler, OP_JMP);
+            loop->breaks[loop->break_count++] = emit_jump(compiler, BC_JMP);
             break;
         }
 
@@ -1041,11 +1041,11 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             }
 
             // Execute defers before continuing
-            emit_abx(compiler, OP_DEFER_EXEC_ALL, 0, 0);
+            emit_abx(compiler, BC_DEFER_EXEC_ALL, 0, 0);
 
             // Jump back to loop start
             int offset = chunk_current_offset(compiler->chunk) - compiler->current_loop->start;
-            emit_sax(compiler, OP_LOOP, offset);
+            emit_sax(compiler, BC_LOOP, offset);
             break;
         }
 
@@ -1057,16 +1057,16 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
         case STMT_RETURN: {
             // Execute defers before returning
             if (compiler->defer_count > 0) {
-                emit_abx(compiler, OP_DEFER_EXEC_ALL, 0, 0);
+                emit_abx(compiler, BC_DEFER_EXEC_ALL, 0, 0);
             }
 
             if (stmt->as.return_stmt.value) {
                 int reg = compiler_alloc_register(compiler);
                 compile_expression(compiler, stmt->as.return_stmt.value, reg);
-                emit_abc(compiler, OP_RETURN, reg, 1, 0);
+                emit_abc(compiler, BC_RETURN, reg, 1, 0);
                 compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
             } else {
-                emit_abc(compiler, OP_RETURN, 0, 0, 0);
+                emit_abc(compiler, BC_RETURN, 0, 0, 0);
             }
             break;
         }
@@ -1079,8 +1079,8 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
 
             // Store type info (simplified - full impl would store field schema)
             int reg = compiler_alloc_register(compiler);
-            emit_abx(compiler, OP_LOAD_CONST, reg, name_idx);
-            emit_abx(compiler, OP_STORE_GLOBAL, reg, name_idx);
+            emit_abx(compiler, BC_LOAD_CONST, reg, name_idx);
+            emit_abx(compiler, BC_STORE_GLOBAL, reg, name_idx);
             compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
             break;
         }
@@ -1097,7 +1097,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             int catch_reg = compiler_alloc_register(compiler);
 
             // TRY_BEGIN: A=catch_reg, sBx=offset to catch
-            int try_begin = emit_jump_cond(compiler, OP_TRY_BEGIN, catch_reg);
+            int try_begin = emit_jump_cond(compiler, BC_TRY_BEGIN, catch_reg);
 
             TryBlock try_block = {
                 .try_start = try_start,
@@ -1112,8 +1112,8 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             compile_stmt(compiler, stmt->as.try_stmt.try_block);
 
             // End try block - jump over catch
-            emit_abx(compiler, OP_TRY_END, 0, 0);
-            int end_try_jump = emit_jump(compiler, OP_JMP);
+            emit_abx(compiler, BC_TRY_END, 0, 0);
+            int end_try_jump = emit_jump(compiler, BC_JMP);
 
             // Patch try_begin to jump here on exception
             patch_jump(compiler, try_begin);
@@ -1126,7 +1126,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                 if (stmt->as.try_stmt.catch_param) {
                     int local = compiler_declare_local(compiler, stmt->as.try_stmt.catch_param, false);
                     compiler_define_local(compiler, local);
-                    emit_abc(compiler, OP_CATCH, local, 0, 0);
+                    emit_abc(compiler, BC_CATCH, local, 0, 0);
                 }
 
                 compile_stmt(compiler, stmt->as.try_stmt.catch_block);
@@ -1149,7 +1149,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
         case STMT_THROW: {
             int reg = compiler_alloc_register(compiler);
             compile_expression(compiler, stmt->as.throw_stmt.value, reg);
-            emit_abc(compiler, OP_THROW, reg, 0, 0);
+            emit_abc(compiler, BC_THROW, reg, 0, 0);
             compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
             break;
         }
@@ -1174,14 +1174,14 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                 compile_expression(compiler, stmt->as.switch_stmt.case_values[i], case_reg);
 
                 int cmp_reg = compiler_alloc_register(compiler);
-                emit_abc(compiler, OP_EQ, cmp_reg, value_reg, case_reg);
-                case_jumps[i] = emit_jump_cond(compiler, OP_JMP_IF_TRUE, cmp_reg);
+                emit_abc(compiler, BC_EQ, cmp_reg, value_reg, case_reg);
+                case_jumps[i] = emit_jump_cond(compiler, BC_JMP_IF_TRUE, cmp_reg);
 
                 compiler_free_registers(compiler, compiler_register_state(compiler) - 2);
             }
 
             // Jump to default or end if no match
-            int default_jump = emit_jump(compiler, OP_JMP);
+            int default_jump = emit_jump(compiler, BC_JMP);
 
             // Generate case bodies
             int *end_jumps = malloc(num_cases * sizeof(int));
@@ -1190,7 +1190,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
                     patch_jump(compiler, case_jumps[i]);
                 }
                 compile_stmt(compiler, stmt->as.switch_stmt.case_bodies[i]);
-                end_jumps[i] = emit_jump(compiler, OP_JMP);
+                end_jumps[i] = emit_jump(compiler, BC_JMP);
             }
 
             // Default case
@@ -1214,7 +1214,7 @@ static void compile_stmt(Compiler *compiler, Stmt *stmt) {
             // Push deferred call onto defer stack
             int reg = compiler_alloc_register(compiler);
             compile_expression(compiler, stmt->as.defer_stmt.call, reg);
-            emit_abc(compiler, OP_DEFER_PUSH, reg, 0, 0);
+            emit_abc(compiler, BC_DEFER_PUSH, reg, 0, 0);
             compiler->defer_count++;
             compiler_free_registers(compiler, compiler_register_state(compiler) - 1);
             break;
@@ -1257,7 +1257,7 @@ Chunk* compile_program(Compiler *compiler, Stmt **statements, int count) {
     }
 
     // Emit final return
-    emit_abc(compiler, OP_RETURN, 0, 0, 0);
+    emit_abc(compiler, BC_RETURN, 0, 0, 0);
 
     compiler->chunk->max_stack_size = compiler->max_register;
 

@@ -488,7 +488,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
         int32_t sax = DECODE_sAx(instruction);
 
         switch (op) {
-            case OP_LOAD_CONST: {
+            case BC_LOAD_CONST: {
                 Constant *k = READ_CONSTANT(bx);
                 if (!k) {
                     vm_runtime_error(vm, "Invalid constant index");
@@ -508,23 +508,23 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_LOAD_NULL:
+            case BC_LOAD_NULL:
                 REG(a_) = val_null();
                 break;
 
-            case OP_LOAD_TRUE:
+            case BC_LOAD_TRUE:
                 REG(a_) = val_bool(1);
                 break;
 
-            case OP_LOAD_FALSE:
+            case BC_LOAD_FALSE:
                 REG(a_) = val_bool(0);
                 break;
 
-            case OP_MOVE:
+            case BC_MOVE:
                 REG(a_) = REG(b_);
                 break;
 
-            case OP_LOAD_GLOBAL: {
+            case BC_LOAD_GLOBAL: {
                 Constant *k = READ_CONSTANT(bx);
                 if (!k || k->type != CONST_STRING) {
                     vm_runtime_error(vm, "Invalid global name");
@@ -539,7 +539,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_STORE_GLOBAL: {
+            case BC_STORE_GLOBAL: {
                 Constant *k = READ_CONSTANT(bx);
                 if (!k || k->type != CONST_STRING) {
                     vm_runtime_error(vm, "Invalid global name");
@@ -549,14 +549,14 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_LOAD_UPVALUE: {
+            case BC_LOAD_UPVALUE: {
                 if (frame->upvalues && bx < (uint16_t)frame->num_upvalues) {
                     REG(a_) = *frame->upvalues[bx]->location;
                 }
                 break;
             }
 
-            case OP_STORE_UPVALUE: {
+            case BC_STORE_UPVALUE: {
                 if (frame->upvalues && bx < (uint16_t)frame->num_upvalues) {
                     *frame->upvalues[bx]->location = REG(a_);
                 }
@@ -564,7 +564,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Arithmetic operations
-            case OP_ADD: {
+            case BC_ADD: {
                 Value a = REG(b_);
                 Value b = REG(c);
 
@@ -588,10 +588,10 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_SUB: BINARY_OP(-); break;
-            case OP_MUL: BINARY_OP(*); break;
+            case BC_SUB: BINARY_OP(-); break;
+            case BC_MUL: BINARY_OP(*); break;
 
-            case OP_DIV: {
+            case BC_DIV: {
                 Value a = REG(b_);
                 Value b = REG(c);
                 if (!is_number(a) || !is_number(b)) {
@@ -608,7 +608,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_MOD: {
+            case BC_MOD: {
                 Value a = REG(b_);
                 Value b = REG(c);
                 if (!is_integer(a) || !is_integer(b)) {
@@ -625,7 +625,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_POW: {
+            case BC_POW: {
                 Value a = REG(b_);
                 Value b = REG(c);
                 if (!is_number(a) || !is_number(b)) {
@@ -638,7 +638,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_NEG: {
+            case BC_NEG: {
                 Value a = REG(b_);
                 if (!is_number(a)) {
                     vm_runtime_error(vm, "Operand must be a number");
@@ -657,13 +657,13 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Bitwise operations
-            case OP_BAND: BITWISE_OP(&); break;
-            case OP_BOR:  BITWISE_OP(|); break;
-            case OP_BXOR: BITWISE_OP(^); break;
-            case OP_SHL:  BITWISE_OP(<<); break;
-            case OP_SHR:  BITWISE_OP(>>); break;
+            case BC_BAND: BITWISE_OP(&); break;
+            case BC_BOR:  BITWISE_OP(|); break;
+            case BC_BXOR: BITWISE_OP(^); break;
+            case BC_SHL:  BITWISE_OP(<<); break;
+            case BC_SHR:  BITWISE_OP(>>); break;
 
-            case OP_BNOT: {
+            case BC_BNOT: {
                 Value a = REG(b_);
                 if (!is_integer(a)) {
                     vm_runtime_error(vm, "Operand must be an integer for ~");
@@ -674,47 +674,47 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Comparison operations
-            case OP_EQ:
+            case BC_EQ:
                 REG(a_) = val_bool(values_equal(REG(b_), REG(c)));
                 break;
 
-            case OP_NE:
+            case BC_NE:
                 REG(a_) = val_bool(!values_equal(REG(b_), REG(c)));
                 break;
 
-            case OP_LT: COMPARISON_OP(<); break;
-            case OP_LE: COMPARISON_OP(<=); break;
-            case OP_GT: COMPARISON_OP(>); break;
-            case OP_GE: COMPARISON_OP(>=); break;
+            case BC_LT: COMPARISON_OP(<); break;
+            case BC_LE: COMPARISON_OP(<=); break;
+            case BC_GT: COMPARISON_OP(>); break;
+            case BC_GE: COMPARISON_OP(>=); break;
 
             // Logical operations
-            case OP_NOT:
+            case BC_NOT:
                 REG(a_) = val_bool(is_falsey(REG(b_)));
                 break;
 
             // Control flow
-            case OP_JMP:
+            case BC_JMP:
                 frame->ip += sax;
                 break;
 
-            case OP_JMP_IF_FALSE:
+            case BC_JMP_IF_FALSE:
                 if (is_falsey(REG(a_))) {
                     frame->ip += sbx;
                 }
                 break;
 
-            case OP_JMP_IF_TRUE:
+            case BC_JMP_IF_TRUE:
                 if (!is_falsey(REG(a_))) {
                     frame->ip += sbx;
                 }
                 break;
 
-            case OP_LOOP:
+            case BC_LOOP:
                 frame->ip -= sax;
                 break;
 
             // Function calls
-            case OP_CALL: {
+            case BC_CALL: {
                 Value callee = REG(a_);
                 int arg_count = b_;
                 int num_results = c;
@@ -742,7 +742,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_RETURN: {
+            case BC_RETURN: {
                 int return_count = b_;
                 Value result = return_count > 0 ? REG(a_) : val_null();
 
@@ -774,7 +774,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_CLOSURE: {
+            case BC_CLOSURE: {
                 Chunk *proto = frame->chunk->protos[bx];
 
                 // Create function value
@@ -798,7 +798,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Object/Array operations
-            case OP_NEW_ARRAY: {
+            case BC_NEW_ARRAY: {
                 int num_elements = b_;
                 Array *arr = array_new();
 
@@ -810,7 +810,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_NEW_OBJECT: {
+            case BC_NEW_OBJECT: {
                 int num_fields = b_;
                 Object *obj = object_new(NULL, num_fields);
 
@@ -822,7 +822,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_GET_INDEX: {
+            case BC_GET_INDEX: {
                 Value container = REG(b_);
                 Value index = REG(c);
 
@@ -852,7 +852,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_SET_INDEX: {
+            case BC_SET_INDEX: {
                 Value container = REG(a_);
                 Value index = REG(b_);
                 Value value = REG(c);
@@ -871,7 +871,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_GET_FIELD: {
+            case BC_GET_FIELD: {
                 Value obj = REG(b_);
                 Constant *k = READ_CONSTANT(c);
 
@@ -899,7 +899,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_SET_FIELD: {
+            case BC_SET_FIELD: {
                 Value obj = REG(a_);
                 Constant *k = READ_CONSTANT(b_);
                 Value value = REG(c);
@@ -939,7 +939,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Increment/Decrement
-            case OP_INC: {
+            case BC_INC: {
                 Value a = REG(a_);
                 if (!is_number(a)) {
                     vm_runtime_error(vm, "Operand must be a number for ++");
@@ -955,7 +955,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_DEC: {
+            case BC_DEC: {
                 Value a = REG(a_);
                 if (!is_number(a)) {
                     vm_runtime_error(vm, "Operand must be a number for --");
@@ -972,7 +972,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // String concatenation
-            case OP_CONCAT: {
+            case BC_CONCAT: {
                 Value a = REG(b_);
                 Value b = REG(c);
 
@@ -989,7 +989,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Exception handling
-            case OP_THROW: {
+            case BC_THROW: {
                 vm->has_exception = true;
                 vm->exception = REG(a_);
 
@@ -998,14 +998,14 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 return VM_RUNTIME_ERROR;
             }
 
-            case OP_TRY_BEGIN:
-            case OP_TRY_END:
-            case OP_CATCH:
+            case BC_TRY_BEGIN:
+            case BC_TRY_END:
+            case BC_CATCH:
                 // TODO: Implement exception handling
                 break;
 
             // Defer
-            case OP_DEFER_PUSH:
+            case BC_DEFER_PUSH:
                 if (vm->defer_count >= VM_MAX_DEFERS) {
                     vm_runtime_error(vm, "Defer stack overflow");
                     return VM_RUNTIME_ERROR;
@@ -1013,7 +1013,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 vm->defer_stack[vm->defer_count++] = REG(a_);
                 break;
 
-            case OP_DEFER_POP:
+            case BC_DEFER_POP:
                 if (vm->defer_count > 0) {
                     vm->defer_count--;
                     Value deferred = vm->defer_stack[vm->defer_count];
@@ -1023,7 +1023,7 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 }
                 break;
 
-            case OP_DEFER_EXEC_ALL:
+            case BC_DEFER_EXEC_ALL:
                 while (vm->defer_count > 0) {
                     vm->defer_count--;
                     Value deferred = vm->defer_stack[vm->defer_count];
@@ -1034,15 +1034,15 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
 
             // Misc
-            case OP_NOP:
+            case BC_NOP:
                 break;
 
-            case OP_PRINT:
+            case BC_PRINT:
                 print_value(REG(a_));
                 printf("\n");
                 break;
 
-            case OP_PANIC: {
+            case BC_PANIC: {
                 Value msg = REG(a_);
                 if (msg.type == VAL_STRING) {
                     vm_runtime_error(vm, "panic: %s", msg.as.as_string->data);
@@ -1053,14 +1053,14 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             }
 
             // Async (stubs for now)
-            case OP_SPAWN:
-            case OP_AWAIT:
-            case OP_YIELD:
+            case BC_SPAWN:
+            case BC_AWAIT:
+            case BC_YIELD:
                 vm_runtime_error(vm, "Async operations not yet implemented in VM");
                 return VM_RUNTIME_ERROR;
 
             // Type operations
-            case OP_TYPEOF: {
+            case BC_TYPEOF: {
                 Value a = REG(b_);
                 const char *type_name;
                 switch (a.type) {
@@ -1092,14 +1092,14 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
-            case OP_CAST:
-            case OP_INSTANCEOF:
-            case OP_GET_FIELD_CHAIN:
-            case OP_IMPORT:
-            case OP_EXPORT:
-            case OP_TAILCALL:
-            case OP_ASSERT:
-            case OP_CALL_BUILTIN:
+            case BC_CAST:
+            case BC_INSTANCEOF:
+            case BC_GET_FIELD_CHAIN:
+            case BC_IMPORT:
+            case BC_EXPORT:
+            case BC_TAILCALL:
+            case BC_ASSERT:
+            case BC_CALL_BUILTIN:
                 // TODO: Implement
                 break;
 
@@ -1144,44 +1144,33 @@ void vm_print_globals(VM *vm) {
 
 // External builtin declarations from interpreter/builtins
 extern Value builtin_print(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_println(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_len(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_to_string(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_to_int(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_to_float(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx);
-extern Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_free(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx);
 extern Value builtin_open(Value *args, int num_args, ExecutionContext *ctx);
+extern Value builtin_sizeof(Value *args, int num_args, ExecutionContext *ctx);
+extern Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx);
+extern Value builtin_join(Value *args, int num_args, ExecutionContext *ctx);
+extern Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx);
 
 void vm_register_all_builtins(VM *vm) {
     // Core I/O
     vm_register_builtin(vm, "print", builtin_print);
-    vm_register_builtin(vm, "println", builtin_println);
     vm_register_builtin(vm, "read_line", builtin_read_line);
 
-    // Type inspection/conversion
-    vm_register_builtin(vm, "len", builtin_len);
+    // Type inspection
     vm_register_builtin(vm, "typeof", builtin_typeof);
-    vm_register_builtin(vm, "to_string", builtin_to_string);
-    vm_register_builtin(vm, "to_int", builtin_to_int);
-    vm_register_builtin(vm, "to_float", builtin_to_float);
+    vm_register_builtin(vm, "sizeof", builtin_sizeof);
 
     // Control
     vm_register_builtin(vm, "assert", builtin_assert);
     vm_register_builtin(vm, "panic", builtin_panic);
-
-    // Time
-    vm_register_builtin(vm, "sleep", builtin_sleep);
-    vm_register_builtin(vm, "time_ms", builtin_time_ms);
 
     // Memory
     vm_register_builtin(vm, "alloc", builtin_alloc);
@@ -1193,6 +1182,11 @@ void vm_register_all_builtins(VM *vm) {
     // File I/O
     vm_register_builtin(vm, "open", builtin_open);
 
-    // Note: Many more builtins can be registered as needed
+    // Concurrency
+    vm_register_builtin(vm, "spawn", builtin_spawn);
+    vm_register_builtin(vm, "join", builtin_join);
+    vm_register_builtin(vm, "channel", builtin_channel);
+
+    // Note: More builtins can be registered as needed
     // The full list is in src/interpreter/builtins/
 }

@@ -464,7 +464,7 @@ int chunk_disassemble_instruction(Chunk *chunk, int offset) {
             uint16_t bx = DECODE_Bx(instr);
             printf("R(%d) K(%d)", a, bx);
             // Print constant value if it's LOAD_CONST
-            if (op == OP_LOAD_CONST && bx < (uint16_t)chunk->constants.count) {
+            if (op == BC_LOAD_CONST && bx < (uint16_t)chunk->constants.count) {
                 Constant *c = &chunk->constants.values[bx];
                 printf(" ; ");
                 switch (c->type) {
