@@ -12,7 +12,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 value = convert_to_type(value, stmt->as.let.type_annotation, env, ctx);
             }
             env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
-            value_release(value);  // Release original reference (env_define retains)
+            VALUE_RELEASE(value);  // Release original reference (env_define retains)
             break;
         }
 
@@ -23,13 +23,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 value = convert_to_type(value, stmt->as.const_stmt.type_annotation, env, ctx);
             }
             env_define(env, stmt->as.const_stmt.name, value, 1, ctx);  // 1 = const
-            value_release(value);  // Release original reference (env_define retains)
+            VALUE_RELEASE(value);  // Release original reference (env_define retains)
             break;
         }
 
         case STMT_EXPR: {
             Value result = eval_expr(stmt->as.expr, env, ctx);
-            value_release(result);  // Release unused expression result
+            VALUE_RELEASE(result);  // Release unused expression result
             break;
         }
 
@@ -37,13 +37,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             Value condition = eval_expr(stmt->as.if_stmt.condition, env, ctx);
 
             if (value_is_truthy(condition)) {
-                value_release(condition);  // Release condition before branching
+                VALUE_RELEASE(condition);  // Release condition before branching
                 eval_stmt(stmt->as.if_stmt.then_branch, env, ctx);
             } else if (stmt->as.if_stmt.else_branch != NULL) {
-                value_release(condition);  // Release condition before branching
+                VALUE_RELEASE(condition);  // Release condition before branching
                 eval_stmt(stmt->as.if_stmt.else_branch, env, ctx);
             } else {
-                value_release(condition);  // Release condition if no else branch
+                VALUE_RELEASE(condition);  // Release condition if no else branch
             }
             // No need to check return here, it propagates automatically
             break;
@@ -54,11 +54,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 Value condition = eval_expr(stmt->as.while_stmt.condition, env, ctx);
 
                 if (!value_is_truthy(condition)) {
-                    value_release(condition);  // Release condition before breaking
+                    VALUE_RELEASE(condition);  // Release condition before breaking
                     break;
                 }
 
-                value_release(condition);  // Release condition after checking
+                VALUE_RELEASE(condition);  // Release condition after checking
 
                 // Create new environment for this iteration
                 Environment *iter_env = env_new(env);
@@ -102,14 +102,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     Value cond = eval_expr(stmt->as.for_loop.condition, loop_env, ctx);
                     // Check for exception after condition evaluation
                     if (ctx->exception_state.is_throwing) {
-                        value_release(cond);  // Release condition before breaking
+                        VALUE_RELEASE(cond);  // Release condition before breaking
                         break;
                     }
                     if (!value_is_truthy(cond)) {
-                        value_release(cond);  // Release condition before breaking
+                        VALUE_RELEASE(cond);  // Release condition before breaking
                         break;
                     }
-                    value_release(cond);  // Release condition after checking
+                    VALUE_RELEASE(cond);  // Release condition after checking
                 }
 
                 // Execute body (create new environment for this iteration)
@@ -133,7 +133,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 // Execute increment
                 if (stmt->as.for_loop.increment) {
                     Value incr_result = eval_expr(stmt->as.for_loop.increment, loop_env, ctx);
-                    value_release(incr_result);  // Release increment expression result
+                    VALUE_RELEASE(incr_result);  // Release increment expression result
                     // Check for exception after increment
                     if (ctx->exception_state.is_throwing) {
                         break;
@@ -150,13 +150,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
             // Check for exception after evaluating iterable
             if (ctx->exception_state.is_throwing) {
-                value_release(iterable);  // Release iterable before breaking
+                VALUE_RELEASE(iterable);  // Release iterable before breaking
                 break;
             }
 
             // Validate iterable type before creating loop environment
             if (iterable.type != VAL_ARRAY && iterable.type != VAL_OBJECT && iterable.type != VAL_STRING) {
-                value_release(iterable);  // Release iterable before breaking
+                VALUE_RELEASE(iterable);  // Release iterable before breaking
                 ctx->exception_state.exception_value = val_string("for-in requires array, object, or string");
                 ctx->exception_state.is_throwing = 1;
                 break;
@@ -297,7 +297,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             }
 
             env_release(loop_env);
-            value_release(iterable);  // Release iterable after loop completes
+            VALUE_RELEASE(iterable);  // Release iterable after loop completes
             break;
         }
 
@@ -429,7 +429,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Clear exception state and release the exception value
                     // (env_set retained it, so we can release the context's reference)
-                    value_release(ctx->exception_state.exception_value);
+                    VALUE_RELEASE(ctx->exception_state.exception_value);
                     ctx->exception_state.is_throwing = 0;
 
                     // Execute catch block
@@ -476,7 +476,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Evaluate the value to throw and retain it
             // (so it survives past environment cleanups during unwinding)
             ctx->exception_state.exception_value = eval_expr(stmt->as.throw_stmt.value, env, ctx);
-            value_retain(ctx->exception_state.exception_value);
+            VALUE_RETAIN(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
 
             // Push throw location onto stack trace
@@ -501,11 +501,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     Value case_value = eval_expr(stmt->as.switch_stmt.case_values[i], env, ctx);
 
                     if (values_equal(switch_value, case_value)) {
-                        value_release(case_value);  // Release case value after comparison
+                        VALUE_RELEASE(case_value);  // Release case value after comparison
                         matched_case = i;
                         break;
                     }
-                    value_release(case_value);  // Release case value after comparison
+                    VALUE_RELEASE(case_value);  // Release case value after comparison
                 }
             }
 
@@ -534,7 +534,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            value_release(switch_value);  // Release switch value after switch completes
+            VALUE_RELEASE(switch_value);  // Release switch value after switch completes
             break;
         }
 
@@ -584,7 +584,7 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             // Clear stack for next execution (REPL mode)
             call_stack_free(&ctx->call_stack);
             // Release exception value before exiting
-            value_release(ctx->exception_state.exception_value);
+            VALUE_RELEASE(ctx->exception_state.exception_value);
             exit(1);
         }
     }

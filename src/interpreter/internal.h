@@ -181,6 +181,17 @@ void value_free(Value val);
 void value_retain(Value val);
 void value_release(Value val);
 
+// Fast path macro: check if type needs refcounting before calling
+// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL
+#define VALUE_NEEDS_REFCOUNT(type) \
+    ((type) == VAL_STRING || (type) == VAL_BUFFER || (type) == VAL_ARRAY || \
+     (type) == VAL_OBJECT || (type) == VAL_FUNCTION || (type) == VAL_TASK || \
+     (type) == VAL_CHANNEL)
+
+// Fast path macros - skip function call for primitives
+#define VALUE_RETAIN(val) do { if (VALUE_NEEDS_REFCOUNT((val).type)) value_retain(val); } while(0)
+#define VALUE_RELEASE(val) do { if (VALUE_NEEDS_REFCOUNT((val).type)) value_release(val); } while(0)
+
 // Printing
 void print_value(Value val);
 char* value_to_string(Value val);  // Caller must free result

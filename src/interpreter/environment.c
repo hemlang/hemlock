@@ -202,7 +202,7 @@ void env_free(Environment *env) {
     // Free all variable names and release values
     for (int i = 0; i < env->count; i++) {
         free(env->names[i]);
-        value_release(env->values[i]);  // Decrement reference count
+        VALUE_RELEASE(env->values[i]);  // Decrement reference count
     }
     free(env->names);
     free(env->values);
@@ -281,7 +281,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
     }
 
     env->names[env->count] = strdup(name);
-    value_retain(value);  // Retain the value
+    VALUE_RETAIN(value);  // Retain the value
     env->values[env->count] = value;
     env->is_const[env->count] = is_const;
     env->count++;
@@ -302,8 +302,8 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
                 return;
             }
             // Release old value, retain new value
-            value_release(env->values[i]);
-            value_retain(value);
+            VALUE_RELEASE(env->values[i]);
+            VALUE_RETAIN(value);
             env->values[i] = value;
             return;
         }
@@ -326,8 +326,8 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
                         return;
                     }
                     // Release old value, retain new value
-                    value_release(search_env->values[i]);
-                    value_retain(value);
+                    VALUE_RELEASE(search_env->values[i]);
+                    VALUE_RETAIN(value);
                     // Update parent scope variable
                     search_env->values[i] = value;
                     return;
@@ -344,7 +344,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
     }
 
     env->names[env->count] = strdup(name);
-    value_retain(value);  // Retain the value
+    VALUE_RETAIN(value);  // Retain the value
     env->values[env->count] = value;
     env->is_const[env->count] = 0;  // Always mutable for implicit variables
     env->count++;
@@ -355,7 +355,7 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
     for (int i = 0; i < env->count; i++) {
         if (strcmp(env->names[i], name) == 0) {
             Value val = env->values[i];
-            value_retain(val);  // Retain for the caller (caller now owns a reference)
+            VALUE_RETAIN(val);  // Retain for the caller (caller now owns a reference)
             return val;
         }
     }
