@@ -43,6 +43,20 @@ void websocket_release(WebSocketHandle *ws) {
 #include <libwebsockets.h>
 #include <pthread.h>
 
+// Suppress libwebsockets startup messages by default
+// Set LWS_VERBOSE=1 environment variable to enable verbose logging
+static void lws_init_logging(void) {
+    static int initialized = 0;
+    if (!initialized) {
+        initialized = 1;
+        const char *verbose = getenv("LWS_VERBOSE");
+        if (!verbose || strcmp(verbose, "1") != 0) {
+            // Only show errors by default, suppress warnings/info/notice/debug
+            lws_set_log_level(LLL_ERR, NULL);
+        }
+    }
+}
+
 // ========== HTTP SUPPORT ==========
 
 typedef struct {
@@ -232,6 +246,8 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
 
 // __lws_http_get(url: string): ptr
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
+    lws_init_logging();
+
     if (num_args != 1) {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_http_get() expects 1 argument");
@@ -346,6 +362,8 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
 
 // __lws_http_post(url: string, body: string, content_type: string): ptr
 Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
+    lws_init_logging();
+
     if (num_args != 3) {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_http_post() expects 3 arguments");
@@ -924,6 +942,8 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
 
 // __lws_ws_connect(url: string): ptr
 Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
+    lws_init_logging();
+
     if (num_args != 1) {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_ws_connect() expects 1 argument");
@@ -1342,6 +1362,8 @@ Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx)
 
 // __lws_ws_server_create(host: string, port: i32): ptr
 Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *ctx) {
+    lws_init_logging();
+
     if (num_args != 2) {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_ws_server_create() expects 2 arguments");
