@@ -849,9 +849,85 @@ static void test_functions(void) {
         run_vm_test("nested calls inc(inc(inc(0)))", stmts, 2, "result", expected, false);
     }
 
-    // Closure capture (SKIPPED for now)
+    // Recursion test: factorial
     {
-        printf("  %-40s " YELLOW "SKIP" RESET " (closures TODO)\n", "closure captures outer var");
+        // let fact = fn(n) {
+        //     if (n <= 1) { return 1; }
+        //     return n * fact(n - 1);
+        // };
+        // let result = fact(5);  // Should be 120
+        char **params = malloc(sizeof(char*));
+        params[0] = strdup("n");
+
+        // Build: if (n <= 1) { return 1; }
+        Expr *cond = expr_binary(expr_ident("n"), OP_LESS_EQUAL, expr_number(1));
+        Stmt *ret_one = stmt_return(expr_number(1));
+        Stmt *if_stmt = stmt_if(cond, ret_one, NULL);
+
+        // Build: return n * fact(n - 1);
+        Expr **rec_args = malloc(sizeof(Expr*));
+        rec_args[0] = expr_binary(expr_ident("n"), OP_SUB, expr_number(1));
+        Expr *rec_call = expr_call(expr_ident("fact"), rec_args, 1);
+        Expr *mul = expr_binary(expr_ident("n"), OP_MUL, rec_call);
+        Stmt *ret_mul = stmt_return(mul);
+
+        // Block body
+        Stmt **body_stmts = malloc(2 * sizeof(Stmt*));
+        body_stmts[0] = if_stmt;
+        body_stmts[1] = ret_mul;
+        Stmt *body = stmt_block(body_stmts, 2);
+
+        Expr *fn = expr_function(0, params, NULL, NULL, 1, NULL, body);
+        Stmt *let_fact = stmt_let("fact", fn);
+
+        Expr **call_args = malloc(sizeof(Expr*));
+        call_args[0] = expr_number(5);
+        Stmt *let_r = stmt_let("result", expr_call(expr_ident("fact"), call_args, 1));
+        Stmt *stmts[] = {let_fact, let_r};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 120};
+        run_vm_test("recursion: fact(5) = 120", stmts, 2, "result", expected, false);
+    }
+
+    // Closure: capture outer variable
+    {
+        // let x = 10;
+        // let addX = fn(y) { return x + y; };
+        // let result = addX(5);  // Should be 15
+        Stmt *let_x = stmt_let("x", expr_number(10));
+
+        char **params = malloc(sizeof(char*));
+        params[0] = strdup("y");
+        Expr *body_expr = expr_binary(expr_ident("x"), OP_ADD, expr_ident("y"));
+        Stmt *body = stmt_return(body_expr);
+        Expr *fn = expr_function(0, params, NULL, NULL, 1, NULL, body);
+        Stmt *let_addX = stmt_let("addX", fn);
+
+        Expr **args = malloc(sizeof(Expr*));
+        args[0] = expr_number(5);
+        Stmt *let_r = stmt_let("result", expr_call(expr_ident("addX"), args, 1));
+
+        Stmt *stmts[] = {let_x, let_addX, let_r};
+        Value expected = {.type = VAL_I32, .as.as_i32 = 15};
+        run_vm_test("closure captures outer var", stmts, 3, "result", expected, false);
+    }
+
+    // Closure: counter
+    {
+        // let makeCounter = fn() {
+        //     let count = 0;
+        //     return fn() {
+        //         count = count + 1;
+        //         return count;
+        //     };
+        // };
+        // let counter = makeCounter();
+        // let a = counter();  // 1
+        // let b = counter();  // 2
+        // let c = counter();  // 3
+        // result = c;
+
+        // This is complex - let's skip for now
+        printf("  %-40s " YELLOW "SKIP" RESET " (complex closure)\n", "closure counter pattern");
         stats.skipped++;
     }
 }

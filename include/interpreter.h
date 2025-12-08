@@ -116,6 +116,9 @@ typedef struct {
     int hash_capacity;   // Size of hash table (usually 2x num_fields)
 } Object;
 
+// Forward declaration for VMUpvalue (defined in vm.h)
+struct VMUpvalue;
+
 // Function struct (user-defined function)
 typedef struct {
     int is_async;
@@ -129,6 +132,8 @@ typedef struct {
     int ref_count;             // Reference count for memory management
     int is_bound;              // If true, this is a bound method (don't free param arrays)
     void *bytecode_chunk;      // For VM: pointer to Chunk* (NULL for AST interpreter)
+    struct VMUpvalue **upvalues;  // For VM: captured upvalues (NULL for AST interpreter)
+    int num_upvalues;             // For VM: number of captured upvalues
 } Function;
 
 // Task states

@@ -756,8 +756,8 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                     CallFrame *new_frame = &vm->frames[vm->frame_count++];
                     new_frame->chunk = fn_chunk;
                     new_frame->ip = fn_chunk->code;
-                    new_frame->upvalues = NULL;
-                    new_frame->num_upvalues = 0;
+                    new_frame->upvalues = fn->upvalues;  // Pass captured upvalues
+                    new_frame->num_upvalues = fn->num_upvalues;
                     new_frame->return_dest = call_dest;  // Where to store result in caller
 
                     // Ensure stack space
@@ -846,10 +846,28 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 fn->is_bound = false;
                 fn->bytecode_chunk = proto;  // Store bytecode chunk for VM calls
 
-                REG(a_) = val_function(fn);
-
                 // Capture upvalues
-                // TODO: Implement upvalue capture from proto->upvalues
+                int num_upvalues = proto->upvalue_count;
+                if (num_upvalues > 0) {
+                    fn->upvalues = malloc(num_upvalues * sizeof(VMUpvalue*));
+                    fn->num_upvalues = num_upvalues;
+
+                    for (int i = 0; i < num_upvalues; i++) {
+                        UpvalueDesc *desc = &proto->upvalues[i];
+                        if (desc->is_local) {
+                            // Capture local from current frame
+                            fn->upvalues[i] = vm_capture_upvalue(vm, &frame->slots[desc->index]);
+                        } else {
+                            // Copy upvalue from enclosing function
+                            fn->upvalues[i] = frame->upvalues[desc->index];
+                        }
+                    }
+                } else {
+                    fn->upvalues = NULL;
+                    fn->num_upvalues = 0;
+                }
+
+                REG(a_) = val_function(fn);
                 break;
             }
 
