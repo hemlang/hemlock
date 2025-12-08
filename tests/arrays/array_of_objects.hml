@@ -1,0 +1,138 @@
+// Test: Arrays of objects - comprehensive access patterns
+// This test covers various scenarios for accessing properties on
+// objects stored in arrays, including indexed and chained access.
+
+// Basic array of objects
+let sections = [
+    { dir: "foo", name: "Foo" },
+    { dir: "bar", name: "Bar" }
+];
+
+// Direct indexed access
+assert(sections[0].dir == "foo", "direct access sections[0].dir");
+assert(sections[0].name == "Foo", "direct access sections[0].name");
+assert(sections[1].dir == "bar", "direct access sections[1].dir");
+assert(sections[1].name == "Bar", "direct access sections[1].name");
+
+// Loop with index variable
+let dirs = [];
+for (let i = 0; i < sections.length; i = i + 1) {
+    dirs.push(sections[i].dir);
+}
+assert(dirs[0] == "foo", "loop access dirs[0]");
+assert(dirs[1] == "bar", "loop access dirs[1]");
+
+// For-in loop
+let names = [];
+for (let section in sections) {
+    names.push(section.name);
+}
+assert(names[0] == "Foo", "for-in access names[0]");
+assert(names[1] == "Bar", "for-in access names[1]");
+
+// For-in with index
+let indexed_dirs = [];
+for (let idx, section in sections) {
+    indexed_dirs.push(section.dir);
+    assert(idx >= 0, "for-in index is valid");
+}
+assert(indexed_dirs.length == 2, "for-in with index processed all elements");
+
+// Typed array: array
+let typed_sections: array = [
+    { dir: "typed1", name: "Typed1" },
+    { dir: "typed2", name: "Typed2" }
+];
+assert(typed_sections[0].dir == "typed1", "typed array access");
+
+// Typed array: array<object>
+let object_sections: array<object> = [
+    { dir: "obj1", name: "Obj1" },
+    { dir: "obj2", name: "Obj2" }
+];
+assert(object_sections[1].name == "Obj2", "array<object> access");
+
+// Nested object with array of objects
+let data = {
+    items: [
+        { dir: "nested1", name: "Nested1" },
+        { dir: "nested2", name: "Nested2" }
+    ]
+};
+assert(data.items[0].dir == "nested1", "nested object.items[0].dir");
+assert(data.items[1].name == "Nested2", "nested object.items[1].name");
+
+// Deep nesting
+let deep = {
+    level1: {
+        level2: {
+            items: [
+                { dir: "deep1", name: "Deep1" },
+                { dir: "deep2", name: "Deep2" }
+            ]
+        }
+    }
+};
+assert(deep.level1.level2.items[0].dir == "deep1", "deep nested access");
+
+// Function returning array of objects
+fn get_items() {
+    return [
+        { dir: "func1", name: "Func1" },
+        { dir: "func2", name: "Func2" }
+    ];
+}
+let items = get_items();
+assert(items[0].dir == "func1", "function return array access");
+
+// Chained access from function return
+assert(get_items()[1].name == "Func2", "direct chained function access");
+
+// Function with array parameter
+fn process_items(arr) {
+    let result = [];
+    for (let i = 0; i < arr.length; i = i + 1) {
+        result.push(arr[i].dir);
+    }
+    return result;
+}
+let processed = process_items(sections);
+assert(processed[0] == "foo", "function with array param");
+
+// Function with typed array parameter
+fn process_typed_items(arr: array) {
+    return arr[0].dir;
+}
+assert(process_typed_items(sections) == "foo", "typed array param");
+
+// Array element assigned to variable
+for (let i = 0; i < sections.length; i = i + 1) {
+    let item = sections[i];
+    assert(item.dir != null, "element to variable works");
+}
+
+// User-defined type with array of objects
+define Section {
+    dir: string,
+    name: string
+}
+
+let custom_sections: array<Section> = [
+    { dir: "custom1", name: "Custom1" },
+    { dir: "custom2", name: "Custom2" }
+];
+assert(custom_sections[0].dir == "custom1", "custom type array access");
+
+// Modify object in array
+sections[0].dir = "modified";
+assert(sections[0].dir == "modified", "modify object in array");
+
+// Async context
+async fn async_process(items) {
+    return items[0].name;
+}
+let task = spawn(async_process, sections);
+let async_result = await task;
+assert(async_result == "Foo", "async array of objects access");
+
+print("All array-of-objects tests passed!");
