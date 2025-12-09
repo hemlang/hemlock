@@ -500,22 +500,184 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             break;
 
         case EXPR_BINARY: {
+            // OPTIMIZATION: Short-circuit evaluation for && and ||
+            // This matches the interpreter's behavior and avoids unnecessary computation
+            if (expr->as.binary.op == OP_AND) {
+                // Short-circuit AND: if left is false, skip right evaluation
+                char *left = codegen_expr(ctx, expr->as.binary.left);
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (!hml_to_bool(%s)) {", left);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_bool(0);", result);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                char *right = codegen_expr(ctx, expr->as.binary.right);
+                codegen_writeln(ctx, "%s = hml_val_bool(hml_to_bool(%s));", result, right);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
+                free(right);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+                free(left);
+                break;
+            }
+
+            if (expr->as.binary.op == OP_OR) {
+                // Short-circuit OR: if left is true, skip right evaluation
+                char *left = codegen_expr(ctx, expr->as.binary.left);
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (hml_to_bool(%s)) {", left);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_bool(1);", result);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                char *right = codegen_expr(ctx, expr->as.binary.right);
+                codegen_writeln(ctx, "%s = hml_val_bool(hml_to_bool(%s));", result, right);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
+                free(right);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+                free(left);
+                break;
+            }
+
+            // OPTIMIZATION: Constant folding for number literals
+            // If both operands are compile-time known constants, compute the result at compile time
+            if (expr->as.binary.left->type == EXPR_NUMBER &&
+                expr->as.binary.right->type == EXPR_NUMBER &&
+                !expr->as.binary.left->as.number.is_float &&
+                !expr->as.binary.right->as.number.is_float) {
+                int64_t l = expr->as.binary.left->as.number.int_value;
+                int64_t r = expr->as.binary.right->as.number.int_value;
+                int64_t const_result = 0;
+                int is_bool_result = 0;
+                int can_fold = 1;
+
+                switch (expr->as.binary.op) {
+                    case OP_ADD: const_result = l + r; break;
+                    case OP_SUB: const_result = l - r; break;
+                    case OP_MUL: const_result = l * r; break;
+                    case OP_DIV:
+                        if (r != 0) { const_result = l / r; } else { can_fold = 0; }
+                        break;
+                    case OP_MOD:
+                        if (r != 0) { const_result = l % r; } else { can_fold = 0; }
+                        break;
+                    case OP_LESS: const_result = l < r; is_bool_result = 1; break;
+                    case OP_LESS_EQUAL: const_result = l <= r; is_bool_result = 1; break;
+                    case OP_GREATER: const_result = l > r; is_bool_result = 1; break;
+                    case OP_GREATER_EQUAL: const_result = l >= r; is_bool_result = 1; break;
+                    case OP_EQUAL: const_result = l == r; is_bool_result = 1; break;
+                    case OP_NOT_EQUAL: const_result = l != r; is_bool_result = 1; break;
+                    case OP_BIT_AND: const_result = l & r; break;
+                    case OP_BIT_OR: const_result = l | r; break;
+                    case OP_BIT_XOR: const_result = l ^ r; break;
+                    case OP_BIT_LSHIFT: const_result = l << r; break;
+                    case OP_BIT_RSHIFT: const_result = l >> r; break;
+                    default: can_fold = 0; break;
+                }
+
+                if (can_fold) {
+                    if (is_bool_result) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%d);", result, (int)const_result);
+                    } else if (const_result >= INT32_MIN && const_result <= INT32_MAX) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)const_result);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, const_result);
+                    }
+                    break;
+                }
+            }
+
+            // General case: evaluate both operands
             char *left = codegen_expr(ctx, expr->as.binary.left);
             char *right = codegen_expr(ctx, expr->as.binary.right);
-            codegen_writeln(ctx, "HmlValue %s = hml_binary_op(%s, %s, %s);",
-                          result, codegen_hml_binary_op(expr->as.binary.op), left, right);
-            codegen_writeln(ctx, "hml_release(&%s);", left);
-            codegen_writeln(ctx, "hml_release(&%s);", right);
+
+            // OPTIMIZATION: i32 fast path for binary operations
+            // This matches the interpreter's fast path for the most common case (i32 op i32)
+            // Check at runtime if both are i32 and use inline fast path
+            const char *i32_fast_fn = NULL;
+            switch (expr->as.binary.op) {
+                case OP_ADD: i32_fast_fn = "hml_i32_add"; break;
+                case OP_SUB: i32_fast_fn = "hml_i32_sub"; break;
+                case OP_MUL: i32_fast_fn = "hml_i32_mul"; break;
+                case OP_DIV: i32_fast_fn = "hml_i32_div"; break;
+                case OP_MOD: i32_fast_fn = "hml_i32_mod"; break;
+                case OP_LESS: i32_fast_fn = "hml_i32_lt"; break;
+                case OP_LESS_EQUAL: i32_fast_fn = "hml_i32_le"; break;
+                case OP_GREATER: i32_fast_fn = "hml_i32_gt"; break;
+                case OP_GREATER_EQUAL: i32_fast_fn = "hml_i32_ge"; break;
+                case OP_EQUAL: i32_fast_fn = "hml_i32_eq"; break;
+                case OP_NOT_EQUAL: i32_fast_fn = "hml_i32_ne"; break;
+                case OP_BIT_AND: i32_fast_fn = "hml_i32_bit_and"; break;
+                case OP_BIT_OR: i32_fast_fn = "hml_i32_bit_or"; break;
+                case OP_BIT_XOR: i32_fast_fn = "hml_i32_bit_xor"; break;
+                case OP_BIT_LSHIFT: i32_fast_fn = "hml_i32_lshift"; break;
+                case OP_BIT_RSHIFT: i32_fast_fn = "hml_i32_rshift"; break;
+                default: break;
+            }
+
+            if (i32_fast_fn) {
+                // Generate fast path with runtime type check
+                codegen_writeln(ctx, "HmlValue %s = hml_both_i32(%s, %s) ? %s(%s, %s) : hml_binary_op(%s, %s, %s);",
+                              result, left, right, i32_fast_fn, left, right,
+                              codegen_hml_binary_op(expr->as.binary.op), left, right);
+            } else {
+                // No fast path available - use generic binary_op
+                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(%s, %s, %s);",
+                              result, codegen_hml_binary_op(expr->as.binary.op), left, right);
+            }
+
+            // Use optimized release that skips primitives
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
             free(left);
             free(right);
             break;
         }
 
         case EXPR_UNARY: {
+            // OPTIMIZATION: Constant folding for unary operations on literals
+            if (expr->as.unary.operand->type == EXPR_NUMBER &&
+                !expr->as.unary.operand->as.number.is_float) {
+                int64_t val = expr->as.unary.operand->as.number.int_value;
+                int can_fold = 1;
+
+                switch (expr->as.unary.op) {
+                    case UNARY_NEGATE:
+                        val = -val;
+                        break;
+                    case UNARY_BIT_NOT:
+                        val = ~val;
+                        break;
+                    default:
+                        can_fold = 0;
+                        break;
+                }
+
+                if (can_fold) {
+                    if (val >= INT32_MIN && val <= INT32_MAX) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)val);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, val);
+                    }
+                    break;
+                }
+            }
+
+            // Constant folding for NOT on boolean literals
+            if (expr->as.unary.op == UNARY_NOT && expr->as.unary.operand->type == EXPR_BOOL) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%d);", result, !expr->as.unary.operand->as.boolean);
+                break;
+            }
+
             char *operand = codegen_expr(ctx, expr->as.unary.operand);
             codegen_writeln(ctx, "HmlValue %s = hml_unary_op(%s, %s);",
                           result, codegen_hml_unary_op(expr->as.unary.op), operand);
-            codegen_writeln(ctx, "hml_release(&%s);", operand);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
             free(operand);
             break;
         }
@@ -2619,7 +2781,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *obj = codegen_expr(ctx, expr->as.index.object);
             char *idx = codegen_expr(ctx, expr->as.index.index);
             codegen_writeln(ctx, "HmlValue %s;", result);
-            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj);
+            // OPTIMIZATION: Fast path for array[i32] - the most common indexing case
+            // This matches the interpreter's fast path and avoids function call overhead
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY && %s.type == HML_VAL_I32) {", obj, idx);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "%s = hml_array_get_i32_fast(%s.as.as_array, %s.as.as_i32);", result, obj, idx);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", result, obj, idx);
             codegen_indent_dec(ctx);
@@ -2641,8 +2809,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "%s = hml_val_null();", result);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
-            codegen_writeln(ctx, "hml_release(&%s);", obj);
-            codegen_writeln(ctx, "hml_release(&%s);", idx);
+            // Use optimized release that skips primitives (index is often i32)
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
             free(obj);
             free(idx);
             break;
