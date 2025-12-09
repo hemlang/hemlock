@@ -1413,6 +1413,19 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         }
     }
 
+    // String comparison operations (ordering)
+    if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
+        int cmp = strcmp(left.as.as_string->data, right.as.as_string->data);
+        switch (op) {
+            case HML_OP_LESS:          return hml_val_bool(cmp < 0);
+            case HML_OP_LESS_EQUAL:    return hml_val_bool(cmp <= 0);
+            case HML_OP_GREATER:       return hml_val_bool(cmp > 0);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(cmp >= 0);
+            default:
+                hml_runtime_error("Invalid operation for string type");
+        }
+    }
+
     // Pointer arithmetic: ptr + int or ptr - int
     if (left.type == HML_VAL_PTR && hml_is_numeric(right)) {
         int64_t offset = hml_to_i64(right);
