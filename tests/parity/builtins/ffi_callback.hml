@@ -1,0 +1,78 @@
+// Test FFI callbacks in compiled Hemlock
+// This test verifies that callback(), callback_free(), and ptr helpers work
+
+import "libc.so.6";
+extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
+
+// Comparison function for integers (ascending order)
+fn compare_ints(a: ptr, b: ptr): i32 {
+    let va = ptr_deref_i32(a);
+    let vb = ptr_deref_i32(b);
+    if (va < vb) {
+        return -1;
+    }
+    if (va > vb) {
+        return 1;
+    }
+    return 0;
+}
+
+// Test qsort with callback
+fn test_qsort() {
+    print("Testing qsort with FFI callback (compiled)...");
+
+    // Allocate array of 5 integers (4 bytes each)
+    let arr = alloc(20);  // 5 * 4 bytes
+
+    // Initialize array: [5, 2, 8, 1, 9]
+    ptr_write_i32(arr, 5);
+    ptr_write_i32(ptr_offset(arr, 1, 4), 2);
+    ptr_write_i32(ptr_offset(arr, 2, 4), 8);
+    ptr_write_i32(ptr_offset(arr, 3, 4), 1);
+    ptr_write_i32(ptr_offset(arr, 4, 4), 9);
+
+    // Create callback from comparison function
+    let cmp = callback(compare_ints, ["ptr", "ptr"], "i32");
+
+    // Sort the array
+    qsort(arr, 5, 4, cmp);
+
+    // Verify sorted order: [1, 2, 5, 8, 9]
+    let sorted = true;
+    let i = 0;
+    while (i < 4) {
+        let current = ptr_deref_i32(ptr_offset(arr, i, 4));
+        let next = ptr_deref_i32(ptr_offset(arr, i + 1, 4));
+        if (current > next) {
+            sorted = false;
+        }
+        i = i + 1;
+    }
+
+    if (sorted) {
+        print("PASS: Array is sorted correctly");
+    } else {
+        print("FAIL: Array is not sorted correctly");
+        // Print the array for debugging
+        i = 0;
+        while (i < 5) {
+            let val = ptr_deref_i32(ptr_offset(arr, i, 4));
+            print(`  arr[${i}] = ${val}`);
+            i = i + 1;
+        }
+    }
+
+    // Clean up
+    callback_free(cmp);
+    free(arr);
+
+    return sorted;
+}
+
+// Run test
+let result = test_qsort();
+if (result) {
+    print("All FFI callback tests passed!");
+} else {
+    print("FFI callback tests FAILED");
+}
