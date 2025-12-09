@@ -2689,8 +2689,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             } else if (codegen_is_shadow(ctx, var_name)) {
                 // Shadow variable (like catch param) - use bare name
                 // var_name stays as-is
-            } else if (codegen_is_local(ctx, var_name) && !codegen_is_main_var(ctx, var_name)) {
-                // True local variable (not a main var added for tracking) - use bare name
+            } else if (codegen_is_local(ctx, var_name) && (ctx->current_module || !codegen_is_main_var(ctx, var_name))) {
+                // Local variable - use bare name
+                // In module context, locals always shadow main vars
+                // Outside module, only if not a tracked main var
                 // var_name stays as-is
             } else if (codegen_is_main_var(ctx, expr->as.assign.name)) {
                 // Main file top-level variable - use _main_ prefix

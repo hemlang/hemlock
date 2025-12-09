@@ -351,8 +351,22 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d, %d);",
                           mangled, module->module_prefix, name,
                           func->as.function.num_params, num_required, func->as.function.is_async);
+        } else if (stmt->type == STMT_LET && stmt->as.let.value) {
+            // Non-function let statement - assign to module global
+            char mangled[256];
+            snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.let.name);
+            char *value = codegen_expr(ctx, stmt->as.let.value);
+            codegen_writeln(ctx, "%s = %s;", mangled, value);
+            free(value);
+        } else if (stmt->type == STMT_CONST && stmt->as.const_stmt.value) {
+            // Const statement - assign to module global
+            char mangled[256];
+            snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.const_stmt.name);
+            char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
+            codegen_writeln(ctx, "%s = %s;", mangled, value);
+            free(value);
         } else {
-            // Regular statement
+            // Regular statement (import bindings, etc.)
             codegen_stmt(ctx, stmt);
         }
     }
