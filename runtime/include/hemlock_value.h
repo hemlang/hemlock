@@ -264,4 +264,127 @@ HmlValue hml_to_string(HmlValue val);         // Converts any value to string
 const char* hml_type_name(HmlValueType type);
 const char* hml_typeof_str(HmlValue val);
 
+// ========== FAST PATH OPTIMIZATIONS ==========
+// These inline functions provide optimized paths for common operations,
+// matching the interpreter's fast paths for better performance.
+
+// Fast path: Check if both values are i32 (most common case in benchmarks)
+static inline int hml_both_i32(HmlValue left, HmlValue right) {
+    return left.type == HML_VAL_I32 && right.type == HML_VAL_I32;
+}
+
+// Fast path: i32 addition (no type promotion, no refcounting)
+static inline HmlValue hml_i32_add(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 + right.as.as_i32 };
+}
+
+// Fast path: i32 subtraction
+static inline HmlValue hml_i32_sub(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 - right.as.as_i32 };
+}
+
+// Fast path: i32 multiplication
+static inline HmlValue hml_i32_mul(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 * right.as.as_i32 };
+}
+
+// Fast path: i32 division (with zero check)
+static inline HmlValue hml_i32_div(HmlValue left, HmlValue right) {
+    if (right.as.as_i32 == 0) {
+        extern void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Division by zero");
+    }
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 / right.as.as_i32 };
+}
+
+// Fast path: i32 modulo (with zero check)
+static inline HmlValue hml_i32_mod(HmlValue left, HmlValue right) {
+    if (right.as.as_i32 == 0) {
+        extern void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Division by zero");
+    }
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 % right.as.as_i32 };
+}
+
+// Fast path: i32 comparisons (return bool)
+static inline HmlValue hml_i32_lt(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_BOOL, .as.as_bool = left.as.as_i32 < right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_le(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_BOOL, .as.as_bool = left.as.as_i32 <= right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_gt(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_BOOL, .as.as_bool = left.as.as_i32 > right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_ge(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_BOOL, .as.as_bool = left.as.as_i32 >= right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_eq(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_BOOL, .as.as_bool = left.as.as_i32 == right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_ne(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_BOOL, .as.as_bool = left.as.as_i32 != right.as.as_i32 };
+}
+
+// Fast path: i32 bitwise operations
+static inline HmlValue hml_i32_bit_and(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 & right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_bit_or(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 | right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_bit_xor(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 ^ right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_lshift(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 << right.as.as_i32 };
+}
+
+static inline HmlValue hml_i32_rshift(HmlValue left, HmlValue right) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 >> right.as.as_i32 };
+}
+
+// Fast path: array[i32] access (bounds checked)
+static inline HmlValue hml_array_get_i32_fast(HmlArray *arr, int32_t index) {
+    if (index >= 0 && index < arr->length) {
+        HmlValue result = arr->elements[index];
+        hml_retain(&result);
+        return result;
+    }
+    // Fall through to bounds error
+    extern void hml_runtime_error(const char *fmt, ...);
+    hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
+    return (HmlValue){ .type = HML_VAL_NULL };
+}
+
+// Fast path: Check if value needs refcounting (primitives don't)
+static inline int hml_needs_refcount(HmlValue val) {
+    return val.type == HML_VAL_STRING || val.type == HML_VAL_BUFFER ||
+           val.type == HML_VAL_ARRAY || val.type == HML_VAL_OBJECT ||
+           val.type == HML_VAL_FUNCTION || val.type == HML_VAL_TASK ||
+           val.type == HML_VAL_CHANNEL;
+}
+
+// Fast path: Conditional retain (skip for primitives)
+static inline void hml_retain_if_needed(HmlValue *val) {
+    if (hml_needs_refcount(*val)) {
+        hml_retain(val);
+    }
+}
+
+// Fast path: Conditional release (skip for primitives)
+static inline void hml_release_if_needed(HmlValue *val) {
+    if (hml_needs_refcount(*val)) {
+        hml_release(val);
+    }
+}
+
 #endif // HEMLOCK_VALUE_H
