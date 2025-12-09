@@ -8453,6 +8453,16 @@ HmlValue hml_lws_response_free(HmlValue resp_val) {
     return hml_val_null();
 }
 
+HmlValue hml_lws_response_redirect(HmlValue resp_val) {
+    (void)resp_val;
+    return hml_val_null();
+}
+
+HmlValue hml_lws_response_body_binary(HmlValue resp_val) {
+    (void)resp_val;
+    return hml_val_buffer(0);
+}
+
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
     (void)env;
     return hml_lws_http_get(url);
@@ -8481,6 +8491,16 @@ HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp) {
 HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp) {
     (void)env;
     return hml_lws_response_free(resp);
+}
+
+HmlValue hml_builtin_lws_response_redirect(HmlClosureEnv *env, HmlValue resp) {
+    (void)env;
+    return hml_lws_response_redirect(resp);
+}
+
+HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp) {
+    (void)env;
+    return hml_lws_response_body_binary(resp);
 }
 
 // WebSocket stub implementations
