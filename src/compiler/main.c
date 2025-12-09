@@ -266,6 +266,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         strcpy(websockets_flag, " -lwebsockets");
     }
 
+    // OpenSSL/libcrypto is required for hash functions (sha256, sha512, md5)
 #ifdef __APPLE__
     // On macOS, add OpenSSL library path from Homebrew
     FILE *ssl_fp = popen("brew --prefix openssl@3 2>/dev/null", "r");
@@ -281,10 +282,20 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
 #endif
 
+    // Check if -lcrypto is linkable (OpenSSL)
+    char crypto_flag[16] = "";
+    char crypto_test_cmd[1024];
+    snprintf(crypto_test_cmd, sizeof(crypto_test_cmd),
+        "echo 'int main(){return 0;}' | gcc -x c - %s -lcrypto -o /dev/null 2>/dev/null",
+        extra_lib_paths);
+    if (system(crypto_test_cmd) == 0) {
+        strcpy(crypto_flag, " -lcrypto");
+    }
+
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s -lcrypto",
+        "%s %s -o %s %s -I%s/runtime/include -L%s%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
-        runtime_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag);
+        runtime_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);

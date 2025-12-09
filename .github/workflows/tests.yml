@@ -16,7 +16,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
 
     - name: Build
       run: make clean && make && make stdlib
@@ -33,7 +33,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
 
     - name: Build compiler
       run: make compiler
@@ -51,7 +51,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
 
     - name: Build interpreter and compiler
       run: |
@@ -71,7 +71,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
 
     - name: Build interpreter
       run: make clean && make && make stdlib || true
@@ -88,7 +88,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
 
     - name: Build with ASAN
       run: |
@@ -115,7 +115,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev valgrind
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev valgrind
 
     - name: Build
       run: make clean && make && make stdlib || true

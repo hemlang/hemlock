@@ -148,6 +148,10 @@ static BuiltinInfo builtins[] = {
     {"__zlib_compress_bound", builtin_zlib_compress_bound},
     {"__crc32", builtin_crc32},
     {"__adler32", builtin_adler32},
+    // Cryptographic hash builtins (use stdlib/hash.hml module for public API)
+    {"__sha256", builtin_sha256},
+    {"__sha512", builtin_sha512},
+    {"__md5", builtin_md5},
     // OS information builtins (use stdlib/os.hml module for public API)
     {"__platform", builtin_platform},
     {"__arch", builtin_arch},
