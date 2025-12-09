@@ -101,6 +101,8 @@ void env_clear(Environment *env);  // Clear variables without deallocating (for 
 void env_retain(Environment *env);
 void env_release(Environment *env);
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
+// Fast variant that borrows the name string without strdup - caller must ensure name outlives env
+void env_define_borrowed(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 

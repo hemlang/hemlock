@@ -668,6 +668,10 @@ export fn rsa_verify(data, signature, keypair) {
 // int EVP_PKEY_CTX_set_ec_paramgen_curve_nid(EVP_PKEY_CTX *ctx, int nid)
 extern fn EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx: ptr, nid: i32): i32;
 
+// EVP_PKEY *EVP_EC_gen(const char *curve)
+// OpenSSL 3.0+ non-variadic EC key generation (cleaner than EVP_PKEY_Q_keygen for EC)
+extern fn EVP_EC_gen(curve: ptr): ptr;
+
 // NID for P-256 curve (secp256r1 / prime256v1)
 let NID_X9_62_prime256v1 = 415;
 
@@ -681,14 +685,8 @@ define ECDSAKeyPair {
 // Returns ECDSAKeyPair object with private and public keys
 // NOTE: Keys must be freed with ecdsa_free_keys()
 export fn ecdsa_generate_key() {
-    // Use OpenSSL 3.x simplified API (EVP_PKEY_Q_keygen)
-    // This avoids pointer-to-pointer issues and matches RSA approach
-
-    // Create null-terminated C string "EC\0"
-    let type_str = buffer(3);
-    type_str[0] = 69;  // 'E'
-    type_str[1] = 67;  // 'C'
-    type_str[2] = 0;   // null terminator
+    // Use OpenSSL 3.0+ EVP_EC_gen() - non-variadic, takes just curve name
+    // This is cleaner than EVP_PKEY_Q_keygen for EC keys
 
     // Create null-terminated C string "prime256v1\0" (P-256 curve)
     let curve_str = buffer(11);
@@ -704,15 +702,12 @@ export fn ecdsa_generate_key() {
     curve_str[9] = 49;   // '1'
     curve_str[10] = 0;   // null terminator
 
-    let type_ptr = buffer_to_ptr(type_str);
     let curve_ptr = buffer_to_ptr(curve_str);
 
-    // EVP_PKEY_Q_keygen(NULL, NULL, "EC", "prime256v1") - returns EVP_PKEY* directly
-    // Note: For EC keys, pass curve name as string instead of bits
-    let pkey = EVP_PKEY_Q_keygen(null, null, type_ptr, curve_ptr);
+    // EVP_EC_gen("prime256v1") - returns EVP_PKEY* directly
+    let pkey = EVP_EC_gen(curve_ptr);
 
-    // Cleanup temporary buffers
-    free(type_ptr);
+    // Cleanup temporary buffer
     free(curve_ptr);
 
     if (pkey == null) {

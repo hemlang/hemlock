@@ -101,15 +101,15 @@ $(BUILD_DIR)/interpreter/ffi.o: $(SRC_DIR)/interpreter/ffi.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(subst -O2,-O0,$(CFLAGS)) -c $< -o $@
 
-# Special rule for statements.c - compile with -O0 for same optimizer bug
+# Special rule for statements.c - compile with -O1 (O2 causes slight regression)
 $(BUILD_DIR)/interpreter/runtime/statements.o: $(SRC_DIR)/interpreter/runtime/statements.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
-	$(CC) $(subst -O2,-O0,$(CFLAGS)) -c $< -o $@
+	$(CC) $(subst -O2,-O1,$(CFLAGS)) -c $< -o $@
 
-# Special rule for expressions.c - compile with -O0 for same optimizer bug
+# Special rule for expressions.c - compile with -O1 (O2 causes slight regression)
 $(BUILD_DIR)/interpreter/runtime/expressions.o: $(SRC_DIR)/interpreter/runtime/expressions.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
-	$(CC) $(subst -O2,-O0,$(CFLAGS)) -c $< -o $@
+	$(CC) $(subst -O2,-O1,$(CFLAGS)) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)

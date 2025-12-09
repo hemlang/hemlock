@@ -223,6 +223,8 @@ typedef struct Environment {
     // Hash table for O(1) variable lookup (linear probing)
     int *hash_table;     // Array of variable indices, -1 = empty slot
     int hash_capacity;   // Size of hash table (usually 2x capacity)
+    // Borrowed names optimization: bit flags (1 = borrowed, don't free)
+    unsigned int borrowed_flags;  // Bit flags for first 32 names
 } Environment;
 
 // Public interface

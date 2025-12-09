@@ -5,6 +5,104 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
+// ========== ENVIRONMENT POOL ==========
+// Pre-allocate environments to avoid malloc/free overhead in recursive calls
+// Uses a free list for O(1) alloc/free
+
+#define ENV_POOL_SIZE 128
+#define ENV_DEFAULT_CAPACITY 16
+
+typedef struct {
+    Environment envs[ENV_POOL_SIZE];
+    char *names_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
+    Value values_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
+    int is_const_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
+    int hash_table_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY * 2];
+    int free_list[ENV_POOL_SIZE];  // Stack of free indices
+    int free_count;                 // Number of free slots
+    pthread_mutex_t mutex;          // Protects pool operations for thread safety
+} EnvironmentPool;
+
+static EnvironmentPool env_pool = {0};
+static int env_pool_initialized = 0;
+static pthread_once_t env_pool_once = PTHREAD_ONCE_INIT;
+
+static void env_pool_init_internal(void) {
+    pthread_mutex_init(&env_pool.mutex, NULL);
+    for (int i = 0; i < ENV_POOL_SIZE; i++) {
+        // Pre-initialize the environment structures
+        env_pool.envs[i].names = env_pool.names_storage[i];
+        env_pool.envs[i].values = env_pool.values_storage[i];
+        env_pool.envs[i].is_const = env_pool.is_const_storage[i];
+        env_pool.envs[i].hash_table = env_pool.hash_table_storage[i];
+        env_pool.envs[i].capacity = ENV_DEFAULT_CAPACITY;
+        env_pool.envs[i].hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        // Add to free list (in reverse order so 0 is popped first)
+        env_pool.free_list[i] = ENV_POOL_SIZE - 1 - i;
+    }
+    env_pool.free_count = ENV_POOL_SIZE;
+    env_pool_initialized = 1;
+}
+
+static void env_pool_init(void) {
+    pthread_once(&env_pool_once, env_pool_init_internal);
+}
+
+static Environment* env_pool_alloc(void) {
+    env_pool_init();  // Ensure initialized (thread-safe via pthread_once)
+
+    pthread_mutex_lock(&env_pool.mutex);
+
+    // O(1) allocation from free list
+    if (env_pool.free_count > 0) {
+        int idx = env_pool.free_list[--env_pool.free_count];
+        pthread_mutex_unlock(&env_pool.mutex);
+
+        Environment *env = &env_pool.envs[idx];
+        // Reset to default storage (in case it was grown)
+        env->names = env_pool.names_storage[idx];
+        env->values = env_pool.values_storage[idx];
+        env->is_const = env_pool.is_const_storage[idx];
+        env->hash_table = env_pool.hash_table_storage[idx];
+        env->capacity = ENV_DEFAULT_CAPACITY;
+        env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        return env;
+    }
+
+    pthread_mutex_unlock(&env_pool.mutex);
+    return NULL;  // Pool exhausted
+}
+
+static int env_is_pooled(Environment *env) {
+    return env >= &env_pool.envs[0] && env < &env_pool.envs[ENV_POOL_SIZE];
+}
+
+static void env_pool_free(Environment *env) {
+    if (!env_is_pooled(env)) return;
+    int idx = (int)(env - &env_pool.envs[0]);
+    // If it was grown beyond default, free the grown arrays
+    if (env->names != env_pool.names_storage[idx]) {
+        free(env->names);
+        env->names = env_pool.names_storage[idx];
+    }
+    if (env->values != env_pool.values_storage[idx]) {
+        free(env->values);
+        env->values = env_pool.values_storage[idx];
+    }
+    if (env->is_const != env_pool.is_const_storage[idx]) {
+        free(env->is_const);
+        env->is_const = env_pool.is_const_storage[idx];
+    }
+    if (env->hash_table != env_pool.hash_table_storage[idx]) {
+        free(env->hash_table);
+        env->hash_table = env_pool.hash_table_storage[idx];
+    }
+    // O(1) return to free list (thread-safe)
+    pthread_mutex_lock(&env_pool.mutex);
+    env_pool.free_list[env_pool.free_count++] = idx;
+    pthread_mutex_unlock(&env_pool.mutex);
+}
+
 // ========== ENVIRONMENT ==========
 
 // DJB2 hash function - fast and good distribution for variable names
@@ -18,7 +116,27 @@ static uint32_t hash_string(const char *str) {
 }
 
 Environment* env_new(Environment *parent) {
-    Environment *env = malloc(sizeof(Environment));
+    // Try to get from pool first
+    Environment *env = env_pool_alloc();
+
+    if (env) {
+        // Got from pool - just initialize
+        env->count = 0;
+        env->ref_count = 1;
+        env->borrowed_flags = 0;  // Clear borrowed flags
+        // Clear hash table
+        for (int i = 0; i < env->hash_capacity; i++) {
+            env->hash_table[i] = -1;
+        }
+        env->parent = parent;
+        if (parent) {
+            env_retain(parent);
+        }
+        return env;
+    }
+
+    // Pool exhausted - fall back to malloc
+    env = malloc(sizeof(Environment));
     if (!env) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
@@ -62,6 +180,7 @@ Environment* env_new(Environment *parent) {
     for (int i = 0; i < env->hash_capacity; i++) {
         env->hash_table[i] = -1;
     }
+    env->borrowed_flags = 0;  // Initialize borrowed flags
     env->parent = parent;
     // Retain parent environment if it exists
     if (parent) {
@@ -227,11 +346,15 @@ void env_break_cycles(Environment *env) {
 void env_clear(Environment *env) {
     // Release all values and free names
     for (int i = 0; i < env->count; i++) {
-        free(env->names[i]);
+        // Only free name if it's not borrowed (check bit flag)
+        if (i >= 32 || !(env->borrowed_flags & (1U << i))) {
+            free(env->names[i]);
+        }
         VALUE_RELEASE(env->values[i]);
     }
     // Reset count but keep capacity and allocated arrays
     env->count = 0;
+    env->borrowed_flags = 0;  // Clear borrowed flags
     // Clear hash table (reset all slots to -1)
     for (int i = 0; i < env->hash_capacity; i++) {
         env->hash_table[i] = -1;
@@ -241,19 +364,26 @@ void env_clear(Environment *env) {
 void env_free(Environment *env) {
     // Free all variable names and release values
     for (int i = 0; i < env->count; i++) {
-        free(env->names[i]);
+        // Only free name if it's not borrowed (check bit flag)
+        if (i >= 32 || !(env->borrowed_flags & (1U << i))) {
+            free(env->names[i]);
+        }
         VALUE_RELEASE(env->values[i]);  // Decrement reference count
     }
-    free(env->names);
-    free(env->values);
-    free(env->is_const);
-    free(env->hash_table);
 
     // Release parent environment (may trigger cascade of frees)
     Environment *parent = env->parent;
 
-    // Free the environment itself
-    free(env);
+    // Return to pool or free the environment
+    if (env_is_pooled(env)) {
+        env_pool_free(env);
+    } else {
+        free(env->names);
+        free(env->values);
+        free(env->is_const);
+        free(env->hash_table);
+        free(env);
+    }
 
     // Release parent after freeing this environment to avoid use-after-free
     if (parent) {
@@ -296,23 +426,69 @@ static void env_rehash(Environment *env) {
     }
 }
 
+// Check if array is from pool storage (can't be realloc'd)
+static int env_names_is_pooled(Environment *env) {
+    if (!env_is_pooled(env)) return 0;
+    int idx = (int)(env - &env_pool.envs[0]);
+    return env->names == env_pool.names_storage[idx];
+}
+
+static int env_values_is_pooled(Environment *env) {
+    if (!env_is_pooled(env)) return 0;
+    int idx = (int)(env - &env_pool.envs[0]);
+    return env->values == env_pool.values_storage[idx];
+}
+
+static int env_is_const_is_pooled(Environment *env) {
+    if (!env_is_pooled(env)) return 0;
+    int idx = (int)(env - &env_pool.envs[0]);
+    return env->is_const == env_pool.is_const_storage[idx];
+}
+
+static int env_hash_table_is_pooled(Environment *env) {
+    if (!env_is_pooled(env)) return 0;
+    int idx = (int)(env - &env_pool.envs[0]);
+    return env->hash_table == env_pool.hash_table_storage[idx];
+}
+
 static void env_grow(Environment *env) {
+    int old_capacity = env->capacity;
     env->capacity *= 2;
-    char **new_names = realloc(env->names, sizeof(char*) * env->capacity);
+
+    // For pooled arrays, we need to malloc new storage (can't realloc static arrays)
+    char **new_names;
+    if (env_names_is_pooled(env)) {
+        new_names = malloc(sizeof(char*) * env->capacity);
+        if (new_names) memcpy(new_names, env->names, sizeof(char*) * old_capacity);
+    } else {
+        new_names = realloc(env->names, sizeof(char*) * env->capacity);
+    }
     if (!new_names) {
         fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
         exit(1);
     }
     env->names = new_names;
 
-    Value *new_values = realloc(env->values, sizeof(Value) * env->capacity);
+    Value *new_values;
+    if (env_values_is_pooled(env)) {
+        new_values = malloc(sizeof(Value) * env->capacity);
+        if (new_values) memcpy(new_values, env->values, sizeof(Value) * old_capacity);
+    } else {
+        new_values = realloc(env->values, sizeof(Value) * env->capacity);
+    }
     if (!new_values) {
         fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
         exit(1);
     }
     env->values = new_values;
 
-    int *new_is_const = realloc(env->is_const, sizeof(int) * env->capacity);
+    int *new_is_const;
+    if (env_is_const_is_pooled(env)) {
+        new_is_const = malloc(sizeof(int) * env->capacity);
+        if (new_is_const) memcpy(new_is_const, env->is_const, sizeof(int) * old_capacity);
+    } else {
+        new_is_const = realloc(env->is_const, sizeof(int) * env->capacity);
+    }
     if (!new_is_const) {
         fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
         exit(1);
@@ -320,8 +496,15 @@ static void env_grow(Environment *env) {
     env->is_const = new_is_const;
 
     // Grow hash table (keep it at 2x capacity for good load factor)
+    int old_hash_capacity = env->hash_capacity;
     env->hash_capacity = env->capacity * 2;
-    int *new_hash_table = realloc(env->hash_table, sizeof(int) * env->hash_capacity);
+    int *new_hash_table;
+    if (env_hash_table_is_pooled(env)) {
+        new_hash_table = malloc(sizeof(int) * env->hash_capacity);
+        if (new_hash_table) memcpy(new_hash_table, env->hash_table, sizeof(int) * old_hash_capacity);
+    } else {
+        new_hash_table = realloc(env->hash_table, sizeof(int) * env->hash_capacity);
+    }
     if (!new_hash_table) {
         fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
         exit(1);
@@ -381,6 +564,42 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 
     int index = env->count;
     env->names[index] = strdup(name);
+    VALUE_RETAIN(value);  // Retain the value
+    env->values[index] = value;
+    env->is_const[index] = is_const;
+    env->count++;
+
+    // Insert into hash table
+    env_hash_insert(env, name, index);
+}
+
+// Fast variant that borrows the name string without strdup
+// Caller must ensure name outlives the environment
+void env_define_borrowed(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx) {
+    uint32_t hash = hash_string(name);
+
+    // Check if variable already exists in current scope using hash table
+    int existing = env_lookup(env, name, hash);
+    if (existing >= 0) {
+        // Throw exception instead of exiting
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+
+    // New variable - grow if needed
+    if (env->count >= env->capacity) {
+        env_grow(env);
+    }
+
+    int index = env->count;
+    env->names[index] = (char*)name;  // Borrow without strdup
+    // Mark as borrowed if index < 32
+    if (index < 32) {
+        env->borrowed_flags |= (1U << index);
+    }
     VALUE_RETAIN(value);  // Retain the value
     env->values[index] = value;
     env->is_const[index] = is_const;

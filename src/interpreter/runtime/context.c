@@ -67,6 +67,7 @@ void call_stack_push_line(CallStack *stack, const char *function_name, int line)
 }
 
 // Push with full info
+// OPTIMIZATION: Store const pointers instead of strdup'ing - the strings are from AST and live long enough
 void call_stack_push_full(CallStack *stack, const char *function_name, const char *source_file, int line) {
     if (stack->capacity == 0) {
         call_stack_init(stack);
@@ -82,8 +83,9 @@ void call_stack_push_full(CallStack *stack, const char *function_name, const cha
         stack->frames = new_frames;
     }
 
-    stack->frames[stack->count].function_name = strdup(function_name);
-    stack->frames[stack->count].source_file = source_file ? strdup(source_file) : NULL;
+    // Store pointers directly - no need to strdup since AST strings outlive the call
+    stack->frames[stack->count].function_name = (char*)function_name;
+    stack->frames[stack->count].source_file = (char*)source_file;
     stack->frames[stack->count].line = line;
     stack->count++;
 }
@@ -91,10 +93,7 @@ void call_stack_push_full(CallStack *stack, const char *function_name, const cha
 void call_stack_pop(CallStack *stack) {
     if (stack->count > 0) {
         stack->count--;
-        free(stack->frames[stack->count].function_name);
-        if (stack->frames[stack->count].source_file) {
-            free(stack->frames[stack->count].source_file);
-        }
+        // No need to free - we're storing const pointers now
     }
 }
 
@@ -131,12 +130,7 @@ void call_stack_print(CallStack *stack) {
 }
 
 void call_stack_free(CallStack *stack) {
-    for (int i = 0; i < stack->count; i++) {
-        free(stack->frames[i].function_name);
-        if (stack->frames[i].source_file) {
-            free(stack->frames[i].source_file);
-        }
-    }
+    // No need to free individual strings - they're const pointers to AST data
     free(stack->frames);
     stack->frames = NULL;
     stack->count = 0;

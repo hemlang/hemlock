@@ -1,6 +1,6 @@
 #include "internal.h"
 #include <openssl/sha.h>
-#include <openssl/md5.h>
+#include <openssl/evp.h>
 
 // ============================================================================
 // CRYPTOGRAPHIC HASH BUILTINS (OpenSSL)
@@ -79,9 +79,19 @@ Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     String *str = args[0].as.as_string;
-    unsigned char hash[MD5_DIGEST_LENGTH];
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len = 0;
 
-    MD5((const unsigned char *)str->data, str->length, hash);
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+    if (!mdctx) return val_null();
 
-    return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
+    if (EVP_DigestInit_ex(mdctx, EVP_md5(), NULL) != 1 ||
+        EVP_DigestUpdate(mdctx, str->data, str->length) != 1 ||
+        EVP_DigestFinal_ex(mdctx, hash, &hash_len) != 1) {
+        EVP_MD_CTX_free(mdctx);
+        return val_null();
+    }
+    EVP_MD_CTX_free(mdctx);
+
+    return bytes_to_hex_string(hash, hash_len);
 }

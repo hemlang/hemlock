@@ -1156,7 +1156,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
                     }
 
-                    env_define(call_env, fn->param_names[i], arg_value, 0, ctx);  // Parameters are local, mutable
+                    // Use borrowed variant - param names come from AST and outlive the call
+                    env_define_borrowed(call_env, fn->param_names[i], arg_value, 0, ctx);
                 }
 
                 // Save defer stack depth before executing function body
