@@ -283,6 +283,11 @@ all-compiler: all compiler
 test-compiler: compiler
 	@bash tests/compiler/run_compiler_tests.sh
 
+# Check that interpreter tests compile (does not check output parity)
+.PHONY: compile-check
+compile-check: compiler
+	@bash tests/run_compile_check.sh
+
 # Run parity test suite (tests that must pass on both interpreter and compiler)
 .PHONY: parity
 parity: $(TARGET) compiler
