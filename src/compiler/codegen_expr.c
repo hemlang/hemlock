@@ -324,6 +324,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_redirect, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__lws_response_body_binary") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_body_binary, 1, 1, 0);", result);
+            // Cryptographic hash builtins
+            } else if (strcmp(expr->as.ident, "__sha256") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha256, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__sha512") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha512, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__md5") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_md5, 1, 1, 0);", result);
             // WebSocket builtins
             } else if (strcmp(expr->as.ident, "__lws_ws_connect") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_connect, 1, 1, 0);", result);
@@ -1935,6 +1942,35 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s = hml_lws_response_body_binary(%s);", result, resp);
                     codegen_writeln(ctx, "hml_release(&%s);", resp);
                     free(resp);
+                    break;
+                }
+
+                // ========== CRYPTOGRAPHIC HASH BUILTINS ==========
+
+                // __sha256(input)
+                if (strcmp(fn_name, "__sha256") == 0 && expr->as.call.num_args == 1) {
+                    char *input = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_hash_sha256(%s);", result, input);
+                    codegen_writeln(ctx, "hml_release(&%s);", input);
+                    free(input);
+                    break;
+                }
+
+                // __sha512(input)
+                if (strcmp(fn_name, "__sha512") == 0 && expr->as.call.num_args == 1) {
+                    char *input = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_hash_sha512(%s);", result, input);
+                    codegen_writeln(ctx, "hml_release(&%s);", input);
+                    free(input);
+                    break;
+                }
+
+                // __md5(input)
+                if (strcmp(fn_name, "__md5") == 0 && expr->as.call.num_args == 1) {
+                    char *input = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_hash_md5(%s);", result, input);
+                    codegen_writeln(ctx, "hml_release(&%s);", input);
+                    free(input);
                     break;
                 }
 

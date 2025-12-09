@@ -266,8 +266,23 @@ static int compile_c(const Options *opts, const char *c_file) {
         strcpy(websockets_flag, " -lwebsockets");
     }
 
+#ifdef __APPLE__
+    // On macOS, add OpenSSL library path from Homebrew
+    FILE *ssl_fp = popen("brew --prefix openssl@3 2>/dev/null", "r");
+    if (ssl_fp) {
+        char ssl_path[256];
+        if (fgets(ssl_path, sizeof(ssl_path), ssl_fp)) {
+            ssl_path[strcspn(ssl_path, "\n")] = 0;
+            char tmp[128];
+            snprintf(tmp, sizeof(tmp), " -L%s/lib", ssl_path);
+            strcat(extra_lib_paths, tmp);
+        }
+        pclose(ssl_fp);
+    }
+#endif
+
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s",
+        "%s %s -o %s %s -I%s/runtime/include -L%s%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s -lcrypto",
         opts->cc, opt_flag, opts->output_file, c_file,
         runtime_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag);
 

@@ -710,6 +710,18 @@ HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, Hml
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server);
 
+// ========== CRYPTOGRAPHIC HASH FUNCTIONS ==========
+
+// Hash functions - return hex string
+HmlValue hml_hash_sha256(HmlValue input);
+HmlValue hml_hash_sha512(HmlValue input);
+HmlValue hml_hash_md5(HmlValue input);
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input);
+HmlValue hml_builtin_hash_sha512(HmlClosureEnv *env, HmlValue input);
+HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input);
+
 // ========== CALL STACK TRACKING ==========
 
 // Maximum call stack depth (matches interpreter's limit)

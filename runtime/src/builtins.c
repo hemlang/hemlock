@@ -34,6 +34,10 @@
 #include <zlib.h>
 #endif
 
+// OpenSSL for cryptographic hash functions
+#include <openssl/sha.h>
+#include <openssl/md5.h>
+
 #ifdef __linux__
 #include <sys/sysinfo.h>
 #endif
@@ -6670,6 +6674,86 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
 }
 
 #endif /* HML_HAVE_ZLIB */
+
+// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL) ==========
+
+// Helper: Convert bytes to hexadecimal string
+static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
+    static const char hex_chars[] = "0123456789abcdef";
+    char *hex = malloc(len * 2 + 1);
+    if (!hex) return hml_val_string("");
+
+    for (size_t i = 0; i < len; i++) {
+        hex[i * 2] = hex_chars[(bytes[i] >> 4) & 0x0F];
+        hex[i * 2 + 1] = hex_chars[bytes[i] & 0x0F];
+    }
+    hex[len * 2] = '\0';
+
+    HmlValue result = hml_val_string(hex);
+    free(hex);
+    return result;
+}
+
+// SHA-256 hash - returns hex string
+HmlValue hml_hash_sha256(HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("sha256() requires string argument");
+    }
+
+    const char *data = input.as.as_string->data;
+    size_t len = input.as.as_string->length;
+
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256((const unsigned char *)data, len, hash);
+
+    return bytes_to_hex_string(hash, SHA256_DIGEST_LENGTH);
+}
+
+// SHA-512 hash - returns hex string
+HmlValue hml_hash_sha512(HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("sha512() requires string argument");
+    }
+
+    const char *data = input.as.as_string->data;
+    size_t len = input.as.as_string->length;
+
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    SHA512((const unsigned char *)data, len, hash);
+
+    return bytes_to_hex_string(hash, SHA512_DIGEST_LENGTH);
+}
+
+// MD5 hash - returns hex string
+HmlValue hml_hash_md5(HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("md5() requires string argument");
+    }
+
+    const char *data = input.as.as_string->data;
+    size_t len = input.as.as_string->length;
+
+    unsigned char hash[MD5_DIGEST_LENGTH];
+    MD5((const unsigned char *)data, len, hash);
+
+    return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
+}
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input) {
+    (void)env;
+    return hml_hash_sha256(input);
+}
+
+HmlValue hml_builtin_hash_sha512(HmlClosureEnv *env, HmlValue input) {
+    (void)env;
+    return hml_hash_sha512(input);
+}
+
+HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) {
+    (void)env;
+    return hml_hash_md5(input);
+}
 
 // ========== INTERNAL HELPER OPERATIONS ==========
 
