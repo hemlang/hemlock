@@ -1,0 +1,18 @@
+// Test string to_bytes() method
+// Converts string to a raw buffer
+
+let s = "Hi";
+let b = s.to_bytes();
+
+print(typeof(b));
+print(b.length);
+print(b[0]);  // 'H' = 72
+print(b[1]);  // 'i' = 105
+
+// Test with emoji (UTF-8 multibyte)
+let emoji = "A";
+let eb = emoji.to_bytes();
+print(eb.length);
+print(eb[0]);  // 'A' = 65
+
+print("done");
