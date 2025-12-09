@@ -90,11 +90,39 @@ HmlValue hml_val_bool(int val) {
     return v;
 }
 
+// Pre-allocated single-character ASCII strings (immortal, never freed)
+static HmlString *ascii_strings[128] = {0};
+static char ascii_data[128][2];  // Single char + null terminator
+
+static void init_ascii_strings(void) {
+    static int initialized = 0;
+    if (initialized) return;
+    for (int i = 0; i < 128; i++) {
+        ascii_data[i][0] = (char)i;
+        ascii_data[i][1] = '\0';
+        ascii_strings[i] = malloc(sizeof(HmlString));
+        ascii_strings[i]->data = ascii_data[i];
+        ascii_strings[i]->length = 1;
+        ascii_strings[i]->char_length = 1;
+        ascii_strings[i]->capacity = 2;
+        ascii_strings[i]->ref_count = 1000000;  // Immortal - never freed
+    }
+    initialized = 1;
+}
+
 HmlValue hml_val_string(const char *str) {
     HmlValue v;
     v.type = HML_VAL_STRING;
 
     int len = (str != NULL) ? strlen(str) : 0;
+
+    // Fast path: single ASCII character - return pre-allocated string
+    if (len == 1 && (unsigned char)str[0] < 128) {
+        init_ascii_strings();
+        v.as.as_string = ascii_strings[(unsigned char)str[0]];
+        return v;
+    }
+
     int capacity = len + 1;
 
     HmlString *s = malloc(sizeof(HmlString));

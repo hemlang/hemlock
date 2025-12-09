@@ -1286,6 +1286,85 @@ static HmlValue make_int_result(HmlValueType result_type, int64_t value) {
 }
 
 HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
+    // FAST PATH: i32 operations (most common case)
+    if (left.type == HML_VAL_I32 && right.type == HML_VAL_I32) {
+        int32_t l = left.as.as_i32;
+        int32_t r = right.as.as_i32;
+        switch (op) {
+            case HML_OP_ADD: return hml_val_i32(l + r);
+            case HML_OP_SUB: return hml_val_i32(l - r);
+            case HML_OP_MUL: return hml_val_i32(l * r);
+            case HML_OP_DIV:
+                if (r == 0) hml_runtime_error("Division by zero");
+                return hml_val_i32(l / r);
+            case HML_OP_MOD:
+                if (r == 0) hml_runtime_error("Division by zero");
+                return hml_val_i32(l % r);
+            case HML_OP_LESS: return hml_val_bool(l < r);
+            case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
+            case HML_OP_GREATER: return hml_val_bool(l > r);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(l >= r);
+            case HML_OP_EQUAL: return hml_val_bool(l == r);
+            case HML_OP_NOT_EQUAL: return hml_val_bool(l != r);
+            case HML_OP_BIT_AND: return hml_val_i32(l & r);
+            case HML_OP_BIT_OR: return hml_val_i32(l | r);
+            case HML_OP_BIT_XOR: return hml_val_i32(l ^ r);
+            case HML_OP_LSHIFT: return hml_val_i32(l << r);
+            case HML_OP_RSHIFT: return hml_val_i32(l >> r);
+            default: break;
+        }
+    }
+
+    // FAST PATH: i64 operations
+    if (left.type == HML_VAL_I64 && right.type == HML_VAL_I64) {
+        int64_t l = left.as.as_i64;
+        int64_t r = right.as.as_i64;
+        switch (op) {
+            case HML_OP_ADD: return hml_val_i64(l + r);
+            case HML_OP_SUB: return hml_val_i64(l - r);
+            case HML_OP_MUL: return hml_val_i64(l * r);
+            case HML_OP_DIV:
+                if (r == 0) hml_runtime_error("Division by zero");
+                return hml_val_i64(l / r);
+            case HML_OP_MOD:
+                if (r == 0) hml_runtime_error("Division by zero");
+                return hml_val_i64(l % r);
+            case HML_OP_LESS: return hml_val_bool(l < r);
+            case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
+            case HML_OP_GREATER: return hml_val_bool(l > r);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(l >= r);
+            case HML_OP_EQUAL: return hml_val_bool(l == r);
+            case HML_OP_NOT_EQUAL: return hml_val_bool(l != r);
+            case HML_OP_BIT_AND: return hml_val_i64(l & r);
+            case HML_OP_BIT_OR: return hml_val_i64(l | r);
+            case HML_OP_BIT_XOR: return hml_val_i64(l ^ r);
+            case HML_OP_LSHIFT: return hml_val_i64(l << r);
+            case HML_OP_RSHIFT: return hml_val_i64(l >> r);
+            default: break;
+        }
+    }
+
+    // FAST PATH: f64 operations
+    if (left.type == HML_VAL_F64 && right.type == HML_VAL_F64) {
+        double l = left.as.as_f64;
+        double r = right.as.as_f64;
+        switch (op) {
+            case HML_OP_ADD: return hml_val_f64(l + r);
+            case HML_OP_SUB: return hml_val_f64(l - r);
+            case HML_OP_MUL: return hml_val_f64(l * r);
+            case HML_OP_DIV:
+                if (r == 0.0) hml_runtime_error("Division by zero");
+                return hml_val_f64(l / r);
+            case HML_OP_LESS: return hml_val_bool(l < r);
+            case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
+            case HML_OP_GREATER: return hml_val_bool(l > r);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(l >= r);
+            case HML_OP_EQUAL: return hml_val_bool(l == r);
+            case HML_OP_NOT_EQUAL: return hml_val_bool(l != r);
+            default: break;
+        }
+    }
+
     // String concatenation
     if (op == HML_OP_ADD && (left.type == HML_VAL_STRING || right.type == HML_VAL_STRING)) {
         return hml_string_concat(left, right);
@@ -1467,6 +1546,21 @@ HmlValue hml_unary_op(HmlUnaryOp op, HmlValue operand) {
 // ========== STRING OPERATIONS ==========
 
 HmlValue hml_string_concat(HmlValue a, HmlValue b) {
+    // FAST PATH: Both are already strings - avoid hml_to_string overhead
+    if (a.type == HML_VAL_STRING && b.type == HML_VAL_STRING &&
+        a.as.as_string && b.as.as_string) {
+        HmlString *sa = a.as.as_string;
+        HmlString *sb = b.as.as_string;
+        int total = sa->length + sb->length;
+
+        char *result = malloc(total + 1);
+        memcpy(result, sa->data, sa->length);
+        memcpy(result + sa->length, sb->data, sb->length);
+        result[total] = '\0';
+
+        return hml_val_string_owned(result, total, total + 1);
+    }
+
     // Convert both to strings
     HmlValue str_a = hml_to_string(a);
     HmlValue str_b = hml_to_string(b);
