@@ -212,7 +212,7 @@ run_test() {
 
     # Compile C to executable
     if ! gcc -o "$exe_file" "$c_file" -I"$ROOT_DIR/runtime/include" -L"$ROOT_DIR" \
-         -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG 2>/dev/null; then
+         -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG -lcrypto 2>/dev/null; then
         echo -e "${YELLOW}◐${NC} $test_name (gcc failed)"
         GCC_ERROR=$((GCC_ERROR + 1))
         rm -f "$c_file"

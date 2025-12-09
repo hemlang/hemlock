@@ -252,7 +252,7 @@ for test_file in $TEST_FILES; do
     fi
 
     # Compile C to executable
-    gcc_output=$(gcc -o "$exe_file" "$c_file" -I./runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG 2>&1)
+    gcc_output=$(gcc -o "$exe_file" "$c_file" -I./runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG -lcrypto 2>&1)
     gcc_exit=$?
 
     if [ $gcc_exit -ne 0 ]; then
