@@ -1,9 +1,9 @@
 CC = gcc
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O2 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc
+    CFLAGS = -Wall -Wextra -std=c11 -O2 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc
+    CFLAGS = -Wall -Wextra -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -59,36 +59,46 @@ LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
 CFLAGS += -DHAVE_LIBWEBSOCKETS=1
 endif
 
-# Source files from src/ and src/parser/ and src/interpreter/ and src/interpreter/builtins/ and src/interpreter/io/ and src/interpreter/runtime/ and src/lsp/ and src/bundler/
-SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/parser/*.c) $(wildcard $(SRC_DIR)/interpreter/*.c) $(wildcard $(SRC_DIR)/interpreter/builtins/*.c) $(wildcard $(SRC_DIR)/interpreter/io/*.c) $(wildcard $(SRC_DIR)/interpreter/runtime/*.c) $(wildcard $(SRC_DIR)/lsp/*.c) $(wildcard $(SRC_DIR)/bundler/*.c)
+# ========== SOURCE FILES (New Structure) ==========
+# Frontend: shared lexer, parser, AST
+FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/*.c) $(wildcard $(SRC_DIR)/frontend/parser/*.c)
+
+# Frontend files for compiler (exclude module.c which has interpreter-specific code)
+FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/ast.c \
+                         $(SRC_DIR)/frontend/ast_serialize.c \
+                         $(SRC_DIR)/frontend/lexer.c \
+                         $(wildcard $(SRC_DIR)/frontend/parser/*.c)
+
+# Interpreter backend
+INTERP_SRCS = $(wildcard $(SRC_DIR)/backends/interpreter/*.c) \
+              $(wildcard $(SRC_DIR)/backends/interpreter/builtins/*.c) \
+              $(wildcard $(SRC_DIR)/backends/interpreter/io/*.c) \
+              $(wildcard $(SRC_DIR)/backends/interpreter/runtime/*.c)
+
+# Other components
+OTHER_SRCS = $(wildcard $(SRC_DIR)/lsp/*.c) $(wildcard $(SRC_DIR)/bundler/*.c)
+
+# All interpreter sources
+SRCS = $(FRONTEND_SRCS) $(INTERP_SRCS) $(OTHER_SRCS)
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 TARGET = hemlock
 
-all: $(BUILD_DIR) $(BUILD_DIR)/parser $(BUILD_DIR)/interpreter $(BUILD_DIR)/interpreter/builtins $(BUILD_DIR)/interpreter/io $(BUILD_DIR)/interpreter/runtime $(BUILD_DIR)/lsp $(BUILD_DIR)/bundler $(TARGET)
+# Build directories
+BUILD_DIRS = $(BUILD_DIR) \
+             $(BUILD_DIR)/frontend \
+             $(BUILD_DIR)/frontend/parser \
+             $(BUILD_DIR)/backends/interpreter \
+             $(BUILD_DIR)/backends/interpreter/builtins \
+             $(BUILD_DIR)/backends/interpreter/io \
+             $(BUILD_DIR)/backends/interpreter/runtime \
+             $(BUILD_DIR)/backends/compiler \
+             $(BUILD_DIR)/lsp \
+             $(BUILD_DIR)/bundler
 
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+all: $(BUILD_DIRS) $(TARGET)
 
-$(BUILD_DIR)/parser:
-	mkdir -p $(BUILD_DIR)/parser
-
-$(BUILD_DIR)/interpreter:
-	mkdir -p $(BUILD_DIR)/interpreter
-
-$(BUILD_DIR)/interpreter/builtins:
-	mkdir -p $(BUILD_DIR)/interpreter/builtins
-
-$(BUILD_DIR)/interpreter/io:
-	mkdir -p $(BUILD_DIR)/interpreter/io
-
-$(BUILD_DIR)/interpreter/runtime:
-	mkdir -p $(BUILD_DIR)/interpreter/runtime
-
-$(BUILD_DIR)/lsp:
-	mkdir -p $(BUILD_DIR)/lsp
-
-$(BUILD_DIR)/bundler:
-	mkdir -p $(BUILD_DIR)/bundler
+$(BUILD_DIRS):
+	mkdir -p $@
 
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
@@ -97,21 +107,18 @@ $(TARGET): $(OBJS)
 # that causes infinite loops when FFI functions are called from Hemlock code
 # with while loops in helper functions. The root cause appears to be undefined
 # behavior exposed only at -O1/-O2 optimization levels.
-$(BUILD_DIR)/interpreter/ffi.o: $(SRC_DIR)/interpreter/ffi.c | $(BUILD_DIR)
-	mkdir -p $(dir $@)
+$(BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c | $(BUILD_DIRS)
 	$(CC) $(subst -O2,-O0,$(CFLAGS)) -c $< -o $@
 
 # Special rule for statements.c - compile with -O1 (O2 causes slight regression)
-$(BUILD_DIR)/interpreter/runtime/statements.o: $(SRC_DIR)/interpreter/runtime/statements.c | $(BUILD_DIR)
-	mkdir -p $(dir $@)
+$(BUILD_DIR)/backends/interpreter/runtime/statements.o: $(SRC_DIR)/backends/interpreter/runtime/statements.c | $(BUILD_DIRS)
 	$(CC) $(subst -O2,-O1,$(CFLAGS)) -c $< -o $@
 
 # Special rule for expressions.c - compile with -O1 (O2 causes slight regression)
-$(BUILD_DIR)/interpreter/runtime/expressions.o: $(SRC_DIR)/interpreter/runtime/expressions.c | $(BUILD_DIR)
-	mkdir -p $(dir $@)
+$(BUILD_DIR)/backends/interpreter/runtime/expressions.o: $(SRC_DIR)/backends/interpreter/runtime/expressions.c | $(BUILD_DIRS)
 	$(CC) $(subst -O2,-O1,$(CFLAGS)) -c $< -o $@
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIRS)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -219,10 +226,21 @@ valgrind-clean:
 
 # ========== COMPILER AND RUNTIME ==========
 
-# Compiler source files (reuse lexer, parser, ast from interpreter)
+# Compiler source files (reuse frontend from interpreter, but not module.c)
 # Modular codegen: core, expr, stmt, closure, program, module
-COMPILER_SRCS = src/compiler/main.c $(wildcard src/compiler/codegen*.c) src/lexer.c src/ast.c $(wildcard src/parser/*.c)
-COMPILER_OBJS = $(BUILD_DIR)/compiler/main.o $(BUILD_DIR)/compiler/codegen.o $(BUILD_DIR)/compiler/codegen_expr.o $(BUILD_DIR)/compiler/codegen_stmt.o $(BUILD_DIR)/compiler/codegen_closure.o $(BUILD_DIR)/compiler/codegen_program.o $(BUILD_DIR)/compiler/codegen_module.o $(BUILD_DIR)/lexer.o $(BUILD_DIR)/ast.o $(patsubst src/parser/%.c,$(BUILD_DIR)/parser/%.o,$(wildcard src/parser/*.c))
+COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
+                $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
+                $(FRONTEND_COMPILER_SRCS)
+
+COMPILER_OBJS = $(BUILD_DIR)/backends/compiler/main.o \
+                $(BUILD_DIR)/backends/compiler/codegen.o \
+                $(BUILD_DIR)/backends/compiler/codegen_expr.o \
+                $(BUILD_DIR)/backends/compiler/codegen_stmt.o \
+                $(BUILD_DIR)/backends/compiler/codegen_closure.o \
+                $(BUILD_DIR)/backends/compiler/codegen_program.o \
+                $(BUILD_DIR)/backends/compiler/codegen_module.o \
+                $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(FRONTEND_COMPILER_SRCS))
+
 COMPILER_TARGET = hemlockc
 
 # Runtime library
@@ -231,17 +249,13 @@ RUNTIME_LIB = libhemlock_runtime.a
 
 .PHONY: compiler runtime runtime-clean compiler-clean
 
-# Build directory for compiler
-$(BUILD_DIR)/compiler:
-	mkdir -p $(BUILD_DIR)/compiler
-
 # Compiler target
-compiler: $(BUILD_DIR) $(BUILD_DIR)/compiler $(BUILD_DIR)/parser runtime $(COMPILER_TARGET)
+compiler: $(BUILD_DIRS) runtime $(COMPILER_TARGET)
 
 $(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_LIB)
 	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) -lm
 
-$(BUILD_DIR)/compiler/%.o: src/compiler/%.c | $(BUILD_DIR)/compiler
+$(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Build runtime library

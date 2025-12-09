@@ -1,0 +1,26 @@
+// Constants test
+// Tests: const declarations, immutability
+
+const PI = 3.14159;
+const NAME = "Hemlock";
+const MAX_SIZE = 100;
+const IS_DEBUG = false;
+
+print(PI);
+print(NAME);
+print(MAX_SIZE);
+print(IS_DEBUG);
+
+// Constants in expressions
+let area = PI * 5 * 5;
+print(area);
+
+// Const arrays and objects
+const COLORS = ["red", "green", "blue"];
+print(COLORS[0]);
+print(COLORS[1]);
+print(COLORS[2]);
+
+const CONFIG = { version: 1, name: "test" };
+print(CONFIG.version);
+print(CONFIG.name);

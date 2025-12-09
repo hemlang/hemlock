@@ -1,0 +1,43 @@
+// Variable declarations and assignments test
+
+// Basic declaration
+let x = 10;
+print(x);
+
+// Multiple declarations
+let a = 1;
+let b = 2;
+let c = 3;
+print(a + b + c);
+
+// Typed declarations
+let i: i32 = 42;
+let f: f64 = 3.14;
+let s: string = "hello";
+let flag: bool = true;
+
+print(i);
+print(f);
+print(s);
+print(flag);
+
+// Reassignment
+let y = 5;
+y = 10;
+print(y);
+
+// Block scoping
+let z = 1;
+{
+    let inner = 2;
+    print(inner);
+    print(z);  // can access outer z
+}
+print(z);
+
+// Compound assignment simulation
+let counter = 0;
+counter = counter + 1;
+counter = counter + 1;
+counter = counter + 1;
+print(counter);

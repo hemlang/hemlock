@@ -1,0 +1,26 @@
+// JSON functions test
+import { parse, stringify } from "@stdlib/json";
+
+// Parse simple object
+let obj = parse("{\"name\": \"Alice\", \"age\": 30}");
+print(obj.name);
+print(obj.age);
+
+// Parse array
+let arr = parse("[1, 2, 3]");
+print(arr[0]);
+print(arr[1]);
+print(arr[2]);
+
+// Stringify object
+let data = { x: 10, y: 20 };
+print(stringify(data));
+
+// Nested object
+let nested = parse("{\"user\": {\"name\": \"Bob\"}}");
+print(nested.user.name);
+
+// Boolean and null
+let mixed = parse("{\"flag\": true, \"empty\": null}");
+print(mixed.flag);
+print(mixed.empty);

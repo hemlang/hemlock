@@ -250,11 +250,138 @@ hemlock/
 ## Testing
 
 ```bash
-make test              # Run all tests
-make test | grep async # Filter by category
+make test              # Run interpreter tests
+make test-compiler     # Run compiler tests
+make parity            # Run parity tests (both must match)
+make test-all          # Run all test suites
 ```
 
 Test categories: primitives, memory, strings, arrays, functions, objects, async, ffi, defer, signals, switch, bitwise, typed_arrays, modules, stdlib_*
+
+---
+
+## Compiler/Interpreter Architecture
+
+Hemlock has two execution backends that share a common frontend:
+
+```
+Source (.hml)
+    ↓
+┌─────────────────────────────┐
+│  SHARED FRONTEND            │
+│  - Lexer (src/frontend/)    │
+│  - Parser (src/frontend/)   │
+│  - AST (src/frontend/)      │
+└─────────────────────────────┘
+    ↓                    ↓
+┌────────────┐    ┌────────────┐
+│ INTERPRETER│    │  COMPILER  │
+│ (hemlock)  │    │ (hemlockc) │
+│            │    │            │
+│ Tree-walk  │    │ AST → C    │
+│ evaluation │    │ gcc link   │
+└────────────┘    └────────────┘
+```
+
+### Directory Structure
+
+```
+hemlock/
+├── src/
+│   ├── frontend/           # Shared: lexer, parser, AST, modules
+│   │   ├── lexer.c
+│   │   ├── parser/
+│   │   ├── ast.c
+│   │   └── module.c
+│   ├── backends/
+│   │   ├── interpreter/    # hemlock: tree-walking interpreter
+│   │   │   ├── main.c
+│   │   │   ├── runtime/
+│   │   │   └── builtins/
+│   │   └── compiler/       # hemlockc: C code generator
+│   │       ├── main.c
+│   │       └── codegen/
+│   ├── lsp/                # Language server
+│   └── bundler/            # Bundle/package tools
+├── runtime/                # libhemlock_runtime.a for compiled programs
+├── stdlib/                 # Shared standard library
+└── tests/
+    ├── parity/             # Tests that MUST pass both backends
+    ├── interpreter/        # Interpreter-specific tests
+    └── compiler/           # Compiler-specific tests
+```
+
+---
+
+## Parity-First Development
+
+**Both the interpreter and compiler must produce identical output for the same input.**
+
+### Development Policy
+
+When adding or modifying language features:
+
+1. **Design** - Define the AST/semantic change in the shared frontend
+2. **Implement interpreter** - Add tree-walking evaluation
+3. **Implement compiler** - Add C code generation
+4. **Add parity test** - Write test in `tests/parity/` with `.expected` file
+5. **Verify** - Run `make parity` before merging
+
+### Parity Test Structure
+
+```
+tests/parity/
+├── language/       # Core language features (control flow, closures, etc.)
+├── builtins/       # Built-in functions (print, typeof, memory, etc.)
+├── methods/        # String and array methods
+└── modules/        # Import/export, stdlib imports
+```
+
+Each test has two files:
+- `feature.hml` - The test program
+- `feature.expected` - Expected output (must match for both backends)
+
+### Parity Test Results
+
+| Status | Meaning |
+|--------|---------|
+| `✓ PASSED` | Both interpreter and compiler match expected output |
+| `◐ INTERP_ONLY` | Interpreter works, compiler fails (needs compiler fix) |
+| `◑ COMPILER_ONLY` | Compiler works, interpreter fails (rare) |
+| `✗ FAILED` | Both fail (test or implementation bug) |
+
+### What Requires Parity
+
+- All language constructs (if, while, for, switch, defer, try/catch)
+- All operators (arithmetic, bitwise, logical, comparison)
+- All built-in functions (print, typeof, alloc, etc.)
+- All string and array methods
+- Type coercion and promotion rules
+- Error messages for runtime errors
+
+### What May Differ
+
+- Performance characteristics
+- Memory layout details
+- Debug/stack trace format
+- Compilation errors (compiler may catch more at compile time)
+
+### Adding a Parity Test
+
+```bash
+# 1. Create test file
+cat > tests/parity/language/my_feature.hml << 'EOF'
+// Test description
+let x = some_feature();
+print(x);
+EOF
+
+# 2. Generate expected output from interpreter
+./hemlock tests/parity/language/my_feature.hml > tests/parity/language/my_feature.expected
+
+# 3. Verify parity
+make parity
+```
 
 ---
 

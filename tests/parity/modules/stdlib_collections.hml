@@ -1,0 +1,41 @@
+// Collections test
+import { HashMap, Set, Stack, Queue } from "@stdlib/collections";
+
+// HashMap
+let map = HashMap();
+map.set("a", 1);
+map.set("b", 2);
+map.set("c", 3);
+print(map.get("a"));
+print(map.get("b"));
+print(map.has("c"));
+print(map.has("d"));
+print(map.size);
+
+// Set
+let s = Set();
+s.add(1);
+s.add(2);
+s.add(3);
+s.add(2);  // duplicate
+print(s.has(1));
+print(s.has(4));
+print(s.size);
+
+// Stack
+let stack = Stack();
+stack.push(10);
+stack.push(20);
+stack.push(30);
+print(stack.pop());
+print(stack.pop());
+print(stack.size);
+
+// Queue
+let q = Queue();
+q.enqueue(100);
+q.enqueue(200);
+q.enqueue(300);
+print(q.dequeue());
+print(q.dequeue());
+print(q.size);
