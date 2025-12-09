@@ -286,6 +286,7 @@ int hml_object_has_field(HmlValue obj, const char *field);
 int hml_object_num_fields(HmlValue obj);
 HmlValue hml_object_key_at(HmlValue obj, int index);
 HmlValue hml_object_value_at(HmlValue obj, int index);
+HmlValue hml_object_keys(HmlValue obj);
 
 // ========== SERIALIZATION (JSON) ==========
 
