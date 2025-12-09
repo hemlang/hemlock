@@ -368,6 +368,8 @@ void hml_task_debug_info(HmlValue task);
 HmlValue hml_channel(int32_t capacity);
 void hml_channel_send(HmlValue channel, HmlValue value);
 HmlValue hml_channel_recv(HmlValue channel);
+HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_ms);
+HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue timeout_ms);
 void hml_channel_close(HmlValue channel);
 HmlValue hml_select(HmlValue channels, HmlValue timeout);
 HmlValue hml_poll(HmlValue fds, HmlValue timeout);
@@ -514,6 +516,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size);
 // Socket options
 void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option, HmlValue value);
 void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds);
+void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable);
 
 // Socket property getters
 HmlValue hml_socket_get_fd(HmlValue socket_val);

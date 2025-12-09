@@ -1413,6 +1413,19 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         }
     }
 
+    // String comparison operations (ordering)
+    if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
+        int cmp = strcmp(left.as.as_string->data, right.as.as_string->data);
+        switch (op) {
+            case HML_OP_LESS:          return hml_val_bool(cmp < 0);
+            case HML_OP_LESS_EQUAL:    return hml_val_bool(cmp <= 0);
+            case HML_OP_GREATER:       return hml_val_bool(cmp > 0);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(cmp >= 0);
+            default:
+                hml_runtime_error("Invalid operation for string type");
+        }
+    }
+
     // Pointer arithmetic: ptr + int or ptr - int
     if (left.type == HML_VAL_PTR && hml_is_numeric(right)) {
         int64_t offset = hml_to_i64(right);
@@ -4958,6 +4971,108 @@ HmlValue hml_channel_recv(HmlValue channel) {
     return value;
 }
 
+// channel.recv_timeout(timeout_ms) - receive with timeout, returns null on timeout
+HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_val) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        hml_runtime_error("recv_timeout() expects a channel");
+    }
+
+    int timeout_ms = hml_to_i32(timeout_val);
+    HmlChannel *ch = channel.as.as_channel;
+
+    // Calculate deadline
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000;
+    }
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+
+    // Wait while buffer is empty
+    while (ch->count == 0 && !ch->closed) {
+        int rc = pthread_cond_timedwait((pthread_cond_t*)ch->not_empty,
+                                        (pthread_mutex_t*)ch->mutex, &deadline);
+        if (rc == ETIMEDOUT) {
+            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            return hml_val_null();  // Timeout
+        }
+    }
+
+    if (ch->count == 0 && ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        return hml_val_null();
+    }
+
+    // Get value from buffer
+    HmlValue value = ch->buffer[ch->head];
+    ch->head = (ch->head + 1) % ch->capacity;
+    ch->count--;
+
+    pthread_cond_signal((pthread_cond_t*)ch->not_full);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+
+    return value;
+}
+
+// channel.send_timeout(value, timeout_ms) - send with timeout, returns bool (true if sent)
+HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue timeout_val) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        hml_runtime_error("send_timeout() expects a channel");
+    }
+
+    int timeout_ms = hml_to_i32(timeout_val);
+    HmlChannel *ch = channel.as.as_channel;
+
+    // Calculate deadline
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000;
+    }
+
+    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+
+    // Check if channel is closed
+    if (ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        hml_runtime_error("cannot send to closed channel");
+    }
+
+    // Wait while buffer is full
+    while (ch->count >= ch->capacity && !ch->closed) {
+        int rc = pthread_cond_timedwait((pthread_cond_t*)ch->not_full,
+                                        (pthread_mutex_t*)ch->mutex, &deadline);
+        if (rc == ETIMEDOUT) {
+            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            return hml_val_bool(0);  // Timeout - send failed
+        }
+    }
+
+    // Check again if closed after waking up
+    if (ch->closed) {
+        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        hml_runtime_error("cannot send to closed channel");
+    }
+
+    // Add value to buffer
+    ch->buffer[ch->tail] = value;
+    hml_retain(&ch->buffer[ch->tail]);
+    ch->tail = (ch->tail + 1) % ch->capacity;
+    ch->count++;
+
+    pthread_cond_signal((pthread_cond_t*)ch->not_empty);
+    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+
+    return hml_val_bool(1);  // Success
+}
+
 void hml_channel_close(HmlValue channel) {
     if (channel.type != HML_VAL_CHANNEL) {
         return;
@@ -5797,6 +5912,37 @@ void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds_val) {
     if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
         hml_runtime_error("Failed to set send timeout: %s", strerror(errno));
     }
+}
+
+// socket.set_nonblocking(enable: bool)
+void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        hml_runtime_error("set_nonblocking() expects a socket");
+    }
+    HmlSocket *sock = socket_val.as.as_socket;
+
+    if (sock->closed) {
+        hml_runtime_error("Cannot set_nonblocking on closed socket");
+    }
+
+    int enable = hml_to_bool(enable_val);
+
+    int flags = fcntl(sock->fd, F_GETFL, 0);
+    if (flags < 0) {
+        hml_runtime_error("Failed to get socket flags: %s", strerror(errno));
+    }
+
+    if (enable) {
+        flags |= O_NONBLOCK;
+    } else {
+        flags &= ~O_NONBLOCK;
+    }
+
+    if (fcntl(sock->fd, F_SETFL, flags) < 0) {
+        hml_runtime_error("Failed to set socket flags: %s", strerror(errno));
+    }
+
+    sock->nonblocking = enable;
 }
 
 // socket.close()

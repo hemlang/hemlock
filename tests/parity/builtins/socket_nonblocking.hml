@@ -1,0 +1,21 @@
+// Test socket.set_nonblocking method
+print("=== Socket Non-blocking Test ===");
+
+// Create a TCP socket
+let sock = socket_create(2, 1, 0);  // AF_INET, SOCK_STREAM, 0
+print("Socket created");
+print(sock.fd >= 0);
+
+// Set to non-blocking mode
+sock.set_nonblocking(true);
+print("Set to non-blocking");
+
+// Set back to blocking mode
+sock.set_nonblocking(false);
+print("Set to blocking");
+
+// Close socket
+sock.close();
+print("Socket closed");
+
+print("=== Done ===");

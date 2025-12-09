@@ -1,0 +1,14 @@
+// Hash functions test
+import { sha256, sha512, md5 } from "@stdlib/hash";
+
+// SHA256
+print(sha256("hello"));
+print(sha256(""));
+print(sha256("The quick brown fox"));
+
+// SHA512
+print(sha512("hello").slice(0, 32));  // First 32 chars to keep output manageable
+
+// MD5
+print(md5("hello"));
+print(md5(""));

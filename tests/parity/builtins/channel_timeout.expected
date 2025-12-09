@@ -1,0 +1,14 @@
+=== Channel Timeout Tests ===
+recv_timeout on empty channel:
+true
+recv with value:
+42
+send_timeout on full channel:
+false
+drained:
+first
+send after drain:
+true
+received:
+second
+=== Done ===

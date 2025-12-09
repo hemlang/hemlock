@@ -189,6 +189,7 @@ struct HmlSocket {
     int type;               // SOCK_STREAM, SOCK_DGRAM
     int closed;             // 1 if closed
     int listening;          // 1 if in listening mode
+    int nonblocking;        // 1 if in non-blocking mode
 };
 
 // Type definition for duck typing

@@ -1,0 +1,36 @@
+// Boolean logic test
+// Tests: &&, ||, !, truthiness
+
+// Basic logic
+print(true && true);    // true
+print(true && false);   // false
+print(false && true);   // false
+print(false && false);  // false
+
+print(true || true);    // true
+print(true || false);   // true
+print(false || true);   // true
+print(false || false);  // false
+
+print(!true);           // false
+print(!false);          // true
+print(!!true);          // true
+
+// Compound expressions
+print((true && false) || true);   // true
+print(true && (false || true));   // true
+print(!(true && false));          // true
+
+// Short-circuit evaluation
+fn side_effect() {
+    print("called");
+    return true;
+}
+
+// Should not call side_effect
+let a = false && side_effect();
+print(a);  // false
+
+// Should call side_effect
+let b = true && side_effect();
+print(b);  // true (after "called")

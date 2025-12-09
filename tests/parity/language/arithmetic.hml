@@ -1,0 +1,39 @@
+// Comprehensive arithmetic operations test
+// Tests: +, -, *, /, %, negation, precedence
+
+// Basic operations
+print(5 + 3);    // 8
+print(10 - 4);   // 6
+print(3 * 4);    // 12
+print(20 / 4);   // 5
+print(17 % 5);   // 2
+
+// Negation
+print(-5);       // -5
+print(-(-3));    // 3
+
+// Precedence
+print(2 + 3 * 4);      // 14
+print((2 + 3) * 4);    // 20
+print(10 - 4 / 2);     // 8
+print(10 / 2 + 3);     // 8
+
+// Mixed types (type promotion)
+let i: i32 = 10;
+let f: f64 = 3.5;
+print(i + f);    // 13.5
+
+// Large numbers
+let big: i64 = 5000000000;
+print(big + 1);  // 5000000001
+
+// Float operations
+print(3.14 + 2.86);   // 6
+print(10.5 - 3.5);    // 7
+print(2.5 * 4.0);     // 10
+print(15.0 / 3.0);    // 5
+
+// Compound expressions
+let x = 10;
+let y = 3;
+print((x + y) * (x - y));  // 91

@@ -1,0 +1,45 @@
+// Test channel timeout methods
+print("=== Channel Timeout Tests ===");
+
+// Test recv_timeout - should return null on timeout
+let ch = channel(1);
+
+// Channel is empty, recv_timeout should return null after 100ms
+let result = ch.recv_timeout(100);
+print("recv_timeout on empty channel:");
+print(result == null);
+
+// Now send a value and receive it with timeout
+ch.send(42);
+let val = ch.recv_timeout(100);
+print("recv with value:");
+print(val);
+
+ch.close();
+
+// Test send_timeout - should return false on timeout when channel is full
+let ch2 = channel(1);
+
+// Fill the channel
+ch2.send("first");
+
+// Channel is full, send_timeout should return false after 100ms
+let success = ch2.send_timeout("second", 100);
+print("send_timeout on full channel:");
+print(success);
+
+// Drain the channel and try again
+let first = ch2.recv();
+print("drained:");
+print(first);
+
+let success2 = ch2.send_timeout("second", 100);
+print("send after drain:");
+print(success2);
+
+let second = ch2.recv();
+print("received:");
+print(second);
+
+ch2.close();
+print("=== Done ===");

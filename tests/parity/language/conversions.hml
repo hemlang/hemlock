@@ -1,0 +1,39 @@
+// Type conversions test
+// Uses Hemlock's built-in conversion mechanisms
+
+// Implicit numeric conversion
+let i: i32 = 42;
+let f: f64 = i;  // i32 to f64
+print(f);
+
+// String concatenation forces conversion
+let num = 123;
+let str = "" + num;  // number to string via concat
+print(str);
+print(typeof(str));
+
+// Arithmetic promotes types
+let a: i32 = 5;
+let b: f64 = 2.5;
+let c = a + b;  // i32 promoted to f64
+print(c);
+print(typeof(c));
+
+// Array length
+let arr = [1, 2, 3, 4, 5];
+print(arr.length);
+
+// String length
+let text = "hello";
+print(text.length);
+
+// Boolean in string context
+print("value: " + true);
+print("value: " + false);
+
+// Integer division vs float division
+let x = 7 / 2;     // integer division
+print(x);
+
+let y = 7.0 / 2.0; // float division
+print(y);

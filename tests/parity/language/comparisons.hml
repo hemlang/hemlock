@@ -1,0 +1,48 @@
+// Comprehensive comparison operations test
+// Tests: ==, !=, <, >, <=, >=
+
+// Numeric equality
+print(5 == 5);   // true
+print(5 == 6);   // false
+print(5 != 6);   // true
+print(5 != 5);   // false
+
+// Numeric relational
+print(3 < 5);    // true
+print(5 < 3);    // false
+print(5 > 3);    // true
+print(3 > 5);    // false
+
+print(5 <= 5);   // true
+print(5 <= 6);   // true
+print(6 <= 5);   // false
+print(5 >= 5);   // true
+print(6 >= 5);   // true
+print(5 >= 6);   // false
+
+// Float comparisons
+print(3.14 < 3.15);  // true
+print(3.14 > 3.13);  // true
+print(3.14 == 3.14); // true
+
+// String equality
+print("abc" == "abc");   // true
+print("abc" == "def");   // false
+print("abc" != "def");   // true
+
+// String ordering
+print("abc" < "def");    // true
+print("def" > "abc");    // true
+print("abc" <= "abc");   // true
+print("abc" >= "abc");   // true
+print("xyz" > "abc");    // true
+
+// Boolean comparisons
+print(true == true);     // true
+print(true == false);    // false
+print(true != false);    // true
+
+// Null comparisons
+print(null == null);     // true
+let x = null;
+print(x == null);        // true
