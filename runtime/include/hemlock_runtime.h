@@ -662,6 +662,12 @@ HmlValue hml_lws_response_headers(HmlValue resp);
 // Free HTTP response
 HmlValue hml_lws_response_free(HmlValue resp);
 
+// Get redirect URL from response (if any)
+HmlValue hml_lws_response_redirect(HmlValue resp);
+
+// Get response body as binary buffer (preserves null bytes)
+HmlValue hml_lws_response_body_binary(HmlValue resp);
+
 // Builtin wrappers for function-as-value
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url);
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type);
@@ -669,6 +675,8 @@ HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp);
+HmlValue hml_builtin_lws_response_redirect(HmlClosureEnv *env, HmlValue resp);
+HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp);
 
 // WebSocket client functions
 HmlValue hml_lws_ws_connect(HmlValue url);

@@ -7,7 +7,8 @@
 //   import { djb2, fnv1a, murmur3, sha256, sha512, md5, file_checksum } from "@stdlib/hash";
 
 // Import OpenSSL's libcrypto for cryptographic hash functions
-import "libcrypto.so.3";
+// NOTE: Uses full path for macOS Homebrew installation. On Linux, use "libcrypto.so.3"
+import "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib";
 
 // ============================================================================
 // NON-CRYPTOGRAPHIC HASH FUNCTIONS

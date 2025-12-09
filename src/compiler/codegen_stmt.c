@@ -778,13 +778,27 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // Create an object containing all exports
                 char *ns_name = stmt->as.import_stmt.namespace_name;
 
-                // Create namespace object with exports
-                codegen_writeln(ctx, "HmlValue %s = hml_val_object();", ns_name);
+                // Determine the correct variable name
+                // - In module context: use module prefix (e.g., _mod15_env)
+                // - In main file: use _main_ prefix (e.g., _main_env)
+                char prefixed_name[256];
+                const char *var_name = ns_name;
+                if (ctx->current_module) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
+                            ctx->current_module->module_prefix, ns_name);
+                    var_name = prefixed_name;
+                } else if (codegen_is_main_var(ctx, ns_name)) {
+                    snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", ns_name);
+                    var_name = prefixed_name;
+                }
+
+                // Initialize namespace object with exports (variable already declared as static)
+                codegen_writeln(ctx, "%s = hml_val_object();", var_name);
                 codegen_add_local(ctx, ns_name);
 
                 for (int i = 0; i < imported->num_exports; i++) {
                     ExportedSymbol *exp = &imported->exports[i];
-                    codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", ns_name, exp->name, exp->mangled_name);
+                    codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", var_name, exp->name, exp->mangled_name);
                 }
             } else {
                 // Named imports: import { a, b as c } from "module"

@@ -7230,6 +7230,32 @@ HmlValue hml_lws_response_free(HmlValue resp_val) {
     return hml_val_null();
 }
 
+// Get redirect URL from response (if any)
+// Note: Redirect handling is done in the HTTP module itself based on status codes
+HmlValue hml_lws_response_redirect(HmlValue resp_val) {
+    (void)resp_val;
+    // libwebsockets doesn't automatically extract redirect URLs
+    // The HTTP module handles redirects by checking status codes
+    return hml_val_null();
+}
+
+// Get response body as binary buffer (preserves null bytes)
+HmlValue hml_lws_response_body_binary(HmlValue resp_val) {
+    if (resp_val.type != HML_VAL_PTR) {
+        return hml_val_buffer(0);
+    }
+    hml_http_response_t *resp = (hml_http_response_t *)resp_val.as.as_ptr;
+    if (!resp || !resp->body || resp->body_len == 0) {
+        return hml_val_buffer(0);
+    }
+    // Create buffer and copy data (preserves binary data including null bytes)
+    HmlValue buf = hml_val_buffer(resp->body_len);
+    if (buf.type == HML_VAL_BUFFER && buf.as.as_buffer) {
+        memcpy(buf.as.as_buffer->data, resp->body, resp->body_len);
+    }
+    return buf;
+}
+
 // Builtin wrappers
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
     (void)env;
@@ -7259,6 +7285,16 @@ HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp) {
 HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp) {
     (void)env;
     return hml_lws_response_free(resp);
+}
+
+HmlValue hml_builtin_lws_response_redirect(HmlClosureEnv *env, HmlValue resp) {
+    (void)env;
+    return hml_lws_response_redirect(resp);
+}
+
+HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp) {
+    (void)env;
+    return hml_lws_response_body_binary(resp);
 }
 
 // ========== WEBSOCKET SUPPORT ==========

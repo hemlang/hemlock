@@ -587,6 +587,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
 
     // Pre-pass: Collect all main file variable names BEFORE generating code
     // This ensures codegen_is_main_var() works during main() body generation
+    // Always add 'args' as a main var (built-in global for command-line arguments)
+    codegen_add_main_var(ctx, "args");
     for (int i = 0; i < stmt_count; i++) {
         Stmt *stmt = stmts[i];
         // Unwrap export statements
@@ -606,6 +608,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_add_main_var(ctx, stmt->as.let.name);
         } else if (stmt->type == STMT_ENUM) {
             codegen_add_main_var(ctx, stmt->as.enum_decl.name);
+        } else if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace) {
+            // Track namespace imports as main vars so they get _main_ prefix
+            codegen_add_main_var(ctx, stmt->as.import_stmt.namespace_name);
         }
     }
 
@@ -665,8 +670,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_writeln(ctx, "hml_runtime_init(argc, argv);");
     codegen_writeln(ctx, "");
 
-    // Generate global args array from command-line arguments
-    codegen_writeln(ctx, "HmlValue args = hml_get_args();");
+    // Initialize global args array from command-line arguments
+    // args is a static global (_main_args) so it's accessible from all functions
+    codegen_writeln(ctx, "_main_args = hml_get_args();");
     codegen_add_local(ctx, "args");
     codegen_writeln(ctx, "");
 
@@ -930,6 +936,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         declared_statics[num_declared_statics++] = strdup(name); \
     } while(0)
 
+    // Static global for built-in 'args' array (command-line arguments)
+    codegen_write(ctx, "// Built-in globals\n");
+    codegen_write(ctx, "static HmlValue _main_args = {0};\n\n");
+    ADD_STATIC_DECLARED("args");
+
     // Static globals for top-level function variables (so closures can access them)
     // Use _main_ prefix to avoid C name conflicts (e.g., kill, exit, fork)
     // Note: main_vars are already collected in the pre-pass above
@@ -1016,6 +1027,25 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "\n");
     }
 
+    // Static globals for namespace imports in main file (import * as name)
+    int has_namespace_imports = 0;
+    for (int i = 0; i < stmt_count; i++) {
+        Stmt *stmt = stmts[i];
+        if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace) {
+            if (!IS_STATIC_DECLARED(stmt->as.import_stmt.namespace_name)) {
+                if (!has_namespace_imports) {
+                    codegen_write(ctx, "// Namespace import variables (static for function access)\n");
+                    has_namespace_imports = 1;
+                }
+                codegen_write(ctx, "static HmlValue _main_%s = {0};\n", stmt->as.import_stmt.namespace_name);
+                ADD_STATIC_DECLARED(stmt->as.import_stmt.namespace_name);
+            }
+        }
+    }
+    if (has_namespace_imports) {
+        codegen_write(ctx, "\n");
+    }
+
     // Clean up helper macros and memory
     #undef IS_STATIC_DECLARED
     #undef ADD_STATIC_DECLARED
@@ -1087,6 +1117,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 Stmt *stmt = mod->statements[i];
                 // Skip exports (already handled above)
                 if (stmt->type == STMT_EXPORT) continue;
+                // Check if it's a namespace import (import * as name)
+                if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace) {
+                    codegen_write(ctx, "static HmlValue %s%s = {0};\n",
+                                mod->module_prefix, stmt->as.import_stmt.namespace_name);
+                }
                 // Check if it's a private const
                 if (stmt->type == STMT_CONST) {
                     // Skip if already in exports (to avoid duplicate declaration)
