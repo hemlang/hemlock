@@ -14,7 +14,7 @@
 #include "ast_serialize.h"
 #include "bundler/bundler.h"
 
-#define HEMLOCK_VERSION "1.0.8"
+#define HEMLOCK_VERSION "1.0.9"
 #define HEMLOCK_BUILD_DATE __DATE__
 
 // Magic marker for packaged executables (appended at end of file)
