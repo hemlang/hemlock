@@ -20,7 +20,7 @@
 #include <mach-o/dyld.h>
 #endif
 
-#define HEMLOCKC_VERSION "0.1.0"
+#define HEMLOCKC_VERSION "0.1.1"
 
 // Get directory containing the hemlockc executable (cross-platform)
 static char* get_self_dir(void) {
