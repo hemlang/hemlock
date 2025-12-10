@@ -394,7 +394,7 @@ BINDIR ?= $(PREFIX)/bin
 LIBDIR ?= $(PREFIX)/lib/hemlock
 DESTDIR ?=
 
-.PHONY: install uninstall
+.PHONY: install install-compiler uninstall
 
 install: $(TARGET)
 	@echo "Installing Hemlock to $(DESTDIR)$(PREFIX)..."
@@ -403,13 +403,53 @@ install: $(TARGET)
 	@echo "Installing stdlib to $(DESTDIR)$(LIBDIR)..."
 	install -d $(DESTDIR)$(LIBDIR)/stdlib
 	cp -r stdlib/* $(DESTDIR)$(LIBDIR)/stdlib/
+	@# Install compiler if it was built
+	@if [ -f $(COMPILER_TARGET) ]; then \
+		echo "Installing compiler to $(DESTDIR)$(BINDIR)..."; \
+		install -m 755 $(COMPILER_TARGET) $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET); \
+		echo "  Compiler: $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)"; \
+	fi
+	@# Install runtime library if it was built
+	@if [ -f $(RUNTIME_LIB) ]; then \
+		echo "Installing runtime library to $(DESTDIR)$(LIBDIR)..."; \
+		install -d $(DESTDIR)$(LIBDIR); \
+		install -m 644 $(RUNTIME_LIB) $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB); \
+		echo "  Runtime: $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB)"; \
+	fi
+	@# Install runtime headers if available
+	@if [ -d $(RUNTIME_DIR)/include ]; then \
+		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
+		install -d $(DESTDIR)$(LIBDIR)/include; \
+		cp -r $(RUNTIME_DIR)/include/* $(DESTDIR)$(LIBDIR)/include/; \
+		echo "  Headers: $(DESTDIR)$(LIBDIR)/include/"; \
+	fi
 	@echo ""
 	@echo "✓ Hemlock installed successfully"
 	@echo "  Binary: $(DESTDIR)$(BINDIR)/$(TARGET)"
 	@echo "  Stdlib: $(DESTDIR)$(LIBDIR)/stdlib/"
 
+# Install compiler and runtime (builds them first if needed)
+install-compiler: compiler
+	@echo "Installing Hemlock compiler to $(DESTDIR)$(PREFIX)..."
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(COMPILER_TARGET) $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
+	@echo "Installing runtime library to $(DESTDIR)$(LIBDIR)..."
+	install -d $(DESTDIR)$(LIBDIR)
+	install -m 644 $(RUNTIME_LIB) $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB)
+	@# Install runtime headers if available
+	@if [ -d $(RUNTIME_DIR)/include ]; then \
+		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
+		install -d $(DESTDIR)$(LIBDIR)/include; \
+		cp -r $(RUNTIME_DIR)/include/* $(DESTDIR)$(LIBDIR)/include/; \
+	fi
+	@echo ""
+	@echo "✓ Hemlock compiler installed successfully"
+	@echo "  Compiler: $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)"
+	@echo "  Runtime: $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB)"
+
 uninstall:
 	@echo "Uninstalling Hemlock from $(DESTDIR)$(PREFIX)..."
 	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)
+	rm -f $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
 	rm -rf $(DESTDIR)$(LIBDIR)
 	@echo "✓ Hemlock uninstalled"
