@@ -6,6 +6,62 @@
 
 #include "codegen_internal.h"
 
+// OPTIMIZATION: Helper to check if an expression is likely a string
+// (string literal or identifier - we can't know types at compile time for all cases)
+static int is_likely_string_expr(Expr *expr) {
+    return expr->type == EXPR_STRING;
+}
+
+// OPTIMIZATION: Count chained ADD operations that look like string concatenation
+// Returns the count of concatenated elements (2 = simple a+b, 3 = a+b+c, etc.)
+static int count_string_concat_chain(Expr *expr, Expr **elements, int max_elements) {
+    if (expr->type != EXPR_BINARY || expr->as.binary.op != OP_ADD) {
+        // Not an ADD - this is a leaf
+        if (max_elements > 0) {
+            elements[0] = expr;
+        }
+        return 1;
+    }
+
+    // Check if the left side is also a string concat chain
+    int left_count = count_string_concat_chain(expr->as.binary.left, elements, max_elements);
+    if (left_count >= max_elements) {
+        return left_count; // Already at max
+    }
+
+    // Add the right side
+    elements[left_count] = expr->as.binary.right;
+    return left_count + 1;
+}
+
+// OPTIMIZATION: Check if this is a chain of string concatenations
+// Detects patterns like: a + b + c + d (left-associative ADD chains)
+// where at least one operand is a string literal
+static int is_string_concat_chain(Expr *expr, int *count) {
+    if (expr->type != EXPR_BINARY || expr->as.binary.op != OP_ADD) {
+        return 0;
+    }
+
+    // Collect all elements in the chain
+    Expr *elements[6];
+    int n = count_string_concat_chain(expr, elements, 6);
+
+    // For it to be a string concat chain, at least one element should be a string literal
+    int has_string = 0;
+    for (int i = 0; i < n; i++) {
+        if (is_likely_string_expr(elements[i])) {
+            has_string = 1;
+            break;
+        }
+    }
+
+    if (has_string && n >= 3 && n <= 5) {
+        *count = n;
+        return 1;
+    }
+    return 0;
+}
+
 char* codegen_expr(CodegenContext *ctx, Expr *expr) {
     char *result = codegen_temp(ctx);
 
@@ -555,6 +611,41 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 break;
             }
 
+            // OPTIMIZATION: Detect chained string concatenations (a + b + c + ...)
+            // Use hml_string_concat3/4/5 for single-allocation efficiency
+            {
+                int concat_count = 0;
+                if (is_string_concat_chain(expr, &concat_count)) {
+                    Expr *elements[6];
+                    count_string_concat_chain(expr, elements, 6);
+
+                    // Generate code for all elements
+                    char *temps[5];
+                    for (int i = 0; i < concat_count; i++) {
+                        temps[i] = codegen_expr(ctx, elements[i]);
+                    }
+
+                    // Call the appropriate concat function
+                    if (concat_count == 3) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_string_concat3(%s, %s, %s);",
+                                      result, temps[0], temps[1], temps[2]);
+                    } else if (concat_count == 4) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_string_concat4(%s, %s, %s, %s);",
+                                      result, temps[0], temps[1], temps[2], temps[3]);
+                    } else if (concat_count == 5) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_string_concat5(%s, %s, %s, %s, %s);",
+                                      result, temps[0], temps[1], temps[2], temps[3], temps[4]);
+                    }
+
+                    // Release all temps
+                    for (int i = 0; i < concat_count; i++) {
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", temps[i]);
+                        free(temps[i]);
+                    }
+                    break;
+                }
+            }
+
             // OPTIMIZATION: Constant folding for number literals
             // If both operands are compile-time known constants, compute the result at compile time
             if (expr->as.binary.left->type == EXPR_NUMBER &&
@@ -607,32 +698,39 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *left = codegen_expr(ctx, expr->as.binary.left);
             char *right = codegen_expr(ctx, expr->as.binary.right);
 
-            // OPTIMIZATION: i32 fast path for binary operations
-            // This matches the interpreter's fast path for the most common case (i32 op i32)
-            // Check at runtime if both are i32 and use inline fast path
+            // OPTIMIZATION: i32 and i64 fast paths for binary operations
+            // This matches the interpreter's fast paths for common integer operations
+            // Check at runtime: i32 first (most common), then i64, then generic
             const char *i32_fast_fn = NULL;
+            const char *i64_fast_fn = NULL;
             switch (expr->as.binary.op) {
-                case OP_ADD: i32_fast_fn = "hml_i32_add"; break;
-                case OP_SUB: i32_fast_fn = "hml_i32_sub"; break;
-                case OP_MUL: i32_fast_fn = "hml_i32_mul"; break;
-                case OP_DIV: i32_fast_fn = "hml_i32_div"; break;
-                case OP_MOD: i32_fast_fn = "hml_i32_mod"; break;
-                case OP_LESS: i32_fast_fn = "hml_i32_lt"; break;
-                case OP_LESS_EQUAL: i32_fast_fn = "hml_i32_le"; break;
-                case OP_GREATER: i32_fast_fn = "hml_i32_gt"; break;
-                case OP_GREATER_EQUAL: i32_fast_fn = "hml_i32_ge"; break;
-                case OP_EQUAL: i32_fast_fn = "hml_i32_eq"; break;
-                case OP_NOT_EQUAL: i32_fast_fn = "hml_i32_ne"; break;
-                case OP_BIT_AND: i32_fast_fn = "hml_i32_bit_and"; break;
-                case OP_BIT_OR: i32_fast_fn = "hml_i32_bit_or"; break;
-                case OP_BIT_XOR: i32_fast_fn = "hml_i32_bit_xor"; break;
-                case OP_BIT_LSHIFT: i32_fast_fn = "hml_i32_lshift"; break;
-                case OP_BIT_RSHIFT: i32_fast_fn = "hml_i32_rshift"; break;
+                case OP_ADD: i32_fast_fn = "hml_i32_add"; i64_fast_fn = "hml_i64_add"; break;
+                case OP_SUB: i32_fast_fn = "hml_i32_sub"; i64_fast_fn = "hml_i64_sub"; break;
+                case OP_MUL: i32_fast_fn = "hml_i32_mul"; i64_fast_fn = "hml_i64_mul"; break;
+                case OP_DIV: i32_fast_fn = "hml_i32_div"; i64_fast_fn = "hml_i64_div"; break;
+                case OP_MOD: i32_fast_fn = "hml_i32_mod"; i64_fast_fn = "hml_i64_mod"; break;
+                case OP_LESS: i32_fast_fn = "hml_i32_lt"; i64_fast_fn = "hml_i64_lt"; break;
+                case OP_LESS_EQUAL: i32_fast_fn = "hml_i32_le"; i64_fast_fn = "hml_i64_le"; break;
+                case OP_GREATER: i32_fast_fn = "hml_i32_gt"; i64_fast_fn = "hml_i64_gt"; break;
+                case OP_GREATER_EQUAL: i32_fast_fn = "hml_i32_ge"; i64_fast_fn = "hml_i64_ge"; break;
+                case OP_EQUAL: i32_fast_fn = "hml_i32_eq"; i64_fast_fn = "hml_i64_eq"; break;
+                case OP_NOT_EQUAL: i32_fast_fn = "hml_i32_ne"; i64_fast_fn = "hml_i64_ne"; break;
+                case OP_BIT_AND: i32_fast_fn = "hml_i32_bit_and"; i64_fast_fn = "hml_i64_bit_and"; break;
+                case OP_BIT_OR: i32_fast_fn = "hml_i32_bit_or"; i64_fast_fn = "hml_i64_bit_or"; break;
+                case OP_BIT_XOR: i32_fast_fn = "hml_i32_bit_xor"; i64_fast_fn = "hml_i64_bit_xor"; break;
+                case OP_BIT_LSHIFT: i32_fast_fn = "hml_i32_lshift"; i64_fast_fn = "hml_i64_lshift"; break;
+                case OP_BIT_RSHIFT: i32_fast_fn = "hml_i32_rshift"; i64_fast_fn = "hml_i64_rshift"; break;
                 default: break;
             }
 
-            if (i32_fast_fn) {
-                // Generate fast path with runtime type check
+            if (i32_fast_fn && i64_fast_fn) {
+                // Generate cascading fast paths: i32 -> i64 -> generic
+                codegen_writeln(ctx, "HmlValue %s = hml_both_i32(%s, %s) ? %s(%s, %s) : (hml_both_i64(%s, %s) ? %s(%s, %s) : hml_binary_op(%s, %s, %s));",
+                              result, left, right, i32_fast_fn, left, right,
+                              left, right, i64_fast_fn, left, right,
+                              codegen_hml_binary_op(expr->as.binary.op), left, right);
+            } else if (i32_fast_fn) {
+                // Generate i32 fast path only
                 codegen_writeln(ctx, "HmlValue %s = hml_both_i32(%s, %s) ? %s(%s, %s) : hml_binary_op(%s, %s, %s);",
                               result, left, right, i32_fast_fn, left, right,
                               codegen_hml_binary_op(expr->as.binary.op), left, right);

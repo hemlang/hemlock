@@ -2017,6 +2017,110 @@ HmlValue hml_string_repeat(HmlValue str, HmlValue count) {
     return hml_val_string_owned(result, new_len, new_len + 1);
 }
 
+// OPTIMIZATION: Concatenate 3 strings in a single allocation
+HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c) {
+    // Convert all to strings if needed
+    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string(a);
+    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string(b);
+    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string(c);
+
+    HmlString *sa = str_a.as.as_string;
+    HmlString *sb = str_b.as.as_string;
+    HmlString *sc = str_c.as.as_string;
+
+    int len_a = sa ? sa->length : 0;
+    int len_b = sb ? sb->length : 0;
+    int len_c = sc ? sc->length : 0;
+    int total = len_a + len_b + len_c;
+
+    char *result = malloc(total + 1);
+    int pos = 0;
+    if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
+    if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
+    if (sc) { memcpy(result + pos, sc->data, len_c); pos += len_c; }
+    result[total] = '\0';
+
+    // Release converted strings
+    if (a.type != HML_VAL_STRING) hml_release(&str_a);
+    if (b.type != HML_VAL_STRING) hml_release(&str_b);
+    if (c.type != HML_VAL_STRING) hml_release(&str_c);
+
+    return hml_val_string_owned(result, total, total + 1);
+}
+
+// OPTIMIZATION: Concatenate 4 strings in a single allocation
+HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d) {
+    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string(a);
+    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string(b);
+    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string(c);
+    HmlValue str_d = (d.type == HML_VAL_STRING) ? d : hml_to_string(d);
+
+    HmlString *sa = str_a.as.as_string;
+    HmlString *sb = str_b.as.as_string;
+    HmlString *sc = str_c.as.as_string;
+    HmlString *sd = str_d.as.as_string;
+
+    int len_a = sa ? sa->length : 0;
+    int len_b = sb ? sb->length : 0;
+    int len_c = sc ? sc->length : 0;
+    int len_d = sd ? sd->length : 0;
+    int total = len_a + len_b + len_c + len_d;
+
+    char *result = malloc(total + 1);
+    int pos = 0;
+    if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
+    if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
+    if (sc) { memcpy(result + pos, sc->data, len_c); pos += len_c; }
+    if (sd) { memcpy(result + pos, sd->data, len_d); pos += len_d; }
+    result[total] = '\0';
+
+    if (a.type != HML_VAL_STRING) hml_release(&str_a);
+    if (b.type != HML_VAL_STRING) hml_release(&str_b);
+    if (c.type != HML_VAL_STRING) hml_release(&str_c);
+    if (d.type != HML_VAL_STRING) hml_release(&str_d);
+
+    return hml_val_string_owned(result, total, total + 1);
+}
+
+// OPTIMIZATION: Concatenate 5 strings in a single allocation
+HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlValue e) {
+    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string(a);
+    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string(b);
+    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string(c);
+    HmlValue str_d = (d.type == HML_VAL_STRING) ? d : hml_to_string(d);
+    HmlValue str_e = (e.type == HML_VAL_STRING) ? e : hml_to_string(e);
+
+    HmlString *sa = str_a.as.as_string;
+    HmlString *sb = str_b.as.as_string;
+    HmlString *sc = str_c.as.as_string;
+    HmlString *sd = str_d.as.as_string;
+    HmlString *se = str_e.as.as_string;
+
+    int len_a = sa ? sa->length : 0;
+    int len_b = sb ? sb->length : 0;
+    int len_c = sc ? sc->length : 0;
+    int len_d = sd ? sd->length : 0;
+    int len_e = se ? se->length : 0;
+    int total = len_a + len_b + len_c + len_d + len_e;
+
+    char *result = malloc(total + 1);
+    int pos = 0;
+    if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
+    if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
+    if (sc) { memcpy(result + pos, sc->data, len_c); pos += len_c; }
+    if (sd) { memcpy(result + pos, sd->data, len_d); pos += len_d; }
+    if (se) { memcpy(result + pos, se->data, len_e); pos += len_e; }
+    result[total] = '\0';
+
+    if (a.type != HML_VAL_STRING) hml_release(&str_a);
+    if (b.type != HML_VAL_STRING) hml_release(&str_b);
+    if (c.type != HML_VAL_STRING) hml_release(&str_c);
+    if (d.type != HML_VAL_STRING) hml_release(&str_d);
+    if (e.type != HML_VAL_STRING) hml_release(&str_e);
+
+    return hml_val_string_owned(result, total, total + 1);
+}
+
 // Concatenate an array of strings into a single string
 HmlValue hml_string_concat_many(HmlValue arr) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
@@ -2519,7 +2623,8 @@ HmlValue hml_array_get(HmlValue arr, HmlValue index) {
     }
 
     HmlValue result = a->elements[idx];
-    hml_retain(&result);
+    // OPTIMIZATION: Skip retain for primitive types
+    hml_retain_if_needed(&result);
     return result;
 }
 

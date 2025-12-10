@@ -216,6 +216,9 @@ HmlValue hml_sizeof(HmlValue type_name);
 // ========== STRING OPERATIONS ==========
 
 HmlValue hml_string_concat(HmlValue a, HmlValue b);
+HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c);
+HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d);
+HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlValue e);
 HmlValue hml_string_length(HmlValue str);
 HmlValue hml_string_byte_length(HmlValue str);
 HmlValue hml_string_char_count(HmlValue str);  // UTF-8 codepoint count
