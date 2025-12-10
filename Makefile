@@ -272,8 +272,8 @@ runtime-clean:
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
 
-# Full clean including compiler and runtime
-fullclean: clean compiler-clean runtime-clean
+# Full clean including compiler, runtime, and release
+fullclean: clean compiler-clean runtime-clean release-clean
 
 # Build everything (interpreter + compiler + runtime)
 all-compiler: all compiler
@@ -306,6 +306,85 @@ test-bundler: $(TARGET)
 # Run all test suites
 .PHONY: test-all
 test-all: test test-compiler parity test-bundler
+
+# ========== RELEASE BUILD ==========
+
+# Release flags: optimize for size, no debug symbols
+ifeq ($(shell uname),Darwin)
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -Os -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+else
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -Os -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+endif
+
+# Add the same conditional flags as regular build
+ifeq ($(shell uname),Darwin)
+    ifneq ($(BREW_LIBFFI),)
+        RELEASE_CFLAGS += -I$(BREW_LIBFFI)/include
+    endif
+    ifneq ($(BREW_OPENSSL),)
+        RELEASE_CFLAGS += -I$(BREW_OPENSSL)/include
+    endif
+    ifeq ($(HAS_LIBWEBSOCKETS),1)
+        RELEASE_CFLAGS += -I$(BREW_LIBWEBSOCKETS)/include
+    endif
+else
+    ifneq ($(LIBFFI_CFLAGS),)
+        RELEASE_CFLAGS += $(LIBFFI_CFLAGS)
+    endif
+endif
+ifeq ($(HAS_LIBWEBSOCKETS),1)
+    RELEASE_CFLAGS += -DHAVE_LIBWEBSOCKETS=1
+endif
+
+# Release build directory
+RELEASE_BUILD_DIR = build-release
+RELEASE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(RELEASE_BUILD_DIR)/%.o,$(SRCS))
+
+.PHONY: release release-clean
+
+# Release build directories
+RELEASE_BUILD_DIRS = $(RELEASE_BUILD_DIR) \
+                     $(RELEASE_BUILD_DIR)/frontend \
+                     $(RELEASE_BUILD_DIR)/frontend/parser \
+                     $(RELEASE_BUILD_DIR)/backends/interpreter \
+                     $(RELEASE_BUILD_DIR)/backends/interpreter/builtins \
+                     $(RELEASE_BUILD_DIR)/backends/interpreter/io \
+                     $(RELEASE_BUILD_DIR)/backends/interpreter/runtime \
+                     $(RELEASE_BUILD_DIR)/lsp \
+                     $(RELEASE_BUILD_DIR)/bundler
+
+# Build optimized, stripped binary for distribution
+release: $(RELEASE_BUILD_DIRS) $(RELEASE_BUILD_DIR)/hemlock
+	@echo ""
+	@echo "✓ Release build complete: $(RELEASE_BUILD_DIR)/hemlock"
+	@ls -lh $(RELEASE_BUILD_DIR)/hemlock
+
+$(RELEASE_BUILD_DIRS):
+	mkdir -p $@
+
+$(RELEASE_BUILD_DIR)/hemlock: $(RELEASE_OBJS)
+	$(CC) $(RELEASE_OBJS) -o $@ $(LDFLAGS)
+	strip $@
+
+# Special rules for release build (same optimization exceptions as debug)
+$(RELEASE_BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c
+	@mkdir -p $(dir $@)
+	$(CC) $(subst -Os,-O0,$(RELEASE_CFLAGS)) -c $< -o $@
+
+$(RELEASE_BUILD_DIR)/backends/interpreter/runtime/statements.o: $(SRC_DIR)/backends/interpreter/runtime/statements.c
+	@mkdir -p $(dir $@)
+	$(CC) $(subst -Os,-O1,$(RELEASE_CFLAGS)) -c $< -o $@
+
+$(RELEASE_BUILD_DIR)/backends/interpreter/runtime/expressions.o: $(SRC_DIR)/backends/interpreter/runtime/expressions.c
+	@mkdir -p $(dir $@)
+	$(CC) $(subst -Os,-O1,$(RELEASE_CFLAGS)) -c $< -o $@
+
+$(RELEASE_BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(RELEASE_CFLAGS) -c $< -o $@
+
+release-clean:
+	rm -rf $(RELEASE_BUILD_DIR)
 
 # ========== INSTALLATION ==========
 
