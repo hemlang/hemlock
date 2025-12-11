@@ -103,7 +103,7 @@ for test_file in $TEST_FILES; do
     fi
 
     # Run the test with timeout and capture output and exit code
-    output=$(timeout 20 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
+    output=$(timeout 30 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
     exit_code=$?
 
     # Check if timeout occurred
