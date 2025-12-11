@@ -19,6 +19,7 @@ typedef struct {
     Value values_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
     int is_const_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
     int hash_table_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY * 2];
+    uint32_t hash_generations_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY * 2];  // Generation tracking
     int free_list[ENV_POOL_SIZE];  // Stack of free indices
     int free_count;                 // Number of free slots
     int initialized;                // Whether this pool has been initialized
@@ -39,8 +40,10 @@ static void env_pool_init_storage(EnvironmentPool *pool) {
         pool->envs[i].values = pool->values_storage[i];
         pool->envs[i].is_const = pool->is_const_storage[i];
         pool->envs[i].hash_table = pool->hash_table_storage[i];
+        pool->envs[i].hash_generations = pool->hash_generations_storage[i];
         pool->envs[i].capacity = ENV_DEFAULT_CAPACITY;
         pool->envs[i].hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        pool->envs[i].generation = 0;  // Start at generation 0
         // Add to free list (in reverse order so 0 is popped first)
         pool->free_list[i] = ENV_POOL_SIZE - 1 - i;
     }
@@ -84,8 +87,11 @@ static Environment* env_pool_alloc(void) {
         env->values = pool->values_storage[idx];
         env->is_const = pool->is_const_storage[idx];
         env->hash_table = pool->hash_table_storage[idx];
+        env->hash_generations = pool->hash_generations_storage[idx];
         env->capacity = ENV_DEFAULT_CAPACITY;
         env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        // Bump generation for lazy hash clearing (no O(n) clear needed)
+        env->generation++;
         return env;
     }
 
@@ -101,8 +107,11 @@ static Environment* env_pool_alloc(void) {
         env->values = global_env_pool.values_storage[idx];
         env->is_const = global_env_pool.is_const_storage[idx];
         env->hash_table = global_env_pool.hash_table_storage[idx];
+        env->hash_generations = global_env_pool.hash_generations_storage[idx];
         env->capacity = ENV_DEFAULT_CAPACITY;
         env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        // Bump generation for lazy hash clearing
+        env->generation++;
         return env;
     }
     pthread_mutex_unlock(&global_pool_mutex);
@@ -152,6 +161,10 @@ static void env_pool_free(Environment *env) {
         free(env->hash_table);
         env->hash_table = pool->hash_table_storage[idx];
     }
+    if (env->hash_generations != pool->hash_generations_storage[idx]) {
+        free(env->hash_generations);
+        env->hash_generations = pool->hash_generations_storage[idx];
+    }
 
     // Return to appropriate pool
     if (pool == &global_env_pool) {
@@ -181,14 +194,11 @@ Environment* env_new(Environment *parent) {
     Environment *env = env_pool_alloc();
 
     if (env) {
-        // Got from pool - just initialize
+        // Got from pool - just initialize (generation already bumped in env_pool_alloc)
         env->count = 0;
         env->ref_count = 1;
         env->borrowed_flags = 0;  // Clear borrowed flags
-        // Clear hash table
-        for (int i = 0; i < env->hash_capacity; i++) {
-            env->hash_table[i] = -1;
-        }
+        // No hash table clearing needed - generation counter handles this
         env->parent = parent;
         if (parent) {
             env_retain(parent);
@@ -237,10 +247,19 @@ Environment* env_new(Environment *parent) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
-    // Initialize all slots to -1 (empty)
-    for (int i = 0; i < env->hash_capacity; i++) {
-        env->hash_table[i] = -1;
+    // Initialize hash generations for lazy clearing
+    env->hash_generations = malloc(sizeof(uint32_t) * env->hash_capacity);
+    if (!env->hash_generations) {
+        free(env->hash_table);
+        free(env->is_const);
+        free(env->values);
+        free(env->names);
+        free(env);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
     }
+    // Set generation to 1 (all slots at generation 0 are stale)
+    env->generation = 1;
     env->borrowed_flags = 0;  // Initialize borrowed flags
     env->parent = parent;
     // Retain parent environment if it exists
@@ -416,10 +435,8 @@ void env_clear(Environment *env) {
     // Reset count but keep capacity and allocated arrays
     env->count = 0;
     env->borrowed_flags = 0;  // Clear borrowed flags
-    // Clear hash table (reset all slots to -1)
-    for (int i = 0; i < env->hash_capacity; i++) {
-        env->hash_table[i] = -1;
-    }
+    // Bump generation to lazily invalidate all hash slots (O(1) instead of O(n))
+    env->generation++;
 }
 
 void env_free(Environment *env) {
@@ -443,6 +460,7 @@ void env_free(Environment *env) {
         free(env->values);
         free(env->is_const);
         free(env->hash_table);
+        free(env->hash_generations);
         free(env);
     }
 
@@ -471,19 +489,20 @@ void env_release(Environment *env) {
 
 // Rehash all entries into the hash table (called after growing)
 static void env_rehash(Environment *env) {
-    // Clear hash table
-    for (int i = 0; i < env->hash_capacity; i++) {
-        env->hash_table[i] = -1;
-    }
-    // Re-insert all entries
+    // Bump generation to invalidate all old slots (lazy clear)
+    env->generation++;
+    uint32_t gen = env->generation;
+
+    // Re-insert all entries with new generation
     for (int i = 0; i < env->count; i++) {
         uint32_t hash = hash_string(env->names[i]);
         int slot = hash % env->hash_capacity;
-        // Linear probing to find empty slot
-        while (env->hash_table[slot] != -1) {
+        // Linear probing to find empty slot (any slot with old gen is empty)
+        while (env->hash_table[slot] != -1 && env->hash_generations[slot] == gen) {
             slot = (slot + 1) % env->hash_capacity;
         }
         env->hash_table[slot] = i;
+        env->hash_generations[slot] = gen;
     }
 }
 
@@ -514,6 +533,13 @@ static int env_hash_table_is_pooled(Environment *env) {
     if (!pool) return 0;
     int idx = (int)(env - &pool->envs[0]);
     return env->hash_table == pool->hash_table_storage[idx];
+}
+
+static int env_hash_generations_is_pooled(Environment *env) {
+    EnvironmentPool *pool = env_get_pool(env);
+    if (!pool) return 0;
+    int idx = (int)(env - &pool->envs[0]);
+    return env->hash_generations == pool->hash_generations_storage[idx];
 }
 
 static void env_grow(Environment *env) {
@@ -576,17 +602,33 @@ static void env_grow(Environment *env) {
     }
     env->hash_table = new_hash_table;
 
+    // Grow hash generations array
+    uint32_t *new_hash_generations;
+    if (env_hash_generations_is_pooled(env)) {
+        new_hash_generations = malloc(sizeof(uint32_t) * env->hash_capacity);
+        if (new_hash_generations) memcpy(new_hash_generations, env->hash_generations, sizeof(uint32_t) * old_hash_capacity);
+    } else {
+        new_hash_generations = realloc(env->hash_generations, sizeof(uint32_t) * env->hash_capacity);
+    }
+    if (!new_hash_generations) {
+        fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
+        exit(1);
+    }
+    env->hash_generations = new_hash_generations;
+
     // Rehash all existing entries
     env_rehash(env);
 }
 
 // O(1) hash table lookup - returns index or -1 if not found
 // Fast path for short identifiers using first 8 bytes comparison
+// Uses generation counter for lazy hash clearing
 static inline int env_lookup(Environment *env, const char *name, uint32_t hash) {
     int slot = hash % env->hash_capacity;
     int start_slot = slot;
+    uint32_t gen = env->generation;
 
-    while (env->hash_table[slot] != -1) {
+    while (env->hash_table[slot] != -1 && env->hash_generations[slot] == gen) {
         int idx = env->hash_table[slot];
         const char *stored = env->names[idx];
         // Fast comparison: check if pointers match (interned strings)
@@ -602,14 +644,18 @@ static inline int env_lookup(Environment *env, const char *name, uint32_t hash) 
 }
 
 // Insert into hash table (assumes slot is available)
+// Uses generation counter - slots with old generation are treated as empty
 static void env_hash_insert(Environment *env, const char *name, int index) {
     uint32_t hash = hash_string(name);
     int slot = hash % env->hash_capacity;
+    uint32_t gen = env->generation;
 
-    while (env->hash_table[slot] != -1) {
+    // Find empty slot (either -1 or stale generation)
+    while (env->hash_table[slot] != -1 && env->hash_generations[slot] == gen) {
         slot = (slot + 1) % env->hash_capacity;
     }
     env->hash_table[slot] = index;
+    env->hash_generations[slot] = gen;  // Mark slot as current generation
 }
 
 // Define a new variable (for let/const declarations)

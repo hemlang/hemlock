@@ -225,6 +225,9 @@ typedef struct Environment {
     int hash_capacity;   // Size of hash table (usually 2x capacity)
     // Borrowed names optimization: bit flags (1 = borrowed, don't free)
     unsigned int borrowed_flags;  // Bit flags for first 32 names
+    // Lazy hash clearing: generation counter avoids O(n) clear on env_new
+    uint32_t generation;         // Current generation (bumped on reuse)
+    uint32_t *hash_generations;  // Generation when each slot was set
 } Environment;
 
 // Public interface
