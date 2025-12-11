@@ -7,9 +7,10 @@
 
 // ========== ENVIRONMENT POOL ==========
 // Pre-allocate environments to avoid malloc/free overhead in recursive calls
-// Uses a free list for O(1) alloc/free
+// Uses thread-local pools to eliminate mutex contention in recursive calls
+// Each thread gets its own pool for lock-free allocation
 
-#define ENV_POOL_SIZE 1024
+#define ENV_POOL_SIZE 256  // Per-thread pool size (smaller since per-thread)
 #define ENV_DEFAULT_CAPACITY 16
 
 typedef struct {
@@ -20,87 +21,147 @@ typedef struct {
     int hash_table_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY * 2];
     int free_list[ENV_POOL_SIZE];  // Stack of free indices
     int free_count;                 // Number of free slots
-    pthread_mutex_t mutex;          // Protects pool operations for thread safety
+    int initialized;                // Whether this pool has been initialized
 } EnvironmentPool;
 
-static EnvironmentPool env_pool = {0};
-static int env_pool_initialized = 0;
-static pthread_once_t env_pool_once = PTHREAD_ONCE_INIT;
+// Thread-local pool - each thread gets its own pool (no mutex needed)
+static __thread EnvironmentPool *tls_env_pool = NULL;
 
-static void env_pool_init_internal(void) {
-    pthread_mutex_init(&env_pool.mutex, NULL);
+// Global pool for main thread fallback and cross-thread operations
+static EnvironmentPool global_env_pool = {0};
+static int global_pool_initialized = 0;
+static pthread_mutex_t global_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void env_pool_init_storage(EnvironmentPool *pool) {
     for (int i = 0; i < ENV_POOL_SIZE; i++) {
         // Pre-initialize the environment structures
-        env_pool.envs[i].names = env_pool.names_storage[i];
-        env_pool.envs[i].values = env_pool.values_storage[i];
-        env_pool.envs[i].is_const = env_pool.is_const_storage[i];
-        env_pool.envs[i].hash_table = env_pool.hash_table_storage[i];
-        env_pool.envs[i].capacity = ENV_DEFAULT_CAPACITY;
-        env_pool.envs[i].hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        pool->envs[i].names = pool->names_storage[i];
+        pool->envs[i].values = pool->values_storage[i];
+        pool->envs[i].is_const = pool->is_const_storage[i];
+        pool->envs[i].hash_table = pool->hash_table_storage[i];
+        pool->envs[i].capacity = ENV_DEFAULT_CAPACITY;
+        pool->envs[i].hash_capacity = ENV_DEFAULT_CAPACITY * 2;
         // Add to free list (in reverse order so 0 is popped first)
-        env_pool.free_list[i] = ENV_POOL_SIZE - 1 - i;
+        pool->free_list[i] = ENV_POOL_SIZE - 1 - i;
     }
-    env_pool.free_count = ENV_POOL_SIZE;
-    env_pool_initialized = 1;
+    pool->free_count = ENV_POOL_SIZE;
+    pool->initialized = 1;
 }
 
-static void env_pool_init(void) {
-    pthread_once(&env_pool_once, env_pool_init_internal);
+static EnvironmentPool* get_thread_pool(void) {
+    if (tls_env_pool && tls_env_pool->initialized) {
+        return tls_env_pool;
+    }
+
+    // Allocate a new pool for this thread
+    tls_env_pool = malloc(sizeof(EnvironmentPool));
+    if (tls_env_pool) {
+        memset(tls_env_pool, 0, sizeof(EnvironmentPool));
+        env_pool_init_storage(tls_env_pool);
+    }
+    return tls_env_pool;
+}
+
+static void ensure_global_pool_init(void) {
+    if (!global_pool_initialized) {
+        pthread_mutex_lock(&global_pool_mutex);
+        if (!global_pool_initialized) {
+            env_pool_init_storage(&global_env_pool);
+            global_pool_initialized = 1;
+        }
+        pthread_mutex_unlock(&global_pool_mutex);
+    }
 }
 
 static Environment* env_pool_alloc(void) {
-    env_pool_init();  // Ensure initialized (thread-safe via pthread_once)
-
-    pthread_mutex_lock(&env_pool.mutex);
-
-    // O(1) allocation from free list
-    if (env_pool.free_count > 0) {
-        int idx = env_pool.free_list[--env_pool.free_count];
-        pthread_mutex_unlock(&env_pool.mutex);
-
-        Environment *env = &env_pool.envs[idx];
+    // Try thread-local pool first (lock-free fast path)
+    EnvironmentPool *pool = get_thread_pool();
+    if (pool && pool->free_count > 0) {
+        int idx = pool->free_list[--pool->free_count];
+        Environment *env = &pool->envs[idx];
         // Reset to default storage (in case it was grown)
-        env->names = env_pool.names_storage[idx];
-        env->values = env_pool.values_storage[idx];
-        env->is_const = env_pool.is_const_storage[idx];
-        env->hash_table = env_pool.hash_table_storage[idx];
+        env->names = pool->names_storage[idx];
+        env->values = pool->values_storage[idx];
+        env->is_const = pool->is_const_storage[idx];
+        env->hash_table = pool->hash_table_storage[idx];
         env->capacity = ENV_DEFAULT_CAPACITY;
         env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
         return env;
     }
 
-    pthread_mutex_unlock(&env_pool.mutex);
-    return NULL;  // Pool exhausted
+    // Fallback to global pool (with mutex)
+    ensure_global_pool_init();
+    pthread_mutex_lock(&global_pool_mutex);
+    if (global_env_pool.free_count > 0) {
+        int idx = global_env_pool.free_list[--global_env_pool.free_count];
+        pthread_mutex_unlock(&global_pool_mutex);
+
+        Environment *env = &global_env_pool.envs[idx];
+        env->names = global_env_pool.names_storage[idx];
+        env->values = global_env_pool.values_storage[idx];
+        env->is_const = global_env_pool.is_const_storage[idx];
+        env->hash_table = global_env_pool.hash_table_storage[idx];
+        env->capacity = ENV_DEFAULT_CAPACITY;
+        env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        return env;
+    }
+    pthread_mutex_unlock(&global_pool_mutex);
+
+    return NULL;  // All pools exhausted
 }
 
 static int env_is_pooled(Environment *env) {
-    return env >= &env_pool.envs[0] && env < &env_pool.envs[ENV_POOL_SIZE];
+    // Check thread-local pool
+    if (tls_env_pool && env >= &tls_env_pool->envs[0] && env < &tls_env_pool->envs[ENV_POOL_SIZE]) {
+        return 1;
+    }
+    // Check global pool
+    return env >= &global_env_pool.envs[0] && env < &global_env_pool.envs[ENV_POOL_SIZE];
+}
+
+static EnvironmentPool* env_get_pool(Environment *env) {
+    if (tls_env_pool && env >= &tls_env_pool->envs[0] && env < &tls_env_pool->envs[ENV_POOL_SIZE]) {
+        return tls_env_pool;
+    }
+    if (env >= &global_env_pool.envs[0] && env < &global_env_pool.envs[ENV_POOL_SIZE]) {
+        return &global_env_pool;
+    }
+    return NULL;
 }
 
 static void env_pool_free(Environment *env) {
-    if (!env_is_pooled(env)) return;
-    int idx = (int)(env - &env_pool.envs[0]);
+    EnvironmentPool *pool = env_get_pool(env);
+    if (!pool) return;
+
+    int idx = (int)(env - &pool->envs[0]);
+
     // If it was grown beyond default, free the grown arrays
-    if (env->names != env_pool.names_storage[idx]) {
+    if (env->names != pool->names_storage[idx]) {
         free(env->names);
-        env->names = env_pool.names_storage[idx];
+        env->names = pool->names_storage[idx];
     }
-    if (env->values != env_pool.values_storage[idx]) {
+    if (env->values != pool->values_storage[idx]) {
         free(env->values);
-        env->values = env_pool.values_storage[idx];
+        env->values = pool->values_storage[idx];
     }
-    if (env->is_const != env_pool.is_const_storage[idx]) {
+    if (env->is_const != pool->is_const_storage[idx]) {
         free(env->is_const);
-        env->is_const = env_pool.is_const_storage[idx];
+        env->is_const = pool->is_const_storage[idx];
     }
-    if (env->hash_table != env_pool.hash_table_storage[idx]) {
+    if (env->hash_table != pool->hash_table_storage[idx]) {
         free(env->hash_table);
-        env->hash_table = env_pool.hash_table_storage[idx];
+        env->hash_table = pool->hash_table_storage[idx];
     }
-    // O(1) return to free list (thread-safe)
-    pthread_mutex_lock(&env_pool.mutex);
-    env_pool.free_list[env_pool.free_count++] = idx;
-    pthread_mutex_unlock(&env_pool.mutex);
+
+    // Return to appropriate pool
+    if (pool == &global_env_pool) {
+        pthread_mutex_lock(&global_pool_mutex);
+        pool->free_list[pool->free_count++] = idx;
+        pthread_mutex_unlock(&global_pool_mutex);
+    } else {
+        // Thread-local pool - no lock needed
+        pool->free_list[pool->free_count++] = idx;
+    }
 }
 
 // ========== ENVIRONMENT ==========
@@ -428,27 +489,31 @@ static void env_rehash(Environment *env) {
 
 // Check if array is from pool storage (can't be realloc'd)
 static int env_names_is_pooled(Environment *env) {
-    if (!env_is_pooled(env)) return 0;
-    int idx = (int)(env - &env_pool.envs[0]);
-    return env->names == env_pool.names_storage[idx];
+    EnvironmentPool *pool = env_get_pool(env);
+    if (!pool) return 0;
+    int idx = (int)(env - &pool->envs[0]);
+    return env->names == pool->names_storage[idx];
 }
 
 static int env_values_is_pooled(Environment *env) {
-    if (!env_is_pooled(env)) return 0;
-    int idx = (int)(env - &env_pool.envs[0]);
-    return env->values == env_pool.values_storage[idx];
+    EnvironmentPool *pool = env_get_pool(env);
+    if (!pool) return 0;
+    int idx = (int)(env - &pool->envs[0]);
+    return env->values == pool->values_storage[idx];
 }
 
 static int env_is_const_is_pooled(Environment *env) {
-    if (!env_is_pooled(env)) return 0;
-    int idx = (int)(env - &env_pool.envs[0]);
-    return env->is_const == env_pool.is_const_storage[idx];
+    EnvironmentPool *pool = env_get_pool(env);
+    if (!pool) return 0;
+    int idx = (int)(env - &pool->envs[0]);
+    return env->is_const == pool->is_const_storage[idx];
 }
 
 static int env_hash_table_is_pooled(Environment *env) {
-    if (!env_is_pooled(env)) return 0;
-    int idx = (int)(env - &env_pool.envs[0]);
-    return env->hash_table == env_pool.hash_table_storage[idx];
+    EnvironmentPool *pool = env_get_pool(env);
+    if (!pool) return 0;
+    int idx = (int)(env - &pool->envs[0]);
+    return env->hash_table == pool->hash_table_storage[idx];
 }
 
 static void env_grow(Environment *env) {
