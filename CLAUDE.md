@@ -389,7 +389,7 @@ make parity
 
 ## Version
 
-**v1.0** - Current release with:
+**v1.1.0** - Current release with:
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
 - UTF-8 strings with 19 methods
 - Arrays with 18 methods including map/filter/reduce
@@ -400,8 +400,10 @@ make parity
 - defer, try/catch/finally/throw, panic
 - File I/O, signal handling, command execution
 - Compiler backend (C code generation)
-- LSP server for IDE support
-- 491 tests (100% pass rate)
+- LSP server with go-to-definition and find-references
+- HTTP PUT/DELETE/PATCH methods
+- WebSocket binary message support
+- 552 tests with 67 parity tests (100% pass rate)
 
 ---
 

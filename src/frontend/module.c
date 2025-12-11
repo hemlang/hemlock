@@ -681,6 +681,22 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
             // Regular statement: execute it
             eval_stmt(stmt, module_env, ctx);
         }
+
+        // Check for uncaught exception after each statement
+        if (ctx->exception_state.is_throwing) {
+            // Convert exception value to string for stderr output
+            char *error_msg = value_to_string(ctx->exception_state.exception_value);
+            fprintf(stderr, "Uncaught exception: %s\n", error_msg);
+            free(error_msg);
+            // Release exception value before exiting
+            VALUE_RELEASE(ctx->exception_state.exception_value);
+            // Restore previous source file before exit
+            set_current_source_file(saved_file);
+            if (saved_file) {
+                free(saved_file);
+            }
+            exit(1);
+        }
     }
 
     // Save the module's environment as exports

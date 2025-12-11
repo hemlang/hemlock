@@ -120,6 +120,7 @@ static BuiltinInfo builtins[] = {
     // HTTP builtins
     {"__lws_http_get", builtin_lws_http_get},
     {"__lws_http_post", builtin_lws_http_post},
+    {"__lws_http_request", builtin_lws_http_request},
     {"__lws_response_status", builtin_lws_response_status},
     {"__lws_response_body", builtin_lws_response_body},
     {"__lws_response_body_binary", builtin_lws_response_body_binary},
@@ -129,6 +130,7 @@ static BuiltinInfo builtins[] = {
     // WebSocket builtins
     {"__lws_ws_connect", builtin_lws_ws_connect},
     {"__lws_ws_send_text", builtin_lws_ws_send_text},
+    {"__lws_ws_send_binary", builtin_lws_ws_send_binary},
     {"__lws_ws_recv", builtin_lws_ws_recv},
     {"__lws_msg_type", builtin_lws_msg_type},
     {"__lws_msg_text", builtin_lws_msg_text},
