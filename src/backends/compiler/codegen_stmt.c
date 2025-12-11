@@ -313,54 +313,138 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_RETURN: {
-            // Check if we're inside a try-finally block
-            const char *finally_label = codegen_get_finally_label(ctx);
-            if (finally_label) {
-                // Inside try-finally: save return value and goto finally
-                const char *ret_var = codegen_get_return_value_var(ctx);
-                const char *has_ret = codegen_get_has_return_var(ctx);
-                if (stmt->as.return_stmt.value) {
-                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
-                    codegen_writeln(ctx, "%s = %s;", ret_var, value);
-                    free(value);
-                } else {
-                    codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
+            // Check for tail call optimization opportunity
+            // Only apply TCO if:
+            // 1. We have TCO state set up (inside a function)
+            // 2. The return value is a call expression marked as a tail call
+            // 3. The call is to the same function (self-recursive)
+            // 4. Not inside try-finally (too complex)
+            // 5. No defers pending (they must execute before the tail call)
+            Expr *ret_expr = stmt->as.return_stmt.value;
+            int is_tco_candidate = 0;
+            char *tco_func_callee = NULL;
+
+            if (ret_expr && ret_expr->type == EXPR_CALL && ret_expr->as.call.is_tail_call &&
+                ctx->tco_current_func_name && ctx->tco_loop_label &&
+                !codegen_get_finally_label(ctx) && !ctx->defer_stack) {
+                // Check if it's a self-recursive call
+                Expr *func_expr = ret_expr->as.call.func;
+                if (func_expr->type == EXPR_IDENT) {
+                    const char *fn_name = func_expr->as.ident;
+
+                    // For closures, check if the called identifier matches the variable name
+                    // (the function calling itself by its variable name)
+                    if (ctx->tco_var_name && strcmp(fn_name, ctx->tco_var_name) == 0 &&
+                        ret_expr->as.call.num_args == ctx->tco_num_params) {
+                        is_tco_candidate = 1;
+                    }
+
+                    // For named functions, check against the generated function name
+                    if (!is_tco_candidate && !ctx->tco_is_closure) {
+                        tco_func_callee = malloc(strlen(fn_name) + 16);
+
+                        // Check if it's a main file function
+                        if (codegen_is_main_func(ctx, fn_name)) {
+                            sprintf(tco_func_callee, "hml_fn_%s", fn_name);
+                        } else if (ctx->current_module) {
+                            // Check for module export
+                            ExportedSymbol *exp = module_find_export(ctx->current_module, fn_name);
+                            if (exp) {
+                                free(tco_func_callee);
+                                tco_func_callee = strdup(exp->mangled_name);
+                            } else {
+                                sprintf(tco_func_callee, "hml_fn_%s", fn_name);
+                            }
+                        } else {
+                            sprintf(tco_func_callee, "hml_fn_%s", fn_name);
+                        }
+
+                        // Check if this is a self-recursive call
+                        if (strcmp(tco_func_callee, ctx->tco_current_func_name) == 0 &&
+                            ret_expr->as.call.num_args == ctx->tco_num_params) {
+                            is_tco_candidate = 1;
+                        }
+                    }
                 }
-                codegen_writeln(ctx, "%s = 1;", has_ret);
-                codegen_writeln(ctx, "hml_exception_pop();");
-                codegen_writeln(ctx, "goto %s;", finally_label);
-            } else if (ctx->defer_stack) {
-                // We have defers - need to save return value, execute defers, then return
-                char *ret_val = codegen_temp(ctx);
-                if (stmt->as.return_stmt.value) {
-                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
-                    codegen_writeln(ctx, "HmlValue %s = %s;", ret_val, value);
-                    free(value);
-                } else {
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", ret_val);
+            }
+
+            if (is_tco_candidate) {
+                // Generate TCO: evaluate args into temps, assign to params, goto
+                codegen_writeln(ctx, "// Tail call optimization");
+
+                // Evaluate all arguments into temporaries first
+                char **arg_temps = malloc(sizeof(char*) * ret_expr->as.call.num_args);
+                for (int i = 0; i < ret_expr->as.call.num_args; i++) {
+                    arg_temps[i] = codegen_expr(ctx, ret_expr->as.call.args[i]);
                 }
-                // Execute all defers in LIFO order
-                codegen_defer_execute_all(ctx);
-                // Execute any runtime defers (from loops)
+
+                // Assign temporaries to parameters
+                for (int i = 0; i < ret_expr->as.call.num_args; i++) {
+                    codegen_writeln(ctx, "%s = %s;", ctx->tco_param_names[i], arg_temps[i]);
+                    free(arg_temps[i]);
+                }
+                free(arg_temps);
+
+                // Execute any runtime defers (from loops) before jumping
                 codegen_writeln(ctx, "hml_defer_execute_all();");
-                codegen_writeln(ctx, "hml_call_exit();");
-                codegen_writeln(ctx, "return %s;", ret_val);
-                free(ret_val);
+
+                // Jump to the start of the function body
+                codegen_writeln(ctx, "goto %s;", ctx->tco_loop_label);
+
+                if (tco_func_callee) free(tco_func_callee);
             } else {
-                // No defers or try-finally - simple return
-                // Evaluate expression first, then decrement call depth
-                if (stmt->as.return_stmt.value) {
-                    char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                // Normal return handling
+                if (tco_func_callee) free(tco_func_callee);
+
+                // Check if we're inside a try-finally block
+                const char *finally_label = codegen_get_finally_label(ctx);
+                if (finally_label) {
+                    // Inside try-finally: save return value and goto finally
+                    const char *ret_var = codegen_get_return_value_var(ctx);
+                    const char *has_ret = codegen_get_has_return_var(ctx);
+                    if (stmt->as.return_stmt.value) {
+                        char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                        codegen_writeln(ctx, "%s = %s;", ret_var, value);
+                        free(value);
+                    } else {
+                        codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
+                    }
+                    codegen_writeln(ctx, "%s = 1;", has_ret);
+                    codegen_writeln(ctx, "hml_exception_pop();");
+                    codegen_writeln(ctx, "goto %s;", finally_label);
+                } else if (ctx->defer_stack) {
+                    // We have defers - need to save return value, execute defers, then return
+                    char *ret_val = codegen_temp(ctx);
+                    if (stmt->as.return_stmt.value) {
+                        char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", ret_val, value);
+                        free(value);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", ret_val);
+                    }
+                    // Execute all defers in LIFO order
+                    codegen_defer_execute_all(ctx);
                     // Execute any runtime defers (from loops)
                     codegen_writeln(ctx, "hml_defer_execute_all();");
                     codegen_writeln(ctx, "hml_call_exit();");
-                    codegen_writeln(ctx, "return %s;", value);
-                    free(value);
+                    codegen_writeln(ctx, "return %s;", ret_val);
+                    free(ret_val);
                 } else {
-                    // Execute any runtime defers (from loops)
-                    codegen_writeln(ctx, "hml_defer_execute_all();");
-                    codegen_writeln(ctx, "hml_call_exit();");
-                    codegen_writeln(ctx, "return hml_val_null();");
+                    // No defers or try-finally - simple return
+                    // Evaluate expression first, then decrement call depth
+                    if (stmt->as.return_stmt.value) {
+                        char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                        // Execute any runtime defers (from loops)
+                        codegen_writeln(ctx, "hml_defer_execute_all();");
+                        codegen_writeln(ctx, "hml_call_exit();");
+                        codegen_writeln(ctx, "return %s;", value);
+                        free(value);
+                    } else {
+                        // Execute any runtime defers (from loops)
+                        codegen_writeln(ctx, "hml_defer_execute_all();");
+                        codegen_writeln(ctx, "hml_call_exit();");
+                        codegen_writeln(ctx, "return hml_val_null();");
+                    }
                 }
             }
             break;

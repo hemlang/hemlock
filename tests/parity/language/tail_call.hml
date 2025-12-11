@@ -1,0 +1,71 @@
+// Test tail call optimization
+// Tests that tail-recursive functions work correctly with TCO
+
+// Simple tail-recursive factorial
+fn factorial(n: i32, acc: i32): i32 {
+    if (n <= 1) {
+        return acc;
+    }
+    return factorial(n - 1, n * acc);
+}
+
+// Test factorial
+print(factorial(5, 1));  // 120
+print(factorial(10, 1)); // 3628800
+
+// Tail-recursive sum of 1 to n
+fn sum_to(n: i32, acc: i32): i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return sum_to(n - 1, acc + n);
+}
+
+print(sum_to(10, 0));   // 55
+print(sum_to(100, 0));  // 5050
+
+// Deep recursion test - should not stack overflow with TCO
+fn count_down(n: i32): i32 {
+    if (n <= 0) {
+        return 0;
+    }
+    return count_down(n - 1);
+}
+
+// With TCO, this should work without stack overflow
+print(count_down(10000));  // 0
+
+// Tail call in conditional branches
+fn even_odd(n: i32): string {
+    if (n == 0) {
+        return "even";
+    }
+    if (n == 1) {
+        return "odd";
+    }
+    if (n > 0) {
+        return even_odd(n - 2);
+    }
+    return even_odd(n + 2);
+}
+
+print(even_odd(100));   // even
+print(even_odd(99));    // odd
+print(even_odd(-50));   // even
+print(even_odd(-51));   // odd
+
+// Fibonacci with tail recursion (accumulator style)
+fn fib_tail(n: i32, a: i32, b: i32): i32 {
+    if (n == 0) {
+        return a;
+    }
+    if (n == 1) {
+        return b;
+    }
+    return fib_tail(n - 1, b, a + b);
+}
+
+print(fib_tail(10, 0, 1));  // 55
+print(fib_tail(20, 0, 1));  // 6765
+
+print("done");

@@ -283,6 +283,9 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
+    // Mark tail calls for tail call optimization
+    mark_tail_calls_in_function(body);
+
     return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, return_type, body);
 
 not_fn_expr:

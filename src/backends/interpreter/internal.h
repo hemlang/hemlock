@@ -4,6 +4,7 @@
 #include "interpreter.h"
 #include "ast.h"
 #include <stdint.h>
+#include <string.h>
 
 // ========== CONTROL FLOW STATE ==========
 
@@ -21,6 +22,20 @@ typedef struct {
     int is_throwing;
     Value exception_value;
 } ExceptionState;
+
+// Tail call state - for tail call optimization
+// When a tail call is detected, instead of making a recursive call,
+// we set this state and return immediately, allowing the trampoline
+// loop to handle the call iteratively.
+typedef struct {
+    int is_tail_call;       // Flag indicating a pending tail call
+    Value func;             // The function to call
+    Value *args;            // Arguments array (owned by this struct when set)
+    int num_args;           // Number of arguments
+    int args_on_heap;       // Whether args were heap-allocated
+    Value method_self;      // 'self' for method calls (null if not a method call)
+    int is_method_call;     // Whether this is a method call
+} TailCallState;
 
 // Defer stack - stores deferred expressions (function calls) to execute later
 typedef struct {
@@ -53,6 +68,7 @@ struct ExecutionContext {
     ReturnState return_state;
     LoopState loop_state;
     ExceptionState exception_state;
+    TailCallState tail_call_state;  // For tail call optimization
     CallStack call_stack;
     DeferStack defer_stack;
 };

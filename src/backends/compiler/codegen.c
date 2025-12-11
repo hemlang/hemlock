@@ -68,6 +68,13 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->for_continue_labels = NULL;
     ctx->for_continue_depth = 0;
     ctx->for_continue_capacity = 0;
+    // Tail call optimization
+    ctx->tco_current_func_name = NULL;
+    ctx->tco_loop_label = NULL;
+    ctx->tco_param_names = NULL;
+    ctx->tco_num_params = 0;
+    ctx->tco_is_closure = 0;
+    ctx->tco_var_name = NULL;
     return ctx;
 }
 

@@ -52,6 +52,25 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     int saved_in_function = ctx->in_function;
     ctx->in_function = 1;  // We're now inside a function
 
+    // Save TCO state and set up for this function
+    char *saved_tco_func_name = ctx->tco_current_func_name;
+    char *saved_tco_loop_label = ctx->tco_loop_label;
+    char **saved_tco_param_names = ctx->tco_param_names;
+    int saved_tco_num_params = ctx->tco_num_params;
+    int saved_tco_is_closure = ctx->tco_is_closure;
+    char *saved_tco_var_name = ctx->tco_var_name;
+
+    // Set up TCO state for this function
+    char *func_name_buf = malloc(strlen(name) + 8);
+    sprintf(func_name_buf, "hml_fn_%s", name);
+    ctx->tco_current_func_name = func_name_buf;
+    char *tco_label = codegen_label(ctx);
+    ctx->tco_loop_label = tco_label;
+    ctx->tco_param_names = func->as.function.param_names;
+    ctx->tco_num_params = func->as.function.num_params;
+    ctx->tco_is_closure = 0;
+    ctx->tco_var_name = strdup(name);  // Original function name for self-recursive detection
+
     // Reset closure env tracking to prevent cross-function pollution
     ctx->last_closure_env_id = -1;
 
@@ -80,6 +99,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     // Track call depth for stack overflow detection
     codegen_writeln(ctx, "hml_call_enter();");
 
+    // TCO: Add label at start of function body for tail call jumps
+    codegen_writeln(ctx, "%s:;", tco_label);
+
     // Generate body
     if (func->as.function.body->type == STMT_BLOCK) {
         for (int i = 0; i < func->as.function.body->as.block.count; i++) {
@@ -104,11 +126,20 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals, defer state, and in_function flag
+    // Restore locals, defer state, in_function flag, and TCO state
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
     ctx->in_function = saved_in_function;
+    free(ctx->tco_current_func_name);
+    free(ctx->tco_loop_label);
+    if (ctx->tco_var_name) free(ctx->tco_var_name);
+    ctx->tco_current_func_name = saved_tco_func_name;
+    ctx->tco_loop_label = saved_tco_loop_label;
+    ctx->tco_param_names = saved_tco_param_names;
+    ctx->tco_num_params = saved_tco_num_params;
+    ctx->tco_is_closure = saved_tco_is_closure;
+    ctx->tco_var_name = saved_tco_var_name;
 }
 
 // Generate a closure function (takes environment as first hidden parameter)
@@ -133,6 +164,34 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     ctx->current_closure = closure;  // Track current closure for mutable captured variables
     int saved_in_function = ctx->in_function;
     ctx->in_function = 1;  // We're now inside a function
+
+    // Save TCO state and set up for this closure
+    char *saved_tco_func_name = ctx->tco_current_func_name;
+    char *saved_tco_loop_label = ctx->tco_loop_label;
+    char **saved_tco_param_names = ctx->tco_param_names;
+    int saved_tco_num_params = ctx->tco_num_params;
+    int saved_tco_is_closure = ctx->tco_is_closure;
+    char *saved_tco_var_name = ctx->tco_var_name;
+
+    // Set up TCO state for this closure
+    ctx->tco_current_func_name = strdup(closure->func_name);
+    char *tco_label = codegen_label(ctx);
+    ctx->tco_loop_label = tco_label;
+    ctx->tco_param_names = func->as.function.param_names;
+    ctx->tco_num_params = func->as.function.num_params;
+    ctx->tco_is_closure = 1;
+
+    // For closures, find if any captured variable might be a self-reference
+    // (used for recursive closures that capture their own name)
+    ctx->tco_var_name = NULL;
+    for (int i = 0; i < closure->num_captured; i++) {
+        // Check if this captured variable is likely the function's own name
+        // by checking if it's a main file variable that's a function
+        if (codegen_is_main_var(ctx, closure->captured_vars[i])) {
+            ctx->tco_var_name = strdup(closure->captured_vars[i]);
+            break;  // Use the first match (usually the function's own name)
+        }
+    }
 
     // Reset closure env tracking to prevent cross-function pollution
     ctx->last_closure_env_id = -1;
@@ -196,6 +255,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Track call depth for stack overflow detection
     codegen_writeln(ctx, "hml_call_enter();");
 
+    // TCO: Add label at start of function body for tail call jumps
+    codegen_writeln(ctx, "%s:;", tco_label);
+
     // Scan for all closures in the function body and set up a shared environment
     // This allows multiple closures within this function to share the same environment
     Scope *scan_scope = scope_new(NULL);
@@ -254,13 +316,22 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals, defer state, module context, current closure, in_function flag, and clear shared environment
+    // Restore locals, defer state, module context, current closure, in_function flag, TCO state, and clear shared environment
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
     ctx->current_module = saved_module;
     ctx->current_closure = saved_closure;
     ctx->in_function = saved_in_function;
+    free(ctx->tco_current_func_name);
+    free(ctx->tco_loop_label);
+    if (ctx->tco_var_name) free(ctx->tco_var_name);
+    ctx->tco_current_func_name = saved_tco_func_name;
+    ctx->tco_loop_label = saved_tco_loop_label;
+    ctx->tco_param_names = saved_tco_param_names;
+    ctx->tco_num_params = saved_tco_num_params;
+    ctx->tco_is_closure = saved_tco_is_closure;
+    ctx->tco_var_name = saved_tco_var_name;
     shared_env_clear(ctx);  // Clear shared environment after generating this closure
 }
 

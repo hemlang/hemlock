@@ -175,6 +175,14 @@ typedef struct {
     char **for_continue_labels;   // Stack of for-loop continue labels
     int for_continue_depth;       // Current for-loop nesting depth
     int for_continue_capacity;    // Capacity of for_continue_labels stack
+
+    // Tail call optimization support
+    char *tco_current_func_name;   // Name of the function currently being generated (for self-recursive TCO)
+    char *tco_loop_label;          // Label at start of function body (goto target for tail calls)
+    char **tco_param_names;        // Parameter names of current function (for reassignment)
+    int tco_num_params;            // Number of parameters
+    int tco_is_closure;            // Whether current function is a closure (needs env)
+    char *tco_var_name;            // Original variable name for the function (for recursive call detection)
 } CodegenContext;
 
 // Initialize code generation context

@@ -101,6 +101,7 @@ Expr* expr_call(Expr *func, Expr **args, int num_args) {
     expr->as.call.func = func;
     expr->as.call.args = args;
     expr->as.call.num_args = num_args;
+    expr->as.call.is_tail_call = 0;  // Will be set by tail call analysis pass
     return expr;
 }
 
@@ -1057,4 +1058,264 @@ void stmt_free(Stmt *stmt) {
     }
 
     free(stmt);
+}
+
+// ========== TAIL CALL OPTIMIZATION ==========
+
+// Mark calls in tail position within expressions
+// A call is in tail position if its result is directly returned
+void mark_tail_calls_expr(Expr *expr, int in_tail_position) {
+    if (!expr) return;
+
+    switch (expr->type) {
+        case EXPR_CALL:
+            // This call is in tail position
+            if (in_tail_position) {
+                expr->as.call.is_tail_call = 1;
+            }
+            // Arguments are never in tail position
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                mark_tail_calls_expr(expr->as.call.args[i], 0);
+            }
+            // The function expression itself is not in tail position
+            mark_tail_calls_expr(expr->as.call.func, 0);
+            break;
+
+        case EXPR_TERNARY:
+            // For ternary, both branches can be in tail position
+            mark_tail_calls_expr(expr->as.ternary.condition, 0);
+            mark_tail_calls_expr(expr->as.ternary.true_expr, in_tail_position);
+            mark_tail_calls_expr(expr->as.ternary.false_expr, in_tail_position);
+            break;
+
+        case EXPR_BINARY:
+            // Binary operands are never in tail position
+            mark_tail_calls_expr(expr->as.binary.left, 0);
+            mark_tail_calls_expr(expr->as.binary.right, 0);
+            break;
+
+        case EXPR_UNARY:
+            mark_tail_calls_expr(expr->as.unary.operand, 0);
+            break;
+
+        case EXPR_ASSIGN:
+            mark_tail_calls_expr(expr->as.assign.value, 0);
+            break;
+
+        case EXPR_GET_PROPERTY:
+            mark_tail_calls_expr(expr->as.get_property.object, 0);
+            break;
+
+        case EXPR_SET_PROPERTY:
+            mark_tail_calls_expr(expr->as.set_property.object, 0);
+            mark_tail_calls_expr(expr->as.set_property.value, 0);
+            break;
+
+        case EXPR_INDEX:
+            mark_tail_calls_expr(expr->as.index.object, 0);
+            mark_tail_calls_expr(expr->as.index.index, 0);
+            break;
+
+        case EXPR_INDEX_ASSIGN:
+            mark_tail_calls_expr(expr->as.index_assign.object, 0);
+            mark_tail_calls_expr(expr->as.index_assign.index, 0);
+            mark_tail_calls_expr(expr->as.index_assign.value, 0);
+            break;
+
+        case EXPR_FUNCTION:
+            // Recursively mark tail calls in nested functions
+            mark_tail_calls_in_function(expr->as.function.body);
+            break;
+
+        case EXPR_ARRAY_LITERAL:
+            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
+                mark_tail_calls_expr(expr->as.array_literal.elements[i], 0);
+            }
+            break;
+
+        case EXPR_OBJECT_LITERAL:
+            for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
+                mark_tail_calls_expr(expr->as.object_literal.field_values[i], 0);
+            }
+            break;
+
+        case EXPR_PREFIX_INC:
+        case EXPR_PREFIX_DEC:
+            mark_tail_calls_expr(expr->as.prefix_inc.operand, 0);
+            break;
+
+        case EXPR_POSTFIX_INC:
+        case EXPR_POSTFIX_DEC:
+            mark_tail_calls_expr(expr->as.postfix_inc.operand, 0);
+            break;
+
+        case EXPR_AWAIT:
+            mark_tail_calls_expr(expr->as.await_expr.awaited_expr, 0);
+            break;
+
+        case EXPR_STRING_INTERPOLATION:
+            for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
+                mark_tail_calls_expr(expr->as.string_interpolation.expr_parts[i], 0);
+            }
+            break;
+
+        case EXPR_OPTIONAL_CHAIN:
+            mark_tail_calls_expr(expr->as.optional_chain.object, 0);
+            if (expr->as.optional_chain.index) {
+                mark_tail_calls_expr(expr->as.optional_chain.index, 0);
+            }
+            if (expr->as.optional_chain.args) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    mark_tail_calls_expr(expr->as.optional_chain.args[i], 0);
+                }
+            }
+            break;
+
+        case EXPR_NULL_COALESCE:
+            // Left is never tail, right could be (if the whole expression is returned)
+            mark_tail_calls_expr(expr->as.null_coalesce.left, 0);
+            mark_tail_calls_expr(expr->as.null_coalesce.right, in_tail_position);
+            break;
+
+        // Primitives and identifiers have no sub-expressions
+        case EXPR_NUMBER:
+        case EXPR_BOOL:
+        case EXPR_STRING:
+        case EXPR_RUNE:
+        case EXPR_IDENT:
+        case EXPR_NULL:
+            break;
+    }
+}
+
+// Mark tail calls in statements
+// in_tail_position indicates whether this statement is in tail position
+void mark_tail_calls_stmt(Stmt *stmt, int in_tail_position) {
+    if (!stmt) return;
+
+    switch (stmt->type) {
+        case STMT_RETURN:
+            // The returned expression is in tail position
+            if (stmt->as.return_stmt.value) {
+                mark_tail_calls_expr(stmt->as.return_stmt.value, 1);
+            }
+            break;
+
+        case STMT_BLOCK:
+            // Only the last statement in a block can be in tail position
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                int is_last = (i == stmt->as.block.count - 1);
+                mark_tail_calls_stmt(stmt->as.block.statements[i], in_tail_position && is_last);
+            }
+            break;
+
+        case STMT_IF:
+            // Both branches can be in tail position
+            mark_tail_calls_expr(stmt->as.if_stmt.condition, 0);
+            mark_tail_calls_stmt(stmt->as.if_stmt.then_branch, in_tail_position);
+            if (stmt->as.if_stmt.else_branch) {
+                mark_tail_calls_stmt(stmt->as.if_stmt.else_branch, in_tail_position);
+            }
+            break;
+
+        case STMT_SWITCH:
+            // Switch expression is not in tail position
+            mark_tail_calls_expr(stmt->as.switch_stmt.expr, 0);
+            // Each case body can be in tail position
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (stmt->as.switch_stmt.case_values[i]) {
+                    mark_tail_calls_expr(stmt->as.switch_stmt.case_values[i], 0);
+                }
+                mark_tail_calls_stmt(stmt->as.switch_stmt.case_bodies[i], in_tail_position);
+            }
+            break;
+
+        case STMT_EXPR:
+            // Expression statements are in tail position only if the statement itself is
+            // (e.g., last statement in a function that doesn't explicitly return)
+            mark_tail_calls_expr(stmt->as.expr, in_tail_position);
+            break;
+
+        case STMT_LET:
+            mark_tail_calls_expr(stmt->as.let.value, 0);
+            break;
+
+        case STMT_CONST:
+            mark_tail_calls_expr(stmt->as.const_stmt.value, 0);
+            break;
+
+        case STMT_WHILE:
+            // Loop body is never in tail position (we continue the loop, not return)
+            mark_tail_calls_expr(stmt->as.while_stmt.condition, 0);
+            mark_tail_calls_stmt(stmt->as.while_stmt.body, 0);
+            break;
+
+        case STMT_FOR:
+            mark_tail_calls_stmt(stmt->as.for_loop.initializer, 0);
+            mark_tail_calls_expr(stmt->as.for_loop.condition, 0);
+            mark_tail_calls_expr(stmt->as.for_loop.increment, 0);
+            mark_tail_calls_stmt(stmt->as.for_loop.body, 0);
+            break;
+
+        case STMT_FOR_IN:
+            mark_tail_calls_expr(stmt->as.for_in.iterable, 0);
+            mark_tail_calls_stmt(stmt->as.for_in.body, 0);
+            break;
+
+        case STMT_TRY:
+            // Try/catch/finally blocks are not in tail position due to cleanup semantics
+            mark_tail_calls_stmt(stmt->as.try_stmt.try_block, 0);
+            if (stmt->as.try_stmt.catch_block) {
+                mark_tail_calls_stmt(stmt->as.try_stmt.catch_block, 0);
+            }
+            if (stmt->as.try_stmt.finally_block) {
+                mark_tail_calls_stmt(stmt->as.try_stmt.finally_block, 0);
+            }
+            break;
+
+        case STMT_THROW:
+            mark_tail_calls_expr(stmt->as.throw_stmt.value, 0);
+            break;
+
+        case STMT_DEFER:
+            // Defer expressions are never in tail position
+            mark_tail_calls_expr(stmt->as.defer_stmt.call, 0);
+            break;
+
+        case STMT_DEFINE_OBJECT:
+            // Field defaults are not in tail position
+            for (int i = 0; i < stmt->as.define_object.num_fields; i++) {
+                if (stmt->as.define_object.field_defaults[i]) {
+                    mark_tail_calls_expr(stmt->as.define_object.field_defaults[i], 0);
+                }
+            }
+            break;
+
+        case STMT_ENUM:
+            // Enum variant values are not in tail position
+            for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
+                if (stmt->as.enum_decl.variant_values && stmt->as.enum_decl.variant_values[i]) {
+                    mark_tail_calls_expr(stmt->as.enum_decl.variant_values[i], 0);
+                }
+            }
+            break;
+
+        // These statements have no expressions or sub-statements to process
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_IMPORT:
+        case STMT_EXPORT:
+        case STMT_IMPORT_FFI:
+        case STMT_EXTERN_FN:
+            break;
+    }
+}
+
+// Mark tail calls in a function body
+// This is the entry point for tail call analysis on a function
+void mark_tail_calls_in_function(Stmt *body) {
+    if (!body) return;
+
+    // The function body is in tail position
+    mark_tail_calls_stmt(body, 1);
 }

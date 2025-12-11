@@ -98,6 +98,7 @@ struct Expr {
             Expr *func;  // Changed from char *name to support method calls
             Expr **args;
             int num_args;
+            int is_tail_call;  // 1 if this call is in tail position
         } call;
         struct {
             char *name;
@@ -411,5 +412,13 @@ Expr* expr_clone(const Expr *expr);
 // Cleanup
 void expr_free(Expr *expr);
 void stmt_free(Stmt *stmt);
+
+// Tail call optimization
+// Mark calls in tail position within a function body
+void mark_tail_calls_in_function(Stmt *body);
+// Mark tail calls in a statement (internal helper)
+void mark_tail_calls_stmt(Stmt *stmt, int in_tail_position);
+// Mark tail calls in an expression (internal helper)
+void mark_tail_calls_expr(Expr *expr, int in_tail_position);
 
 #endif // HEMLOCK_AST_H

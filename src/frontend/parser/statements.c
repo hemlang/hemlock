@@ -447,6 +447,9 @@ Stmt* export_statement(Parser *p) {
     // Create function expression
     Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, return_type, body);
 
+    // Mark tail calls for tail call optimization
+    mark_tail_calls_in_function(body);
+
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
     free(name);
@@ -684,6 +687,9 @@ Stmt* statement(Parser *p) {
 
         // Create function expression (with is_async flag)
         Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, return_type, body);
+
+        // Mark tail calls for tail call optimization
+        mark_tail_calls_in_function(body);
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);

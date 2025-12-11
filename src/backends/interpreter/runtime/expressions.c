@@ -1150,154 +1150,263 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Builtin functions don't retain args, so we must release them
                 should_release_args = 1;
             } else if (func.type == VAL_FUNCTION) {
-                // Call user-defined function
-                Function *fn = func.as.as_function;
-
-                // Calculate number of required parameters (those without defaults)
-                int required_params = 0;
-                if (fn->param_defaults) {
-                    for (int i = 0; i < fn->num_params; i++) {
-                        if (!fn->param_defaults[i]) {
-                            required_params++;
-                        }
-                    }
-                } else {
-                    required_params = fn->num_params;
-                }
-
-                // Check argument count (must be between required and total params)
-                if (expr->as.call.num_args < required_params || expr->as.call.num_args > fn->num_params) {
-                    if (required_params == fn->num_params) {
-                        runtime_error(ctx, "Function expects %d arguments, got %d",
-                                fn->num_params, expr->as.call.num_args);
-                    } else {
-                        runtime_error(ctx, "Function expects %d-%d arguments, got %d",
-                                required_params, fn->num_params, expr->as.call.num_args);
-                    }
-                    // Release function and args before returning
-                    VALUE_RELEASE(func);
-                    if (args) {
-                        for (int i = 0; i < expr->as.call.num_args; i++) {
-                            VALUE_RELEASE(args[i]);
-                        }
-                        if (args_on_heap) free(args);
-                    }
-                    return val_null();
-                }
-
-                // Determine function name for stack trace
-                const char *fn_name = "<anonymous>";
-                if (is_method_call && expr->as.call.func->type == EXPR_GET_PROPERTY) {
-                    fn_name = expr->as.call.func->as.get_property.property;
-                } else if (expr->as.call.func->type == EXPR_IDENT) {
-                    fn_name = expr->as.call.func->as.ident;
-                }
-
-                // Check for stack overflow (prevent infinite recursion)
-                #define MAX_CALL_STACK_DEPTH 1000
-                if (ctx->call_stack.count >= MAX_CALL_STACK_DEPTH) {
-                    runtime_error(ctx, "Maximum call stack depth exceeded (infinite recursion?)");
-                    // Release function and args before returning
-                    VALUE_RELEASE(func);
-                    if (args) {
-                        for (int i = 0; i < expr->as.call.num_args; i++) {
-                            VALUE_RELEASE(args[i]);
-                        }
-                        if (args_on_heap) free(args);
-                    }
-                    return val_null();
-                }
-
-                // Push call onto stack trace (with line number from call site)
-                call_stack_push_line(&ctx->call_stack, fn_name, expr->line);
-
-                // Create call environment with closure_env as parent
-                Environment *call_env = env_new(fn->closure_env);
-
-                // Inject 'self' if this is a method call
-                if (is_method_call) {
-                    env_set(call_env, "self", method_self, ctx);
-                    VALUE_RELEASE(method_self);  // Release original reference (env_set retained it)
-                }
-
-                // Bind parameters
-                for (int i = 0; i < fn->num_params; i++) {
-                    Value arg_value = {0};
-
-                    // Use provided argument or evaluate default
-                    if (i < expr->as.call.num_args) {
-                        // Argument was provided
-                        arg_value = args[i];
-                    } else {
-                        // Argument missing - use default value
-                        if (fn->param_defaults && fn->param_defaults[i]) {
-                            // Evaluate default expression in the closure environment
-                            arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
+                // ==================== TAIL CALL OPTIMIZATION ====================
+                // If this call is marked as a tail call, set up the tail call state
+                // and return immediately. The trampoline loop will handle execution.
+                if (expr->as.call.is_tail_call) {
+                    // Store the tail call information
+                    ctx->tail_call_state.is_tail_call = 1;
+                    ctx->tail_call_state.func = func;  // Transfer ownership
+                    // Copy args to tail call state
+                    if (args && expr->as.call.num_args > 0) {
+                        if (args_on_heap) {
+                            // Already on heap, just transfer ownership
+                            ctx->tail_call_state.args = args;
+                            ctx->tail_call_state.args_on_heap = 1;
                         } else {
-                            // Should never happen if arity check is correct
-                            runtime_error(ctx, "Missing required parameter '%s'", fn->param_names[i]);
+                            // Stack-allocated, need to copy to heap
+                            ctx->tail_call_state.args = malloc(sizeof(Value) * expr->as.call.num_args);
+                            memcpy(ctx->tail_call_state.args, args, sizeof(Value) * expr->as.call.num_args);
+                            ctx->tail_call_state.args_on_heap = 1;
                         }
+                    } else {
+                        ctx->tail_call_state.args = NULL;
+                        ctx->tail_call_state.args_on_heap = 0;
+                    }
+                    ctx->tail_call_state.num_args = expr->as.call.num_args;
+                    ctx->tail_call_state.is_method_call = is_method_call;
+                    ctx->tail_call_state.method_self = method_self;  // Transfer ownership
+                    // Return a placeholder - the trampoline will provide the real result
+                    return val_null();
+                }
+
+                // Call user-defined function with trampoline loop for TCO
+                Function *fn = func.as.as_function;
+                int current_num_args = expr->as.call.num_args;
+                int current_is_method_call = is_method_call;
+                Value current_method_self = method_self;
+                Value *current_args = args;
+                int current_args_on_heap = args_on_heap;
+
+                // Trampoline loop - continues while tail calls are pending
+                // Limit iterations to prevent infinite tail recursion
+                #define MAX_TCO_ITERATIONS 10000000  // 10 million iterations should be enough
+                int tco_iterations = 0;
+                while (1) {
+                    // Check for infinite tail recursion
+                    if (++tco_iterations > MAX_TCO_ITERATIONS) {
+                        runtime_error(ctx, "Maximum tail call iterations exceeded (infinite recursion?)");
+                        VALUE_RELEASE(func);
+                        if (current_args) {
+                            for (int i = 0; i < current_num_args; i++) {
+                                VALUE_RELEASE(current_args[i]);
+                            }
+                            if (current_args_on_heap) free(current_args);
+                        }
+                        return val_null();
+                    }
+                    // Calculate number of required parameters (those without defaults)
+                    int required_params = 0;
+                    if (fn->param_defaults) {
+                        for (int i = 0; i < fn->num_params; i++) {
+                            if (!fn->param_defaults[i]) {
+                                required_params++;
+                            }
+                        }
+                    } else {
+                        required_params = fn->num_params;
                     }
 
-                    // Type check if parameter has type annotation
-                    if (fn->param_types[i]) {
-                        arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
+                    // Check argument count (must be between required and total params)
+                    if (current_num_args < required_params || current_num_args > fn->num_params) {
+                        if (required_params == fn->num_params) {
+                            runtime_error(ctx, "Function expects %d arguments, got %d",
+                                    fn->num_params, current_num_args);
+                        } else {
+                            runtime_error(ctx, "Function expects %d-%d arguments, got %d",
+                                    required_params, fn->num_params, current_num_args);
+                        }
+                        // Release function and args before returning
+                        VALUE_RELEASE(func);
+                        if (current_args) {
+                            for (int i = 0; i < current_num_args; i++) {
+                                VALUE_RELEASE(current_args[i]);
+                            }
+                            if (current_args_on_heap) free(current_args);
+                        }
+                        return val_null();
                     }
 
-                    // Use borrowed variant - param names come from AST and outlive the call
-                    env_define_borrowed(call_env, fn->param_names[i], arg_value, 0, ctx);
-                }
-
-                // Save defer stack depth before executing function body
-                int defer_depth_before = ctx->defer_stack.count;
-
-                // Execute body
-                ctx->return_state.is_returning = 0;
-                eval_stmt(fn->body, call_env, ctx);
-
-                // Execute deferred calls (in LIFO order) before returning
-                // This happens even if there was an exception
-                if (ctx->defer_stack.count > defer_depth_before) {
-                    // Create a temporary defer stack with just this function's defers
-                    DeferStack local_defers;
-                    local_defers.count = ctx->defer_stack.count - defer_depth_before;
-                    local_defers.capacity = local_defers.count;
-                    local_defers.calls = &ctx->defer_stack.calls[defer_depth_before];
-                    local_defers.envs = &ctx->defer_stack.envs[defer_depth_before];
-
-                    // Execute the defers
-                    defer_stack_execute(&local_defers, ctx);
-
-                    // Restore defer stack to pre-function depth
-                    ctx->defer_stack.count = defer_depth_before;
-                }
-
-                // Get result
-                result = ctx->return_state.return_value;
-
-                // Check return type if specified
-                if (fn->return_type) {
-                    // null return type allows functions to not return a value explicitly
-                    if (!ctx->return_state.is_returning && fn->return_type->kind != TYPE_NULL) {
-                        runtime_error(ctx, "Function with return type must return a value");
+                    // Determine function name for stack trace
+                    const char *fn_name = "<anonymous>";
+                    if (current_is_method_call && expr->as.call.func->type == EXPR_GET_PROPERTY) {
+                        fn_name = expr->as.call.func->as.get_property.property;
+                    } else if (expr->as.call.func->type == EXPR_IDENT) {
+                        fn_name = expr->as.call.func->as.ident;
                     }
-                    result = convert_to_type(result, fn->return_type, call_env, ctx);
+
+                    // Check for stack overflow (prevent infinite recursion)
+                    // Note: With TCO, this limit is much less likely to be hit for tail-recursive functions
+                    #define MAX_CALL_STACK_DEPTH 1000
+                    if (ctx->call_stack.count >= MAX_CALL_STACK_DEPTH) {
+                        runtime_error(ctx, "Maximum call stack depth exceeded (infinite recursion?)");
+                        // Release function and args before returning
+                        VALUE_RELEASE(func);
+                        if (current_args) {
+                            for (int i = 0; i < current_num_args; i++) {
+                                VALUE_RELEASE(current_args[i]);
+                            }
+                            if (current_args_on_heap) free(current_args);
+                        }
+                        return val_null();
+                    }
+
+                    // Push call onto stack trace (with line number from call site)
+                    call_stack_push_line(&ctx->call_stack, fn_name, expr->line);
+
+                    // Create call environment with closure_env as parent
+                    Environment *call_env = env_new(fn->closure_env);
+
+                    // Inject 'self' if this is a method call
+                    if (current_is_method_call) {
+                        env_set(call_env, "self", current_method_self, ctx);
+                        VALUE_RELEASE(current_method_self);  // Release original reference (env_set retained it)
+                    }
+
+                    // Bind parameters
+                    for (int i = 0; i < fn->num_params; i++) {
+                        Value arg_value = {0};
+
+                        // Use provided argument or evaluate default
+                        if (i < current_num_args) {
+                            // Argument was provided
+                            arg_value = current_args[i];
+                        } else {
+                            // Argument missing - use default value
+                            if (fn->param_defaults && fn->param_defaults[i]) {
+                                // Evaluate default expression in the closure environment
+                                arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
+                            } else {
+                                // Should never happen if arity check is correct
+                                runtime_error(ctx, "Missing required parameter '%s'", fn->param_names[i]);
+                            }
+                        }
+
+                        // Type check if parameter has type annotation
+                        if (fn->param_types[i]) {
+                            arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
+                        }
+
+                        // Use borrowed variant - param names come from AST and outlive the call
+                        env_define_borrowed(call_env, fn->param_names[i], arg_value, 0, ctx);
+                    }
+
+                    // Save defer stack depth before executing function body
+                    int defer_depth_before = ctx->defer_stack.count;
+
+                    // Execute body
+                    ctx->return_state.is_returning = 0;
+                    ctx->tail_call_state.is_tail_call = 0;  // Reset tail call state before body execution
+                    eval_stmt(fn->body, call_env, ctx);
+
+                    // Check if a tail call was requested during body execution
+                    if (ctx->tail_call_state.is_tail_call && !ctx->exception_state.is_throwing) {
+                        // Execute deferred calls before continuing with tail call
+                        if (ctx->defer_stack.count > defer_depth_before) {
+                            DeferStack local_defers;
+                            local_defers.count = ctx->defer_stack.count - defer_depth_before;
+                            local_defers.capacity = local_defers.count;
+                            local_defers.calls = &ctx->defer_stack.calls[defer_depth_before];
+                            local_defers.envs = &ctx->defer_stack.envs[defer_depth_before];
+                            defer_stack_execute(&local_defers, ctx);
+                            ctx->defer_stack.count = defer_depth_before;
+                        }
+
+                        // Pop call from stack trace (we're continuing with a tail call)
+                        call_stack_pop(&ctx->call_stack);
+
+                        // Release current call environment
+                        env_release(call_env);
+
+                        // Free previous args array if it was heap-allocated
+                        if (current_args_on_heap && current_args) {
+                            free(current_args);
+                        }
+
+                        // Release previous function value
+                        VALUE_RELEASE(func);
+
+                        // Set up for next iteration with tail call data
+                        func = ctx->tail_call_state.func;
+                        fn = func.as.as_function;
+                        current_args = ctx->tail_call_state.args;
+                        current_num_args = ctx->tail_call_state.num_args;
+                        current_args_on_heap = ctx->tail_call_state.args_on_heap;
+                        current_is_method_call = ctx->tail_call_state.is_method_call;
+                        current_method_self = ctx->tail_call_state.method_self;
+
+                        // Reset tail call state
+                        ctx->tail_call_state.is_tail_call = 0;
+                        ctx->tail_call_state.args = NULL;
+
+                        // Continue the trampoline loop
+                        continue;
+                    }
+
+                    // No tail call - normal return path
+                    // Execute deferred calls (in LIFO order) before returning
+                    // This happens even if there was an exception
+                    if (ctx->defer_stack.count > defer_depth_before) {
+                        // Create a temporary defer stack with just this function's defers
+                        DeferStack local_defers;
+                        local_defers.count = ctx->defer_stack.count - defer_depth_before;
+                        local_defers.capacity = local_defers.count;
+                        local_defers.calls = &ctx->defer_stack.calls[defer_depth_before];
+                        local_defers.envs = &ctx->defer_stack.envs[defer_depth_before];
+
+                        // Execute the defers
+                        defer_stack_execute(&local_defers, ctx);
+
+                        // Restore defer stack to pre-function depth
+                        ctx->defer_stack.count = defer_depth_before;
+                    }
+
+                    // Get result
+                    result = ctx->return_state.return_value;
+
+                    // Check return type if specified
+                    if (fn->return_type) {
+                        // null return type allows functions to not return a value explicitly
+                        if (!ctx->return_state.is_returning && fn->return_type->kind != TYPE_NULL) {
+                            runtime_error(ctx, "Function with return type must return a value");
+                        }
+                        result = convert_to_type(result, fn->return_type, call_env, ctx);
+                    }
+
+                    // Reset return state
+                    ctx->return_state.is_returning = 0;
+
+                    // Retain result for the caller (so it survives call_env cleanup)
+                    // The caller now owns this reference
+                    VALUE_RETAIN(result);
+
+                    // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
+                    if (!ctx->exception_state.is_throwing) {
+                        call_stack_pop(&ctx->call_stack);
+                    }
+
+                    // Release call environment (reference counted - will be freed when no longer used)
+                    env_release(call_env);
+
+                    // Free args array if it was heap-allocated
+                    if (current_args_on_heap && current_args) {
+                        free(current_args);
+                    }
+
+                    // Exit the trampoline loop
+                    break;
                 }
 
-                // Reset return state
-                ctx->return_state.is_returning = 0;
-
-                // Retain result for the caller (so it survives call_env cleanup)
-                // The caller now owns this reference
-                VALUE_RETAIN(result);
-
-                // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
-                if (!ctx->exception_state.is_throwing) {
-                    call_stack_pop(&ctx->call_stack);
-                }
-
-                // Release call environment (reference counted - will be freed when no longer used)
-                env_release(call_env);
                 // User-defined functions retained args via env_set, so don't release them again
                 should_release_args = 0;
             } else if (func.type == VAL_FFI_FUNCTION) {

@@ -32,6 +32,14 @@ ExecutionContext* exec_context_new(void) {
     ctx->loop_state.is_continuing = 0;
     ctx->exception_state.is_throwing = 0;
     ctx->exception_state.exception_value = val_null();
+    // Initialize tail call state
+    ctx->tail_call_state.is_tail_call = 0;
+    ctx->tail_call_state.func = val_null();
+    ctx->tail_call_state.args = NULL;
+    ctx->tail_call_state.num_args = 0;
+    ctx->tail_call_state.args_on_heap = 0;
+    ctx->tail_call_state.method_self = val_null();
+    ctx->tail_call_state.is_method_call = 0;
     call_stack_init(&ctx->call_stack);
     defer_stack_init(&ctx->defer_stack);
     return ctx;
