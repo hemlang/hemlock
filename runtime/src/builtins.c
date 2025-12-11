@@ -7609,6 +7609,14 @@ HmlValue hml_cstr_to_string(HmlValue ptr_val) {
     return hml_val_string(cstr);
 }
 
+// Forward declaration for hml_string_from_bytes wrapper
+HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg);
+
+// Convert an array of bytes or buffer to a UTF-8 string (wrapper for direct calls)
+HmlValue hml_string_from_bytes(HmlValue arg) {
+    return hml_builtin_string_from_bytes(NULL, arg);
+}
+
 // Wrapper functions for internal helpers
 HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;

@@ -1912,6 +1912,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // __string_from_bytes(bytes) - convert byte array/buffer to UTF-8 string
+                if ((strcmp(fn_name, "__string_from_bytes") == 0 || strcmp(fn_name, "string_from_bytes") == 0) &&
+                    expr->as.call.num_args == 1) {
+                    char *bytes = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_string_from_bytes(%s);", result, bytes);
+                    codegen_writeln(ctx, "hml_release(&%s);", bytes);
+                    free(bytes);
+                    break;
+                }
+
                 // string_concat_many(array)
                 if (strcmp(fn_name, "string_concat_many") == 0 && expr->as.call.num_args == 1) {
                     char *arr = codegen_expr(ctx, expr->as.call.args[0]);

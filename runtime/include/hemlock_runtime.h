@@ -485,6 +485,7 @@ HmlValue hml_strerror(void);
 HmlValue hml_dirent_name(HmlValue ptr);
 HmlValue hml_string_to_cstr(HmlValue str);
 HmlValue hml_cstr_to_string(HmlValue ptr);
+HmlValue hml_string_from_bytes(HmlValue arg);
 
 // Internal helper builtin wrappers
 HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr);
