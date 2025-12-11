@@ -356,6 +356,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_to_cstr, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__cstr_to_string") == 0 || strcmp(expr->as.ident, "cstr_to_string") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cstr_to_string, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__string_from_bytes") == 0 || strcmp(expr->as.ident, "string_from_bytes") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_from_bytes, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__to_string") == 0 || strcmp(expr->as.ident, "to_string") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_to_string, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__string_byte_length") == 0 || strcmp(expr->as.ident, "string_byte_length") == 0) {

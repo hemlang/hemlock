@@ -95,6 +95,7 @@ static BuiltinInfo builtins[] = {
     {"__dirent_name", builtin_dirent_name},
     {"__string_to_cstr", builtin_string_to_cstr},
     {"__cstr_to_string", builtin_cstr_to_string},
+    {"__string_from_bytes", builtin_string_from_bytes},
     // Internal file operations (use stdlib/fs.hml module for public API)
     {"__exists", builtin_exists},
     {"__read_file", builtin_read_file},

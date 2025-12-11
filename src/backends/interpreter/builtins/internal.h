@@ -153,6 +153,7 @@ Value builtin_strerror_fn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_cstr_to_string(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_string_from_bytes(Value *args, int num_args, ExecutionContext *ctx);
 
 // Networking builtins (net.c)
 Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx);

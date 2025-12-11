@@ -493,6 +493,7 @@ HmlValue hml_builtin_strerror(HmlClosureEnv *env);
 HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
 HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg);
 
 // ========== DNS/NETWORKING OPERATIONS ==========
 

@@ -7640,6 +7640,84 @@ HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr) {
     return hml_cstr_to_string(ptr);
 }
 
+// Convert an array of bytes or buffer to a UTF-8 string
+HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg) {
+    (void)env;
+
+    char *data = NULL;
+    int length = 0;
+
+    if (arg.type == HML_VAL_BUFFER) {
+        // Handle buffer input
+        HmlBuffer *buf = arg.as.as_buffer;
+        if (!buf || !buf->data) {
+            return hml_val_string("");
+        }
+        length = buf->length;
+        data = malloc(length + 1);
+        if (!data) {
+            hml_runtime_error("__string_from_bytes() memory allocation failed");
+        }
+        memcpy(data, buf->data, length);
+        data[length] = '\0';
+    } else if (arg.type == HML_VAL_ARRAY) {
+        // Handle array input - each element should be an integer byte value
+        HmlArray *arr = arg.as.as_array;
+        if (!arr || arr->length == 0) {
+            return hml_val_string("");
+        }
+        length = arr->length;
+        data = malloc(length + 1);
+        if (!data) {
+            hml_runtime_error("__string_from_bytes() memory allocation failed");
+        }
+
+        for (int i = 0; i < arr->length; i++) {
+            HmlValue elem = arr->elements[i];
+            int byte_val = 0;
+
+            // Accept any integer type
+            switch (elem.type) {
+                case HML_VAL_I8:
+                    byte_val = (unsigned char)elem.as.as_i8;
+                    break;
+                case HML_VAL_I16:
+                    byte_val = elem.as.as_i16 & 0xFF;
+                    break;
+                case HML_VAL_I32:
+                    byte_val = elem.as.as_i32 & 0xFF;
+                    break;
+                case HML_VAL_I64:
+                    byte_val = (int)(elem.as.as_i64 & 0xFF);
+                    break;
+                case HML_VAL_U8:
+                    byte_val = elem.as.as_u8;
+                    break;
+                case HML_VAL_U16:
+                    byte_val = elem.as.as_u16 & 0xFF;
+                    break;
+                case HML_VAL_U32:
+                    byte_val = elem.as.as_u32 & 0xFF;
+                    break;
+                case HML_VAL_U64:
+                    byte_val = (int)(elem.as.as_u64 & 0xFF);
+                    break;
+                default:
+                    free(data);
+                    hml_runtime_error("__string_from_bytes() array element at index %d is not an integer", i);
+            }
+
+            data[i] = (char)byte_val;
+        }
+        data[length] = '\0';
+    } else {
+        hml_runtime_error("__string_from_bytes() requires array or buffer argument");
+    }
+
+    // Create string from the data - use hml_val_string_owned which takes ownership of data
+    return hml_val_string_owned(data, length, length + 1);
+}
+
 // ========== DNS/NETWORKING OPERATIONS ==========
 
 #include <netdb.h>

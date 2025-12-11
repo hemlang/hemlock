@@ -152,16 +152,8 @@ fn base64_decode(input) {
         i = i + 4;
     }
 
-    // Convert bytes back to string
-    let result = "";
-    i = 0;
-    while (i < bytes.length) {
-        let byte_val: rune = bytes[i];
-        result = result + byte_val;
-        i = i + 1;
-    }
-
-    return result;
+    // Convert bytes back to string using proper UTF-8 reconstruction
+    return __string_from_bytes(bytes);
 }
 
 // ============================================================================
@@ -228,16 +220,8 @@ fn hex_decode(input) {
         i = i + 2;
     }
 
-    // Convert bytes back to string
-    let result = "";
-    i = 0;
-    while (i < bytes.length) {
-        let byte_val: rune = bytes[i];
-        result = result + byte_val;
-        i = i + 1;
-    }
-
-    return result;
+    // Convert bytes back to string using proper UTF-8 reconstruction
+    return __string_from_bytes(bytes);
 }
 
 // Helper: Convert hex character to value (0-15)
@@ -365,16 +349,8 @@ fn url_decode(input) {
         }
     }
 
-    // Convert bytes back to string
-    let result = "";
-    i = 0;
-    while (i < bytes.length) {
-        let byte_val: rune = bytes[i];
-        result = result + byte_val;
-        i = i + 1;
-    }
-
-    return result;
+    // Convert bytes back to string using proper UTF-8 reconstruction
+    return __string_from_bytes(bytes);
 }
 
 // ============================================================================
