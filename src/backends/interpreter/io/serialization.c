@@ -754,6 +754,24 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         return val_array(keys_array);
     }
 
+    // has(key) - check if object has a field
+    if (strcmp(method, "has") == 0) {
+        if (num_args != 1) {
+            return throw_runtime_error(ctx, "has() expects 1 argument (key)");
+        }
+        if (args[0].type != VAL_STRING) {
+            return throw_runtime_error(ctx, "has() key must be a string");
+        }
+
+        const char *key = args[0].as.as_string->data;
+        for (int i = 0; i < obj->num_fields; i++) {
+            if (strcmp(obj->field_names[i], key) == 0) {
+                return val_bool(1);
+            }
+        }
+        return val_bool(0);
+    }
+
     // serialize() - convert object to JSON string
     if (strcmp(method, "serialize") == 0) {
         if (num_args != 0) {

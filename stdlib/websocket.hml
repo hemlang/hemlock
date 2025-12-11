@@ -49,8 +49,7 @@ export fn WebSocket(url: string) {
             if (self.closed) {
                 throw "Cannot send on closed WebSocket";
             }
-            // Note: send_binary not yet implemented in builtins - use send_text
-            let result = __lws_ws_send_text(self.handle, data);
+            let result = __lws_ws_send_binary(self.handle, data);
             return result == 0;
         },
 
@@ -236,7 +235,7 @@ export fn is_secure_url(url: string): bool {
     return url.starts_with("wss://");
 }
 
-export fn parse_ws_url(url: string): object {
+export fn parse_ws_url(url: string) {
     // Simple URL parser for WebSocket URLs
     let secure = url.starts_with("wss://");
     let prefix = secure ? "wss://" : "ws://";

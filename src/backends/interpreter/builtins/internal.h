@@ -153,6 +153,7 @@ Value builtin_strerror_fn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_cstr_to_string(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_string_from_bytes(Value *args, int num_args, ExecutionContext *ctx);
 
 // Networking builtins (net.c)
 Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx);
@@ -167,6 +168,7 @@ Value call_socket_method(SocketHandle *sock, const char *method, Value *args, in
 // HTTP builtins
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionContext *ctx);
@@ -176,6 +178,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
 // WebSocket builtins
 Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx);
@@ -208,6 +211,12 @@ Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx);
+
+// ECDSA signature builtins (crypto.c)
+Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ecdsa_free_key(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ecdsa_sign(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx);
 
 // OS information builtins (os.c)
 Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx);

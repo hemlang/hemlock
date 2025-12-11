@@ -11,7 +11,8 @@ assert(typeof(h1) == "u32", "djb2 should return u32");
 // Test empty string
 let h2 = djb2("");
 assert(typeof(h2) == "u32", "djb2 should handle empty string");
-assert(h2 == 5381, "djb2 of empty string should be 5381 (initial value)");
+let expected_djb2: u32 = 5381;
+assert(h2 == expected_djb2, "djb2 of empty string should be 5381 (initial value)");
 
 // Test deterministic (same input = same output)
 let h3a = djb2("test");
@@ -40,7 +41,8 @@ assert(typeof(f1) == "u32", "fnv1a should return u32");
 // Test empty string
 let f2 = fnv1a("");
 assert(typeof(f2) == "u32", "fnv1a should handle empty string");
-assert(f2 == 2166136261, "fnv1a of empty string should be FNV offset basis");
+let FNV_OFFSET_BASIS: u32 = 2166136261;
+assert(f2 == FNV_OFFSET_BASIS, "fnv1a of empty string should be FNV offset basis");
 
 // Test deterministic
 let f3a = fnv1a("test");

@@ -183,8 +183,8 @@ export fn file_checksum(path: string, hash_fn): string {
     // Compute hash
     let hash_result = hash_fn(content);
 
-    // Convert to string - typeof() returns a string representation of any value
-    return "" + typeof(hash_result);
+    // Convert to string
+    return "" + hash_result;
 }
 
 // Convenience functions for specific file checksums

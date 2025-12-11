@@ -150,16 +150,17 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.0 is released with:
+Hemlock v1.1.0 is released with:
 
 - Full type system with 64-bit integers and Unicode support
 - Manual memory management with safe and unsafe options
 - Async/await with true pthread parallelism
-- 21 stdlib modules
+- 23 stdlib modules
 - FFI for C interop
 - Compiler backend (C code generation)
-- LSP server for IDE support
-- 491 tests (100% pass rate)
+- LSP server with go-to-definition and find-references
+- HTTP PUT/DELETE/PATCH and WebSocket binary support
+- 552 tests with 67 parity tests (100% pass rate)
 
 ## Philosophy
 

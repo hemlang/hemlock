@@ -485,6 +485,7 @@ HmlValue hml_strerror(void);
 HmlValue hml_dirent_name(HmlValue ptr);
 HmlValue hml_string_to_cstr(HmlValue str);
 HmlValue hml_cstr_to_string(HmlValue ptr);
+HmlValue hml_string_from_bytes(HmlValue arg);
 
 // Internal helper builtin wrappers
 HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr);
@@ -493,6 +494,7 @@ HmlValue hml_builtin_strerror(HmlClosureEnv *env);
 HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
 HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg);
 
 // ========== DNS/NETWORKING OPERATIONS ==========
 
@@ -729,6 +731,20 @@ HmlValue hml_hash_md5(HmlValue input);
 HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input);
 HmlValue hml_builtin_hash_sha512(HmlClosureEnv *env, HmlValue input);
 HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input);
+
+// ========== ECDSA SIGNATURE FUNCTIONS ==========
+
+// ECDSA functions
+HmlValue hml_ecdsa_generate_key(HmlValue curve);
+HmlValue hml_ecdsa_free_key(HmlValue keypair);
+HmlValue hml_ecdsa_sign(HmlValue data, HmlValue keypair);
+HmlValue hml_ecdsa_verify(HmlValue data, HmlValue sig, HmlValue keypair);
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve);
+HmlValue hml_builtin_ecdsa_free_key(HmlClosureEnv *env, HmlValue keypair);
+HmlValue hml_builtin_ecdsa_sign(HmlClosureEnv *env, HmlValue data, HmlValue keypair);
+HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue sig, HmlValue keypair);
 
 // ========== CALL STACK TRACKING ==========
 

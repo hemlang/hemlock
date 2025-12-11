@@ -337,6 +337,95 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     return resp;
 }
 
+// Generic HTTP request with method parameter (for PUT, DELETE, PATCH, etc.)
+http_response_t* lws_http_request(const char *method, const char *url, const char *body, const char *content_type) {
+    struct lws_context_creation_info info;
+    struct lws_client_connect_info connect_info;
+    struct lws_context *context;
+    http_response_t *resp;
+    struct lws *wsi;
+    char host[256];
+    char path[512];
+    int port, ssl;
+
+    // Parse URL
+    if (parse_url(url, host, &port, path, &ssl) < 0) {
+        return NULL;
+    }
+
+    // Allocate response structure
+    resp = calloc(1, sizeof(http_response_t));
+    if (!resp) return NULL;
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        free(resp);
+        return NULL;
+    }
+    resp->body[0] = '\0';
+
+    // Create context
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+
+    static const struct lws_protocols protocols[] = {
+        { "http", http_callback, 0, 4096, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = protocols;
+
+    context = lws_create_context(&info);
+    if (!context) {
+        free(resp->body);
+        free(resp);
+        return NULL;
+    }
+
+    // Connect
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = method;  // Use the provided method
+    connect_info.protocol = protocols[0].name;
+    connect_info.userdata = resp;
+    connect_info.pwsi = &wsi;
+
+    if (ssl) {
+        connect_info.ssl_connection = LCCSCF_USE_SSL |
+                                       LCCSCF_ALLOW_SELFSIGNED |
+                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        free(resp->body);
+        free(resp);
+        return NULL;
+    }
+
+    // Event loop (timeout after 30 seconds)
+    int timeout = 3000;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        free(resp->body);
+        free(resp);
+        return NULL;
+    }
+
+    return resp;
+}
+
 // Free HTTP response
 void lws_http_response_free(http_response_t *resp) {
     if (resp) {

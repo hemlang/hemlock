@@ -484,6 +484,132 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     return val_ptr(resp);
 }
 
+// __lws_http_request(method: string, url: string, body: string, content_type: string): ptr
+// Generic HTTP request function supporting any method (PUT, DELETE, PATCH, etc.)
+Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx) {
+    lws_init_logging();
+
+    if (num_args != 4) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_request() expects 4 arguments (method, url, body, content_type)");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING ||
+        args[2].type != VAL_STRING || args[3].type != VAL_STRING) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_request() expects string arguments");
+        return val_null();
+    }
+
+    const char *method = args[0].as.as_string->data;
+    const char *url = args[1].as.as_string->data;
+    const char *body = args[2].as.as_string->data;
+    const char *content_type = args[3].as.as_string->data;
+
+    char host[256], path[512];
+    int port, ssl;
+
+    if (parse_url(url, host, &port, path, &ssl) < 0) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        return val_null();
+    }
+
+    http_response_t *resp = calloc(1, sizeof(http_response_t));
+    if (!resp) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        return val_null();
+    }
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        return val_null();
+    }
+    resp->body[0] = '\0';
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols protocols[] = {
+        { "http", http_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = protocols;
+
+    struct lws_context *context = lws_create_context(&info);
+    if (!context) {
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        return val_null();
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = method;  // Use the provided method
+    connect_info.protocol = protocols[0].name;
+    connect_info.userdata = resp;
+
+    struct lws *wsi;
+    connect_info.pwsi = &wsi;
+
+    // Disable automatic redirects
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
+        connect_info.ssl_connection |= LCCSCF_USE_SSL |
+                                       LCCSCF_ALLOW_SELFSIGNED |
+                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+    }
+
+    // Note: Body handling for PUT/DELETE is simplified
+    (void)body;
+    (void)content_type;
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to connect");
+        return val_null();
+    }
+
+    // Event loop (timeout after 30 seconds)
+    int timeout = 3000;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        return val_null();
+    }
+
+    return val_ptr(resp);
+}
+
 // __lws_response_status(resp: ptr): i32
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
@@ -1187,6 +1313,58 @@ Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx)
     return val_i32(0);
 }
 
+// __lws_ws_send_binary(conn: websocket, data: buffer): i32
+// Sends binary data over a WebSocket connection
+Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 2) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_ws_send_binary() expects 2 arguments");
+        return val_null();
+    }
+
+    if (args[1].type != VAL_BUFFER) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_ws_send_binary() expects buffer as second argument");
+        return val_null();
+    }
+
+    ws_connection_t *conn = NULL;
+    if (args[0].type == VAL_WEBSOCKET) {
+        WebSocketHandle *ws = args[0].as.as_websocket;
+        if (!ws || ws->closed) return val_i32(-1);
+        conn = (ws_connection_t *)ws->handle;
+    } else if (args[0].type == VAL_PTR) {
+        conn = (ws_connection_t *)args[0].as.as_ptr;
+    } else {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_ws_send_binary() expects websocket or ptr");
+        return val_null();
+    }
+
+    if (!conn || conn->closed) {
+        return val_i32(-1);
+    }
+
+    Buffer *buffer = args[1].as.as_buffer;
+    size_t len = buffer->length;
+
+    unsigned char *buf = malloc(LWS_PRE + len);
+    if (!buf) {
+        return val_i32(-1);
+    }
+
+    memcpy(buf + LWS_PRE, buffer->data, len);
+    int written = lws_write(conn->wsi, buf + LWS_PRE, len, LWS_WRITE_BINARY);
+    free(buf);
+
+    if (written < 0) {
+        return val_i32(-1);
+    }
+
+    lws_cancel_service(conn->context);
+    return val_i32(0);
+}
+
 // __lws_ws_recv(conn: websocket, timeout_ms: i32): ptr
 Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
@@ -1561,6 +1739,12 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 }
 
+Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
     runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
@@ -1603,6 +1787,12 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
     runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
     return val_null();

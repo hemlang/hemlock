@@ -254,14 +254,19 @@ export fn get_home() { return getenv("HOME"); }
 EOF
 cat > "$TMPDIR/dedup_test/module_b.hml" << 'EOF'
 import { getenv } from "@stdlib/env";
-export fn get_user() { return getenv("USER"); }
+export fn get_path() { return getenv("PATH"); }
 EOF
 cat > "$TMPDIR/dedup_test/main.hml" << 'EOF'
 import { get_home } from "./module_a";
-import { get_user } from "./module_b";
-print("Home: " + get_home());
-print("User: " + get_user());
-print("Dedup test passed!");
+import { get_path } from "./module_b";
+let home = get_home();
+let path = get_path();
+// Verify both modules can access the shared @stdlib/env import
+if (home != null && path != null) {
+    print("Dedup test passed!");
+} else {
+    print("Failed: home=" + home + " path=" + path);
+}
 EOF
 
 if $HEMLOCK --bundle "$TMPDIR/dedup_test/main.hml" -o "$TMPDIR/dedup.hmlc" 2>/dev/null; then

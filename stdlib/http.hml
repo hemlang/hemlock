@@ -19,23 +19,25 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 
     let resp_ptr = null;
 
+    // Determine content type from headers or use default
+    let content_type = "application/x-www-form-urlencoded";
+    if (headers != null && headers.length > 0) {
+        let i = 0;
+        while (i < headers.length) {
+            if (headers[i].starts_with("Content-Type:")) {
+                content_type = headers[i].substr(14, headers[i].length - 14).trim();
+            }
+            i = i + 1;
+        }
+    }
+
     if (method == "GET") {
         resp_ptr = __lws_http_get(url);
     } else if (method == "POST") {
-        let content_type = "application/x-www-form-urlencoded";
-
-        // Check if headers contain Content-Type
-        if (headers != null && headers.length > 0) {
-            let i = 0;
-            while (i < headers.length) {
-                if (headers[i].starts_with("Content-Type:")) {
-                    content_type = headers[i].substr(14, headers[i].length - 14).trim();
-                }
-                i = i + 1;
-            }
-        }
-
         resp_ptr = __lws_http_post(url, body, content_type);
+    } else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" || method == "OPTIONS") {
+        // Use generic request function for other HTTP methods
+        resp_ptr = __lws_http_request(method, url, body, content_type);
     } else {
         throw "HTTP method not supported: " + method;
     }
@@ -178,16 +180,14 @@ export fn put(url, body, headers) {
     if (headers == null) {
         headers = [];
     }
-    // PUT not implemented in C wrapper yet - use POST
-    return http_request("POST", url, body, headers);
+    return http_request("PUT", url, body, headers);
 }
 
 export fn delete(url, headers) {
     if (headers == null) {
         headers = [];
     }
-    // DELETE not implemented in C wrapper yet - use GET
-    return http_request("GET", url, "", headers);
+    return http_request("DELETE", url, "", headers);
 }
 
 export fn request(method, url, body, headers) {
@@ -460,7 +460,6 @@ export fn HttpServer(host: string, port: i32) {
 // - Compiled lws_wrapper.so (run: make stdlib)
 //
 // Current limitations:
-// - PUT and DELETE use POST/GET (C wrapper needs implementation)
 // - Custom headers partially supported (Content-Type works)
 // - Response headers not yet parsed (returns empty string)
 // - download() only checks status, doesn't write to file (needs file I/O)

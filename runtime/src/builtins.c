@@ -34,9 +34,12 @@
 #include <zlib.h>
 #endif
 
-// OpenSSL for cryptographic hash functions
+// OpenSSL for cryptographic functions
 #include <openssl/sha.h>
 #include <openssl/md5.h>
+#include <openssl/evp.h>
+#include <openssl/ec.h>
+#include <openssl/err.h>
 
 #ifdef __linux__
 #include <sys/sysinfo.h>
@@ -7548,6 +7551,212 @@ HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) {
     return hml_hash_md5(input);
 }
 
+// ========== ECDSA OPERATIONS ==========
+
+// Helper: Create an object with keypair fields
+static HmlValue create_keypair_object(void *pkey) {
+    HmlObject *obj = malloc(sizeof(HmlObject));
+    obj->type_name = NULL;
+    obj->capacity = 2;
+    obj->field_names = malloc(sizeof(char*) * 2);
+    obj->field_values = malloc(sizeof(HmlValue) * 2);
+    obj->num_fields = 0;
+    obj->ref_count = 1;
+    atomic_store(&obj->freed, 0);
+
+    obj->field_names[0] = strdup("private_key");
+    obj->field_values[0] = hml_val_ptr(pkey);
+    obj->num_fields++;
+    obj->field_names[1] = strdup("public_key");
+    obj->field_values[1] = hml_val_ptr(pkey);
+    obj->num_fields++;
+
+    HmlValue result;
+    result.type = HML_VAL_OBJECT;
+    result.as.as_object = obj;
+    return result;
+}
+
+// Helper: Get field value from object
+static HmlValue object_get_field_rt(HmlObject *obj, const char *name) {
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (obj->field_names[i] && strcmp(obj->field_names[i], name) == 0) {
+            return obj->field_values[i];
+        }
+    }
+    return hml_val_null();
+}
+
+// Generate ECDSA key pair
+HmlValue hml_ecdsa_generate_key(HmlValue curve_arg) {
+    const char *curve_name = "prime256v1";  // Default P-256
+
+    if (curve_arg.type == HML_VAL_STRING) {
+        HmlString *s = curve_arg.as.as_string;
+        curve_name = s->data;
+    }
+
+    // Use EVP_EC_gen (OpenSSL 3.0+ non-variadic API)
+    EVP_PKEY *pkey = EVP_EC_gen(curve_name);
+
+    if (!pkey) {
+        ERR_clear_error();
+        hml_runtime_error("__ecdsa_generate_key() failed for curve: %s", curve_name);
+    }
+
+    return create_keypair_object(pkey);
+}
+
+// Free ECDSA key pair
+HmlValue hml_ecdsa_free_key(HmlValue keypair) {
+    if (keypair.type != HML_VAL_OBJECT) {
+        hml_runtime_error("__ecdsa_free_key() requires object argument");
+    }
+
+    HmlObject *obj = keypair.as.as_object;
+    HmlValue pk_val = object_get_field_rt(obj, "private_key");
+
+    if (pk_val.type == HML_VAL_PTR && pk_val.as.as_ptr != NULL) {
+        EVP_PKEY_free((EVP_PKEY *)pk_val.as.as_ptr);
+    }
+
+    return hml_val_null();
+}
+
+// Sign data with ECDSA
+HmlValue hml_ecdsa_sign(HmlValue data_val, HmlValue keypair) {
+    if (data_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__ecdsa_sign() first argument must be string");
+    }
+    if (keypair.type != HML_VAL_OBJECT) {
+        hml_runtime_error("__ecdsa_sign() second argument must be keypair object");
+    }
+
+    HmlString *data = data_val.as.as_string;
+    HmlObject *obj = keypair.as.as_object;
+    HmlValue pk_val = object_get_field_rt(obj, "private_key");
+
+    if (pk_val.type != HML_VAL_PTR || pk_val.as.as_ptr == NULL) {
+        hml_runtime_error("__ecdsa_sign() keypair must have valid private_key");
+    }
+
+    EVP_PKEY *pkey = (EVP_PKEY *)pk_val.as.as_ptr;
+
+    // Create signing context
+    EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
+    if (!md_ctx) {
+        hml_runtime_error("__ecdsa_sign() failed to create MD context");
+    }
+
+    // Initialize signing with SHA-256
+    if (EVP_DigestSignInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) != 1) {
+        EVP_MD_CTX_free(md_ctx);
+        ERR_clear_error();
+        hml_runtime_error("__ecdsa_sign() DigestSignInit failed");
+    }
+
+    // Determine signature length
+    size_t sig_len = 0;
+    if (EVP_DigestSign(md_ctx, NULL, &sig_len, (const unsigned char *)data->data, data->length) != 1) {
+        EVP_MD_CTX_free(md_ctx);
+        ERR_clear_error();
+        hml_runtime_error("__ecdsa_sign() failed to get signature length");
+    }
+
+    // Allocate signature buffer
+    unsigned char *sig = malloc(sig_len);
+    if (!sig) {
+        EVP_MD_CTX_free(md_ctx);
+        hml_runtime_error("__ecdsa_sign() memory allocation failed");
+    }
+
+    // Sign the data
+    if (EVP_DigestSign(md_ctx, sig, &sig_len, (const unsigned char *)data->data, data->length) != 1) {
+        free(sig);
+        EVP_MD_CTX_free(md_ctx);
+        ERR_clear_error();
+        hml_runtime_error("__ecdsa_sign() signing failed");
+    }
+
+    EVP_MD_CTX_free(md_ctx);
+
+    // Create buffer with signature
+    HmlValue buf_val = hml_val_buffer((int)sig_len);
+    HmlBuffer *buf = buf_val.as.as_buffer;
+    memcpy(buf->data, sig, sig_len);
+    free(sig);
+
+    return buf_val;
+}
+
+// Verify ECDSA signature
+HmlValue hml_ecdsa_verify(HmlValue data_val, HmlValue sig_val, HmlValue keypair) {
+    if (data_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__ecdsa_verify() first argument must be string");
+    }
+    if (sig_val.type != HML_VAL_BUFFER) {
+        hml_runtime_error("__ecdsa_verify() second argument must be buffer");
+    }
+    if (keypair.type != HML_VAL_OBJECT) {
+        hml_runtime_error("__ecdsa_verify() third argument must be keypair object");
+    }
+
+    HmlString *data = data_val.as.as_string;
+    HmlBuffer *sig_buf = sig_val.as.as_buffer;
+    HmlObject *obj = keypair.as.as_object;
+    HmlValue pk_val = object_get_field_rt(obj, "public_key");
+
+    if (pk_val.type != HML_VAL_PTR || pk_val.as.as_ptr == NULL) {
+        hml_runtime_error("__ecdsa_verify() keypair must have valid public_key");
+    }
+
+    EVP_PKEY *pkey = (EVP_PKEY *)pk_val.as.as_ptr;
+
+    // Create verification context
+    EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
+    if (!md_ctx) {
+        hml_runtime_error("__ecdsa_verify() failed to create MD context");
+    }
+
+    // Initialize verification with SHA-256
+    if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) != 1) {
+        EVP_MD_CTX_free(md_ctx);
+        ERR_clear_error();
+        hml_runtime_error("__ecdsa_verify() DigestVerifyInit failed");
+    }
+
+    // Verify the signature
+    int result = EVP_DigestVerify(md_ctx, sig_buf->data, sig_buf->length,
+                                   (const unsigned char *)data->data, data->length);
+
+    EVP_MD_CTX_free(md_ctx);
+    ERR_clear_error();
+
+    // result == 1 means valid, 0 means invalid, < 0 means error
+    return hml_val_bool(result == 1);
+}
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve) {
+    (void)env;
+    return hml_ecdsa_generate_key(curve);
+}
+
+HmlValue hml_builtin_ecdsa_free_key(HmlClosureEnv *env, HmlValue keypair) {
+    (void)env;
+    return hml_ecdsa_free_key(keypair);
+}
+
+HmlValue hml_builtin_ecdsa_sign(HmlClosureEnv *env, HmlValue data, HmlValue keypair) {
+    (void)env;
+    return hml_ecdsa_sign(data, keypair);
+}
+
+HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue sig, HmlValue keypair) {
+    (void)env;
+    return hml_ecdsa_verify(data, sig, keypair);
+}
+
 // ========== INTERNAL HELPER OPERATIONS ==========
 
 // Read a u32 value from a pointer
@@ -7609,6 +7818,14 @@ HmlValue hml_cstr_to_string(HmlValue ptr_val) {
     return hml_val_string(cstr);
 }
 
+// Forward declaration for hml_string_from_bytes wrapper
+HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg);
+
+// Convert an array of bytes or buffer to a UTF-8 string (wrapper for direct calls)
+HmlValue hml_string_from_bytes(HmlValue arg) {
+    return hml_builtin_string_from_bytes(NULL, arg);
+}
+
 // Wrapper functions for internal helpers
 HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
@@ -7638,6 +7855,84 @@ HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str) {
 HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
     return hml_cstr_to_string(ptr);
+}
+
+// Convert an array of bytes or buffer to a UTF-8 string
+HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg) {
+    (void)env;
+
+    char *data = NULL;
+    int length = 0;
+
+    if (arg.type == HML_VAL_BUFFER) {
+        // Handle buffer input
+        HmlBuffer *buf = arg.as.as_buffer;
+        if (!buf || !buf->data) {
+            return hml_val_string("");
+        }
+        length = buf->length;
+        data = malloc(length + 1);
+        if (!data) {
+            hml_runtime_error("__string_from_bytes() memory allocation failed");
+        }
+        memcpy(data, buf->data, length);
+        data[length] = '\0';
+    } else if (arg.type == HML_VAL_ARRAY) {
+        // Handle array input - each element should be an integer byte value
+        HmlArray *arr = arg.as.as_array;
+        if (!arr || arr->length == 0) {
+            return hml_val_string("");
+        }
+        length = arr->length;
+        data = malloc(length + 1);
+        if (!data) {
+            hml_runtime_error("__string_from_bytes() memory allocation failed");
+        }
+
+        for (int i = 0; i < arr->length; i++) {
+            HmlValue elem = arr->elements[i];
+            int byte_val = 0;
+
+            // Accept any integer type
+            switch (elem.type) {
+                case HML_VAL_I8:
+                    byte_val = (unsigned char)elem.as.as_i8;
+                    break;
+                case HML_VAL_I16:
+                    byte_val = elem.as.as_i16 & 0xFF;
+                    break;
+                case HML_VAL_I32:
+                    byte_val = elem.as.as_i32 & 0xFF;
+                    break;
+                case HML_VAL_I64:
+                    byte_val = (int)(elem.as.as_i64 & 0xFF);
+                    break;
+                case HML_VAL_U8:
+                    byte_val = elem.as.as_u8;
+                    break;
+                case HML_VAL_U16:
+                    byte_val = elem.as.as_u16 & 0xFF;
+                    break;
+                case HML_VAL_U32:
+                    byte_val = elem.as.as_u32 & 0xFF;
+                    break;
+                case HML_VAL_U64:
+                    byte_val = (int)(elem.as.as_u64 & 0xFF);
+                    break;
+                default:
+                    free(data);
+                    hml_runtime_error("__string_from_bytes() array element at index %d is not an integer", i);
+            }
+
+            data[i] = (char)byte_val;
+        }
+        data[length] = '\0';
+    } else {
+        hml_runtime_error("__string_from_bytes() requires array or buffer argument");
+    }
+
+    // Create string from the data - use hml_val_string_owned which takes ownership of data
+    return hml_val_string_owned(data, length, length + 1);
 }
 
 // ========== DNS/NETWORKING OPERATIONS ==========

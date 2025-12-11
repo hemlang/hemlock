@@ -95,6 +95,7 @@ static BuiltinInfo builtins[] = {
     {"__dirent_name", builtin_dirent_name},
     {"__string_to_cstr", builtin_string_to_cstr},
     {"__cstr_to_string", builtin_cstr_to_string},
+    {"__string_from_bytes", builtin_string_from_bytes},
     // Internal file operations (use stdlib/fs.hml module for public API)
     {"__exists", builtin_exists},
     {"__read_file", builtin_read_file},
@@ -120,6 +121,7 @@ static BuiltinInfo builtins[] = {
     // HTTP builtins
     {"__lws_http_get", builtin_lws_http_get},
     {"__lws_http_post", builtin_lws_http_post},
+    {"__lws_http_request", builtin_lws_http_request},
     {"__lws_response_status", builtin_lws_response_status},
     {"__lws_response_body", builtin_lws_response_body},
     {"__lws_response_body_binary", builtin_lws_response_body_binary},
@@ -129,6 +131,7 @@ static BuiltinInfo builtins[] = {
     // WebSocket builtins
     {"__lws_ws_connect", builtin_lws_ws_connect},
     {"__lws_ws_send_text", builtin_lws_ws_send_text},
+    {"__lws_ws_send_binary", builtin_lws_ws_send_binary},
     {"__lws_ws_recv", builtin_lws_ws_recv},
     {"__lws_msg_type", builtin_lws_msg_type},
     {"__lws_msg_text", builtin_lws_msg_text},
@@ -152,6 +155,11 @@ static BuiltinInfo builtins[] = {
     {"__sha256", builtin_sha256},
     {"__sha512", builtin_sha512},
     {"__md5", builtin_md5},
+    // ECDSA signature builtins (use stdlib/crypto.hml module for public API)
+    {"__ecdsa_generate_key", builtin_ecdsa_generate_key},
+    {"__ecdsa_free_key", builtin_ecdsa_free_key},
+    {"__ecdsa_sign", builtin_ecdsa_sign},
+    {"__ecdsa_verify", builtin_ecdsa_verify},
     // OS information builtins (use stdlib/os.hml module for public API)
     {"__platform", builtin_platform},
     {"__arch", builtin_arch},

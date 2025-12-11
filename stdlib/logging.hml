@@ -32,16 +32,16 @@ export fn Logger(config?: null) {
 
     // Parse configuration if provided
     if (config != null && typeof(config) == "object") {
-        if (config.output != null) {
+        if (config.has("output") && config.output != null) {
             output_target = config.output;
         }
-        if (config.level != null) {
+        if (config.has("level") && config.level != null) {
             min_level = config.level;
         }
-        if (config.format != null) {
+        if (config.has("format") && config.format != null) {
             format_string = config.format;
         }
-        if (config.include_timestamp != null) {
+        if (config.has("include_timestamp") && config.include_timestamp != null) {
             include_timestamp = config.include_timestamp;
         }
     }

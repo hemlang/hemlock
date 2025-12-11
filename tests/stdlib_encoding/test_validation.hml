@@ -54,7 +54,7 @@ print("✓ Test 4: Hex invalid length error");
 
 // Test 5: Invalid hex - invalid characters
 try {
-    hex_decode("XYZ");  // Invalid hex characters
+    hex_decode("XYZW");  // Invalid hex characters (even length to test character validation)
     throw "Should have thrown error for invalid hex characters";
 } catch (e) {
     if (!e.contains("invalid character")) {

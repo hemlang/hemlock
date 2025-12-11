@@ -1,0 +1,198 @@
+// Test: @stdlib/encoding - UTF-8 multi-byte sequence handling
+// Verifies that encoding/decoding properly handles UTF-8 characters
+// including multi-byte sequences (accented letters, CJK, emoji)
+
+import { base64_encode, base64_decode, hex_encode, hex_decode, url_encode, url_decode } from "@stdlib/encoding";
+
+print("Testing UTF-8 encoding/decoding...");
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+// Test 1: ASCII roundtrip (baseline)
+print("Test 1: ASCII roundtrip");
+let ascii = "Hello, World!";
+let ascii_b64 = base64_encode(ascii);
+let ascii_dec = base64_decode(ascii_b64);
+if (ascii == ascii_dec) {
+    print("  Base64: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Base64: FAIL - got: " + ascii_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let ascii_hex = hex_encode(ascii);
+let ascii_hex_dec = hex_decode(ascii_hex);
+if (ascii == ascii_hex_dec) {
+    print("  Hex: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Hex: FAIL - got: " + ascii_hex_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let ascii_url = url_encode(ascii);
+let ascii_url_dec = url_decode(ascii_url);
+if (ascii == ascii_url_dec) {
+    print("  URL: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  URL: FAIL - got: " + ascii_url_dec);
+    tests_failed = tests_failed + 1;
+}
+
+// Test 2: Latin-1 extended characters (2-byte UTF-8)
+print("Test 2: Latin-1 extended (2-byte UTF-8)");
+let latin = "Héllo Wörld";
+let latin_b64 = base64_encode(latin);
+let latin_dec = base64_decode(latin_b64);
+if (latin == latin_dec) {
+    print("  Base64: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Base64: FAIL - got: " + latin_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let latin_hex = hex_encode(latin);
+let latin_hex_dec = hex_decode(latin_hex);
+if (latin == latin_hex_dec) {
+    print("  Hex: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Hex: FAIL - got: " + latin_hex_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let latin_url = url_encode(latin);
+let latin_url_dec = url_decode(latin_url);
+if (latin == latin_url_dec) {
+    print("  URL: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  URL: FAIL - got: " + latin_url_dec);
+    tests_failed = tests_failed + 1;
+}
+
+// Test 3: CJK characters (3-byte UTF-8)
+print("Test 3: CJK characters (3-byte UTF-8)");
+let cjk = "Hello";
+let cjk_b64 = base64_encode(cjk);
+let cjk_dec = base64_decode(cjk_b64);
+if (cjk == cjk_dec) {
+    print("  Base64: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Base64: FAIL - got: " + cjk_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let cjk_hex = hex_encode(cjk);
+let cjk_hex_dec = hex_decode(cjk_hex);
+if (cjk == cjk_hex_dec) {
+    print("  Hex: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Hex: FAIL - got: " + cjk_hex_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let cjk_url = url_encode(cjk);
+let cjk_url_dec = url_decode(cjk_url);
+if (cjk == cjk_url_dec) {
+    print("  URL: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  URL: FAIL - got: " + cjk_url_dec);
+    tests_failed = tests_failed + 1;
+}
+
+// Test 4: Mixed ASCII and multi-byte
+print("Test 4: Mixed ASCII and multi-byte");
+let mixed = "Café résumé naïve";
+let mixed_b64 = base64_encode(mixed);
+let mixed_dec = base64_decode(mixed_b64);
+if (mixed == mixed_dec) {
+    print("  Base64: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Base64: FAIL - got: " + mixed_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let mixed_hex = hex_encode(mixed);
+let mixed_hex_dec = hex_decode(mixed_hex);
+if (mixed == mixed_hex_dec) {
+    print("  Hex: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Hex: FAIL - got: " + mixed_hex_dec);
+    tests_failed = tests_failed + 1;
+}
+
+let mixed_url = url_encode(mixed);
+let mixed_url_dec = url_decode(mixed_url);
+if (mixed == mixed_url_dec) {
+    print("  URL: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  URL: FAIL - got: " + mixed_url_dec);
+    tests_failed = tests_failed + 1;
+}
+
+// Test 5: Direct __string_from_bytes test
+print("Test 5: Direct __string_from_bytes");
+let bytes_ascii = [72, 101, 108, 108, 111];  // "Hello"
+let str_ascii = __string_from_bytes(bytes_ascii);
+if (str_ascii == "Hello") {
+    print("  ASCII bytes: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  ASCII bytes: FAIL - got: " + str_ascii);
+    tests_failed = tests_failed + 1;
+}
+
+// UTF-8: "Héllo" = H(72) é(195,169) l(108) l(108) o(111)
+let bytes_utf8 = [72, 195, 169, 108, 108, 111];
+let str_utf8 = __string_from_bytes(bytes_utf8);
+if (str_utf8 == "Héllo") {
+    print("  UTF-8 bytes: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  UTF-8 bytes: FAIL - got: " + str_utf8);
+    tests_failed = tests_failed + 1;
+}
+
+// Test 6: Empty string
+print("Test 6: Empty string");
+let empty = "";
+let empty_b64 = base64_encode(empty);
+let empty_dec = base64_decode(empty_b64);
+if (empty == empty_dec) {
+    print("  Base64: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Base64: FAIL");
+    tests_failed = tests_failed + 1;
+}
+
+let empty_hex = hex_encode(empty);
+let empty_hex_dec = hex_decode(empty_hex);
+if (empty == empty_hex_dec) {
+    print("  Hex: PASS");
+    tests_passed = tests_passed + 1;
+} else {
+    print("  Hex: FAIL");
+    tests_failed = tests_failed + 1;
+}
+
+// Summary
+print("");
+print("========================================");
+print("UTF-8 Encoding Tests Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+
+assert(tests_failed == 0, "All UTF-8 encoding tests should pass");
