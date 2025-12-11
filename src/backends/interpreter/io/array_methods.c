@@ -176,6 +176,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             Value result = val_string(json);
             free(json);
+
             return result;
         }
         // shift() - remove and return first element
