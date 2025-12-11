@@ -103,7 +103,7 @@ We give you the tools to be safe (`buffer`, type annotations, bounds checking) b
 
 ## Getting Help
 
-- **Source Code**: [GitHub Repository](https://github.com/nbeerbower/hemlock)
+- **Source Code**: [GitHub Repository](https://github.com/hemlang/hemlock)
 - **Issues**: Report bugs and request features
 - **Examples**: See the `examples/` directory
 - **Tests**: See the `tests/` directory for usage examples

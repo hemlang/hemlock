@@ -892,7 +892,7 @@ static void print_help(const char *program) {
     printf("    %s --info app.hmlc         # Show compiled file info\n", program);
     printf("    %s lsp                 # Start LSP server (stdio)\n", program);
     printf("    %s lsp --tcp 6969      # Start LSP server (TCP)\n\n", program);
-    printf("For more information, visit: https://github.com/nbeerbower/hemlock\n");
+    printf("For more information, visit: https://github.com/hemlang/hemlock\n");
 }
 
 // Run LSP server

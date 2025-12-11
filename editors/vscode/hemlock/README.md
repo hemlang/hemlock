@@ -38,7 +38,7 @@ The LSP features require the Hemlock interpreter to be installed and available i
 
 ```bash
 # Build hemlock from source
-git clone https://github.com/nbeerbower/hemlock
+git clone https://github.com/hemlang/hemlock
 cd hemlock
 make
 
@@ -148,7 +148,7 @@ Hemlock is a systems scripting language with:
 - File I/O and command execution
 - Foreign Function Interface (FFI)
 
-See the [Hemlock documentation](https://github.com/nbeerbower/hemlock) for more details.
+See the [Hemlock documentation](https://github.com/hemlang/hemlock) for more details.
 
 ## Troubleshooting
 
@@ -182,7 +182,7 @@ Found an issue or want to improve the extension?
 1. Check the grammar file at `syntaxes/hemlock.tmLanguage.json`
 2. Check the LSP client at `src/extension.ts`
 3. Test your changes with various Hemlock code samples
-4. Submit a PR to the [Hemlock repository](https://github.com/nbeerbower/hemlock)
+4. Submit a PR to the [Hemlock repository](https://github.com/hemlang/hemlock)
 
 ## License
 
@@ -190,6 +190,6 @@ Same license as Hemlock (check repository for details)
 
 ## Resources
 
-- [Hemlock GitHub Repository](https://github.com/nbeerbower/hemlock)
-- [Language Documentation](https://github.com/nbeerbower/hemlock/blob/main/CLAUDE.md)
-- [Standard Library Docs](https://github.com/nbeerbower/hemlock/tree/main/stdlib/docs)
+- [Hemlock GitHub Repository](https://github.com/hemlang/hemlock)
+- [Language Documentation](https://github.com/hemlang/hemlock/blob/main/CLAUDE.md)
+- [Standard Library Docs](https://github.com/hemlang/hemlock/tree/main/stdlib/docs)

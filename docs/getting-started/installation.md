@@ -52,7 +52,7 @@ sudo pacman -S base-devel libffi openssl libwebsockets zlib
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/nbeerbower/hemlock.git
+git clone https://github.com/hemlang/hemlock.git
 cd hemlock
 ```
 

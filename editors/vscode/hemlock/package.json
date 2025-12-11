@@ -6,7 +6,7 @@
   "publisher": "hemlock",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nbeerbower/hemlock"
+    "url": "https://github.com/hemlang/hemlock"
   },
   "engines": {
     "vscode": "^1.75.0"
