@@ -2795,13 +2795,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 // Check if left operand is the same variable being assigned
                 if (left->type == EXPR_IDENT && strcmp(left->as.ident, expr->as.assign.name) == 0) {
-                    // Check if right operand looks like a string (literal, variable, or string index)
-                    // String indexing (json[pos]) returns a rune which can be converted to string
-                    int likely_string = (right->type == EXPR_STRING) ||
-                                       (right->type == EXPR_IDENT) ||
-                                       (right->type == EXPR_INDEX);  // str[i] returns rune, converts to string
+                    // Check if right operand is definitely a string (literal only)
+                    // We can't assume EXPR_IDENT is a string since it could be a number
+                    // String indexing returns a rune but the variable type is unknown at compile time
+                    int definitely_string = (right->type == EXPR_STRING);
 
-                    if (likely_string) {
+                    if (definitely_string) {
                         // Generate in-place append
                         char *rhs = codegen_expr(ctx, right);
 
