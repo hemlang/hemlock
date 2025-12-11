@@ -16,6 +16,190 @@
 #include <stdio.h>
 
 // ============================================================================
+// Symbol Table for Go-to-Definition and Find References
+// ============================================================================
+
+typedef struct {
+    char *name;
+    int def_line;       // Definition line (1-based)
+    int def_col;        // Definition column (0-based)
+    int def_length;     // Length of the symbol name
+    int is_function;    // 1 if function, 0 otherwise
+    int is_param;       // 1 if function parameter
+} SymbolDef;
+
+typedef struct {
+    char *name;
+    int line;           // Usage line (1-based)
+    int col;            // Usage column (0-based)
+    int length;         // Length of the symbol name
+} SymbolUsage;
+
+typedef struct {
+    SymbolDef *defs;
+    int def_count;
+    int def_capacity;
+    SymbolUsage *usages;
+    int usage_count;
+    int usage_capacity;
+} SymbolTable;
+
+static void symbol_table_init(SymbolTable *st) {
+    st->defs = NULL;
+    st->def_count = 0;
+    st->def_capacity = 0;
+    st->usages = NULL;
+    st->usage_count = 0;
+    st->usage_capacity = 0;
+}
+
+static void symbol_table_free(SymbolTable *st) {
+    for (int i = 0; i < st->def_count; i++) {
+        free(st->defs[i].name);
+    }
+    free(st->defs);
+    for (int i = 0; i < st->usage_count; i++) {
+        free(st->usages[i].name);
+    }
+    free(st->usages);
+}
+
+static void symbol_table_add_def(SymbolTable *st, const char *name, int line, int col, int length, int is_function, int is_param) {
+    if (st->def_count >= st->def_capacity) {
+        st->def_capacity = st->def_capacity == 0 ? 16 : st->def_capacity * 2;
+        st->defs = realloc(st->defs, st->def_capacity * sizeof(SymbolDef));
+    }
+    st->defs[st->def_count].name = strdup(name);
+    st->defs[st->def_count].def_line = line;
+    st->defs[st->def_count].def_col = col;
+    st->defs[st->def_count].def_length = length > 0 ? length : (int)strlen(name);
+    st->defs[st->def_count].is_function = is_function;
+    st->defs[st->def_count].is_param = is_param;
+    st->def_count++;
+}
+
+static void symbol_table_add_usage(SymbolTable *st, const char *name, int line, int col, int length) {
+    if (st->usage_count >= st->usage_capacity) {
+        st->usage_capacity = st->usage_capacity == 0 ? 32 : st->usage_capacity * 2;
+        st->usages = realloc(st->usages, st->usage_capacity * sizeof(SymbolUsage));
+    }
+    st->usages[st->usage_count].name = strdup(name);
+    st->usages[st->usage_count].line = line;
+    st->usages[st->usage_count].col = col;
+    st->usages[st->usage_count].length = length > 0 ? length : (int)strlen(name);
+    st->usage_count++;
+}
+
+static SymbolDef *symbol_table_find_def(SymbolTable *st, const char *name) {
+    // Return most recent definition (last in list) for scoping
+    for (int i = st->def_count - 1; i >= 0; i--) {
+        if (strcmp(st->defs[i].name, name) == 0) {
+            return &st->defs[i];
+        }
+    }
+    return NULL;
+}
+
+// Calculate column for a token given the source content
+static int calc_token_col(const char *content, Token *token) {
+    const char *line_start = content;
+    int current_line = 1;
+    for (const char *p = content; p < token->start && *p; p++) {
+        if (*p == '\n') {
+            current_line++;
+            line_start = p + 1;
+        }
+    }
+    return (int)(token->start - line_start);
+}
+
+// Build symbol table by scanning source with lexer
+// This gives us accurate line/column info without relying on AST line numbers
+static void build_symbol_table_from_source(SymbolTable *st, const char *content) {
+    Lexer lexer;
+    lexer_init(&lexer, content);
+
+    Token prev = {0};
+    Token token;
+
+    do {
+        token = lexer_next(&lexer);
+
+        // Check for definition patterns
+        if (token.type == TOK_IDENT) {
+            // Check if previous token was a definition keyword
+            if (prev.type == TOK_LET || prev.type == TOK_CONST) {
+                // Variable/constant definition
+                char *name = strndup(token.start, token.length);
+                int col = calc_token_col(content, &token);
+                symbol_table_add_def(st, name, token.line, col, token.length, 0, 0);
+                free(name);
+            } else if (prev.type == TOK_FN) {
+                // Function definition
+                char *name = strndup(token.start, token.length);
+                int col = calc_token_col(content, &token);
+                symbol_table_add_def(st, name, token.line, col, token.length, 1, 0);
+                free(name);
+            } else if (prev.type == TOK_DEFINE) {
+                // Struct/object type definition
+                char *name = strndup(token.start, token.length);
+                int col = calc_token_col(content, &token);
+                symbol_table_add_def(st, name, token.line, col, token.length, 0, 0);
+                free(name);
+            } else if (prev.type == TOK_ENUM) {
+                // Enum definition
+                char *name = strndup(token.start, token.length);
+                int col = calc_token_col(content, &token);
+                symbol_table_add_def(st, name, token.line, col, token.length, 0, 0);
+                free(name);
+            } else {
+                // Check if this is a usage (not followed by =, which would be assignment not definition)
+                // For now, treat all other identifiers as usages
+                char *name = strndup(token.start, token.length);
+                int col = calc_token_col(content, &token);
+                symbol_table_add_usage(st, name, token.line, col, token.length);
+                free(name);
+            }
+        }
+
+        prev = token;
+    } while (token.type != TOK_EOF);
+}
+
+// Find the symbol name at a given position using lexer
+static char *find_symbol_at_position(const char *content, int target_line, int target_col, int *out_line, int *out_col) {
+    Lexer lexer;
+    lexer_init(&lexer, content);
+
+    Token token;
+    do {
+        token = lexer_next(&lexer);
+
+        // LSP positions are 0-based, token lines are 1-based
+        if (token.type == TOK_IDENT && token.line - 1 == target_line) {
+            // Calculate token column
+            const char *line_start = content;
+            int current_line = 0;
+            for (const char *p = content; *p && current_line < token.line - 1; p++) {
+                if (*p == '\n') {
+                    current_line++;
+                    line_start = p + 1;
+                }
+            }
+            int token_col = (int)(token.start - line_start);
+
+            if (target_col >= token_col && target_col < token_col + token.length) {
+                if (out_line) *out_line = token.line;
+                if (out_col) *out_col = token_col;
+                return strndup(token.start, token.length);
+            }
+        }
+    } while (token.type != TOK_EOF);
+
+    return NULL;
+}
+
+// ============================================================================
 // Lifecycle Handlers
 // ============================================================================
 
@@ -62,6 +246,9 @@ JSONValue *handle_initialize(LSPServer *server, JSONValue *params) {
 
     // Go to definition support
     json_object_set(server_capabilities, "definitionProvider", json_bool(true));
+
+    // Find references support
+    json_object_set(server_capabilities, "referencesProvider", json_bool(true));
 
     // Document symbol support
     json_object_set(server_capabilities, "documentSymbolProvider", json_bool(true));
@@ -400,18 +587,135 @@ JSONValue *handle_completion(LSPServer *server, JSONValue *params) {
 }
 
 JSONValue *handle_definition(LSPServer *server, JSONValue *params) {
-    // TODO: Implement go-to-definition
-    // This requires building a symbol table from the AST
-    (void)server;
-    (void)params;
-    return json_null();
+    JSONValue *text_doc = json_object_get_object(params, "textDocument");
+    JSONValue *position = json_object_get_object(params, "position");
+
+    if (!text_doc || !position) return json_null();
+
+    const char *uri = json_object_get_string(text_doc, "uri");
+    int line = (int)json_object_get_number(position, "line");
+    int character = (int)json_object_get_number(position, "character");
+
+    LSPDocument *doc = lsp_document_find(server, uri);
+    if (!doc || !doc->ast || !doc->ast_valid) return json_null();
+
+    // Find the symbol at the cursor position
+    int sym_line, sym_col;
+    char *symbol_name = find_symbol_at_position(doc->content, line, character, &sym_line, &sym_col);
+    if (!symbol_name) return json_null();
+
+    // Build symbol table from source (more accurate line/column info)
+    SymbolTable st;
+    symbol_table_init(&st);
+    build_symbol_table_from_source(&st, doc->content);
+
+    // Find the definition
+    SymbolDef *def = symbol_table_find_def(&st, symbol_name);
+    free(symbol_name);
+
+    if (!def) {
+        symbol_table_free(&st);
+        return json_null();
+    }
+
+    // Build location response
+    JSONValue *result = json_object();
+    json_object_set(result, "uri", json_string(uri));
+
+    JSONValue *range = json_object();
+    JSONValue *start = json_object();
+    json_object_set(start, "line", json_number(def->def_line - 1));  // Convert to 0-based
+    json_object_set(start, "character", json_number(def->def_col));
+    JSONValue *end = json_object();
+    json_object_set(end, "line", json_number(def->def_line - 1));
+    json_object_set(end, "character", json_number(def->def_col + def->def_length));
+    json_object_set(range, "start", start);
+    json_object_set(range, "end", end);
+    json_object_set(result, "range", range);
+
+    symbol_table_free(&st);
+    return result;
 }
 
 JSONValue *handle_references(LSPServer *server, JSONValue *params) {
-    // TODO: Implement find references
-    (void)server;
-    (void)params;
-    return json_null();
+    JSONValue *text_doc = json_object_get_object(params, "textDocument");
+    JSONValue *position = json_object_get_object(params, "position");
+    JSONValue *context = json_object_get_object(params, "context");
+
+    if (!text_doc || !position) return json_null();
+
+    const char *uri = json_object_get_string(text_doc, "uri");
+    int line = (int)json_object_get_number(position, "line");
+    int character = (int)json_object_get_number(position, "character");
+
+    // Check if we should include the declaration
+    bool include_declaration = false;
+    if (context) {
+        include_declaration = json_object_get_bool(context, "includeDeclaration");
+    }
+
+    LSPDocument *doc = lsp_document_find(server, uri);
+    if (!doc || !doc->ast || !doc->ast_valid) return json_null();
+
+    // Find the symbol at the cursor position
+    int sym_line, sym_col;
+    char *symbol_name = find_symbol_at_position(doc->content, line, character, &sym_line, &sym_col);
+    if (!symbol_name) return json_null();
+
+    // Build symbol table from source (more accurate line/column info)
+    SymbolTable st;
+    symbol_table_init(&st);
+    build_symbol_table_from_source(&st, doc->content);
+
+    // Build array of locations
+    JSONValue *locations = json_array();
+
+    // Include definition if requested
+    if (include_declaration) {
+        SymbolDef *def = symbol_table_find_def(&st, symbol_name);
+        if (def) {
+            JSONValue *loc = json_object();
+            json_object_set(loc, "uri", json_string(uri));
+
+            JSONValue *range = json_object();
+            JSONValue *start = json_object();
+            json_object_set(start, "line", json_number(def->def_line - 1));
+            json_object_set(start, "character", json_number(def->def_col));
+            JSONValue *end = json_object();
+            json_object_set(end, "line", json_number(def->def_line - 1));
+            json_object_set(end, "character", json_number(def->def_col + def->def_length));
+            json_object_set(range, "start", start);
+            json_object_set(range, "end", end);
+            json_object_set(loc, "range", range);
+
+            json_array_push(locations, loc);
+        }
+    }
+
+    // Add all usages
+    for (int i = 0; i < st.usage_count; i++) {
+        if (strcmp(st.usages[i].name, symbol_name) == 0) {
+            JSONValue *loc = json_object();
+            json_object_set(loc, "uri", json_string(uri));
+
+            JSONValue *range = json_object();
+            JSONValue *start = json_object();
+            json_object_set(start, "line", json_number(st.usages[i].line - 1));
+            json_object_set(start, "character", json_number(st.usages[i].col));
+            JSONValue *end = json_object();
+            json_object_set(end, "line", json_number(st.usages[i].line - 1));
+            json_object_set(end, "character", json_number(st.usages[i].col + st.usages[i].length));
+            json_object_set(range, "start", start);
+            json_object_set(range, "end", end);
+            json_object_set(loc, "range", range);
+
+            json_array_push(locations, loc);
+        }
+    }
+
+    free(symbol_name);
+    symbol_table_free(&st);
+    return locations;
 }
 
 JSONValue *handle_document_symbol(LSPServer *server, JSONValue *params) {

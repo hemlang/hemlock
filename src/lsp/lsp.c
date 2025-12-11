@@ -35,6 +35,22 @@ LSPServer *lsp_server_create(void) {
     return server;
 }
 
+// Helper to free AST stored in document
+static void lsp_document_free_ast(LSPDocument *doc) {
+    if (doc->ast) {
+        Stmt **statements = (Stmt **)doc->ast;
+        for (int i = 0; i < doc->ast_stmt_count; i++) {
+            if (statements[i]) {
+                stmt_free(statements[i]);
+            }
+        }
+        free(statements);
+        doc->ast = NULL;
+        doc->ast_stmt_count = 0;
+        doc->ast_valid = false;
+    }
+}
+
 void lsp_server_free(LSPServer *server) {
     if (!server) return;
 
@@ -45,7 +61,7 @@ void lsp_server_free(LSPServer *server) {
         free(doc->uri);
         free(doc->content);
         lsp_document_clear_diagnostics(doc);
-        // Note: doc->ast is owned by the interpreter, not freed here
+        lsp_document_free_ast(doc);
         free(doc);
         doc = next;
     }
@@ -105,6 +121,7 @@ void lsp_document_close(LSPServer *server, const char *uri) {
             free(doc->uri);
             free(doc->content);
             lsp_document_clear_diagnostics(doc);
+            lsp_document_free_ast(doc);
             free(doc);
             return;
         }
@@ -162,6 +179,7 @@ void lsp_document_add_diagnostic(LSPDocument *doc, LSPRange range,
 // We need to hook into the parser's error reporting
 void lsp_document_parse(LSPDocument *doc) {
     lsp_document_clear_diagnostics(doc);
+    lsp_document_free_ast(doc);
 
     if (!doc->content) return;
 
@@ -214,12 +232,10 @@ void lsp_document_parse(LSPDocument *doc) {
     }
 
     // Store AST for later use (hover, goto definition, etc.)
+    // AST is freed by lsp_document_free_ast() when document is updated or closed
     doc->ast = statements;
     doc->ast_stmt_count = stmt_count;
     doc->ast_valid = !parser.had_error;
-
-    // Note: We don't free the AST here because we want to keep it for
-    // language features. The AST will be freed when the document is closed.
 }
 
 // ============================================================================
