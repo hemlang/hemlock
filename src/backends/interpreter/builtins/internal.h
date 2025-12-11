@@ -212,6 +212,12 @@ Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx);
 
+// ECDSA signature builtins (crypto.c)
+Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ecdsa_free_key(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ecdsa_sign(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx);
+
 // OS information builtins (os.c)
 Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx);

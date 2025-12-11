@@ -155,6 +155,11 @@ static BuiltinInfo builtins[] = {
     {"__sha256", builtin_sha256},
     {"__sha512", builtin_sha512},
     {"__md5", builtin_md5},
+    // ECDSA signature builtins (use stdlib/crypto.hml module for public API)
+    {"__ecdsa_generate_key", builtin_ecdsa_generate_key},
+    {"__ecdsa_free_key", builtin_ecdsa_free_key},
+    {"__ecdsa_sign", builtin_ecdsa_sign},
+    {"__ecdsa_verify", builtin_ecdsa_verify},
     // OS information builtins (use stdlib/os.hml module for public API)
     {"__platform", builtin_platform},
     {"__arch", builtin_arch},

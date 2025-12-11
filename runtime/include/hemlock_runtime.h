@@ -732,6 +732,20 @@ HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input);
 HmlValue hml_builtin_hash_sha512(HmlClosureEnv *env, HmlValue input);
 HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input);
 
+// ========== ECDSA SIGNATURE FUNCTIONS ==========
+
+// ECDSA functions
+HmlValue hml_ecdsa_generate_key(HmlValue curve);
+HmlValue hml_ecdsa_free_key(HmlValue keypair);
+HmlValue hml_ecdsa_sign(HmlValue data, HmlValue keypair);
+HmlValue hml_ecdsa_verify(HmlValue data, HmlValue sig, HmlValue keypair);
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve);
+HmlValue hml_builtin_ecdsa_free_key(HmlClosureEnv *env, HmlValue keypair);
+HmlValue hml_builtin_ecdsa_sign(HmlClosureEnv *env, HmlValue data, HmlValue keypair);
+HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue sig, HmlValue keypair);
+
 // ========== CALL STACK TRACKING ==========
 
 // Maximum call stack depth (matches interpreter's limit)

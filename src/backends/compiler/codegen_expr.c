@@ -389,6 +389,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha512, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__md5") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_md5, 1, 1, 0);", result);
+            // ECDSA signature builtins
+            } else if (strcmp(expr->as.ident, "__ecdsa_generate_key") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_generate_key, 0, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__ecdsa_free_key") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_free_key, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__ecdsa_sign") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_sign, 2, 2, 0);", result);
+            } else if (strcmp(expr->as.ident, "__ecdsa_verify") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_verify, 3, 3, 0);", result);
             // WebSocket builtins
             } else if (strcmp(expr->as.ident, "__lws_ws_connect") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_connect, 1, 1, 0);", result);
@@ -2085,6 +2094,58 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s = hml_hash_md5(%s);", result, input);
                     codegen_writeln(ctx, "hml_release(&%s);", input);
                     free(input);
+                    break;
+                }
+
+                // ========== ECDSA SIGNATURE BUILTINS ==========
+
+                // __ecdsa_generate_key(curve?)
+                if (strcmp(fn_name, "__ecdsa_generate_key") == 0 &&
+                    (expr->as.call.num_args == 0 || expr->as.call.num_args == 1)) {
+                    if (expr->as.call.num_args == 1) {
+                        char *curve = codegen_expr(ctx, expr->as.call.args[0]);
+                        codegen_writeln(ctx, "HmlValue %s = hml_ecdsa_generate_key(%s);", result, curve);
+                        codegen_writeln(ctx, "hml_release(&%s);", curve);
+                        free(curve);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_ecdsa_generate_key(hml_val_null());", result);
+                    }
+                    break;
+                }
+
+                // __ecdsa_free_key(keypair)
+                if (strcmp(fn_name, "__ecdsa_free_key") == 0 && expr->as.call.num_args == 1) {
+                    char *keypair = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_ecdsa_free_key(%s);", result, keypair);
+                    codegen_writeln(ctx, "hml_release(&%s);", keypair);
+                    free(keypair);
+                    break;
+                }
+
+                // __ecdsa_sign(data, keypair)
+                if (strcmp(fn_name, "__ecdsa_sign") == 0 && expr->as.call.num_args == 2) {
+                    char *data = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *keypair = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_ecdsa_sign(%s, %s);", result, data, keypair);
+                    codegen_writeln(ctx, "hml_release(&%s);", data);
+                    codegen_writeln(ctx, "hml_release(&%s);", keypair);
+                    free(data);
+                    free(keypair);
+                    break;
+                }
+
+                // __ecdsa_verify(data, signature, keypair)
+                if (strcmp(fn_name, "__ecdsa_verify") == 0 && expr->as.call.num_args == 3) {
+                    char *data = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *sig = codegen_expr(ctx, expr->as.call.args[1]);
+                    char *keypair = codegen_expr(ctx, expr->as.call.args[2]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_ecdsa_verify(%s, %s, %s);", result, data, sig, keypair);
+                    codegen_writeln(ctx, "hml_release(&%s);", data);
+                    codegen_writeln(ctx, "hml_release(&%s);", sig);
+                    codegen_writeln(ctx, "hml_release(&%s);", keypair);
+                    free(data);
+                    free(sig);
+                    free(keypair);
                     break;
                 }
 
