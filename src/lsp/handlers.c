@@ -9,6 +9,7 @@
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
 #include "../../include/ast.h"
+#include "../../include/version.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -70,7 +71,7 @@ JSONValue *handle_initialize(LSPServer *server, JSONValue *params) {
     // Server info
     JSONValue *server_info = json_object();
     json_object_set(server_info, "name", json_string("hemlock-lsp"));
-    json_object_set(server_info, "version", json_string("0.1.0"));
+    json_object_set(server_info, "version", json_string(HEMLOCK_VERSION));
     json_object_set(result, "serverInfo", server_info);
 
     server->initialized = true;
