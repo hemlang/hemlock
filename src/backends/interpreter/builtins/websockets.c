@@ -1346,7 +1346,7 @@ Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ct
     }
 
     Buffer *buffer = args[1].as.as_buffer;
-    size_t len = buffer->size;
+    size_t len = buffer->length;
 
     unsigned char *buf = malloc(LWS_PRE + len);
     if (!buf) {
