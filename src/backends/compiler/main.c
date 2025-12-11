@@ -14,13 +14,12 @@
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
 #include "../../include/ast.h"
+#include "../../include/version.h"
 #include "codegen.h"
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
-
-#define HEMLOCKC_VERSION "0.1.1"
 
 // Get directory containing the hemlockc executable (cross-platform)
 static char* get_self_dir(void) {
@@ -75,7 +74,7 @@ typedef struct {
 } Options;
 
 static void print_usage(const char *progname) {
-    fprintf(stderr, "Hemlock Compiler v%s\n\n", HEMLOCKC_VERSION);
+    fprintf(stderr, "Hemlock Compiler v%s\n\n", HEMLOCK_VERSION);
     fprintf(stderr, "Usage: %s [options] <input.hml>\n\n", progname);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -o <file>     Output executable name (default: a.out)\n");
@@ -108,7 +107,7 @@ static Options parse_args(int argc, char **argv) {
             print_usage(argv[0]);
             exit(0);
         } else if (strcmp(argv[i], "--version") == 0) {
-            printf("hemlockc %s\n", HEMLOCKC_VERSION);
+            printf("hemlockc %s\n", HEMLOCK_VERSION);
             exit(0);
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             opts.output_file = argv[++i];
