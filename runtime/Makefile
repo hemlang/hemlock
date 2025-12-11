@@ -5,7 +5,7 @@ LDFLAGS = -lm -lpthread -lffi
 
 # Platform-specific settings
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_DARWIN_C_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -19,7 +19,7 @@ ifeq ($(shell uname),Darwin)
         LDFLAGS += -L$(BREW_OPENSSL)/lib
     endif
 else
-    CFLAGS = -Wall -Wextra -std=c11 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
     LIBFFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null)
     ifneq ($(LIBFFI_CFLAGS),)

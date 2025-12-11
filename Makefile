@@ -1,9 +1,9 @@
 CC = gcc
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O2 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -106,17 +106,9 @@ $(TARGET): $(OBJS)
 # Special rule for ffi.c - compile with -O0 to work around an optimizer bug
 # that causes infinite loops when FFI functions are called from Hemlock code
 # with while loops in helper functions. The root cause appears to be undefined
-# behavior exposed only at -O1/-O2 optimization levels.
+# behavior exposed only at -O1/-O2/-O3 optimization levels.
 $(BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c | $(BUILD_DIRS)
-	$(CC) $(subst -O2,-O0,$(CFLAGS)) -c $< -o $@
-
-# Special rule for statements.c - compile with -O1 (O2 causes slight regression)
-$(BUILD_DIR)/backends/interpreter/runtime/statements.o: $(SRC_DIR)/backends/interpreter/runtime/statements.c | $(BUILD_DIRS)
-	$(CC) $(subst -O2,-O1,$(CFLAGS)) -c $< -o $@
-
-# Special rule for expressions.c - compile with -O1 (O2 causes slight regression)
-$(BUILD_DIR)/backends/interpreter/runtime/expressions.o: $(SRC_DIR)/backends/interpreter/runtime/expressions.c | $(BUILD_DIRS)
-	$(CC) $(subst -O2,-O1,$(CFLAGS)) -c $< -o $@
+	$(CC) $(subst -O3,-O0,$(CFLAGS)) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIRS)
 	mkdir -p $(dir $@)
@@ -309,11 +301,11 @@ test-all: test test-compiler parity test-bundler
 
 # ========== RELEASE BUILD ==========
 
-# Release flags: optimize for size, no debug symbols
+# Release flags: optimize for performance, no debug symbols
 ifeq ($(shell uname),Darwin)
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -Os -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 else
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -Os -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 endif
 
 # Add the same conditional flags as regular build
@@ -366,18 +358,10 @@ $(RELEASE_BUILD_DIR)/hemlock: $(RELEASE_OBJS)
 	$(CC) $(RELEASE_OBJS) -o $@ $(LDFLAGS)
 	strip $@
 
-# Special rules for release build (same optimization exceptions as debug)
+# Special rule for release build - ffi.c needs O0 to avoid optimizer bugs
 $(RELEASE_BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c
 	@mkdir -p $(dir $@)
-	$(CC) $(subst -Os,-O0,$(RELEASE_CFLAGS)) -c $< -o $@
-
-$(RELEASE_BUILD_DIR)/backends/interpreter/runtime/statements.o: $(SRC_DIR)/backends/interpreter/runtime/statements.c
-	@mkdir -p $(dir $@)
-	$(CC) $(subst -Os,-O1,$(RELEASE_CFLAGS)) -c $< -o $@
-
-$(RELEASE_BUILD_DIR)/backends/interpreter/runtime/expressions.o: $(SRC_DIR)/backends/interpreter/runtime/expressions.c
-	@mkdir -p $(dir $@)
-	$(CC) $(subst -Os,-O1,$(RELEASE_CFLAGS)) -c $< -o $@
+	$(CC) $(subst -O3,-O0,$(RELEASE_CFLAGS)) -c $< -o $@
 
 $(RELEASE_BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
