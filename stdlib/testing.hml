@@ -4,7 +4,7 @@
 // Global test registry
 let __test_suites = [];
 let __current_suite = null;
-let __test_stats = { total: 0, passed: 0, failed: 0, errors: [] };
+let __test_stats = { total: 0, passed: 0, failed: 0, errors: [], total_time_ms: 0 };
 
 // ANSI color codes (for terminal output)
 // ESC character (ASCII 27) + color codes
@@ -15,6 +15,7 @@ let COLOR_YELLOW = ("" + __ESC) + "[33m";
 let COLOR_BLUE = ("" + __ESC) + "[34m";
 let COLOR_RESET = ("" + __ESC) + "[0m";
 let COLOR_BOLD = ("" + __ESC) + "[1m";
+let COLOR_DIM = ("" + __ESC) + "[2m";
 
 // Helper: Deep equality comparison
 fn __deep_equal(a, b): bool {
@@ -52,6 +53,24 @@ fn __deep_equal(a, b): bool {
     // Objects - use reference equality
     // Note: Deep object comparison deferred to 1.1 (needs cycle detection)
     return a == b;
+}
+
+// Helper: Format time duration in human-readable format
+fn __format_time(ms: i64): string {
+    if (ms < 1000) {
+        return "" + ms + "ms";
+    } else if (ms < 60000) {
+        let secs = ms / 1000;
+        let remaining_ms = ms % 1000;
+        if (remaining_ms == 0) {
+            return "" + secs + "s";
+        }
+        return "" + secs + "." + (remaining_ms / 100) + "s";
+    } else {
+        let mins = ms / 60000;
+        let remaining_secs = (ms % 60000) / 1000;
+        return "" + mins + "m " + remaining_secs + "s";
+    }
 }
 
 // Helper: Value to string for error messages
@@ -444,6 +463,7 @@ fn run(options?: null) {
     __test_stats.passed = 0;
     __test_stats.failed = 0;
     __test_stats.errors = [];
+    __test_stats.total_time_ms = 0;
 
     // Print header
     if (!no_color) {
@@ -474,6 +494,9 @@ fn run(options?: null) {
             let test_passed = true;
             let error_msg = null;
 
+            // Start timing
+            let start_time = __time_ms();
+
             try {
                 // Run before_each hook
                 if (suite.before_each != null) {
@@ -493,27 +516,36 @@ fn run(options?: null) {
                 test_passed = false;
                 error_msg = e;
                 __test_stats.failed = __test_stats.failed + 1;
+            }
 
-                // Record error
+            // End timing
+            let end_time = __time_ms();
+            let duration_ms = end_time - start_time;
+            __test_stats.total_time_ms = __test_stats.total_time_ms + duration_ms;
+            let time_str = __format_time(duration_ms);
+
+            // Record error with timing
+            if (!test_passed) {
                 __test_stats.errors.push({
                     suite: suite.name,
                     test: test_case.name,
-                    error: error_msg
+                    error: error_msg,
+                    duration_ms: duration_ms
                 });
             }
 
-            // Print test result
+            // Print test result with timing
             if (test_passed) {
                 if (!no_color) {
-                    print("  " + COLOR_GREEN + "✓" + COLOR_RESET + " " + test_case.name);
+                    print("  " + COLOR_GREEN + "✓" + COLOR_RESET + " " + test_case.name + " " + COLOR_DIM + "(" + time_str + ")" + COLOR_RESET);
                 } else {
-                    print("  ✓ " + test_case.name);
+                    print("  ✓ " + test_case.name + " (" + time_str + ")");
                 }
             } else {
                 if (!no_color) {
-                    print("  " + COLOR_RED + "✗" + COLOR_RESET + " " + test_case.name);
+                    print("  " + COLOR_RED + "✗" + COLOR_RESET + " " + test_case.name + " " + COLOR_DIM + "(" + time_str + ")" + COLOR_RESET);
                 } else {
-                    print("  ✗ " + test_case.name);
+                    print("  ✗ " + test_case.name + " (" + time_str + ")");
                 }
 
                 if (verbose) {
@@ -533,6 +565,8 @@ fn run(options?: null) {
     }
 
     // Print summary
+    let total_time_str = __format_time(__test_stats.total_time_ms);
+
     if (!no_color) {
         print(COLOR_BOLD + "Test Summary:" + COLOR_RESET);
     } else {
@@ -544,7 +578,7 @@ fn run(options?: null) {
     let failed_str = "" + __test_stats.failed;
 
     if (!no_color) {
-        print("  Total:  " + total_str);
+        print("  Total:  " + total_str + " " + COLOR_DIM + "(" + total_time_str + ")" + COLOR_RESET);
         print("  " + COLOR_GREEN + "Passed: " + passed_str + COLOR_RESET);
 
         if (__test_stats.failed > 0) {
@@ -553,33 +587,34 @@ fn run(options?: null) {
             print("  Failed: " + failed_str);
         }
     } else {
-        print("  Total:  " + total_str);
+        print("  Total:  " + total_str + " (" + total_time_str + ")");
         print("  Passed: " + passed_str);
         print("  Failed: " + failed_str);
     }
 
     print("");
 
-    // Print detailed errors if not verbose
-    if (!verbose && __test_stats.failed > 0) {
+    // Print detailed errors - always show failed tests summary at end
+    if (__test_stats.failed > 0) {
         if (!no_color) {
-            print(COLOR_BOLD + COLOR_RED + "Failures:" + COLOR_RESET);
+            print(COLOR_BOLD + COLOR_RED + "Failed Tests:" + COLOR_RESET);
         } else {
-            print("Failures:");
+            print("Failed Tests:");
         }
 
         let err_idx = 0;
         while (err_idx < __test_stats.errors.length) {
             let err = __test_stats.errors[err_idx];
+            let err_time_str = __format_time(err.duration_ms);
 
             if (!no_color) {
                 print("");
-                print(COLOR_BOLD + err.suite + " > " + err.test + COLOR_RESET);
-                print(COLOR_RED + err.error + COLOR_RESET);
+                print(COLOR_RED + "✗" + COLOR_RESET + " " + COLOR_BOLD + err.suite + " > " + err.test + COLOR_RESET + " " + COLOR_DIM + "(" + err_time_str + ")" + COLOR_RESET);
+                print("  " + COLOR_RED + err.error + COLOR_RESET);
             } else {
                 print("");
-                print(err.suite + " > " + err.test);
-                print(err.error);
+                print("✗ " + err.suite + " > " + err.test + " (" + err_time_str + ")");
+                print("  " + err.error);
             }
 
             err_idx = err_idx + 1;
@@ -593,6 +628,7 @@ fn run(options?: null) {
         total: __test_stats.total,
         passed: __test_stats.passed,
         failed: __test_stats.failed,
+        total_time_ms: __test_stats.total_time_ms,
         success: __test_stats.failed == 0
     };
 }
