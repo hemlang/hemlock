@@ -92,7 +92,7 @@ while (i < 1000) {
 
 assert(q.size == 1000, "Should handle large queue");
 
-let i = 0;
+i = 0;
 while (i < 1000) {
     let val = q.dequeue();
     assert(val == i, "Should dequeue in FIFO order");
