@@ -1069,9 +1069,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (method_self.type == VAL_OBJECT) {
                     const char *method = expr->as.call.func->as.get_property.property;
 
-                    // Only handle built-in object methods here (serialize, keys)
+                    // Only handle built-in object methods here (serialize, keys, has)
                     // BUT first check if the object has a user-defined method with this name
-                    if (strcmp(method, "serialize") == 0 || strcmp(method, "keys") == 0) {
+                    if (strcmp(method, "serialize") == 0 || strcmp(method, "keys") == 0 || strcmp(method, "has") == 0) {
                         // Check if object has a user-defined function with this name
                         Object *obj = method_self.as.as_object;
                         int has_user_method = 0;

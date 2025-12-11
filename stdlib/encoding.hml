@@ -118,10 +118,14 @@ fn base64_decode(input): string {
         let b1 = ((v1 << 2) | (v2 >> 4)) & 255;
         bytes.push(b1);
 
+        // Declare variables for second/third byte processing
+        let v3 = null;
+        let v4 = null;
+
         // Second byte (if not padded)
         if (c3 != BASE64_PAD) {
-            let c3_str: string = c3;
-            let v3 = lookup[c3_str];
+            let c3_str: string = c3;  // Convert rune to string
+            v3 = lookup[c3_str];
             if (v3 == null) {
                 throw "Invalid Base64 string: invalid character";
             }
@@ -131,10 +135,13 @@ fn base64_decode(input): string {
 
         // Third byte (if not padded)
         if (c4 != BASE64_PAD) {
-            let c3_str: string = c3;
+            // Re-compute c3_str if needed (when c3 was not padding)
+            let c3_str_3: string = c3;  // Use different var name to avoid conflict
             let c4_str: string = c4;
-            let v3 = lookup[c3_str];
-            let v4 = lookup[c4_str];
+            if (v3 == null) {
+                v3 = lookup[c3_str_3];
+            }
+            v4 = lookup[c4_str];
             if (v3 == null || v4 == null) {
                 throw "Invalid Base64 string: invalid character";
             }
