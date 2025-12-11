@@ -343,7 +343,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_defer_execute_all(ctx);
                 // Execute any runtime defers (from loops)
                 codegen_writeln(ctx, "hml_defer_execute_all();");
-                codegen_writeln(ctx, "hml_call_exit();");
+                codegen_writeln(ctx, "HML_CALL_EXIT();");
                 codegen_writeln(ctx, "return %s;", ret_val);
                 free(ret_val);
             } else {
@@ -353,13 +353,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     // Execute any runtime defers (from loops)
                     codegen_writeln(ctx, "hml_defer_execute_all();");
-                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "HML_CALL_EXIT();");
                     codegen_writeln(ctx, "return %s;", value);
                     free(value);
                 } else {
                     // Execute any runtime defers (from loops)
                     codegen_writeln(ctx, "hml_defer_execute_all();");
-                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "HML_CALL_EXIT();");
                     codegen_writeln(ctx, "return hml_val_null();");
                 }
             }
@@ -488,7 +488,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_indent_inc(ctx);
                     // Execute any runtime defers (from loops)
                     codegen_writeln(ctx, "hml_defer_execute_all();");
-                    codegen_writeln(ctx, "hml_call_exit();");
+                    codegen_writeln(ctx, "HML_CALL_EXIT();");
                     codegen_writeln(ctx, "return %s;", return_value_var);
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");

@@ -4042,91 +4042,93 @@ void hml_defer_push_call(HmlValue fn) {
 
 // ========== FUNCTION CALLS ==========
 
+// Pre-created null value for fast padding (avoids repeated function calls)
+static const HmlValue HML_NULL_VAL = { .type = HML_VAL_NULL };
+
+// Function pointer typedefs for dispatch (declared once for reuse)
+typedef HmlValue (*HmlFn0)(HmlClosureEnv*);
+typedef HmlValue (*HmlFn1)(HmlClosureEnv*, HmlValue);
+typedef HmlValue (*HmlFn2)(HmlClosureEnv*, HmlValue, HmlValue);
+typedef HmlValue (*HmlFn3)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue);
+typedef HmlValue (*HmlFn4)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue);
+typedef HmlValue (*HmlFn5)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+typedef HmlValue (*HmlFn6)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+typedef HmlValue (*HmlFn7)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+typedef HmlValue (*HmlFn8)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
+
+// Hot path: dispatch function call with optimized branching
+__attribute__((hot))
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
-    if (fn.type == HML_VAL_BUILTIN_FN) {
+    // Fast path: builtin functions (common for stdlib)
+    if (__builtin_expect(fn.type == HML_VAL_BUILTIN_FN, 0)) {
         return fn.as.as_builtin_fn(args, num_args);
     }
 
-    if (fn.type == HML_VAL_FUNCTION && fn.as.as_function) {
-        // Call the C function pointer stored in the function struct
-        void *fn_ptr = fn.as.as_function->fn_ptr;
-        if (fn_ptr == NULL) {
+    // Main path: user-defined functions
+    if (__builtin_expect(fn.type == HML_VAL_FUNCTION && fn.as.as_function != NULL, 1)) {
+        HmlFunction *func = fn.as.as_function;
+        void *fn_ptr = func->fn_ptr;
+
+        // Null check (rare error case)
+        if (__builtin_expect(fn_ptr == NULL, 0)) {
             hml_runtime_error("Function pointer is NULL");
         }
 
-        // Check if this is a closure (has environment)
-        void *closure_env = fn.as.as_function->closure_env;
-        int num_params = fn.as.as_function->num_params;
-        int num_required = fn.as.as_function->num_required;
+        int num_params = func->num_params;
+        int num_required = func->num_required;
 
-        // Arity check: must have at least num_required args and at most num_params
-        if (num_args < num_required) {
+        // Arity check (error cases are rare)
+        if (__builtin_expect(num_args < num_required, 0)) {
             hml_runtime_error("Function expects %d arguments, got %d", num_required, num_args);
         }
-        if (num_args > num_params) {
+        if (__builtin_expect(num_args > num_params, 0)) {
             hml_runtime_error("Function expects %d arguments, got %d", num_params, num_args);
         }
 
-        // Build args array with nulls for missing optional parameters
-        // Use num_params (from function definition) to determine how many args to pass
-        HmlValue padded_args[9] = {0};  // Max 8 params + 1 for safety
-        for (int i = 0; i < num_params && i < 8; i++) {
-            if (i < num_args) {
-                padded_args[i] = args[i];
-            } else {
-                padded_args[i] = hml_val_null();  // Fill missing with null for optional params
+        HmlClosureEnv *env = (HmlClosureEnv*)func->closure_env;
+
+        // Fast paths for common arities (0-3 params cover ~90% of functions)
+        // Avoid padded_args array entirely when num_args == num_params
+        if (__builtin_expect(num_args == num_params, 1)) {
+            switch (num_params) {
+                case 0: return ((HmlFn0)fn_ptr)(env);
+                case 1: return ((HmlFn1)fn_ptr)(env, args[0]);
+                case 2: return ((HmlFn2)fn_ptr)(env, args[0], args[1]);
+                case 3: return ((HmlFn3)fn_ptr)(env, args[0], args[1], args[2]);
+                case 4: return ((HmlFn4)fn_ptr)(env, args[0], args[1], args[2], args[3]);
+                case 5: return ((HmlFn5)fn_ptr)(env, args[0], args[1], args[2], args[3], args[4]);
+                case 6: return ((HmlFn6)fn_ptr)(env, args[0], args[1], args[2], args[3], args[4], args[5]);
+                case 7: return ((HmlFn7)fn_ptr)(env, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+                case 8: return ((HmlFn8)fn_ptr)(env, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
             }
         }
 
-        // Use num_params for the function signature since that's how many params it expects
-        HmlClosureEnv *env = closure_env ? (HmlClosureEnv*)closure_env : NULL;
+        // Slow path: need to pad args with nulls for optional parameters
+        HmlValue padded_args[8];
+
+        // Copy provided args (use memcpy for larger copies)
+        if (num_args <= 4) {
+            for (int i = 0; i < num_args; i++) {
+                padded_args[i] = args[i];
+            }
+        } else {
+            memcpy(padded_args, args, num_args * sizeof(HmlValue));
+        }
+
+        // Fill remaining with null (use static null value)
+        for (int i = num_args; i < num_params; i++) {
+            padded_args[i] = HML_NULL_VAL;
+        }
 
         switch (num_params) {
-            case 0: {
-                typedef HmlValue (*Fn0)(HmlClosureEnv*);
-                Fn0 f = (Fn0)fn_ptr;
-                return f(env);
-            }
-            case 1: {
-                typedef HmlValue (*Fn1)(HmlClosureEnv*, HmlValue);
-                Fn1 f = (Fn1)fn_ptr;
-                return f(env, padded_args[0]);
-            }
-            case 2: {
-                typedef HmlValue (*Fn2)(HmlClosureEnv*, HmlValue, HmlValue);
-                Fn2 f = (Fn2)fn_ptr;
-                return f(env, padded_args[0], padded_args[1]);
-            }
-            case 3: {
-                typedef HmlValue (*Fn3)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue);
-                Fn3 f = (Fn3)fn_ptr;
-                return f(env, padded_args[0], padded_args[1], padded_args[2]);
-            }
-            case 4: {
-                typedef HmlValue (*Fn4)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn4 f = (Fn4)fn_ptr;
-                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3]);
-            }
-            case 5: {
-                typedef HmlValue (*Fn5)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn5 f = (Fn5)fn_ptr;
-                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4]);
-            }
-            case 6: {
-                typedef HmlValue (*Fn6)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn6 f = (Fn6)fn_ptr;
-                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5]);
-            }
-            case 7: {
-                typedef HmlValue (*Fn7)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn7 f = (Fn7)fn_ptr;
-                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5], padded_args[6]);
-            }
-            case 8: {
-                typedef HmlValue (*Fn8)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-                Fn8 f = (Fn8)fn_ptr;
-                return f(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5], padded_args[6], padded_args[7]);
-            }
+            case 1: return ((HmlFn1)fn_ptr)(env, padded_args[0]);
+            case 2: return ((HmlFn2)fn_ptr)(env, padded_args[0], padded_args[1]);
+            case 3: return ((HmlFn3)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2]);
+            case 4: return ((HmlFn4)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3]);
+            case 5: return ((HmlFn5)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4]);
+            case 6: return ((HmlFn6)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5]);
+            case 7: return ((HmlFn7)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5], padded_args[6]);
+            case 8: return ((HmlFn8)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5], padded_args[6], padded_args[7]);
             default:
                 hml_runtime_error("Functions with more than 8 arguments not supported");
         }
@@ -5713,21 +5715,16 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
 // ========== CALL STACK TRACKING ==========
 
 // Thread-local call depth counter for stack overflow detection
-static __thread int g_call_depth = 0;
+// Exposed globally for inline macro access (hml_g_call_depth)
+__thread int hml_g_call_depth = 0;
 
+// Function versions for backwards compatibility (macros are faster)
 void hml_call_enter(void) {
-    g_call_depth++;
-    if (g_call_depth > HML_MAX_CALL_DEPTH) {
-        // Reset depth before throwing so exception handling works
-        g_call_depth = 0;
-        hml_runtime_error("Maximum call stack depth exceeded (infinite recursion?)");
-    }
+    HML_CALL_ENTER();
 }
 
 void hml_call_exit(void) {
-    if (g_call_depth > 0) {
-        g_call_depth--;
-    }
+    HML_CALL_EXIT();
 }
 
 // ========== SIGNAL HANDLING ==========

@@ -739,6 +739,22 @@ HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input);
 void hml_call_enter(void);
 void hml_call_exit(void);
 
+// Thread-local call depth counter (exposed for inline macros)
+extern __thread int hml_g_call_depth;
+
+// Inline call depth tracking macros (faster than function calls)
+// Use branch prediction hint - stack overflow is rare
+#define HML_CALL_ENTER() do { \
+    if (__builtin_expect(++hml_g_call_depth > HML_MAX_CALL_DEPTH, 0)) { \
+        hml_g_call_depth = 0; \
+        hml_runtime_error("Maximum call stack depth exceeded (infinite recursion?)"); \
+    } \
+} while(0)
+
+#define HML_CALL_EXIT() do { \
+    hml_g_call_depth--; \
+} while(0)
+
 // ========== UTILITY MACROS ==========
 
 // Create a string literal value (compile-time optimization)

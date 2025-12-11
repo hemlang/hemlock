@@ -77,8 +77,8 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
         }
     }
 
-    // Track call depth for stack overflow detection
-    codegen_writeln(ctx, "hml_call_enter();");
+    // Track call depth for stack overflow detection (inline macro for speed)
+    codegen_writeln(ctx, "HML_CALL_ENTER();");
 
     // Generate body
     if (func->as.function.body->type == STMT_BLOCK) {
@@ -96,7 +96,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     codegen_writeln(ctx, "hml_defer_execute_all();");
 
     // Decrement call depth before implicit return
-    codegen_writeln(ctx, "hml_call_exit();");
+    codegen_writeln(ctx, "HML_CALL_EXIT();");
 
     // Default return null
     codegen_writeln(ctx, "return hml_val_null();");
@@ -193,8 +193,8 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         }
     }
 
-    // Track call depth for stack overflow detection
-    codegen_writeln(ctx, "hml_call_enter();");
+    // Track call depth for stack overflow detection (inline macro for speed)
+    codegen_writeln(ctx, "HML_CALL_ENTER();");
 
     // Scan for all closures in the function body and set up a shared environment
     // This allows multiple closures within this function to share the same environment
@@ -246,7 +246,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     }
 
     // Decrement call depth before implicit return
-    codegen_writeln(ctx, "hml_call_exit();");
+    codegen_writeln(ctx, "HML_CALL_EXIT();");
 
     // Default return null
     codegen_writeln(ctx, "return hml_val_null();");
