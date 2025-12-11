@@ -17,6 +17,9 @@
 #include "../../include/version.h"
 #include "codegen.h"
 
+#define HEMLOCK_BUILD_DATE __DATE__
+#define HEMLOCK_BUILD_TIME __TIME__
+
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
@@ -107,7 +110,7 @@ static Options parse_args(int argc, char **argv) {
             print_usage(argv[0]);
             exit(0);
         } else if (strcmp(argv[i], "--version") == 0) {
-            printf("hemlockc %s\n", HEMLOCK_VERSION);
+            printf("hemlockc %s (built %s %s)\n", HEMLOCK_VERSION, HEMLOCK_BUILD_DATE, HEMLOCK_BUILD_TIME);
             exit(0);
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             opts.output_file = argv[++i];

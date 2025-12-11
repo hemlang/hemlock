@@ -3807,52 +3807,109 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     }
     p->pos++;
 
-    HmlValue obj = hml_val_object();
+    // Pre-allocate arrays for direct building (O(n) instead of O(n²))
+    int capacity = 8;
+    char **field_names = malloc(sizeof(char*) * capacity);
+    HmlValue *field_values = malloc(sizeof(HmlValue) * capacity);
+    int num_fields = 0;
 
     json_skip_whitespace(p);
 
     if (p->input[p->pos] == '}') {
         p->pos++;
-        return obj;
+        // Build empty object directly
+        HmlObject *obj = malloc(sizeof(HmlObject));
+        obj->type_name = NULL;
+        obj->field_names = field_names;
+        obj->field_values = field_values;
+        obj->num_fields = 0;
+        obj->capacity = capacity;
+        obj->ref_count = 1;
+        atomic_store(&obj->freed, 0);
+        HmlValue result;
+        result.type = HML_VAL_OBJECT;
+        result.as.as_object = obj;
+        return result;
     }
 
     while (p->input[p->pos] != '}' && p->input[p->pos] != '\0') {
         json_skip_whitespace(p);
 
         HmlValue name_val = json_parse_string(p);
-        char *field_name = strdup(name_val.as.as_string->data);
+
+        // Grow arrays if needed
+        if (num_fields >= capacity) {
+            capacity *= 2;
+            field_names = realloc(field_names, sizeof(char*) * capacity);
+            field_values = realloc(field_values, sizeof(HmlValue) * capacity);
+        }
+
+        // Direct assignment - no duplicate check needed for JSON parsing
+        field_names[num_fields] = strdup(name_val.as.as_string->data);
         hml_release(&name_val);
 
         json_skip_whitespace(p);
 
         if (p->input[p->pos] != ':') {
-            free(field_name);
+            // Cleanup on error
+            for (int i = 0; i < num_fields; i++) {
+                free(field_names[i]);
+                hml_release(&field_values[i]);
+            }
+            free(field_names);
+            free(field_values);
             hml_runtime_error("Expected ':' in JSON object");
         }
         p->pos++;
 
         json_skip_whitespace(p);
 
-        HmlValue field_value = json_parse_value(p);
-        hml_object_set_field(obj, field_name, field_value);
-        hml_release(&field_value);
-        free(field_name);
+        // Parse value directly into the array (already has ref_count=1)
+        field_values[num_fields] = json_parse_value(p);
+        num_fields++;
 
         json_skip_whitespace(p);
 
         if (p->input[p->pos] == ',') {
             p->pos++;
         } else if (p->input[p->pos] != '}') {
+            // Cleanup on error
+            for (int i = 0; i < num_fields; i++) {
+                free(field_names[i]);
+                hml_release(&field_values[i]);
+            }
+            free(field_names);
+            free(field_values);
             hml_runtime_error("Expected ',' or '}' in JSON object");
         }
     }
 
     if (p->input[p->pos] != '}') {
+        // Cleanup on error
+        for (int i = 0; i < num_fields; i++) {
+            free(field_names[i]);
+            hml_release(&field_values[i]);
+        }
+        free(field_names);
+        free(field_values);
         hml_runtime_error("Unterminated object in JSON");
     }
     p->pos++;
 
-    return obj;
+    // Build object directly with pre-populated arrays
+    HmlObject *obj = malloc(sizeof(HmlObject));
+    obj->type_name = NULL;
+    obj->field_names = field_names;
+    obj->field_values = field_values;
+    obj->num_fields = num_fields;
+    obj->capacity = capacity;
+    obj->ref_count = 1;
+    atomic_store(&obj->freed, 0);
+
+    HmlValue result;
+    result.type = HML_VAL_OBJECT;
+    result.as.as_object = obj;
+    return result;
 }
 
 static HmlValue json_parse_array(HmlJSONParser *p) {
@@ -3861,37 +3918,79 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
     }
     p->pos++;
 
-    HmlValue arr = hml_val_array();
+    // Pre-allocate array for direct building (avoids retain/release overhead)
+    int capacity = 8;
+    HmlValue *elements = malloc(sizeof(HmlValue) * capacity);
+    int length = 0;
 
     json_skip_whitespace(p);
 
     if (p->input[p->pos] == ']') {
         p->pos++;
-        return arr;
+        // Build empty array directly
+        HmlArray *arr = malloc(sizeof(HmlArray));
+        arr->elements = elements;
+        arr->length = 0;
+        arr->capacity = capacity;
+        arr->ref_count = 1;
+        arr->element_type = HML_VAL_NULL;
+        atomic_store(&arr->freed, 0);
+        HmlValue result;
+        result.type = HML_VAL_ARRAY;
+        result.as.as_array = arr;
+        return result;
     }
 
     while (p->input[p->pos] != ']' && p->input[p->pos] != '\0') {
         json_skip_whitespace(p);
 
-        HmlValue elem = json_parse_value(p);
-        hml_array_push(arr, elem);
-        hml_release(&elem);
+        // Grow if needed
+        if (length >= capacity) {
+            capacity *= 2;
+            elements = realloc(elements, sizeof(HmlValue) * capacity);
+        }
+
+        // Parse directly into array - value already has ref_count=1
+        elements[length] = json_parse_value(p);
+        length++;
 
         json_skip_whitespace(p);
 
         if (p->input[p->pos] == ',') {
             p->pos++;
         } else if (p->input[p->pos] != ']') {
+            // Cleanup on error
+            for (int i = 0; i < length; i++) {
+                hml_release(&elements[i]);
+            }
+            free(elements);
             hml_runtime_error("Expected ',' or ']' in JSON array");
         }
     }
 
     if (p->input[p->pos] != ']') {
+        // Cleanup on error
+        for (int i = 0; i < length; i++) {
+            hml_release(&elements[i]);
+        }
+        free(elements);
         hml_runtime_error("Unterminated array in JSON");
     }
     p->pos++;
 
-    return arr;
+    // Build array directly with pre-populated elements
+    HmlArray *arr = malloc(sizeof(HmlArray));
+    arr->elements = elements;
+    arr->length = length;
+    arr->capacity = capacity;
+    arr->ref_count = 1;
+    arr->element_type = HML_VAL_NULL;
+    atomic_store(&arr->freed, 0);
+
+    HmlValue result;
+    result.type = HML_VAL_ARRAY;
+    result.as.as_array = arr;
+    return result;
 }
 
 // Optimized json_parse_value with direct character comparisons

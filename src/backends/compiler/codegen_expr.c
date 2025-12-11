@@ -563,7 +563,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
                 }
             }
-            codegen_writeln(ctx, "hml_retain(&%s);", result);
+            // OPTIMIZATION: Use conditional retain to skip for primitives (i32, i64, f64, bool)
+            codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
             break;
 
         case EXPR_BINARY: {
@@ -2368,12 +2369,66 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     import_binding = codegen_find_main_import(ctx, fn_name);
                 }
 
-                if (codegen_is_main_var(ctx, fn_name) && !import_binding) {
-                    // Main file variable (function def or closure) - use generic call path
-                    // This ensures optional parameters get default values via runtime handling
+                if (codegen_is_main_func(ctx, fn_name) && !import_binding && !ctx->current_module) {
+                    // OPTIMIZATION: Main file function definition - call directly
+                    // This is safe because we know the function signature at compile time
+                    int expected_params = codegen_get_main_func_params(ctx, fn_name);
+                    char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                    }
+
+                    codegen_write(ctx, "");
+                    codegen_indent(ctx);
+                    fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        fprintf(ctx->output, ", %s", arg_temps[i]);
+                    }
+                    // Fill in hml_val_null() for missing optional parameters
+                    for (int i = expr->as.call.num_args; i < expected_params; i++) {
+                        fprintf(ctx->output, ", hml_val_null()");
+                    }
+                    fprintf(ctx->output, ");\n");
+
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                        free(arg_temps[i]);
+                    }
+                    free(arg_temps);
+                    break;
+                } else if (codegen_is_main_var(ctx, fn_name) && !import_binding) {
+                    // Main file variable that's NOT a function definition (e.g., assigned closure)
+                    // Use generic call path to properly handle closures
                     // Fall through to generic handling
                 } else if (codegen_is_local(ctx, fn_name) && !import_binding) {
-                    // It's a true local function variable (not an import) - call through hml_call_function
+                    // Check if this local is actually a captured main file function - use direct call
+                    if (codegen_is_main_func(ctx, fn_name) && !ctx->current_module) {
+                        int expected_params = codegen_get_main_func_params(ctx, fn_name);
+                        char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                            arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                        }
+
+                        codegen_write(ctx, "");
+                        codegen_indent(ctx);
+                        fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
+                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                            fprintf(ctx->output, ", %s", arg_temps[i]);
+                        }
+                        // Fill in hml_val_null() for missing optional parameters
+                        for (int i = expr->as.call.num_args; i < expected_params; i++) {
+                            fprintf(ctx->output, ", hml_val_null()");
+                        }
+                        fprintf(ctx->output, ");\n");
+
+                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                            codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                            free(arg_temps[i]);
+                        }
+                        free(arg_temps);
+                        break;
+                    }
+                    // It's a true local function variable (not a main func) - call through hml_call_function
                     // Fall through to generic handling
                 } else if (import_binding && !import_binding->is_function) {
                     // Imported variable that holds a function value (e.g., export let sleep = __sleep)

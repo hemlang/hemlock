@@ -140,6 +140,7 @@ typedef struct {
 
     // Main file function definitions (subset of main_vars that are actual function defs)
     char **main_funcs;          // List of top-level function names in main file
+    int *main_func_params;      // Number of parameters for each main file function
     int num_main_funcs;         // Count of main file functions
     int main_funcs_capacity;    // Capacity of main_funcs array
 

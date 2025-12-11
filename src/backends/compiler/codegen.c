@@ -432,13 +432,16 @@ int codegen_is_main_var(CodegenContext *ctx, const char *name) {
 }
 
 // Main file function definitions (subset of main_vars that are actual function defs)
-void codegen_add_main_func(CodegenContext *ctx, const char *name) {
+void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params) {
     if (ctx->num_main_funcs >= ctx->main_funcs_capacity) {
         int new_cap = (ctx->main_funcs_capacity == 0) ? 16 : ctx->main_funcs_capacity * 2;
         ctx->main_funcs = realloc(ctx->main_funcs, new_cap * sizeof(char*));
+        ctx->main_func_params = realloc(ctx->main_func_params, new_cap * sizeof(int));
         ctx->main_funcs_capacity = new_cap;
     }
-    ctx->main_funcs[ctx->num_main_funcs++] = strdup(name);
+    ctx->main_funcs[ctx->num_main_funcs] = strdup(name);
+    ctx->main_func_params[ctx->num_main_funcs] = num_params;
+    ctx->num_main_funcs++;
 }
 
 int codegen_is_main_func(CodegenContext *ctx, const char *name) {
@@ -448,6 +451,15 @@ int codegen_is_main_func(CodegenContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+int codegen_get_main_func_params(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_main_funcs; i++) {
+        if (strcmp(ctx->main_funcs[i], name) == 0) {
+            return ctx->main_func_params[i];
+        }
+    }
+    return -1;  // Not found
 }
 
 // Main file import tracking (for function call resolution)

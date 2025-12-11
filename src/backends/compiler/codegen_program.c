@@ -80,6 +80,31 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     // Track call depth for stack overflow detection (inline macro for speed)
     codegen_writeln(ctx, "HML_CALL_ENTER();");
 
+    // Scan for all closures in the function body and set up a shared environment
+    // This allows multiple closures within this function to share the same environment
+    Scope *scan_scope = scope_new(NULL);
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        scope_add_var(scan_scope, func->as.function.param_names[i]);
+    }
+    shared_env_clear(ctx);  // Clear any previous shared environment
+    if (func->as.function.body->type == STMT_BLOCK) {
+        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
+            scan_closures_stmt(ctx, func->as.function.body->as.block.statements[i], scan_scope);
+        }
+    } else {
+        scan_closures_stmt(ctx, func->as.function.body, scan_scope);
+    }
+    scope_free(scan_scope);
+
+    // If there are captured variables, create the shared environment
+    if (ctx->shared_env_num_vars > 0) {
+        char env_name[64];
+        snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
+        ctx->shared_env_name = strdup(env_name);
+        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
+                      env_name, ctx->shared_env_num_vars);
+    }
+
     // Generate body
     if (func->as.function.body->type == STMT_BLOCK) {
         for (int i = 0; i < func->as.function.body->as.block.count; i++) {
@@ -104,11 +129,12 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals, defer state, and in_function flag
+    // Restore locals, defer state, in_function flag, and clear shared environment
     codegen_defer_clear(ctx);
     ctx->defer_stack = saved_defer_stack;
     ctx->num_locals = saved_num_locals;
     ctx->in_function = saved_in_function;
+    shared_env_clear(ctx);
 }
 
 // Generate a closure function (takes environment as first hidden parameter)
@@ -614,7 +640,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         Expr *func;
         if (is_function_def(stmt, &name, &func)) {
             codegen_add_main_var(ctx, name);
-            codegen_add_main_func(ctx, name);  // Also track as function definition
+            codegen_add_main_func(ctx, name, func->as.function.num_params);  // Also track as function definition with param count
         } else if (stmt->type == STMT_CONST) {
             codegen_add_main_var(ctx, stmt->as.const_stmt.name);
             codegen_add_const(ctx, stmt->as.const_stmt.name);
