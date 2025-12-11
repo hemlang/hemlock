@@ -99,8 +99,19 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     // Track call depth for stack overflow detection
     codegen_writeln(ctx, "hml_call_enter();");
 
+    // TCO: Counter for infinite recursion detection
+    codegen_writeln(ctx, "int _tco_counter = 0;");
+
     // TCO: Add label at start of function body for tail call jumps
     codegen_writeln(ctx, "%s:;", tco_label);
+
+    // TCO: Check for infinite recursion (limit matches interpreter's MAX_TCO_ITERATIONS)
+    codegen_writeln(ctx, "if (++_tco_counter > 10000000) {");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "hml_call_exit();");
+    codegen_writeln(ctx, "hml_throw(hml_val_string(\"Maximum tail call iterations exceeded (infinite recursion?)\"));");
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
 
     // Generate body
     if (func->as.function.body->type == STMT_BLOCK) {
@@ -255,8 +266,19 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Track call depth for stack overflow detection
     codegen_writeln(ctx, "hml_call_enter();");
 
+    // TCO: Counter for infinite recursion detection
+    codegen_writeln(ctx, "int _tco_counter = 0;");
+
     // TCO: Add label at start of function body for tail call jumps
     codegen_writeln(ctx, "%s:;", tco_label);
+
+    // TCO: Check for infinite recursion (limit matches interpreter's MAX_TCO_ITERATIONS)
+    codegen_writeln(ctx, "if (++_tco_counter > 10000000) {");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "hml_call_exit();");
+    codegen_writeln(ctx, "hml_throw(hml_val_string(\"Maximum tail call iterations exceeded (infinite recursion?)\"));");
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
 
     // Scan for all closures in the function body and set up a shared environment
     // This allows multiple closures within this function to share the same environment
