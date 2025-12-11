@@ -155,6 +155,29 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         break;
 
     case 's':
+        // serialize() - convert array to JSON string
+        if (method[1] == 'e' && strcmp(method, "serialize") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "serialize() expects no arguments");
+            }
+
+            VisitedSet visited;
+            visited_init(&visited);
+
+            Value arr_val = val_array(arr);
+            char *json = serialize_value(arr_val, &visited, ctx);
+
+            visited_free(&visited);
+
+            if (json == NULL) {
+                // Exception was already thrown by serialize_value
+                return val_null();
+            }
+
+            Value result = val_string(json);
+            free(json);
+            return result;
+        }
         // shift() - remove and return first element
         if (method[1] == 'h' && strcmp(method, "shift") == 0) {
             if (num_args != 0) {
