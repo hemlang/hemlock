@@ -658,6 +658,36 @@ static void env_hash_insert(Environment *env, const char *name, int index) {
     env->hash_generations[slot] = gen;  // Mark slot as current generation
 }
 
+// Fast parameter binding - skips checks since we know env is fresh and params are unique
+// Only use when binding parameters to a newly created call environment
+void env_bind_params(Environment *env, const char **names, Value *values, int count) {
+    // Direct write to slots - no checks needed for fresh environment
+    uint32_t gen = env->generation;
+    for (int i = 0; i < count; i++) {
+        env->names[i] = (char*)names[i];  // Borrow from AST
+        VALUE_RETAIN(values[i]);
+        env->values[i] = values[i];
+        env->is_const[i] = 0;  // Parameters are always mutable
+
+        // Direct hash insert - no collision check needed for fresh env
+        uint32_t hash = hash_string(names[i]);
+        int slot = hash % env->hash_capacity;
+        // Linear probe to find empty slot (stale generation counts as empty)
+        while (env->hash_table[slot] != -1 && env->hash_generations[slot] == gen) {
+            slot = (slot + 1) % env->hash_capacity;
+        }
+        env->hash_table[slot] = i;
+        env->hash_generations[slot] = gen;
+    }
+    env->count = count;
+    // Mark first 'count' names as borrowed (up to 32)
+    if (count <= 32) {
+        env->borrowed_flags = (1U << count) - 1;
+    } else {
+        env->borrowed_flags = 0xFFFFFFFF;
+    }
+}
+
 // Define a new variable (for let/const declarations)
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx) {
     uint32_t hash = hash_string(name);

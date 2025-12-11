@@ -103,6 +103,8 @@ void env_release(Environment *env);
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
 // Fast variant that borrows the name string without strdup - caller must ensure name outlives env
 void env_define_borrowed(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
+// Fast batch parameter binding for fresh call environments - skips existence checks
+void env_bind_params(Environment *env, const char **names, Value *values, int count);
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 

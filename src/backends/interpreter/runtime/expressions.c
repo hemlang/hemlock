@@ -1225,32 +1225,54 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(method_self);  // Release original reference (env_set retained it)
                 }
 
-                // Bind parameters
-                for (int i = 0; i < fn->num_params; i++) {
-                    Value arg_value = {0};
+                // Fast path: use batch binding when all args provided and no type checking
+                // This avoids per-param hash lookups and existence checks
+                int use_fast_path = !is_method_call &&
+                                    expr->as.call.num_args == fn->num_params &&
+                                    fn->num_params > 0 &&
+                                    fn->num_params <= 16;  // Within default env capacity
 
-                    // Use provided argument or evaluate default
-                    if (i < expr->as.call.num_args) {
-                        // Argument was provided
-                        arg_value = args[i];
-                    } else {
-                        // Argument missing - use default value
-                        if (fn->param_defaults && fn->param_defaults[i]) {
-                            // Evaluate default expression in the closure environment
-                            arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
-                        } else {
-                            // Should never happen if arity check is correct
-                            runtime_error(ctx, "Missing required parameter '%s'", fn->param_names[i]);
+                // Check if any param has type annotation
+                if (use_fast_path) {
+                    for (int i = 0; i < fn->num_params; i++) {
+                        if (fn->param_types[i]) {
+                            use_fast_path = 0;
+                            break;
                         }
                     }
+                }
 
-                    // Type check if parameter has type annotation
-                    if (fn->param_types[i]) {
-                        arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
+                if (use_fast_path) {
+                    // Fast batch binding - no checks needed
+                    env_bind_params(call_env, (const char**)fn->param_names, args, fn->num_params);
+                } else {
+                    // Slow path: handle defaults, type checking, method self
+                    for (int i = 0; i < fn->num_params; i++) {
+                        Value arg_value = {0};
+
+                        // Use provided argument or evaluate default
+                        if (i < expr->as.call.num_args) {
+                            // Argument was provided
+                            arg_value = args[i];
+                        } else {
+                            // Argument missing - use default value
+                            if (fn->param_defaults && fn->param_defaults[i]) {
+                                // Evaluate default expression in the closure environment
+                                arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
+                            } else {
+                                // Should never happen if arity check is correct
+                                runtime_error(ctx, "Missing required parameter '%s'", fn->param_names[i]);
+                            }
+                        }
+
+                        // Type check if parameter has type annotation
+                        if (fn->param_types[i]) {
+                            arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
+                        }
+
+                        // Use borrowed variant - param names come from AST and outlive the call
+                        env_define_borrowed(call_env, fn->param_names[i], arg_value, 0, ctx);
                     }
-
-                    // Use borrowed variant - param names come from AST and outlive the call
-                    env_define_borrowed(call_env, fn->param_names[i], arg_value, 0, ctx);
                 }
 
                 // Save defer stack depth before executing function body
