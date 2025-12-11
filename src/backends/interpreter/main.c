@@ -16,6 +16,7 @@
 #include "version.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
+#define HEMLOCK_BUILD_TIME __TIME__
 
 // Magic marker for packaged executables (appended at end of file)
 // Format: [hemlock binary][HMLB payload][payload_size:u64][HMLP magic:u32]
@@ -842,7 +843,7 @@ static void run_repl(void) {
 }
 
 static void print_version(void) {
-    printf("Hemlock version %s (built %s)\n", HEMLOCK_VERSION, HEMLOCK_BUILD_DATE);
+    printf("Hemlock version %s (built %s %s)\n", HEMLOCK_VERSION, HEMLOCK_BUILD_DATE, HEMLOCK_BUILD_TIME);
     printf("A small, unsafe language for writing unsafe things safely.\n");
 }
 
