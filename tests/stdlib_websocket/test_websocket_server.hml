@@ -4,15 +4,6 @@
 
 import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { sleep } from "@stdlib/time";
-import { getenv } from "@stdlib/env";
-
-// Skip in CI - socket timing is unreliable in containerized environments
-let ci = getenv("CI");
-let github_actions = getenv("GITHUB_ACTIONS");
-if (ci != null || github_actions != null) {
-    print("SKIP: WebSocket server test skipped in CI (socket timing unreliable)");
-    // Exit cleanly - test passes but is skipped
-} else {
 
 print("Testing WebSocket server...");
 print("Requires: libwebsockets-dev");
@@ -21,12 +12,14 @@ print("");
 let tests_passed = 0;
 let tests_failed = 0;
 
-// Async function to accept server connection (shorter timeout for faster failure)
-async fn accept_connection(srv) {
-    print("  Server: Waiting for client...");
-    let conn = srv.accept(3000);  // 3 second timeout
-    print("  Server: Client connected");
-    return conn;
+// Async function to connect as client (runs in spawned task)
+async fn connect_client(url: string) {
+    // Small delay to ensure server is accepting
+    sleep(0.2);
+    print("  Client: Connecting...");
+    let client = WebSocket(url);
+    print("  Client: Connected");
+    return client;
 }
 
 // Test 1: Create WebSocket server
@@ -47,23 +40,21 @@ try {
     print("");
     print("Test 2: Client connects to server");
 
-    let accept_task = spawn(accept_connection, server);
+    // Spawn client connection (will wait 0.2s then connect)
+    let client_task = spawn(connect_client, "ws://127.0.0.1:9001");
 
-    // Give server time to start accepting connections
-    sleep(0.5);
+    // Main thread accepts (this is ready immediately)
+    print("  Server: Waiting for client...");
+    let server_conn = server.accept(5000);  // 5 second timeout
+    print("  Server: Client connected");
 
-    // Client connects
-    print("  Client: Connecting...");
-    let client = WebSocket("ws://127.0.0.1:9001");
+    // Wait for client task to complete
+    let client = join(client_task);
     defer client.close();
-
-    print("  Client: Connected");
-
-    // Wait for server to accept
-    let server_conn = join(accept_task);
     defer server_conn.close();
 
     assert(server_conn != null, "Server should accept connection");
+    assert(client != null, "Client should connect");
 
     print("✓ Client-server connection established");
     tests_passed = tests_passed + 1;
@@ -155,5 +146,3 @@ if (tests_failed > 0) {
 
 print("");
 assert(tests_failed == 0, "All WebSocket server tests should pass");
-
-} // end else (not CI)
