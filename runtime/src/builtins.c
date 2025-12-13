@@ -613,6 +613,22 @@ HmlValue hml_trunc(HmlValue x) {
     return hml_val_f64(trunc(hml_to_f64(x)));
 }
 
+HmlValue hml_floori(HmlValue x) {
+    return hml_val_i64((int64_t)floor(hml_to_f64(x)));
+}
+
+HmlValue hml_ceili(HmlValue x) {
+    return hml_val_i64((int64_t)ceil(hml_to_f64(x)));
+}
+
+HmlValue hml_roundi(HmlValue x) {
+    return hml_val_i64((int64_t)round(hml_to_f64(x)));
+}
+
+HmlValue hml_trunci(HmlValue x) {
+    return hml_val_i64((int64_t)trunc(hml_to_f64(x)));
+}
+
 HmlValue hml_abs(HmlValue x) {
     double val = hml_to_f64(x);
     return hml_val_f64(val < 0 ? -val : val);
@@ -781,6 +797,26 @@ HmlValue hml_builtin_round(HmlClosureEnv *env, HmlValue x) {
 HmlValue hml_builtin_trunc(HmlClosureEnv *env, HmlValue x) {
     (void)env;
     return hml_trunc(x);
+}
+
+HmlValue hml_builtin_floori(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_floori(x);
+}
+
+HmlValue hml_builtin_ceili(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_ceili(x);
+}
+
+HmlValue hml_builtin_roundi(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_roundi(x);
+}
+
+HmlValue hml_builtin_trunci(HmlClosureEnv *env, HmlValue x) {
+    (void)env;
+    return hml_trunci(x);
 }
 
 HmlValue hml_builtin_abs(HmlClosureEnv *env, HmlValue x) {

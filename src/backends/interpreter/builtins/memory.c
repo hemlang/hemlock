@@ -81,8 +81,16 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         // Safety check: don't allow free on buffers shared outside the environment
         // Note: we check BEFORE calling value_release since that would skip due to freed flag
         if (buf->ref_count > 3) {  // 3 = creation + env + env_get
-            fprintf(stderr, "Runtime error: Cannot free buffer with %d active references. "
-                    "Ensure exclusive ownership before calling free().\n", buf->ref_count);
+            int active_refs = buf->ref_count - 3;
+            fprintf(stderr, "Runtime error: Cannot free buffer with %d active reference%s\n\n",
+                    active_refs, active_refs == 1 ? "" : "s");
+            fprintf(stderr, "  Hemlock prevents freeing buffers that have active references\n");
+            fprintf(stderr, "  to avoid use-after-free memory corruption.\n\n");
+            fprintf(stderr, "  Options to resolve this:\n");
+            fprintf(stderr, "    1. Let the buffer go out of scope (automatic cleanup)\n");
+            fprintf(stderr, "    2. Copy data from buffer before freeing: let copy = buf.to_array();\n");
+            fprintf(stderr, "    3. Set references to null before freeing: ref = null; free(buf);\n");
+            fprintf(stderr, "    4. Remove the explicit free() call - Hemlock manages buffer lifecycle\n\n");
             exit(1);
         }
 

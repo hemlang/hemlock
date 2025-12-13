@@ -203,6 +203,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_round, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__trunc") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunc, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__floori") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_floori, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__ceili") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ceili, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__roundi") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_roundi, 1, 1, 0);", result);
+            } else if (strcmp(expr->as.ident, "__trunci") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunci, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__abs") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abs, 1, 1, 0);", result);
             } else if (strcmp(expr->as.ident, "__min") == 0) {
@@ -520,6 +528,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_round, 1, 1, 0);", result);
             } else if (!codegen_is_local(ctx, expr->as.ident) && strcmp(expr->as.ident, "trunc") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunc, 1, 1, 0);", result);
+            } else if (!codegen_is_local(ctx, expr->as.ident) && strcmp(expr->as.ident, "floori") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_floori, 1, 1, 0);", result);
+            } else if (!codegen_is_local(ctx, expr->as.ident) && strcmp(expr->as.ident, "ceili") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ceili, 1, 1, 0);", result);
+            } else if (!codegen_is_local(ctx, expr->as.ident) && strcmp(expr->as.ident, "roundi") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_roundi, 1, 1, 0);", result);
+            } else if (!codegen_is_local(ctx, expr->as.ident) && strcmp(expr->as.ident, "trunci") == 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_trunci, 1, 1, 0);", result);
             // Unprefixed aliases for environment functions (for parity with interpreter)
             } else if (!codegen_is_local(ctx, expr->as.ident) && strcmp(expr->as.ident, "getenv") == 0) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getenv, 1, 1, 0);", result);
@@ -1286,6 +1302,42 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 if ((strcmp(fn_name, "trunc") == 0 || strcmp(fn_name, "__trunc") == 0) && expr->as.call.num_args == 1) {
                     char *arg = codegen_expr(ctx, expr->as.call.args[0]);
                     codegen_writeln(ctx, "HmlValue %s = hml_trunc(%s);", result, arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", arg);
+                    free(arg);
+                    break;
+                }
+
+                // floori(x) - floor returning integer
+                if ((strcmp(fn_name, "floori") == 0 || strcmp(fn_name, "__floori") == 0) && expr->as.call.num_args == 1) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_floori(%s);", result, arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", arg);
+                    free(arg);
+                    break;
+                }
+
+                // ceili(x) - ceil returning integer
+                if ((strcmp(fn_name, "ceili") == 0 || strcmp(fn_name, "__ceili") == 0) && expr->as.call.num_args == 1) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_ceili(%s);", result, arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", arg);
+                    free(arg);
+                    break;
+                }
+
+                // roundi(x) - round returning integer
+                if ((strcmp(fn_name, "roundi") == 0 || strcmp(fn_name, "__roundi") == 0) && expr->as.call.num_args == 1) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_roundi(%s);", result, arg);
+                    codegen_writeln(ctx, "hml_release(&%s);", arg);
+                    free(arg);
+                    break;
+                }
+
+                // trunci(x) - trunc returning integer
+                if ((strcmp(fn_name, "trunci") == 0 || strcmp(fn_name, "__trunci") == 0) && expr->as.call.num_args == 1) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_trunci(%s);", result, arg);
                     codegen_writeln(ctx, "hml_release(&%s);", arg);
                     free(arg);
                     break;

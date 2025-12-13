@@ -221,6 +221,58 @@ Value builtin_trunc(Value *args, int num_args, ExecutionContext *ctx) {
     return val_f64(trunc(value_to_float(args[0])));
 }
 
+Value builtin_floori(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: floori() expects 1 argument\n");
+        exit(1);
+    }
+    if (!is_numeric(args[0])) {
+        fprintf(stderr, "Runtime error: floori() argument must be numeric\n");
+        exit(1);
+    }
+    return val_i64((int64_t)floor(value_to_float(args[0])));
+}
+
+Value builtin_ceili(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: ceili() expects 1 argument\n");
+        exit(1);
+    }
+    if (!is_numeric(args[0])) {
+        fprintf(stderr, "Runtime error: ceili() argument must be numeric\n");
+        exit(1);
+    }
+    return val_i64((int64_t)ceil(value_to_float(args[0])));
+}
+
+Value builtin_roundi(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: roundi() expects 1 argument\n");
+        exit(1);
+    }
+    if (!is_numeric(args[0])) {
+        fprintf(stderr, "Runtime error: roundi() argument must be numeric\n");
+        exit(1);
+    }
+    return val_i64((int64_t)round(value_to_float(args[0])));
+}
+
+Value builtin_trunci(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: trunci() expects 1 argument\n");
+        exit(1);
+    }
+    if (!is_numeric(args[0])) {
+        fprintf(stderr, "Runtime error: trunci() argument must be numeric\n");
+        exit(1);
+    }
+    return val_i64((int64_t)trunc(value_to_float(args[0])));
+}
+
 Value builtin_abs(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;
     if (num_args != 1) {

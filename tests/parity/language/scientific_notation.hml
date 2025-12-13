@@ -1,0 +1,30 @@
+// Test scientific notation support
+
+// Basic scientific notation
+print(1e0);
+print(1e1);
+print(1e2);
+
+// Negative exponents
+print(1e-1);
+print(1e-2);
+
+// With decimal point
+print(3.14e2);
+print(2.5e-3);
+
+// Case insensitive
+print(1E10 == 1e10);
+
+// Explicit positive exponent
+print(1e+5);
+
+// Type inference (always f64)
+print(typeof(1e5));
+print(typeof(1e-12));
+
+// Arithmetic with scientific notation
+print(1e3 + 1e2);
+print(1e6 / 1e3);
+
+print("done");

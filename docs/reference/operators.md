@@ -399,12 +399,43 @@ let c = (a + b) * (a - b);
 
 ### Integer Division
 
-Integer division truncates toward zero:
+> **Warning: Silent Truncation**
+>
+> When both operands of `/` are integers, Hemlock performs **floor division** (truncation toward negative infinity for negative results), not true division. This can cause subtle bugs if you expect decimal results.
+
+Integer division truncates toward negative infinity:
 
 ```hemlock
 print(10 / 3);             // 3 (i32)
 print(-10 / 3);            // -3 (i32)
 print(10 / -3);            // -3 (i32)
+print(5 / 2);              // 2, NOT 2.5!
+```
+
+**To get float division**, ensure at least one operand is a float:
+
+```hemlock
+print(5.0 / 2);            // 2.5 (f64)
+print(5 / 2.0);            // 2.5 (f64)
+print((5 * 1.0) / 2);      // 2.5 (f64)
+
+// Using explicit type annotation
+let a: f64 = 5;
+print(a / 2);              // 2.5 (f64)
+```
+
+**Integer-returning math functions:**
+If you want floor/ceil/round results as integers (without the need for type annotation), use the integer-returning variants:
+
+```hemlock
+print(floori(3.7));        // 3 (i64)
+print(ceili(3.2));         // 4 (i64)
+print(roundi(3.5));        // 4 (i64)
+print(trunci(3.9));        // 3 (i64)
+
+// These can be used directly as array indices
+let arr = [10, 20, 30, 40];
+print(arr[floori(1.9)]);   // 20 (index 1)
 ```
 
 ### Float Division

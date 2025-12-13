@@ -5,6 +5,18 @@ print(floor(3.7));
 print(ceil(3.2));
 print(round(3.5));
 
+// Integer-returning versions
+print(floori(3.7));
+print(ceili(3.2));
+print(roundi(3.5));
+print(trunci(3.9));
+print(typeof(floori(3.7)));
+
+// Negative numbers
+print(floori(-3.7));
+print(ceili(-3.2));
+print(roundi(-3.5));
+
 // Square root
 print(sqrt(16.0));
 print(sqrt(25.0));

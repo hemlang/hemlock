@@ -186,6 +186,21 @@ let x = 3.14;        // f64 (default)
 let y: f32 = 3.14;   // f32 (explicit)
 ```
 
+### Scientific Notation
+
+Hemlock supports scientific notation for numeric literals:
+
+```hemlock
+let a = 1e10;        // 10000000000.0 (f64)
+let b = 1e-12;       // 0.000000000001 (f64)
+let c = 3.14e2;      // 314.0 (f64)
+let d = 2.5e-3;      // 0.0025 (f64)
+let e = 1E10;        // Case insensitive
+let f = 1e+5;        // Explicit positive exponent
+```
+
+**Note:** Any literal using scientific notation is always inferred as `f64`.
+
 ### Other Type Inference
 
 ```hemlock

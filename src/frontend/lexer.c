@@ -144,6 +144,37 @@ static Token number(Lexer *lex) {
         }
     }
 
+    // Look for scientific notation (e.g., 1e10, 3.14e-2, 2.5E+3)
+    if (peek(lex) == 'e' || peek(lex) == 'E') {
+        char next = peek_next(lex);
+        // Check if followed by digit, +digit, or -digit
+        int has_exponent = 0;
+        if (isdigit(next)) {
+            has_exponent = 1;
+        } else if ((next == '+' || next == '-') && !is_at_end(lex) && lex->current[1] != '\0') {
+            // Check if sign is followed by a digit
+            char after_sign = lex->current[2];
+            if (isdigit(after_sign)) {
+                has_exponent = 1;
+            }
+        }
+
+        if (has_exponent) {
+            is_float = 1;
+            advance(lex);  // consume 'e' or 'E'
+
+            // Consume optional sign
+            if (peek(lex) == '+' || peek(lex) == '-') {
+                advance(lex);
+            }
+
+            // Consume exponent digits
+            while (isdigit(peek(lex))) {
+                advance(lex);
+            }
+        }
+    }
+
     Token token = make_token(lex, TOK_NUMBER);
     token.is_float = is_float;
 
