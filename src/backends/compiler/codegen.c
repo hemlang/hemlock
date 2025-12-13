@@ -486,6 +486,57 @@ ImportBinding* codegen_find_main_import(CodegenContext *ctx, const char *name) {
     return NULL;
 }
 
+// ========== C KEYWORD HANDLING ==========
+
+// List of C reserved keywords that need to be escaped if used as identifiers
+static const char *c_keywords[] = {
+    // C89/90 keywords
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if",
+    "int", "long", "register", "return", "short", "signed", "sizeof",
+    "static", "struct", "switch", "typedef", "union", "unsigned", "void",
+    "volatile", "while",
+    // C99 keywords
+    "inline", "restrict", "_Bool", "_Complex", "_Imaginary",
+    // C11 keywords
+    "_Alignas", "_Alignof", "_Atomic", "_Generic", "_Noreturn",
+    "_Static_assert", "_Thread_local",
+    // C23 keywords
+    "true", "false", "nullptr", "constexpr", "static_assert", "thread_local",
+    "alignas", "alignof", "bool",
+    // Common identifiers that could conflict with C stdlib/runtime
+    "main", "NULL",
+    NULL  // Sentinel
+};
+
+// Check if a name is a C keyword
+static int is_c_keyword(const char *name) {
+    if (!name) return 0;
+    for (int i = 0; c_keywords[i] != NULL; i++) {
+        if (strcmp(name, c_keywords[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Sanitize an identifier to avoid C keyword conflicts
+// Returns a newly allocated string (caller must free)
+// If the name is a C keyword, returns "_v_<name>", otherwise returns a copy of the name
+char* codegen_sanitize_ident(const char *name) {
+    if (!name) return strdup("");
+
+    if (is_c_keyword(name)) {
+        // Add "_v_" prefix to escape the keyword
+        size_t len = strlen(name) + 4;  // "_v_" + name + null
+        char *escaped = malloc(len);
+        snprintf(escaped, len, "_v_%s", name);
+        return escaped;
+    }
+
+    return strdup(name);
+}
+
 // ========== STRING HELPERS ==========
 
 char* codegen_escape_string(const char *str) {

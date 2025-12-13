@@ -12,6 +12,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
     switch (stmt->type) {
         case STMT_LET: {
             codegen_add_local(ctx, stmt->as.let.name);
+            char *safe_name = codegen_sanitize_ident(stmt->as.let.name);
             if (stmt->as.let.value) {
                 char *value = codegen_expr(ctx, stmt->as.let.value);
                 // Check if there's a custom object type annotation (for duck typing)
@@ -19,7 +20,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                     stmt->as.let.type_annotation->type_name) {
                     codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
-                                  stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                                  safe_name, value, stmt->as.let.type_annotation->type_name);
                 } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                     // Typed array: let arr: array<type> = [...]
@@ -44,7 +45,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         }
                     }
                     codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
-                                  stmt->as.let.name, value, hml_type);
+                                  safe_name, value, hml_type);
                 } else if (stmt->as.let.type_annotation) {
                     // Primitive type annotation: let x: i64 = 0;
                     // Convert value to the annotated type with range checking
@@ -67,12 +68,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     }
                     if (hml_type) {
                         codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
-                                      stmt->as.let.name, value, hml_type);
+                                      safe_name, value, hml_type);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = %s;", stmt->as.let.name, value);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
                     }
                 } else {
-                    codegen_writeln(ctx, "HmlValue %s = %s;", stmt->as.let.name, value);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
                 }
                 free(value);
 
@@ -82,28 +83,31 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     for (int i = 0; i < ctx->last_closure_num_captured; i++) {
                         if (strcmp(ctx->last_closure_captured[i], stmt->as.let.name) == 0) {
                             codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
-                                          ctx->last_closure_env_id, i, stmt->as.let.name);
+                                          ctx->last_closure_env_id, i, safe_name);
                         }
                     }
                     // Reset the tracking - we've handled this closure
                     ctx->last_closure_env_id = -1;
                 }
             } else {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", stmt->as.let.name);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_name);
             }
+            free(safe_name);
             break;
         }
 
         case STMT_CONST: {
             codegen_add_local(ctx, stmt->as.const_stmt.name);
             codegen_add_const(ctx, stmt->as.const_stmt.name);
+            char *safe_name = codegen_sanitize_ident(stmt->as.const_stmt.name);
             if (stmt->as.const_stmt.value) {
                 char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
-                codegen_writeln(ctx, "const HmlValue %s = %s;", stmt->as.const_stmt.name, value);
+                codegen_writeln(ctx, "const HmlValue %s = %s;", safe_name, value);
                 free(value);
             } else {
-                codegen_writeln(ctx, "const HmlValue %s = hml_val_null();", stmt->as.const_stmt.name);
+                codegen_writeln(ctx, "const HmlValue %s = hml_val_null();", safe_name);
             }
+            free(safe_name);
             break;
         }
 
@@ -238,41 +242,45 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_inc(ctx);
 
             // Create key and value variables based on iterable type
+            // Sanitize variable names to avoid C keyword conflicts
+            char *safe_key_var = stmt->as.for_in.key_var ? codegen_sanitize_ident(stmt->as.for_in.key_var) : NULL;
+            char *safe_value_var = codegen_sanitize_ident(stmt->as.for_in.value_var);
+
             if (stmt->as.for_in.key_var) {
-                codegen_writeln(ctx, "HmlValue %s;", stmt->as.for_in.key_var);
+                codegen_writeln(ctx, "HmlValue %s;", safe_key_var);
                 codegen_add_local(ctx, stmt->as.for_in.key_var);
             }
-            codegen_writeln(ctx, "HmlValue %s;", stmt->as.for_in.value_var);
+            codegen_writeln(ctx, "HmlValue %s;", safe_value_var);
             codegen_add_local(ctx, stmt->as.for_in.value_var);
 
             // Handle object iteration
             codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT) {", iter_val);
             codegen_indent_inc(ctx);
             if (stmt->as.for_in.key_var) {
-                codegen_writeln(ctx, "%s = hml_object_key_at(%s, %s);", stmt->as.for_in.key_var, iter_val, idx_var);
+                codegen_writeln(ctx, "%s = hml_object_key_at(%s, %s);", safe_key_var, iter_val, idx_var);
             }
-            codegen_writeln(ctx, "%s = hml_object_value_at(%s, %s);", stmt->as.for_in.value_var, iter_val, idx_var);
+            codegen_writeln(ctx, "%s = hml_object_value_at(%s, %s);", safe_value_var, iter_val, idx_var);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", iter_val);
             codegen_indent_inc(ctx);
             // Handle string iteration - use UTF-8 aware rune extraction
             if (stmt->as.for_in.key_var) {
-                codegen_writeln(ctx, "%s = hml_val_i32(%s);", stmt->as.for_in.key_var, idx_var);
+                codegen_writeln(ctx, "%s = hml_val_i32(%s);", safe_key_var, idx_var);
             }
             char *idx_val_str = codegen_temp(ctx);
             codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s);", idx_val_str, idx_var);
-            codegen_writeln(ctx, "%s = hml_string_rune_at(%s, %s);", stmt->as.for_in.value_var, iter_val, idx_val_str);
+            codegen_writeln(ctx, "%s = hml_string_rune_at(%s, %s);", safe_value_var, iter_val, idx_val_str);
             codegen_writeln(ctx, "hml_release(&%s);", idx_val_str);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else {");
             codegen_indent_inc(ctx);
             // Handle array iteration
             if (stmt->as.for_in.key_var) {
-                codegen_writeln(ctx, "%s = hml_val_i32(%s);", stmt->as.for_in.key_var, idx_var);
+                codegen_writeln(ctx, "%s = hml_val_i32(%s);", safe_key_var, idx_var);
             }
             char *idx_val = codegen_temp(ctx);
             codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s);", idx_val, idx_var);
-            codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", stmt->as.for_in.value_var, iter_val, idx_val);
+            codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", safe_value_var, iter_val, idx_val);
             codegen_writeln(ctx, "hml_release(&%s);", idx_val);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
@@ -285,9 +293,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Release loop variables
             if (stmt->as.for_in.key_var) {
-                codegen_writeln(ctx, "hml_release(&%s);", stmt->as.for_in.key_var);
+                codegen_writeln(ctx, "hml_release(&%s);", safe_key_var);
             }
-            codegen_writeln(ctx, "hml_release(&%s);", stmt->as.for_in.value_var);
+            codegen_writeln(ctx, "hml_release(&%s);", safe_value_var);
+
+            // Free sanitized names
+            if (safe_key_var) free(safe_key_var);
+            free(safe_value_var);
 
             // Increment index
             codegen_writeln(ctx, "%s++;", idx_var);
@@ -442,14 +454,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_inc(ctx);
                 // Catch block - declare catch param as shadow var to shadow main vars
                 if (stmt->as.try_stmt.catch_param) {
+                    char *safe_catch_param = codegen_sanitize_ident(stmt->as.try_stmt.catch_param);
                     codegen_add_shadow(ctx, stmt->as.try_stmt.catch_param);
-                    codegen_writeln(ctx, "HmlValue %s = hml_exception_get_value();", stmt->as.try_stmt.catch_param);
-                }
-                codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
-                if (stmt->as.try_stmt.catch_param) {
-                    codegen_writeln(ctx, "hml_release(&%s);", stmt->as.try_stmt.catch_param);
+                    codegen_writeln(ctx, "HmlValue %s = hml_exception_get_value();", safe_catch_param);
+                    codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
+                    codegen_writeln(ctx, "hml_release(&%s);", safe_catch_param);
                     // Remove catch param from shadow vars so outer scope variable is used again
                     codegen_remove_shadow(ctx, stmt->as.try_stmt.catch_param);
+                    free(safe_catch_param);
+                } else {
+                    codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
                 }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");

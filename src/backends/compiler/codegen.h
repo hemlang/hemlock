@@ -227,6 +227,11 @@ int codegen_is_local(CodegenContext *ctx, const char *name);
 // Helper: Escape a string for C output
 char* codegen_escape_string(const char *str);
 
+// Helper: Sanitize an identifier to avoid C keyword conflicts
+// Returns "_v_<name>" if name is a C keyword, otherwise returns a copy of name
+// Caller must free the returned string
+char* codegen_sanitize_ident(const char *name);
+
 // Helper: Get the C operator string for a binary op
 const char* codegen_binary_op_str(BinaryOp op);
 

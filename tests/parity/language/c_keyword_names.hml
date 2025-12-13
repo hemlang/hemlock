@@ -1,0 +1,96 @@
+// Test that C keywords can be used as variable names in Hemlock
+// This tests the compiler's identifier sanitization
+
+// Test local variables with C keyword names
+fn test_local_keywords() {
+    let char = "a";
+    let float = 3.14;
+    let double = 2.718;
+    let short = 10;
+    let long = 1000000;
+    let signed = -1;
+    let unsigned = 1;
+    let auto = "automatic";
+    let register = "fast";
+    let volatile = "changing";
+    let inline = "embedded";
+    let restrict = "limited";
+    let sizeof = 8;
+    let typedef = "alias";
+    let struct = "data";
+    let union = "combine";
+    let goto = "jump";
+    let static = "fixed";
+    let NULL = "nil";
+    let main = "entry";
+
+    print(char);
+    print(float);
+    print(double);
+    print(short);
+    print(long);
+    print(signed);
+    print(unsigned);
+    print(auto);
+    print(register);
+    print(volatile);
+    print(inline);
+    print(restrict);
+    print(sizeof);
+    print(typedef);
+    print(struct);
+    print(union);
+    print(goto);
+    print(static);
+    print(NULL);
+    print(main);
+}
+
+// Test function parameters with C keyword names
+fn test_param_keywords(char, float, double) {
+    print(char);
+    print(float);
+    print(double);
+}
+
+// Test for-in loop variables with C keyword names
+fn test_for_in_keywords() {
+    let arr = [1, 2, 3];
+    for (let short in arr) {
+        print(short);
+    }
+
+    let obj = { a: 10, b: 20 };
+    for (let char, double in obj) {
+        print(char);
+        print(double);
+    }
+}
+
+// Test catch parameter with C keyword name
+fn test_catch_keyword() {
+    try {
+        throw "error";
+    } catch (char) {
+        print(char);
+    }
+}
+
+// Test assignment to keyword-named variables
+fn test_assignment() {
+    let long = 1;
+    long = long + 1;
+    print(long);
+
+    // Test increment
+    let float = 10;
+    float = float + 1;
+    print(float);
+}
+
+// Run all tests
+test_local_keywords();
+test_param_keywords("x", 3.5, 2.0);
+test_for_in_keywords();
+test_catch_keyword();
+test_assignment();

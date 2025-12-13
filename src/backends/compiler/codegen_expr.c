@@ -541,9 +541,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s = %s%s;", result,
                                   import_binding->module_prefix, import_binding->original_name);
                 } else if (codegen_is_shadow(ctx, expr->as.ident)) {
-                    // Shadow variable (like catch param) - use bare name, shadows module vars
+                    // Shadow variable (like catch param) - use sanitized bare name, shadows module vars
                     // Must be checked BEFORE module prefix check
-                    codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                    char *safe_ident = codegen_sanitize_ident(expr->as.ident);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                    free(safe_ident);
                 } else if (codegen_is_local(ctx, expr->as.ident)) {
                     // Local variable - check context to determine how to access
                     if (ctx->current_module) {
@@ -553,17 +555,23 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                             // Use the mangled export name to access module-level function
                             codegen_writeln(ctx, "HmlValue %s = %s;", result, exp->mangled_name);
                         } else {
-                            codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                            char *safe_ident = codegen_sanitize_ident(expr->as.ident);
+                            codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                            free(safe_ident);
                         }
                     } else if (ctx->in_function) {
                         // Inside a function - locals (params, loop vars) shadow main vars
-                        codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                        char *safe_ident = codegen_sanitize_ident(expr->as.ident);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                        free(safe_ident);
                     } else if (codegen_is_main_var(ctx, expr->as.ident)) {
                         // In main scope, and this is a main var - use _main_ prefix
                         codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident);
                     } else {
-                        // True local variable (not a main var) - use bare name
-                        codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                        // True local variable (not a main var) - use sanitized bare name
+                        char *safe_ident = codegen_sanitize_ident(expr->as.ident);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                        free(safe_ident);
                     }
                 } else if (ctx->current_module) {
                     // Not local, not shadow, have module - use module prefix
@@ -574,7 +582,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident);
                 } else {
                     // Undefined variable - will cause C compilation error
-                    codegen_writeln(ctx, "HmlValue %s = %s;", result, expr->as.ident);
+                    char *safe_ident = codegen_sanitize_ident(expr->as.ident);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                    free(safe_ident);
                 }
             }
             // OPTIMIZATION: Use conditional retain to skip for primitives (i32, i64, f64, bool)
@@ -2936,6 +2946,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         char *rhs = codegen_expr(ctx, right);
 
                         // Determine the correct variable name with prefix
+                        char *safe_var_name = NULL;
                         const char *var_name = expr->as.assign.name;
                         char prefixed_var[256];
                         if (ctx->current_module && !codegen_is_local(ctx, var_name)) {
@@ -2943,8 +2954,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                                     ctx->current_module->module_prefix, var_name);
                             var_name = prefixed_var;
                         } else if (codegen_is_local(ctx, var_name) && (ctx->current_module || ctx->in_function)) {
-                            // Local variable in module or function shadows main var - use bare name
-                            // var_name stays as-is
+                            // Local variable in module or function shadows main var - use sanitized bare name
+                            safe_var_name = codegen_sanitize_ident(var_name);
+                            var_name = safe_var_name;
                         } else if (codegen_is_main_var(ctx, expr->as.assign.name)) {
                             snprintf(prefixed_var, sizeof(prefixed_var), "_main_%s", expr->as.assign.name);
                             var_name = prefixed_var;
@@ -2958,6 +2970,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         // Result is the variable itself
                         codegen_writeln(ctx, "HmlValue %s = %s;", result, var_name);
                         codegen_writeln(ctx, "hml_retain(&%s);", result);
+                        if (safe_var_name) free(safe_var_name);
                         break;
                     }
                 }
@@ -2965,6 +2978,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
             char *value = codegen_expr(ctx, expr->as.assign.value);
             // Determine the correct variable name with prefix
+            // Note: safe_var_name is allocated when needed and must be freed
+            char *safe_var_name = NULL;
             const char *var_name = expr->as.assign.name;
             char prefixed_name[256];
             if (ctx->current_module && !codegen_is_local(ctx, var_name)) {
@@ -2973,14 +2988,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         ctx->current_module->module_prefix, var_name);
                 var_name = prefixed_name;
             } else if (codegen_is_shadow(ctx, var_name)) {
-                // Shadow variable (like catch param) - use bare name
-                // var_name stays as-is
+                // Shadow variable (like catch param) - use sanitized bare name
+                safe_var_name = codegen_sanitize_ident(var_name);
+                var_name = safe_var_name;
             } else if (codegen_is_local(ctx, var_name) && (ctx->current_module || ctx->in_function || !codegen_is_main_var(ctx, var_name))) {
-                // Local variable - use bare name
+                // Local variable - use sanitized bare name
                 // In module context, locals always shadow main vars
                 // In function context, locals shadow main vars
                 // Outside module/function, only if not a tracked main var
-                // var_name stays as-is
+                safe_var_name = codegen_sanitize_ident(var_name);
+                var_name = safe_var_name;
             } else if (codegen_is_main_var(ctx, expr->as.assign.name)) {
                 // Main file top-level variable - use _main_ prefix
                 snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", expr->as.assign.name);
@@ -3007,6 +3024,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "HmlValue %s = %s;", result, var_name);
             codegen_writeln(ctx, "hml_retain(&%s);", result);
             free(value);
+            if (safe_var_name) free(safe_var_name);
             break;
         }
 
@@ -3380,17 +3398,23 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 const char *raw_var = expr->as.prefix_inc.operand->as.ident;
                 const char *var = raw_var;
                 char prefixed_name[256];
+                char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                             ctx->current_module->module_prefix, raw_var);
                     var = prefixed_name;
-                } else if (codegen_is_main_var(ctx, raw_var)) {
+                } else if (codegen_is_main_var(ctx, raw_var) && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
                     var = prefixed_name;
+                } else {
+                    // Local variable - sanitize to avoid C keyword conflicts
+                    safe_var = codegen_sanitize_ident(raw_var);
+                    var = safe_var;
                 }
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
+                if (safe_var) free(safe_var);
             } else if (expr->as.prefix_inc.operand->type == EXPR_INDEX) {
                 // ++arr[i]
                 char *arr = codegen_expr(ctx, expr->as.prefix_inc.operand->as.index.object);
@@ -3433,17 +3457,23 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 const char *raw_var = expr->as.prefix_dec.operand->as.ident;
                 const char *var = raw_var;
                 char prefixed_name[256];
+                char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                             ctx->current_module->module_prefix, raw_var);
                     var = prefixed_name;
-                } else if (codegen_is_main_var(ctx, raw_var)) {
+                } else if (codegen_is_main_var(ctx, raw_var) && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
                     var = prefixed_name;
+                } else {
+                    // Local variable - sanitize to avoid C keyword conflicts
+                    safe_var = codegen_sanitize_ident(raw_var);
+                    var = safe_var;
                 }
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
+                if (safe_var) free(safe_var);
             } else if (expr->as.prefix_dec.operand->type == EXPR_INDEX) {
                 // --arr[i]
                 char *arr = codegen_expr(ctx, expr->as.prefix_dec.operand->as.index.object);
@@ -3487,17 +3517,23 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 const char *raw_var = expr->as.postfix_inc.operand->as.ident;
                 const char *var = raw_var;
                 char prefixed_name[256];
+                char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                             ctx->current_module->module_prefix, raw_var);
                     var = prefixed_name;
-                } else if (codegen_is_main_var(ctx, raw_var)) {
+                } else if (codegen_is_main_var(ctx, raw_var) && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
                     var = prefixed_name;
+                } else {
+                    // Local variable - sanitize to avoid C keyword conflicts
+                    safe_var = codegen_sanitize_ident(raw_var);
+                    var = safe_var;
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var);
+                if (safe_var) free(safe_var);
             } else if (expr->as.postfix_inc.operand->type == EXPR_INDEX) {
                 // arr[i]++
                 char *arr = codegen_expr(ctx, expr->as.postfix_inc.operand->as.index.object);
@@ -3540,17 +3576,23 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 const char *raw_var = expr->as.postfix_dec.operand->as.ident;
                 const char *var = raw_var;
                 char prefixed_name[256];
+                char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                             ctx->current_module->module_prefix, raw_var);
                     var = prefixed_name;
-                } else if (codegen_is_main_var(ctx, raw_var)) {
+                } else if (codegen_is_main_var(ctx, raw_var) && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_var);
                     var = prefixed_name;
+                } else {
+                    // Local variable - sanitize to avoid C keyword conflicts
+                    safe_var = codegen_sanitize_ident(raw_var);
+                    var = safe_var;
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
                 codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var);
+                if (safe_var) free(safe_var);
             } else if (expr->as.postfix_dec.operand->type == EXPR_INDEX) {
                 // arr[i]--
                 char *arr = codegen_expr(ctx, expr->as.postfix_dec.operand->as.index.object);
