@@ -486,6 +486,78 @@ ImportBinding* codegen_find_main_import(CodegenContext *ctx, const char *name) {
     return NULL;
 }
 
+// ========== C KEYWORD HANDLING ==========
+
+// List of C reserved keywords that need to be escaped if used as identifiers
+static const char *c_keywords[] = {
+    // C89/90 keywords
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if",
+    "int", "long", "register", "return", "short", "signed", "sizeof",
+    "static", "struct", "switch", "typedef", "union", "unsigned", "void",
+    "volatile", "while",
+    // C99 keywords
+    "inline", "restrict", "_Bool", "_Complex", "_Imaginary",
+    // C11 keywords
+    "_Alignas", "_Alignof", "_Atomic", "_Generic", "_Noreturn",
+    "_Static_assert", "_Thread_local",
+    // C23 keywords
+    "true", "false", "nullptr", "constexpr", "static_assert", "thread_local",
+    "alignas", "alignof", "bool",
+    // Common identifiers that could conflict with C stdlib/runtime
+    "main", "NULL",
+    NULL  // Sentinel
+};
+
+// Check if a name is a C keyword
+static int is_c_keyword(const char *name) {
+    if (!name) return 0;
+    for (int i = 0; c_keywords[i] != NULL; i++) {
+        if (strcmp(name, c_keywords[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Check if a name conflicts with Hemlock runtime or codegen internal prefixes
+static int conflicts_with_runtime(const char *name) {
+    if (!name || strlen(name) == 0) return 0;
+    // Check for Hemlock runtime function prefix
+    if (strncmp(name, "hml_", 4) == 0) return 1;
+    // Check for Hemlock runtime type prefixes
+    if (strncmp(name, "Hml", 3) == 0) return 1;
+    if (strncmp(name, "HML_", 4) == 0) return 1;
+    // Check for codegen internal prefixes
+    if (strncmp(name, "_tmp", 4) == 0) return 1;
+    if (strncmp(name, "_main_", 6) == 0) return 1;
+    if (strncmp(name, "_mod", 4) == 0) return 1;
+    if (strncmp(name, "_L", 2) == 0 && strlen(name) > 2 && name[2] >= '0' && name[2] <= '9') return 1;
+    if (strncmp(name, "_env_", 5) == 0) return 1;
+    if (strncmp(name, "_shared_env_", 12) == 0) return 1;
+    if (strncmp(name, "_v_", 3) == 0) return 1;  // Our own sanitization prefix
+    if (strncmp(name, "_ex_", 4) == 0) return 1;  // Exception context
+    if (strncmp(name, "_closure_env", 12) == 0) return 1;  // Closure env param
+    return 0;
+}
+
+// Sanitize an identifier to avoid C keyword and runtime conflicts
+// Returns a newly allocated string (caller must free)
+// If the name conflicts, returns "_v_<name>", otherwise returns a copy of the name
+char* codegen_sanitize_ident(const char *name) {
+    if (!name) return strdup("");
+
+    if (is_c_keyword(name) || conflicts_with_runtime(name)) {
+        // Add "_v_" prefix to escape the conflict
+        size_t len = strlen(name) + 4;  // "_v_" + name + null
+        char *escaped = malloc(len);
+        snprintf(escaped, len, "_v_%s", name);
+        return escaped;
+    }
+
+    return strdup(name);
+}
+
 // ========== STRING HELPERS ==========
 
 char* codegen_escape_string(const char *str) {

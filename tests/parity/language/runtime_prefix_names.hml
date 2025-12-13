@@ -1,0 +1,48 @@
+// Test that variables starting with runtime prefixes don't conflict
+// This tests the compiler's identifier sanitization for runtime prefixes
+
+// Test local variables with names that start with runtime prefixes
+fn test_runtime_prefixes() {
+    // Variables starting with hml_ prefix (Hemlock runtime functions)
+    let hml_test = 42;
+    let hml_print = "not the builtin";
+    let hml_val_i32 = 100;
+
+    // Variables starting with Hml prefix (Hemlock types)
+    let HmlValue = "type name";
+
+    // Variables starting with codegen internal prefixes
+    let _tmp = "temp var";
+    let _tmp0 = "temp var 0";
+    let _main_var = "main var";
+    let _mod0_test = "module test";
+    let _env_0 = "env var";
+    let _v_test = "sanitized var";
+    let _ex_ctx = "exception context";
+
+    print(hml_test);
+    print(hml_print);
+    print(hml_val_i32);
+    print(HmlValue);
+    print(_tmp);
+    print(_tmp0);
+    print(_main_var);
+    print(_mod0_test);
+    print(_env_0);
+    print(_v_test);
+    print(_ex_ctx);
+}
+
+// Test function parameters with runtime prefix names
+fn test_param_prefixes(hml_x, _tmp1, _main_y) {
+    print(hml_x);
+    print(_tmp1);
+    print(_main_y);
+}
+
+// Run all tests
+test_runtime_prefixes();
+test_param_prefixes("param1", "param2", "param3");
+
+// Verify that actual print builtin still works
+print("done");

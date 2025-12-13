@@ -38,7 +38,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     // Even named functions take HmlClosureEnv* as first param (unused, passed as NULL)
     codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
     for (int i = 0; i < func->as.function.num_params; i++) {
-        codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[i]);
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        codegen_write(ctx, ", HmlValue %s", safe_param);
+        free(safe_param);
     }
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
@@ -65,14 +67,15 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     if (func->as.function.param_defaults) {
         for (int i = 0; i < func->as.function.num_params; i++) {
             if (func->as.function.param_defaults[i]) {
-                char *param_name = func->as.function.param_names[i];
-                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", param_name);
+                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
                 codegen_indent_inc(ctx);
                 char *default_val = codegen_expr(ctx, func->as.function.param_defaults[i]);
-                codegen_writeln(ctx, "%s = %s;", param_name, default_val);
+                codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
                 free(default_val);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                free(safe_param);
             }
         }
     }
@@ -144,7 +147,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Generate function signature with environment parameter
     codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", closure->func_name);
     for (int i = 0; i < func->as.function.num_params; i++) {
-        codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[i]);
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        codegen_write(ctx, ", HmlValue %s", safe_param);
+        free(safe_param);
     }
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
@@ -171,6 +176,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Extract captured variables from environment
     for (int i = 0; i < closure->num_captured; i++) {
         const char *var_name = closure->captured_vars[i];
+        char *safe_var = codegen_sanitize_ident(var_name);
 
         // Check if this is a module-level export (self-reference like Set calling Set)
         int is_module_export = 0;
@@ -178,7 +184,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
             ExportedSymbol *exp = module_find_export(closure->source_module, var_name);
             if (exp) {
                 is_module_export = 1;
-                codegen_writeln(ctx, "HmlValue %s = %s;", var_name, exp->mangled_name);
+                codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, exp->mangled_name);
             }
         }
 
@@ -190,31 +196,33 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
                 // Variable not in shared environment - check if it's a main file variable
                 if (codegen_is_main_var(ctx, var_name)) {
                     // Main file function/variable - use _main_ prefix
-                    codegen_writeln(ctx, "HmlValue %s = _main_%s;", var_name, var_name);
+                    codegen_writeln(ctx, "HmlValue %s = _main_%s;", safe_var, var_name);
                 } else {
                     // Fallback - just use the variable name directly (might be a global or builtin)
-                    codegen_writeln(ctx, "HmlValue %s = %s;", var_name, var_name);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, safe_var);
                 }
             } else {
                 codegen_writeln(ctx, "HmlValue %s = hml_closure_env_get(_closure_env, %d);",
-                              var_name, env_index);
+                              safe_var, env_index);
             }
         }
         codegen_add_local(ctx, var_name);
+        free(safe_var);
     }
 
     // Apply default values for optional parameters
     if (func->as.function.param_defaults) {
         for (int i = 0; i < func->as.function.num_params; i++) {
             if (func->as.function.param_defaults[i]) {
-                char *param_name = func->as.function.param_names[i];
-                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", param_name);
+                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
                 codegen_indent_inc(ctx);
                 char *default_val = codegen_expr(ctx, func->as.function.param_defaults[i]);
-                codegen_writeln(ctx, "%s = %s;", param_name, default_val);
+                codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
                 free(default_val);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                free(safe_param);
             }
         }
     }
@@ -438,7 +446,9 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             ctx->output = decl_buffer;
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
-                codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[j]);
+                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
+                codegen_write(ctx, ", HmlValue %s", safe_param);
+                free(safe_param);
             }
             codegen_write(ctx, ");\n");
 
@@ -446,7 +456,9 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             ctx->output = impl_buffer;
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
-                codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[j]);
+                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
+                codegen_write(ctx, ", HmlValue %s", safe_param);
+                free(safe_param);
             }
             codegen_write(ctx, ") {\n");
             codegen_indent_inc(ctx);
@@ -469,14 +481,15 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             if (func->as.function.param_defaults) {
                 for (int j = 0; j < func->as.function.num_params; j++) {
                     if (func->as.function.param_defaults[j]) {
-                        char *param_name = func->as.function.param_names[j];
-                        codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", param_name);
+                        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
+                        codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
                         codegen_indent_inc(ctx);
                         char *default_val = codegen_expr(ctx, func->as.function.param_defaults[j]);
-                        codegen_writeln(ctx, "%s = %s;", param_name, default_val);
+                        codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
                         free(default_val);
                         codegen_indent_dec(ctx);
                         codegen_writeln(ctx, "}");
+                        free(safe_param);
                     }
                 }
             }
@@ -1135,7 +1148,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             Expr *func = c->func_expr;
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", c->func_name);
             for (int i = 0; i < func->as.function.num_params; i++) {
-                codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[i]);
+                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+                codegen_write(ctx, ", HmlValue %s", safe_param);
+                free(safe_param);
             }
             codegen_write(ctx, ");\n");
             c = c->next;
@@ -1210,7 +1225,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             // All functions use closure env as first param for uniform calling convention
             codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
             for (int j = 0; j < func->as.function.num_params; j++) {
-                codegen_write(ctx, ", HmlValue %s", func->as.function.param_names[j]);
+                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
+                codegen_write(ctx, ", HmlValue %s", safe_param);
+                free(safe_param);
             }
             codegen_write(ctx, ");\n");
         }
