@@ -294,7 +294,7 @@ static int compile_c(const Options *opts, const char *c_file) {
 #endif
 
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include -L%s%s -lhemlock_runtime -lm -lpthread -lffi -ldl%s%s%s",
+        "%s %s -o %s %s -I%s/runtime/include %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
         runtime_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
 
