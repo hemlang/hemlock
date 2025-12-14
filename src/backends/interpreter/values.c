@@ -88,6 +88,11 @@ String* string_copy(String *str) {
 }
 
 String* string_concat(String *a, String *b) {
+    // SECURITY: Check for integer overflow before adding lengths
+    if (a->length > INT_MAX - b->length) {
+        fprintf(stderr, "Runtime error: String concatenation overflow - result too large\n");
+        exit(1);
+    }
     int new_len = a->length + b->length;
     String *result = malloc(sizeof(String));
     if (!result) {
@@ -120,9 +125,14 @@ String* string_concat_many(String **strings, int count) {
         return string_copy(strings[0]);
     }
 
-    // Calculate total length in one pass
+    // Calculate total length in one pass with overflow checking
     int total_len = 0;
     for (int i = 0; i < count; i++) {
+        // SECURITY: Check for integer overflow before adding lengths
+        if (strings[i]->length > INT_MAX - total_len) {
+            fprintf(stderr, "Runtime error: String concatenation overflow - result too large\n");
+            exit(1);
+        }
         total_len += strings[i]->length;
     }
 

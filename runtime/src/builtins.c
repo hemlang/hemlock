@@ -525,6 +525,14 @@ HmlValue hml_exec(HmlValue command) {
     while ((bytes_read = fread(chunk, 1, sizeof(chunk), pipe)) > 0) {
         // Grow buffer if needed
         while (output_size + bytes_read > output_capacity) {
+            // SECURITY: Check for overflow before doubling capacity
+            if (output_capacity > SIZE_MAX / 2) {
+                fprintf(stderr, "Runtime error: exec() output too large\n");
+                free(output_buffer);
+                pclose(pipe);
+                free(ccmd);
+                exit(1);
+            }
             output_capacity *= 2;
             char *new_buffer = realloc(output_buffer, output_capacity);
             if (!new_buffer) {

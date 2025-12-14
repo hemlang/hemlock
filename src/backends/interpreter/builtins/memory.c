@@ -303,6 +303,13 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     int elem_size = get_type_size(type);
+
+    // SECURITY: Check for multiplication overflow before allocating
+    if ((size_t)count > SIZE_MAX / (size_t)elem_size) {
+        fprintf(stderr, "Runtime error: talloc() size overflow - allocation too large\n");
+        exit(1);
+    }
+
     size_t total_size = (size_t)elem_size * (size_t)count;
 
     void *ptr = malloc(total_size);

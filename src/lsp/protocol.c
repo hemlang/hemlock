@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
 
 // ============================================================================
 // JSON Value Constructors
@@ -466,17 +467,35 @@ static void sb_init(StringBuilder *sb) {
 static void sb_append(StringBuilder *sb, const char *str) {
     int len = strlen(str);
     while (sb->length + len + 1 > sb->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (sb->capacity > INT_MAX / 2) {
+            fprintf(stderr, "LSP error: StringBuilder capacity overflow\n");
+            exit(1);
+        }
         sb->capacity *= 2;
         sb->buffer = realloc(sb->buffer, sb->capacity);
+        if (!sb->buffer) {
+            fprintf(stderr, "LSP error: Memory allocation failed\n");
+            exit(1);
+        }
     }
-    strcpy(sb->buffer + sb->length, str);
+    memcpy(sb->buffer + sb->length, str, len + 1);
     sb->length += len;
 }
 
 static void sb_append_char(StringBuilder *sb, char c) {
     if (sb->length + 2 > sb->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (sb->capacity > INT_MAX / 2) {
+            fprintf(stderr, "LSP error: StringBuilder capacity overflow\n");
+            exit(1);
+        }
         sb->capacity *= 2;
         sb->buffer = realloc(sb->buffer, sb->capacity);
+        if (!sb->buffer) {
+            fprintf(stderr, "LSP error: Memory allocation failed\n");
+            exit(1);
+        }
     }
     sb->buffer[sb->length++] = c;
     sb->buffer[sb->length] = '\0';

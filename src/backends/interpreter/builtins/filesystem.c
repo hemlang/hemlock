@@ -319,10 +319,15 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(dest_cpath, dest_path->data, dest_path->length);
     dest_cpath[dest_path->length] = '\0';
 
-    FILE *src_fp = fopen(src_cpath, "rb");
-    if (!src_fp) {
+    // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
+    int src_fd = open(src_cpath, O_RDONLY | O_NOFOLLOW);
+    if (src_fd < 0) {
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to open source file '%s': %s", src_cpath, strerror(errno));
+        if (errno == ELOOP) {
+            snprintf(error_msg, sizeof(error_msg), "Cannot copy '%s': symbolic links not allowed", src_cpath);
+        } else {
+            snprintf(error_msg, sizeof(error_msg), "Failed to open source file '%s': %s", src_cpath, strerror(errno));
+        }
         free(src_cpath);
         free(dest_cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
@@ -330,11 +335,41 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    FILE *dest_fp = fopen(dest_cpath, "wb");
+    FILE *src_fp = fdopen(src_fd, "rb");
+    if (!src_fp) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to open source file '%s': %s", src_cpath, strerror(errno));
+        close(src_fd);
+        free(src_cpath);
+        free(dest_cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    // SECURITY: Use O_NOFOLLOW to prevent symlink attacks on destination
+    int dest_fd = open(dest_cpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+    if (dest_fd < 0) {
+        char error_msg[512];
+        if (errno == ELOOP) {
+            snprintf(error_msg, sizeof(error_msg), "Cannot copy to '%s': symbolic links not allowed", dest_cpath);
+        } else {
+            snprintf(error_msg, sizeof(error_msg), "Failed to open destination file '%s': %s", dest_cpath, strerror(errno));
+        }
+        fclose(src_fp);
+        free(src_cpath);
+        free(dest_cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    FILE *dest_fp = fdopen(dest_fd, "wb");
     if (!dest_fp) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open destination file '%s': %s", dest_cpath, strerror(errno));
         fclose(src_fp);
+        close(dest_fd);
         free(src_cpath);
         free(dest_cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
