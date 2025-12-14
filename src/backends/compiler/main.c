@@ -63,6 +63,50 @@ static char* get_self_dir(void) {
     return path;
 }
 
+// Standard install locations for runtime library
+#ifndef HEMLOCK_LIBDIR
+#define HEMLOCK_LIBDIR "/usr/local/lib/hemlock"
+#endif
+
+// Find the runtime library, checking multiple locations
+// Returns a static buffer with the path, or NULL if not found
+static const char* find_runtime_path(void) {
+    static char found_path[PATH_MAX];
+    char check_path[PATH_MAX];
+
+    // List of directories to check (in order of priority)
+    const char *search_dirs[4];
+    int num_dirs = 0;
+
+    // 1. Directory containing hemlockc (for development builds)
+    const char *self_dir = get_self_dir();
+    if (self_dir) {
+        search_dirs[num_dirs++] = self_dir;
+    }
+
+    // 2. Standard install location
+    search_dirs[num_dirs++] = HEMLOCK_LIBDIR;
+
+    // 3. Current directory (fallback)
+    search_dirs[num_dirs++] = ".";
+
+    // Check each directory for libhemlock_runtime.a
+    for (int i = 0; i < num_dirs; i++) {
+        snprintf(check_path, sizeof(check_path), "%s/libhemlock_runtime.a", search_dirs[i]);
+        if (access(check_path, R_OK) == 0) {
+            strncpy(found_path, search_dirs[i], sizeof(found_path) - 1);
+            found_path[sizeof(found_path) - 1] = '\0';
+            return found_path;
+        }
+    }
+
+    // Not found - return self_dir anyway (will fail at link time with clear error)
+    if (self_dir) {
+        return self_dir;
+    }
+    return ".";
+}
+
 // Command-line options
 typedef struct {
     const char *input_file;
@@ -214,13 +258,11 @@ static int compile_c(const Options *opts, const char *c_file) {
     char opt_flag[4];
     snprintf(opt_flag, sizeof(opt_flag), "-O%d", opts->optimize);
 
-    // Determine runtime path (relative to hemlockc location)
+    // Determine runtime path
+    // Priority: --runtime flag > auto-detect (self dir, install dir, cwd)
     const char *runtime_path = opts->runtime_path;
     if (!runtime_path) {
-        runtime_path = get_self_dir();
-        if (!runtime_path) {
-            runtime_path = ".";
-        }
+        runtime_path = find_runtime_path();
     }
 
     // Build link command
@@ -293,10 +335,26 @@ static int compile_c(const Options *opts, const char *c_file) {
     char crypto_flag[64] = " -Wl,--no-as-needed -lcrypto";
 #endif
 
+    // Determine include path - check for both development and installed layouts
+    // Development: runtime_path/runtime/include
+    // Installed: runtime_path/include
+    char include_path[PATH_MAX];
+    char dev_include[PATH_MAX];
+    char install_include[PATH_MAX];
+    snprintf(dev_include, sizeof(dev_include), "%s/runtime/include", runtime_path);
+    snprintf(install_include, sizeof(install_include), "%s/include", runtime_path);
+
+    if (access(dev_include, R_OK) == 0) {
+        strncpy(include_path, dev_include, sizeof(include_path) - 1);
+    } else {
+        strncpy(include_path, install_include, sizeof(include_path) - 1);
+    }
+    include_path[sizeof(include_path) - 1] = '\0';
+
     snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s/runtime/include %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
+        "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
-        runtime_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+        include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);

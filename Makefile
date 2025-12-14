@@ -247,8 +247,9 @@ compiler: $(BUILD_DIRS) runtime $(COMPILER_TARGET)
 $(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_LIB)
 	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) -lm
 
+# Compiler objects get LIBDIR defined for runtime auto-detection
 $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -DHEMLOCK_LIBDIR='"$(LIBDIR)"' -c $< -o $@
 
 # Build runtime library
 runtime:
