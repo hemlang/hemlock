@@ -1162,23 +1162,33 @@ char* value_to_string(Value val) {
         case VAL_ARRAY: {
             // Simple array representation
             Array *arr = val.as.as_array;
-            int total_len = 2;  // [ and ]
-            char **parts = malloc(sizeof(char*) * arr->length);
+            size_t total_len = 2;  // [ and ]
+            char **parts = malloc(sizeof(char*) * (arr->length > 0 ? arr->length : 1));
+            size_t *part_lens = malloc(sizeof(size_t) * (arr->length > 0 ? arr->length : 1));
             for (int i = 0; i < arr->length; i++) {
                 parts[i] = value_to_string(arr->elements[i]);
-                total_len += strlen(parts[i]);
+                part_lens[i] = strlen(parts[i]);
+                total_len += part_lens[i];
                 if (i > 0) total_len += 2;  // ", "
             }
 
+            // SECURITY: Use memcpy with explicit position tracking instead of strcat
             char *result = malloc(total_len + 1);
-            strcpy(result, "[");
+            size_t pos = 0;
+            result[pos++] = '[';
             for (int i = 0; i < arr->length; i++) {
-                if (i > 0) strcat(result, ", ");
-                strcat(result, parts[i]);
+                if (i > 0) {
+                    memcpy(result + pos, ", ", 2);
+                    pos += 2;
+                }
+                memcpy(result + pos, parts[i], part_lens[i]);
+                pos += part_lens[i];
                 free(parts[i]);
             }
-            strcat(result, "]");
+            result[pos++] = ']';
+            result[pos] = '\0';
             free(parts);
+            free(part_lens);
             return result;
         }
         case VAL_FILE: {

@@ -180,6 +180,12 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
     int byte = value_to_int(args[1]);
     int size = value_to_int(args[2]);
 
+    // SECURITY: Validate size is non-negative to prevent undefined behavior
+    if (size < 0) {
+        fprintf(stderr, "Runtime error: memset() size cannot be negative\n");
+        exit(1);
+    }
+
     memset(ptr, byte, size);
     return val_null();
 }
@@ -204,6 +210,12 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
     void *dest = args[0].as.as_ptr;
     void *src = args[1].as.as_ptr;
     int size = value_to_int(args[2]);
+
+    // SECURITY: Validate size is non-negative to prevent undefined behavior
+    if (size < 0) {
+        fprintf(stderr, "Runtime error: memcpy() size cannot be negative\n");
+        exit(1);
+    }
 
     memcpy(dest, src, size);
     return val_null();

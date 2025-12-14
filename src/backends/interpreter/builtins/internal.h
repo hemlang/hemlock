@@ -23,6 +23,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <signal.h>
+#include <fcntl.h>  // For O_NOFOLLOW symlink protection
 
 // Define math constants if not available
 #ifndef M_PI

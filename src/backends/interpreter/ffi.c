@@ -179,7 +179,16 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 
     // Add to library list
     if (g_ffi_state.num_libraries >= g_ffi_state.libraries_capacity) {
-        g_ffi_state.libraries_capacity = g_ffi_state.libraries_capacity == 0 ? 4 : g_ffi_state.libraries_capacity * 2;
+        // SECURITY: Check for integer overflow before doubling capacity
+        int new_capacity = g_ffi_state.libraries_capacity == 0 ? 4 : g_ffi_state.libraries_capacity * 2;
+        if (new_capacity < g_ffi_state.libraries_capacity) {
+            // Overflow detected
+            pthread_mutex_unlock(&ffi_cache_mutex);
+            ctx->exception_state.is_throwing = 1;
+            ctx->exception_state.exception_value = val_string("FFI library cache capacity overflow");
+            return NULL;
+        }
+        g_ffi_state.libraries_capacity = new_capacity;
         g_ffi_state.libraries = realloc(g_ffi_state.libraries, sizeof(FFILibrary*) * g_ffi_state.libraries_capacity);
     }
     g_ffi_state.libraries[g_ffi_state.num_libraries++] = lib;
@@ -710,7 +719,22 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     // Track the callback for cleanup
     pthread_mutex_lock(&ffi_cache_mutex);
     if (g_callback_state.num_callbacks >= g_callback_state.callbacks_capacity) {
-        g_callback_state.callbacks_capacity = g_callback_state.callbacks_capacity == 0 ? 8 : g_callback_state.callbacks_capacity * 2;
+        // SECURITY: Check for integer overflow before doubling capacity
+        int new_capacity = g_callback_state.callbacks_capacity == 0 ? 8 : g_callback_state.callbacks_capacity * 2;
+        if (new_capacity < g_callback_state.callbacks_capacity) {
+            // Overflow detected
+            pthread_mutex_unlock(&ffi_cache_mutex);
+            ffi_closure_free(closure);
+            function_release(fn);
+            free(cb->hemlock_params);
+            free(arg_types);
+            free(cif);
+            free(cb);
+            ctx->exception_state.is_throwing = 1;
+            ctx->exception_state.exception_value = val_string("FFI callback cache capacity overflow");
+            return NULL;
+        }
+        g_callback_state.callbacks_capacity = new_capacity;
         g_callback_state.callbacks = realloc(g_callback_state.callbacks, sizeof(FFICallback*) * g_callback_state.callbacks_capacity);
     }
     g_callback_state.callbacks[g_callback_state.num_callbacks++] = cb;

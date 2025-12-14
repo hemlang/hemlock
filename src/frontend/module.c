@@ -84,6 +84,11 @@ static int path_is_within_base(const char *resolved_path, const char *base_path)
 // Helper function to ensure export array has capacity
 static void ensure_export_capacity(Module *module) {
     if (module->num_exports >= module->export_capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (module->export_capacity > INT_MAX / 2) {
+            fprintf(stderr, "Runtime error: Module export capacity overflow\n");
+            exit(1);
+        }
         module->export_capacity *= 2;
         module->export_names = realloc(module->export_names, sizeof(char*) * module->export_capacity);
         if (!module->export_names) {
@@ -591,6 +596,14 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
 
     // Add to cache immediately (for cycle detection)
     if (cache->count >= cache->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (cache->capacity > INT_MAX / 2) {
+            fprintf(stderr, "Error: Module cache capacity overflow\n");
+            free(module->export_names);
+            free(absolute_path);
+            free(module);
+            return NULL;
+        }
         cache->capacity *= 2;
         cache->modules = realloc(cache->modules, sizeof(Module*) * cache->capacity);
     }

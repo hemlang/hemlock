@@ -48,10 +48,26 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    FILE *fp = fopen(cpath, "r");
+    // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
+    int fd = open(cpath, O_RDONLY | O_NOFOLLOW);
+    if (fd < 0) {
+        char error_msg[512];
+        if (errno == ELOOP) {
+            snprintf(error_msg, sizeof(error_msg), "Cannot read '%s': symbolic links not allowed", cpath);
+        } else {
+            snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        }
+        free(cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    FILE *fp = fdopen(fd, "r");
     if (!fp) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        close(fd);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
@@ -109,11 +125,28 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
+    // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
+    // O_CREAT | O_TRUNC to create or truncate the file
+    int fd = open(cpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+    if (fd < 0) {
+        char error_msg[512];
+        if (errno == ELOOP) {
+            snprintf(error_msg, sizeof(error_msg), "Cannot write '%s': symbolic links not allowed", cpath);
+        } else {
+            snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        }
+        free(cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
     // Use binary mode to preserve all bytes
-    FILE *fp = fopen(cpath, "wb");
+    FILE *fp = fdopen(fd, "wb");
     if (!fp) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        close(fd);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
@@ -155,10 +188,27 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    FILE *fp = fopen(cpath, "a");
+    // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
+    // O_CREAT | O_APPEND to create or append to the file
+    int fd = open(cpath, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0644);
+    if (fd < 0) {
+        char error_msg[512];
+        if (errno == ELOOP) {
+            snprintf(error_msg, sizeof(error_msg), "Cannot append '%s': symbolic links not allowed", cpath);
+        } else {
+            snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        }
+        free(cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    FILE *fp = fdopen(fd, "a");
     if (!fp) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        close(fd);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
