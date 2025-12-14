@@ -567,6 +567,139 @@ HmlValue hml_exec(HmlValue command) {
     return result;
 }
 
+// exec_argv() - Safe command execution without shell interpretation
+// Takes an array of strings: [program, arg1, arg2, ...]
+// Uses fork/execvp directly, preventing shell injection attacks
+HmlValue hml_exec_argv(HmlValue args_array) {
+    if (args_array.type != HML_VAL_ARRAY || !args_array.as.as_array) {
+        hml_runtime_error("exec_argv() argument must be an array of strings");
+    }
+
+    HmlArray *arr = args_array.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("exec_argv() array must not be empty");
+    }
+
+    // Build argv array for execvp
+    char **argv = malloc((arr->length + 1) * sizeof(char*));
+    if (!argv) {
+        hml_runtime_error("exec_argv() memory allocation failed");
+    }
+
+    for (int64_t i = 0; i < arr->length; i++) {
+        HmlValue elem = arr->elements[i];
+        if (elem.type != HML_VAL_STRING || !elem.as.as_string) {
+            for (int64_t j = 0; j < i; j++) free(argv[j]);
+            free(argv);
+            hml_runtime_error("exec_argv() array elements must be strings");
+        }
+        HmlString *s = elem.as.as_string;
+        argv[i] = malloc(s->length + 1);
+        if (!argv[i]) {
+            for (int64_t j = 0; j < i; j++) free(argv[j]);
+            free(argv);
+            hml_runtime_error("exec_argv() memory allocation failed");
+        }
+        memcpy(argv[i], s->data, s->length);
+        argv[i][s->length] = '\0';
+    }
+    argv[arr->length] = NULL;
+
+    // Create pipes for stdout
+    int stdout_pipe[2];
+    if (pipe(stdout_pipe) != 0) {
+        for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        hml_runtime_error("exec_argv() pipe creation failed: %s", strerror(errno));
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        hml_runtime_error("exec_argv() fork failed: %s", strerror(errno));
+    }
+
+    if (pid == 0) {
+        // Child process
+        close(stdout_pipe[0]);  // Close read end
+        dup2(stdout_pipe[1], STDOUT_FILENO);
+        dup2(stdout_pipe[1], STDERR_FILENO);
+        close(stdout_pipe[1]);
+
+        execvp(argv[0], argv);
+        // If execvp returns, it failed
+        fprintf(stderr, "exec_argv() failed to execute '%s': %s\n", argv[0], strerror(errno));
+        _exit(127);
+    }
+
+    // Parent process
+    close(stdout_pipe[1]);  // Close write end
+
+    // Free argv in parent (child has its own copy after fork)
+    for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
+    free(argv);
+
+    // Read output from child
+    char *output_buffer = NULL;
+    size_t output_size = 0;
+    size_t output_capacity = 4096;
+    output_buffer = malloc(output_capacity);
+    if (!output_buffer) {
+        close(stdout_pipe[0]);
+        hml_runtime_error("exec_argv() memory allocation failed");
+    }
+
+    char chunk[4096];
+    ssize_t bytes_read;
+    while ((bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk))) > 0) {
+        // Check for overflow before doubling capacity
+        while (output_size + (size_t)bytes_read > output_capacity) {
+            if (output_capacity > SIZE_MAX / 2) {
+                free(output_buffer);
+                close(stdout_pipe[0]);
+                hml_runtime_error("exec_argv() output too large");
+            }
+            output_capacity *= 2;
+            char *new_buffer = realloc(output_buffer, output_capacity);
+            if (!new_buffer) {
+                free(output_buffer);
+                close(stdout_pipe[0]);
+                hml_runtime_error("exec_argv() memory allocation failed");
+            }
+            output_buffer = new_buffer;
+        }
+        memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
+        output_size += (size_t)bytes_read;
+    }
+    close(stdout_pipe[0]);
+
+    // Wait for child
+    int status;
+    waitpid(pid, &status, 0);
+    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+
+    // Ensure null termination
+    if (output_size >= output_capacity) {
+        char *new_buffer = realloc(output_buffer, output_size + 1);
+        if (!new_buffer) {
+            free(output_buffer);
+            hml_runtime_error("exec_argv() memory allocation failed");
+        }
+        output_buffer = new_buffer;
+    }
+    output_buffer[output_size] = '\0';
+
+    // Create result object
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
+    free(output_buffer);
+
+    return result;
+}
+
 // ========== MATH OPERATIONS ==========
 
 HmlValue hml_sqrt(HmlValue x) {
@@ -926,6 +1059,11 @@ HmlValue hml_builtin_get_pid(HmlClosureEnv *env) {
 HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command) {
     (void)env;
     return hml_exec(command);
+}
+
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array) {
+    (void)env;
+    return hml_exec_argv(args_array);
 }
 
 // Process ID builtins
@@ -6579,7 +6717,40 @@ HmlValue hml_socket_get_closed(HmlValue socket_val) {
 
 // ========== FFI (Foreign Function Interface) ==========
 
+// SECURITY: Validate FFI library path for obvious security issues
+static const char* validate_ffi_path(const char *path) {
+    if (!path || path[0] == '\0') {
+        return "Empty library path";
+    }
+
+    // Check for directory traversal
+    if (strstr(path, "..")) {
+        return "Library path contains directory traversal (..)";
+    }
+
+    // Warn about world-writable locations
+    if (strncmp(path, "/tmp/", 5) == 0 ||
+        strncmp(path, "/var/tmp/", 9) == 0 ||
+        strncmp(path, "/dev/shm/", 9) == 0) {
+        fprintf(stderr, "Warning: Loading FFI library from world-writable location: %s\n", path);
+        fprintf(stderr, "         This is a security risk - libraries in /tmp could be malicious\n");
+    }
+
+    // Check for suspicious patterns
+    if (strstr(path, "/../") || strstr(path, "/./")) {
+        return "Library path contains suspicious directory references";
+    }
+
+    return NULL;  // Path is acceptable
+}
+
 HmlValue hml_ffi_load(const char *path) {
+    // SECURITY: Validate library path before loading
+    const char *validation_error = validate_ffi_path(path);
+    if (validation_error) {
+        hml_runtime_error("FFI security error: %s (path: %s)", validation_error, path);
+    }
+
     void *handle = dlopen(path, RTLD_LAZY);
     if (!handle) {
         hml_runtime_error("Failed to load library '%s': %s", path, dlerror());
@@ -8246,7 +8417,9 @@ static int hml_http_callback(struct lws *wsi, enum lws_callback_reasons reason,
 static int hml_parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
     *ssl = 0;
     *port = 80;
-    strcpy(path, "/");
+    // SECURITY: Use safe string initialization instead of strcpy
+    path[0] = '/';
+    path[1] = '\0';
 
     if (strncmp(url, "https://", 8) == 0) {
         *ssl = 1;
@@ -8374,9 +8547,10 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -8469,9 +8643,10 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -8816,7 +8991,9 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
 static int hml_parse_ws_url(const char *url, char *host, int *port, char *path, int *ssl) {
     *ssl = 0;
     *port = 80;
-    strcpy(path, "/");
+    // SECURITY: Use safe string initialization instead of strcpy
+    path[0] = '/';
+    path[1] = '\0';
 
     if (strncmp(url, "wss://", 6) == 0) {
         *ssl = 1;
@@ -8929,9 +9106,10 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     connect_info.pwsi = &conn->wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {

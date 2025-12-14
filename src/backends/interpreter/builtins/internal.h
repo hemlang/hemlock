@@ -105,6 +105,7 @@ Value builtin_unsetenv(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_exit(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_get_pid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_getppid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_getuid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_geteuid(Value *args, int num_args, ExecutionContext *ctx);

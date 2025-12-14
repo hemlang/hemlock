@@ -17,6 +17,32 @@
 #include <limits.h>
 #include <zlib.h>
 
+// ========== PATH SECURITY ==========
+
+// Check if a path component contains directory traversal attempts
+// Returns 1 if path is safe, 0 if it contains traversal
+static int is_safe_subpath(const char *path) {
+    if (!path) return 0;
+
+    // Reject absolute paths in subpaths
+    if (path[0] == '/') return 0;
+
+    // Check for ".." components
+    const char *p = path;
+    while (*p) {
+        // Check for ".." at start or after "/"
+        if ((p == path || *(p-1) == '/') && p[0] == '.' && p[1] == '.') {
+            // ".." followed by end, "/" or nothing is traversal
+            if (p[2] == '\0' || p[2] == '/') {
+                return 0;
+            }
+        }
+        p++;
+    }
+
+    return 1;
+}
+
 // ========== INTERNAL STRUCTURES ==========
 
 typedef struct {
@@ -105,6 +131,13 @@ static char* resolve_import_path(BundleContext *ctx, const char *importer_path, 
             return NULL;
         }
         const char *module_subpath = import_path + 8;
+
+        // SECURITY: Validate subpath doesn't contain directory traversal
+        if (!is_safe_subpath(module_subpath)) {
+            fprintf(stderr, "Error: Invalid module path '%s' - directory traversal not allowed\n", import_path);
+            return NULL;
+        }
+
         snprintf(resolved, PATH_MAX, "%s/%s", ctx->bundle->stdlib_path, module_subpath);
     }
     // Absolute path

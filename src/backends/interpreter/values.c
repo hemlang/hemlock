@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <limits.h>
 
 // ========== FORWARD DECLARATIONS FOR CYCLE DETECTION ==========
 
@@ -300,12 +301,25 @@ void array_release(Array *arr) {
 }
 
 static void array_grow(Array *arr) {
-    arr->capacity *= 2;
-    Value *new_elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+    // SECURITY: Check for integer overflow before doubling capacity
+    if (arr->capacity > INT_MAX / 2) {
+        fprintf(stderr, "Runtime error: Array capacity overflow - array too large\n");
+        exit(1);
+    }
+    int new_capacity = arr->capacity * 2;
+
+    // Also check allocation size doesn't overflow
+    if ((size_t)new_capacity > SIZE_MAX / sizeof(Value)) {
+        fprintf(stderr, "Runtime error: Array allocation size overflow\n");
+        exit(1);
+    }
+
+    Value *new_elements = realloc(arr->elements, sizeof(Value) * (size_t)new_capacity);
     if (!new_elements) {
         fprintf(stderr, "Runtime error: Memory allocation failed during array growth\n");
         exit(1);
     }
+    arr->capacity = new_capacity;
     arr->elements = new_elements;
 }
 
@@ -1271,12 +1285,22 @@ static int visited_set_contains(VisitedSet *set, void *ptr) {
 
 static void visited_set_add(VisitedSet *set, void *ptr) {
     if (set->count >= set->capacity) {
-        set->capacity *= 2;
-        void **new_pointers = realloc(set->pointers, sizeof(void*) * set->capacity);
+        // SECURITY: Check for integer overflow before doubling
+        if (set->capacity > INT_MAX / 2) {
+            fprintf(stderr, "Runtime error: Visited set capacity overflow\n");
+            exit(1);
+        }
+        int new_capacity = set->capacity * 2;
+        if ((size_t)new_capacity > SIZE_MAX / sizeof(void*)) {
+            fprintf(stderr, "Runtime error: Visited set allocation overflow\n");
+            exit(1);
+        }
+        void **new_pointers = realloc(set->pointers, sizeof(void*) * (size_t)new_capacity);
         if (!new_pointers) {
             fprintf(stderr, "Runtime error: Memory allocation failed during visited set growth\n");
             exit(1);
         }
+        set->capacity = new_capacity;
         set->pointers = new_pointers;
     }
     set->pointers[set->count++] = ptr;
@@ -1606,9 +1630,21 @@ Value value_deep_copy(Value val) {
                 for (int i = 0; i < src->num_fields; i++) {
                     // Grow if needed
                     if (dst->num_fields >= dst->capacity) {
-                        dst->capacity *= 2;
-                        dst->field_names = realloc(dst->field_names, sizeof(char*) * dst->capacity);
-                        dst->field_values = realloc(dst->field_values, sizeof(Value) * dst->capacity);
+                        // SECURITY: Check for integer overflow before doubling
+                        if (dst->capacity > INT_MAX / 2) {
+                            fprintf(stderr, "Runtime error: Object field capacity overflow\n");
+                            exit(1);
+                        }
+                        int new_capacity = dst->capacity * 2;
+                        char **new_names = realloc(dst->field_names, sizeof(char*) * (size_t)new_capacity);
+                        Value *new_values = realloc(dst->field_values, sizeof(Value) * (size_t)new_capacity);
+                        if (!new_names || !new_values) {
+                            fprintf(stderr, "Runtime error: Memory allocation failed during object growth\n");
+                            exit(1);
+                        }
+                        dst->capacity = new_capacity;
+                        dst->field_names = new_names;
+                        dst->field_values = new_values;
                     }
                     dst->field_names[dst->num_fields] = strdup(src->field_names[i]);
                     Value field_copy = value_deep_copy(src->field_values[i]);

@@ -275,6 +275,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Platform-specific library paths
     char extra_lib_paths[512] = "";
 #ifdef __APPLE__
+    size_t extra_lib_len = 0;  // SECURITY: Track length to prevent overflow
     // On macOS, check for Homebrew libffi and libwebsockets paths
     FILE *fp = popen("brew --prefix libffi 2>/dev/null", "r");
     if (fp) {
@@ -282,8 +283,12 @@ static int compile_c(const Options *opts, const char *c_file) {
         if (fgets(libffi_path, sizeof(libffi_path), fp)) {
             libffi_path[strcspn(libffi_path, "\n")] = 0;
             char tmp[128];
-            snprintf(tmp, sizeof(tmp), " -L%s/lib", libffi_path);
-            strcat(extra_lib_paths, tmp);
+            int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", libffi_path);
+            // SECURITY: Bounds-checked concatenation
+            if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
+                strcat(extra_lib_paths + extra_lib_len, tmp);
+                extra_lib_len += (size_t)n;
+            }
         }
         pclose(fp);
     }
@@ -293,8 +298,12 @@ static int compile_c(const Options *opts, const char *c_file) {
         if (fgets(lws_path, sizeof(lws_path), fp)) {
             lws_path[strcspn(lws_path, "\n")] = 0;
             char tmp[128];
-            snprintf(tmp, sizeof(tmp), " -L%s/lib", lws_path);
-            strcat(extra_lib_paths, tmp);
+            int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", lws_path);
+            // SECURITY: Bounds-checked concatenation
+            if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
+                strcat(extra_lib_paths + extra_lib_len, tmp);
+                extra_lib_len += (size_t)n;
+            }
         }
         pclose(fp);
     }
@@ -319,8 +328,12 @@ static int compile_c(const Options *opts, const char *c_file) {
         if (fgets(ssl_path, sizeof(ssl_path), ssl_fp)) {
             ssl_path[strcspn(ssl_path, "\n")] = 0;
             char tmp[128];
-            snprintf(tmp, sizeof(tmp), " -L%s/lib", ssl_path);
-            strcat(extra_lib_paths, tmp);
+            int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", ssl_path);
+            // SECURITY: Bounds-checked concatenation
+            if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
+                strcat(extra_lib_paths + extra_lib_len, tmp);
+                extra_lib_len += (size_t)n;
+            }
         }
         pclose(ssl_fp);
     }

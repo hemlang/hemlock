@@ -1,5 +1,6 @@
 #include "internal.h"
 #include <stdarg.h>
+#include <limits.h>
 
 // ========== RUNTIME ERROR HELPER ==========
 
@@ -234,8 +235,17 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             // Ensure capacity
             if (arr->length >= arr->capacity) {
-                arr->capacity *= 2;
-                arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                // SECURITY: Check for integer overflow before doubling
+                if (arr->capacity > INT_MAX / 2) {
+                    return throw_runtime_error(ctx, "Array capacity overflow");
+                }
+                int new_capacity = arr->capacity * 2;
+                Value *new_elements = realloc(arr->elements, sizeof(Value) * (size_t)new_capacity);
+                if (!new_elements) {
+                    return throw_runtime_error(ctx, "Memory allocation failed");
+                }
+                arr->capacity = new_capacity;
+                arr->elements = new_elements;
             }
             // Shift all elements right
             for (int i = arr->length; i > 0; i--) {
@@ -271,8 +281,17 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             // Ensure capacity
             if (arr->length >= arr->capacity) {
-                arr->capacity *= 2;
-                arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                // SECURITY: Check for integer overflow before doubling
+                if (arr->capacity > INT_MAX / 2) {
+                    return throw_runtime_error(ctx, "Array capacity overflow");
+                }
+                int new_capacity = arr->capacity * 2;
+                Value *new_elements = realloc(arr->elements, sizeof(Value) * (size_t)new_capacity);
+                if (!new_elements) {
+                    return throw_runtime_error(ctx, "Memory allocation failed");
+                }
+                arr->capacity = new_capacity;
+                arr->elements = new_elements;
             }
             // Shift elements right from index
             for (int i = arr->length; i > index; i--) {

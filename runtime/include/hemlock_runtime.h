@@ -82,6 +82,7 @@ void hml_panic(HmlValue message);
 
 // Command execution
 HmlValue hml_exec(HmlValue command);
+HmlValue hml_exec_argv(HmlValue args_array);  // Safe version without shell
 
 // ========== MATH OPERATIONS ==========
 
@@ -182,6 +183,7 @@ void hml_setenv(HmlValue name, HmlValue value);
 void hml_exit(HmlValue code);
 HmlValue hml_get_pid(void);
 HmlValue hml_exec(HmlValue command);
+HmlValue hml_exec_argv(HmlValue args_array);
 
 // Environment builtin wrappers
 HmlValue hml_builtin_getenv(HmlClosureEnv *env, HmlValue name);
@@ -190,6 +192,7 @@ HmlValue hml_builtin_unsetenv(HmlClosureEnv *env, HmlValue name);
 HmlValue hml_builtin_exit(HmlClosureEnv *env, HmlValue code);
 HmlValue hml_builtin_get_pid(HmlClosureEnv *env);
 HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command);
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array);
 
 // ========== PROCESS OPERATIONS ==========
 

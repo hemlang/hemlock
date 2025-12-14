@@ -181,7 +181,9 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
 static int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
     *ssl = 0;
     *port = 80;
-    strcpy(path, "/");
+    // SECURITY: Use safe string initialization instead of strcpy
+    path[0] = '/';
+    path[1] = '\0';
 
     if (strncmp(url, "https://", 8) == 0) {
         *ssl = 1;
@@ -327,9 +329,10 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -446,9 +449,10 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     // Note: POST body handling in libwebsockets is complex
@@ -573,9 +577,10 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     // Note: Body handling for PUT/DELETE is simplified
@@ -1086,7 +1091,9 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     char host[256], path[512];
     int port, ssl = 0;
 
-    strcpy(path, "/");
+    // SECURITY: Use safe string initialization instead of strcpy
+    path[0] = '/';
+    path[1] = '\0';
 
     if (strncmp(url, "wss://", 6) == 0) {
         ssl = 1;
@@ -1205,9 +1212,10 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     connect_info.pwsi = &conn->wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {

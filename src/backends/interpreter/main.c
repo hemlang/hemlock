@@ -355,7 +355,7 @@ static int compile_file(const char *input_path, const char *output_path, int deb
     if (output_path == NULL) {
         // Default: replace .hml with .hmlc or append .hmlc
         size_t len = strlen(input_path);
-        final_output = malloc(len + 5);  // Room for ".hmlc\0"
+        final_output = malloc(len + 6);  // Room for ".hmlc" (5) + null (1)
         strcpy(final_output, input_path);
 
         // Check for .hml extension

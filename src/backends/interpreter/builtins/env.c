@@ -218,6 +218,174 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
     return val_object(result);
 }
 
+// exec_argv() - Safe command execution without shell interpretation
+// Takes an array of strings: [program, arg1, arg2, ...]
+// Uses fork/execvp directly, preventing shell injection attacks
+Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: exec_argv() expects 1 argument (array of strings)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_ARRAY) {
+        fprintf(stderr, "Runtime error: exec_argv() argument must be an array of strings\n");
+        exit(1);
+    }
+
+    Array *arr = args[0].as.as_array;
+    if (arr->length == 0) {
+        fprintf(stderr, "Runtime error: exec_argv() array must not be empty\n");
+        exit(1);
+    }
+
+    // Build argv array for execvp
+    char **argv = malloc((arr->length + 1) * sizeof(char*));
+    if (!argv) {
+        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        exit(1);
+    }
+
+    for (int i = 0; i < arr->length; i++) {
+        if (arr->elements[i].type != VAL_STRING) {
+            fprintf(stderr, "Runtime error: exec_argv() array elements must be strings\n");
+            for (int j = 0; j < i; j++) free(argv[j]);
+            free(argv);
+            exit(1);
+        }
+        String *s = arr->elements[i].as.as_string;
+        argv[i] = malloc(s->length + 1);
+        if (!argv[i]) {
+            fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+            for (int j = 0; j < i; j++) free(argv[j]);
+            free(argv);
+            exit(1);
+        }
+        memcpy(argv[i], s->data, s->length);
+        argv[i][s->length] = '\0';
+    }
+    argv[arr->length] = NULL;
+
+    // Create pipes for stdout and stderr
+    int stdout_pipe[2];
+    int stderr_pipe[2];
+    if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "exec_argv() pipe creation failed: %s", strerror(errno));
+        for (int i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "exec_argv() fork failed: %s", strerror(errno));
+        for (int i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    if (pid == 0) {
+        // Child process
+        close(stdout_pipe[0]);  // Close read end
+        close(stderr_pipe[0]);
+        dup2(stdout_pipe[1], STDOUT_FILENO);
+        dup2(stderr_pipe[1], STDERR_FILENO);
+        close(stdout_pipe[1]);
+        close(stderr_pipe[1]);
+
+        execvp(argv[0], argv);
+        // If execvp returns, it failed
+        fprintf(stderr, "exec_argv() failed to execute '%s': %s\n", argv[0], strerror(errno));
+        _exit(127);
+    }
+
+    // Parent process
+    close(stdout_pipe[1]);  // Close write end
+    close(stderr_pipe[1]);
+
+    // Free argv in parent (child has its own copy after fork)
+    for (int i = 0; i < arr->length; i++) free(argv[i]);
+    free(argv);
+
+    // Read output from child
+    char *output_buffer = NULL;
+    size_t output_size = 0;
+    size_t output_capacity = 4096;
+    output_buffer = malloc(output_capacity);
+    if (!output_buffer) {
+        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        close(stdout_pipe[0]);
+        close(stderr_pipe[0]);
+        exit(1);
+    }
+
+    char chunk[4096];
+    ssize_t bytes_read;
+    while ((bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk))) > 0) {
+        // Check for overflow before doubling capacity
+        while (output_size + (size_t)bytes_read > output_capacity) {
+            if (output_capacity > SIZE_MAX / 2) {
+                fprintf(stderr, "Runtime error: exec_argv() output too large\n");
+                free(output_buffer);
+                close(stdout_pipe[0]);
+                close(stderr_pipe[0]);
+                exit(1);
+            }
+            output_capacity *= 2;
+            char *new_buffer = realloc(output_buffer, output_capacity);
+            if (!new_buffer) {
+                fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+                free(output_buffer);
+                close(stdout_pipe[0]);
+                close(stderr_pipe[0]);
+                exit(1);
+            }
+            output_buffer = new_buffer;
+        }
+        memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
+        output_size += (size_t)bytes_read;
+    }
+    close(stdout_pipe[0]);
+    close(stderr_pipe[0]);
+
+    // Wait for child
+    int status;
+    waitpid(pid, &status, 0);
+    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+
+    // Ensure null termination
+    if (output_size >= output_capacity) {
+        char *new_buffer = realloc(output_buffer, output_size + 1);
+        if (!new_buffer) {
+            fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+            free(output_buffer);
+            exit(1);
+        }
+        output_buffer = new_buffer;
+        output_capacity = output_size + 1;
+    }
+    output_buffer[output_size] = '\0';
+
+    // Create result object
+    Object *result = object_new(NULL, 2);
+    result->field_names[0] = strdup("output");
+    result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
+    result->num_fields++;
+
+    result->field_names[1] = strdup("exit_code");
+    result->field_values[1] = val_i32(exit_code);
+    result->num_fields++;
+
+    return val_object(result);
+}
+
 Value builtin_getppid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)ctx;

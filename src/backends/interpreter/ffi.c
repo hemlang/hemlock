@@ -100,9 +100,49 @@ static const char* translate_library_path(const char *path) {
 }
 #endif
 
+// ========== LIBRARY PATH SECURITY ==========
+
+// Validate FFI library path for obvious security issues
+// Returns error message if invalid, NULL if path is acceptable
+static const char* validate_ffi_library_path(const char *path) {
+    if (!path || path[0] == '\0') {
+        return "Empty library path";
+    }
+
+    // Check for directory traversal
+    if (strstr(path, "..")) {
+        return "Library path contains directory traversal (..)";
+    }
+
+    // Warn about world-writable locations
+    if (strncmp(path, "/tmp/", 5) == 0 ||
+        strncmp(path, "/var/tmp/", 9) == 0 ||
+        strncmp(path, "/dev/shm/", 9) == 0) {
+        fprintf(stderr, "Warning: Loading FFI library from world-writable location: %s\n", path);
+        fprintf(stderr, "         This is a security risk - libraries in /tmp could be malicious\n");
+    }
+
+    // Check for suspicious patterns
+    if (strstr(path, "/../") || strstr(path, "/./")) {
+        return "Library path contains suspicious directory references";
+    }
+
+    return NULL;  // Path is acceptable
+}
+
 // ========== LIBRARY LOADING ==========
 
 FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
+    // SECURITY: Validate library path before loading
+    const char *validation_error = validate_ffi_library_path(path);
+    if (validation_error) {
+        ctx->exception_state.is_throwing = 1;
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "FFI security error: %s (path: %s)", validation_error, path);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        return NULL;
+    }
+
     pthread_mutex_lock(&ffi_cache_mutex);
 
 #ifdef __APPLE__

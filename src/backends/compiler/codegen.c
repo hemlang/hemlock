@@ -13,6 +13,15 @@
 
 #include "codegen_internal.h"
 
+// ========== SAFE CAPACITY GROWTH ==========
+
+// Helper to safely compute new capacity (returns -1 on overflow)
+static int safe_double_capacity(int current, int min_default) {
+    if (current == 0) return min_default;
+    if (current > INT_MAX / 2) return -1;  // Would overflow
+    return current * 2;
+}
+
 // ========== CONTEXT MANAGEMENT ==========
 
 CodegenContext* codegen_new(FILE *output) {
@@ -224,8 +233,12 @@ char* codegen_anon_func(CodegenContext *ctx) {
 
 void codegen_add_local(CodegenContext *ctx, const char *name) {
     if (ctx->num_locals >= ctx->local_capacity) {
-        int new_cap = (ctx->local_capacity == 0) ? 16 : ctx->local_capacity * 2;
-        ctx->local_vars = realloc(ctx->local_vars, new_cap * sizeof(char*));
+        int new_cap = safe_double_capacity(ctx->local_capacity, 16);
+        if (new_cap < 0) {
+            fprintf(stderr, "Codegen error: Local variable capacity overflow\n");
+            exit(1);
+        }
+        ctx->local_vars = realloc(ctx->local_vars, (size_t)new_cap * sizeof(char*));
         ctx->local_capacity = new_cap;
     }
     ctx->local_vars[ctx->num_locals++] = strdup(name);
