@@ -438,3 +438,30 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
 	rm -rf $(DESTDIR)$(LIBDIR)
 	@echo "✓ Hemlock uninstalled"
+
+# ========== FUZZ TESTING ==========
+
+.PHONY: fuzz fuzz-lexer fuzz-parser fuzz-afl fuzz-standalone fuzz-clean
+
+# Run lexer fuzzing with libFuzzer
+fuzz-lexer:
+	@$(MAKE) -C tests/fuzz fuzz-lexer-libfuzzer
+
+# Run parser fuzzing with libFuzzer
+fuzz-parser:
+	@$(MAKE) -C tests/fuzz fuzz-parser-libfuzzer
+
+# Build AFL++ fuzzers
+fuzz-afl:
+	@$(MAKE) -C tests/fuzz afl
+
+# Build standalone fuzzers for crash reproduction
+fuzz-standalone:
+	@$(MAKE) -C tests/fuzz standalone
+
+# Run both fuzzers (lexer first, then parser)
+fuzz: fuzz-lexer
+
+# Clean fuzz build artifacts
+fuzz-clean:
+	@$(MAKE) -C tests/fuzz clean-all

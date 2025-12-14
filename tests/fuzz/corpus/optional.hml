@@ -1,0 +1,4 @@
+let obj = { a: { b: 1 } };
+let val = obj?.a?.b;
+let def = null ?? "default";
+let x = obj?.missing ?? 0;

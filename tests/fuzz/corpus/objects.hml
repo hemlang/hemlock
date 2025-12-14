@@ -1,0 +1,11 @@
+define Person {
+    name: string,
+    age: i32,
+    active?: true
+}
+
+let p: Person = { name: "Alice", age: 30 };
+let n = p.name;
+p.age = 31;
+
+let obj = { x: 10, y: 20, z: 30 };

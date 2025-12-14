@@ -1,0 +1,2 @@
+let nums: array<i32> = [1, 2, 3];
+let strs: array<string> = ["a", "b"];

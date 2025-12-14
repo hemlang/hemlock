@@ -1,0 +1,9 @@
+let i8_val: i8 = 127;
+let i16_val: i16 = 32767;
+let i32_val: i32 = 2147483647;
+let i64_val: i64 = 5000000000;
+let u8_val: u8 = 255;
+let f32_val: f32 = 3.14;
+let f64_val: f64 = 3.14159265359;
+let hex = 0xDEADBEEF;
+let bin = 0b10101010;
