@@ -1,0 +1,191 @@
+name: Fuzz Testing
+
+on:
+  # Run nightly
+  schedule:
+    - cron: '0 3 * * *'  # 3 AM UTC daily
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Fuzzing duration in seconds'
+        required: false
+        default: '300'
+  # Run on pushes to fuzz-related files
+  push:
+    branches: [ main, master, 'claude/**' ]
+    paths:
+      - 'src/frontend/**'
+      - 'tests/fuzz/**'
+      - '.github/workflows/fuzz.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'src/frontend/**'
+      - 'tests/fuzz/**'
+
+jobs:
+  fuzz-lexer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang llvm build-essential
+
+    - name: Build lexer fuzzer
+      working-directory: tests/fuzz
+      run: |
+        clang -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g \
+          -I../../include -I../../src -I../../src/frontend -std=c11 \
+          -o fuzz_lexer fuzz_lexer.c \
+          ../../src/frontend/lexer.c \
+          ../../src/frontend/ast.c \
+          ../../src/frontend/parser/core.c \
+          ../../src/frontend/parser/expressions.c \
+          ../../src/frontend/parser/statements.c
+
+    - name: Run lexer fuzzer
+      working-directory: tests/fuzz
+      run: |
+        mkdir -p crashes/lexer
+        DURATION=${{ github.event.inputs.duration || '300' }}
+        echo "Fuzzing lexer for ${DURATION} seconds..."
+        timeout ${DURATION}s ./fuzz_lexer corpus/ -artifact_prefix=crashes/lexer/ \
+          -max_len=65536 -print_final_stats=1 || true
+      env:
+        ASAN_OPTIONS: halt_on_error=0:detect_leaks=0
+
+    - name: Check for crashes
+      id: check-crashes
+      working-directory: tests/fuzz
+      run: |
+        if ls crashes/lexer/crash-* 1>/dev/null 2>&1; then
+          echo "found=true" >> $GITHUB_OUTPUT
+          echo "::warning::Lexer fuzzer found crashes!"
+          ls -la crashes/lexer/
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+          echo "No crashes found"
+        fi
+
+    - name: Upload crash artifacts
+      if: steps.check-crashes.outputs.found == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: lexer-crashes
+        path: tests/fuzz/crashes/lexer/
+        retention-days: 30
+
+  fuzz-parser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang llvm build-essential
+
+    - name: Build parser fuzzer
+      working-directory: tests/fuzz
+      run: |
+        clang -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g \
+          -I../../include -I../../src -I../../src/frontend -std=c11 \
+          -o fuzz_parser fuzz_parser.c \
+          ../../src/frontend/lexer.c \
+          ../../src/frontend/ast.c \
+          ../../src/frontend/parser/core.c \
+          ../../src/frontend/parser/expressions.c \
+          ../../src/frontend/parser/statements.c
+
+    - name: Run parser fuzzer
+      working-directory: tests/fuzz
+      run: |
+        mkdir -p crashes/parser
+        DURATION=${{ github.event.inputs.duration || '300' }}
+        echo "Fuzzing parser for ${DURATION} seconds..."
+        timeout ${DURATION}s ./fuzz_parser corpus/ -artifact_prefix=crashes/parser/ \
+          -max_len=65536 -print_final_stats=1 || true
+      env:
+        ASAN_OPTIONS: halt_on_error=0:detect_leaks=0
+
+    - name: Check for crashes
+      id: check-crashes
+      working-directory: tests/fuzz
+      run: |
+        if ls crashes/parser/crash-* 1>/dev/null 2>&1; then
+          echo "found=true" >> $GITHUB_OUTPUT
+          echo "::warning::Parser fuzzer found crashes!"
+          ls -la crashes/parser/
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+          echo "No crashes found"
+        fi
+
+    - name: Upload crash artifacts
+      if: steps.check-crashes.outputs.found == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: parser-crashes
+        path: tests/fuzz/crashes/parser/
+        retention-days: 30
+
+  # Quick smoke test on every PR (shorter duration)
+  fuzz-smoke-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang llvm build-essential
+
+    - name: Build fuzzers
+      working-directory: tests/fuzz
+      run: |
+        clang -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g \
+          -I../../include -I../../src -I../../src/frontend -std=c11 \
+          -o fuzz_lexer fuzz_lexer.c \
+          ../../src/frontend/lexer.c \
+          ../../src/frontend/ast.c \
+          ../../src/frontend/parser/core.c \
+          ../../src/frontend/parser/expressions.c \
+          ../../src/frontend/parser/statements.c
+
+        clang -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g \
+          -I../../include -I../../src -I../../src/frontend -std=c11 \
+          -o fuzz_parser fuzz_parser.c \
+          ../../src/frontend/lexer.c \
+          ../../src/frontend/ast.c \
+          ../../src/frontend/parser/core.c \
+          ../../src/frontend/parser/expressions.c \
+          ../../src/frontend/parser/statements.c
+
+    - name: Quick fuzz test (30 seconds each)
+      working-directory: tests/fuzz
+      run: |
+        mkdir -p crashes
+        echo "Quick lexer fuzz test..."
+        timeout 30s ./fuzz_lexer corpus/ -artifact_prefix=crashes/ -max_len=4096 || true
+        echo "Quick parser fuzz test..."
+        timeout 30s ./fuzz_parser corpus/ -artifact_prefix=crashes/ -max_len=4096 || true
+      env:
+        ASAN_OPTIONS: halt_on_error=0:detect_leaks=0
+
+    - name: Check for crashes
+      working-directory: tests/fuzz
+      run: |
+        if ls crashes/crash-* 1>/dev/null 2>&1; then
+          echo "::error::Fuzzer found crashes in smoke test!"
+          ls -la crashes/
+          exit 1
+        fi
+        echo "Smoke test passed - no crashes found"
