@@ -8512,9 +8512,10 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -8607,9 +8608,10 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
     if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -9067,9 +9069,10 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     connect_info.pwsi = &conn->wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {

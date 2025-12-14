@@ -206,9 +206,10 @@ http_response_t* lws_http_get(const char *url) {
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -308,9 +309,10 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -397,9 +399,10 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
@@ -681,9 +684,10 @@ ws_connection_t* lws_ws_connect(const char *url) {
     connect_info.pwsi = &conn->wsi;
 
     if (ssl) {
-        connect_info.ssl_connection = LCCSCF_USE_SSL |
-                                       LCCSCF_ALLOW_SELFSIGNED |
-                                       LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+        // SECURITY: Enable SSL with proper certificate validation
+        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+        // to prevent MITM attacks
+        connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
