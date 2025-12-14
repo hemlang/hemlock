@@ -1,0 +1,11 @@
+fn cleanup() {
+    let done = true;
+}
+
+fn test() {
+    defer cleanup();
+    let x = 1;
+    return x;
+}
+
+test();

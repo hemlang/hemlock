@@ -1,0 +1,22 @@
+if (true) {
+    let x = 1;
+} else if (false) {
+    let y = 2;
+} else {
+    let z = 3;
+}
+
+let i = 0;
+while (i < 5) {
+    i = i + 1;
+    if (i == 3) {
+        continue;
+    }
+    if (i == 4) {
+        break;
+    }
+}
+
+for (let j = 0; j < 10; j = j + 1) {
+    let k = j * 2;
+}

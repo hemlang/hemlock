@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+
+# Crash outputs
+crashes/
+
+# libFuzzer artifacts
+crash-*
+leak-*
+timeout-*
+oom-*
+slow-unit-*
