@@ -14,6 +14,71 @@
 #include <mach-o/dyld.h>
 #endif
 
+// ========== PATH SECURITY ==========
+
+// Check if a path component contains directory traversal attempts
+// Returns 1 if path is safe, 0 if it contains traversal
+static int is_safe_subpath(const char *path) {
+    if (!path) return 0;
+
+    // Reject absolute paths in subpaths
+    if (path[0] == '/') return 0;
+
+    // Check for ".." components
+    const char *p = path;
+    while (*p) {
+        // Check for ".." at start or after "/"
+        if ((p == path || *(p-1) == '/') && p[0] == '.' && p[1] == '.') {
+            // ".." followed by end, "/" or nothing is traversal
+            if (p[2] == '\0' || p[2] == '/') {
+                return 0;
+            }
+        }
+        p++;
+    }
+
+    return 1;
+}
+
+// Validate that resolved path stays within base directory
+// Returns 1 if path is contained within base, 0 otherwise
+static int path_is_within_base(const char *resolved_path, const char *base_path) {
+    char base_real[PATH_MAX];
+
+    // Get canonical paths
+    if (!realpath(base_path, base_real)) {
+        return 0;
+    }
+
+    // For resolved_path, we need to handle non-existent files
+    // Try to resolve the directory part
+    char resolved_copy[PATH_MAX];
+    strncpy(resolved_copy, resolved_path, PATH_MAX - 1);
+    resolved_copy[PATH_MAX - 1] = '\0';
+
+    // Get the directory part
+    char *dir = dirname(resolved_copy);
+    char dir_real[PATH_MAX];
+
+    if (!realpath(dir, dir_real)) {
+        // If directory doesn't exist, this is already suspicious
+        return 0;
+    }
+
+    // Check that dir_real starts with base_real
+    size_t base_len = strlen(base_real);
+    if (strncmp(dir_real, base_real, base_len) != 0) {
+        return 0;
+    }
+
+    // Ensure it's not a prefix match (e.g., /foo/bar vs /foo/barbaz)
+    if (dir_real[base_len] != '\0' && dir_real[base_len] != '/') {
+        return 0;
+    }
+
+    return 1;
+}
+
 // ========== MODULE CACHE ==========
 
 // Helper function to ensure export array has capacity
@@ -209,7 +274,20 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
 
         // Replace @stdlib with actual stdlib path
         const char *module_subpath = import_path + 8;  // Skip "@stdlib/"
+
+        // SECURITY: Validate subpath doesn't contain directory traversal
+        if (!is_safe_subpath(module_subpath)) {
+            fprintf(stderr, "Error: Invalid module path '%s' - directory traversal not allowed\n", import_path);
+            return NULL;
+        }
+
         snprintf(resolved, PATH_MAX, "%s/%s", cache->stdlib_path, module_subpath);
+
+        // SECURITY: Double-check resolved path stays within stdlib directory
+        if (!path_is_within_base(resolved, cache->stdlib_path)) {
+            fprintf(stderr, "Error: Module path '%s' resolves outside stdlib directory\n", import_path);
+            return NULL;
+        }
     }
     // If import_path is absolute, use it directly
     else if (import_path[0] == '/') {
@@ -259,6 +337,20 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
                     strncpy(repo, first_slash + 1, sizeof(repo) - 1);
                     repo[sizeof(repo) - 1] = '\0';
                 }
+            }
+
+            // SECURITY: Validate owner and repo names don't contain traversal
+            if (!is_safe_subpath(owner) || !is_safe_subpath(repo)) {
+                fprintf(stderr, "Error: Invalid package name - directory traversal not allowed\n");
+                free(hem_modules);
+                return NULL;
+            }
+
+            // SECURITY: Validate subpath if present
+            if (subpath && !is_safe_subpath(subpath)) {
+                fprintf(stderr, "Error: Invalid package subpath '%s' - directory traversal not allowed\n", subpath);
+                free(hem_modules);
+                return NULL;
             }
 
             // Try different resolution patterns per spec:
@@ -331,6 +423,13 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
                         }
                     }
                     fclose(pkg_file);
+                }
+
+                // SECURITY: Validate main_file from package.json doesn't contain traversal
+                if (!is_safe_subpath(main_file)) {
+                    fprintf(stderr, "Error: Invalid 'main' field in package.json - directory traversal not allowed\n");
+                    free(hem_modules);
+                    return NULL;
                 }
 
                 // Build path to main file
