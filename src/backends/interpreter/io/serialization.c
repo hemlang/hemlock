@@ -361,14 +361,12 @@ Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
     size_t raw_len = s - start;
 
     if (!has_escapes) {
-        // Fast path: no escapes, direct copy
+        // Fast path: no escapes, direct copy - use val_string_take to avoid double allocation
         char *buf = malloc(raw_len + 1);
         memcpy(buf, start, raw_len);
         buf[raw_len] = '\0';
         p->pos += raw_len + 1;  // +1 for closing quote
-        Value result = val_string(buf);
-        free(buf);
-        return result;
+        return val_string_take(buf, raw_len, raw_len + 1);
     }
 
     // Slow path: handle escapes
@@ -434,9 +432,8 @@ Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
     *out = '\0';
     p->pos = (s - p->input) + 1;  // +1 for closing quote
 
-    Value result = val_string(buf);
-    free(buf);
-    return result;
+    // Use val_string_take to avoid double allocation
+    return val_string_take(buf, out - buf, raw_len + 1);
 }
 
 // Optimized number parsing - parse directly without allocation
