@@ -24,6 +24,8 @@ static BuiltinInfo builtins[] = {
     {"open", builtin_open},
     {"assert", builtin_assert},
     {"panic", builtin_panic},
+    {"set_stack_limit", builtin_set_stack_limit},
+    {"get_stack_limit", builtin_get_stack_limit},
     {"exec", builtin_exec},
     {"exec_argv", builtin_exec_argv},
     {"spawn", builtin_spawn},

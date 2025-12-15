@@ -46,6 +46,9 @@ typedef struct {
 
 // ========== EXECUTION CONTEXT ==========
 
+// Default maximum call stack depth (configurable via set_stack_limit() or --stack-depth)
+#define DEFAULT_MAX_STACK_DEPTH 10000
+
 // Execution context - holds all control flow state
 // Each async task will have its own context (future async support)
 // Note: ExecutionContext is forward-declared in interpreter.h
@@ -55,6 +58,7 @@ struct ExecutionContext {
     ExceptionState exception_state;
     CallStack call_stack;
     DeferStack defer_stack;
+    int max_stack_depth;  // Configurable stack limit (default: DEFAULT_MAX_STACK_DEPTH)
 };
 
 // ========== OBJECT TYPE REGISTRY ==========

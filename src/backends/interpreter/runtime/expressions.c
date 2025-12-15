@@ -1217,8 +1217,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 // Check for stack overflow (prevent infinite recursion)
-                #define MAX_CALL_STACK_DEPTH 1000
-                if (ctx->call_stack.count >= MAX_CALL_STACK_DEPTH) {
+                if (ctx->call_stack.count >= ctx->max_stack_depth) {
                     runtime_error(ctx, "Maximum call stack depth exceeded (infinite recursion?)");
                     // Release function and args before returning
                     VALUE_RELEASE(func);

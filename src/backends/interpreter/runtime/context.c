@@ -32,6 +32,7 @@ ExecutionContext* exec_context_new(void) {
     ctx->loop_state.is_continuing = 0;
     ctx->exception_state.is_throwing = 0;
     ctx->exception_state.exception_value = val_null();
+    ctx->max_stack_depth = DEFAULT_MAX_STACK_DEPTH;
     call_stack_init(&ctx->call_stack);
     defer_stack_init(&ctx->defer_stack);
     return ctx;

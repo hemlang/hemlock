@@ -61,7 +61,7 @@ static char* read_file(const char *path) {
     return buffer;
 }
 
-static void run_source(const char *source, int argc, char **argv) {
+static void run_source(const char *source, int argc, char **argv, int stack_depth) {
     // Parse
     Lexer lexer;
     lexer_init(&lexer, source);
@@ -82,6 +82,9 @@ static void run_source(const char *source, int argc, char **argv) {
 
     // Create execution context
     ExecutionContext *ctx = exec_context_new();
+    if (stack_depth > 0) {
+        ctx->max_stack_depth = stack_depth;
+    }
 
     register_builtins(env, argc, argv, ctx);
 
@@ -279,7 +282,7 @@ static int has_modules(const char *source) {
     return 0;
 }
 
-static void run_file(const char *path, int argc, char **argv) {
+static void run_file(const char *path, int argc, char **argv, int stack_depth) {
     char *source = read_file(path);
     if (source == NULL) {
         exit(1);
@@ -295,6 +298,9 @@ static void run_file(const char *path, int argc, char **argv) {
     if (has_modules(source)) {
         // Use module system
         ExecutionContext *ctx = exec_context_new();
+        if (stack_depth > 0) {
+            ctx->max_stack_depth = stack_depth;
+        }
 
         // Need to set up builtins in a global environment first
         Environment *global_env = env_new(NULL);
@@ -318,7 +324,7 @@ static void run_file(const char *path, int argc, char **argv) {
         }
     } else {
         // Use traditional execution
-        run_source(source, argc, argv);
+        run_source(source, argc, argv, stack_depth);
         free(source);
 
         // Cleanup FFI and source file tracking
@@ -727,7 +733,7 @@ static int package_file(const char *input_path, const char *output_path, int ver
 }
 
 // Run a .hmlc compiled file
-static void run_hmlc_file(const char *path, int argc, char **argv) {
+static void run_hmlc_file(const char *path, int argc, char **argv, int stack_depth) {
     // Deserialize AST from file
     int stmt_count;
     Stmt **statements = ast_deserialize_from_file(path, &stmt_count);
@@ -745,6 +751,9 @@ static void run_hmlc_file(const char *path, int argc, char **argv) {
     // Create execution environment
     Environment *env = env_new(NULL);
     ExecutionContext *ctx = exec_context_new();
+    if (stack_depth > 0) {
+        ctx->max_stack_depth = stack_depth;
+    }
     register_builtins(env, argc, argv, ctx);
 
     // Execute
@@ -771,12 +780,15 @@ static int is_hmlc_extension(const char *path) {
     return len > 5 && strcmp(path + len - 5, ".hmlc") == 0;
 }
 
-static void run_repl(void) {
+static void run_repl(int stack_depth) {
     char line[1024];
     Environment *env = env_new(NULL);
 
     // Create execution context for REPL (persists across lines)
     ExecutionContext *ctx = exec_context_new();
+    if (stack_depth > 0) {
+        ctx->max_stack_depth = stack_depth;
+    }
 
     // Initialize FFI
     ffi_init();
@@ -876,7 +888,8 @@ static void print_help(const char *program) {
     printf("    --info <FILE>        Show info about a .hmlc/.hmlb file\n");
     printf("    -o, --output <FILE>  Output path for compiled/bundled/packaged file\n");
     printf("    --debug              Include line numbers in compiled output\n");
-    printf("    --verbose            Print progress during bundling/packaging\n\n");
+    printf("    --verbose            Print progress during bundling/packaging\n");
+    printf("    --stack-depth <N>    Set maximum call stack depth (default: 10000)\n\n");
     printf("EXAMPLES:\n");
     printf("    %s                     # Start interactive REPL\n", program);
     printf("    %s script.hml          # Run script.hml\n", program);
@@ -891,6 +904,7 @@ static void print_help(const char *program) {
     printf("    %s --package app.hml       # Create ./app executable\n", program);
     printf("    %s --package app.hml --no-compress -o myapp\n", program);
     printf("    %s --info app.hmlc         # Show compiled file info\n", program);
+    printf("    %s --stack-depth 50000 script.hml  # Run with larger stack\n", program);
     printf("    %s lsp                 # Start LSP server (stdio)\n", program);
     printf("    %s lsp --tcp 6969      # Start LSP server (TCP)\n\n", program);
     printf("For more information, visit: https://github.com/hemlang/hemlock\n");
@@ -957,6 +971,7 @@ int main(int argc, char **argv) {
     int bundle_verbose = 0;
     int package_mode = 0;
     int info_mode = 0;
+    int stack_depth = 0;  // 0 = use default (DEFAULT_MAX_STACK_DEPTH)
     const char *file_to_info = NULL;
     const char *file_to_run = NULL;
     const char *file_to_compile = NULL;
@@ -1023,6 +1038,18 @@ int main(int argc, char **argv) {
             bundle_compress = -1;  // Explicitly disabled
         } else if (strcmp(argv[i], "--verbose") == 0) {
             bundle_verbose = 1;
+        } else if (strcmp(argv[i], "--stack-depth") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: --stack-depth requires a numeric argument\n");
+                fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
+                return 1;
+            }
+            stack_depth = atoi(argv[i + 1]);
+            if (stack_depth <= 0) {
+                fprintf(stderr, "Error: --stack-depth must be a positive integer\n");
+                return 1;
+            }
+            i++;  // Skip the value argument
         } else if (strcmp(argv[i], "--info") == 0) {
             info_mode = 1;
             if (i + 1 >= argc) {
@@ -1101,11 +1128,11 @@ int main(int argc, char **argv) {
     if (command_to_run != NULL) {
         // Execute code string
         ffi_init();
-        run_source(command_to_run, 0, NULL);
+        run_source(command_to_run, 0, NULL, stack_depth);
         ffi_cleanup();
 
         if (interactive_mode) {
-            run_repl();
+            run_repl(stack_depth);
         }
 
         // Cleanup type registries before exit
@@ -1121,13 +1148,13 @@ int main(int argc, char **argv) {
 
         // Check if it's a compiled .hmlc file
         if (is_hmlc_extension(file_to_run) || is_hmlc_file(file_to_run)) {
-            run_hmlc_file(file_to_run, script_argc, script_argv);
+            run_hmlc_file(file_to_run, script_argc, script_argv, stack_depth);
         } else {
-            run_file(file_to_run, script_argc, script_argv);
+            run_file(file_to_run, script_argc, script_argv, stack_depth);
         }
 
         if (interactive_mode) {
-            run_repl();
+            run_repl(stack_depth);
         }
 
         // Cleanup type registries before exit
@@ -1137,7 +1164,7 @@ int main(int argc, char **argv) {
     }
 
     // No file or command specified - start REPL
-    run_repl();
+    run_repl(stack_depth);
 
     // Cleanup type registries before exit
     cleanup_object_types();

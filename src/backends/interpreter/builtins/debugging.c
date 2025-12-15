@@ -199,3 +199,34 @@ Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx) {
     call_stack_print(&ctx->call_stack);
     exit(1);
 }
+
+Value builtin_set_stack_limit(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "set_stack_limit() expects 1 argument (limit)");
+        return val_null();
+    }
+
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "set_stack_limit() expects an integer argument");
+        return val_null();
+    }
+
+    int limit = value_to_int(args[0]);
+    if (limit <= 0) {
+        runtime_error(ctx, "set_stack_limit() expects a positive integer");
+        return val_null();
+    }
+
+    ctx->max_stack_depth = limit;
+    return val_null();
+}
+
+Value builtin_get_stack_limit(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;  // Unused
+    if (num_args != 0) {
+        runtime_error(ctx, "get_stack_limit() expects no arguments");
+        return val_null();
+    }
+
+    return val_i32(ctx->max_stack_depth);
+}

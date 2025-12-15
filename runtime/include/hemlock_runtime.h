@@ -765,8 +765,11 @@ HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue si
 
 // ========== CALL STACK TRACKING ==========
 
-// Maximum call stack depth (matches interpreter's limit)
-#define HML_MAX_CALL_DEPTH 1000
+// Default maximum call stack depth (matches interpreter's limit)
+// Can be overridden by defining HML_MAX_CALL_DEPTH before including this header
+#ifndef HML_MAX_CALL_DEPTH
+#define HML_MAX_CALL_DEPTH 10000
+#endif
 
 // Call depth tracking - called at function entry/exit to detect stack overflow
 void hml_call_enter(void);

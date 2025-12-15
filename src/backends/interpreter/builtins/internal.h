@@ -56,6 +56,8 @@ Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_set_stack_limit(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_get_stack_limit(Value *args, int num_args, ExecutionContext *ctx);
 
 // Math builtins (math.c)
 Value builtin_sin(Value *args, int num_args, ExecutionContext *ctx);
