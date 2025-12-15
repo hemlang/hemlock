@@ -152,6 +152,7 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         }
     }
 done_warning:
+    ; // Empty statement required after label before declaration in C
 
     char *ccmd = malloc(command->length + 1);
     if (!ccmd) {
