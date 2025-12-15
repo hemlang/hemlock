@@ -1,7 +1,24 @@
 // Test float special values (NaN, Infinity)
-// Expected: SKIP - Division by zero currently errors
+// IEEE 754 compliant behavior for float division by zero
 
-// TODO: When float division by zero produces Infinity/NaN, enable this test
-// Currently division by zero throws an error instead of producing special values
+// Test Infinity
+let pos_inf = 1.0 / 0.0;
+let neg_inf = -1.0 / 0.0;
 
-print("SKIP: Division by zero currently errors instead of producing Infinity/NaN");
+// Test NaN
+let nan_val = 0.0 / 0.0;
+
+// Verify Infinity behavior
+print(pos_inf > 1000000000.0);  // true - Infinity is greater than any finite number
+print(neg_inf < -1000000000.0); // true - -Infinity is less than any finite number
+print(pos_inf == pos_inf);      // true - Infinity equals itself
+
+// Verify NaN behavior (NaN is not equal to anything, including itself)
+print(nan_val == nan_val);      // false - NaN != NaN (IEEE 754)
+print(nan_val != nan_val);      // true - NaN is not equal to itself
+
+// Test using built-in special values
+print(__INF > 0.0);             // true
+print(__NAN == __NAN);          // false
+
+print("PASSED");

@@ -12,6 +12,19 @@
 // Marker for NULL pointers in serialized data
 #define NULL_MARKER 0xFF
 
+// Header size (magic + version + flags + string_count + stmt_count + checksum)
+#define HEADER_SIZE 20
+#define CHECKSUM_OFFSET 16
+
+// Compute djb2 hash for checksum validation
+static uint32_t compute_checksum(const uint8_t *data, size_t size) {
+    uint32_t hash = 5381;
+    for (size_t i = 0; i < size; i++) {
+        hash = ((hash << 5) + hash) + data[i];  // hash * 33 + c
+    }
+    return hash;
+}
+
 // ========== STRING TABLE ==========
 
 static void string_table_init(StringTable *table) {
@@ -1077,6 +1090,13 @@ uint8_t* ast_serialize(Stmt **statements, int stmt_count, uint16_t flags, size_t
 
     free(ast_data);
 
+    // Compute checksum of data after header and write it to the placeholder
+    uint32_t checksum = compute_checksum(ctx.buffer + HEADER_SIZE, ctx.buffer_size - HEADER_SIZE);
+    ctx.buffer[CHECKSUM_OFFSET] = checksum & 0xFF;
+    ctx.buffer[CHECKSUM_OFFSET + 1] = (checksum >> 8) & 0xFF;
+    ctx.buffer[CHECKSUM_OFFSET + 2] = (checksum >> 16) & 0xFF;
+    ctx.buffer[CHECKSUM_OFFSET + 3] = (checksum >> 24) & 0xFF;
+
     *out_size = ctx.buffer_size;
     uint8_t *result = ctx.buffer;
 
@@ -1106,8 +1126,16 @@ Stmt** ast_deserialize(const uint8_t *data, size_t data_size, int *out_count) {
     ctx.flags = read_u16(&ctx);
     ctx.string_count = read_u32(&ctx);
     uint32_t stmt_count = read_u32(&ctx);
-    uint32_t checksum = read_u32(&ctx);
-    (void)checksum;  // TODO: validate checksum
+    uint32_t stored_checksum = read_u32(&ctx);
+
+    // Validate checksum
+    if (data_size > HEADER_SIZE) {
+        uint32_t computed_checksum = compute_checksum(data + HEADER_SIZE, data_size - HEADER_SIZE);
+        if (stored_checksum != computed_checksum) {
+            fprintf(stderr, "Error: .hmlc file checksum mismatch (file may be corrupted)\n");
+            return NULL;
+        }
+    }
 
     // Read string table
     ctx.strings = malloc(ctx.string_count * sizeof(char*));

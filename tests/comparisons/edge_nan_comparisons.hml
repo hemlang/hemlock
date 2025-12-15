@@ -1,5 +1,23 @@
 // Test NaN comparison behavior
-// Expected: SKIP - Division by zero produces error, not NaN
+// IEEE 754: NaN is not equal to anything, including itself
 
-// TODO: When float division by zero produces NaN instead of error, enable this test
-print("SKIP: Division by zero currently errors instead of producing NaN");
+let nan_val = 0.0 / 0.0;
+
+// NaN comparisons - all should be false except !=
+print(nan_val == nan_val);      // false
+print(nan_val != nan_val);      // true
+print(nan_val < nan_val);       // false
+print(nan_val <= nan_val);      // false
+print(nan_val > nan_val);       // false
+print(nan_val >= nan_val);      // false
+
+// NaN compared to regular numbers
+print(nan_val == 0.0);          // false
+print(nan_val < 0.0);           // false
+print(nan_val > 0.0);           // false
+
+// Using built-in __NAN
+print(__NAN == __NAN);          // false
+print(__NAN != __NAN);          // true
+
+print("PASSED");

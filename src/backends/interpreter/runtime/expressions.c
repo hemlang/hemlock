@@ -251,7 +251,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     case OP_SUB: return val_f64(l - r);
                     case OP_MUL: return val_f64(l * r);
                     case OP_DIV:
-                        if (r == 0.0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                        // IEEE 754: float division by zero returns Infinity or NaN
                         return val_f64(l / r);
                     case OP_LESS: return val_bool(l < r);
                     case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -566,17 +566,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         binary_result = (result_type == VAL_F32) ? val_f32((float)(l * r)) : val_f64(l * r);
                         goto binary_cleanup;
                     case OP_DIV:
-                        if (r == 0.0) {
-                            runtime_error(ctx, "Division by zero");
-                            goto binary_cleanup;
-                        }
+                        // IEEE 754: float division by zero returns Infinity or NaN
                         binary_result = (result_type == VAL_F32) ? val_f32((float)(l / r)) : val_f64(l / r);
                         goto binary_cleanup;
                     case OP_MOD:
-                        if (r == 0.0) {
-                            runtime_error(ctx, "Division by zero");
-                            goto binary_cleanup;
-                        }
+                        // IEEE 754: fmod with zero returns NaN
                         binary_result = (result_type == VAL_F32) ? val_f32((float)fmod(l, r)) : val_f64(fmod(l, r));
                         goto binary_cleanup;
                     case OP_EQUAL:
@@ -1297,8 +1291,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Get result
                 result = ctx->return_state.return_value;
 
-                // Check return type if specified
-                if (fn->return_type) {
+                // Check return type if specified (but not if exception is being thrown)
+                if (fn->return_type && !ctx->exception_state.is_throwing) {
                     // null return type allows functions to not return a value explicitly
                     if (!ctx->return_state.is_returning && fn->return_type->kind != TYPE_NULL) {
                         runtime_error(ctx, "Function with return type must return a value");

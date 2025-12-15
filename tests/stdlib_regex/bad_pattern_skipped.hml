@@ -1,6 +1,17 @@
-// Test: Invalid regex pattern (should throw exception)
-// TODO: This test currently fails with "Expected object, got non-object"
-// Possibly a bug in Hemlock's exception handling with FFI calls
-// Skipping for now - all other tests pass
+// Test: Invalid regex pattern should throw proper exception
+import { compile } from "@stdlib/regex";
 
-print("SKIPPED: error_invalid_pattern test (known issue)");
+let caught = false;
+let error_msg = "";
+
+try {
+    // Invalid regex pattern - unclosed bracket
+    let regex = compile("[invalid");
+} catch (e) {
+    caught = true;
+    error_msg = e;
+}
+
+print(caught);           // true - exception should be caught
+print(error_msg);        // Should be "Regex compilation failed"
+print("PASSED");

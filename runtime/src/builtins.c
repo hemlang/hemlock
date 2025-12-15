@@ -1585,7 +1585,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_SUB: return hml_val_f64(l - r);
             case HML_OP_MUL: return hml_val_f64(l * r);
             case HML_OP_DIV:
-                if (r == 0.0) hml_runtime_error("Division by zero");
+                // IEEE 754: float division by zero returns Infinity or NaN
                 return hml_val_f64(l / r);
             case HML_OP_LESS: return hml_val_bool(l < r);
             case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
@@ -1689,15 +1689,11 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_SUB:      result = l - r; break;
             case HML_OP_MUL:      result = l * r; break;
             case HML_OP_DIV:
-                if (r == 0.0) {
-                    hml_runtime_error("Division by zero");
-                }
+                // IEEE 754: float division by zero returns Infinity or NaN
                 result = l / r;
                 break;
             case HML_OP_MOD:
-                if (r == 0.0) {
-                    hml_runtime_error("Division by zero");
-                }
+                // IEEE 754: fmod with zero returns NaN
                 result = fmod(l, r);
                 break;
             case HML_OP_LESS:         return hml_val_bool(l < r);
@@ -2748,22 +2744,19 @@ HmlValue hml_buffer_capacity(HmlValue buf) {
 
 // ========== FFI CALLBACK OPERATIONS ==========
 
+// Forward declaration
+HmlValue hml_builtin_callback(HmlClosureEnv *env, HmlValue fn, HmlValue param_types, HmlValue return_type);
+HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr);
+
 // Create an FFI callback that wraps a Hemlock function
-// This is a stub implementation - full FFI callbacks require libffi closure support
+// Delegates to hml_builtin_callback which has the full implementation
 HmlValue hml_callback_create(HmlValue fn, HmlValue arg_types, HmlValue ret_type) {
-    (void)fn;
-    (void)arg_types;
-    (void)ret_type;
-    // TODO: Implement proper FFI callback using ffi_prep_closure_loc
-    // For now, return null to indicate callbacks are not supported in compiled mode
-    hml_runtime_error("FFI callbacks not yet supported in compiled mode");
-    return hml_val_null();
+    return hml_builtin_callback(NULL, fn, arg_types, ret_type);
 }
 
 // Free an FFI callback
 void hml_callback_free(HmlValue callback) {
-    (void)callback;
-    // No-op for stub implementation
+    hml_builtin_callback_free(NULL, callback);
 }
 
 // ========== MEMORY OPERATIONS ==========

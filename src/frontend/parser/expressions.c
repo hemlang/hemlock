@@ -93,9 +93,8 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
             Expr *interpolated_expr = expression(&expr_parser);
             expr_parts[num_parts] = interpolated_expr;
 
-            // Note: Not freeing expr_text here because the lexer/parser may have pointers into it
-            // This is a known memory leak that should be fixed by tracking allocated strings
-            // TODO: Track expr_text allocations and free them after AST is no longer needed
+            // Safe to free expr_text now - token_text() makes copies of all string data
+            free(expr_text);
 
             num_parts++;
             if (num_parts >= capacity) {
