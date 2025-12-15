@@ -1694,6 +1694,12 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
                 }
                 result = l / r;
                 break;
+            case HML_OP_MOD:
+                if (r == 0.0) {
+                    hml_runtime_error("Division by zero");
+                }
+                result = fmod(l, r);
+                break;
             case HML_OP_LESS:         return hml_val_bool(l < r);
             case HML_OP_LESS_EQUAL:   return hml_val_bool(l <= r);
             case HML_OP_GREATER:      return hml_val_bool(l > r);

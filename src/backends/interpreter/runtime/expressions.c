@@ -572,6 +572,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                         binary_result = (result_type == VAL_F32) ? val_f32((float)(l / r)) : val_f64(l / r);
                         goto binary_cleanup;
+                    case OP_MOD:
+                        if (r == 0.0) {
+                            runtime_error(ctx, "Division by zero");
+                            goto binary_cleanup;
+                        }
+                        binary_result = (result_type == VAL_F32) ? val_f32((float)fmod(l, r)) : val_f64(fmod(l, r));
+                        goto binary_cleanup;
                     case OP_EQUAL:
                         binary_result = val_bool(l == r);
                         goto binary_cleanup;
