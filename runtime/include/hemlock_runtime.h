@@ -78,7 +78,7 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type);
 
 // Assertions
 void hml_assert(HmlValue condition, HmlValue message);
-void hml_panic(HmlValue message);
+__attribute__((noreturn)) void hml_panic(HmlValue message);
 
 // Command execution
 HmlValue hml_exec(HmlValue command);
@@ -180,7 +180,7 @@ HmlValue hml_builtin_strftime(HmlClosureEnv *env, HmlValue format, HmlValue time
 
 HmlValue hml_getenv(HmlValue name);
 void hml_setenv(HmlValue name, HmlValue value);
-void hml_exit(HmlValue code);
+__attribute__((noreturn)) void hml_exit(HmlValue code);
 HmlValue hml_get_pid(void);
 HmlValue hml_exec(HmlValue command);
 HmlValue hml_exec_argv(HmlValue args_array);
@@ -206,7 +206,7 @@ HmlValue hml_kill(HmlValue pid, HmlValue sig);
 HmlValue hml_fork(void);
 HmlValue hml_wait(void);
 HmlValue hml_waitpid(HmlValue pid, HmlValue options);
-void hml_abort(void);
+__attribute__((noreturn)) void hml_abort(void);
 
 // Process builtin wrappers
 HmlValue hml_builtin_getppid(HmlClosureEnv *env);
@@ -360,11 +360,13 @@ typedef struct HmlExceptionContext {
 // Exception stack management
 HmlExceptionContext* hml_exception_push(void);
 void hml_exception_pop(void);
-void hml_throw(HmlValue exception_value);
+__attribute__((noreturn)) void hml_throw(HmlValue exception_value);
 HmlValue hml_exception_get_value(void);
 
 // Runtime error helper - throws catchable exception with formatted message
-void hml_runtime_error(const char *format, ...);
+// Note: This function may return (via longjmp) to an exception handler,
+// but the code after the call site will not execute.
+__attribute__((noreturn)) void hml_runtime_error(const char *format, ...);
 
 // ========== DEFER SUPPORT ==========
 

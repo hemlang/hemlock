@@ -292,7 +292,7 @@ static inline HmlValue hml_i32_mul(HmlValue left, HmlValue right) {
 // Fast path: i32 division (with zero check)
 static inline HmlValue hml_i32_div(HmlValue left, HmlValue right) {
     if (right.as.as_i32 == 0) {
-        extern void hml_runtime_error(const char *fmt, ...);
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
         hml_runtime_error("Division by zero");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 / right.as.as_i32 };
@@ -301,7 +301,7 @@ static inline HmlValue hml_i32_div(HmlValue left, HmlValue right) {
 // Fast path: i32 modulo (with zero check)
 static inline HmlValue hml_i32_mod(HmlValue left, HmlValue right) {
     if (right.as.as_i32 == 0) {
-        extern void hml_runtime_error(const char *fmt, ...);
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
         hml_runtime_error("Division by zero");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 % right.as.as_i32 };
@@ -376,7 +376,7 @@ static inline HmlValue hml_i64_mul(HmlValue left, HmlValue right) {
 
 static inline HmlValue hml_i64_div(HmlValue left, HmlValue right) {
     if (right.as.as_i64 == 0) {
-        extern void hml_runtime_error(const char *fmt, ...);
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
         hml_runtime_error("Division by zero");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 / right.as.as_i64 };
@@ -384,7 +384,7 @@ static inline HmlValue hml_i64_div(HmlValue left, HmlValue right) {
 
 static inline HmlValue hml_i64_mod(HmlValue left, HmlValue right) {
     if (right.as.as_i64 == 0) {
-        extern void hml_runtime_error(const char *fmt, ...);
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
         hml_runtime_error("Division by zero");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 % right.as.as_i64 };
@@ -456,9 +456,8 @@ static inline HmlValue hml_array_get_i32_fast(HmlArray *arr, int32_t index) {
         return result;
     }
     // Fall through to bounds error
-    extern void hml_runtime_error(const char *fmt, ...);
+    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
     hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
-    return (HmlValue){ .type = HML_VAL_NULL };
 }
 
 // Fast path: Conditional retain (skip for primitives)

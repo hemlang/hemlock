@@ -509,6 +509,7 @@ HmlValue hml_exec(HmlValue command) {
         }
     }
 done_warning:
+    ;  // Empty statement required after label (C99/C11)
 
     char *ccmd = malloc(cmd_str->length + 1);
     if (!ccmd) {
@@ -2391,7 +2392,7 @@ HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c) {
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
-    if (sc) { memcpy(result + pos, sc->data, len_c); pos += len_c; }
+    if (sc) { memcpy(result + pos, sc->data, len_c); }  // No need to update pos after last copy
     result[total] = '\0';
 
     // Release converted strings
@@ -2425,7 +2426,7 @@ HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d) {
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
     if (sc) { memcpy(result + pos, sc->data, len_c); pos += len_c; }
-    if (sd) { memcpy(result + pos, sd->data, len_d); pos += len_d; }
+    if (sd) { memcpy(result + pos, sd->data, len_d); }  // No need to update pos after last copy
     result[total] = '\0';
 
     if (a.type != HML_VAL_STRING) hml_release(&str_a);
@@ -2463,7 +2464,7 @@ HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlV
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
     if (sc) { memcpy(result + pos, sc->data, len_c); pos += len_c; }
     if (sd) { memcpy(result + pos, sd->data, len_d); pos += len_d; }
-    if (se) { memcpy(result + pos, se->data, len_e); pos += len_e; }
+    if (se) { memcpy(result + pos, se->data, len_e); }  // No need to update pos after last copy
     result[total] = '\0';
 
     if (a.type != HML_VAL_STRING) hml_release(&str_a);
@@ -2522,7 +2523,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     }
 
     // Accept both rune and integer types (convert integer to rune)
-    uint32_t rune_val;
+    uint32_t rune_val = 0;
     if (val.type == HML_VAL_RUNE) {
         rune_val = val.as.as_rune;
     } else if (hml_is_integer_type(val)) {
@@ -6451,8 +6452,8 @@ HmlValue hml_socket_send(HmlValue socket_val, HmlValue data) {
         hml_runtime_error("Cannot send on closed socket");
     }
 
-    const void *buf;
-    size_t len;
+    const void *buf = NULL;
+    size_t len = 0;
 
     if (data.type == HML_VAL_STRING && data.as.as_string) {
         buf = data.as.as_string->data;
@@ -6522,8 +6523,8 @@ HmlValue hml_socket_sendto(HmlValue socket_val, HmlValue address, HmlValue port,
     const char *addr_str = hml_to_string_ptr(address);
     int p = hml_to_i32(port);
 
-    const void *buf;
-    size_t len;
+    const void *buf = NULL;
+    size_t len = 0;
 
     if (data.type == HML_VAL_STRING && data.as.as_string) {
         buf = data.as.as_string->data;
