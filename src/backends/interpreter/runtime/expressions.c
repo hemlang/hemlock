@@ -1242,7 +1242,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(method_self);  // Release original reference (env_set retained it)
                 }
 
-                // Bind parameters
+                // Bind parameters using fast path with pre-computed hashes
                 for (int i = 0; i < fn->num_params; i++) {
                     Value arg_value = {0};
 
@@ -1266,8 +1266,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
                     }
 
-                    // Use borrowed variant - param names come from AST and outlive the call
-                    env_define_borrowed(call_env, fn->param_names[i], arg_value, 0, ctx);
+                    // Use fast param binding with pre-computed hash (skips redundant checks)
+                    env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
                 }
 
                 // Save defer stack depth before executing function body
@@ -1423,6 +1423,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             bound_fn->param_names = orig_fn->param_names;
                             bound_fn->param_types = orig_fn->param_types;
                             bound_fn->param_defaults = orig_fn->param_defaults;
+                            bound_fn->param_hashes = orig_fn->param_hashes;  // Share pre-computed hashes
                             bound_fn->num_params = orig_fn->num_params;
                             bound_fn->return_type = orig_fn->return_type;
                             bound_fn->body = orig_fn->body;
@@ -1691,6 +1692,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             } else {
                 fn->param_defaults = NULL;
+            }
+
+            // Pre-compute parameter name hashes for fast binding at call time
+            if (expr->as.function.num_params > 0) {
+                fn->param_hashes = malloc(sizeof(uint32_t) * expr->as.function.num_params);
+                for (int i = 0; i < expr->as.function.num_params; i++) {
+                    fn->param_hashes[i] = hash_string(fn->param_names[i]);
+                }
+            } else {
+                fn->param_hashes = NULL;
             }
 
             fn->num_params = expr->as.function.num_params;

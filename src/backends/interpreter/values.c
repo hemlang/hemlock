@@ -506,6 +506,11 @@ void function_free(Function *fn) {
         if (fn->param_defaults) {
             free(fn->param_defaults);
         }
+
+        // Free pre-computed param hashes
+        if (fn->param_hashes) {
+            free(fn->param_hashes);
+        }
     }
 
     // Release closure environment (reference counted)

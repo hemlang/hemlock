@@ -106,7 +106,7 @@ static void env_pool_free(Environment *env) {
 // ========== ENVIRONMENT ==========
 
 // DJB2 hash function - fast and good distribution for variable names
-static uint32_t hash_string(const char *str) {
+uint32_t hash_string(const char *str) {
     uint32_t hash = 5381;
     int c;
     while ((c = *str++)) {
@@ -124,10 +124,8 @@ Environment* env_new(Environment *parent) {
         env->count = 0;
         env->ref_count = 1;
         env->borrowed_flags = 0;  // Clear borrowed flags
-        // Clear hash table
-        for (int i = 0; i < env->hash_capacity; i++) {
-            env->hash_table[i] = -1;
-        }
+        // Clear hash table using memset (faster than loop)
+        memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
         env->parent = parent;
         if (parent) {
             env_retain(parent);
@@ -176,10 +174,8 @@ Environment* env_new(Environment *parent) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
-    // Initialize all slots to -1 (empty)
-    for (int i = 0; i < env->hash_capacity; i++) {
-        env->hash_table[i] = -1;
-    }
+    // Initialize all slots to -1 (empty) using memset (faster than loop)
+    memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
     env->borrowed_flags = 0;  // Initialize borrowed flags
     env->parent = parent;
     // Retain parent environment if it exists
@@ -547,6 +543,15 @@ static void env_hash_insert(Environment *env, const char *name, int index) {
     env->hash_table[slot] = index;
 }
 
+// Fast version with pre-computed hash
+static void env_hash_insert_with_hash(Environment *env, uint32_t hash, int index) {
+    int slot = hash % env->hash_capacity;
+    while (env->hash_table[slot] != -1) {
+        slot = (slot + 1) % env->hash_capacity;
+    }
+    env->hash_table[slot] = index;
+}
+
 // Define a new variable (for let/const declarations)
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx) {
     uint32_t hash = hash_string(name);
@@ -612,6 +617,28 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
 
     // Insert into hash table
     env_hash_insert(env, name, index);
+}
+
+// Fastest variant for function parameters - uses pre-computed hash, skips "already defined" check
+// This is safe because we know params are unique (enforced by parser) and env is freshly created
+void env_define_param(Environment *env, const char *name, uint32_t hash, Value value) {
+    // Grow if needed (unlikely for params, but be safe)
+    if (env->count >= env->capacity) {
+        env_grow(env);
+    }
+
+    int index = env->count;
+    env->names[index] = (char*)name;  // Borrow without strdup
+    if (index < 32) {
+        env->borrowed_flags |= (1U << index);
+    }
+    VALUE_RETAIN(value);
+    env->values[index] = value;
+    env->is_const[index] = 0;  // Params are never const
+    env->count++;
+
+    // Insert with pre-computed hash
+    env_hash_insert_with_hash(env, hash, index);
 }
 
 // Set a variable (for reassignment or implicit definition in loops/functions)
