@@ -8,26 +8,22 @@ Generate a Supervised Fine-Tuning (SFT) dataset from Hemlock repository content 
 
 ## Output Format
 
-### HuggingFace-Compatible Schema
+### Simplified Schema
 
 ```json
 {
-  "instruction": "What does this Hemlock program output?",
-  "input": "let x = 5 + 3;\nprint(x);",
-  "output": "8",
-  "category": "arithmetic",
-  "source": "tests/parity/language/arithmetic.hml",
-  "difficulty": "basic"
+  "instruction": "What does this Hemlock program output?\n\n```hemlock\nlet x = 5 + 3;\nprint(x);\n```",
+  "output": "8"
 }
 ```
 
 **Fields:**
-- `instruction` (required): The prompt/task description
-- `input` (optional): Code or context provided to the model
+- `instruction` (required): The prompt/task with any code included inline
 - `output` (required): Expected response
-- `category`: Topic categorization for filtering
+
+Additional metadata fields for filtering (not used in training):
+- `category`: Topic categorization
 - `source`: Original file path for traceability
-- `difficulty`: basic | intermediate | advanced
 
 ---
 
@@ -39,56 +35,39 @@ Generate a Supervised Fine-Tuning (SFT) dataset from Hemlock repository content 
 
 **Strategy:** Direct mapping of code → expected output
 
-**Instruction Templates:**
+**Instruction phrasing variations:**
 - "What is the output of this Hemlock program?"
-- "Predict the output of the following Hemlock code:"
-- "Execute this Hemlock code and show the output:"
+- "What does the following Hemlock code print?"
+- "Run this Hemlock code and show the output:"
 
 **Example Entry:**
 ```json
 {
-  "instruction": "What does this Hemlock program output?",
-  "input": "print(5 + 3);\nprint(10 - 4);",
-  "output": "8\n6",
-  "category": "arithmetic",
-  "source": "tests/parity/language/arithmetic.hml"
+  "instruction": "What does this Hemlock program output?\n\n```hemlock\nprint(5 + 3);\nprint(10 - 4);\n```",
+  "output": "8\n6"
 }
 ```
 
-### 2. Regular Tests with Expected Output (96+ pairs)
+### 2. Regular Tests with Expected Output
 
 **Source:** `tests/**/*.hml` + `tests/**/*.expected` (excluding parity)
 
 **Strategy:** Same as parity tests - code → output mapping
 
-**Categories to extract:**
-- `compiler/` - Compiler-specific tests
-- `objects/` - Object manipulation
-- `arrays/` - Array operations
-- `strings/` - String methods
-- `async/` - Async/concurrency
-- `exceptions/` - Error handling
-- And 50+ other categories
-
-### 3. Documentation Code Blocks (~500+ snippets)
+### 3. Documentation Code Blocks
 
 **Source:** `docs/**/*.md` + `stdlib/docs/**/*.md`
 
-**Strategy:** Extract fenced code blocks with surrounding context
+**Strategy:** Extract code blocks with surrounding context
 
-**Instruction Templates:**
-- "Explain what this Hemlock code does:"
-- "Write Hemlock code to [description from context]"
-- "How do you [task] in Hemlock?"
+For questions about the language → include explanations with code
+For code example requests → code-only output
 
 **Example Entry:**
 ```json
 {
   "instruction": "How do you create and use a HashMap in Hemlock?",
-  "input": "",
-  "output": "```hemlock\nimport { HashMap } from \"@stdlib/collections\";\n\nlet map = HashMap();\nmap.set(\"key\", \"value\");\nlet val = map.get(\"key\");\nprint(val);  // \"value\"\n```",
-  "category": "stdlib/collections",
-  "source": "stdlib/docs/collections.md"
+  "output": "Use the HashMap from the collections standard library module:\n\n```hemlock\nimport { HashMap } from \"@stdlib/collections\";\n\nlet map = HashMap();\nmap.set(\"key\", \"value\");\nlet val = map.get(\"key\");\nprint(val);  // \"value\"\n```\n\nHashMap provides O(1) average lookup, insertion, and deletion."
 }
 ```
 
@@ -96,131 +75,69 @@ Generate a Supervised Fine-Tuning (SFT) dataset from Hemlock repository content 
 
 **Source:** `examples/*.hml`
 
-**Strategy:** Generate multiple instruction types per example
-
-**Instruction Templates:**
-- "Explain this Hemlock program:"
-- "What does this Hemlock HTTP client do?"
-- "Write a Hemlock program that [inferred from filename/content]"
-
-### 5. Method Documentation → Usage Examples
-
-**Source:** String methods (19) + Array methods (18) from `docs/reference/`
-
-**Strategy:** Generate method-specific instruction pairs
+**Strategy:** Generate explanation-style entries
 
 **Example Entry:**
 ```json
 {
-  "instruction": "How do you split a string in Hemlock?",
-  "input": "",
-  "output": "Use the `split()` method:\n\n```hemlock\nlet csv = \"a,b,c\";\nlet parts = csv.split(\",\");\nprint(parts[0]);  // \"a\"\nprint(parts[1]);  // \"b\"\nprint(parts[2]);  // \"c\"\n```",
-  "category": "string_methods",
-  "source": "docs/reference/string-api.md"
+  "instruction": "Write a Hemlock program that demonstrates memory management with alloc and free.",
+  "output": "```hemlock\n// Allocate 64 bytes\nlet p = alloc(64);\n\n// Initialize memory\nmemset(p, 0, 64);\n\n// Use the memory...\n\n// Free when done\nfree(p);\n```"
 }
 ```
 
-### 6. Concept Explanations from CLAUDE.md
+### 5. Method Documentation
 
-**Source:** `CLAUDE.md` quick reference sections
+**Source:** String methods (19) + Array methods (18) from docs
 
-**Strategy:** Extract type info, syntax rules, operators
+**Strategy:** Generate method-specific Q&A pairs
 
-**Example Entry:**
-```json
-{
-  "instruction": "What integer types are available in Hemlock?",
-  "input": "",
-  "output": "Hemlock provides signed and unsigned integers:\n\n**Signed:** i8, i16, i32, i64\n**Unsigned:** u8, u16, u32, u64\n\nType aliases: `integer` (i32), `byte` (u8)\n\nLiterals auto-detect size: `42` → i32, `5000000000` → i64 (exceeds i32 max)",
-  "category": "types",
-  "source": "CLAUDE.md"
-}
-```
+### 6. Concept Explanations
 
-### 7. Error Handling Patterns
+**Source:** `CLAUDE.md` and `docs/` reference sections
 
-**Source:** `tests/exceptions/*.hml`
-
-**Strategy:** Generate try/catch/throw examples
-
-### 8. Stdlib Module Usage
-
-**Source:** `tests/stdlib_*/*.hml` + `stdlib/docs/*.md`
-
-**Strategy:** Import + usage pattern pairs
+**Strategy:** Extract type info, syntax rules, operators into Q&A format
 
 ---
 
-## Instruction Template Categories
+## Instruction Phrasing Categories
 
-### Category 1: Output Prediction
+Vary phrasing within each category to increase diversity:
+
+### Output Prediction
 - "What does this Hemlock program output?"
-- "Predict the output:"
-- "What will be printed?"
+- "What does the following Hemlock code print?"
+- "What is the result of running this Hemlock code?"
 
-### Category 2: Code Explanation
-- "Explain what this code does:"
-- "What is the purpose of this function?"
-- "Describe the behavior of this program:"
+### Code Explanation
+- "Explain what this Hemlock code does:"
+- "What is the purpose of this Hemlock function?"
+- "Describe the behavior of this Hemlock program:"
 
-### Category 3: Code Generation
+### Code Generation
 - "Write Hemlock code to..."
-- "Implement a function that..."
-- "Show how to..."
+- "Show how to [task] in Hemlock"
+- "Provide a Hemlock example that..."
 
-### Category 4: Concept Questions
+### Concept Questions
 - "What is [concept] in Hemlock?"
 - "How does [feature] work in Hemlock?"
-- "What's the difference between [A] and [B]?"
-
-### Category 5: Debugging/Fix
-- "What's wrong with this code?"
-- "Fix the bug in this program:"
-- "Why does this code fail?"
-
-### Category 6: Translation/Conversion
-- "Convert this [language] code to Hemlock:"
-- "How would you write this in Hemlock?"
+- "Explain [feature] in Hemlock"
 
 ---
 
-## Implementation Plan
+## Implementation
 
-### Phase 1: Core Infrastructure
-```
-tools/sft_dataset_generator/
-├── generate_dataset.py      # Main entry point
-├── extractors/
-│   ├── __init__.py
-│   ├── parity_extractor.py  # Extract parity test pairs
-│   ├── test_extractor.py    # Extract regular test pairs
-│   ├── doc_extractor.py     # Extract from markdown docs
-│   ├── example_extractor.py # Extract from examples
-│   └── stdlib_extractor.py  # Extract stdlib usage
-├── templates/
-│   └── instructions.py      # Instruction template library
-├── utils/
-│   ├── __init__.py
-│   ├── markdown_parser.py   # Parse markdown code blocks
-│   └── hemlock_parser.py    # Parse .hml files for comments
-└── output/
-    └── (generated datasets)
-```
+Single Python script: `generate_dataset.py`
 
-### Phase 2: Extractors (Priority Order)
+### Extractors (in order):
+1. Parity test extractor
+2. Regular test extractor
+3. Documentation extractor
+4. Example extractor
 
-1. **Parity Extractor** - Highest quality, direct code→output
-2. **Test Extractor** - More volume, same pattern
-3. **Doc Extractor** - Rich explanations and examples
-4. **Example Extractor** - Complete program understanding
-5. **Stdlib Extractor** - API usage patterns
-
-### Phase 3: Output Generation
-
-- Generate JSONL file (one JSON object per line)
-- Generate statistics/summary
-- Validate all entries
-- Optional: HuggingFace `datasets` format
+### Output:
+- `hemlock_sft_dataset.jsonl` - Main dataset
+- `README.md` - Dataset card for HuggingFace
 
 ---
 
@@ -232,72 +149,4 @@ tools/sft_dataset_generator/
 | Regular tests | 400-600 |
 | Documentation | 300-500 |
 | Examples | 100-150 |
-| Stdlib docs | 200-300 |
-| Concept Q&A | 100-150 |
-| **Total** | **1,300-2,000** |
-
----
-
-## Quality Controls
-
-1. **Deduplication** - Remove near-duplicate entries
-2. **Validation** - Ensure all code snippets are valid Hemlock
-3. **Balance** - Ensure coverage across all categories
-4. **Length limits** - Filter very long or very short entries
-5. **Source tracking** - Maintain traceability to original files
-
----
-
-## HuggingFace Upload Format
-
-Final output will be:
-1. `hemlock_sft_dataset.jsonl` - Main dataset file
-2. `dataset_info.json` - Metadata for HuggingFace
-3. `README.md` - Dataset card for HuggingFace
-
-Optional: Generate `train.jsonl`, `validation.jsonl` split (90/10)
-
----
-
-## Configuration Options
-
-```python
-CONFIG = {
-    "output_dir": "output/",
-    "include_sources": ["parity", "tests", "docs", "examples", "stdlib"],
-    "instruction_templates": "varied",  # or "single"
-    "difficulty_labeling": True,
-    "min_code_length": 10,
-    "max_code_length": 2000,
-    "train_split": 0.9,
-    "seed": 42
-}
-```
-
----
-
-## Open Questions for Review
-
-1. **Instruction diversity**: Should we use varied instruction templates per entry, or stick to consistent phrasing for each category?
-
-2. **Code-only vs Code+Explanation**: For documentation extracts, should output be just code, or code with explanation?
-
-3. **Difficulty labeling**: Should we auto-label difficulty based on code complexity metrics?
-
-4. **Multi-turn format**: Should we include any multi-turn conversation examples (e.g., follow-up questions)?
-
-5. **Language mixing**: Should we include "Convert from Python/JavaScript to Hemlock" style entries?
-
-6. **Negative examples**: Should we include "What's wrong with this code?" entries using intentionally buggy code?
-
----
-
-## Next Steps
-
-After plan approval:
-1. Implement core infrastructure and parity extractor
-2. Generate initial dataset from parity tests
-3. Add remaining extractors incrementally
-4. Generate full dataset
-5. Create HuggingFace upload files
-6. Commit and push
+| **Total** | **~1,000-1,500** |
