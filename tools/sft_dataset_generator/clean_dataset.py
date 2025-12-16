@@ -75,12 +75,12 @@ For each entry, decide one of:
 Respond with valid JSON only:
 
 ```json
-{
+{{
   "decision": "DROP" | "KEEP" | "REPHRASE",
   "reason": "Brief explanation of your decision",
   "instruction": "Rephrased instruction (only if REPHRASE, otherwise null)",
   "output": "Rephrased output (only if REPHRASE and output needs changes, otherwise null)"
-}
+}}
 ```
 
 ## Entry to Review
