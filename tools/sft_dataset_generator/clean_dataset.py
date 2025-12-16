@@ -102,7 +102,7 @@ class DatasetCleaner:
         self.model = model
         self.stats = {"total": 0, "kept": 0, "dropped": 0, "rephrased": 0, "errors": 0}
 
-    def review_entry(self, entry: dict) -> ReviewResult:
+    def review_entry(self, entry: dict, retry: bool = True) -> ReviewResult:
         """Send entry to Claude for review."""
         prompt = REVIEW_PROMPT.replace(
             "[INSTRUCTION]", entry.get("instruction", "")
@@ -142,12 +142,21 @@ class DatasetCleaner:
             )
 
         except json.JSONDecodeError as e:
-            print(f"  Warning: Failed to parse JSON response: {e}")
-            # Default to KEEP if we can't parse
-            return ReviewResult(decision=Decision.KEEP, reason="Parse error - keeping by default")
+            if retry:
+                print(f"  Warning: Parse error, retrying...")
+                time.sleep(1)
+                return self.review_entry(entry, retry=False)
+            else:
+                print(f"  Warning: Parse error on retry, dropping: {e}")
+                return ReviewResult(decision=Decision.DROP, reason="Parse error after retry")
         except Exception as e:
-            print(f"  Warning: API error: {e}")
-            return ReviewResult(decision=Decision.KEEP, reason=f"API error: {e}")
+            if retry:
+                print(f"  Warning: API error, retrying: {e}")
+                time.sleep(2)
+                return self.review_entry(entry, retry=False)
+            else:
+                print(f"  Warning: API error on retry, dropping: {e}")
+                return ReviewResult(decision=Decision.DROP, reason=f"API error after retry: {e}")
 
     def clean_dataset(
         self,
