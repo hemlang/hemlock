@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 try:
     import anthropic
@@ -36,8 +37,8 @@ class Decision(Enum):
 class ReviewResult:
     decision: Decision
     reason: str
-    instruction: str | None = None  # Rephrased instruction (if REPHRASE)
-    output: str | None = None  # Rephrased output (if REPHRASE)
+    instruction: Optional[str] = None  # Rephrased instruction (if REPHRASE)
+    output: Optional[str] = None  # Rephrased output (if REPHRASE)
 
 
 REVIEW_PROMPT = """You are reviewing entries for a Supervised Fine-Tuning (SFT) dataset for the Hemlock programming language. Your job is to ensure high-quality training data.
@@ -150,7 +151,7 @@ class DatasetCleaner:
         input_path: Path,
         output_path: Path,
         dry_run: bool = False,
-        limit: int | None = None,
+        limit: Optional[int] = None,
         delay: float = 0.5,
     ) -> None:
         """Process the dataset and write cleaned version."""
