@@ -182,10 +182,14 @@ class DatasetCleaner:
             entries = entries[:limit]
             print(f"Processing first {limit} entries (--limit)")
 
-        # Process entries
-        cleaned_entries = []
-        dropped_entries = []
+        # Prepare output files (truncate at start)
+        dropped_path = output_path.with_suffix(".dropped.jsonl")
+        with open(output_path, "w", encoding="utf-8") as f:
+            pass  # Truncate
+        with open(dropped_path, "w", encoding="utf-8") as f:
+            pass  # Truncate
 
+        # Process entries and write incrementally
         for i, entry in enumerate(entries):
             self.stats["total"] += 1
 
@@ -194,7 +198,8 @@ class DatasetCleaner:
 
             if dry_run:
                 # In dry run, just keep everything
-                cleaned_entries.append(entry)
+                with open(output_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 self.stats["kept"] += 1
                 continue
 
@@ -206,11 +211,13 @@ class DatasetCleaner:
 
             if result.decision == Decision.DROP:
                 self.stats["dropped"] += 1
-                dropped_entries.append({"entry": entry, "reason": result.reason})
+                with open(dropped_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"entry": entry, "reason": result.reason}, ensure_ascii=False) + "\n")
 
             elif result.decision == Decision.KEEP:
                 self.stats["kept"] += 1
-                cleaned_entries.append(entry)
+                with open(output_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
             elif result.decision == Decision.REPHRASE:
                 self.stats["rephrased"] += 1
@@ -220,24 +227,11 @@ class DatasetCleaner:
                     new_entry["instruction"] = result.instruction
                 if result.output:
                     new_entry["output"] = result.output
-                cleaned_entries.append(new_entry)
+                with open(output_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(new_entry, ensure_ascii=False) + "\n")
 
             # Rate limiting
             time.sleep(delay)
-
-        # Write outputs
-        print(f"\nWriting {len(cleaned_entries)} entries to {output_path}...")
-        with open(output_path, "w", encoding="utf-8") as f:
-            for entry in cleaned_entries:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-        # Write dropped entries log
-        dropped_path = output_path.with_suffix(".dropped.jsonl")
-        if dropped_entries:
-            print(f"Writing {len(dropped_entries)} dropped entries to {dropped_path}...")
-            with open(dropped_path, "w", encoding="utf-8") as f:
-                for item in dropped_entries:
-                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
         # Print stats
         print("\n" + "=" * 50)
