@@ -86,13 +86,13 @@ Respond with valid JSON only:
 ## Entry to Review
 
 **Instruction:**
-{instruction}
+[INSTRUCTION]
 
 **Output:**
-{output}
+[OUTPUT]
 
-**Category:** {category}
-**Source:** {source}
+**Category:** [CATEGORY]
+**Source:** [SOURCE]
 """
 
 
@@ -104,11 +104,14 @@ class DatasetCleaner:
 
     def review_entry(self, entry: dict) -> ReviewResult:
         """Send entry to Claude for review."""
-        prompt = REVIEW_PROMPT.format(
-            instruction=entry.get("instruction", ""),
-            output=entry.get("output", ""),
-            category=entry.get("category", "unknown"),
-            source=entry.get("source", "unknown"),
+        prompt = REVIEW_PROMPT.replace(
+            "[INSTRUCTION]", entry.get("instruction", "")
+        ).replace(
+            "[OUTPUT]", entry.get("output", "")
+        ).replace(
+            "[CATEGORY]", entry.get("category", "unknown")
+        ).replace(
+            "[SOURCE]", entry.get("source", "unknown")
         )
 
         try:
