@@ -3337,7 +3337,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
             } else if (expr->as.optional_chain.is_call) {
                 // obj?.method(args) - not yet supported
-                codegen_writeln(ctx, "%s = hml_val_null(); // optional call not supported", result);
+                codegen_writeln(ctx, "hml_runtime_error(\"Optional chaining for function calls is not yet supported\");");
+                codegen_writeln(ctx, "%s = hml_val_null();", result);
             } else {
                 // obj?.[index]
                 char *idx = codegen_expr(ctx, expr->as.optional_chain.index);
