@@ -253,12 +253,17 @@ $(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_LIB)
 $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
 	$(CC) $(CFLAGS) -DHEMLOCK_LIBDIR='"$(LIBDIR)"' -c $< -o $@
 
-# Build runtime library
+# Build runtime library (phony target for explicit invocation)
 runtime:
 	@echo "Building Hemlock runtime library..."
 	$(MAKE) -C $(RUNTIME_DIR) static
 	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
 	@echo "✓ Runtime library built: $(RUNTIME_LIB)"
+
+# File target for runtime library (used as dependency)
+$(RUNTIME_LIB):
+	$(MAKE) -C $(RUNTIME_DIR) static
+	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
 
 runtime-clean:
 	$(MAKE) -C $(RUNTIME_DIR) clean
@@ -383,26 +388,18 @@ DESTDIR ?=
 
 .PHONY: install install-compiler uninstall
 
-install: $(TARGET)
+install: $(TARGET) $(COMPILER_TARGET) $(RUNTIME_LIB)
 	@echo "Installing Hemlock to $(DESTDIR)$(PREFIX)..."
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
 	@echo "Installing stdlib to $(DESTDIR)$(LIBDIR)..."
 	install -d $(DESTDIR)$(LIBDIR)/stdlib
 	cp -r stdlib/* $(DESTDIR)$(LIBDIR)/stdlib/
-	@# Install compiler if it was built
-	@if [ -f $(COMPILER_TARGET) ]; then \
-		echo "Installing compiler to $(DESTDIR)$(BINDIR)..."; \
-		install -m 755 $(COMPILER_TARGET) $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET); \
-		echo "  Compiler: $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)"; \
-	fi
-	@# Install runtime library if it was built
-	@if [ -f $(RUNTIME_LIB) ]; then \
-		echo "Installing runtime library to $(DESTDIR)$(LIBDIR)..."; \
-		install -d $(DESTDIR)$(LIBDIR); \
-		install -m 644 $(RUNTIME_LIB) $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB); \
-		echo "  Runtime: $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB)"; \
-	fi
+	@echo "Installing compiler to $(DESTDIR)$(BINDIR)..."
+	install -m 755 $(COMPILER_TARGET) $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
+	@echo "Installing runtime library to $(DESTDIR)$(LIBDIR)..."
+	install -d $(DESTDIR)$(LIBDIR)
+	install -m 644 $(RUNTIME_LIB) $(DESTDIR)$(LIBDIR)/$(RUNTIME_LIB)
 	@# Install runtime headers if available
 	@if [ -d $(RUNTIME_DIR)/include ]; then \
 		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
