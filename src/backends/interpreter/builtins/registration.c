@@ -101,6 +101,7 @@ static BuiltinInfo builtins[] = {
     // Internal helper builtins
     {"__read_u32", builtin_read_u32},
     {"__read_u64", builtin_read_u64},
+    {"__read_ptr", builtin_read_ptr},
     {"__strerror", builtin_strerror_fn},
     {"__dirent_name", builtin_dirent_name},
     {"__string_to_cstr", builtin_string_to_cstr},

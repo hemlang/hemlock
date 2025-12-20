@@ -32,6 +32,23 @@ Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
     return val_u64(*ptr);
 }
 
+// Read a pointer from memory (for pointer-to-pointer / double indirection FFI calls)
+Value builtin_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: __read_ptr() expects 1 argument (ptr)\n");
+        exit(1);
+    }
+
+    if (args[0].type != VAL_PTR) {
+        fprintf(stderr, "Runtime error: __read_ptr() requires a pointer\n");
+        exit(1);
+    }
+
+    void **pptr = (void**)args[0].as.as_ptr;
+    return val_ptr(*pptr);
+}
+
 Value builtin_strerror_fn(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)ctx;

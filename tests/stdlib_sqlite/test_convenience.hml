@@ -1,0 +1,72 @@
+// Test SQLite convenience functions
+
+import { open_db, exec, insert, update, delete_rows, count, changes, total_changes, last_insert_id, close_db } from "@stdlib/sqlite";
+
+let db = open_db(":memory:");
+
+exec(db, "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, in_stock INTEGER)");
+
+// Test insert with return value
+let id1 = insert(db, "INSERT INTO products (name, price, in_stock) VALUES (?, ?, ?)",
+    ["Widget", 9.99, 100]);
+assert(id1 == 1, "First insert should return id 1");
+
+let id2 = insert(db, "INSERT INTO products (name, price, in_stock) VALUES (?, ?, ?)",
+    ["Gadget", 19.99, 50]);
+assert(id2 == 2, "Second insert should return id 2");
+
+let id3 = insert(db, "INSERT INTO products (name, price, in_stock) VALUES (?, ?, ?)",
+    ["Thingamajig", 29.99, 25]);
+assert(id3 == 3, "Third insert should return id 3");
+
+// Test last_insert_id
+let last_id = last_insert_id(db);
+assert(last_id == 3, "last_insert_id should be 3");
+
+// Test count
+let total = count(db, "products");
+assert(total == 3, "count should return 3");
+
+// Test count with where clause
+let expensive = count(db, "products", "price > 15.0");
+assert(expensive == 2, "should have 2 products over $15");
+
+let cheap = count(db, "products", "price < 15.0");
+assert(cheap == 1, "should have 1 product under $15");
+
+// Test update with return value
+let updated = update(db, "UPDATE products SET price = price * 1.1 WHERE price > 15.0");
+assert(updated == 2, "update should return 2 rows changed");
+
+// Test changes
+let last_changes = changes(db);
+assert(last_changes == 2, "changes should return 2");
+
+// Test delete_rows with return value
+let deleted = delete_rows(db, "DELETE FROM products WHERE name = ?", ["Widget"]);
+assert(deleted == 1, "delete_rows should return 1");
+
+// Verify deletion
+let remaining = count(db, "products");
+assert(remaining == 2, "should have 2 products remaining");
+
+// Test total_changes
+let all_changes = total_changes(db);
+// 3 inserts + 2 updates + 1 delete = 6
+assert(all_changes >= 6, "total_changes should be at least 6");
+
+// Test delete_rows with multiple rows
+insert(db, "INSERT INTO products (name, price, in_stock) VALUES (?, ?, ?)", ["Item1", 5.0, 0]);
+insert(db, "INSERT INTO products (name, price, in_stock) VALUES (?, ?, ?)", ["Item2", 6.0, 0]);
+insert(db, "INSERT INTO products (name, price, in_stock) VALUES (?, ?, ?)", ["Item3", 7.0, 0]);
+
+let deleted_batch = delete_rows(db, "DELETE FROM products WHERE in_stock = 0");
+assert(deleted_batch == 3, "should delete 3 out-of-stock items");
+
+// Final count
+let final_count = count(db, "products");
+assert(final_count == 2, "should have 2 products at the end");
+
+close_db(db);
+
+print("All convenience function tests passed!");

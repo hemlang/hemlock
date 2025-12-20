@@ -1,0 +1,77 @@
+// Test SQLite schema utilities
+
+import { open_db, exec, table_exists, list_tables, table_info, close_db } from "@stdlib/sqlite";
+
+let db = open_db(":memory:");
+
+// Test table_exists before creation
+assert(table_exists(db, "users") == false, "users table should not exist initially");
+assert(table_exists(db, "orders") == false, "orders table should not exist initially");
+
+// Create tables
+exec(db, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)");
+exec(db, "CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, total REAL, FOREIGN KEY(user_id) REFERENCES users(id))");
+exec(db, "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL DEFAULT 0.0)");
+
+// Test table_exists after creation
+assert(table_exists(db, "users") == true, "users table should exist");
+assert(table_exists(db, "orders") == true, "orders table should exist");
+assert(table_exists(db, "products") == true, "products table should exist");
+assert(table_exists(db, "nonexistent") == false, "nonexistent table should not exist");
+
+// Test list_tables
+let tables = list_tables(db);
+assert(tables.length == 3, "Should have 3 tables");
+assert(tables.contains("users"), "Should contain users table");
+assert(tables.contains("orders"), "Should contain orders table");
+assert(tables.contains("products"), "Should contain products table");
+
+// Test table_info for users table
+let users_info = table_info(db, "users");
+assert(users_info.length == 3, "users table should have 3 columns");
+
+// Find columns by name
+let found_id = false;
+let found_name = false;
+let found_email = false;
+
+let i = 0;
+while (i < users_info.length) {
+    let col = users_info[i];
+    if (col.name == "id") {
+        found_id = true;
+        assert(col.type == "INTEGER", "id should be INTEGER");
+        assert(col.pk == 1, "id should be primary key");
+    }
+    if (col.name == "name") {
+        found_name = true;
+        assert(col.type == "TEXT", "name should be TEXT");
+        assert(col.notnull == 1, "name should be NOT NULL");
+    }
+    if (col.name == "email") {
+        found_email = true;
+        assert(col.type == "TEXT", "email should be TEXT");
+        assert(col.notnull == 0, "email should allow NULL");
+    }
+    i = i + 1;
+}
+
+assert(found_id, "Should find id column");
+assert(found_name, "Should find name column");
+assert(found_email, "Should find email column");
+
+// Test table_info for products table (with default)
+let products_info = table_info(db, "products");
+assert(products_info.length == 3, "products table should have 3 columns");
+
+// Drop a table and verify
+exec(db, "DROP TABLE products");
+assert(table_exists(db, "products") == false, "products should not exist after drop");
+
+let tables_after = list_tables(db);
+assert(tables_after.length == 2, "Should have 2 tables after drop");
+assert(tables_after.contains("products") == false, "products should not be in list");
+
+close_db(db);
+
+print("All schema utility tests passed!");

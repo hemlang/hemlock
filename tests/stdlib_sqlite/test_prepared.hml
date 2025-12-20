@@ -1,0 +1,76 @@
+// Test SQLite prepared statements
+
+import { open_db, exec, query, prepare, stmt_exec, stmt_query, stmt_finalize, close_db } from "@stdlib/sqlite";
+
+let db = open_db(":memory:");
+
+exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, quantity INTEGER)");
+
+// Test prepared insert statement
+let insert_stmt = prepare(db, "INSERT INTO items (name, quantity) VALUES (?, ?)");
+
+// Execute multiple inserts
+stmt_exec(insert_stmt, ["Apple", 10]);
+stmt_exec(insert_stmt, ["Banana", 20]);
+stmt_exec(insert_stmt, ["Cherry", 30]);
+stmt_exec(insert_stmt, ["Date", 40]);
+stmt_exec(insert_stmt, ["Elderberry", 50]);
+
+stmt_finalize(insert_stmt);
+
+// Verify inserts
+let all_items = query(db, "SELECT * FROM items ORDER BY id");
+assert(all_items.length == 5, "Should have 5 items");
+assert(all_items[0].name == "Apple", "First item should be Apple");
+assert(all_items[4].name == "Elderberry", "Last item should be Elderberry");
+
+// Test prepared select statement
+let select_stmt = prepare(db, "SELECT * FROM items WHERE quantity >= ?");
+
+let high_qty = stmt_query(select_stmt, [30]);
+assert(high_qty.length == 3, "Should have 3 items with quantity >= 30");
+
+let low_qty = stmt_query(select_stmt, [50]);
+assert(low_qty.length == 1, "Should have 1 item with quantity >= 50");
+assert(low_qty[0].name == "Elderberry", "Should be Elderberry");
+
+stmt_finalize(select_stmt);
+
+// Test prepared update statement
+let update_stmt = prepare(db, "UPDATE items SET quantity = quantity + ? WHERE name = ?");
+
+stmt_exec(update_stmt, [5, "Apple"]);
+stmt_exec(update_stmt, [10, "Banana"]);
+
+stmt_finalize(update_stmt);
+
+// Verify updates
+let apple = query(db, "SELECT quantity FROM items WHERE name = 'Apple'");
+assert(apple[0].quantity == 15, "Apple quantity should be 15");
+
+let banana = query(db, "SELECT quantity FROM items WHERE name = 'Banana'");
+assert(banana[0].quantity == 30, "Banana quantity should be 30");
+
+// Test bulk insert performance with prepared statement
+exec(db, "CREATE TABLE bulk (id INTEGER PRIMARY KEY, value INTEGER)");
+
+let bulk_stmt = prepare(db, "INSERT INTO bulk (value) VALUES (?)");
+
+let i = 0;
+while (i < 100) {
+    stmt_exec(bulk_stmt, [i * 10]);
+    i = i + 1;
+}
+
+stmt_finalize(bulk_stmt);
+
+let bulk_count = query(db, "SELECT COUNT(*) as cnt FROM bulk");
+assert(bulk_count[0].cnt == 100, "Should have 100 bulk items");
+
+let bulk_sum = query(db, "SELECT SUM(value) as total FROM bulk");
+// Sum of 0 + 10 + 20 + ... + 990 = 10 * (0 + 1 + 2 + ... + 99) = 10 * (99 * 100 / 2) = 49500
+assert(bulk_sum[0].total == 49500, "Sum should be 49500");
+
+close_db(db);
+
+print("All prepared statement tests passed!");

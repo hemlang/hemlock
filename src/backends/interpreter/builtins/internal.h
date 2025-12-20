@@ -159,6 +159,7 @@ Value builtin_string_concat_many(Value *args, int num_args, ExecutionContext *ct
 // Internal helper builtins (internal_helpers.c)
 Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_ptr(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_strerror_fn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx);

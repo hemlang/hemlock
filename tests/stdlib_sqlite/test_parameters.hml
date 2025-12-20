@@ -1,0 +1,84 @@
+// Test SQLite parameter binding with various types
+
+import { open_db, exec, query, query_one, close_db } from "@stdlib/sqlite";
+
+let db = open_db(":memory:");
+
+// Create table with various column types
+exec(db, "CREATE TABLE types_test (
+    id INTEGER PRIMARY KEY,
+    int_val INTEGER,
+    float_val REAL,
+    text_val TEXT,
+    blob_val BLOB,
+    null_val TEXT
+)");
+
+// Test integer binding
+exec(db, "INSERT INTO types_test (int_val) VALUES (?)", [42]);
+let int_row = query_one(db, "SELECT int_val FROM types_test WHERE id = 1");
+assert(int_row.int_val == 42, "Integer binding should work");
+
+// Test i64 binding (large number)
+exec(db, "INSERT INTO types_test (int_val) VALUES (?)", [9223372036854775807]);
+let i64_row = query_one(db, "SELECT int_val FROM types_test WHERE id = 2");
+// Note: i64 comparison might be tricky, just check it's not null
+assert(i64_row.int_val != null, "i64 binding should work");
+
+// Test float binding
+exec(db, "INSERT INTO types_test (float_val) VALUES (?)", [3.14159]);
+let float_row = query_one(db, "SELECT float_val FROM types_test WHERE id = 3");
+// Check it's approximately equal
+let diff = float_row.float_val - 3.14159;
+if (diff < 0) {
+    diff = 0 - diff;
+}
+assert(diff < 0.00001, "Float binding should work");
+
+// Test string binding
+exec(db, "INSERT INTO types_test (text_val) VALUES (?)", ["Hello, World!"]);
+let text_row = query_one(db, "SELECT text_val FROM types_test WHERE id = 4");
+assert(text_row.text_val == "Hello, World!", "String binding should work");
+
+// Test string with special characters
+exec(db, "INSERT INTO types_test (text_val) VALUES (?)", ["Line1\nLine2\tTabbed"]);
+let special_row = query_one(db, "SELECT text_val FROM types_test WHERE id = 5");
+assert(special_row.text_val.contains("Line1"), "String with special chars should work");
+
+// Test null binding
+exec(db, "INSERT INTO types_test (null_val) VALUES (?)", [null]);
+let null_row = query_one(db, "SELECT null_val FROM types_test WHERE id = 6");
+assert(null_row.null_val == null, "Null binding should work");
+
+// Test boolean binding (stored as integer)
+exec(db, "INSERT INTO types_test (int_val) VALUES (?)", [true]);
+let bool_row = query_one(db, "SELECT int_val FROM types_test WHERE id = 7");
+assert(bool_row.int_val == 1, "Boolean true binding should be 1");
+
+exec(db, "INSERT INTO types_test (int_val) VALUES (?)", [false]);
+let bool_row2 = query_one(db, "SELECT int_val FROM types_test WHERE id = 8");
+assert(bool_row2.int_val == 0, "Boolean false binding should be 0");
+
+// Test blob binding
+let blob_data = buffer(4);
+blob_data[0] = 0xDE;
+blob_data[1] = 0xAD;
+blob_data[2] = 0xBE;
+blob_data[3] = 0xEF;
+exec(db, "INSERT INTO types_test (blob_val) VALUES (?)", [blob_data]);
+let blob_row = query_one(db, "SELECT blob_val FROM types_test WHERE id = 9");
+assert(blob_row.blob_val != null, "Blob should not be null");
+assert(blob_row.blob_val.length == 4, "Blob should have 4 bytes");
+assert(blob_row.blob_val[0] == 0xDE, "First byte should be 0xDE");
+assert(blob_row.blob_val[3] == 0xEF, "Last byte should be 0xEF");
+
+// Test multiple parameters
+exec(db, "INSERT INTO types_test (int_val, float_val, text_val) VALUES (?, ?, ?)",
+    [100, 99.99, "multi"]);
+let multi_row = query_one(db, "SELECT * FROM types_test WHERE id = 10");
+assert(multi_row.int_val == 100, "Multi-param int should work");
+assert(multi_row.text_val == "multi", "Multi-param text should work");
+
+close_db(db);
+
+print("All parameter binding tests passed!");

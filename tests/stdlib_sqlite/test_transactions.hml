@@ -1,0 +1,68 @@
+// Test SQLite transaction support
+
+import { open_db, exec, query, query_value, begin, commit, rollback, transaction, close_db } from "@stdlib/sqlite";
+
+let db = open_db(":memory:");
+
+exec(db, "CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance REAL)");
+exec(db, "INSERT INTO accounts (name, balance) VALUES ('Alice', 1000.0)");
+exec(db, "INSERT INTO accounts (name, balance) VALUES ('Bob', 500.0)");
+
+// Test basic transaction with commit
+begin(db);
+exec(db, "UPDATE accounts SET balance = balance - 100 WHERE name = 'Alice'");
+exec(db, "UPDATE accounts SET balance = balance + 100 WHERE name = 'Bob'");
+commit(db);
+
+let alice = query_value(db, "SELECT balance FROM accounts WHERE name = 'Alice'");
+let bob = query_value(db, "SELECT balance FROM accounts WHERE name = 'Bob'");
+assert(alice == 900.0, "Alice should have 900 after transfer");
+assert(bob == 600.0, "Bob should have 600 after transfer");
+
+// Test transaction with rollback
+begin(db);
+exec(db, "UPDATE accounts SET balance = balance - 500 WHERE name = 'Alice'");
+exec(db, "UPDATE accounts SET balance = balance + 500 WHERE name = 'Bob'");
+rollback(db);
+
+alice = query_value(db, "SELECT balance FROM accounts WHERE name = 'Alice'");
+bob = query_value(db, "SELECT balance FROM accounts WHERE name = 'Bob'");
+assert(alice == 900.0, "Alice should still have 900 after rollback");
+assert(bob == 600.0, "Bob should still have 600 after rollback");
+
+// Test transaction() helper with success
+let result = transaction(db, fn() {
+    exec(db, "UPDATE accounts SET balance = balance - 50 WHERE name = 'Alice'");
+    exec(db, "UPDATE accounts SET balance = balance + 50 WHERE name = 'Bob'");
+    return "success";
+});
+
+assert(result == "success", "transaction should return callback result");
+alice = query_value(db, "SELECT balance FROM accounts WHERE name = 'Alice'");
+bob = query_value(db, "SELECT balance FROM accounts WHERE name = 'Bob'");
+assert(alice == 850.0, "Alice should have 850 after transaction()");
+assert(bob == 650.0, "Bob should have 650 after transaction()");
+
+// Test transaction() helper with failure
+let failed = false;
+try {
+    transaction(db, fn() {
+        exec(db, "UPDATE accounts SET balance = balance - 100 WHERE name = 'Alice'");
+        throw "Simulated error";
+    });
+} catch (e) {
+    failed = true;
+    assert(e == "Simulated error", "Should propagate original error");
+}
+assert(failed == true, "transaction should throw on error");
+
+alice = query_value(db, "SELECT balance FROM accounts WHERE name = 'Alice'");
+assert(alice == 850.0, "Alice should still have 850 after failed transaction");
+
+// Test total after all operations
+let total = query_value(db, "SELECT SUM(balance) FROM accounts");
+assert(total == 1500.0, "Total balance should remain 1500");
+
+close_db(db);
+
+print("All transaction tests passed!");

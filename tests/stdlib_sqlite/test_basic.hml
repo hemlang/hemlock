@@ -1,0 +1,59 @@
+// Test basic SQLite operations
+
+import { open_db, exec, query, query_one, query_value, close_db, memory_db, sqlite_version } from "@stdlib/sqlite";
+
+// Test version function
+let version = sqlite_version();
+assert(version.length > 0, "sqlite_version should return a version string");
+print("SQLite version: " + version);
+
+// Test in-memory database
+let db = memory_db();
+assert(db != null, "memory_db should return a database");
+
+// Test table creation
+exec(db, "CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT, value REAL)");
+
+// Test insert
+exec(db, "INSERT INTO test (name, value) VALUES ('one', 1.0)");
+exec(db, "INSERT INTO test (name, value) VALUES ('two', 2.0)");
+exec(db, "INSERT INTO test (name, value) VALUES ('three', 3.0)");
+
+// Test query
+let rows = query(db, "SELECT * FROM test ORDER BY id");
+assert(rows.length == 3, "Should have 3 rows");
+assert(rows[0].name == "one", "First row name should be 'one'");
+assert(rows[1].name == "two", "Second row name should be 'two'");
+assert(rows[2].name == "three", "Third row name should be 'three'");
+
+// Test query_one
+let row = query_one(db, "SELECT * FROM test WHERE name = ?", ["two"]);
+assert(row != null, "query_one should return a row");
+assert(row.name == "two", "Row name should be 'two'");
+assert(row.value == 2.0, "Row value should be 2.0");
+
+// Test query_one with no results
+let no_row = query_one(db, "SELECT * FROM test WHERE name = ?", ["nonexistent"]);
+assert(no_row == null, "query_one should return null for no results");
+
+// Test query_value
+let count = query_value(db, "SELECT COUNT(*) FROM test");
+assert(count == 3, "COUNT should be 3");
+
+let sum = query_value(db, "SELECT SUM(value) FROM test");
+assert(sum == 6.0, "SUM should be 6.0");
+
+// Test update
+exec(db, "UPDATE test SET value = 10.0 WHERE name = 'one'");
+let updated = query_one(db, "SELECT * FROM test WHERE name = 'one'");
+assert(updated.value == 10.0, "Value should be updated to 10.0");
+
+// Test delete
+exec(db, "DELETE FROM test WHERE name = 'three'");
+let remaining = query(db, "SELECT * FROM test");
+assert(remaining.length == 2, "Should have 2 rows after delete");
+
+// Test close
+close_db(db);
+
+print("All basic SQLite tests passed!");

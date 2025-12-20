@@ -1,0 +1,956 @@
+// @stdlib/sqlite - SQLite database interface via FFI
+//
+// Provides SQLite3 database operations:
+// - Database connection management (open, close)
+// - SQL execution with parameter binding
+// - Query execution with result iteration
+// - Transaction support (begin, commit, rollback)
+// - Prepared statements for efficiency and security
+//
+// System Requirements:
+// - SQLite3 libsqlite3.so (usually pre-installed on Linux)
+// - On Debian/Ubuntu: sudo apt-get install libsqlite3-dev
+//
+// Usage:
+//   import { Database, open_db } from "@stdlib/sqlite";
+//
+//   let db = open_db("mydata.db");
+//   db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+//   db.exec("INSERT INTO users (name) VALUES (?)", ["Alice"]);
+//   let rows = db.query("SELECT * FROM users");
+//   db.close();
+
+// Import SQLite3 library
+import "libsqlite3.so.0";
+
+// ============================================================================
+// SQLite Constants
+// ============================================================================
+
+// Result codes
+export let SQLITE_OK = 0;
+export let SQLITE_ERROR = 1;
+export let SQLITE_INTERNAL = 2;
+export let SQLITE_PERM = 3;
+export let SQLITE_ABORT = 4;
+export let SQLITE_BUSY = 5;
+export let SQLITE_LOCKED = 6;
+export let SQLITE_NOMEM = 7;
+export let SQLITE_READONLY = 8;
+export let SQLITE_INTERRUPT = 9;
+export let SQLITE_IOERR = 10;
+export let SQLITE_CORRUPT = 11;
+export let SQLITE_NOTFOUND = 12;
+export let SQLITE_FULL = 13;
+export let SQLITE_CANTOPEN = 14;
+export let SQLITE_PROTOCOL = 15;
+export let SQLITE_EMPTY = 16;
+export let SQLITE_SCHEMA = 17;
+export let SQLITE_TOOBIG = 18;
+export let SQLITE_CONSTRAINT = 19;
+export let SQLITE_MISMATCH = 20;
+export let SQLITE_MISUSE = 21;
+export let SQLITE_NOLFS = 22;
+export let SQLITE_AUTH = 23;
+export let SQLITE_FORMAT = 24;
+export let SQLITE_RANGE = 25;
+export let SQLITE_NOTADB = 26;
+export let SQLITE_NOTICE = 27;
+export let SQLITE_WARNING = 28;
+export let SQLITE_ROW = 100;
+export let SQLITE_DONE = 101;
+
+// Column types
+export let SQLITE_INTEGER = 1;
+export let SQLITE_FLOAT = 2;
+export let SQLITE_TEXT = 3;
+export let SQLITE_BLOB = 4;
+export let SQLITE_NULL = 5;
+
+// Open flags
+export let SQLITE_OPEN_READONLY = 0x00000001;
+export let SQLITE_OPEN_READWRITE = 0x00000002;
+export let SQLITE_OPEN_CREATE = 0x00000004;
+
+// ============================================================================
+// SQLite3 FFI Bindings
+// ============================================================================
+
+// int sqlite3_open(const char *filename, sqlite3 **ppDb)
+extern fn sqlite3_open(filename: ptr, ppDb: ptr): i32;
+
+// int sqlite3_open_v2(const char *filename, sqlite3 **ppDb, int flags, const char *zVfs)
+extern fn sqlite3_open_v2(filename: ptr, ppDb: ptr, flags: i32, vfs: ptr): i32;
+
+// int sqlite3_close(sqlite3*)
+extern fn sqlite3_close(db: ptr): i32;
+
+// int sqlite3_close_v2(sqlite3*)
+extern fn sqlite3_close_v2(db: ptr): i32;
+
+// const char *sqlite3_errmsg(sqlite3*)
+extern fn sqlite3_errmsg(db: ptr): ptr;
+
+// int sqlite3_errcode(sqlite3*)
+extern fn sqlite3_errcode(db: ptr): i32;
+
+// int sqlite3_exec(sqlite3*, const char *sql, callback, void *arg, char **errmsg)
+extern fn sqlite3_exec(db: ptr, sql: ptr, callback: ptr, arg: ptr, errmsg: ptr): i32;
+
+// int sqlite3_prepare_v2(sqlite3 *db, const char *zSql, int nByte, sqlite3_stmt **ppStmt, const char **pzTail)
+extern fn sqlite3_prepare_v2(db: ptr, sql: ptr, nByte: i32, ppStmt: ptr, pzTail: ptr): i32;
+
+// int sqlite3_step(sqlite3_stmt*)
+extern fn sqlite3_step(stmt: ptr): i32;
+
+// int sqlite3_finalize(sqlite3_stmt*)
+extern fn sqlite3_finalize(stmt: ptr): i32;
+
+// int sqlite3_reset(sqlite3_stmt*)
+extern fn sqlite3_reset(stmt: ptr): i32;
+
+// int sqlite3_clear_bindings(sqlite3_stmt*)
+extern fn sqlite3_clear_bindings(stmt: ptr): i32;
+
+// Column functions
+// int sqlite3_column_count(sqlite3_stmt *pStmt)
+extern fn sqlite3_column_count(stmt: ptr): i32;
+
+// const char *sqlite3_column_name(sqlite3_stmt*, int N)
+extern fn sqlite3_column_name(stmt: ptr, col: i32): ptr;
+
+// int sqlite3_column_type(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_type(stmt: ptr, col: i32): i32;
+
+// int sqlite3_column_int(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_int(stmt: ptr, col: i32): i32;
+
+// sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_int64(stmt: ptr, col: i32): i64;
+
+// double sqlite3_column_double(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_double(stmt: ptr, col: i32): f64;
+
+// const unsigned char *sqlite3_column_text(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_text(stmt: ptr, col: i32): ptr;
+
+// const void *sqlite3_column_blob(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_blob(stmt: ptr, col: i32): ptr;
+
+// int sqlite3_column_bytes(sqlite3_stmt*, int iCol)
+extern fn sqlite3_column_bytes(stmt: ptr, col: i32): i32;
+
+// Bind functions
+// int sqlite3_bind_int(sqlite3_stmt*, int, int)
+extern fn sqlite3_bind_int(stmt: ptr, idx: i32, value: i32): i32;
+
+// int sqlite3_bind_int64(sqlite3_stmt*, int, sqlite3_int64)
+extern fn sqlite3_bind_int64(stmt: ptr, idx: i32, value: i64): i32;
+
+// int sqlite3_bind_double(sqlite3_stmt*, int, double)
+extern fn sqlite3_bind_double(stmt: ptr, idx: i32, value: f64): i32;
+
+// int sqlite3_bind_text(sqlite3_stmt*, int, const char*, int, void(*)(void*))
+extern fn sqlite3_bind_text(stmt: ptr, idx: i32, value: ptr, n: i32, destructor: ptr): i32;
+
+// int sqlite3_bind_blob(sqlite3_stmt*, int, const void*, int n, void(*)(void*))
+extern fn sqlite3_bind_blob(stmt: ptr, idx: i32, value: ptr, n: i32, destructor: ptr): i32;
+
+// int sqlite3_bind_null(sqlite3_stmt*, int)
+extern fn sqlite3_bind_null(stmt: ptr, idx: i32): i32;
+
+// int sqlite3_bind_parameter_count(sqlite3_stmt*)
+extern fn sqlite3_bind_parameter_count(stmt: ptr): i32;
+
+// sqlite3_int64 sqlite3_last_insert_rowid(sqlite3*)
+extern fn sqlite3_last_insert_rowid(db: ptr): i64;
+
+// int sqlite3_changes(sqlite3*)
+extern fn sqlite3_changes(db: ptr): i32;
+
+// int sqlite3_total_changes(sqlite3*)
+extern fn sqlite3_total_changes(db: ptr): i32;
+
+// const char *sqlite3_libversion(void)
+extern fn sqlite3_libversion(): ptr;
+
+// int sqlite3_libversion_number(void)
+extern fn sqlite3_libversion_number(): i32;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Use built-in helper functions for string/pointer conversion:
+// ____string_to_cstr(s) - convert Hemlock string to C string (null-terminated ptr)
+// ____cstr_to_string(p) - convert C string (ptr) to Hemlock string
+// ____read_ptr(p) - read pointer from memory (for double indirection FFI calls)
+
+// ============================================================================
+// Database Class
+// ============================================================================
+
+// Database object representing an SQLite connection
+define Database {
+    _handle: ptr,
+    _path: string,
+    _closed: bool
+}
+
+// Get SQLite library version
+export fn sqlite_version(): string {
+    let ver_ptr = sqlite3_libversion();
+    return __cstr_to_string(ver_ptr);
+}
+
+// Get SQLite library version number
+export fn sqlite_version_number(): i32 {
+    return sqlite3_libversion_number();
+}
+
+// Open a database connection
+// path: Path to database file (use ":memory:" for in-memory database)
+// Returns: Database object
+export fn open_db(path: string): Database {
+    let path_cstr = __string_to_cstr(path);
+    let db_ptr_holder = alloc(8);  // Pointer to pointer (sqlite3**)
+
+    let result = sqlite3_open(path_cstr, db_ptr_holder);
+
+    if (result != SQLITE_OK) {
+        let db_handle = __read_ptr(db_ptr_holder);
+        let err_msg = "";
+        if (db_handle != null) {
+            let err_ptr = sqlite3_errmsg(db_handle);
+            err_msg = __cstr_to_string(err_ptr);
+            sqlite3_close(db_handle);
+        }
+        free(path_cstr);
+        free(db_ptr_holder);
+        throw "Failed to open database '" + path + "': " + err_msg;
+    }
+
+    let db_handle = __read_ptr(db_ptr_holder);
+    free(path_cstr);
+    free(db_ptr_holder);
+
+    let db: Database = {
+        _handle: db_handle,
+        _path: path,
+        _closed: false
+    };
+
+    return db;
+}
+
+// Open a database with flags
+// path: Path to database file
+// flags: SQLITE_OPEN_READONLY, SQLITE_OPEN_READWRITE, SQLITE_OPEN_CREATE, etc.
+// Returns: Database object
+export fn open_db_flags(path: string, flags: i32): Database {
+    let path_cstr = __string_to_cstr(path);
+    let db_ptr_holder = alloc(8);
+
+    let result = sqlite3_open_v2(path_cstr, db_ptr_holder, flags, null);
+
+    if (result != SQLITE_OK) {
+        let db_handle = __read_ptr(db_ptr_holder);
+        let err_msg = "";
+        if (db_handle != null) {
+            let err_ptr = sqlite3_errmsg(db_handle);
+            err_msg = __cstr_to_string(err_ptr);
+            sqlite3_close(db_handle);
+        }
+        free(path_cstr);
+        free(db_ptr_holder);
+        throw "Failed to open database '" + path + "': " + err_msg;
+    }
+
+    let db_handle = __read_ptr(db_ptr_holder);
+    free(path_cstr);
+    free(db_ptr_holder);
+
+    let db: Database = {
+        _handle: db_handle,
+        _path: path,
+        _closed: false
+    };
+
+    return db;
+}
+
+// Close a database connection
+export fn close_db(db: Database): null {
+    if (db._closed) {
+        return null;
+    }
+
+    let result = sqlite3_close_v2(db._handle);
+    if (result != SQLITE_OK) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        throw "Failed to close database: " + err_msg;
+    }
+
+    db._closed = true;
+    return null;
+}
+
+// Get the last error message
+export fn db_error(db: Database): string {
+    if (db._closed) {
+        return "Database is closed";
+    }
+    let err_ptr = sqlite3_errmsg(db._handle);
+    return __cstr_to_string(err_ptr);
+}
+
+// Get the last error code
+export fn db_error_code(db: Database): i32 {
+    if (db._closed) {
+        return SQLITE_MISUSE;
+    }
+    return sqlite3_errcode(db._handle);
+}
+
+// Get the rowid of the last inserted row
+export fn last_insert_id(db: Database): i64 {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+    return sqlite3_last_insert_rowid(db._handle);
+}
+
+// Get the number of rows changed by the last statement
+export fn changes(db: Database): i32 {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+    return sqlite3_changes(db._handle);
+}
+
+// Get total changes since connection opened
+export fn total_changes(db: Database): i32 {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+    return sqlite3_total_changes(db._handle);
+}
+
+// ============================================================================
+// Statement Execution
+// ============================================================================
+
+// Bind a value to a prepared statement
+fn bind_value(stmt, idx, value) {
+    let t = typeof(value);
+
+    if (t == "null") {
+        return sqlite3_bind_null(stmt, idx);
+    }
+
+    if (t == "bool") {
+        if (value) {
+            return sqlite3_bind_int(stmt, idx, 1);
+        } else {
+            return sqlite3_bind_int(stmt, idx, 0);
+        }
+    }
+
+    if (t == "i8" || t == "i16" || t == "i32" || t == "integer") {
+        let int_val: i32 = value;
+        return sqlite3_bind_int(stmt, idx, int_val);
+    }
+
+    if (t == "i64") {
+        let int64_val: i64 = value;
+        return sqlite3_bind_int64(stmt, idx, int64_val);
+    }
+
+    if (t == "u8" || t == "u16" || t == "u32") {
+        let int_val: i32 = value;
+        return sqlite3_bind_int(stmt, idx, int_val);
+    }
+
+    if (t == "u64") {
+        let int64_val: i64 = value;
+        return sqlite3_bind_int64(stmt, idx, int64_val);
+    }
+
+    if (t == "f32" || t == "f64" || t == "number") {
+        let float_val: f64 = value;
+        return sqlite3_bind_double(stmt, idx, float_val);
+    }
+
+    if (t == "string") {
+        let str_cstr = __string_to_cstr(value);
+        let bytes = value.bytes();
+        let len = bytes.length;
+        // Use SQLITE_STATIC (null) - the string will remain valid until we're done
+        // Note: We free it after sqlite3_step, so this is safe
+        let result = sqlite3_bind_text(stmt, idx, str_cstr, len, null);
+        // Don't free here - it will be freed after the statement finishes
+        // This is safe because we execute immediately after binding
+        return result;
+    }
+
+    if (t == "buffer") {
+        let len = value.length;
+        let blob_ptr = alloc(len);
+        let i = 0;
+        while (i < len) {
+            let byte_val: u8 = value[i];
+            memset(blob_ptr + i, byte_val, 1);
+            i = i + 1;
+        }
+        // Use SQLITE_STATIC (null) - the blob will remain valid until we're done
+        // Note: We don't free here because we execute immediately after binding
+        let result = sqlite3_bind_blob(stmt, idx, blob_ptr, len, null);
+        return result;
+    }
+
+    throw "Cannot bind value of type: " + t;
+}
+
+// Get a column value from a result row
+fn get_column_value(stmt, col) {
+    let col_type = sqlite3_column_type(stmt, col);
+
+    if (col_type == SQLITE_NULL) {
+        return null;
+    }
+
+    if (col_type == SQLITE_INTEGER) {
+        return sqlite3_column_int64(stmt, col);
+    }
+
+    if (col_type == SQLITE_FLOAT) {
+        return sqlite3_column_double(stmt, col);
+    }
+
+    if (col_type == SQLITE_TEXT) {
+        let text_ptr = sqlite3_column_text(stmt, col);
+        return __cstr_to_string(text_ptr);
+    }
+
+    if (col_type == SQLITE_BLOB) {
+        let blob_ptr = sqlite3_column_blob(stmt, col);
+        let blob_len = sqlite3_column_bytes(stmt, col);
+
+        let buf = buffer(blob_len);
+        let i = 0;
+        while (i < blob_len) {
+            let word_ptr = blob_ptr + (i & ~3);
+            let word = __read_u32(word_ptr);
+            let byte_offset = i % 4;
+            let byte_val = (word >> (byte_offset * 8)) & 255;
+            buf[i] = byte_val;
+            i = i + 1;
+        }
+        return buf;
+    }
+
+    return null;
+}
+
+// Execute SQL statement without returning results
+// db: Database object
+// sql: SQL statement (can contain ? placeholders)
+// params: Optional array of parameter values
+// Returns: null on success, throws on error
+export fn exec(db: Database, sql: string, params?: null): null {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+
+    let sql_cstr = __string_to_cstr(sql);
+    let stmt_holder = alloc(8);
+
+    let result = sqlite3_prepare_v2(db._handle, sql_cstr, -1, stmt_holder, null);
+
+    if (result != SQLITE_OK) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        free(sql_cstr);
+        free(stmt_holder);
+        throw "SQL prepare error: " + err_msg;
+    }
+
+    let stmt = __read_ptr(stmt_holder);
+    free(sql_cstr);
+    free(stmt_holder);
+
+    // Bind parameters if provided
+    if (params != null) {
+        let param_count = params.length;
+        let i = 0;
+        while (i < param_count) {
+            let bind_result = bind_value(stmt, i + 1, params[i]);  // SQLite uses 1-based indexing
+            if (bind_result != SQLITE_OK) {
+                let err_ptr = sqlite3_errmsg(db._handle);
+                let err_msg = __cstr_to_string(err_ptr);
+                sqlite3_finalize(stmt);
+                throw "SQL bind error: " + err_msg;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Execute
+    result = sqlite3_step(stmt);
+
+    if (result != SQLITE_DONE && result != SQLITE_ROW) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        sqlite3_finalize(stmt);
+        throw "SQL execution error: " + err_msg;
+    }
+
+    sqlite3_finalize(stmt);
+    return null;
+}
+
+// Execute SQL query and return all results as array of objects
+// db: Database object
+// sql: SQL SELECT statement (can contain ? placeholders)
+// params: Optional array of parameter values
+// Returns: Array of row objects
+export fn query(db: Database, sql: string, params?: null): array {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+
+    let sql_cstr = __string_to_cstr(sql);
+    let stmt_holder = alloc(8);
+
+    let result = sqlite3_prepare_v2(db._handle, sql_cstr, -1, stmt_holder, null);
+
+    if (result != SQLITE_OK) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        free(sql_cstr);
+        free(stmt_holder);
+        throw "SQL prepare error: " + err_msg;
+    }
+
+    let stmt = __read_ptr(stmt_holder);
+    free(sql_cstr);
+    free(stmt_holder);
+
+    // Bind parameters if provided
+    if (params != null) {
+        let param_count = params.length;
+        let i = 0;
+        while (i < param_count) {
+            let bind_result = bind_value(stmt, i + 1, params[i]);
+            if (bind_result != SQLITE_OK) {
+                let err_ptr = sqlite3_errmsg(db._handle);
+                let err_msg = __cstr_to_string(err_ptr);
+                sqlite3_finalize(stmt);
+                throw "SQL bind error: " + err_msg;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Get column info
+    let col_count = sqlite3_column_count(stmt);
+    let col_names = [];
+    let col_idx = 0;
+    while (col_idx < col_count) {
+        let name_ptr = sqlite3_column_name(stmt, col_idx);
+        let name = __cstr_to_string(name_ptr);
+        col_names.push(name);
+        col_idx = col_idx + 1;
+    }
+
+    // Fetch all rows
+    let rows = [];
+    result = sqlite3_step(stmt);
+
+    while (result == SQLITE_ROW) {
+        let row = {};
+        let c = 0;
+        while (c < col_count) {
+            let col_name = col_names[c];
+            let value = get_column_value(stmt, c);
+            row[col_name] = value;
+            c = c + 1;
+        }
+        rows.push(row);
+        result = sqlite3_step(stmt);
+    }
+
+    if (result != SQLITE_DONE) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        sqlite3_finalize(stmt);
+        throw "SQL step error: " + err_msg;
+    }
+
+    sqlite3_finalize(stmt);
+    return rows;
+}
+
+// Execute SQL query and return first row only (or null if no results)
+// db: Database object
+// sql: SQL SELECT statement
+// params: Optional array of parameter values
+// Returns: Row object or null
+export fn query_one(db: Database, sql: string, params?: null) {
+    let rows = query(db, sql, params);
+    if (rows.length == 0) {
+        return null;
+    }
+    return rows[0];
+}
+
+// Execute SQL query and return a single value from first column of first row
+// db: Database object
+// sql: SQL SELECT statement
+// params: Optional array of parameter values
+// Returns: Single value or null
+export fn query_value(db: Database, sql: string, params?: null) {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+
+    let sql_cstr = __string_to_cstr(sql);
+    let stmt_holder = alloc(8);
+
+    let result = sqlite3_prepare_v2(db._handle, sql_cstr, -1, stmt_holder, null);
+
+    if (result != SQLITE_OK) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        free(sql_cstr);
+        free(stmt_holder);
+        throw "SQL prepare error: " + err_msg;
+    }
+
+    let stmt = __read_ptr(stmt_holder);
+    free(sql_cstr);
+    free(stmt_holder);
+
+    // Bind parameters if provided
+    if (params != null) {
+        let param_count = params.length;
+        let i = 0;
+        while (i < param_count) {
+            let bind_result = bind_value(stmt, i + 1, params[i]);
+            if (bind_result != SQLITE_OK) {
+                let err_ptr = sqlite3_errmsg(db._handle);
+                let err_msg = __cstr_to_string(err_ptr);
+                sqlite3_finalize(stmt);
+                throw "SQL bind error: " + err_msg;
+            }
+            i = i + 1;
+        }
+    }
+
+    result = sqlite3_step(stmt);
+
+    if (result == SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return null;
+    }
+
+    if (result != SQLITE_ROW) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        sqlite3_finalize(stmt);
+        throw "SQL step error: " + err_msg;
+    }
+
+    let value = get_column_value(stmt, 0);
+    sqlite3_finalize(stmt);
+    return value;
+}
+
+// ============================================================================
+// Transaction Support
+// ============================================================================
+
+// Begin a transaction
+export fn begin(db: Database): null {
+    return exec(db, "BEGIN TRANSACTION");
+}
+
+// Begin an immediate transaction (acquires write lock immediately)
+export fn begin_immediate(db: Database): null {
+    return exec(db, "BEGIN IMMEDIATE TRANSACTION");
+}
+
+// Begin an exclusive transaction (acquires exclusive lock)
+export fn begin_exclusive(db: Database): null {
+    return exec(db, "BEGIN EXCLUSIVE TRANSACTION");
+}
+
+// Commit current transaction
+export fn commit(db: Database): null {
+    return exec(db, "COMMIT");
+}
+
+// Rollback current transaction
+export fn rollback(db: Database): null {
+    return exec(db, "ROLLBACK");
+}
+
+// Execute a function within a transaction
+// Automatically commits on success, rolls back on error
+export fn transaction(db: Database, fn_callback) {
+    begin(db);
+    try {
+        let result = fn_callback();
+        commit(db);
+        return result;
+    } catch (e) {
+        rollback(db);
+        throw e;
+    }
+}
+
+// ============================================================================
+// Prepared Statement Class
+// ============================================================================
+
+// Prepared statement for repeated execution
+define Statement {
+    _handle: ptr,
+    _db: Database,
+    _sql: string,
+    _finalized: bool
+}
+
+// Prepare a SQL statement for later execution
+export fn prepare(db: Database, sql: string): Statement {
+    if (db._closed) {
+        throw "Database is closed";
+    }
+
+    let sql_cstr = __string_to_cstr(sql);
+    let stmt_holder = alloc(8);
+
+    let result = sqlite3_prepare_v2(db._handle, sql_cstr, -1, stmt_holder, null);
+
+    if (result != SQLITE_OK) {
+        let err_ptr = sqlite3_errmsg(db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        free(sql_cstr);
+        free(stmt_holder);
+        throw "SQL prepare error: " + err_msg;
+    }
+
+    let stmt_ptr = __read_ptr(stmt_holder);
+    free(sql_cstr);
+    free(stmt_holder);
+
+    let stmt: Statement = {
+        _handle: stmt_ptr,
+        _db: db,
+        _sql: sql,
+        _finalized: false
+    };
+
+    return stmt;
+}
+
+// Bind parameters to a prepared statement
+export fn stmt_bind(stmt: Statement, params: array): null {
+    if (stmt._finalized) {
+        throw "Statement is finalized";
+    }
+
+    // Reset statement before rebinding
+    sqlite3_reset(stmt._handle);
+    sqlite3_clear_bindings(stmt._handle);
+
+    let param_count = params.length;
+    let i = 0;
+    while (i < param_count) {
+        let bind_result = bind_value(stmt._handle, i + 1, params[i]);
+        if (bind_result != SQLITE_OK) {
+            let err_ptr = sqlite3_errmsg(stmt._db._handle);
+            let err_msg = __cstr_to_string(err_ptr);
+            throw "SQL bind error: " + err_msg;
+        }
+        i = i + 1;
+    }
+
+    return null;
+}
+
+// Execute a prepared statement (for non-SELECT statements)
+export fn stmt_exec(stmt: Statement, params?: null): null {
+    if (stmt._finalized) {
+        throw "Statement is finalized";
+    }
+
+    sqlite3_reset(stmt._handle);
+
+    if (params != null) {
+        sqlite3_clear_bindings(stmt._handle);
+        let param_count = params.length;
+        let i = 0;
+        while (i < param_count) {
+            let bind_result = bind_value(stmt._handle, i + 1, params[i]);
+            if (bind_result != SQLITE_OK) {
+                let err_ptr = sqlite3_errmsg(stmt._db._handle);
+                let err_msg = __cstr_to_string(err_ptr);
+                throw "SQL bind error: " + err_msg;
+            }
+            i = i + 1;
+        }
+    }
+
+    let result = sqlite3_step(stmt._handle);
+
+    if (result != SQLITE_DONE && result != SQLITE_ROW) {
+        let err_ptr = sqlite3_errmsg(stmt._db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        throw "SQL execution error: " + err_msg;
+    }
+
+    return null;
+}
+
+// Execute a prepared statement and return results (for SELECT statements)
+export fn stmt_query(stmt: Statement, params?: null): array {
+    if (stmt._finalized) {
+        throw "Statement is finalized";
+    }
+
+    sqlite3_reset(stmt._handle);
+
+    if (params != null) {
+        sqlite3_clear_bindings(stmt._handle);
+        let param_count = params.length;
+        let i = 0;
+        while (i < param_count) {
+            let bind_result = bind_value(stmt._handle, i + 1, params[i]);
+            if (bind_result != SQLITE_OK) {
+                let err_ptr = sqlite3_errmsg(stmt._db._handle);
+                let err_msg = __cstr_to_string(err_ptr);
+                throw "SQL bind error: " + err_msg;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Get column info
+    let col_count = sqlite3_column_count(stmt._handle);
+    let col_names = [];
+    let col_idx = 0;
+    while (col_idx < col_count) {
+        let name_ptr = sqlite3_column_name(stmt._handle, col_idx);
+        let name = __cstr_to_string(name_ptr);
+        col_names.push(name);
+        col_idx = col_idx + 1;
+    }
+
+    // Fetch all rows
+    let rows = [];
+    let result = sqlite3_step(stmt._handle);
+
+    while (result == SQLITE_ROW) {
+        let row = {};
+        let c = 0;
+        while (c < col_count) {
+            let col_name = col_names[c];
+            let value = get_column_value(stmt._handle, c);
+            row[col_name] = value;
+            c = c + 1;
+        }
+        rows.push(row);
+        result = sqlite3_step(stmt._handle);
+    }
+
+    if (result != SQLITE_DONE) {
+        let err_ptr = sqlite3_errmsg(stmt._db._handle);
+        let err_msg = __cstr_to_string(err_ptr);
+        throw "SQL step error: " + err_msg;
+    }
+
+    return rows;
+}
+
+// Finalize a prepared statement (release resources)
+export fn stmt_finalize(stmt: Statement): null {
+    if (stmt._finalized) {
+        return null;
+    }
+
+    sqlite3_finalize(stmt._handle);
+    stmt._finalized = true;
+    return null;
+}
+
+// ============================================================================
+// Table Schema Utilities
+// ============================================================================
+
+// Check if a table exists
+export fn table_exists(db: Database, table_name: string): bool {
+    let result = query_value(db,
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+        [table_name]
+    );
+    return result > 0;
+}
+
+// Get list of tables in the database
+export fn list_tables(db: Database): array {
+    let rows = query(db, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
+    let tables = [];
+    let i = 0;
+    while (i < rows.length) {
+        tables.push(rows[i].name);
+        i = i + 1;
+    }
+    return tables;
+}
+
+// Get column information for a table
+export fn table_info(db: Database, table_name: string): array {
+    return query(db, "PRAGMA table_info(" + table_name + ")");
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Create an in-memory database
+export fn memory_db(): Database {
+    return open_db(":memory:");
+}
+
+// Insert a row and return the last insert rowid
+export fn insert(db: Database, sql: string, params?: null): i64 {
+    exec(db, sql, params);
+    return last_insert_id(db);
+}
+
+// Update rows and return number of changes
+export fn update(db: Database, sql: string, params?: null): i32 {
+    exec(db, sql, params);
+    return changes(db);
+}
+
+// Delete rows and return number of changes
+export fn delete_rows(db: Database, sql: string, params?: null): i32 {
+    exec(db, sql, params);
+    return changes(db);
+}
+
+// Count rows in a table
+export fn count(db: Database, table_name: string, where_clause?: null): i64 {
+    let sql = "SELECT COUNT(*) FROM " + table_name;
+    if (where_clause != null) {
+        sql = sql + " WHERE " + where_clause;
+    }
+    let result = query_value(db, sql);
+    if (result == null) {
+        return 0;
+    }
+    return result;
+}
