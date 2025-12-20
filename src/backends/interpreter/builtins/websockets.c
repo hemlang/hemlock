@@ -67,6 +67,7 @@ typedef struct {
     int complete;
     int failed;
     char *redirect_url;  // Location header for 3xx responses
+    char *headers;       // Response headers as string
 } http_response_t;
 
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
@@ -112,6 +113,48 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
             if (resp) {
                 resp->status_code = lws_http_client_http_response(wsi);
+
+                // Capture response headers
+                {
+                    // Build headers string from common HTTP headers
+                    char headers_buf[8192];
+                    size_t headers_len = 0;
+                    char value[1024];
+                    int vlen;
+
+                    // Define header tokens and their names
+                    struct { enum lws_token_indexes token; const char *name; } header_list[] = {
+                        { WSI_TOKEN_HTTP_CONTENT_TYPE, "Content-Type" },
+                        { WSI_TOKEN_HTTP_CONTENT_LENGTH, "Content-Length" },
+                        { WSI_TOKEN_HTTP_CACHE_CONTROL, "Cache-Control" },
+                        { WSI_TOKEN_HTTP_DATE, "Date" },
+                        { WSI_TOKEN_HTTP_ETAG, "ETag" },
+                        { WSI_TOKEN_HTTP_LAST_MODIFIED, "Last-Modified" },
+                        { WSI_TOKEN_HTTP_LOCATION, "Location" },
+                        { WSI_TOKEN_HTTP_SERVER, "Server" },
+                        { WSI_TOKEN_HTTP_SET_COOKIE, "Set-Cookie" },
+                        { WSI_TOKEN_HTTP_TRANSFER_ENCODING, "Transfer-Encoding" },
+                        { WSI_TOKEN_HTTP_WWW_AUTHENTICATE, "WWW-Authenticate" },
+                        { WSI_TOKEN_HTTP_ACCESS_CONTROL_ALLOW_ORIGIN, "Access-Control-Allow-Origin" },
+                    };
+
+                    for (size_t i = 0; i < sizeof(header_list)/sizeof(header_list[0]); i++) {
+                        vlen = lws_hdr_copy(wsi, value, sizeof(value), header_list[i].token);
+                        if (vlen > 0) {
+                            value[vlen] = '\0';
+                            int written = snprintf(headers_buf + headers_len,
+                                                   sizeof(headers_buf) - headers_len,
+                                                   "%s: %s\r\n", header_list[i].name, value);
+                            if (written > 0 && (size_t)written < sizeof(headers_buf) - headers_len) {
+                                headers_len += written;
+                            }
+                        }
+                    }
+
+                    if (headers_len > 0) {
+                        resp->headers = strndup(headers_buf, headers_len);
+                    }
+                }
 
                 // Capture Location header for redirects (3xx responses)
                 if (resp->status_code >= 300 && resp->status_code < 400) {
@@ -730,8 +773,12 @@ Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *
         return val_null();
     }
 
-    // Headers not implemented yet
-    return val_string("");
+    http_response_t *resp = (http_response_t *)args[0].as.as_ptr;
+    if (!resp || !resp->headers) {
+        return val_string("");
+    }
+
+    return val_string(resp->headers);
 }
 
 // __lws_response_redirect(resp: ptr): string
@@ -774,6 +821,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
     if (resp) {
         if (resp->body) free(resp->body);
         if (resp->redirect_url) free(resp->redirect_url);
+        if (resp->headers) free(resp->headers);
         free(resp);
     }
 
