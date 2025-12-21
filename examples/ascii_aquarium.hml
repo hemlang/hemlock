@@ -1,0 +1,311 @@
+// ASCII Aquarium - Animated fish tank in the terminal
+// Demonstrates: arrays, string manipulation, terminal colors, animation with sleep
+
+import { rand } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
+import {
+    RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE, WHITE, RESET, BOLD,
+    CLEAR_SCREEN, move_to, HIDE_CURSOR, SHOW_CURSOR
+} from "@stdlib/terminal";
+
+// Tank dimensions
+let WIDTH = 50;
+let HEIGHT = 12;
+
+// Fish species with their appearances and colors
+let fish_shapes = [
+    "><>",
+    "><))'>",
+    "<><",
+    "<'((<>",
+    ">o>",
+    "<o<",
+    "><((('>",
+    "<')))><"
+];
+
+let fish_colors = [YELLOW, CYAN, MAGENTA, GREEN, RED, BLUE, WHITE];
+
+// Get random integer in [0, max)
+fn randint(max: i32): i32 {
+    let f = rand() * max;
+    let result: i32 = f;
+    return result;
+}
+
+// Create a fish with position, direction, and appearance
+fn create_fish(id: i32) {
+    let shape_idx = randint(fish_shapes.length);
+    let color_idx = randint(fish_colors.length);
+    let direction = 1;
+    if (randint(2) == 0) {
+        direction = -1;
+    }
+
+    // Use appropriate fish shape based on direction
+    let shape = fish_shapes[shape_idx];
+    if (direction < 0 && shape_idx % 2 == 0) {
+        // Switch to left-facing variant
+        shape = fish_shapes[shape_idx + 1];
+    } else if (direction > 0 && shape_idx % 2 == 1) {
+        // Switch to right-facing variant
+        shape = fish_shapes[shape_idx - 1];
+    }
+
+    return {
+        id: id,
+        x: randint(WIDTH - 10) + 3,
+        y: randint(HEIGHT - 4) + 2,
+        dx: direction,
+        shape: shape,
+        color: fish_colors[color_idx]
+    };
+}
+
+// Move a fish
+fn move_fish(fish) {
+    fish.x = fish.x + fish.dx;
+
+    // Bounce off walls
+    if (fish.x <= 1) {
+        fish.dx = 1;
+        // Switch to right-facing shape
+        if (fish.shape == "<><") { fish.shape = "><>"; }
+        else if (fish.shape == "<'((<>") { fish.shape = "><))'>"; }
+        else if (fish.shape == "<o<") { fish.shape = ">o>"; }
+        else if (fish.shape == "<')))><") { fish.shape = "><((('>"; }
+    } else if (fish.x >= WIDTH - fish.shape.length - 1) {
+        fish.dx = -1;
+        // Switch to left-facing shape
+        if (fish.shape == "><>") { fish.shape = "<><"; }
+        else if (fish.shape == "><))'>") { fish.shape = "<'((<>"; }
+        else if (fish.shape == ">o>") { fish.shape = "<o<"; }
+        else if (fish.shape == "><((('>") { fish.shape = "<')))><"; }
+    }
+
+    // Occasionally change depth
+    if (randint(10) == 0) {
+        let dy = randint(3) - 1;  // -1, 0, or 1
+        fish.y = fish.y + dy;
+        if (fish.y < 2) { fish.y = 2; }
+        if (fish.y > HEIGHT - 2) { fish.y = HEIGHT - 2; }
+    }
+
+    return fish;
+}
+
+// Create bubbles
+fn create_bubble() {
+    return {
+        x: randint(WIDTH - 4) + 2,
+        y: HEIGHT - 2,
+        symbol: "o"
+    };
+}
+
+// Move bubble up
+fn move_bubble(bubble) {
+    bubble.y = bubble.y - 1;
+    // Wobble horizontally
+    if (randint(3) == 0) {
+        bubble.x = bubble.x + randint(3) - 1;
+    }
+    return bubble;
+}
+
+// Draw the tank border
+fn draw_tank() {
+    // Top border with decorative elements
+    let top = CYAN + "+" + "-".repeat(WIDTH - 2) + "+" + RESET;
+    print(top);
+
+    // Side borders (empty for now, fish will be drawn)
+    for (let y = 1; y < HEIGHT - 1; y = y + 1) {
+        let line = CYAN + "|" + RESET;
+        for (let x = 1; x < WIDTH - 1; x = x + 1) {
+            line = line + " ";
+        }
+        line = line + CYAN + "|" + RESET;
+        print(line);
+    }
+
+    // Bottom with sand/gravel
+    let bottom = CYAN + "+" + RESET;
+    for (let x = 1; x < WIDTH - 1; x = x + 1) {
+        let r = randint(3);
+        if (r == 0) { bottom = bottom + YELLOW + "." + RESET; }
+        else if (r == 1) { bottom = bottom + YELLOW + "," + RESET; }
+        else { bottom = bottom + YELLOW + "'" + RESET; }
+    }
+    bottom = bottom + CYAN + "+" + RESET;
+    print(bottom);
+}
+
+// Render a single frame
+fn render_frame(fishes, bubbles) {
+    // Build the frame content
+    let frame_rows = [];
+
+    // Initialize with water
+    for (let y = 0; y < HEIGHT; y = y + 1) {
+        let row = "";
+        for (let x = 0; x < WIDTH; x = x + 1) {
+            if (y == 0 || y == HEIGHT - 1) {
+                if (x == 0 || x == WIDTH - 1) {
+                    row = row + "+";
+                } else if (y == HEIGHT - 1) {
+                    // Sandy bottom
+                    let r = randint(4);
+                    if (r == 0) { row = row + "."; }
+                    else if (r == 1) { row = row + ","; }
+                    else if (r == 2) { row = row + "'"; }
+                    else { row = row + " "; }
+                } else {
+                    row = row + "-";
+                }
+            } else if (x == 0 || x == WIDTH - 1) {
+                row = row + "|";
+            } else {
+                // Water - occasional seaweed
+                if (y > HEIGHT - 5 && randint(100) < 3) {
+                    row = row + "~";
+                } else {
+                    row = row + " ";
+                }
+            }
+        }
+        frame_rows.push(row);
+    }
+
+    // Print the frame with colors
+    print(CYAN + BOLD + frame_rows[0] + RESET);  // Top border
+
+    for (let y = 1; y < HEIGHT - 1; y = y + 1) {
+        let line = CYAN + "|" + RESET;
+
+        // Build the content for this row
+        for (let x = 1; x < WIDTH - 1; x = x + 1) {
+            let char_at_pos = " ";
+            let char_color = BLUE;
+
+            // Check for fish at this position
+            for (let f = 0; f < fishes.length; f = f + 1) {
+                let fish = fishes[f];
+                if (fish.y == y) {
+                    let fish_start = fish.x;
+                    let fish_end = fish.x + fish.shape.length;
+                    if (x >= fish_start && x < fish_end) {
+                        let idx = x - fish_start;
+                        char_at_pos = fish.shape.char_at(idx);
+                        char_color = fish.color;
+                    }
+                }
+            }
+
+            // Check for bubbles at this position
+            for (let b = 0; b < bubbles.length; b = b + 1) {
+                let bubble = bubbles[b];
+                if (bubble.x == x && bubble.y == y) {
+                    char_at_pos = "o";
+                    char_color = WHITE;
+                }
+            }
+
+            // Seaweed at bottom
+            if (y > HEIGHT - 4 && char_at_pos == " " && randint(50) == 0) {
+                char_at_pos = "~";
+                char_color = GREEN;
+            }
+
+            line = line + char_color + char_at_pos + RESET;
+        }
+
+        line = line + CYAN + "|" + RESET;
+        print(line);
+    }
+
+    // Bottom with sand
+    let bottom = CYAN + "+" + RESET;
+    for (let x = 1; x < WIDTH - 1; x = x + 1) {
+        let r = randint(4);
+        if (r == 0) { bottom = bottom + YELLOW + "." + RESET; }
+        else if (r == 1) { bottom = bottom + YELLOW + "," + RESET; }
+        else if (r == 2) { bottom = bottom + YELLOW + "'" + RESET; }
+        else { bottom = bottom + YELLOW + " " + RESET; }
+    }
+    bottom = bottom + CYAN + "+" + RESET;
+    print(bottom);
+}
+
+// Main aquarium
+fn main() {
+    print("");
+    print(CYAN + BOLD + "======================================" + RESET);
+    print(CYAN + BOLD + "    ASCII AQUARIUM" + RESET);
+    print(CYAN + BOLD + "    A Swimming Fish Tank Display" + RESET);
+    print(CYAN + BOLD + "======================================" + RESET);
+    print("");
+
+    // Create some fish
+    let fishes = [];
+    for (let i = 0; i < 4; i = i + 1) {
+        fishes.push(create_fish(i));
+    }
+
+    // Create some bubbles
+    let bubbles = [];
+
+    // Show a few frames (non-animated static display with movement between frames)
+    let num_frames = 2;
+    print(GREEN + "Displaying " + num_frames + " frames of aquarium life..." + RESET);
+    print("");
+
+    for (let frame = 1; frame <= num_frames; frame = frame + 1) {
+        print(BOLD + "--- Frame " + frame + " ---" + RESET);
+
+        // Add occasional bubbles
+        if (randint(3) == 0) {
+            bubbles.push(create_bubble());
+        }
+
+        // Move fish
+        for (let f = 0; f < fishes.length; f = f + 1) {
+            fishes[f] = move_fish(fishes[f]);
+        }
+
+        // Move bubbles and remove ones that reached the top
+        let new_bubbles = [];
+        for (let b = 0; b < bubbles.length; b = b + 1) {
+            bubbles[b] = move_bubble(bubbles[b]);
+            if (bubbles[b].y > 1) {
+                new_bubbles.push(bubbles[b]);
+            }
+        }
+        bubbles = new_bubbles;
+
+        // Render this frame
+        render_frame(fishes, bubbles);
+        print("");
+
+        // Pause between frames
+        sleep(100);
+    }
+
+    print(CYAN + BOLD + "======================================" + RESET);
+    print(GREEN + "Aquarium display complete!" + RESET);
+    print("");
+
+    print("Fish in tank: " + fishes.length);
+    print("Active bubbles: " + bubbles.length);
+    print("");
+
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - Object creation and manipulation");
+    print("  - Array operations (push, iteration)");
+    print("  - String methods (char_at, repeat, length)");
+    print("  - Random number generation");
+    print("  - Terminal colors");
+    print("  - Frame-based animation with sleep()");
+}
+
+main();
