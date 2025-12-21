@@ -1,0 +1,11 @@
+Basic true: yes
+Basic false: no
+max(5, 10) = 10
+Grade 85 = B
+Conditional call: 10
+Null safety: default
+User is admin
+Mixed type: 42
+Array with ternary: [1,2,3]
+Value: equal
+5 < 10 is true

@@ -1,0 +1,12 @@
+Type of char_at: rune
+char_at(0) = H
+ch == 'H': true
+Type of emoji char: rune
+Emoji char: 🚀
+First letter is: H
+word[0] = A (type: rune)
+word[1] = B (type: rune)
+word[2] = C (type: rune)
+'A' codepoint: A
+'B' codepoint: B
+Rune as string: X (type: string)

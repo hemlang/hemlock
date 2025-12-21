@@ -1,0 +1,8 @@
+Initial: test
+Added value: 42
+Added active: true
+Modified name: updated
+Added list: [1,2,3]
+Added nested: nested value
+Function added: value
+Empty now has: 1, 2
