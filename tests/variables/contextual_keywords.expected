@@ -1,0 +1,10 @@
+from = source
+as = target
+Copying from file1.txt to file2.txt
+Converting 42 as string
+Transfer A -> B as copy
+obj.from = start
+obj.as = end
+Updated from = new_source
+Updated as = new_target
+new_source -> new_target

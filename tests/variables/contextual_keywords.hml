@@ -1,0 +1,46 @@
+// Test contextual keywords (from, as)
+// Previously using 'from' or 'as' as variable/parameter names would fail
+
+// 'from' as variable name
+let from = "source";
+print("from = " + from);
+
+// 'as' as variable name
+let as = "target";
+print("as = " + as);
+
+// 'from' as parameter name
+fn copy(from, to) {
+    print("Copying from " + from + " to " + to);
+}
+copy("file1.txt", "file2.txt");
+
+// 'as' as parameter name
+fn convert(value, as) {
+    print("Converting " + value + " as " + as);
+}
+convert(42, "string");
+
+// Both 'from' and 'as' in same function
+fn transfer(from, to, as) {
+    print("Transfer " + from + " -> " + to + " as " + as);
+}
+transfer("A", "B", "copy");
+
+// 'from' and 'as' as object fields
+let obj = {
+    from: "start",
+    as: "end"
+};
+print("obj.from = " + obj.from);
+print("obj.as = " + obj.as);
+
+// Reassignment
+from = "new_source";
+as = "new_target";
+print("Updated from = " + from);
+print("Updated as = " + as);
+
+// In expressions
+let combined = from + " -> " + as;
+print(combined);

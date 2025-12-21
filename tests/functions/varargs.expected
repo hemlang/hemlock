@@ -1,0 +1,23 @@
+Items (3):
+  1
+  2
+  3
+Items (2):
+  a
+  b
+Items (0):
+Numbers: 1 2 3 4 5
+Names: Alice Bob
+Empty:
+[INFO] Starting up
+[DEBUG] Processing (extras: 2)
+[ERROR] Failed (extras: 3)
+sum(1,2,3,4,5) = 15
+sum(10, 20) = 30
+sum() = 0
+max(3,1,4,1,5,9) = 9
+max(42) = 42
+max() = null
+apple, banana, cherry
+a-b-c-d
+single

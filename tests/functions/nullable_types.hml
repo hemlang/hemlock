@@ -1,0 +1,56 @@
+// Test nullable type syntax (type?)
+// Previously returning null from a function with return type would fail
+
+// Function with nullable return type
+fn find_user(id: i32): string? {
+    if (id == 1) {
+        return "Alice";
+    }
+    return null;
+}
+
+print("find_user(1): " + find_user(1));
+print("find_user(2): " + find_user(2));
+
+// Nullable parameter types
+fn greet(name: string?): string {
+    if (name == null) {
+        return "Hello, stranger!";
+    }
+    return "Hello, " + name + "!";
+}
+
+print(greet("Bob"));
+print(greet(null));
+
+// Nullable in variable type annotation
+let maybe_value: i32? = null;
+print("maybe_value: " + maybe_value);
+maybe_value = 42;
+print("maybe_value: " + maybe_value);
+
+// Multiple nullable types
+fn process(a: i32?, b: string?): string? {
+    if (a == null) {
+        return null;
+    }
+    if (b == null) {
+        return "number only: " + a;
+    }
+    return b + ": " + a;
+}
+
+print(process(10, "count"));
+print(process(5, null));
+print(process(null, "test"));
+
+// Nullable array element type
+fn first_or_null(arr: array): i32? {
+    if (arr.length == 0) {
+        return null;
+    }
+    return arr[0];
+}
+
+print("first_or_null([1,2,3]): " + first_or_null([1, 2, 3]));
+print("first_or_null([]): " + first_or_null([]));

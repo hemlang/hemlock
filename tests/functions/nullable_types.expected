@@ -1,0 +1,11 @@
+find_user(1): Alice
+find_user(2): null
+Hello, Bob!
+Hello, stranger!
+maybe_value: null
+maybe_value: 42
+count: 10
+number only: 5
+null
+first_or_null([1,2,3]): 1
+first_or_null([]): null
