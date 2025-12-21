@@ -1,0 +1,342 @@
+// @stdlib/random - Random number and selection utilities
+//
+// Provides common random operations beyond the basic rand() function.
+// Uses the built-in random number generator (seedable via seed()).
+//
+// Usage:
+//   import { shuffle, choice, sample, randint, randf } from "@stdlib/random";
+//   import { weighted_choice, coin_flip, dice } from "@stdlib/random";
+
+import { rand, rand_range, seed, floor } from "@stdlib/math";
+
+// ============================================================================
+// Re-exports from math for convenience
+// ============================================================================
+
+// Seed the random number generator
+// Parameters:
+//   s: i64 - Seed value
+export fn set_seed(s) {
+    seed(s);
+}
+
+// ============================================================================
+// Random Numbers
+// ============================================================================
+
+// Random integer in range [min, max] (inclusive)
+// Parameters:
+//   min: i32 - Minimum value (inclusive)
+//   max: i32 - Maximum value (inclusive)
+// Returns: i32 - Random integer
+export fn randint(min_val, max_val): i32 {
+    if (min_val > max_val) {
+        throw "randint() min must be <= max";
+    }
+    let range = max_val - min_val + 1;
+    let result: i32 = floor(rand() * range) + min_val;
+    return result;
+}
+
+// Random float in range [min, max)
+// Parameters:
+//   min: f64 - Minimum value (inclusive)
+//   max: f64 - Maximum value (exclusive)
+// Returns: f64 - Random float
+export fn randf(min_val, max_val): f64 {
+    if (min_val > max_val) {
+        throw "randf() min must be <= max";
+    }
+    return rand_range(min_val, max_val);
+}
+
+// ============================================================================
+// Array Operations
+// ============================================================================
+
+// Shuffle an array in-place using Fisher-Yates algorithm
+// Parameters:
+//   arr: array - Array to shuffle
+// Returns: array - The same array, shuffled
+export fn shuffle(arr): array {
+    if (typeof(arr) != "array") {
+        throw "shuffle() requires array argument";
+    }
+
+    let n = arr.length;
+    let i = n - 1;
+
+    while (i > 0) {
+        // Random index from 0 to i (inclusive)
+        let j = randint(0, i);
+
+        // Swap arr[i] and arr[j]
+        let temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
+
+        i = i - 1;
+    }
+
+    return arr;
+}
+
+// Return a random element from an array
+// Parameters:
+//   arr: array - Array to choose from
+// Returns: any - Random element
+export fn choice(arr) {
+    if (typeof(arr) != "array") {
+        throw "choice() requires array argument";
+    }
+    if (arr.length == 0) {
+        throw "choice() requires non-empty array";
+    }
+
+    let idx = randint(0, arr.length - 1);
+    return arr[idx];
+}
+
+// Return n random elements from an array without replacement
+// Parameters:
+//   arr: array - Array to sample from
+//   n: i32 - Number of elements to sample
+// Returns: array - Array of n random elements
+export fn sample(arr, n): array {
+    if (typeof(arr) != "array") {
+        throw "sample() requires array argument";
+    }
+    if (n < 0) {
+        throw "sample() n must be >= 0";
+    }
+    if (n > arr.length) {
+        throw "sample() n must be <= array length";
+    }
+
+    // Copy the array to avoid modifying original
+    let pool: array = [];
+    let i = 0;
+    while (i < arr.length) {
+        pool.push(arr[i]);
+        i = i + 1;
+    }
+
+    // Fisher-Yates for first n elements
+    let result: array = [];
+    i = 0;
+    while (i < n) {
+        let j = randint(i, pool.length - 1);
+        // Swap pool[i] and pool[j]
+        let temp = pool[i];
+        pool[i] = pool[j];
+        pool[j] = temp;
+        result.push(pool[i]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Return n random elements from an array with replacement
+// Parameters:
+//   arr: array - Array to sample from
+//   n: i32 - Number of elements to sample
+// Returns: array - Array of n random elements (may contain duplicates)
+export fn choices(arr, n): array {
+    if (typeof(arr) != "array") {
+        throw "choices() requires array argument";
+    }
+    if (arr.length == 0) {
+        throw "choices() requires non-empty array";
+    }
+    if (n < 0) {
+        throw "choices() n must be >= 0";
+    }
+
+    let result: array = [];
+    let i = 0;
+    while (i < n) {
+        result.push(choice(arr));
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Weighted Selection
+// ============================================================================
+
+// Choose a random element with weighted probability
+// Parameters:
+//   items: array - Array of items to choose from
+//   weights: array - Array of weights (must be same length as items)
+// Returns: any - Randomly selected item based on weights
+export fn weighted_choice(items, weights) {
+    if (typeof(items) != "array") {
+        throw "weighted_choice() items must be array";
+    }
+    if (typeof(weights) != "array") {
+        throw "weighted_choice() weights must be array";
+    }
+    if (items.length != weights.length) {
+        throw "weighted_choice() items and weights must have same length";
+    }
+    if (items.length == 0) {
+        throw "weighted_choice() requires non-empty arrays";
+    }
+
+    // Calculate total weight
+    let total: f64 = 0.0;
+    let i = 0;
+    while (i < weights.length) {
+        if (weights[i] < 0) {
+            throw "weighted_choice() weights must be non-negative";
+        }
+        total = total + weights[i];
+        i = i + 1;
+    }
+
+    if (total == 0) {
+        throw "weighted_choice() total weight must be > 0";
+    }
+
+    // Pick random point in total weight
+    let r = rand() * total;
+
+    // Find which item it falls into
+    let cumulative: f64 = 0.0;
+    i = 0;
+    while (i < weights.length) {
+        cumulative = cumulative + weights[i];
+        if (r < cumulative) {
+            return items[i];
+        }
+        i = i + 1;
+    }
+
+    // Fallback (shouldn't happen, but handle floating point edge cases)
+    return items[items.length - 1];
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Flip a coin (50/50 chance)
+// Returns: bool - true or false with equal probability
+export fn coin_flip(): bool {
+    return rand() < 0.5;
+}
+
+// Roll a die
+// Parameters:
+//   sides: i32 - Number of sides (default: 6)
+// Returns: i32 - Random value from 1 to sides
+export fn dice(sides?: 6): i32 {
+    if (sides < 1) {
+        throw "dice() sides must be >= 1";
+    }
+    return randint(1, sides);
+}
+
+// Roll multiple dice and sum the results
+// Parameters:
+//   count: i32 - Number of dice to roll
+//   sides: i32 - Number of sides per die (default: 6)
+// Returns: i32 - Sum of all dice rolls
+export fn roll(count, sides?: 6): i32 {
+    if (count < 0) {
+        throw "roll() count must be >= 0";
+    }
+    if (sides < 1) {
+        throw "roll() sides must be >= 1";
+    }
+
+    let total = 0;
+    let i = 0;
+    while (i < count) {
+        total = total + dice(sides);
+        i = i + 1;
+    }
+
+    return total;
+}
+
+// Generate a random boolean with given probability of true
+// Parameters:
+//   probability: f64 - Probability of returning true (0.0 to 1.0)
+// Returns: bool - Random boolean
+export fn random_bool(probability?: 0.5): bool {
+    if (probability < 0.0 || probability > 1.0) {
+        throw "random_bool() probability must be between 0.0 and 1.0";
+    }
+    return rand() < probability;
+}
+
+// Generate a random string of given length
+// Parameters:
+//   length: i32 - Length of string to generate
+//   charset: string - Characters to use (default: alphanumeric)
+// Returns: string - Random string
+export fn random_string(length, charset?: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"): string {
+    if (length < 0) {
+        throw "random_string() length must be >= 0";
+    }
+    if (charset.length == 0) {
+        throw "random_string() charset must not be empty";
+    }
+
+    let result = "";
+    let i = 0;
+    while (i < length) {
+        let idx = randint(0, charset.length - 1);
+        result = result + charset[idx];
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Generate a random hex string
+// Parameters:
+//   length: i32 - Length of hex string to generate
+// Returns: string - Random hex string (lowercase)
+export fn random_hex(length): string {
+    return random_string(length, "0123456789abcdef");
+}
+
+// ============================================================================
+// UUID Generation
+// ============================================================================
+
+// Generate a UUID v4 (random)
+// Returns: string - UUID in format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+export fn uuid4(): string {
+    // Generate 32 random hex digits
+    let hex = random_hex(32);
+
+    // Format as UUID with version 4 and variant bits
+    let p1 = hex.slice(0, 8);
+    let p2 = hex.slice(8, 12);
+    let p3 = "4" + hex.slice(13, 16);  // Version 4
+
+    // Set variant bits (10xx)
+    let variant_char = hex.char_at(16);
+    let variant_code: i32 = variant_char;
+    let variant_val: i32 = 0;
+    // '0' = 48, '9' = 57, 'a' = 97
+    if (variant_code >= 48 && variant_code <= 57) {
+        variant_val = variant_code - 48;
+    } else {
+        variant_val = variant_code - 97 + 10;
+    }
+    // Set high bits to 10 (binary): (val & 0x3) | 0x8
+    let new_val = (variant_val & 3) | 8;
+    let new_chars = "0123456789abcdef";
+    let p4 = new_chars[new_val] + hex.slice(17, 20);
+
+    let p5 = hex.slice(20, 32);
+
+    return p1 + "-" + p2 + "-" + p3 + "-" + p4 + "-" + p5;
+}
