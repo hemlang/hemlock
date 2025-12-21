@@ -388,6 +388,24 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 goto binary_cleanup;
             }
 
+            // String + null concatenation (coerce null to "null")
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_NULL) {
+                String *null_str = string_new("null");
+                String *result = string_concat(left.as.as_string, null_str);
+                free(null_str);
+                binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
+                goto binary_cleanup;
+            }
+
+            // Null + string concatenation (coerce null to "null")
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_NULL && right.type == VAL_STRING) {
+                String *null_str = string_new("null");
+                String *result = string_concat(null_str, right.as.as_string);
+                free(null_str);
+                binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
+                goto binary_cleanup;
+            }
+
             // Pointer arithmetic
             if (left.type == VAL_PTR && is_integer(right)) {
                 if (expr->as.binary.op == OP_ADD) {
