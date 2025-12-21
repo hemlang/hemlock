@@ -7,6 +7,7 @@ Comprehensive hashing and checksum utilities for both non-cryptographic (fast ha
 The `@stdlib/hash` module provides:
 - **Non-cryptographic hashes**: djb2, fnv1a, murmur3 (for hash tables, fast checksums)
 - **Cryptographic hashes**: SHA-256, SHA-512, MD5 (via OpenSSL FFI)
+- **HMAC**: Hash-based message authentication (hmac_sha256, hmac_sha512, hmac_md5)
 - **File checksums**: Convenient functions for hashing file contents
 
 ### System Requirements
@@ -21,7 +22,9 @@ The `@stdlib/hash` module provides:
 ## Usage
 
 ```hemlock
-import { djb2, fnv1a, murmur3, sha256, sha512, md5, file_checksum } from "@stdlib/hash";
+import { djb2, fnv1a, murmur3, sha256, sha512, md5 } from "@stdlib/hash";
+import { hmac_sha256, hmac_sha512, hmac_md5 } from "@stdlib/hash";
+import { file_checksum, file_sha256, file_md5 } from "@stdlib/hash";
 ```
 
 Or import all:
@@ -225,6 +228,75 @@ assert(test_hash == "9e107d9d372bb6826bd81d3542a419d6");
 - ✗ **NOT for digital signatures**
 
 **Alternatives:** Use SHA-256 or SHA-512 for security applications.
+
+---
+
+## HMAC (Hash-based Message Authentication Code)
+
+HMAC provides message authentication using a secret key combined with a hash function. Use HMAC when you need to verify both the integrity AND authenticity of a message.
+
+### hmac_sha256(key: string, message: string): string
+
+HMAC using SHA-256 hash function.
+
+```hemlock
+import { hmac_sha256 } from "@stdlib/hash";
+
+// Basic HMAC
+let mac = hmac_sha256("secret-key", "Hello, World!");
+print(mac);  // 64-character hex string
+
+// Verify a message (compare MACs)
+let expected = hmac_sha256("secret-key", "Hello, World!");
+let received_mac = "...";  // MAC from sender
+if (received_mac == expected) {
+    print("Message is authentic");
+}
+```
+
+**Properties:**
+- 256-bit (32-byte) output as 64-character hex string
+- Secure for authentication when using strong keys
+- Key can be any length (hashed if > 64 bytes)
+
+**Use cases:**
+- API authentication (HMAC signatures)
+- Webhook verification
+- JWT signing (HS256)
+- Message integrity verification
+
+---
+
+### hmac_sha512(key: string, message: string): string
+
+HMAC using SHA-512 hash function for higher security.
+
+```hemlock
+import { hmac_sha512 } from "@stdlib/hash";
+
+let mac = hmac_sha512("secret-key", "message");
+print(mac);  // 128-character hex string
+```
+
+**Properties:**
+- 512-bit (64-byte) output as 128-character hex string
+- Higher security margin than SHA-256
+- Key can be any length (hashed if > 128 bytes)
+
+---
+
+### hmac_md5(key: string, message: string): string
+
+HMAC using MD5 hash function. **For legacy compatibility only.**
+
+```hemlock
+import { hmac_md5 } from "@stdlib/hash";
+
+let mac = hmac_md5("key", "message");
+print(mac);  // 32-character hex string
+```
+
+⚠️ **WARNING:** MD5 is cryptographically broken. Use `hmac_sha256` for new applications.
 
 ---
 

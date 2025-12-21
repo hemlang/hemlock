@@ -212,3 +212,201 @@ export fn file_fnv1a(path: string): string {
 export fn file_murmur3(path: string): string {
     return file_checksum(path, murmur3);
 }
+
+// ============================================================================
+// HMAC (Hash-based Message Authentication Code)
+// ============================================================================
+
+// Helper: XOR a byte array with a repeated byte value
+fn xor_with_byte(data: array, byte_val: i32): array {
+    let result: array = [];
+    let i = 0;
+    while (i < data.length) {
+        result.push((data[i] ^ byte_val) & 255);
+        i = i + 1;
+    }
+    return result;
+}
+
+// Helper: Convert hex string to byte array
+fn hex_to_bytes(hex: string): array {
+    let bytes: array = [];
+    let i = 0;
+    while (i < hex.length) {
+        let hi = hex_char_val(hex.char_at(i));
+        let lo = hex_char_val(hex.char_at(i + 1));
+        bytes.push((hi << 4) | lo);
+        i = i + 2;
+    }
+    return bytes;
+}
+
+// Helper: Convert hex character to value
+fn hex_char_val(ch: rune): i32 {
+    let code: i32 = ch;
+    if (code >= 48 && code <= 57) { return code - 48; }      // 0-9
+    if (code >= 97 && code <= 102) { return code - 97 + 10; } // a-f
+    if (code >= 65 && code <= 70) { return code - 65 + 10; }  // A-F
+    return 0;
+}
+
+// Helper: Concatenate two byte arrays
+fn concat_bytes(a: array, b: array): array {
+    let result: array = [];
+    let i = 0;
+    while (i < a.length) {
+        result.push(a[i]);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < b.length) {
+        result.push(b[i]);
+        i = i + 1;
+    }
+    return result;
+}
+
+// HMAC-SHA256: Keyed-hash message authentication code using SHA-256
+// Parameters:
+//   key: string - Secret key
+//   message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (64 characters)
+export fn hmac_sha256(key: string, message: string): string {
+    if (typeof(key) != "string") {
+        throw "hmac_sha256() key must be string";
+    }
+    if (typeof(message) != "string") {
+        throw "hmac_sha256() message must be string";
+    }
+
+    // SHA-256 block size is 64 bytes
+    let block_size = 64;
+    let key_bytes = key.bytes();
+
+    // If key is longer than block size, hash it
+    if (key_bytes.length > block_size) {
+        let hashed_key = sha256(key);
+        key_bytes = hex_to_bytes(hashed_key);
+    }
+
+    // Pad key to block size with zeros
+    while (key_bytes.length < block_size) {
+        key_bytes.push(0);
+    }
+
+    // Create inner and outer padded keys
+    let ipad = 0x36;  // Inner padding byte
+    let opad = 0x5c;  // Outer padding byte
+
+    let i_key_pad = xor_with_byte(key_bytes, ipad);
+    let o_key_pad = xor_with_byte(key_bytes, opad);
+
+    // Inner hash: H(i_key_pad || message)
+    let inner_data = concat_bytes(i_key_pad, message.bytes());
+    let inner_str = __string_from_bytes(inner_data);
+    let inner_hash = sha256(inner_str);
+
+    // Outer hash: H(o_key_pad || inner_hash)
+    let inner_hash_bytes = hex_to_bytes(inner_hash);
+    let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
+    let outer_str = __string_from_bytes(outer_data);
+
+    return sha256(outer_str);
+}
+
+// HMAC-SHA512: Keyed-hash message authentication code using SHA-512
+// Parameters:
+//   key: string - Secret key
+//   message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (128 characters)
+export fn hmac_sha512(key: string, message: string): string {
+    if (typeof(key) != "string") {
+        throw "hmac_sha512() key must be string";
+    }
+    if (typeof(message) != "string") {
+        throw "hmac_sha512() message must be string";
+    }
+
+    // SHA-512 block size is 128 bytes
+    let block_size = 128;
+    let key_bytes = key.bytes();
+
+    // If key is longer than block size, hash it
+    if (key_bytes.length > block_size) {
+        let hashed_key = sha512(key);
+        key_bytes = hex_to_bytes(hashed_key);
+    }
+
+    // Pad key to block size with zeros
+    while (key_bytes.length < block_size) {
+        key_bytes.push(0);
+    }
+
+    // Create inner and outer padded keys
+    let ipad = 0x36;
+    let opad = 0x5c;
+
+    let i_key_pad = xor_with_byte(key_bytes, ipad);
+    let o_key_pad = xor_with_byte(key_bytes, opad);
+
+    // Inner hash: H(i_key_pad || message)
+    let inner_data = concat_bytes(i_key_pad, message.bytes());
+    let inner_str = __string_from_bytes(inner_data);
+    let inner_hash = sha512(inner_str);
+
+    // Outer hash: H(o_key_pad || inner_hash)
+    let inner_hash_bytes = hex_to_bytes(inner_hash);
+    let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
+    let outer_str = __string_from_bytes(outer_data);
+
+    return sha512(outer_str);
+}
+
+// HMAC-MD5: Keyed-hash message authentication code using MD5
+// WARNING: MD5 is cryptographically broken, use only for legacy compatibility
+// Parameters:
+//   key: string - Secret key
+//   message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (32 characters)
+export fn hmac_md5(key: string, message: string): string {
+    if (typeof(key) != "string") {
+        throw "hmac_md5() key must be string";
+    }
+    if (typeof(message) != "string") {
+        throw "hmac_md5() message must be string";
+    }
+
+    // MD5 block size is 64 bytes
+    let block_size = 64;
+    let key_bytes = key.bytes();
+
+    // If key is longer than block size, hash it
+    if (key_bytes.length > block_size) {
+        let hashed_key = md5(key);
+        key_bytes = hex_to_bytes(hashed_key);
+    }
+
+    // Pad key to block size with zeros
+    while (key_bytes.length < block_size) {
+        key_bytes.push(0);
+    }
+
+    // Create inner and outer padded keys
+    let ipad = 0x36;
+    let opad = 0x5c;
+
+    let i_key_pad = xor_with_byte(key_bytes, ipad);
+    let o_key_pad = xor_with_byte(key_bytes, opad);
+
+    // Inner hash: H(i_key_pad || message)
+    let inner_data = concat_bytes(i_key_pad, message.bytes());
+    let inner_str = __string_from_bytes(inner_data);
+    let inner_hash = md5(inner_str);
+
+    // Outer hash: H(o_key_pad || inner_hash)
+    let inner_hash_bytes = hex_to_bytes(inner_hash);
+    let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
+    let outer_str = __string_from_bytes(outer_data);
+
+    return md5(outer_str);
+}
