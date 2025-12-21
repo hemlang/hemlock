@@ -1572,8 +1572,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 result = array_get(object.as.as_array, index, ctx);
                 // Retain the element so it survives array release
                 VALUE_RETAIN(result);
+            } else if (object.type == VAL_PTR) {
+                // Raw pointer indexing - no bounds checking (unsafe!)
+                void *ptr = object.as.as_ptr;
+                if (ptr == NULL) {
+                    runtime_error(ctx, "Cannot index into null pointer");
+                }
+                // Return the byte as u8
+                result = val_u8(((unsigned char *)ptr)[index]);
             } else {
-                runtime_error(ctx, "Only strings, buffers, arrays, and objects can be indexed");
+                runtime_error(ctx, "Only strings, buffers, arrays, pointers, and objects can be indexed");
             }
 
             // Release the object and index after use
@@ -1735,8 +1743,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(index_val);
                 // Don't release value - it's returned
                 return value;
+            } else if (object.type == VAL_PTR) {
+                // Raw pointer indexing - no bounds checking (unsafe!)
+                void *ptr = object.as.as_ptr;
+                if (ptr == NULL) {
+                    runtime_error(ctx, "Cannot index into null pointer");
+                }
+                // Treat as byte array
+                ((unsigned char *)ptr)[index] = (unsigned char)value_to_int(value);
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                return value;
             } else {
-                runtime_error(ctx, "Only strings, buffers, arrays, and objects support index assignment");
+                runtime_error(ctx, "Only strings, buffers, arrays, pointers, and objects support index assignment");
                 return val_null();
             }
         }
