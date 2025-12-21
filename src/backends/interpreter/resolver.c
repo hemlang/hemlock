@@ -366,10 +366,17 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             }
             break;
 
-        case STMT_WHILE:
+        case STMT_WHILE: {
+            // While loop creates ONE scope at runtime (iter_env for body).
+            // Condition is evaluated in parent scope, body in iter_env.
             resolve_expr_internal(ctx, stmt->as.while_stmt.condition);
+
+            // Enter scope for body (matches iter_env at runtime)
+            resolver_enter_scope(ctx);
             resolve_stmt_internal(ctx, stmt->as.while_stmt.body);
+            resolver_exit_scope(ctx);
             break;
+        }
 
         case STMT_FOR: {
             // For loop creates TWO scopes at runtime:
@@ -400,7 +407,18 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
         }
 
         case STMT_FOR_IN: {
-            // For-in loop creates a scope for the iterator variable(s)
+            // For-in loop creates TWO scopes at runtime (like regular for):
+            // 1. loop_env: intermediate scope (empty at runtime)
+            // 2. iter_env: holds iterator variables and body's local variables
+            // The iterable is evaluated BEFORE these scopes are created.
+
+            // Resolve iterable in current (parent) scope first
+            resolve_expr_internal(ctx, stmt->as.for_in.iterable);
+
+            // Enter outer scope (matches loop_env at runtime)
+            resolver_enter_scope(ctx);
+
+            // Enter inner scope for iterator variables and body (matches iter_env)
             resolver_enter_scope(ctx);
 
             // Define the key variable if present
@@ -413,12 +431,10 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
                 resolver_define(ctx, stmt->as.for_in.value_var);
             }
 
-            // Resolve the iterable expression
-            resolve_expr_internal(ctx, stmt->as.for_in.iterable);
-
             // Resolve the body
             resolve_stmt_internal(ctx, stmt->as.for_in.body);
 
+            resolver_exit_scope(ctx);
             resolver_exit_scope(ctx);
             break;
         }

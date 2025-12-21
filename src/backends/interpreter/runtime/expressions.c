@@ -1290,13 +1290,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Create call environment with closure_env as parent
                 Environment *call_env = env_new(fn->closure_env);
 
-                // Inject 'self' if this is a method call
-                if (is_method_call) {
-                    env_set(call_env, "self", method_self, ctx);
-                    VALUE_RELEASE(method_self);  // Release original reference (env_set retained it)
-                }
-
-                // Bind parameters using fast path with pre-computed hashes
+                // Bind parameters FIRST using fast path with pre-computed hashes
+                // This must happen before 'self' injection to preserve slot order
+                // for resolved variable lookups (params at slots 0, 1, 2, ...)
                 for (int i = 0; i < fn->num_params; i++) {
                     Value arg_value = {0};
 
@@ -1339,6 +1335,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
                     env_define(call_env, fn->rest_param, val_array(rest_arr), 0, ctx);
+                }
+
+                // Inject 'self' AFTER parameters to preserve slot order for resolved lookups
+                if (is_method_call) {
+                    env_set(call_env, "self", method_self, ctx);
+                    VALUE_RELEASE(method_self);  // Release original reference (env_set retained it)
                 }
 
                 // Save defer stack depth before executing function body
