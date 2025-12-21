@@ -1,0 +1,77 @@
+// Test @stdlib/path module
+import { join, join_all, dirname, basename, extname, normalize, is_absolute, parse, format, matches, SEP, relative } from "@stdlib/path";
+
+print("=== Path Module Tests ===");
+
+// Test SEP constant
+print("SEP: " + SEP);
+
+// Test join
+print("\n--- join() ---");
+print(join("foo", "bar"));
+print(join("/home", "user"));
+print(join("a/", "/b"));
+
+// Test join_all
+print("\n--- join_all() ---");
+print(join_all(["foo", "bar", "baz"]));
+print(join_all(["/home", "user", "docs"]));
+print(join_all(["a/", "/b/", "/c"]));
+print(join_all([]));
+
+// Test dirname
+print("\n--- dirname() ---");
+print(dirname("/home/user/file.txt"));
+print(dirname("/home/user/"));
+print(dirname("file.txt"));
+print(dirname("/"));
+
+// Test basename
+print("\n--- basename() ---");
+print(basename("/home/user/file.txt"));
+print(basename("/home/user/file.txt", ".txt"));
+print(basename("/home/user/"));
+print(basename("file.txt"));
+
+// Test extname
+print("\n--- extname() ---");
+print("ext of file.txt: " + extname("file.txt"));
+print("ext of file.tar.gz: " + extname("file.tar.gz"));
+print("ext of .hidden: '" + extname(".hidden") + "'");
+print("ext of file: '" + extname("file") + "'");
+
+// Test normalize
+print("\n--- normalize() ---");
+print(normalize("/home/user/../admin/./docs"));
+print(normalize("./foo/bar/../baz"));
+print(normalize("///foo//bar//"));
+
+// Test is_absolute
+print("\n--- is_absolute() ---");
+print(is_absolute("/home/user"));
+print(is_absolute("./relative"));
+print(is_absolute("file.txt"));
+
+// Test parse
+print("\n--- parse() ---");
+let p = parse("/home/user/file.txt");
+print("root: " + p.root);
+print("dir: " + p.dir);
+print("base: " + p.base);
+print("ext: " + p.ext);
+print("name: " + p.name);
+
+// Test format
+print("\n--- format() ---");
+print(format({ dir: "/home/user", base: "file.txt" }));
+print(format({ root: "/", name: "file", ext: ".txt" }));
+
+// Test matches
+print("\n--- matches() ---");
+print(matches("file.txt", "*.txt"));
+print(matches("file.txt", "file.*"));
+print(matches("file.txt", "f??e.txt"));
+print(matches("data.json", "*.txt"));
+print(matches("src/main.c", "src/*.c"));
+
+print("\n=== All path tests completed ===");

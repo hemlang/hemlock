@@ -1,0 +1,625 @@
+// @stdlib/path - Path manipulation utilities
+//
+// Provides cross-platform path manipulation functions for working with
+// file and directory paths.
+//
+// Usage:
+//   import { join, dirname, basename, extname } from "@stdlib/path";
+//   import { normalize, is_absolute, parse, format } from "@stdlib/path";
+
+import { platform } from "@stdlib/os";
+
+// ============================================================================
+// Platform Detection
+// ============================================================================
+
+// Path separator for current platform
+export let SEP = "/";
+
+// Path delimiter for current platform (PATH environment variable separator)
+export let DELIMITER = ":";
+
+// ============================================================================
+// Basic Path Operations
+// ============================================================================
+
+// Join two path segments with the platform separator
+// Parameters:
+//   a: string - First path segment
+//   b: string - Second path segment
+// Returns: string - Joined path
+export fn join(a, b): string {
+    if (typeof(a) != "string") {
+        throw "join() requires string arguments";
+    }
+    if (typeof(b) != "string") {
+        throw "join() requires string arguments";
+    }
+
+    if (a.length == 0) {
+        return normalize(b);
+    }
+    if (b.length == 0) {
+        return normalize(a);
+    }
+
+    // Remove trailing separator from a
+    let left = a;
+    while (left.length > 0 && left.ends_with("/")) {
+        left = left.slice(0, left.length - 1);
+    }
+
+    // Remove leading separator from b
+    let right = b;
+    while (right.length > 0 && right.starts_with("/")) {
+        right = right.slice(1, right.length);
+    }
+
+    if (left.length == 0) {
+        return normalize(right);
+    }
+    if (right.length == 0) {
+        return normalize(left);
+    }
+
+    return normalize(left + "/" + right);
+}
+
+// Join multiple path segments with the platform separator
+// Parameters:
+//   parts: array<string> - Path segments to join
+// Returns: string - Joined path
+export fn join_all(parts): string {
+    if (typeof(parts) != "array") {
+        throw "join_all() requires array argument";
+    }
+
+    if (parts.length == 0) {
+        return ".";
+    }
+
+    let result = "";
+    let i = 0;
+    while (i < parts.length) {
+        let part = parts[i];
+        if (typeof(part) != "string") {
+            throw "join_all() requires array of strings";
+        }
+
+        if (part.length > 0) {
+            if (result.length == 0) {
+                result = part;
+            } else {
+                result = join(result, part);
+            }
+        }
+        i = i + 1;
+    }
+
+    if (result.length == 0) {
+        return ".";
+    }
+
+    return result;
+}
+
+// Get the directory name of a path
+// Parameters:
+//   path: string - Input path
+// Returns: string - Directory portion of the path
+export fn dirname(path): string {
+    if (typeof(path) != "string") {
+        throw "dirname() requires string argument";
+    }
+
+    if (path.length == 0) {
+        return ".";
+    }
+
+    // Remove trailing slashes
+    let p = path;
+    while (p.length > 1 && p.ends_with("/")) {
+        p = p.slice(0, p.length - 1);
+    }
+
+    // Find last separator
+    let last_sep = -1;
+    let i = p.length - 1;
+    while (i >= 0) {
+        if (p.char_at(i) == '/') {
+            last_sep = i;
+            break;
+        }
+        i = i - 1;
+    }
+
+    if (last_sep == -1) {
+        return ".";
+    }
+
+    if (last_sep == 0) {
+        return "/";
+    }
+
+    return p.slice(0, last_sep);
+}
+
+// Get the base name of a path (final component)
+// Parameters:
+//   path: string - Input path
+//   suffix: string - Optional suffix to remove
+// Returns: string - Base name of the path
+export fn basename(path, suffix?: ""): string {
+    if (typeof(path) != "string") {
+        throw "basename() requires string argument";
+    }
+    if (typeof(suffix) != "string") {
+        throw "basename() suffix must be string";
+    }
+
+    if (path.length == 0) {
+        return "";
+    }
+
+    // Remove trailing slashes
+    let p = path;
+    while (p.length > 1 && p.ends_with("/")) {
+        p = p.slice(0, p.length - 1);
+    }
+
+    // Find last separator
+    let last_sep = -1;
+    let i = p.length - 1;
+    while (i >= 0) {
+        if (p.char_at(i) == '/') {
+            last_sep = i;
+            break;
+        }
+        i = i - 1;
+    }
+
+    let base = p;
+    if (last_sep >= 0) {
+        base = p.slice(last_sep + 1, p.length);
+    }
+
+    // Remove suffix if provided
+    if (suffix.length > 0 && base.ends_with(suffix)) {
+        base = base.slice(0, base.length - suffix.length);
+    }
+
+    return base;
+}
+
+// Get the extension of a path (including the dot)
+// Parameters:
+//   path: string - Input path
+// Returns: string - Extension including dot, or empty string
+export fn extname(path): string {
+    if (typeof(path) != "string") {
+        throw "extname() requires string argument";
+    }
+
+    let base = basename(path);
+
+    if (base.length == 0) {
+        return "";
+    }
+
+    // Find last dot
+    let last_dot = -1;
+    let i = base.length - 1;
+    while (i >= 0) {
+        if (base.char_at(i) == '.') {
+            last_dot = i;
+            break;
+        }
+        i = i - 1;
+    }
+
+    // No dot, or dot at start (hidden file), or dot at end
+    if (last_dot <= 0 || last_dot == base.length - 1) {
+        return "";
+    }
+
+    return base.slice(last_dot, base.length);
+}
+
+// ============================================================================
+// Path Normalization
+// ============================================================================
+
+// Normalize a path, resolving . and .. segments
+// Parameters:
+//   path: string - Input path
+// Returns: string - Normalized path
+export fn normalize(path): string {
+    if (typeof(path) != "string") {
+        throw "normalize() requires string argument";
+    }
+
+    if (path.length == 0) {
+        return ".";
+    }
+
+    let is_abs = path.starts_with("/");
+    let trailing_slash = path.ends_with("/") && path.length > 1;
+
+    // Split into segments
+    let segments = path.split("/");
+    let result: array = [];
+
+    let i = 0;
+    while (i < segments.length) {
+        let seg = segments[i];
+
+        if (seg == ".." && result.length > 0 && result.last() != "..") {
+            result.pop();
+        } else if (seg == "..") {
+            if (!is_abs) {
+                result.push("..");
+            }
+        } else if (seg != "." && seg.length > 0) {
+            result.push(seg);
+        }
+
+        i = i + 1;
+    }
+
+    let normalized = result.join("/");
+
+    if (is_abs) {
+        normalized = "/" + normalized;
+    }
+
+    if (trailing_slash && normalized.length > 0 && !normalized.ends_with("/")) {
+        normalized = normalized + "/";
+    }
+
+    if (normalized.length == 0) {
+        return is_abs ? "/" : ".";
+    }
+
+    return normalized;
+}
+
+// Check if a path is absolute
+// Parameters:
+//   path: string - Input path
+// Returns: bool - True if path is absolute
+export fn is_absolute(path): bool {
+    if (typeof(path) != "string") {
+        throw "is_absolute() requires string argument";
+    }
+
+    return path.starts_with("/");
+}
+
+// Resolve a path to an absolute path (relative to cwd)
+// Parameters:
+//   path: string - Path to resolve
+// Returns: string - Resolved absolute path
+export fn resolve(path): string {
+    if (typeof(path) != "string") {
+        throw "resolve() requires string argument";
+    }
+
+    if (is_absolute(path)) {
+        return normalize(path);
+    }
+
+    let cwd_path = __cwd();
+    return normalize(cwd_path + "/" + path);
+}
+
+// Resolve a sequence of paths to an absolute path
+// Parameters:
+//   paths: array<string> - Path segments (last absolute path wins)
+// Returns: string - Resolved absolute path
+export fn resolve_all(paths): string {
+    if (typeof(paths) != "array") {
+        throw "resolve_all() requires array argument";
+    }
+
+    let resolved = "";
+
+    // Process from right to left
+    let i = paths.length - 1;
+    while (i >= 0) {
+        let path = paths[i];
+        if (typeof(path) != "string") {
+            throw "resolve_all() requires array of strings";
+        }
+
+        if (path.length > 0) {
+            if (resolved.length == 0) {
+                resolved = path;
+            } else {
+                resolved = path + "/" + resolved;
+            }
+
+            if (is_absolute(resolved)) {
+                break;
+            }
+        }
+
+        i = i - 1;
+    }
+
+    // If still not absolute, prepend cwd
+    if (!is_absolute(resolved)) {
+        let cwd_path = __cwd();
+        resolved = cwd_path + "/" + resolved;
+    }
+
+    return normalize(resolved);
+}
+
+// Get relative path from one path to another
+// Parameters:
+//   source: string - Source path
+//   target: string - Target path
+// Returns: string - Relative path from source to target
+export fn relative(source, target): string {
+    if (typeof(source) != "string") {
+        throw "relative() source must be string";
+    }
+    if (typeof(target) != "string") {
+        throw "relative() target must be string";
+    }
+
+    // Resolve both paths to absolute
+    let from_abs = resolve(source);
+    let to_abs = resolve(target);
+
+    if (from_abs == to_abs) {
+        return "";
+    }
+
+    // Split into segments
+    let from_parts = from_abs.split("/").filter(fn(s) { return s.length > 0; });
+    let to_parts = to_abs.split("/").filter(fn(s) { return s.length > 0; });
+
+    // Find common prefix length
+    let common_len = 0;
+    let min_len = from_parts.length;
+    if (to_parts.length < min_len) {
+        min_len = to_parts.length;
+    }
+
+    while (common_len < min_len && from_parts[common_len] == to_parts[common_len]) {
+        common_len = common_len + 1;
+    }
+
+    // Build relative path
+    let result: array = [];
+
+    // Add .. for each remaining segment in from
+    let up_count = from_parts.length - common_len;
+    let j = 0;
+    while (j < up_count) {
+        result.push("..");
+        j = j + 1;
+    }
+
+    // Add remaining segments from to
+    let k = common_len;
+    while (k < to_parts.length) {
+        result.push(to_parts[k]);
+        k = k + 1;
+    }
+
+    if (result.length == 0) {
+        return ".";
+    }
+
+    return result.join("/");
+}
+
+// ============================================================================
+// Path Parsing and Formatting
+// ============================================================================
+
+// Parse a path into its components
+// Parameters:
+//   path: string - Input path
+// Returns: object - { root, dir, base, ext, name }
+export fn parse(path): object {
+    if (typeof(path) != "string") {
+        throw "parse() requires string argument";
+    }
+
+    let root = "";
+    if (path.starts_with("/")) {
+        root = "/";
+    }
+
+    let dir = dirname(path);
+    let base = basename(path);
+    let ext = extname(path);
+
+    let name = base;
+    if (ext.length > 0) {
+        name = base.slice(0, base.length - ext.length);
+    }
+
+    return {
+        root: root,
+        dir: dir,
+        base: base,
+        ext: ext,
+        name: name
+    };
+}
+
+// Format a path object into a path string
+// Parameters:
+//   pathObject: object - { root?, dir?, base?, ext?, name? }
+// Returns: string - Formatted path
+export fn format(pathObject): string {
+    if (typeof(pathObject) != "object") {
+        throw "format() requires object argument";
+    }
+
+    let dir = "";
+    let base = "";
+
+    // dir takes precedence over root - use bracket notation for optional fields
+    let obj_dir = pathObject["dir"];
+    let obj_root = pathObject["root"];
+    let obj_base = pathObject["base"];
+    let obj_name = pathObject["name"];
+    let obj_ext = pathObject["ext"];
+
+    if (obj_dir != null) {
+        dir = obj_dir;
+    } else if (obj_root != null) {
+        dir = obj_root;
+    }
+
+    // base takes precedence over name+ext
+    if (obj_base != null) {
+        base = obj_base;
+    } else {
+        let name = "";
+        let ext = "";
+        if (obj_name != null) {
+            name = obj_name;
+        }
+        if (obj_ext != null) {
+            ext = obj_ext;
+            // Ensure ext starts with dot
+            if (ext.length > 0 && !ext.starts_with(".")) {
+                ext = "." + ext;
+            }
+        }
+        base = name + ext;
+    }
+
+    if (dir.length == 0) {
+        return base;
+    }
+
+    if (dir == "/") {
+        return dir + base;
+    }
+
+    return dir + "/" + base;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Check if path has a trailing separator
+// Parameters:
+//   path: string - Input path
+// Returns: bool - True if path ends with separator
+export fn has_trailing_sep(path): bool {
+    if (typeof(path) != "string") {
+        throw "has_trailing_sep() requires string argument";
+    }
+
+    return path.length > 0 && path.ends_with("/");
+}
+
+// Ensure path has a trailing separator
+// Parameters:
+//   path: string - Input path
+// Returns: string - Path with trailing separator
+export fn ensure_trailing_sep(path): string {
+    if (typeof(path) != "string") {
+        throw "ensure_trailing_sep() requires string argument";
+    }
+
+    if (path.length == 0) {
+        return "/";
+    }
+
+    if (!path.ends_with("/")) {
+        return path + "/";
+    }
+
+    return path;
+}
+
+// Remove trailing separator from path
+// Parameters:
+//   path: string - Input path
+// Returns: string - Path without trailing separator
+export fn remove_trailing_sep(path): string {
+    if (typeof(path) != "string") {
+        throw "remove_trailing_sep() requires string argument";
+    }
+
+    if (path.length <= 1) {
+        return path;
+    }
+
+    while (path.length > 1 && path.ends_with("/")) {
+        path = path.slice(0, path.length - 1);
+    }
+
+    return path;
+}
+
+// Check if a path matches a simple pattern (glob-like)
+// Supports * (any characters) and ? (single character)
+// Parameters:
+//   path: string - Path to match
+//   pattern: string - Pattern to match against
+// Returns: bool - True if path matches pattern
+export fn matches(path, pattern): bool {
+    if (typeof(path) != "string") {
+        throw "matches() path must be string";
+    }
+    if (typeof(pattern) != "string") {
+        throw "matches() pattern must be string";
+    }
+
+    return match_pattern(path, pattern, 0, 0);
+}
+
+// Helper for pattern matching
+fn match_pattern(str, pattern, si, pi): bool {
+    while (pi < pattern.length) {
+        let pc = pattern.char_at(pi);
+
+        if (pc == '*') {
+            // Skip consecutive *
+            while (pi < pattern.length && pattern.char_at(pi) == '*') {
+                pi = pi + 1;
+            }
+
+            // * at end matches everything
+            if (pi >= pattern.length) {
+                return true;
+            }
+
+            // Try matching * against 0 or more characters
+            while (si <= str.length) {
+                if (match_pattern(str, pattern, si, pi)) {
+                    return true;
+                }
+                si = si + 1;
+            }
+            return false;
+        } else if (pc == '?') {
+            // ? matches exactly one character
+            if (si >= str.length) {
+                return false;
+            }
+            si = si + 1;
+            pi = pi + 1;
+        } else {
+            // Literal match
+            if (si >= str.length || str.char_at(si) != pc) {
+                return false;
+            }
+            si = si + 1;
+            pi = pi + 1;
+        }
+    }
+
+    return si >= str.length;
+}
