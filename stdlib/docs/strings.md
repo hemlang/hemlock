@@ -9,6 +9,8 @@ The strings module provides utilities for:
 - **Padding & Alignment** - pad_left, pad_right, center
 - **Character Type Checking** - is_alpha, is_digit, is_alnum, is_whitespace
 - **String Manipulation** - reverse, lines, words
+- **Case Conversion** - snake_case, camel_case, pascal_case, kebab_case
+- **URL/Identifier** - slugify, truncate
 
 These functions complement the built-in string methods (substr, slice, find, split, trim, to_upper, to_lower, etc.) with commonly-needed string operations.
 
@@ -18,6 +20,8 @@ These functions complement the built-in string methods (substr, slice, find, spl
 import { pad_left, pad_right, center } from "@stdlib/strings";
 import { is_alpha, is_digit, is_alnum, is_whitespace } from "@stdlib/strings";
 import { reverse, lines, words } from "@stdlib/strings";
+import { snake_case, camel_case, pascal_case, kebab_case } from "@stdlib/strings";
+import { slugify, truncate } from "@stdlib/strings";
 ```
 
 Or import all:
@@ -442,6 +446,167 @@ fn word_count(text: string): i32 {
 
 let text = "The quick brown fox jumps over the lazy dog";
 print(word_count(text));  // 9
+```
+
+---
+
+## Case Conversion
+
+These functions convert between different casing conventions commonly used in programming.
+
+### snake_case(str)
+
+Convert string to snake_case (lowercase with underscores).
+
+**Parameters:**
+- `str` - Input string (camelCase, PascalCase, kebab-case, or with spaces)
+
+**Returns:** `string` - snake_case string
+
+```hemlock
+import { snake_case } from "@stdlib/strings";
+
+print(snake_case("helloWorld"));     // "hello_world"
+print(snake_case("HelloWorld"));     // "hello_world"
+print(snake_case("hello-world"));    // "hello_world"
+print(snake_case("Hello World"));    // "hello_world"
+print(snake_case("XMLParser"));      // "x_m_l_parser"
+```
+
+---
+
+### camel_case(str)
+
+Convert string to camelCase (first word lowercase, subsequent words capitalized).
+
+**Parameters:**
+- `str` - Input string (snake_case, kebab-case, or with spaces)
+
+**Returns:** `string` - camelCase string
+
+```hemlock
+import { camel_case } from "@stdlib/strings";
+
+print(camel_case("hello_world"));    // "helloWorld"
+print(camel_case("hello-world"));    // "helloWorld"
+print(camel_case("Hello World"));    // "helloWorld"
+print(camel_case("HELLO_WORLD"));    // "helloWorld"
+```
+
+---
+
+### pascal_case(str)
+
+Convert string to PascalCase (UpperCamelCase - all words capitalized).
+
+**Parameters:**
+- `str` - Input string (snake_case, kebab-case, or with spaces)
+
+**Returns:** `string` - PascalCase string
+
+```hemlock
+import { pascal_case } from "@stdlib/strings";
+
+print(pascal_case("hello_world"));   // "HelloWorld"
+print(pascal_case("hello-world"));   // "HelloWorld"
+print(pascal_case("hello world"));   // "HelloWorld"
+```
+
+---
+
+### kebab_case(str)
+
+Convert string to kebab-case (lowercase with hyphens).
+
+**Parameters:**
+- `str` - Input string (camelCase, PascalCase, or with spaces/underscores)
+
+**Returns:** `string` - kebab-case string
+
+```hemlock
+import { kebab_case } from "@stdlib/strings";
+
+print(kebab_case("helloWorld"));     // "hello-world"
+print(kebab_case("HelloWorld"));     // "hello-world"
+print(kebab_case("hello_world"));    // "hello-world"
+print(kebab_case("Hello World"));    // "hello-world"
+```
+
+---
+
+## URL/Identifier Utilities
+
+### slugify(str)
+
+Convert string to a URL-friendly slug.
+
+**Parameters:**
+- `str` - Input string
+
+**Returns:** `string` - URL-safe slug (lowercase, hyphens, ASCII only)
+
+**Notes:**
+- Converts to lowercase
+- Replaces spaces, dashes, underscores with hyphens
+- Removes non-ASCII characters
+- Collapses multiple hyphens into one
+- Removes leading/trailing hyphens
+
+```hemlock
+import { slugify } from "@stdlib/strings";
+
+print(slugify("Hello World!"));      // "hello-world"
+print(slugify("  Foo   Bar  "));     // "foo-bar"
+print(slugify("My Blog Post 2024")); // "my-blog-post-2024"
+print(slugify("Héllo Wörld"));       // "hllo-wrld" (non-ASCII removed)
+print(slugify("@#$%Test!!!"));       // "test"
+```
+
+**Use case - URL generation:**
+
+```hemlock
+import { slugify } from "@stdlib/strings";
+
+fn article_url(title: string): string {
+    return "/blog/" + slugify(title);
+}
+
+print(article_url("My First Post!"));  // "/blog/my-first-post"
+```
+
+---
+
+### truncate(str, max_len, suffix?)
+
+Truncate string to maximum length with optional suffix.
+
+**Parameters:**
+- `str` - Input string
+- `max_len: i32` - Maximum length (including suffix)
+- `suffix?: string` - Suffix to add if truncated (default: "...")
+
+**Returns:** `string` - Truncated string
+
+```hemlock
+import { truncate } from "@stdlib/strings";
+
+print(truncate("Hello World", 8));        // "Hello..."
+print(truncate("Hello", 10));             // "Hello" (no truncation)
+print(truncate("Hello World", 8, ".."));  // "Hello.."
+print(truncate("Hello World", 5, ""));    // "Hello"
+```
+
+**Use case - display text:**
+
+```hemlock
+import { truncate } from "@stdlib/strings";
+
+fn display_title(title: string): string {
+    return truncate(title, 30);
+}
+
+print(display_title("A Very Long Article Title That Goes On"));
+// "A Very Long Article Title T..."
 ```
 
 ---

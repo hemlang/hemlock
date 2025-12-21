@@ -292,3 +292,354 @@ export fn words(str): array {
 
     return result;
 }
+
+// ============================================================================
+// Case Conversion
+// ============================================================================
+
+// Helper: Check if rune is uppercase (A-Z)
+fn is_upper_rune(r: rune): bool {
+    let code: i32 = r;
+    return code >= 65 && code <= 90;
+}
+
+// Helper: Check if rune is lowercase (a-z)
+fn is_lower_rune(r: rune): bool {
+    let code: i32 = r;
+    return code >= 97 && code <= 122;
+}
+
+// Helper: Convert rune to lowercase
+fn to_lower_rune(r: rune): rune {
+    let code: i32 = r;
+    if (code >= 65 && code <= 90) {
+        let lower: rune = code + 32;
+        return lower;
+    }
+    return r;
+}
+
+// Helper: Convert rune to uppercase
+fn to_upper_rune(r: rune): rune {
+    let code: i32 = r;
+    if (code >= 97 && code <= 122) {
+        let upper: rune = code - 32;
+        return upper;
+    }
+    return r;
+}
+
+// Convert string to snake_case
+// Parameters:
+//   str: string - Input string (camelCase, PascalCase, or with spaces/dashes)
+// Returns: string - snake_case string
+// Examples:
+//   snake_case("helloWorld") -> "hello_world"
+//   snake_case("HelloWorld") -> "hello_world"
+//   snake_case("hello-world") -> "hello_world"
+//   snake_case("Hello World") -> "hello_world"
+export fn snake_case(str): string {
+    if (typeof(str) != "string") {
+        throw "snake_case() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return "";
+    }
+
+    let result = "";
+    let chars = str.chars();
+    let i = 0;
+    let prev_was_sep = true;  // Start true to avoid leading underscore
+
+    while (i < chars.length) {
+        let c = chars[i];
+
+        // Check if separator (space, dash, underscore)
+        if (c == ' ' || c == '-' || c == '_') {
+            if (!prev_was_sep && result.length > 0) {
+                result = result + "_";
+            }
+            prev_was_sep = true;
+            i = i + 1;
+            continue;
+        }
+
+        // Check if uppercase (indicates word boundary in camelCase)
+        if (is_upper_rune(c)) {
+            if (!prev_was_sep && result.length > 0) {
+                result = result + "_";
+            }
+            result = result + to_lower_rune(c);
+            prev_was_sep = false;
+        } else if (is_alpha_rune(c) || is_digit_rune(c)) {
+            result = result + to_lower_rune(c);
+            prev_was_sep = false;
+        } else {
+            // Skip non-alphanumeric characters
+            prev_was_sep = true;
+        }
+
+        i = i + 1;
+    }
+
+    // Remove trailing underscore if present
+    while (result.length > 0 && result.ends_with("_")) {
+        result = result.slice(0, result.length - 1);
+    }
+
+    return result;
+}
+
+// Convert string to camelCase
+// Parameters:
+//   str: string - Input string (snake_case, kebab-case, or with spaces)
+// Returns: string - camelCase string
+// Examples:
+//   camel_case("hello_world") -> "helloWorld"
+//   camel_case("hello-world") -> "helloWorld"
+//   camel_case("Hello World") -> "helloWorld"
+export fn camel_case(str): string {
+    if (typeof(str) != "string") {
+        throw "camel_case() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return "";
+    }
+
+    let result = "";
+    let chars = str.chars();
+    let i = 0;
+    let capitalize_next = false;
+    let first_char = true;
+
+    while (i < chars.length) {
+        let c = chars[i];
+
+        // Check if separator (space, dash, underscore)
+        if (c == ' ' || c == '-' || c == '_') {
+            capitalize_next = true;
+            i = i + 1;
+            continue;
+        }
+
+        if (is_alpha_rune(c)) {
+            if (first_char) {
+                result = result + to_lower_rune(c);
+                first_char = false;
+            } else if (capitalize_next) {
+                result = result + to_upper_rune(c);
+                capitalize_next = false;
+            } else {
+                result = result + to_lower_rune(c);
+            }
+        } else if (is_digit_rune(c)) {
+            result = result + c;
+            capitalize_next = true;  // Next alpha after digit is capitalized
+            first_char = false;
+        }
+        // Skip other characters
+
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Convert string to PascalCase (UpperCamelCase)
+// Parameters:
+//   str: string - Input string (snake_case, kebab-case, or with spaces)
+// Returns: string - PascalCase string
+// Examples:
+//   pascal_case("hello_world") -> "HelloWorld"
+//   pascal_case("hello-world") -> "HelloWorld"
+//   pascal_case("hello world") -> "HelloWorld"
+export fn pascal_case(str): string {
+    if (typeof(str) != "string") {
+        throw "pascal_case() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return "";
+    }
+
+    let result = "";
+    let chars = str.chars();
+    let i = 0;
+    let capitalize_next = true;  // First char is always capitalized
+
+    while (i < chars.length) {
+        let c = chars[i];
+
+        // Check if separator (space, dash, underscore)
+        if (c == ' ' || c == '-' || c == '_') {
+            capitalize_next = true;
+            i = i + 1;
+            continue;
+        }
+
+        if (is_alpha_rune(c)) {
+            if (capitalize_next) {
+                result = result + to_upper_rune(c);
+                capitalize_next = false;
+            } else {
+                result = result + to_lower_rune(c);
+            }
+        } else if (is_digit_rune(c)) {
+            result = result + c;
+            capitalize_next = true;  // Next alpha after digit is capitalized
+        }
+        // Skip other characters
+
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Convert string to kebab-case
+// Parameters:
+//   str: string - Input string (camelCase, PascalCase, or with spaces/underscores)
+// Returns: string - kebab-case string
+// Examples:
+//   kebab_case("helloWorld") -> "hello-world"
+//   kebab_case("HelloWorld") -> "hello-world"
+//   kebab_case("hello_world") -> "hello-world"
+export fn kebab_case(str): string {
+    if (typeof(str) != "string") {
+        throw "kebab_case() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return "";
+    }
+
+    let result = "";
+    let chars = str.chars();
+    let i = 0;
+    let prev_was_sep = true;
+
+    while (i < chars.length) {
+        let c = chars[i];
+
+        // Check if separator (space, dash, underscore)
+        if (c == ' ' || c == '-' || c == '_') {
+            if (!prev_was_sep && result.length > 0) {
+                result = result + "-";
+            }
+            prev_was_sep = true;
+            i = i + 1;
+            continue;
+        }
+
+        // Check if uppercase (indicates word boundary in camelCase)
+        if (is_upper_rune(c)) {
+            if (!prev_was_sep && result.length > 0) {
+                result = result + "-";
+            }
+            result = result + to_lower_rune(c);
+            prev_was_sep = false;
+        } else if (is_alpha_rune(c) || is_digit_rune(c)) {
+            result = result + to_lower_rune(c);
+            prev_was_sep = false;
+        } else {
+            prev_was_sep = true;
+        }
+
+        i = i + 1;
+    }
+
+    // Remove trailing dash if present
+    while (result.length > 0 && result.ends_with("-")) {
+        result = result.slice(0, result.length - 1);
+    }
+
+    return result;
+}
+
+// ============================================================================
+// URL/Identifier Utilities
+// ============================================================================
+
+// Convert string to URL-friendly slug
+// Parameters:
+//   str: string - Input string
+// Returns: string - URL-safe slug (lowercase, hyphens, no special chars)
+// Examples:
+//   slugify("Hello World!") -> "hello-world"
+//   slugify("  Foo   Bar  ") -> "foo-bar"
+//   slugify("Héllo Wörld") -> "hllo-wrld" (non-ASCII removed)
+export fn slugify(str): string {
+    if (typeof(str) != "string") {
+        throw "slugify() requires string argument";
+    }
+
+    if (str.length == 0) {
+        return "";
+    }
+
+    let result = "";
+    let chars = str.chars();
+    let i = 0;
+    let prev_was_hyphen = true;  // Start true to avoid leading hyphen
+
+    while (i < chars.length) {
+        let c = chars[i];
+        let code: i32 = c;
+
+        // Check if alphanumeric (a-z, A-Z, 0-9)
+        if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57)) {
+            result = result + to_lower_rune(c);
+            prev_was_hyphen = false;
+        } else if (c == ' ' || c == '-' || c == '_' || c == '\t') {
+            // Separator becomes hyphen (but avoid duplicates)
+            if (!prev_was_hyphen && result.length > 0) {
+                result = result + "-";
+            }
+            prev_was_hyphen = true;
+        }
+        // Skip all other characters (including non-ASCII)
+
+        i = i + 1;
+    }
+
+    // Remove trailing hyphen if present
+    while (result.length > 0 && result.ends_with("-")) {
+        result = result.slice(0, result.length - 1);
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Truncation
+// ============================================================================
+
+// Truncate string to maximum length with optional suffix
+// Parameters:
+//   str: string - Input string
+//   max_len: i32 - Maximum length (including suffix)
+//   suffix: string - Suffix to add if truncated (default: "...")
+// Returns: string - Truncated string
+// Examples:
+//   truncate("Hello World", 8) -> "Hello..."
+//   truncate("Hello", 10) -> "Hello"
+//   truncate("Hello World", 8, "..") -> "Hello.."
+export fn truncate(str, max_len, suffix?: "..."): string {
+    if (typeof(str) != "string") {
+        throw "truncate() requires string argument";
+    }
+
+    if (str.length <= max_len) {
+        return str;
+    }
+
+    let suf: string = suffix;
+    let cut_len = max_len - suf.length;
+    if (cut_len < 0) {
+        cut_len = 0;
+    }
+
+    return str.slice(0, cut_len) + suf;
+}
