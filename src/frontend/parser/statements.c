@@ -279,11 +279,11 @@ Stmt* import_statement(Parser *p) {
 
     // Check for namespace import: import * as name from "module"
     if (match(p, TOK_STAR)) {
-        consume(p, TOK_AS, "Expect 'as' after '*' in namespace import");
+        consume_contextual(p, "as", "Expect 'as' after '*' in namespace import");
         consume(p, TOK_IDENT, "Expect identifier for namespace name");
         char *namespace_name = token_text(&p->previous);
 
-        consume(p, TOK_FROM, "Expect 'from' in import statement");
+        consume_contextual(p, "from", "Expect 'from' in import statement");
         consume(p, TOK_STRING, "Expect module path string");
         char *module_path = p->previous.string_value;
 
@@ -307,7 +307,7 @@ Stmt* import_statement(Parser *p) {
         import_names[num_imports] = token_text(&p->previous);
 
         // Check for alias: name as alias
-        if (match(p, TOK_AS)) {
+        if (match_contextual(p, "as")) {
             consume(p, TOK_IDENT, "Expect alias name after 'as'");
             import_aliases[num_imports] = token_text(&p->previous);
         } else {
@@ -318,7 +318,7 @@ Stmt* import_statement(Parser *p) {
     } while (match(p, TOK_COMMA));
 
     consume(p, TOK_RBRACE, "Expect '}' after import list");
-    consume(p, TOK_FROM, "Expect 'from' in import statement");
+    consume_contextual(p, "from", "Expect 'from' in import statement");
     consume(p, TOK_STRING, "Expect module path string");
     char *module_path = p->previous.string_value;
 
@@ -341,7 +341,7 @@ Stmt* export_statement(Parser *p) {
             export_names[num_exports] = token_text(&p->previous);
 
             // Check for alias: name as alias
-            if (match(p, TOK_AS)) {
+            if (match_contextual(p, "as")) {
                 consume(p, TOK_IDENT, "Expect alias name after 'as'");
                 export_aliases[num_exports] = token_text(&p->previous);
             } else {
@@ -354,7 +354,7 @@ Stmt* export_statement(Parser *p) {
         consume(p, TOK_RBRACE, "Expect '}' after export list");
 
         // Check for re-export
-        if (match(p, TOK_FROM)) {
+        if (match_contextual(p, "from")) {
             consume(p, TOK_STRING, "Expect module path string");
             char *module_path = p->previous.string_value;
             consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
@@ -404,9 +404,24 @@ Stmt* export_statement(Parser *p) {
     Expr **param_defaults = malloc(sizeof(Expr*) * 32);
     int num_params = 0;
     int seen_optional = 0;
+    char *rest_param = NULL;
+    Type *rest_param_type = NULL;
 
     if (!check(p, TOK_RPAREN)) {
         do {
+            // Check for rest parameter: ...name
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                consume(p, TOK_IDENT, "Expect parameter name after '...'");
+                rest_param = token_text(&p->previous);
+                if (match(p, TOK_COLON)) {
+                    rest_param_type = parse_type(p);
+                }
+                if (!check(p, TOK_RPAREN)) {
+                    error_at(p, &p->current, "Rest parameter must be the last parameter");
+                }
+                break;
+            }
+
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
 
@@ -445,7 +460,7 @@ Stmt* export_statement(Parser *p) {
     Stmt *body = block_statement(p);
 
     // Create function expression
-    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, return_type, body);
+    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, rest_param, rest_param_type, return_type, body);
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -642,9 +657,24 @@ Stmt* statement(Parser *p) {
         Expr **param_defaults = malloc(sizeof(Expr*) * 32);
         int num_params = 0;
         int seen_optional = 0;
+        char *rest_param = NULL;
+        Type *rest_param_type = NULL;
 
         if (!check(p, TOK_RPAREN)) {
             do {
+                // Check for rest parameter: ...name
+                if (match(p, TOK_DOT_DOT_DOT)) {
+                    consume(p, TOK_IDENT, "Expect parameter name after '...'");
+                    rest_param = token_text(&p->previous);
+                    if (match(p, TOK_COLON)) {
+                        rest_param_type = parse_type(p);
+                    }
+                    if (!check(p, TOK_RPAREN)) {
+                        error_at(p, &p->current, "Rest parameter must be the last parameter");
+                    }
+                    break;
+                }
+
                 consume(p, TOK_IDENT, "Expect parameter name");
                 param_names[num_params] = token_text(&p->previous);
 
@@ -683,7 +713,7 @@ Stmt* statement(Parser *p) {
         Stmt *body = block_statement(p);
 
         // Create function expression (with is_async flag)
-        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, return_type, body);
+        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, num_params, rest_param, rest_param_type, return_type, body);
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);

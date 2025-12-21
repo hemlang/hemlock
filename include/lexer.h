@@ -111,6 +111,7 @@ typedef enum {
     TOK_LBRACE,
     TOK_RBRACE,
     TOK_DOT,
+    TOK_DOT_DOT_DOT,         // ...
     TOK_LBRACKET,
     TOK_RBRACKET,
     TOK_QUESTION,

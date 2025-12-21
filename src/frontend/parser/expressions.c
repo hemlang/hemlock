@@ -240,9 +240,26 @@ Expr* primary(Parser *p) {
     Expr **param_defaults = malloc(sizeof(Expr*) * 32);
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
+    char *rest_param = NULL;
+    Type *rest_param_type = NULL;
 
     if (!check(p, TOK_RPAREN)) {
         do {
+            // Check for rest parameter: ...name
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                consume(p, TOK_IDENT, "Expect parameter name after '...'");
+                rest_param = token_text(&p->previous);
+                // Optional type annotation for rest param
+                if (match(p, TOK_COLON)) {
+                    rest_param_type = parse_type(p);
+                }
+                // Rest parameter must be last
+                if (!check(p, TOK_RPAREN)) {
+                    error_at(p, &p->current, "Rest parameter must be the last parameter");
+                }
+                break;
+            }
+
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
 
@@ -282,7 +299,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, rest_param, rest_param_type, return_type, body);
 
 not_fn_expr:
 
@@ -708,6 +725,7 @@ Expr* expression(Parser *p) {
 
 Type* parse_type(Parser *p) {
     TypeKind kind;
+    Type *type = NULL;
 
     // Check for 'array' or 'array<type>' syntax
     if (p->current.type == TOK_TYPE_ARRAY) {
@@ -722,59 +740,62 @@ Type* parse_type(Parser *p) {
         }
         // If no '<', element_type stays NULL (untyped array)
 
-        Type *type = type_new(TYPE_ARRAY);
+        type = type_new(TYPE_ARRAY);
         type->type_name = NULL;
         type->element_type = element_type;
-        return type;
     }
-
     // Check for 'object' keyword (generic object type)
-    if (p->current.type == TOK_OBJECT) {
+    else if (p->current.type == TOK_OBJECT) {
         advance(p);
-        Type *type = type_new(TYPE_GENERIC_OBJECT);
+        type = type_new(TYPE_GENERIC_OBJECT);
         type->type_name = NULL;
-        return type;
     }
-
     // Check for custom object type name (identifier)
-    if (p->current.type == TOK_IDENT) {
+    else if (p->current.type == TOK_IDENT) {
         char *type_name = token_text(&p->current);
         advance(p);
-        Type *type = type_new(TYPE_CUSTOM_OBJECT);
+        type = type_new(TYPE_CUSTOM_OBJECT);
         type->type_name = type_name;
-        return type;
+    }
+    else {
+        switch (p->current.type) {
+            case TOK_TYPE_I8: kind = TYPE_I8; break;
+            case TOK_TYPE_I16: kind = TYPE_I16; break;
+            case TOK_TYPE_I32: kind = TYPE_I32; break;
+            case TOK_TYPE_I64: kind = TYPE_I64; break;
+            case TOK_TYPE_INTEGER: kind = TYPE_I32; break;  // alias
+            case TOK_TYPE_U8: kind = TYPE_U8; break;
+            case TOK_TYPE_BYTE: kind = TYPE_U8; break;  // alias
+            case TOK_TYPE_U16: kind = TYPE_U16; break;
+            case TOK_TYPE_U32: kind = TYPE_U32; break;
+            case TOK_TYPE_U64: kind = TYPE_U64; break;
+            //case TOK_TYPE_F16: kind = TYPE_F16; break;
+            case TOK_TYPE_F32: kind = TYPE_F32; break;
+            case TOK_TYPE_F64: kind = TYPE_F64; break;
+            case TOK_TYPE_NUMBER: kind = TYPE_F64; break;  // alias
+            case TOK_TYPE_BOOL: kind = TYPE_BOOL; break;
+            case TOK_TYPE_STRING: kind = TYPE_STRING; break;
+            case TOK_TYPE_RUNE: kind = TYPE_RUNE; break;
+            case TOK_TYPE_PTR: kind = TYPE_PTR; break;
+            case TOK_TYPE_BUFFER: kind = TYPE_BUFFER; break;
+            case TOK_TYPE_VOID: kind = TYPE_VOID; break;
+            case TOK_NULL: kind = TYPE_NULL; break;
+            default:
+                error_at_current(p, "Expect type name");
+                return type_new(TYPE_INFER);
+        }
+
+        advance(p);
+        type = type_new(kind);
+        type->type_name = NULL;
     }
 
-    switch (p->current.type) {
-        case TOK_TYPE_I8: kind = TYPE_I8; break;
-        case TOK_TYPE_I16: kind = TYPE_I16; break;
-        case TOK_TYPE_I32: kind = TYPE_I32; break;
-        case TOK_TYPE_I64: kind = TYPE_I64; break;
-        case TOK_TYPE_INTEGER: kind = TYPE_I32; break;  // alias
-        case TOK_TYPE_U8: kind = TYPE_U8; break;
-        case TOK_TYPE_BYTE: kind = TYPE_U8; break;  // alias
-        case TOK_TYPE_U16: kind = TYPE_U16; break;
-        case TOK_TYPE_U32: kind = TYPE_U32; break;
-        case TOK_TYPE_U64: kind = TYPE_U64; break;
-        //case TOK_TYPE_F16: kind = TYPE_F16; break;
-        case TOK_TYPE_F32: kind = TYPE_F32; break;
-        case TOK_TYPE_F64: kind = TYPE_F64; break;
-        case TOK_TYPE_NUMBER: kind = TYPE_F64; break;  // alias
-        case TOK_TYPE_BOOL: kind = TYPE_BOOL; break;
-        case TOK_TYPE_STRING: kind = TYPE_STRING; break;
-        case TOK_TYPE_RUNE: kind = TYPE_RUNE; break;
-        case TOK_TYPE_PTR: kind = TYPE_PTR; break;
-        case TOK_TYPE_BUFFER: kind = TYPE_BUFFER; break;
-        case TOK_TYPE_VOID: kind = TYPE_VOID; break;
-        case TOK_NULL: kind = TYPE_NULL; break;
-        default:
-            error_at_current(p, "Expect type name");
-            return type_new(TYPE_INFER);
+    // Check for nullable type syntax: type?
+    if (p->current.type == TOK_QUESTION) {
+        advance(p);
+        type->nullable = 1;
     }
 
-    advance(p);
-    Type *type = type_new(kind);
-    type->type_name = NULL;
     return type;
 }
 

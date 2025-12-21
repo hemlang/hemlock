@@ -1,0 +1,37 @@
+// Test pointer index read and write operations
+// Previously ptr[i] = x would fail
+
+// Allocate memory
+let p = alloc(64);
+
+// Write values using index assignment
+p[0] = 10;
+p[1] = 20;
+p[2] = 30;
+p[10] = 100;
+
+// Read values using index access
+print("p[0] = " + p[0]);
+print("p[1] = " + p[1]);
+print("p[2] = " + p[2]);
+print("p[10] = " + p[10]);
+
+// Modify existing value
+p[0] = p[0] + 5;
+print("p[0] after += 5: " + p[0]);
+
+// Use in expressions
+let sum = p[0] + p[1] + p[2];
+print("Sum of first 3: " + sum);
+
+// Loop write and read
+for (let i = 0; i < 5; i = i + 1) {
+    p[i] = i * i;
+}
+print("Squares:");
+for (let i = 0; i < 5; i = i + 1) {
+    print("  p[" + i + "] = " + p[i]);
+}
+
+// Cleanup
+free(p);

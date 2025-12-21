@@ -127,6 +127,8 @@ struct Expr {
             Type **param_types;
             Expr **param_defaults;  // Default value expressions (NULL if required)
             int num_params;
+            char *rest_param;       // Name of rest parameter (...args), NULL if none
+            Type *rest_param_type;  // Type of rest parameter, NULL if none
             Type *return_type;
             Stmt *body;
         } function;
@@ -206,6 +208,7 @@ struct Type {
     TypeKind kind;
     char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
+    int nullable;         // If true, type allows null (e.g., string?)
 };
 
 // ========== STATEMENT TYPES ==========
@@ -360,7 +363,7 @@ Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
 Expr* expr_index(Expr *object, Expr *index);
 Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
-Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int num_params, Type *return_type, Stmt *body);
+Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);
 Expr* expr_prefix_inc(Expr *operand);

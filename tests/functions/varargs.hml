@@ -1,0 +1,95 @@
+// Test varargs (rest parameters) with ...args syntax
+
+// Basic varargs - all args collected
+fn print_all(...items) {
+    print("Items (" + items.length + "):");
+    for (let item in items) {
+        print("  " + item);
+    }
+}
+
+print_all(1, 2, 3);
+print_all("a", "b");
+print_all();
+
+// Regular params + varargs
+fn format(prefix, ...values) {
+    let result = prefix + ":";
+    for (let v in values) {
+        result = result + " " + v;
+    }
+    print(result);
+}
+
+format("Numbers", 1, 2, 3, 4, 5);
+format("Names", "Alice", "Bob");
+format("Empty");
+
+// Multiple regular params + varargs
+fn log_msg(level, message, ...extras) {
+    let line = "[" + level + "] " + message;
+    if (extras.length > 0) {
+        line = line + " (extras: " + extras.length + ")";
+    }
+    print(line);
+}
+
+log_msg("INFO", "Starting up");
+log_msg("DEBUG", "Processing", "item1", "item2");
+log_msg("ERROR", "Failed", 404, "Not Found", true);
+
+// Typed varargs
+fn sum(...nums: i32): i32 {
+    let total = 0;
+    for (let n in nums) {
+        total = total + n;
+    }
+    return total;
+}
+
+print("sum(1,2,3,4,5) = " + sum(1, 2, 3, 4, 5));
+print("sum(10, 20) = " + sum(10, 20));
+print("sum() = " + sum());
+
+// Varargs with return type
+fn max(...values): i32? {
+    if (values.length == 0) {
+        return null;
+    }
+    let m = values[0];
+    for (let v in values) {
+        if (v > m) {
+            m = v;
+        }
+    }
+    return m;
+}
+
+print("max(3,1,4,1,5,9) = " + max(3, 1, 4, 1, 5, 9));
+print("max(42) = " + max(42));
+print("max() = " + max());
+
+// Varargs array can be used like any other array
+fn wrapper(...args) {
+    print("Wrapper received " + args.length + " args");
+    // Can iterate, access by index, etc.
+    if (args.length > 0) {
+        print("First arg: " + args[0]);
+    }
+}
+
+// Using varargs array directly
+fn join_strings(sep, ...strings) {
+    if (strings.length == 0) {
+        return "";
+    }
+    let result = strings[0];
+    for (let i = 1; i < strings.length; i = i + 1) {
+        result = result + sep + strings[i];
+    }
+    return result;
+}
+
+print(join_strings(", ", "apple", "banana", "cherry"));
+print(join_strings("-", "a", "b", "c", "d"));
+print(join_strings(":", "single"));

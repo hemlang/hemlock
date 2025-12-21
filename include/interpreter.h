@@ -124,6 +124,8 @@ typedef struct {
     Expr **param_defaults;  // Default value expressions (NULL for required params)
     uint32_t *param_hashes; // Pre-computed hashes of param names (optimization)
     int num_params;
+    char *rest_param;       // Name of rest parameter (...args), NULL if none
+    Type *rest_param_type;  // Type of rest parameter, NULL if none
     Type *return_type;
     Stmt *body;
     Environment *closure_env;  // CAPTURED ENVIRONMENT

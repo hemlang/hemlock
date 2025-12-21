@@ -1,0 +1,39 @@
+// Test that char_at returns a rune (Unicode codepoint)
+// This is intentional behavior - char_at returns the character as a rune type
+
+let s = "Hello";
+
+// char_at returns a rune
+let ch = s.char_at(0);
+print("Type of char_at: " + typeof(ch));
+print("char_at(0) = " + ch);
+
+// Runes can be compared
+print("ch == 'H': " + (ch == 'H'));
+
+// Runes work with Unicode
+let emoji = "Hello 🚀 World";
+let rocket = emoji.char_at(6);
+print("Type of emoji char: " + typeof(rocket));
+print("Emoji char: " + rocket);
+
+// Rune in string concatenation
+print("First letter is: " + ch);
+
+// Rune comparison with string chars
+let word = "ABC";
+for (let i = 0; i < 3; i = i + 1) {
+    let c = word.char_at(i);
+    print("word[" + i + "] = " + c + " (type: " + typeof(c) + ")");
+}
+
+// Rune arithmetic (codepoints)
+let a = 'A';
+let b = 'B';
+print("'A' codepoint: " + a);
+print("'B' codepoint: " + b);
+
+// Note: to get a string from a rune, concatenate with empty string
+let r = 'X';
+let as_string = "" + r;
+print("Rune as string: " + as_string + " (type: " + typeof(as_string) + ")");

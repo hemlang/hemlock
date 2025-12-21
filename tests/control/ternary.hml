@@ -1,0 +1,53 @@
+// Test ternary operator (? :)
+
+// Basic ternary
+let x = true ? "yes" : "no";
+print("Basic true: " + x);
+
+let y = false ? "yes" : "no";
+print("Basic false: " + y);
+
+// Ternary with expressions
+let a = 5;
+let b = 10;
+let max_val = a > b ? a : b;
+print("max(5, 10) = " + max_val);
+
+// Nested ternary
+let grade = 85;
+let letter = grade >= 90 ? "A" : grade >= 80 ? "B" : grade >= 70 ? "C" : "F";
+print("Grade 85 = " + letter);
+
+// Ternary with function calls
+fn double(n) { return n * 2; }
+fn triple(n) { return n * 3; }
+
+let use_double = true;
+let result = use_double ? double(5) : triple(5);
+print("Conditional call: " + result);
+
+// Ternary with null
+let maybe_null = null;
+let safe_val = maybe_null == null ? "default" : maybe_null;
+print("Null safety: " + safe_val);
+
+// Ternary in string concatenation
+let is_admin = true;
+print("User is " + (is_admin ? "admin" : "regular"));
+
+// Ternary with different types
+let use_string = false;
+let mixed = use_string ? "hello" : 42;
+print("Mixed type: " + mixed);
+
+// Ternary in array
+let arr = [1, true ? 2 : 0, 3];
+print("Array with ternary: " + arr);
+
+// Ternary as function argument
+fn show(v) { print("Value: " + v); }
+show(1 == 1 ? "equal" : "not equal");
+
+// Comparison result in ternary
+let comparison = 5 < 10;
+print("5 < 10 is " + (comparison ? "true" : "false"));

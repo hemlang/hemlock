@@ -388,6 +388,24 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 goto binary_cleanup;
             }
 
+            // String + null concatenation (coerce null to "null")
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_NULL) {
+                String *null_str = string_new("null");
+                String *result = string_concat(left.as.as_string, null_str);
+                free(null_str);
+                binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
+                goto binary_cleanup;
+            }
+
+            // Null + string concatenation (coerce null to "null")
+            if (expr->as.binary.op == OP_ADD && left.type == VAL_NULL && right.type == VAL_STRING) {
+                String *null_str = string_new("null");
+                String *result = string_concat(null_str, right.as.as_string);
+                free(null_str);
+                binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
+                goto binary_cleanup;
+            }
+
             // Pointer arithmetic
             if (left.type == VAL_PTR && is_integer(right)) {
                 if (expr->as.binary.op == OP_ADD) {
@@ -485,6 +503,34 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         goto binary_cleanup;
                     default:
                         break;  // Fall through for other operations
+                }
+            }
+
+            // Pointer comparisons (both null and non-null)
+            if (left.type == VAL_PTR && right.type == VAL_PTR) {
+                void *lp = left.as.as_ptr;
+                void *rp = right.as.as_ptr;
+                switch (expr->as.binary.op) {
+                    case OP_EQUAL:
+                        binary_result = val_bool(lp == rp);
+                        goto binary_cleanup;
+                    case OP_NOT_EQUAL:
+                        binary_result = val_bool(lp != rp);
+                        goto binary_cleanup;
+                    case OP_LESS:
+                        binary_result = val_bool(lp < rp);
+                        goto binary_cleanup;
+                    case OP_LESS_EQUAL:
+                        binary_result = val_bool(lp <= rp);
+                        goto binary_cleanup;
+                    case OP_GREATER:
+                        binary_result = val_bool(lp > rp);
+                        goto binary_cleanup;
+                    case OP_GREATER_EQUAL:
+                        binary_result = val_bool(lp >= rp);
+                        goto binary_cleanup;
+                    default:
+                        break;
                 }
             }
 
@@ -1183,8 +1229,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 // Check argument count (must be between required and total params)
-                if (expr->as.call.num_args < required_params || expr->as.call.num_args > fn->num_params) {
-                    if (required_params == fn->num_params) {
+                // If function has rest param, allow unlimited extra args
+                int max_args = fn->rest_param ? INT_MAX : fn->num_params;
+                if (expr->as.call.num_args < required_params || expr->as.call.num_args > max_args) {
+                    if (fn->rest_param) {
+                        runtime_error(ctx, "Function expects at least %d arguments, got %d",
+                                required_params, expr->as.call.num_args);
+                    } else if (required_params == fn->num_params) {
                         runtime_error(ctx, "Function expects %d arguments, got %d",
                                 fn->num_params, expr->as.call.num_args);
                     } else {
@@ -1262,6 +1313,23 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                     // Use fast param binding with pre-computed hash (skips redundant checks)
                     env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
+                }
+
+                // Bind rest parameter if present (collect extra args into array)
+                if (fn->rest_param) {
+                    Array *rest_arr = array_new();
+                    int extra_count = expr->as.call.num_args - fn->num_params;
+                    if (extra_count > 0) {
+                        for (int i = fn->num_params; i < expr->as.call.num_args; i++) {
+                            Value arg = args[i];
+                            // Type check if rest param has type annotation (array element type)
+                            if (fn->rest_param_type) {
+                                arg = convert_to_type(arg, fn->rest_param_type, call_env, ctx);
+                            }
+                            array_push(rest_arr, arg);
+                        }
+                    }
+                    env_define(call_env, fn->rest_param, val_array(rest_arr), 0, ctx);
                 }
 
                 // Save defer stack depth before executing function body
@@ -1419,6 +1487,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             bound_fn->param_defaults = orig_fn->param_defaults;
                             bound_fn->param_hashes = orig_fn->param_hashes;  // Share pre-computed hashes
                             bound_fn->num_params = orig_fn->num_params;
+                            bound_fn->rest_param = orig_fn->rest_param;  // Share rest param name
+                            bound_fn->rest_param_type = orig_fn->rest_param_type;  // Share type
                             bound_fn->return_type = orig_fn->return_type;
                             bound_fn->body = orig_fn->body;
                             bound_fn->closure_env = bound_env;
@@ -1526,8 +1596,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 result = array_get(object.as.as_array, index, ctx);
                 // Retain the element so it survives array release
                 VALUE_RETAIN(result);
+            } else if (object.type == VAL_PTR) {
+                // Raw pointer indexing - no bounds checking (unsafe!)
+                void *ptr = object.as.as_ptr;
+                if (ptr == NULL) {
+                    runtime_error(ctx, "Cannot index into null pointer");
+                }
+                // Return the byte as u8
+                result = val_u8(((unsigned char *)ptr)[index]);
             } else {
-                runtime_error(ctx, "Only strings, buffers, arrays, and objects can be indexed");
+                runtime_error(ctx, "Only strings, buffers, arrays, pointers, and objects can be indexed");
             }
 
             // Release the object and index after use
@@ -1689,8 +1767,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(index_val);
                 // Don't release value - it's returned
                 return value;
+            } else if (object.type == VAL_PTR) {
+                // Raw pointer indexing - no bounds checking (unsafe!)
+                void *ptr = object.as.as_ptr;
+                if (ptr == NULL) {
+                    runtime_error(ctx, "Cannot index into null pointer");
+                }
+                // Treat as byte array
+                ((unsigned char *)ptr)[index] = (unsigned char)value_to_int(value);
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                return value;
             } else {
-                runtime_error(ctx, "Only strings, buffers, arrays, and objects support index assignment");
+                runtime_error(ctx, "Only strings, buffers, arrays, pointers, and objects support index assignment");
                 return val_null();
             }
         }
@@ -1713,6 +1802,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             for (int i = 0; i < expr->as.function.num_params; i++) {
                 if (expr->as.function.param_types[i]) {
                     fn->param_types[i] = type_new(expr->as.function.param_types[i]->kind);
+                    // Copy nullable flag
+                    fn->param_types[i]->nullable = expr->as.function.param_types[i]->nullable;
                     // Copy type_name for custom types (enums and objects)
                     if (expr->as.function.param_types[i]->type_name) {
                         fn->param_types[i]->type_name = strdup(expr->as.function.param_types[i]->type_name);
@@ -1720,6 +1811,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Copy element_type for arrays
                     if (expr->as.function.param_types[i]->element_type) {
                         fn->param_types[i]->element_type = type_new(expr->as.function.param_types[i]->element_type->kind);
+                        fn->param_types[i]->element_type->nullable = expr->as.function.param_types[i]->element_type->nullable;
                         if (expr->as.function.param_types[i]->element_type->type_name) {
                             fn->param_types[i]->element_type->type_name = strdup(expr->as.function.param_types[i]->element_type->type_name);
                         }
@@ -1752,9 +1844,28 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             fn->num_params = expr->as.function.num_params;
 
+            // Copy rest parameter (varargs) if present
+            if (expr->as.function.rest_param) {
+                fn->rest_param = strdup(expr->as.function.rest_param);
+                if (expr->as.function.rest_param_type) {
+                    fn->rest_param_type = type_new(expr->as.function.rest_param_type->kind);
+                    fn->rest_param_type->nullable = expr->as.function.rest_param_type->nullable;
+                    if (expr->as.function.rest_param_type->type_name) {
+                        fn->rest_param_type->type_name = strdup(expr->as.function.rest_param_type->type_name);
+                    }
+                } else {
+                    fn->rest_param_type = NULL;
+                }
+            } else {
+                fn->rest_param = NULL;
+                fn->rest_param_type = NULL;
+            }
+
             // Copy return type (may be NULL)
             if (expr->as.function.return_type) {
                 fn->return_type = type_new(expr->as.function.return_type->kind);
+                // Copy nullable flag
+                fn->return_type->nullable = expr->as.function.return_type->nullable;
                 // Copy type_name for custom types (enums and objects)
                 if (expr->as.function.return_type->type_name) {
                     fn->return_type->type_name = strdup(expr->as.function.return_type->type_name);
@@ -1762,6 +1873,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Copy element_type for arrays
                 if (expr->as.function.return_type->element_type) {
                     fn->return_type->element_type = type_new(expr->as.function.return_type->element_type->kind);
+                    fn->return_type->element_type->nullable = expr->as.function.return_type->element_type->nullable;
                     if (expr->as.function.return_type->element_type->type_name) {
                         fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
                     }

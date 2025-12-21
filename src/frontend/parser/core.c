@@ -79,6 +79,29 @@ int match(Parser *p, TokenType type) {
     return 1;
 }
 
+// Contextual keywords - identifiers that act as keywords in specific contexts
+int check_contextual(Parser *p, const char *keyword) {
+    if (p->current.type != TOK_IDENT) return 0;
+    int len = p->current.length;
+    int kw_len = strlen(keyword);
+    if (len != kw_len) return 0;
+    return strncmp(p->current.start, keyword, len) == 0;
+}
+
+int match_contextual(Parser *p, const char *keyword) {
+    if (!check_contextual(p, keyword)) return 0;
+    advance(p);
+    return 1;
+}
+
+void consume_contextual(Parser *p, const char *keyword, const char *message) {
+    if (check_contextual(p, keyword)) {
+        advance(p);
+        return;
+    }
+    error_at_current(p, message);
+}
+
 // ========== PUBLIC INTERFACE ==========
 
 void parser_init(Parser *parser, Lexer *lexer) {

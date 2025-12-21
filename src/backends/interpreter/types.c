@@ -435,6 +435,11 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;  // No type annotation
     }
 
+    // If target type is nullable and value is null, allow it
+    if (target_type->nullable && value.type == VAL_NULL) {
+        return value;
+    }
+
     TypeKind kind = target_type->kind;
 
     // Handle object and enum types (both use TYPE_CUSTOM_OBJECT at parse time)

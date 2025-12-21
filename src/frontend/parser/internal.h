@@ -20,6 +20,11 @@ void consume(Parser *p, TokenType type, const char *message);
 int check(Parser *p, TokenType type);
 int match(Parser *p, TokenType type);
 
+// Contextual keywords (identifiers that act as keywords in specific contexts)
+int check_contextual(Parser *p, const char *keyword);
+int match_contextual(Parser *p, const char *keyword);
+void consume_contextual(Parser *p, const char *keyword, const char *message);
+
 // ========== EXPRESSION PARSING (from expressions.c) ==========
 
 Expr* expression(Parser *p);

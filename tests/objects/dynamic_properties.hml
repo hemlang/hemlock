@@ -1,0 +1,41 @@
+// Test dynamic object property assignment
+// Verify that adding new properties to objects works
+
+let obj = { name: "test" };
+print("Initial: " + obj.name);
+
+// Add new property
+obj.value = 42;
+print("Added value: " + obj.value);
+
+// Add another property
+obj.active = true;
+print("Added active: " + obj.active);
+
+// Modify existing property
+obj.name = "updated";
+print("Modified name: " + obj.name);
+
+// Add property with different types
+obj.list = [1, 2, 3];
+print("Added list: " + obj.list);
+
+obj.nested = { inner: "nested value" };
+print("Added nested: " + obj.nested.inner);
+
+// Property assignment in function
+fn add_prop(o, key, val) {
+    // Note: dynamic key access requires different syntax
+    // This tests adding a fixed property
+    o.dynamic = val;
+}
+
+let obj2 = {};
+add_prop(obj2, "key", "value");
+print("Function added: " + obj2.dynamic);
+
+// Empty object gets properties
+let empty = {};
+empty.first = 1;
+empty.second = 2;
+print("Empty now has: " + empty.first + ", " + empty.second);

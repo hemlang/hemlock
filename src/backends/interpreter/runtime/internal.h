@@ -8,5 +8,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdarg.h>
+#include <limits.h>
 
 #endif // HEMLOCK_RUNTIME_INTERNAL_H

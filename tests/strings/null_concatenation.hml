@@ -1,0 +1,24 @@
+// Test string concatenation with null values
+// Previously this would fail with "Binary operation requires numeric operands"
+
+// String + null
+let s1 = "hello" + null;
+print(s1);
+
+// null + string
+let s2 = null + "world";
+print(s2);
+
+// Variable containing null
+let x = null;
+let s3 = "value is: " + x;
+print(s3);
+
+// Multiple nulls in concatenation
+let s4 = "a" + null + "b" + null + "c";
+print(s4);
+
+// Null in template-style concatenation
+let name = null;
+let greeting = "Hello, " + name + "!";
+print(greeting);
