@@ -206,6 +206,7 @@ struct Type {
     TypeKind kind;
     char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
+    int nullable;         // If true, type allows null (e.g., string?)
 };
 
 // ========== STATEMENT TYPES ==========

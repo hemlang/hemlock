@@ -292,6 +292,7 @@ Type* type_new(TypeKind kind) {
     type->kind = kind;
     type->type_name = NULL;
     type->element_type = NULL;
+    type->nullable = 0;
     return type;
 }
 
