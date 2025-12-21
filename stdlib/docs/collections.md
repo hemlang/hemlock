@@ -11,11 +11,12 @@ The collections module provides the following data structures:
 - **Stack** - Last-In-First-Out (LIFO) data structure
 - **Set** - Collection of unique values
 - **LinkedList** - Doubly-linked list with efficient insertion/deletion
+- **LRUCache** - Least Recently Used cache with fixed capacity
 
 ## Usage
 
 ```hemlock
-import { HashMap, Queue, Stack, Set, LinkedList } from "@stdlib/collections";
+import { HashMap, Queue, Stack, Set, LinkedList, LRUCache } from "@stdlib/collections";
 ```
 
 Or import all:
@@ -278,6 +279,69 @@ let list = LinkedList();
 
 ---
 
+## LRUCache
+
+Least Recently Used (LRU) cache with fixed capacity. When the cache is full, the least recently accessed item is evicted to make room for new items.
+
+### API
+
+```hemlock
+let cache = LRUCache(100);  // Create cache with capacity 100
+```
+
+**Methods:**
+- `cache.get(key)` - Get value for key (marks as recently used)
+- `cache.set(key, value)` - Set value (returns evicted key or null)
+- `cache.has(key)` - Check if key exists
+- `cache.remove(key)` - Remove key and return value
+- `cache.peek(key)` - Get value without updating access order
+- `cache.clear()` - Remove all items
+- `cache.size()` - Current number of items
+- `cache.capacity()` - Maximum capacity
+- `cache.is_empty()` - Check if empty
+- `cache.is_full()` - Check if at capacity
+- `cache.keys()` - Get all keys (most recent first)
+- `cache.values()` - Get all values (most recent first)
+- `cache.entries()` - Get all {key, value} objects
+- `cache.most_recent()` - Get most recently accessed key
+- `cache.least_recent()` - Get least recently accessed key
+- `cache.resize(new_capacity)` - Resize cache (returns evicted keys)
+- `cache.each(callback)` - Iterate with callback(key, value)
+
+### Example
+
+```hemlock
+import { LRUCache } from "@stdlib/collections";
+
+// Create a cache for API responses
+let cache = LRUCache(1000);
+
+fn get_user(id) {
+    // Check cache first
+    let cached = cache.get(id);
+    if (cached != null) {
+        return cached;
+    }
+
+    // Fetch from database
+    let user = db.query("SELECT * FROM users WHERE id = ?", id);
+
+    // Cache the result (may evict old entries)
+    cache.set(id, user);
+
+    return user;
+}
+```
+
+### Access Order
+
+- `get()` marks item as most recently used
+- `peek()` does not change access order
+- `set()` marks item as most recently used
+- When full, `set()` evicts least recently used item
+
+---
+
 ## Performance Characteristics
 
 ### HashMap
@@ -307,6 +371,13 @@ let list = LinkedList();
 - Insert/Remove: O(n) worst case, O(n/2) average (bidirectional traversal)
 - Get/Set: O(n) worst case, O(n/2) average (bidirectional traversal)
 
+### LRUCache
+- Get: O(1)
+- Set: O(1)
+- Has: O(1)
+- Remove: O(1)
+- Peek: O(1)
+
 ---
 
 ## Implementation Notes
@@ -320,6 +391,7 @@ let list = LinkedList();
 - **Set Implementation:** Uses HashMap internally for O(1) operations
 - **Queue Implementation:** Circular buffer with automatic resizing for O(1) enqueue/dequeue
 - **LinkedList Optimization:** Bidirectional traversal - chooses head or tail based on proximity to target index
+- **LRUCache Implementation:** Doubly-linked list for O(1) access order updates combined with hash map for O(1) key lookup
 - **Iterator Support:** All collections support `.each(callback)` for functional-style iteration
 
 ---

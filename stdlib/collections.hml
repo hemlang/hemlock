@@ -836,3 +836,255 @@ export fn LinkedList() {
         }
     };
 }
+
+// ========== LRU CACHE ==========
+// Least Recently Used (LRU) cache implementation
+// Fixed-capacity cache that evicts least recently used items
+
+export fn LRUCache(capacity: i32) {
+    if (capacity < 1) {
+        throw "LRUCache capacity must be at least 1";
+    }
+
+    // Use a doubly-linked list for O(1) access order updates
+    let head = null;  // Most recently used
+    let tail = null;  // Least recently used
+    let cache = {};   // Key -> node mapping
+    let count = 0;
+    let max_capacity = capacity;
+
+    // Create a new node
+    fn create_node(key, value) {
+        return {
+            key: key,
+            value: value,
+            prev: null,
+            next: null
+        };
+    }
+
+    // Remove a node from the list
+    fn remove_node(node) {
+        if (node["prev"] != null) {
+            node["prev"]["next"] = node["next"];
+        } else {
+            head = node["next"];
+        }
+
+        if (node["next"] != null) {
+            node["next"]["prev"] = node["prev"];
+        } else {
+            tail = node["prev"];
+        }
+
+        node["prev"] = null;
+        node["next"] = null;
+    }
+
+    // Add node to front (most recently used)
+    fn add_to_front(node) {
+        node["next"] = head;
+        node["prev"] = null;
+
+        if (head != null) {
+            head["prev"] = node;
+        }
+        head = node;
+
+        if (tail == null) {
+            tail = node;
+        }
+    }
+
+    // Move existing node to front
+    fn move_to_front(node) {
+        remove_node(node);
+        add_to_front(node);
+    }
+
+    // Evict least recently used item
+    fn evict_lru() {
+        if (tail == null) {
+            return null;
+        }
+
+        let lru_key = tail["key"];
+        remove_node(tail);
+        cache[lru_key] = null;
+        count = count - 1;
+        return lru_key;
+    }
+
+    return {
+        // Get value for key, or null if not present
+        // Marks the item as recently used
+        get: fn(key) {
+            let node = cache[key];
+            if (node == null) {
+                return null;
+            }
+
+            // Move to front (most recently used)
+            move_to_front(node);
+            return node["value"];
+        },
+
+        // Set value for key
+        // If cache is full, evicts least recently used item
+        // Returns evicted key or null
+        set: fn(key, value) {
+            let evicted = null;
+            let node = cache[key];
+
+            if (node != null) {
+                // Update existing
+                node["value"] = value;
+                move_to_front(node);
+            } else {
+                // Check if we need to evict
+                if (count >= max_capacity) {
+                    evicted = evict_lru();
+                }
+
+                // Add new node
+                let new_node = create_node(key, value);
+                add_to_front(new_node);
+                cache[key] = new_node;
+                count = count + 1;
+            }
+
+            return evicted;
+        },
+
+        // Check if key exists
+        has: fn(key) {
+            return cache[key] != null;
+        },
+
+        // Remove key from cache
+        remove: fn(key) {
+            let node = cache[key];
+            if (node == null) {
+                return null;
+            }
+
+            remove_node(node);
+            cache[key] = null;
+            count = count - 1;
+            return node["value"];
+        },
+
+        // Get value without updating access order (peek)
+        peek: fn(key) {
+            let node = cache[key];
+            if (node == null) {
+                return null;
+            }
+            return node["value"];
+        },
+
+        // Clear all items
+        clear: fn() {
+            head = null;
+            tail = null;
+            cache = {};
+            count = 0;
+        },
+
+        // Get current size
+        size: fn() {
+            return count;
+        },
+
+        // Get capacity
+        capacity: fn() {
+            return max_capacity;
+        },
+
+        // Check if cache is empty
+        is_empty: fn() {
+            return count == 0;
+        },
+
+        // Check if cache is full
+        is_full: fn() {
+            return count >= max_capacity;
+        },
+
+        // Get all keys in order (most recent first)
+        keys: fn() {
+            let result = [];
+            let current = head;
+            while (current != null) {
+                result.push(current["key"]);
+                current = current["next"];
+            }
+            return result;
+        },
+
+        // Get all values in order (most recent first)
+        values: fn() {
+            let result = [];
+            let current = head;
+            while (current != null) {
+                result.push(current["value"]);
+                current = current["next"];
+            }
+            return result;
+        },
+
+        // Get all entries in order (most recent first)
+        entries: fn() {
+            let result = [];
+            let current = head;
+            while (current != null) {
+                result.push({ key: current["key"], value: current["value"] });
+                current = current["next"];
+            }
+            return result;
+        },
+
+        // Get most recently used key
+        most_recent: fn() {
+            if (head == null) {
+                return null;
+            }
+            return head["key"];
+        },
+
+        // Get least recently used key
+        least_recent: fn() {
+            if (tail == null) {
+                return null;
+            }
+            return tail["key"];
+        },
+
+        // Resize the cache (evicts if new capacity is smaller)
+        resize: fn(new_capacity: i32) {
+            if (new_capacity < 1) {
+                throw "LRUCache capacity must be at least 1";
+            }
+
+            let evicted = [];
+            while (count > new_capacity) {
+                let key = evict_lru();
+                if (key != null) {
+                    evicted.push(key);
+                }
+            }
+
+            max_capacity = new_capacity;
+            return evicted;
+        },
+
+        // Iterate over all entries (most recent first)
+        each: fn(callback) {
+            let current = head;
+            while (current != null) {
+                callback(current["key"], current["value"]);
+                current = current["next"];
+            }
+        }
+    };
+}
