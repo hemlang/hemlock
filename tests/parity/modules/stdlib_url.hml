@@ -1,0 +1,37 @@
+// Parity test for @stdlib/url module
+
+import { parse, format } from "@stdlib/url";
+
+print("=== URL parsing ===");
+let u1 = parse("https://example.com:8080/path?foo=bar#section");
+print("scheme: " + u1.scheme);
+print("host: " + u1.host);
+print("port: " + u1.port);
+print("path: " + u1.path);
+print("query: " + u1.query);
+print("fragment: " + u1.fragment);
+
+print("=== URL with auth ===");
+let u2 = parse("ftp://user:pass@ftp.example.com/files");
+print("scheme: " + u2.scheme);
+print("username: " + u2.username);
+print("password: " + u2.password);
+print("host: " + u2.host);
+print("path: " + u2.path);
+
+print("=== Simple URL ===");
+let u3 = parse("http://localhost/");
+print("scheme: " + u3.scheme);
+print("host: " + u3.host);
+print("path: " + u3.path);
+
+print("=== Format URL ===");
+let formatted = format({
+    scheme: "https",
+    host: "api.example.com",
+    path: "/v1/users",
+    query: "limit=10"
+});
+print("formatted: " + formatted);
+
+print("=== Done ===");

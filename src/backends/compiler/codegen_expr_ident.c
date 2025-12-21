@@ -389,63 +389,63 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // Socket builtins
     } else if (strcmp(expr->as.ident.name, "socket_create") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_socket_create, 3, 3, 0);", result);
-    // OS info builtins (unprefixed)
-    } else if (strcmp(expr->as.ident.name, "platform") == 0) {
+    // OS info builtins (unprefixed) - must check for local shadowing
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "platform") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_platform, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "arch") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "arch") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_arch, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "hostname") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "hostname") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hostname, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "username") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "username") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_username, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "homedir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "homedir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_homedir, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "cpu_count") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "cpu_count") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cpu_count, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "total_memory") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "total_memory") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_total_memory, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "free_memory") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "free_memory") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_free_memory, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "os_version") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "os_version") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_version, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "os_name") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "os_name") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_os_name, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "tmpdir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "tmpdir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_tmpdir, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "uptime") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "uptime") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_uptime, 0, 0, 0);", result);
-    // Filesystem builtins (unprefixed)
-    } else if (strcmp(expr->as.ident.name, "exists") == 0) {
+    // Filesystem builtins (unprefixed) - must check for local shadowing
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "exists") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "read_file") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "read_file") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_file, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "write_file") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "write_file") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_file, 2, 2, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "append_file") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "append_file") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_append_file, 2, 2, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "remove_file") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "remove_file") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_file, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "rename") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "rename") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_rename, 2, 2, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "copy_file") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "copy_file") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_copy_file, 2, 2, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "is_file") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "is_file") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_file, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "is_dir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "is_dir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_dir, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "file_stat") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "file_stat") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_file_stat, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "make_dir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "make_dir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_make_dir, 2, 2, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "remove_dir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "remove_dir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_remove_dir, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "list_dir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "list_dir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_list_dir, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "cwd") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "cwd") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_cwd, 0, 0, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "chdir") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "chdir") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_chdir, 1, 1, 0);", result);
-    } else if (strcmp(expr->as.ident.name, "absolute_path") == 0) {
+    } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "absolute_path") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_absolute_path, 1, 1, 0);", result);
     // Unprefixed aliases for math functions (for parity with interpreter)
     // NOTE: Only use builtin if not shadowed by a local variable

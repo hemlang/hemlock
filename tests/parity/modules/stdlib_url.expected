@@ -1,0 +1,20 @@
+=== URL parsing ===
+scheme: https
+host: example.com
+port: 8080
+path: /path
+query: foo=bar
+fragment: section
+=== URL with auth ===
+scheme: ftp
+username: user
+password: pass
+host: ftp.example.com
+path: /files
+=== Simple URL ===
+scheme: http
+host: localhost
+path: /
+=== Format URL ===
+formatted: https://api.example.com/v1/users?limit=10
+=== Done ===
