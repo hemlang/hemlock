@@ -9583,7 +9583,7 @@ HmlValue hml_lws_ws_send_binary(HmlValue conn_val, HmlValue buffer_val) {
     }
 
     HmlBuffer *hbuf = buffer_val.as.as_buffer;
-    size_t len = hbuf->size;
+    size_t len = hbuf->length;
 
     unsigned char *buf = malloc(LWS_PRE + len);
     if (!buf) {
