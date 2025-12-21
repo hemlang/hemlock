@@ -1,0 +1,78 @@
+// Test @stdlib/uuid module
+import { v4, v7, v1, parse, is_valid, compare, equals, NIL, is_nil, short_id, compact } from "@stdlib/uuid";
+
+print("=== UUID Module Tests ===");
+
+// Test v4 generation
+print("\n--- v4() ---");
+let uuid1 = v4();
+print("Generated v4: " + uuid1);
+print("Length: " + uuid1.length);
+print("Valid: " + is_valid(uuid1));
+
+// Generate another to ensure uniqueness
+let uuid2 = v4();
+print("Generated v4: " + uuid2);
+print("Different from first: " + (uuid1 != uuid2));
+
+// Test v7 generation
+print("\n--- v7() ---");
+let uuid7_1 = v7();
+print("Generated v7: " + uuid7_1);
+print("Valid: " + is_valid(uuid7_1));
+
+// v7 should be time-ordered
+let uuid7_2 = v7();
+print("Generated v7: " + uuid7_2);
+print("Second > First (time-ordered): " + (compare(uuid7_2, uuid7_1) >= 0));
+
+// Test v1 generation
+print("\n--- v1() ---");
+let uuid1_gen = v1();
+print("Generated v1: " + uuid1_gen);
+print("Valid: " + is_valid(uuid1_gen));
+
+// Test parse
+print("\n--- parse() ---");
+let parsed = parse(uuid1);
+print("Version: " + parsed.version);
+print("Variant: " + parsed.variant);
+
+// Parse a v7 to get timestamp
+let parsed7 = parse(uuid7_1);
+print("v7 Version: " + parsed7.version);
+print("v7 has timestamp: " + (parsed7.timestamp != null));
+
+// Test is_valid
+print("\n--- is_valid() ---");
+print("Valid UUID: " + is_valid("550e8400-e29b-41d4-a716-446655440000"));
+print("Invalid UUID (wrong length): " + is_valid("550e8400-e29b-41d4-a716"));
+print("Invalid UUID (bad chars): " + is_valid("550e8400-e29b-41d4-a716-44665544000g"));
+print("Invalid UUID (no hyphens): " + is_valid("550e8400e29b41d4a716446655440000"));
+
+// Test compare and equals
+print("\n--- compare() / equals() ---");
+let a = "550e8400-e29b-41d4-a716-446655440000";
+let b = "550e8400-e29b-41d4-a716-446655440001";
+print("Compare a < b: " + compare(a, b));
+print("Equals same: " + equals(a, a));
+print("Equals different: " + equals(a, b));
+print("Equals case insensitive: " + equals("550E8400-E29B-41D4-A716-446655440000", a));
+
+// Test NIL UUID
+print("\n--- NIL UUID ---");
+print("NIL: " + NIL);
+print("is_nil(NIL): " + is_nil(NIL));
+print("is_nil(random): " + is_nil(uuid1));
+
+// Test short_id and compact
+print("\n--- short_id() / compact() ---");
+let short = short_id();
+print("Short ID: " + short);
+print("Short ID length: " + short.length);
+
+let comp = compact();
+print("Compact: " + comp);
+print("Compact length: " + comp.length);
+
+print("\n=== All UUID tests completed ===");

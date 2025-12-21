@@ -1,0 +1,383 @@
+// @stdlib/uuid - UUID generation and parsing
+//
+// Provides functions for generating and working with UUIDs (Universally Unique Identifiers).
+// Supports UUID v4 (random) and UUID v7 (time-ordered).
+//
+// Usage:
+//   import { v4, v7, parse, is_valid } from "@stdlib/uuid";
+//   let id = v4();  // "550e8400-e29b-41d4-a716-446655440000"
+
+import { random_bytes } from "@stdlib/crypto";
+import { time_ms } from "@stdlib/time";
+
+// ============================================================================
+// UUID Generation
+// ============================================================================
+
+// Hex characters for formatting
+let HEX_CHARS = "0123456789abcdef";
+
+// Convert a byte to two hex characters
+fn byte_to_hex(b): string {
+    let hi = (b >> 4) & 0x0F;
+    let lo = b & 0x0F;
+    return HEX_CHARS.substr(hi, 1) + HEX_CHARS.substr(lo, 1);
+}
+
+// Convert hex character to nibble value
+fn hex_to_nibble(c): i32 {
+    let code: i32 = c;
+    if (code >= 48 && code <= 57) {  // '0'-'9'
+        return code - 48;
+    }
+    if (code >= 97 && code <= 102) {  // 'a'-'f'
+        return code - 97 + 10;
+    }
+    if (code >= 65 && code <= 70) {  // 'A'-'F'
+        return code - 65 + 10;
+    }
+    return -1;
+}
+
+// Generate a UUID v4 (random)
+// Returns: string - UUID in format "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+export fn v4(): string {
+    // Get 16 random bytes
+    let bytes = random_bytes(16);
+
+    // Set version to 4 (bits 4-7 of byte 6)
+    let byte6 = bytes[6];
+    bytes[6] = (byte6 & 0x0F) | 0x40;
+
+    // Set variant to RFC 4122 (bits 6-7 of byte 8)
+    let byte8 = bytes[8];
+    bytes[8] = (byte8 & 0x3F) | 0x80;
+
+    // Format as UUID string
+    return format_uuid(bytes);
+}
+
+// Generate a UUID v7 (time-ordered, sortable)
+// Returns: string - UUID in format "xxxxxxxx-xxxx-7xxx-yxxx-xxxxxxxxxxxx"
+export fn v7(): string {
+    // Get current timestamp in milliseconds
+    let ts = time_ms();
+
+    // Create 16 byte buffer
+    let bytes = random_bytes(16);
+
+    // Encode timestamp in first 48 bits (6 bytes)
+    // Big-endian encoding
+    let b0: u8 = (ts >> 40) & 0xFF;
+    let b1: u8 = (ts >> 32) & 0xFF;
+    let b2: u8 = (ts >> 24) & 0xFF;
+    let b3: u8 = (ts >> 16) & 0xFF;
+    let b4: u8 = (ts >> 8) & 0xFF;
+    let b5: u8 = ts & 0xFF;
+    bytes[0] = b0;
+    bytes[1] = b1;
+    bytes[2] = b2;
+    bytes[3] = b3;
+    bytes[4] = b4;
+    bytes[5] = b5;
+
+    // Set version to 7 (bits 4-7 of byte 6)
+    let byte6 = bytes[6];
+    bytes[6] = (byte6 & 0x0F) | 0x70;
+
+    // Set variant to RFC 4122 (bits 6-7 of byte 8)
+    let byte8 = bytes[8];
+    bytes[8] = (byte8 & 0x3F) | 0x80;
+
+    // Format as UUID string
+    return format_uuid(bytes);
+}
+
+// Format 16 bytes as UUID string
+fn format_uuid(bytes): string {
+    let result = "";
+
+    // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    // 8-4-4-4-12
+
+    let i = 0;
+    while (i < 16) {
+        let b = bytes[i];
+        result = result + byte_to_hex(b);
+
+        if (i == 3 || i == 5 || i == 7 || i == 9) {
+            result = result + "-";
+        }
+
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// ============================================================================
+// UUID Parsing and Validation
+// ============================================================================
+
+// Parse a UUID string into its components
+// Parameters:
+//   uuid: string - UUID string to parse
+// Returns: object - { version, variant, timestamp?, bytes }
+export fn parse(uuid): object {
+    if (typeof(uuid) != "string") {
+        throw "parse() requires string argument";
+    }
+
+    // Remove hyphens and validate length
+    let clean = uuid.replace_all("-", "");
+    if (clean.length != 32) {
+        throw "Invalid UUID format";
+    }
+
+    // Convert to bytes
+    let bytes = buffer(16);
+    let i = 0;
+    while (i < 16) {
+        let hi_char = clean.char_at(i * 2);
+        let lo_char = clean.char_at(i * 2 + 1);
+
+        let hi = hex_to_nibble(hi_char);
+        let lo = hex_to_nibble(lo_char);
+
+        if (hi < 0 || lo < 0) {
+            throw "Invalid hex character in UUID";
+        }
+
+        let byte_val: u8 = (hi << 4) | lo;
+        bytes[i] = byte_val;
+        i = i + 1;
+    }
+
+    // Extract version (bits 4-7 of byte 6)
+    let byte6 = bytes[6];
+    let version = (byte6 >> 4) & 0x0F;
+
+    // Extract variant (bits 6-7 of byte 8)
+    let byte8 = bytes[8];
+    let variant = "unknown";
+    if ((byte8 & 0xC0) == 0x80) {
+        variant = "RFC4122";
+    } else if ((byte8 & 0x80) == 0x00) {
+        variant = "NCS";
+    } else if ((byte8 & 0xE0) == 0xC0) {
+        variant = "Microsoft";
+    } else if ((byte8 & 0xE0) == 0xE0) {
+        variant = "Future";
+    }
+
+    // Extract timestamp for v7
+    let timestamp: i64 = 0;
+    if (version == 7) {
+        let b0: i64 = bytes[0];
+        let b1: i64 = bytes[1];
+        let b2: i64 = bytes[2];
+        let b3: i64 = bytes[3];
+        let b4: i64 = bytes[4];
+        let b5: i64 = bytes[5];
+        timestamp = (b0 << 40) | (b1 << 32) | (b2 << 24) | (b3 << 16) | (b4 << 8) | b5;
+    }
+
+    return {
+        version: version,
+        variant: variant,
+        bytes: bytes,
+        timestamp: timestamp
+    };
+}
+
+// Check if a string is a valid UUID
+// Parameters:
+//   uuid: string - String to validate
+// Returns: bool - True if valid UUID format
+export fn is_valid(uuid): bool {
+    if (typeof(uuid) != "string") {
+        return false;
+    }
+
+    // Check length with hyphens
+    if (uuid.length != 36) {
+        return false;
+    }
+
+    // Check hyphen positions
+    if (uuid.char_at(8) != '-' || uuid.char_at(13) != '-' ||
+        uuid.char_at(18) != '-' || uuid.char_at(23) != '-') {
+        return false;
+    }
+
+    // Check all other characters are hex
+    let i = 0;
+    while (i < 36) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            i = i + 1;
+            continue;
+        }
+
+        let c = uuid.char_at(i);
+        if (hex_to_nibble(c) < 0) {
+            return false;
+        }
+
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// UUID Comparison and Utilities
+// ============================================================================
+
+// Compare two UUIDs
+// Parameters:
+//   a: string - First UUID
+//   b: string - Second UUID
+// Returns: i32 - -1 if a < b, 0 if equal, 1 if a > b
+export fn compare(a, b): i32 {
+    if (typeof(a) != "string" || typeof(b) != "string") {
+        throw "compare() requires string arguments";
+    }
+
+    // Normalize by removing hyphens and converting to lowercase
+    let clean_a = a.replace_all("-", "").to_lower();
+    let clean_b = b.replace_all("-", "").to_lower();
+
+    if (clean_a < clean_b) {
+        return -1;
+    }
+    if (clean_a > clean_b) {
+        return 1;
+    }
+    return 0;
+}
+
+// Check if two UUIDs are equal (case-insensitive)
+// Parameters:
+//   a: string - First UUID
+//   b: string - Second UUID
+// Returns: bool - True if UUIDs are equal
+export fn equals(a, b): bool {
+    return compare(a, b) == 0;
+}
+
+// Convert UUID to uppercase format
+// Parameters:
+//   uuid: string - UUID to convert
+// Returns: string - Uppercase UUID
+export fn to_upper(uuid): string {
+    if (typeof(uuid) != "string") {
+        throw "to_upper() requires string argument";
+    }
+    return uuid.to_upper();
+}
+
+// Convert UUID to lowercase format
+// Parameters:
+//   uuid: string - UUID to convert
+// Returns: string - Lowercase UUID
+export fn to_lower(uuid): string {
+    if (typeof(uuid) != "string") {
+        throw "to_lower() requires string argument";
+    }
+    return uuid.to_lower();
+}
+
+// ============================================================================
+// Nil UUID
+// ============================================================================
+
+// The nil UUID (all zeros)
+export let NIL = "00000000-0000-0000-0000-000000000000";
+
+// Check if a UUID is the nil UUID
+// Parameters:
+//   uuid: string - UUID to check
+// Returns: bool - True if nil UUID
+export fn is_nil(uuid): bool {
+    if (typeof(uuid) != "string") {
+        return false;
+    }
+    return equals(uuid, NIL);
+}
+
+// ============================================================================
+// UUID v1 (time-based with MAC address) - Simplified version
+// ============================================================================
+
+// Counter for clock sequence
+let clock_seq = 0;
+
+// Generate a UUID v1 (time-based)
+// Note: Uses random bytes for node ID since MAC address isn't available
+// Returns: string - UUID in format "xxxxxxxx-xxxx-1xxx-yxxx-xxxxxxxxxxxx"
+export fn v1(): string {
+    // Get current timestamp
+    let ts = time_ms();
+
+    // Convert to 100-nanosecond intervals since UUID epoch (Oct 15, 1582)
+    // Add offset from Unix epoch to UUID epoch: 122192928000000000
+    let uuid_time: i64 = ts * 10000 + 122192928000000000;
+
+    // Create 16 byte buffer
+    let bytes = random_bytes(16);
+
+    // time_low (32 bits) - bytes 0-3
+    let t0: u8 = (uuid_time >> 24) & 0xFF;
+    let t1: u8 = (uuid_time >> 16) & 0xFF;
+    let t2: u8 = (uuid_time >> 8) & 0xFF;
+    let t3: u8 = uuid_time & 0xFF;
+    bytes[0] = t0;
+    bytes[1] = t1;
+    bytes[2] = t2;
+    bytes[3] = t3;
+
+    // time_mid (16 bits) - bytes 4-5
+    let t4: u8 = (uuid_time >> 40) & 0xFF;
+    let t5: u8 = (uuid_time >> 32) & 0xFF;
+    bytes[4] = t4;
+    bytes[5] = t5;
+
+    // time_hi_and_version (16 bits) - bytes 6-7
+    // Set version to 1
+    let t6: u8 = ((uuid_time >> 56) & 0x0F) | 0x10;
+    let t7: u8 = (uuid_time >> 48) & 0xFF;
+    bytes[6] = t6;
+    bytes[7] = t7;
+
+    // clock_seq_hi_and_reserved - byte 8
+    // Set variant to RFC 4122
+    clock_seq = clock_seq + 1;
+    let cs = clock_seq % 16384;  // 14-bit clock sequence
+    let c8: u8 = ((cs >> 8) & 0x3F) | 0x80;
+    let c9: u8 = cs & 0xFF;
+    bytes[8] = c8;
+    bytes[9] = c9;
+
+    // node (48 bits) - bytes 10-15 (random since no MAC)
+    // Already filled with random bytes
+
+    return format_uuid(bytes);
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Generate a short ID (first 8 characters of a v4 UUID)
+// Returns: string - Short ID like "550e8400"
+export fn short_id(): string {
+    let uuid = v4();
+    return uuid.substr(0, 8);
+}
+
+// Generate a compact UUID (no hyphens)
+// Returns: string - Compact UUID like "550e8400e29b41d4a716446655440000"
+export fn compact(): string {
+    let uuid = v4();
+    return uuid.replace_all("-", "");
+}
