@@ -502,6 +502,7 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data);
 
 HmlValue hml_read_u32(HmlValue ptr);
 HmlValue hml_read_u64(HmlValue ptr);
+HmlValue hml_read_ptr(HmlValue ptr);
 HmlValue hml_strerror(void);
 HmlValue hml_dirent_name(HmlValue ptr);
 HmlValue hml_string_to_cstr(HmlValue str);
@@ -511,6 +512,7 @@ HmlValue hml_string_from_bytes(HmlValue arg);
 // Internal helper builtin wrappers
 HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_read_u64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_read_ptr(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_strerror(HmlClosureEnv *env);
 HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
@@ -681,6 +683,9 @@ HmlValue hml_lws_http_get(HmlValue url);
 // HTTP POST request
 HmlValue hml_lws_http_post(HmlValue url, HmlValue body, HmlValue content_type);
 
+// Generic HTTP request (any method: PUT, DELETE, PATCH, etc.)
+HmlValue hml_lws_http_request(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type);
+
 // Get HTTP response status code
 HmlValue hml_lws_response_status(HmlValue resp);
 
@@ -702,6 +707,7 @@ HmlValue hml_lws_response_body_binary(HmlValue resp);
 // Builtin wrappers for function-as-value
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url);
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type);
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp);
@@ -712,6 +718,7 @@ HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp)
 // WebSocket client functions
 HmlValue hml_lws_ws_connect(HmlValue url);
 HmlValue hml_lws_ws_send_text(HmlValue conn, HmlValue text);
+HmlValue hml_lws_ws_send_binary(HmlValue conn, HmlValue buffer);
 HmlValue hml_lws_ws_recv(HmlValue conn, HmlValue timeout_ms);
 HmlValue hml_lws_ws_close(HmlValue conn);
 HmlValue hml_lws_ws_is_closed(HmlValue conn);
@@ -730,6 +737,7 @@ HmlValue hml_lws_ws_server_close(HmlValue server);
 // WebSocket builtin wrappers
 HmlValue hml_builtin_lws_ws_connect(HmlClosureEnv *env, HmlValue url);
 HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue conn, HmlValue text);
+HmlValue hml_builtin_lws_ws_send_binary(HmlClosureEnv *env, HmlValue conn, HmlValue buffer);
 HmlValue hml_builtin_lws_ws_recv(HmlClosureEnv *env, HmlValue conn, HmlValue timeout_ms);
 HmlValue hml_builtin_lws_ws_close(HmlClosureEnv *env, HmlValue conn);
 HmlValue hml_builtin_lws_ws_is_closed(HmlClosureEnv *env, HmlValue conn);
@@ -782,10 +790,19 @@ void hml_call_exit(void);
 // Thread-local call depth counter (exposed for inline macros)
 extern __thread int hml_g_call_depth;
 
+// Thread-local maximum call depth (can be modified at runtime)
+extern __thread int hml_g_max_call_depth;
+
+// Get/set stack limit functions
+HmlValue hml_get_stack_limit(void);
+HmlValue hml_set_stack_limit(HmlValue limit);
+HmlValue hml_builtin_get_stack_limit(HmlClosureEnv *env);
+HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit);
+
 // Inline call depth tracking macros (faster than function calls)
 // Use branch prediction hint - stack overflow is rare
 #define HML_CALL_ENTER() do { \
-    if (__builtin_expect(++hml_g_call_depth > HML_MAX_CALL_DEPTH, 0)) { \
+    if (__builtin_expect(++hml_g_call_depth > hml_g_max_call_depth, 0)) { \
         hml_g_call_depth = 0; \
         hml_runtime_error("Maximum call stack depth exceeded (infinite recursion?)"); \
     } \

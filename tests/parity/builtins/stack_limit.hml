@@ -1,0 +1,13 @@
+// Test: Stack limit control functions
+// Tests get_stack_limit() and set_stack_limit()
+
+let initial = get_stack_limit();
+print(initial > 0);
+
+set_stack_limit(5000);
+let updated = get_stack_limit();
+print(updated);
+
+// Restore original
+set_stack_limit(initial);
+print(get_stack_limit() == initial);

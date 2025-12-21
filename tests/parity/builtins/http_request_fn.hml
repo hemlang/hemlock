@@ -1,0 +1,11 @@
+// Test: __lws_http_request function exists
+// Just verify the function is available (don't make actual HTTP calls)
+
+let fn_ref = __lws_http_request;
+// Check if it's a function type (interpreter returns "builtin", compiler returns "function")
+let t = typeof(fn_ref);
+if (t == "function" || t == "builtin") {
+    print("ok");
+} else {
+    print("error: " + t);
+}

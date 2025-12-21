@@ -1,0 +1,13 @@
+// Test: __read_ptr function
+// Reads a pointer value from memory
+
+// Allocate space for a pointer
+let p = alloc(8);
+memset(p, 0, 8);
+
+// Read the pointer value (should be null/0 after memset)
+let ptr_val = __read_ptr(p);
+print(typeof(ptr_val));
+
+// Clean up
+free(p);

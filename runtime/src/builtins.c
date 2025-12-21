@@ -5690,6 +5690,12 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
         hml_runtime_error("spawn() expects a function");
     }
 
+    // Verify function is async (for parity with interpreter)
+    HmlFunction *func = fn.as.as_function;
+    if (!func->is_async) {
+        hml_runtime_error("spawn() requires an async function");
+    }
+
     // Create task
     HmlTask *task = malloc(sizeof(HmlTask));
     task->id = atomic_fetch_add(&g_next_task_id, 1);
@@ -6221,6 +6227,37 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
 // Thread-local call depth counter for stack overflow detection
 // Exposed globally for inline macro access (hml_g_call_depth)
 __thread int hml_g_call_depth = 0;
+
+// Thread-local maximum call depth (can be modified at runtime)
+// Initialized to default value, can be changed via set_stack_limit()
+__thread int hml_g_max_call_depth = HML_MAX_CALL_DEPTH;
+
+// Get the current stack limit
+HmlValue hml_get_stack_limit(void) {
+    return hml_val_i32(hml_g_max_call_depth);
+}
+
+// Set the stack limit (returns the old limit)
+HmlValue hml_set_stack_limit(HmlValue limit) {
+    int old_limit = hml_g_max_call_depth;
+    int new_limit = hml_to_i32(limit);
+    if (new_limit <= 0) {
+        hml_runtime_error("set_stack_limit() expects a positive integer");
+    }
+    hml_g_max_call_depth = new_limit;
+    return hml_val_i32(old_limit);
+}
+
+// Builtin wrapper versions (for function references)
+HmlValue hml_builtin_get_stack_limit(HmlClosureEnv *env) {
+    (void)env;
+    return hml_get_stack_limit();
+}
+
+HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit) {
+    (void)env;
+    return hml_set_stack_limit(limit);
+}
 
 // Function versions for backwards compatibility (macros are faster)
 void hml_call_enter(void) {
@@ -8208,6 +8245,15 @@ HmlValue hml_read_u64(HmlValue ptr_val) {
     return hml_val_u64(*ptr);
 }
 
+// Read a pointer value from a pointer (double indirection)
+HmlValue hml_read_ptr(HmlValue ptr_val) {
+    if (ptr_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__read_ptr() requires a pointer");
+    }
+    void **pptr = (void**)ptr_val.as.as_ptr;
+    return hml_val_ptr(*pptr);
+}
+
 // Get the last error string (strerror(errno))
 HmlValue hml_strerror(void) {
     return hml_val_string(strerror(errno));
@@ -8266,6 +8312,11 @@ HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr) {
 HmlValue hml_builtin_read_u64(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
     return hml_read_u64(ptr);
+}
+
+HmlValue hml_builtin_read_ptr(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    return hml_read_ptr(ptr);
 }
 
 HmlValue hml_builtin_strerror(HmlClosureEnv *env) {
@@ -8908,6 +8959,101 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     return hml_val_ptr(resp);
 }
 
+// Generic HTTP request with configurable method
+HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request() expects string arguments");
+    }
+
+    const char *method = method_val.as.as_string->data;
+    const char *url = url_val.as.as_string->data;
+    (void)body_val;  // Not fully implemented yet
+    (void)content_type_val;
+
+    char host[256], path[512];
+    int port, ssl;
+
+    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
+        hml_runtime_error("Invalid URL format");
+    }
+
+    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
+    if (!resp) {
+        hml_runtime_error("Failed to allocate response");
+    }
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        free(resp);
+        hml_runtime_error("Failed to allocate body buffer");
+    }
+    resp->body[0] = '\0';
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols req_protocols[] = {
+        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = req_protocols;
+
+    struct lws_context *context = lws_create_context(&info);
+    if (!context) {
+        free(resp->body);
+        free(resp);
+        hml_runtime_error("Failed to create libwebsockets context");
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = method;
+    connect_info.protocol = req_protocols[0].name;
+    connect_info.userdata = resp;
+
+    struct lws *wsi;
+    connect_info.pwsi = &wsi;
+
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        free(resp->body);
+        free(resp);
+        hml_runtime_error("Failed to connect");
+    }
+
+    int timeout = 3000;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        free(resp->body);
+        free(resp);
+        hml_runtime_error("HTTP request failed or timed out");
+    }
+
+    return hml_val_ptr(resp);
+}
+
 // Get response status code
 HmlValue hml_lws_response_status(HmlValue resp_val) {
     if (resp_val.type != HML_VAL_PTR) {
@@ -8993,6 +9139,11 @@ HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_post(url, body, content_type);
+}
+
+HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type) {
+    (void)env;
+    return hml_lws_http_request(method, url, body, content_type);
 }
 
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp) {
@@ -9416,6 +9567,41 @@ HmlValue hml_lws_ws_send_text(HmlValue conn_val, HmlValue text_val) {
     return hml_val_i32(0);
 }
 
+// __lws_ws_send_binary(conn: ptr, buffer: buffer): i32
+HmlValue hml_lws_ws_send_binary(HmlValue conn_val, HmlValue buffer_val) {
+    if (conn_val.type != HML_VAL_PTR) {
+        return hml_val_i32(-1);
+    }
+
+    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
+    if (!conn || conn->closed) {
+        return hml_val_i32(-1);
+    }
+
+    if (buffer_val.type != HML_VAL_BUFFER) {
+        return hml_val_i32(-1);
+    }
+
+    HmlBuffer *hbuf = buffer_val.as.as_buffer;
+    size_t len = hbuf->length;
+
+    unsigned char *buf = malloc(LWS_PRE + len);
+    if (!buf) {
+        return hml_val_i32(-1);
+    }
+
+    memcpy(buf + LWS_PRE, hbuf->data, len);
+    int written = lws_write(conn->wsi, buf + LWS_PRE, len, LWS_WRITE_BINARY);
+    free(buf);
+
+    if (written < 0) {
+        return hml_val_i32(-1);
+    }
+
+    lws_cancel_service(conn->context);
+    return hml_val_i32(0);
+}
+
 // __lws_ws_recv(conn: ptr, timeout_ms: i32): ptr
 HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
     if (conn_val.type != HML_VAL_PTR) {
@@ -9667,6 +9853,11 @@ HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue conn, HmlValu
     return hml_lws_ws_send_text(conn, text);
 }
 
+HmlValue hml_builtin_lws_ws_send_binary(HmlClosureEnv *env, HmlValue conn, HmlValue buffer) {
+    (void)env;
+    return hml_lws_ws_send_binary(conn, buffer);
+}
+
 HmlValue hml_builtin_lws_ws_recv(HmlClosureEnv *env, HmlValue conn, HmlValue timeout_ms) {
     (void)env;
     return hml_lws_ws_recv(conn, timeout_ms);
@@ -9730,6 +9921,11 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    (void)method_val; (void)url_val; (void)body_val; (void)content_type_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_response_status(HmlValue resp_val) {
     (void)resp_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
@@ -9770,6 +9966,11 @@ HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue bo
     return hml_lws_http_post(url, body, content_type);
 }
 
+HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type) {
+    (void)env;
+    return hml_lws_http_request(method, url, body, content_type);
+}
+
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp) {
     (void)env;
     return hml_lws_response_status(resp);
@@ -9808,6 +10009,11 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
 
 HmlValue hml_lws_ws_send_text(HmlValue conn_val, HmlValue text_val) {
     (void)conn_val; (void)text_val;
+    hml_runtime_error("WebSocket support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_ws_send_binary(HmlValue conn_val, HmlValue buffer_val) {
+    (void)conn_val; (void)buffer_val;
     hml_runtime_error("WebSocket support not available (libwebsockets not installed)");
 }
 
@@ -9870,6 +10076,11 @@ HmlValue hml_builtin_lws_ws_connect(HmlClosureEnv *env, HmlValue url) {
 HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue conn, HmlValue text) {
     (void)env;
     return hml_lws_ws_send_text(conn, text);
+}
+
+HmlValue hml_builtin_lws_ws_send_binary(HmlClosureEnv *env, HmlValue conn, HmlValue buffer) {
+    (void)env;
+    return hml_lws_ws_send_binary(conn, buffer);
 }
 
 HmlValue hml_builtin_lws_ws_recv(HmlClosureEnv *env, HmlValue conn, HmlValue timeout_ms) {

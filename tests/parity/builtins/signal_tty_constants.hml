@@ -1,0 +1,9 @@
+// Test: TTY signal constants
+// SIGTTIN and SIGTTOU should be available
+
+print(SIGTTIN);
+print(SIGTTOU);
+
+// These should be non-zero
+print(SIGTTIN > 0);
+print(SIGTTOU > 0);

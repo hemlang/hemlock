@@ -1,0 +1,11 @@
+// Test: __lws_ws_send_binary function exists
+// Just verify the function is available (don't make actual WebSocket calls)
+
+let fn_ref = __lws_ws_send_binary;
+// Check if it's a function type (interpreter returns "builtin", compiler returns "function")
+let t = typeof(fn_ref);
+if (t == "function" || t == "builtin") {
+    print("ok");
+} else {
+    print("error: " + t);
+}

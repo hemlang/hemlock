@@ -1,0 +1,6 @@
+// Test: exec_argv function
+// Execute command with argument array
+
+let result = exec_argv(["echo", "hello", "world"]);
+print(result.exit_code);
+print(result.output);
