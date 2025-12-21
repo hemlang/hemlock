@@ -1,0 +1,654 @@
+// @stdlib/semver - Semantic Versioning utilities
+//
+// Provides parsing, comparison, and manipulation of semantic versions
+// following the SemVer 2.0.0 specification.
+//
+// Usage:
+//   import { parse, compare, satisfies, increment } from "@stdlib/semver";
+
+// ============================================================================
+// Version Parsing
+// ============================================================================
+
+// Parse a semantic version string into an object
+// Parameters:
+//   version: string - Version string (e.g., "1.2.3", "1.2.3-alpha.1+build.123")
+// Returns: object - { major, minor, patch, prerelease, build }
+export fn parse(version: string): object {
+    if (typeof(version) != "string") {
+        throw "parse() requires string argument";
+    }
+
+    // Remove leading 'v' if present
+    let v = version;
+    if (v.length > 0 && (v.char_at(0) == 'v' || v.char_at(0) == 'V')) {
+        v = v.slice(1, v.length);
+    }
+
+    // Split off build metadata
+    let build = "";
+    let plus_idx = v.find("+");
+    if (plus_idx >= 0) {
+        build = v.slice(plus_idx + 1, v.length);
+        v = v.slice(0, plus_idx);
+    }
+
+    // Split off prerelease
+    let prerelease = "";
+    let dash_idx = v.find("-");
+    if (dash_idx >= 0) {
+        prerelease = v.slice(dash_idx + 1, v.length);
+        v = v.slice(0, dash_idx);
+    }
+
+    // Parse major.minor.patch
+    let parts = v.split(".");
+    if (parts.length < 1 || parts.length > 3) {
+        throw "Invalid version format: " + version;
+    }
+
+    let major = parse_version_part(parts[0], version);
+    let minor = 0;
+    let patch = 0;
+
+    if (parts.length >= 2) {
+        minor = parse_version_part(parts[1], version);
+    }
+    if (parts.length >= 3) {
+        patch = parse_version_part(parts[2], version);
+    }
+
+    return {
+        major: major,
+        minor: minor,
+        patch: patch,
+        prerelease: prerelease,
+        build: build
+    };
+}
+
+// Helper: Parse a version number part
+fn parse_version_part(s: string, version: string): i32 {
+    if (s.length == 0) {
+        throw "Invalid version format: " + version;
+    }
+
+    let result = 0;
+    let code_0: i32 = '0';
+    let i = 0;
+
+    while (i < s.length) {
+        let ch = s.char_at(i);
+        let code: i32 = ch;
+        if (code < 48 || code > 57) {
+            throw "Invalid version format: " + version;
+        }
+        result = result * 10 + (code - code_0);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Format a version object back to string
+// Parameters:
+//   ver: object - Version object from parse()
+// Returns: string - Formatted version string
+export fn format(ver): string {
+    let result = "" + ver["major"] + "." + ver["minor"] + "." + ver["patch"];
+
+    if (ver["prerelease"] != null && ver["prerelease"] != "") {
+        result = result + "-" + ver["prerelease"];
+    }
+
+    if (ver["build"] != null && ver["build"] != "") {
+        result = result + "+" + ver["build"];
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Version Comparison
+// ============================================================================
+
+// Compare two versions
+// Parameters:
+//   a: string or object - First version
+//   b: string or object - Second version
+// Returns: i32 - -1 if a < b, 0 if a == b, 1 if a > b
+export fn compare(a, b): i32 {
+    let va = normalize_version(a);
+    let vb = normalize_version(b);
+
+    // Compare major
+    if (va["major"] < vb["major"]) { return -1; }
+    if (va["major"] > vb["major"]) { return 1; }
+
+    // Compare minor
+    if (va["minor"] < vb["minor"]) { return -1; }
+    if (va["minor"] > vb["minor"]) { return 1; }
+
+    // Compare patch
+    if (va["patch"] < vb["patch"]) { return -1; }
+    if (va["patch"] > vb["patch"]) { return 1; }
+
+    // Compare prerelease
+    let pre_a = va["prerelease"];
+    let pre_b = vb["prerelease"];
+
+    // No prerelease > has prerelease
+    if ((pre_a == null || pre_a == "") && (pre_b != null && pre_b != "")) {
+        return 1;
+    }
+    if ((pre_a != null && pre_a != "") && (pre_b == null || pre_b == "")) {
+        return -1;
+    }
+
+    // Both have prerelease - compare identifiers
+    if (pre_a != null && pre_a != "" && pre_b != null && pre_b != "") {
+        return compare_prerelease(pre_a, pre_b);
+    }
+
+    return 0;
+}
+
+// Compare prerelease identifiers
+fn compare_prerelease(a: string, b: string): i32 {
+    let parts_a = a.split(".");
+    let parts_b = b.split(".");
+
+    let min_len = parts_a.length;
+    if (parts_b.length < min_len) {
+        min_len = parts_b.length;
+    }
+
+    let i = 0;
+    while (i < min_len) {
+        let pa = parts_a[i];
+        let pb = parts_b[i];
+
+        let is_num_a = is_numeric(pa);
+        let is_num_b = is_numeric(pb);
+
+        if (is_num_a && is_num_b) {
+            // Both numeric - compare as numbers
+            let na = parse_version_part(pa, "");
+            let nb = parse_version_part(pb, "");
+            if (na < nb) { return -1; }
+            if (na > nb) { return 1; }
+        } else if (is_num_a) {
+            // Numeric < alphanumeric
+            return -1;
+        } else if (is_num_b) {
+            // Alphanumeric > numeric
+            return 1;
+        } else {
+            // Both alphanumeric - lexical comparison
+            let cmp = compare_strings(pa, pb);
+            if (cmp != 0) { return cmp; }
+        }
+
+        i = i + 1;
+    }
+
+    // Longer prerelease > shorter
+    if (parts_a.length < parts_b.length) { return -1; }
+    if (parts_a.length > parts_b.length) { return 1; }
+
+    return 0;
+}
+
+// Check if string is all digits
+fn is_numeric(s: string): bool {
+    if (s.length == 0) { return false; }
+    let i = 0;
+    while (i < s.length) {
+        let code: i32 = s.char_at(i);
+        if (code < 48 || code > 57) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+// Compare two strings lexicographically
+fn compare_strings(a: string, b: string): i32 {
+    let min_len = a.length;
+    if (b.length < min_len) { min_len = b.length; }
+
+    let i = 0;
+    while (i < min_len) {
+        let ca: i32 = a.char_at(i);
+        let cb: i32 = b.char_at(i);
+        if (ca < cb) { return -1; }
+        if (ca > cb) { return 1; }
+        i = i + 1;
+    }
+
+    if (a.length < b.length) { return -1; }
+    if (a.length > b.length) { return 1; }
+    return 0;
+}
+
+// Normalize to version object
+fn normalize_version(v): object {
+    if (typeof(v) == "string") {
+        return parse(v);
+    }
+    return v;
+}
+
+// Check if a < b
+export fn lt(a, b): bool {
+    return compare(a, b) < 0;
+}
+
+// Check if a <= b
+export fn lte(a, b): bool {
+    return compare(a, b) <= 0;
+}
+
+// Check if a > b
+export fn gt(a, b): bool {
+    return compare(a, b) > 0;
+}
+
+// Check if a >= b
+export fn gte(a, b): bool {
+    return compare(a, b) >= 0;
+}
+
+// Check if a == b
+export fn eq(a, b): bool {
+    return compare(a, b) == 0;
+}
+
+// Check if a != b
+export fn neq(a, b): bool {
+    return compare(a, b) != 0;
+}
+
+// ============================================================================
+// Version Incrementing
+// ============================================================================
+
+// Increment a version
+// Parameters:
+//   version: string or object - Version to increment
+//   release: string - Type: "major", "minor", "patch", "prerelease", "premajor", "preminor", "prepatch"
+//   identifier: string - Prerelease identifier (optional, default: "0")
+// Returns: string - Incremented version
+export fn increment(version, release: string, identifier?: "0"): string {
+    let v = normalize_version(version);
+
+    let major = v["major"];
+    let minor = v["minor"];
+    let patch = v["patch"];
+    let prerelease = "";
+
+    if (release == "major") {
+        major = major + 1;
+        minor = 0;
+        patch = 0;
+    } else if (release == "minor") {
+        minor = minor + 1;
+        patch = 0;
+    } else if (release == "patch") {
+        // If already has prerelease, just remove it
+        if (v["prerelease"] != null && v["prerelease"] != "") {
+            // Keep current version, remove prerelease
+        } else {
+            patch = patch + 1;
+        }
+    } else if (release == "prerelease") {
+        if (v["prerelease"] == null || v["prerelease"] == "") {
+            patch = patch + 1;
+            prerelease = identifier;
+        } else {
+            // Increment last numeric part of prerelease
+            prerelease = increment_prerelease(v["prerelease"], identifier);
+        }
+    } else if (release == "premajor") {
+        major = major + 1;
+        minor = 0;
+        patch = 0;
+        prerelease = identifier;
+    } else if (release == "preminor") {
+        minor = minor + 1;
+        patch = 0;
+        prerelease = identifier;
+    } else if (release == "prepatch") {
+        patch = patch + 1;
+        prerelease = identifier;
+    } else {
+        throw "Invalid release type: " + release;
+    }
+
+    let result = "" + major + "." + minor + "." + patch;
+    if (prerelease != "") {
+        result = result + "-" + prerelease;
+    }
+
+    return result;
+}
+
+// Increment prerelease identifier
+fn increment_prerelease(pre: string, id: string): string {
+    let parts = pre.split(".");
+    let last_idx = parts.length - 1;
+    let last = parts[last_idx];
+
+    if (is_numeric(last)) {
+        // Increment last numeric part
+        let num = parse_version_part(last, "");
+        parts[last_idx] = "" + (num + 1);
+    } else {
+        // Add .0
+        parts.push("0");
+    }
+
+    return join_array(parts, ".");
+}
+
+// Join array with separator
+fn join_array(arr, sep: string): string {
+    let result = "";
+    let i = 0;
+    while (i < arr.length) {
+        if (i > 0) { result = result + sep; }
+        result = result + arr[i];
+        i = i + 1;
+    }
+    return result;
+}
+
+// ============================================================================
+// Version Range Checking
+// ============================================================================
+
+// Check if a version satisfies a range
+// Parameters:
+//   version: string - Version to check
+//   range: string - Range specification (e.g., ">=1.0.0 <2.0.0", "^1.2.3", "~1.2.0")
+// Returns: bool - True if version satisfies range
+export fn satisfies(version: string, range: string): bool {
+    let v = parse(version);
+
+    // Split range by space (AND) and || (OR)
+    let or_parts = split_or(range);
+
+    let i = 0;
+    while (i < or_parts.length) {
+        let or_part = trim(or_parts[i]);
+        if (or_part.length > 0 && satisfies_and_range(v, or_part)) {
+            return true;
+        }
+        i = i + 1;
+    }
+
+    return or_parts.length == 0;
+}
+
+// Split by ||
+fn split_or(s: string): array {
+    let result: array = [];
+    let current = "";
+    let i = 0;
+
+    while (i < s.length) {
+        if (i + 1 < s.length && s.char_at(i) == '|' && s.char_at(i + 1) == '|') {
+            result.push(current);
+            current = "";
+            i = i + 2;
+        } else {
+            current = current + s.char_at(i);
+            i = i + 1;
+        }
+    }
+
+    if (current.length > 0) {
+        result.push(current);
+    }
+
+    return result;
+}
+
+// Check if version satisfies AND range (space-separated comparators)
+fn satisfies_and_range(v, range: string): bool {
+    let parts = range.split(" ");
+
+    let i = 0;
+    while (i < parts.length) {
+        let part = trim(parts[i]);
+        if (part.length > 0 && !satisfies_comparator(v, part)) {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// Check if version satisfies a single comparator
+fn satisfies_comparator(v, comp: string): bool {
+    let c = trim(comp);
+
+    // Handle caret range ^
+    if (c.length > 0 && c.char_at(0) == '^') {
+        return satisfies_caret(v, c.slice(1, c.length));
+    }
+
+    // Handle tilde range ~
+    if (c.length > 0 && c.char_at(0) == '~') {
+        return satisfies_tilde(v, c.slice(1, c.length));
+    }
+
+    // Handle operators
+    if (c.length >= 2 && c.slice(0, 2) == ">=") {
+        return gte(v, c.slice(2, c.length));
+    }
+    if (c.length >= 2 && c.slice(0, 2) == "<=") {
+        return lte(v, c.slice(2, c.length));
+    }
+    if (c.length >= 2 && c.slice(0, 2) == "!=") {
+        return neq(v, c.slice(2, c.length));
+    }
+    if (c.length >= 1 && c.char_at(0) == '>') {
+        return gt(v, c.slice(1, c.length));
+    }
+    if (c.length >= 1 && c.char_at(0) == '<') {
+        return lt(v, c.slice(1, c.length));
+    }
+    if (c.length >= 1 && c.char_at(0) == '=') {
+        return eq(v, c.slice(1, c.length));
+    }
+
+    // Exact match
+    return eq(v, c);
+}
+
+// Caret range: ^1.2.3 means >=1.2.3 <2.0.0 (allows changes that don't modify left-most non-zero)
+fn satisfies_caret(v, range: string): bool {
+    let r = parse(range);
+
+    if (!gte(v, r)) { return false; }
+
+    // Determine upper bound
+    if (r["major"] != 0) {
+        // ^1.2.3 -> <2.0.0
+        let upper = { major: r["major"] + 1, minor: 0, patch: 0, prerelease: "", build: "" };
+        return lt(v, upper);
+    } else if (r["minor"] != 0) {
+        // ^0.2.3 -> <0.3.0
+        let upper = { major: 0, minor: r["minor"] + 1, patch: 0, prerelease: "", build: "" };
+        return lt(v, upper);
+    } else {
+        // ^0.0.3 -> <0.0.4
+        let upper = { major: 0, minor: 0, patch: r["patch"] + 1, prerelease: "", build: "" };
+        return lt(v, upper);
+    }
+}
+
+// Tilde range: ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+fn satisfies_tilde(v, range: string): bool {
+    let r = parse(range);
+
+    if (!gte(v, r)) { return false; }
+
+    // ~1.2.3 -> <1.3.0
+    let upper = { major: r["major"], minor: r["minor"] + 1, patch: 0, prerelease: "", build: "" };
+    return lt(v, upper);
+}
+
+// Trim whitespace from string
+fn trim(s: string): string {
+    let start = 0;
+    let end_pos = s.length;
+
+    while (start < end_pos && (s.char_at(start) == ' ' || s.char_at(start) == '\t')) {
+        start = start + 1;
+    }
+    while (end_pos > start && (s.char_at(end_pos - 1) == ' ' || s.char_at(end_pos - 1) == '\t')) {
+        end_pos = end_pos - 1;
+    }
+
+    return s.slice(start, end_pos);
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Get the major version number
+export fn major(version: string): i32 {
+    return parse(version)["major"];
+}
+
+// Get the minor version number
+export fn minor(version: string): i32 {
+    return parse(version)["minor"];
+}
+
+// Get the patch version number
+export fn patch(version: string): i32 {
+    return parse(version)["patch"];
+}
+
+// Get the prerelease string
+export fn prerelease(version: string): string {
+    return parse(version)["prerelease"];
+}
+
+// Check if version is valid
+export fn valid(version: string): bool {
+    try {
+        parse(version);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Clean a version string (normalize it)
+export fn clean(version: string): string {
+    let v = parse(version);
+    return format(v);
+}
+
+// Compare and return the maximum version
+export fn max(a: string, b: string): string {
+    if (gt(a, b)) { return a; }
+    return b;
+}
+
+// Compare and return the minimum version
+export fn min(a: string, b: string): string {
+    if (lt(a, b)) { return a; }
+    return b;
+}
+
+// Sort an array of versions
+export fn sort(versions): array {
+    let arr: array = [];
+    let i = 0;
+    while (i < versions.length) {
+        arr.push(versions[i]);
+        i = i + 1;
+    }
+
+    // Simple bubble sort
+    let n = arr.length;
+    i = 0;
+    while (i < n - 1) {
+        let j = 0;
+        while (j < n - i - 1) {
+            if (gt(arr[j], arr[j + 1])) {
+                let temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    return arr;
+}
+
+// Reverse sort (highest first)
+export fn rsort(versions): array {
+    let sorted = sort(versions);
+    let result: array = [];
+    let i = sorted.length - 1;
+    while (i >= 0) {
+        result.push(sorted[i]);
+        i = i - 1;
+    }
+    return result;
+}
+
+// Get the highest version that satisfies a range
+export fn max_satisfying(versions, range: string): string {
+    let result = null;
+    let i = 0;
+    while (i < versions.length) {
+        let v = versions[i];
+        if (satisfies(v, range)) {
+            if (result == null || gt(v, result)) {
+                result = v;
+            }
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Get the lowest version that satisfies a range
+export fn min_satisfying(versions, range: string): string {
+    let result = null;
+    let i = 0;
+    while (i < versions.length) {
+        let v = versions[i];
+        if (satisfies(v, range)) {
+            if (result == null || lt(v, result)) {
+                result = v;
+            }
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Calculate the difference between two versions
+// Returns: "major", "minor", "patch", "prerelease", or null if equal
+export fn diff(a: string, b: string): string {
+    let va = parse(a);
+    let vb = parse(b);
+
+    if (va["major"] != vb["major"]) { return "major"; }
+    if (va["minor"] != vb["minor"]) { return "minor"; }
+    if (va["patch"] != vb["patch"]) { return "patch"; }
+    if (va["prerelease"] != vb["prerelease"]) { return "prerelease"; }
+
+    return null;
+}
