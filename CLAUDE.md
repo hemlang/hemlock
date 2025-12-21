@@ -166,7 +166,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (24 modules)
+## Standard Library (39 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -178,29 +178,44 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 
 | Module | Description |
 |--------|-------------|
+| `args` | Command-line argument parsing |
+| `assert` | Assertion utilities |
 | `async` | ThreadPool, parallel_map |
 | `async_fs` | Async file I/O operations |
-| `collections` | HashMap, Queue, Stack, Set, LinkedList |
-| `math` | sin, cos, sqrt, pow, rand, PI, E |
-| `time` | now, time_ms, sleep, clock |
-| `datetime` | DateTime class, formatting, parsing |
-| `env` | getenv, setenv, exit, get_pid |
-| `process` | fork, exec, wait, kill |
-| `fs` | read_file, write_file, list_dir, exists |
-| `net` | TcpListener, TcpStream, UdpSocket |
-| `regex` | compile, test (POSIX ERE) |
-| `strings` | pad_left, is_alpha, reverse, lines |
+| `collections` | HashMap, Queue, Stack, Set, LinkedList, LRUCache |
 | `compression` | gzip, gunzip, deflate |
 | `crypto` | aes_encrypt, rsa_sign, random_bytes |
+| `csv` | CSV parsing and generation |
+| `datetime` | DateTime class, formatting, parsing |
 | `encoding` | base64_encode, hex_encode, url_encode |
+| `env` | getenv, setenv, exit, get_pid |
+| `fmt` | String formatting utilities |
+| `fs` | read_file, write_file, list_dir, exists |
+| `glob` | File pattern matching |
 | `hash` | sha256, sha512, md5, djb2 |
 | `http` | http_get, http_post, http_request |
+| `ipc` | Inter-process communication |
+| `iter` | Iterator utilities |
 | `json` | parse, stringify, pretty, get, set |
 | `logging` | Logger with levels |
+| `math` | sin, cos, sqrt, pow, rand, PI, E |
+| `net` | TcpListener, TcpStream, UdpSocket |
 | `os` | platform, arch, cpu_count, hostname |
+| `path` | File path manipulation |
+| `process` | fork, exec, wait, kill |
+| `random` | Random number generation |
+| `regex` | compile, test (POSIX ERE) |
+| `retry` | Retry logic with backoff |
+| `semver` | Semantic versioning |
+| `shell` | Shell command utilities |
 | `sqlite` | SQLite database, query, exec, transactions |
+| `strings` | pad_left, is_alpha, reverse, lines |
 | `terminal` | ANSI colors and styles |
 | `testing` | describe, test, expect |
+| `time` | now, time_ms, sleep, clock |
+| `toml` | TOML parsing and generation |
+| `url` | URL parsing and manipulation |
+| `uuid` | UUID generation |
 | `websocket` | WebSocket client |
 
 See `stdlib/docs/` for detailed module documentation.
@@ -233,7 +248,7 @@ hemlock/
 │   ├── lsp/              # Language Server Protocol
 │   └── bundler/          # Bundle/package tools
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
-├── stdlib/               # Standard library (24 modules)
+├── stdlib/               # Standard library (39 modules)
 │   └── docs/             # Module documentation
 ├── docs/                 # Full documentation
 │   ├── language-guide/   # Types, strings, arrays, etc.
@@ -406,7 +421,7 @@ make parity
 - Arrays with 18 methods including map/filter/reduce
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
-- 24 stdlib modules
+- 39 stdlib modules
 - FFI for C interop
 - defer, try/catch/finally/throw, panic
 - File I/O, signal handling, command execution
@@ -414,7 +429,7 @@ make parity
 - LSP server with go-to-definition and find-references
 - HTTP PUT/DELETE/PATCH methods
 - WebSocket binary message support
-- 625+ tests with 67 parity tests (100% pass rate)
+- 625+ tests with 83 parity tests (100% pass rate)
 
 ---
 

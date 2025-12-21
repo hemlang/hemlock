@@ -629,15 +629,18 @@ fn make_counter() {
 ```hemlock
 fn pipeline(value, ...functions) {
     let result = value;
-    // Note: variadic functions not supported yet
-    // This is conceptual
+    for (f in functions) {
+        result = f(result);
+    }
     return result;
 }
 
-// Workaround: manual composition
-fn process(value) {
-    return increment(double(trim(value)));
-}
+fn double(x) { return x * 2; }
+fn increment(x) { return x + 1; }
+fn square(x) { return x * x; }
+
+let result = pipeline(3, double, increment, square);
+print(result);  // 49 ((3*2+1)^2)
 ```
 
 ### Example: Event Handler
@@ -698,13 +701,71 @@ sort(numbers, ascending);
 print(numbers);  // [1, 2, 5, 8, 9]
 ```
 
+## Optional Parameters (Default Arguments)
+
+Functions can have optional parameters with default values using the `?:` syntax:
+
+```hemlock
+fn greet(name, greeting?: "Hello") {
+    return greeting + " " + name;
+}
+
+print(greet("Alice"));           // "Hello Alice"
+print(greet("Bob", "Hi"));       // "Hi Bob"
+
+fn add(a, b?: 10, c?: 100) {
+    return a + b + c;
+}
+
+print(add(1));          // 111 (1 + 10 + 100)
+print(add(1, 2));       // 103 (1 + 2 + 100)
+print(add(1, 2, 3));    // 6   (1 + 2 + 3)
+```
+
+**Rules:**
+- Optional parameters must come after required parameters
+- Default values can be any expression
+- Omitted arguments use the default value
+
+## Variadic Functions (Rest Parameters)
+
+Functions can accept a variable number of arguments using rest parameters (`...`):
+
+```hemlock
+fn sum(...args) {
+    let total = 0;
+    for (arg in args) {
+        total = total + arg;
+    }
+    return total;
+}
+
+print(sum(1, 2, 3));        // 6
+print(sum(1, 2, 3, 4, 5));  // 15
+print(sum());               // 0
+
+fn log(prefix, ...messages) {
+    for (msg in messages) {
+        print(prefix + ": " + msg);
+    }
+}
+
+log("INFO", "Starting", "Running", "Done");
+// INFO: Starting
+// INFO: Running
+// INFO: Done
+```
+
+**Rules:**
+- Rest parameter must be the last parameter
+- Rest parameter collects all remaining arguments into an array
+- Can be combined with regular and optional parameters
+
 ## Limitations
 
 Current limitations to be aware of:
 
 - **No pass-by-reference** - `ref` keyword parsed but not implemented
-- **No variadic functions** - Can't have variable number of arguments
-- **No default arguments** - All parameters must be provided
 - **No function overloading** - One function per name
 - **No tail call optimization** - Deep recursion limited by stack size
 

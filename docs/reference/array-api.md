@@ -1,6 +1,6 @@
 # Array API Reference
 
-Complete reference for Hemlock's array type and all 15 array methods.
+Complete reference for Hemlock's array type and all 18 array methods.
 
 ---
 
@@ -12,7 +12,7 @@ Arrays in Hemlock are **dynamic, heap-allocated** sequences that can hold mixed 
 - Dynamic sizing (automatic growth)
 - Zero-indexed
 - Mixed types allowed
-- 15 built-in methods
+- 18 built-in methods
 - Heap-allocated with capacity tracking
 
 ---
@@ -491,6 +491,102 @@ let all = a.concat(b).concat(c);  // [1, 2, 3, 4, 5, 6, 7, 8]
 
 ---
 
+### Functional Operations
+
+#### map
+
+Transform each element using a callback function.
+
+**Signature:**
+```hemlock
+array.map(callback: fn): array
+```
+
+**Parameters:**
+- `callback` - Function that takes an element and returns transformed value
+
+**Returns:** New array with transformed elements
+
+**Mutates:** No (returns new array)
+
+**Examples:**
+```hemlock
+let arr = [1, 2, 3, 4, 5];
+let doubled = arr.map(fn(x) { return x * 2; });
+print(doubled);  // [2, 4, 6, 8, 10]
+
+let names = ["alice", "bob"];
+let upper = names.map(fn(s) { return s.to_upper(); });
+print(upper);  // ["ALICE", "BOB"]
+```
+
+---
+
+#### filter
+
+Select elements that match a predicate.
+
+**Signature:**
+```hemlock
+array.filter(predicate: fn): array
+```
+
+**Parameters:**
+- `predicate` - Function that takes an element and returns bool
+
+**Returns:** New array with elements where predicate returned true
+
+**Mutates:** No (returns new array)
+
+**Examples:**
+```hemlock
+let arr = [1, 2, 3, 4, 5, 6];
+let evens = arr.filter(fn(x) { return x % 2 == 0; });
+print(evens);  // [2, 4, 6]
+
+let words = ["hello", "hi", "hey", "goodbye"];
+let short = words.filter(fn(s) { return s.length < 4; });
+print(short);  // ["hi", "hey"]
+```
+
+---
+
+#### reduce
+
+Reduce array to single value using accumulator.
+
+**Signature:**
+```hemlock
+array.reduce(callback: fn, initial: any): any
+```
+
+**Parameters:**
+- `callback` - Function that takes (accumulator, element) and returns new accumulator
+- `initial` - Starting value for the accumulator
+
+**Returns:** Final accumulated value
+
+**Mutates:** No
+
+**Examples:**
+```hemlock
+let arr = [1, 2, 3, 4, 5];
+let sum = arr.reduce(fn(acc, x) { return acc + x; }, 0);
+print(sum);  // 15
+
+let product = arr.reduce(fn(acc, x) { return acc * x; }, 1);
+print(product);  // 120
+
+// Find max value
+let max = arr.reduce(fn(acc, x) {
+    if (x > acc) { return x; }
+    return acc;
+}, arr[0]);
+print(max);  // 5
+```
+
+---
+
 ### String Conversion
 
 #### join
@@ -584,6 +680,9 @@ Methods that return new values without modifying the original:
 | `last`     | `()`                       | `any`     | Get last element               |
 | `concat`   | `(other: array)`           | `array`   | Concatenate arrays             |
 | `join`     | `(delimiter: string)`      | `string`  | Join elements into string      |
+| `map`      | `(callback: fn)`           | `array`   | Transform each element         |
+| `filter`   | `(predicate: fn)`          | `array`   | Select matching elements       |
+| `reduce`   | `(callback: fn, initial: any)` | `any` | Reduce to single value         |
 
 ---
 

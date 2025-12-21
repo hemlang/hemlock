@@ -205,7 +205,7 @@ switch (color) {
 
 ### Fall-Through Behavior
 
-Cases without `break` fall through to the next case (C-style):
+Cases without `break` fall through to the next case (C-style behavior). This is **intentional** and can be used to group cases:
 
 ```hemlock
 let grade = 85;
@@ -225,6 +225,27 @@ switch (grade) {
         break;
 }
 ```
+
+**Explicit fallthrough example:**
+```hemlock
+let day = 3;
+
+switch (day) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+        print("Weekday");
+        break;
+    case 6:
+    case 7:
+        print("Weekend");
+        break;
+}
+```
+
+**Important:** Unlike some modern languages, Hemlock does NOT require an explicit `fallthrough` keyword. Cases automatically fall through unless terminated by `break`, `return`, or `throw`. Always use `break` to prevent unintended fallthrough.
 
 ### Switch with Return
 

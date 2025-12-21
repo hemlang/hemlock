@@ -66,6 +66,42 @@ let s6 = "🚀 Emoji";
 let s7 = "中文字符";
 ```
 
+## Template Strings (String Interpolation)
+
+Use backticks for template strings with embedded expressions:
+
+```hemlock
+let name = "Alice";
+let age = 30;
+
+// Basic interpolation
+let greeting = `Hello, ${name}!`;           // "Hello, Alice!"
+let info = `${name} is ${age} years old`;   // "Alice is 30 years old"
+
+// Expressions in interpolation
+let x = 5;
+let y = 10;
+let sum = `${x} + ${y} = ${x + y}`;         // "5 + 10 = 15"
+
+// Method calls
+let upper = `Name: ${name.to_upper()}`;     // "Name: ALICE"
+
+// Nested objects
+let person = { name: "Bob", city: "NYC" };
+let desc = `${person.name} lives in ${person.city}`;  // "Bob lives in NYC"
+
+// Multi-line (preserves newlines)
+let multi = `Line 1
+Line 2
+Line 3`;
+```
+
+**Template string features:**
+- Expressions inside `${...}` are evaluated and converted to strings
+- Any valid expression can be used (variables, function calls, arithmetic)
+- Backtick strings support the same escape sequences as regular strings
+- Useful for building dynamic strings without concatenation
+
 ## Indexing and Mutation
 
 ### Reading Characters
@@ -113,7 +149,7 @@ let s = "Hello" + '!';          // "Hello!"
 
 ## String Methods
 
-Hemlock provides 18 string methods for comprehensive text manipulation.
+Hemlock provides 19 string methods for comprehensive text manipulation.
 
 ### Substring & Slicing
 

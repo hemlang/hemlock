@@ -1,6 +1,6 @@
 # String API Reference
 
-Complete reference for Hemlock's string type and all 18 string methods.
+Complete reference for Hemlock's string type and all 19 string methods.
 
 ---
 
@@ -12,7 +12,7 @@ Strings in Hemlock are **UTF-8 encoded, mutable, heap-allocated** sequences with
 - UTF-8 encoding (U+0000 to U+10FFFF)
 - Mutable (can modify characters in place)
 - Codepoint-based indexing
-- 18 built-in methods
+- 19 built-in methods
 - Automatic concatenation with `+` operator
 
 ---

@@ -237,7 +237,120 @@ let obj = { x: 10 };
 obj.x = 20;
 ```
 
-**Note:** Hemlock does NOT support compound assignment operators (`+=`, `-=`, etc.)
+### Compound Assignment
+
+| Operator | Name            | Example    | Equivalent         |
+|----------|-----------------|------------|--------------------|
+| `+=`     | Add assign      | `a += b`   | `a = a + b`        |
+| `-=`     | Subtract assign | `a -= b`   | `a = a - b`        |
+| `*=`     | Multiply assign | `a *= b`   | `a = a * b`        |
+| `/=`     | Divide assign   | `a /= b`   | `a = a / b`        |
+| `%=`     | Modulo assign   | `a %= b`   | `a = a % b`        |
+
+**Examples:**
+```hemlock
+let x = 10;
+x += 5;      // x is now 15
+x -= 3;      // x is now 12
+x *= 2;      // x is now 24
+x /= 4;      // x is now 6
+
+let count = 0;
+count += 1;  // Increment by 1
+```
+
+### Increment/Decrement
+
+| Operator | Name       | Example | Description              |
+|----------|------------|---------|--------------------------|
+| `++`     | Increment  | `a++`   | Increment by 1 (postfix) |
+| `--`     | Decrement  | `a--`   | Decrement by 1 (postfix) |
+
+**Examples:**
+```hemlock
+let i = 0;
+i++;         // i is now 1
+i++;         // i is now 2
+i--;         // i is now 1
+
+// Common in loops
+for (let j = 0; j < 10; j++) {
+    print(j);
+}
+```
+
+**Note:** Both `++` and `--` are postfix operators (value is returned before increment/decrement)
+
+---
+
+## Null Safety Operators
+
+### Null Coalescing (`??`)
+
+Returns the left operand if it's not null, otherwise returns the right operand.
+
+| Operator | Name             | Example      | Description                    |
+|----------|------------------|--------------|--------------------------------|
+| `??`     | Null coalescing  | `a ?? b`     | Return a if not null, else b   |
+
+**Examples:**
+```hemlock
+let name = null;
+let display = name ?? "Anonymous";  // "Anonymous"
+
+let value = 42;
+let result = value ?? 0;            // 42
+
+// Chaining
+let a = null;
+let b = null;
+let c = "found";
+let result2 = a ?? b ?? c;          // "found"
+
+// With function calls
+fn get_config() { return null; }
+let config = get_config() ?? { default: true };
+```
+
+---
+
+### Optional Chaining (`?.`)
+
+Safely access properties or call methods on potentially null values.
+
+| Operator | Name              | Example        | Description                      |
+|----------|-------------------|----------------|----------------------------------|
+| `?.`     | Optional chaining | `a?.b`         | Return a.b if a not null, else null |
+| `?.[`    | Optional index    | `a?.[0]`       | Return a[0] if a not null, else null |
+| `?.(`    | Optional call     | `a?.()`        | Call a() if a not null, else null |
+
+**Examples:**
+```hemlock
+let user = null;
+let name = user?.name;              // null (no error)
+
+let person = { name: "Alice", address: null };
+let city = person?.address?.city;   // null (safe navigation)
+
+// With arrays
+let arr = null;
+let first = arr?.[0];               // null
+
+let items = [1, 2, 3];
+let second = items?.[1];            // 2
+
+// With method calls
+let obj = { greet: fn() { return "Hello"; } };
+let greeting = obj?.greet?.();      // "Hello"
+
+let empty = null;
+let result = empty?.method?.();     // null
+```
+
+**Behavior:**
+- If the left operand is null, the entire expression short-circuits to null
+- If the left operand is not null, the access proceeds normally
+- Can be chained for deep property access
 
 ---
 
@@ -326,19 +439,21 @@ Operators are listed from highest to lowest precedence:
 
 | Precedence | Operators                  | Description                    | Associativity |
 |------------|----------------------------|--------------------------------|---------------|
-| 1          | `()` `[]` `.`              | Call, index, member access     | Left-to-right |
-| 2          | `!` `~` `-` (unary) `+` (unary) | Logical NOT, bitwise NOT, negation | Right-to-left |
-| 3          | `*` `/`                    | Multiplication, division       | Left-to-right |
-| 4          | `+` `-`                    | Addition, subtraction          | Left-to-right |
-| 5          | `<<` `>>`                  | Bit shifts                     | Left-to-right |
-| 6          | `<` `<=` `>` `>=`          | Relational                     | Left-to-right |
-| 7          | `==` `!=`                  | Equality                       | Left-to-right |
-| 8          | `&`                        | Bitwise AND                    | Left-to-right |
-| 9          | `^`                        | Bitwise XOR                    | Left-to-right |
-| 10         | `|`                        | Bitwise OR                     | Left-to-right |
-| 11         | `&&`                       | Logical AND                    | Left-to-right |
-| 12         | `||`                       | Logical OR                     | Left-to-right |
-| 13         | `=`                        | Assignment                     | Right-to-left |
+| 1          | `()` `[]` `.` `?.`         | Call, index, member access, optional chain | Left-to-right |
+| 2          | `++` `--`                  | Postfix increment/decrement    | Left-to-right |
+| 3          | `!` `~` `-` (unary) `+` (unary) | Logical NOT, bitwise NOT, negation | Right-to-left |
+| 4          | `*` `/` `%`                | Multiplication, division, modulo | Left-to-right |
+| 5          | `+` `-`                    | Addition, subtraction          | Left-to-right |
+| 6          | `<<` `>>`                  | Bit shifts                     | Left-to-right |
+| 7          | `<` `<=` `>` `>=`          | Relational                     | Left-to-right |
+| 8          | `==` `!=`                  | Equality                       | Left-to-right |
+| 9          | `&`                        | Bitwise AND                    | Left-to-right |
+| 10         | `^`                        | Bitwise XOR                    | Left-to-right |
+| 11         | `|`                        | Bitwise OR                     | Left-to-right |
+| 12         | `&&`                       | Logical AND                    | Left-to-right |
+| 13         | `||`                       | Logical OR                     | Left-to-right |
+| 14         | `??`                       | Null coalescing                | Left-to-right |
+| 15         | `=` `+=` `-=` `*=` `/=` `%=` | Assignment                   | Right-to-left |
 
 ---
 

@@ -73,6 +73,32 @@ print(matrix[1][2]);  // 6
 print(matrix[2][1]);  // 8
 ```
 
+### Typed Arrays
+
+Arrays can have type annotations to enforce element types:
+
+```hemlock
+// Typed array syntax
+let nums: array<i32> = [1, 2, 3, 4, 5];
+let names: array<string> = ["Alice", "Bob", "Carol"];
+let flags: array<bool> = [true, false, true];
+
+// Type checking at runtime
+let valid: array<i32> = [1, 2, 3];       // OK
+let invalid: array<i32> = [1, "two", 3]; // Runtime error: type mismatch
+
+// Nested typed arrays
+let matrix: array<array<i32>> = [
+    [1, 2, 3],
+    [4, 5, 6]
+];
+```
+
+**Type annotation behavior:**
+- Elements are type-checked when added to the array
+- Type mismatches cause runtime errors
+- Without type annotation, arrays accept mixed types
+
 ## Indexing
 
 ### Reading Elements
@@ -135,7 +161,7 @@ print(arr.length);  // 6
 
 ## Array Methods
 
-Hemlock provides 15 array methods for comprehensive manipulation.
+Hemlock provides 18 array methods for comprehensive manipulation.
 
 ### Stack Operations
 
@@ -322,6 +348,9 @@ let numbers = [5, 3, 8, 1, 9]
 | `first()` | - | any | No | Get first element |
 | `last()` | - | any | No | Get last element |
 | `clear()` | - | void | Yes | Remove all elements |
+| `map(callback)` | fn | array | No | Transform each element |
+| `filter(predicate)` | fn | array | No | Select matching elements |
+| `reduce(callback, initial)` | fn, any | any | No | Reduce to single value |
 
 ## Implementation Details
 
@@ -367,63 +396,29 @@ arr2.contains(obj2);  // false (different reference)
 
 ## Common Patterns
 
-### Pattern: Map (Transform)
+### Functional Operations (map/filter/reduce)
+
+Arrays have built-in `map`, `filter`, and `reduce` methods:
 
 ```hemlock
-fn map(arr, f) {
-    let result = [];
-    let i = 0;
-    while (i < arr.length) {
-        result.push(f(arr[i]));
-        i = i + 1;
-    }
-    return result;
-}
-
-fn double(x) { return x * 2; }
-
+// map - transform each element
 let numbers = [1, 2, 3, 4, 5];
-let doubled = map(numbers, double);  // [2, 4, 6, 8, 10]
-```
+let doubled = numbers.map(fn(x) { return x * 2; });
+print(doubled);  // [2, 4, 6, 8, 10]
 
-### Pattern: Filter
+// filter - select matching elements
+let evens = numbers.filter(fn(x) { return x % 2 == 0; });
+print(evens);  // [2, 4]
 
-```hemlock
-fn filter(arr, predicate) {
-    let result = [];
-    let i = 0;
-    while (i < arr.length) {
-        if (predicate(arr[i])) {
-            result.push(arr[i]);
-        }
-        i = i + 1;
-    }
-    return result;
-}
+// reduce - accumulate to single value
+let sum = numbers.reduce(fn(acc, x) { return acc + x; }, 0);
+print(sum);  // 15
 
-fn is_even(x) { return x % 2 == 0; }
-
-let numbers = [1, 2, 3, 4, 5, 6];
-let evens = filter(numbers, is_even);  // [2, 4, 6]
-```
-
-### Pattern: Reduce (Fold)
-
-```hemlock
-fn reduce(arr, f, initial) {
-    let accumulator = initial;
-    let i = 0;
-    while (i < arr.length) {
-        accumulator = f(accumulator, arr[i]);
-        i = i + 1;
-    }
-    return accumulator;
-}
-
-fn add(a, b) { return a + b; }
-
-let numbers = [1, 2, 3, 4, 5];
-let sum = reduce(numbers, add, 0);  // 15
+// Chaining functional operations
+let result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    .filter(fn(x) { return x % 2 == 0; })  // [2, 4, 6, 8, 10]
+    .map(fn(x) { return x * x; })          // [4, 16, 36, 64, 100]
+    .reduce(fn(acc, x) { return acc + x; }, 0);  // 220
 ```
 
 ### Pattern: Array as Stack
@@ -679,5 +674,5 @@ Current limitations:
 ## See Also
 
 - **Dynamic Sizing**: Arrays grow automatically with capacity doubling
-- **Methods**: 15 comprehensive methods for manipulation
+- **Methods**: 18 comprehensive methods for manipulation including map/filter/reduce
 - **Memory**: See [Memory](memory.md) for array allocation details

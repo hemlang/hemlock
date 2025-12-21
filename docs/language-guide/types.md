@@ -122,6 +122,112 @@ free(buf);
 
 See [Memory Management](memory.md) for full details.
 
+## Enum Types
+
+Enums define a set of named constants:
+
+### Basic Enums
+
+```hemlock
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+let c = Color.RED;
+print(c);              // "RED"
+print(typeof(c));      // "Color"
+
+// Comparison
+if (c == Color.RED) {
+    print("It's red!");
+}
+
+// Switch on enum
+switch (c) {
+    case Color.RED:
+        print("Stop");
+        break;
+    case Color.GREEN:
+        print("Go");
+        break;
+    case Color.BLUE:
+        print("Blue?");
+        break;
+}
+```
+
+### Enums with Values
+
+Enums can have explicit integer values:
+
+```hemlock
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 2
+}
+
+print(Status.OK);      // 0
+print(Status.ERROR);   // 1
+
+enum HttpCode {
+    OK = 200,
+    NOT_FOUND = 404,
+    SERVER_ERROR = 500
+}
+
+let code = HttpCode.NOT_FOUND;
+print(code);           // 404
+```
+
+### Auto-incrementing Values
+
+Without explicit values, enums auto-increment from 0:
+
+```hemlock
+enum Priority {
+    LOW,       // 0
+    MEDIUM,    // 1
+    HIGH,      // 2
+    CRITICAL   // 3
+}
+
+// Can mix explicit and auto values
+enum Level {
+    DEBUG = 10,
+    INFO,      // 11
+    WARN,      // 12
+    ERROR = 50,
+    FATAL      // 51
+}
+```
+
+### Enum Usage Patterns
+
+```hemlock
+// As function parameters
+fn set_priority(p: Priority) {
+    if (p == Priority.CRITICAL) {
+        print("Urgent!");
+    }
+}
+
+set_priority(Priority.HIGH);
+
+// In objects
+define Task {
+    name: string,
+    priority: Priority
+}
+
+let task: Task = {
+    name: "Fix bug",
+    priority: Priority.HIGH
+};
+```
+
 ## Special Types
 
 ### File Type
