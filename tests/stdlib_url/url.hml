@@ -1,0 +1,129 @@
+// Test @stdlib/url module
+import { parse, format, parse_query, format_query, get_query_param, get_query_param_all,
+         set_query_param, remove_query_param, encode_component, decode_component,
+         resolve, join, is_absolute, get_origin, get_path_query, is_valid, normalize } from "@stdlib/url";
+
+print("=== URL Module Tests ===");
+
+// Test parse()
+print("\n--- parse() ---");
+let u = parse("https://user:pass@example.com:8080/path/to/file?foo=bar&baz=qux#section");
+print("Scheme: " + u["scheme"]);
+print("Username: " + u["username"]);
+print("Password: " + u["password"]);
+print("Host: " + u["host"]);
+print("Port: " + u["port"]);
+print("Path: " + u["path"]);
+print("Query: " + u["query"]);
+print("Fragment: " + u["fragment"]);
+
+// Parse simpler URL
+let u2 = parse("http://example.com/page");
+print("\nSimple URL host: " + u2["host"]);
+print("Simple URL path: " + u2["path"]);
+
+// Test format()
+print("\n--- format() ---");
+let formatted = format({
+    scheme: "https",
+    host: "example.com",
+    port: "443",
+    path: "/api/v1",
+    query: "key=value",
+    fragment: "top"
+});
+print("Formatted: " + formatted);
+
+// Test parse_query() and format_query()
+print("\n--- parse_query() / format_query() ---");
+let params = parse_query("name=Alice&age=30&city=NYC");
+print("Param count: " + params.length);
+print("First param: " + params[0]["name"] + "=" + params[0]["value"]);
+print("Second param: " + params[1]["name"] + "=" + params[1]["value"]);
+
+let query_str = format_query([
+    { name: "foo", value: "bar" },
+    { name: "hello", value: "world" }
+]);
+print("Formatted query: " + query_str);
+
+// Test get_query_param()
+print("\n--- get_query_param() ---");
+let url_with_query = "https://example.com/search?q=hello&lang=en&page=1";
+print("q=" + get_query_param(url_with_query, "q"));
+print("lang=" + get_query_param(url_with_query, "lang"));
+print("page=" + get_query_param(url_with_query, "page"));
+let missing = get_query_param(url_with_query, "missing");
+print("missing is null: " + (missing == null));
+
+// Test get_query_param_all() for repeated params
+print("\n--- get_query_param_all() ---");
+let url_repeated = "https://example.com/?tag=js&tag=web&tag=dev";
+let tags = get_query_param_all(url_repeated, "tag");
+print("Tag count: " + tags.length);
+print("Tags: " + tags.join(", "));
+
+// Test set_query_param()
+print("\n--- set_query_param() ---");
+let url_set = set_query_param("https://example.com/page?a=1", "b", "2");
+print("Set new param: " + url_set);
+let url_update = set_query_param("https://example.com/page?a=1", "a", "updated");
+print("Update existing: " + url_update);
+
+// Test remove_query_param()
+print("\n--- remove_query_param() ---");
+let url_remove = remove_query_param("https://example.com?a=1&b=2&c=3", "b");
+print("After remove: " + url_remove);
+
+// Test encode_component() / decode_component()
+print("\n--- encode_component() / decode_component() ---");
+let encoded = encode_component("Hello World!");
+print("Encoded: " + encoded);
+let decoded = decode_component(encoded);
+print("Decoded: " + decoded);
+
+let special = encode_component("name=value&other=test");
+print("Special chars: " + special);
+
+// Test resolve()
+print("\n--- resolve() ---");
+let base = "https://example.com/path/to/page";
+print("Absolute: " + resolve(base, "https://other.com/new"));
+print("Protocol relative: " + resolve(base, "//cdn.example.com/resource"));
+print("Absolute path: " + resolve(base, "/new/path"));
+print("Relative: " + resolve(base, "sibling"));
+print("Parent: " + resolve(base, "../other"));
+print("Query only: " + resolve(base, "?newquery=1"));
+print("Fragment only: " + resolve(base, "#newfrag"));
+
+// Test join()
+print("\n--- join() ---");
+print("Join: " + join("https://api.example.com", "v1/users"));
+print("Join with slashes: " + join("https://api.example.com/", "/v1/users"));
+
+// Test is_absolute()
+print("\n--- is_absolute() ---");
+print("https://... is absolute: " + is_absolute("https://example.com"));
+print("/path is absolute: " + is_absolute("/path/to/file"));
+print("relative is absolute: " + is_absolute("relative/path"));
+
+// Test get_origin()
+print("\n--- get_origin() ---");
+print("Origin: " + get_origin("https://user:pass@example.com:8080/path?query#frag"));
+
+// Test get_path_query()
+print("\n--- get_path_query() ---");
+print("Path+Query: " + get_path_query("https://example.com/path?query=1#section"));
+
+// Test is_valid()
+print("\n--- is_valid() ---");
+print("https://example.com valid: " + is_valid("https://example.com"));
+print("not-a-url valid: " + is_valid("not-a-url"));
+print("http:// only valid: " + is_valid("http://"));
+
+// Test normalize()
+print("\n--- normalize() ---");
+print("Normalize: " + normalize("HTTPS://EXAMPLE.COM:443/path/../other/./file"));
+print("Keep port: " + normalize("https://example.com:8080/path"));
+
+print("\n=== All URL tests completed ===");

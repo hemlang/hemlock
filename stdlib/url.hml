@@ -1,0 +1,995 @@
+// @stdlib/url - URL parsing and manipulation
+//
+// Provides functions for parsing, building, and manipulating URLs.
+//
+// Usage:
+//   import { parse, format, resolve, get_query_param } from "@stdlib/url";
+//   let u = parse("https://example.com:8080/path?foo=bar#section");
+//   print(u.host);  // "example.com"
+
+// ============================================================================
+// URL Parsing
+// ============================================================================
+
+// Hex characters for encoding
+let HEX_CHARS = "0123456789ABCDEF";
+
+// Parse a URL string into its components
+// Parameters:
+//   url: string - URL to parse
+// Returns: object - { scheme, username, password, host, port, path, query, fragment, href }
+export fn parse(url): object {
+    if (typeof(url) != "string") {
+        throw "parse() requires string argument";
+    }
+
+    let scheme = "";
+    let username = "";
+    let password = "";
+    let host = "";
+    let port = "";
+    let path = "";
+    let query = "";
+    let fragment = "";
+
+    let remaining = url;
+    let idx = 0;
+
+    // Extract fragment (everything after #)
+    idx = remaining.find("#");
+    if (idx >= 0) {
+        fragment = remaining.slice(idx + 1, remaining.length);
+        remaining = remaining.slice(0, idx);
+    }
+
+    // Extract query string (everything after ?)
+    idx = remaining.find("?");
+    if (idx >= 0) {
+        query = remaining.slice(idx + 1, remaining.length);
+        remaining = remaining.slice(0, idx);
+    }
+
+    // Extract scheme (everything before ://)
+    idx = remaining.find("://");
+    if (idx >= 0) {
+        scheme = remaining.slice(0, idx).to_lower();
+        remaining = remaining.slice(idx + 3, remaining.length);
+    } else {
+        // Check for scheme without authority (like mailto:)
+        idx = remaining.find(":");
+        if (idx >= 0 && idx < remaining.find("/")) {
+            // Could be a scheme like mailto:, file:, etc.
+            let potential_scheme = remaining.slice(0, idx);
+            // Only treat as scheme if it looks like one (all letters)
+            if (is_valid_scheme(potential_scheme)) {
+                scheme = potential_scheme.to_lower();
+                remaining = remaining.slice(idx + 1, remaining.length);
+            }
+        }
+    }
+
+    // If we have a scheme that uses authority (http, https, ftp, etc.)
+    // extract the authority part (userinfo@host:port)
+    if (scheme == "http" || scheme == "https" || scheme == "ftp" ||
+        scheme == "ws" || scheme == "wss" || scheme == "") {
+        // Find path start
+        idx = remaining.find("/");
+        let authority = "";
+        if (idx >= 0) {
+            authority = remaining.slice(0, idx);
+            path = remaining.slice(idx, remaining.length);
+        } else {
+            authority = remaining;
+            path = "";
+        }
+
+        // Extract userinfo (username:password@)
+        idx = authority.find("@");
+        if (idx >= 0) {
+            let userinfo = authority.slice(0, idx);
+            authority = authority.slice(idx + 1, authority.length);
+
+            // Split userinfo into username and password
+            let colon_idx = userinfo.find(":");
+            if (colon_idx >= 0) {
+                username = userinfo.slice(0, colon_idx);
+                password = userinfo.slice(colon_idx + 1, userinfo.length);
+            } else {
+                username = userinfo;
+            }
+        }
+
+        // Extract port from authority
+        // Handle IPv6 addresses in brackets [::1]:8080
+        let bracket_idx = authority.find("[");
+        if (bracket_idx >= 0) {
+            let close_bracket = authority.find("]");
+            if (close_bracket >= 0) {
+                // IPv6 address
+                host = authority.slice(0, close_bracket + 1);
+                let after_bracket = authority.slice(close_bracket + 1, authority.length);
+                if (after_bracket.starts_with(":")) {
+                    port = after_bracket.slice(1, after_bracket.length);
+                }
+            } else {
+                host = authority;
+            }
+        } else {
+            // Regular host:port
+            idx = authority.find(":");
+            if (idx >= 0) {
+                host = authority.slice(0, idx);
+                port = authority.slice(idx + 1, authority.length);
+            } else {
+                host = authority;
+            }
+        }
+    } else {
+        // For other schemes (mailto, file, etc.), the remaining is the path
+        path = remaining;
+    }
+
+    return {
+        scheme: scheme,
+        username: username,
+        password: password,
+        host: host,
+        port: port,
+        path: path,
+        query: query,
+        fragment: fragment,
+        href: url
+    };
+}
+
+// Check if a string is a valid URL scheme
+fn is_valid_scheme(s): bool {
+    if (s.length == 0) {
+        return false;
+    }
+
+    let i = 0;
+    while (i < s.length) {
+        let c = s.char_at(i);
+        let code: i32 = c;
+
+        // First character must be a letter
+        if (i == 0) {
+            if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122))) {
+                return false;
+            }
+        } else {
+            // Subsequent characters can be letter, digit, +, -, .
+            if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+                  (code >= 48 && code <= 57) || code == 43 || code == 45 || code == 46)) {
+                return false;
+            }
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// Format a URL object back to a string
+// Parameters:
+//   url_obj: object - URL components
+// Returns: string - Formatted URL
+export fn format(url_obj): string {
+    if (typeof(url_obj) != "object") {
+        throw "format() requires object argument";
+    }
+
+    let result = "";
+
+    // Add scheme
+    let scheme = url_obj["scheme"];
+    if (scheme != null && scheme != "") {
+        result = result + scheme + "://";
+    }
+
+    // Add userinfo
+    let username = url_obj["username"];
+    let password = url_obj["password"];
+    if (username != null && username != "") {
+        result = result + username;
+        if (password != null && password != "") {
+            result = result + ":" + password;
+        }
+        result = result + "@";
+    }
+
+    // Add host
+    let host = url_obj["host"];
+    if (host != null) {
+        result = result + host;
+    }
+
+    // Add port
+    let port = url_obj["port"];
+    if (port != null && port != "") {
+        result = result + ":" + port;
+    }
+
+    // Add path
+    let path = url_obj["path"];
+    if (path != null) {
+        result = result + path;
+    }
+
+    // Add query
+    let query = url_obj["query"];
+    if (query != null && query != "") {
+        result = result + "?" + query;
+    }
+
+    // Add fragment
+    let fragment = url_obj["fragment"];
+    if (fragment != null && fragment != "") {
+        result = result + "#" + fragment;
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Query String Handling
+// ============================================================================
+
+// Parse a query string into an array of {name, value} pairs
+// Parameters:
+//   query: string - Query string (without leading ?)
+// Returns: array - Array of {name, value} objects
+export fn parse_query(query): array {
+    if (typeof(query) != "string") {
+        throw "parse_query() requires string argument";
+    }
+
+    let result: array = [];
+
+    if (query == "") {
+        return result;
+    }
+
+    let pairs = query.split("&");
+    let i = 0;
+    while (i < pairs.length) {
+        let pair = pairs[i];
+        if (pair != "") {
+            let eq_idx = pair.find("=");
+            if (eq_idx >= 0) {
+                let name = decode_component(pair.slice(0, eq_idx));
+                let value = decode_component(pair.slice(eq_idx + 1, pair.length));
+                result.push({ name: name, value: value });
+            } else {
+                result.push({ name: decode_component(pair), value: "" });
+            }
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Format an array of {name, value} pairs into a query string
+// Parameters:
+//   params: array - Array of {name, value} objects
+// Returns: string - Query string (without leading ?)
+export fn format_query(params): string {
+    if (typeof(params) != "array") {
+        throw "format_query() requires array argument";
+    }
+
+    let parts: array = [];
+    let i = 0;
+    while (i < params.length) {
+        let param = params[i];
+        let name = param["name"];
+        let value = param["value"];
+
+        if (name != null) {
+            let encoded_name = encode_component(name);
+            if (value != null && value != "") {
+                parts.push(encoded_name + "=" + encode_component(value));
+            } else {
+                parts.push(encoded_name);
+            }
+        }
+        i = i + 1;
+    }
+
+    return parts.join("&");
+}
+
+// Get a query parameter value from a URL
+// Parameters:
+//   url: string - URL to search
+//   name: string - Parameter name
+// Returns: string|null - Parameter value or null if not found
+export fn get_query_param(url, name) {
+    if (typeof(url) != "string" || typeof(name) != "string") {
+        throw "get_query_param() requires string arguments";
+    }
+
+    let parsed = parse(url);
+    let query = parsed["query"];
+    if (query == null || query == "") {
+        return null;
+    }
+
+    let params = parse_query(query);
+    let i = 0;
+    while (i < params.length) {
+        let param = params[i];
+        if (param["name"] == name) {
+            return param["value"];
+        }
+        i = i + 1;
+    }
+
+    return null;
+}
+
+// Get all values for a query parameter (for repeated params)
+// Parameters:
+//   url: string - URL to search
+//   name: string - Parameter name
+// Returns: array<string> - Array of values
+export fn get_query_param_all(url, name): array {
+    if (typeof(url) != "string" || typeof(name) != "string") {
+        throw "get_query_param_all() requires string arguments";
+    }
+
+    let result: array = [];
+    let parsed = parse(url);
+    let query = parsed["query"];
+    if (query == null || query == "") {
+        return result;
+    }
+
+    let params = parse_query(query);
+    let i = 0;
+    while (i < params.length) {
+        let param = params[i];
+        if (param["name"] == name) {
+            result.push(param["value"]);
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Set a query parameter value in a URL
+// Parameters:
+//   url: string - Original URL
+//   name: string - Parameter name
+//   value: string - Parameter value
+// Returns: string - URL with parameter set
+export fn set_query_param(url, name, value): string {
+    if (typeof(url) != "string" || typeof(name) != "string") {
+        throw "set_query_param() requires string arguments";
+    }
+
+    let parsed = parse(url);
+    let query = parsed["query"];
+    let query_str = "";
+    if (query != null) {
+        query_str = query;
+    }
+    let params = parse_query(query_str);
+
+    // Look for existing parameter
+    let found = false;
+    let i = 0;
+    while (i < params.length) {
+        if (params[i]["name"] == name) {
+            params[i] = { name: name, value: value };
+            found = true;
+            break;
+        }
+        i = i + 1;
+    }
+
+    if (!found) {
+        params.push({ name: name, value: value });
+    }
+
+    // Rebuild URL
+    let new_query = format_query(params);
+
+    // Build result
+    let result = "";
+    let scheme = parsed["scheme"];
+    if (scheme != null && scheme != "") {
+        result = result + scheme + "://";
+    }
+
+    let username = parsed["username"];
+    let password = parsed["password"];
+    if (username != null && username != "") {
+        result = result + username;
+        if (password != null && password != "") {
+            result = result + ":" + password;
+        }
+        result = result + "@";
+    }
+
+    let host = parsed["host"];
+    if (host != null) {
+        result = result + host;
+    }
+
+    let port = parsed["port"];
+    if (port != null && port != "") {
+        result = result + ":" + port;
+    }
+
+    let path = parsed["path"];
+    if (path != null) {
+        result = result + path;
+    }
+
+    if (new_query != "") {
+        result = result + "?" + new_query;
+    }
+
+    let fragment = parsed["fragment"];
+    if (fragment != null && fragment != "") {
+        result = result + "#" + fragment;
+    }
+
+    return result;
+}
+
+// Remove a query parameter from a URL
+// Parameters:
+//   url: string - Original URL
+//   name: string - Parameter name to remove
+// Returns: string - URL with parameter removed
+export fn remove_query_param(url, name): string {
+    if (typeof(url) != "string" || typeof(name) != "string") {
+        throw "remove_query_param() requires string arguments";
+    }
+
+    let parsed = parse(url);
+    let query = parsed["query"];
+    let query_str = "";
+    if (query != null) {
+        query_str = query;
+    }
+    let params = parse_query(query_str);
+
+    // Filter out matching parameters
+    let new_params: array = [];
+    let i = 0;
+    while (i < params.length) {
+        if (params[i]["name"] != name) {
+            new_params.push(params[i]);
+        }
+        i = i + 1;
+    }
+
+    // Rebuild URL
+    let new_query = format_query(new_params);
+
+    // Build result
+    let result = "";
+    let scheme = parsed["scheme"];
+    if (scheme != null && scheme != "") {
+        result = result + scheme + "://";
+    }
+
+    let username = parsed["username"];
+    let password = parsed["password"];
+    if (username != null && username != "") {
+        result = result + username;
+        if (password != null && password != "") {
+            result = result + ":" + password;
+        }
+        result = result + "@";
+    }
+
+    let host = parsed["host"];
+    if (host != null) {
+        result = result + host;
+    }
+
+    let port = parsed["port"];
+    if (port != null && port != "") {
+        result = result + ":" + port;
+    }
+
+    let path = parsed["path"];
+    if (path != null) {
+        result = result + path;
+    }
+
+    if (new_query != "") {
+        result = result + "?" + new_query;
+    }
+
+    let fragment = parsed["fragment"];
+    if (fragment != null && fragment != "") {
+        result = result + "#" + fragment;
+    }
+
+    return result;
+}
+
+// ============================================================================
+// URL Encoding
+// ============================================================================
+
+// Encode a URI component (similar to JavaScript's encodeURIComponent)
+// Parameters:
+//   str: string - String to encode
+// Returns: string - Encoded string
+export fn encode_component(str): string {
+    if (typeof(str) != "string") {
+        throw "encode_component() requires string argument";
+    }
+
+    let str_val: string = str;
+    let bytes = str_val.bytes();
+    let result = "";
+
+    let i = 0;
+    while (i < bytes.length) {
+        let b = bytes[i];
+        let code: i32 = b;
+
+        // Unreserved characters: A-Z, a-z, 0-9, -, _, ., ~
+        if ((code >= 65 && code <= 90) ||   // A-Z
+            (code >= 97 && code <= 122) ||  // a-z
+            (code >= 48 && code <= 57) ||   // 0-9
+            code == 45 || code == 95 ||     // - _
+            code == 46 || code == 126) {    // . ~
+            let ch: rune = b;
+            result = result + ch;
+        } else {
+            // Percent-encode
+            let high = (b >> 4) & 0x0F;
+            let low = b & 0x0F;
+            result = result + "%" + HEX_CHARS.substr(high, 1) + HEX_CHARS.substr(low, 1);
+        }
+
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Decode a URI component (similar to JavaScript's decodeURIComponent)
+// Parameters:
+//   str: string - Encoded string
+// Returns: string - Decoded string
+export fn decode_component(str): string {
+    if (typeof(str) != "string") {
+        throw "decode_component() requires string argument";
+    }
+
+    let bytes: array = [];
+    let i = 0;
+
+    while (i < str.length) {
+        let ch = str.char_at(i);
+
+        if (ch == '%') {
+            if (i + 2 >= str.length) {
+                throw "Invalid percent encoding: incomplete sequence";
+            }
+
+            let h1 = str.char_at(i + 1);
+            let h2 = str.char_at(i + 2);
+
+            let v1 = hex_char_value(h1);
+            let v2 = hex_char_value(h2);
+
+            if (v1 < 0 || v2 < 0) {
+                throw "Invalid percent encoding: invalid hex digit";
+            }
+
+            let byte_val = (v1 << 4) | v2;
+            bytes.push(byte_val);
+            i = i + 3;
+        } else if (ch == '+') {
+            // + decodes to space in query strings
+            bytes.push(32);
+            i = i + 1;
+        } else {
+            let code: i32 = ch;
+            bytes.push(code);
+            i = i + 1;
+        }
+    }
+
+    return __string_from_bytes(bytes);
+}
+
+// Helper: Convert hex character to value
+fn hex_char_value(ch): i32 {
+    let code: i32 = ch;
+    if (code >= 48 && code <= 57) {  // 0-9
+        return code - 48;
+    }
+    if (code >= 65 && code <= 70) {  // A-F
+        return code - 65 + 10;
+    }
+    if (code >= 97 && code <= 102) {  // a-f
+        return code - 97 + 10;
+    }
+    return -1;
+}
+
+// ============================================================================
+// URL Resolution
+// ============================================================================
+
+// Resolve a relative URL against a base URL
+// Parameters:
+//   base: string - Base URL
+//   relative: string - Relative URL to resolve
+// Returns: string - Resolved absolute URL
+export fn resolve(base, relative): string {
+    if (typeof(base) != "string" || typeof(relative) != "string") {
+        throw "resolve() requires string arguments";
+    }
+
+    // If relative is already absolute, return it
+    if (relative.contains("://")) {
+        return relative;
+    }
+
+    let base_parsed = parse(base);
+
+    // Handle protocol-relative URLs (//example.com/path)
+    if (relative.starts_with("//")) {
+        return base_parsed["scheme"] + ":" + relative;
+    }
+
+    // Handle absolute paths (/path/to/resource)
+    if (relative.starts_with("/")) {
+        let result = "";
+        let scheme = base_parsed["scheme"];
+        if (scheme != null && scheme != "") {
+            result = result + scheme + "://";
+        }
+
+        let host = base_parsed["host"];
+        if (host != null) {
+            result = result + host;
+        }
+
+        let port = base_parsed["port"];
+        if (port != null && port != "") {
+            result = result + ":" + port;
+        }
+
+        result = result + relative;
+        return result;
+    }
+
+    // Handle query-only or fragment-only URLs
+    if (relative.starts_with("?")) {
+        let result = "";
+        let scheme = base_parsed["scheme"];
+        if (scheme != null && scheme != "") {
+            result = result + scheme + "://";
+        }
+
+        let host = base_parsed["host"];
+        if (host != null) {
+            result = result + host;
+        }
+
+        let port = base_parsed["port"];
+        if (port != null && port != "") {
+            result = result + ":" + port;
+        }
+
+        let path = base_parsed["path"];
+        if (path != null) {
+            result = result + path;
+        }
+
+        result = result + relative;
+        return result;
+    }
+
+    if (relative.starts_with("#")) {
+        // Remove existing fragment from base and add new one
+        let idx = base.find("#");
+        if (idx >= 0) {
+            return base.slice(0, idx) + relative;
+        }
+        return base + relative;
+    }
+
+    // Handle relative paths
+    // Get base path directory
+    let base_path = base_parsed["path"];
+    if (base_path == null) {
+        base_path = "/";
+    }
+
+    // Remove filename from base path
+    let last_slash = -1;
+    let i = 0;
+    while (i < base_path.length) {
+        if (base_path.char_at(i) == '/') {
+            last_slash = i;
+        }
+        i = i + 1;
+    }
+
+    let dir_path = "";
+    if (last_slash >= 0) {
+        dir_path = base_path.slice(0, last_slash + 1);
+    } else {
+        dir_path = "/";
+    }
+
+    // Combine and normalize
+    let combined_path = dir_path + relative;
+    let normalized = normalize_path(combined_path);
+
+    // Build result URL
+    let result = "";
+    let scheme = base_parsed["scheme"];
+    if (scheme != null && scheme != "") {
+        result = result + scheme + "://";
+    }
+
+    let host = base_parsed["host"];
+    if (host != null) {
+        result = result + host;
+    }
+
+    let port = base_parsed["port"];
+    if (port != null && port != "") {
+        result = result + ":" + port;
+    }
+
+    result = result + normalized;
+
+    return result;
+}
+
+// Normalize a path (resolve . and ..)
+fn normalize_path(path): string {
+    let segments = path.split("/");
+    let result: array = [];
+
+    let i = 0;
+    while (i < segments.length) {
+        let seg = segments[i];
+
+        if (seg == "." || seg == "") {
+            // Skip current directory and empty segments
+            // But preserve leading empty for absolute paths
+            if (i == 0 && seg == "") {
+                result.push("");
+            }
+        } else if (seg == "..") {
+            // Go up one level
+            if (result.length > 0 && result[result.length - 1] != "") {
+                result.pop();
+            }
+        } else {
+            result.push(seg);
+        }
+
+        i = i + 1;
+    }
+
+    let joined = result.join("/");
+    if (joined == "") {
+        return "/";
+    }
+    return joined;
+}
+
+// ============================================================================
+// URL Utilities
+// ============================================================================
+
+// Join a base URL with a path
+// Parameters:
+//   base: string - Base URL
+//   path: string - Path to append
+// Returns: string - Combined URL
+export fn join(base, path): string {
+    if (typeof(base) != "string" || typeof(path) != "string") {
+        throw "join() requires string arguments";
+    }
+
+    // Remove trailing slash from base
+    let clean_base = base;
+    if (clean_base.ends_with("/")) {
+        clean_base = clean_base.slice(0, clean_base.length - 1);
+    }
+
+    // Remove leading slash from path
+    let clean_path = path;
+    if (clean_path.starts_with("/")) {
+        clean_path = clean_path.slice(1, clean_path.length);
+    }
+
+    return clean_base + "/" + clean_path;
+}
+
+// Check if a URL is absolute
+// Parameters:
+//   url: string - URL to check
+// Returns: bool - True if absolute
+export fn is_absolute(url): bool {
+    if (typeof(url) != "string") {
+        return false;
+    }
+
+    return url.contains("://");
+}
+
+// Get the origin of a URL (scheme + host + port)
+// Parameters:
+//   url: string - URL to get origin from
+// Returns: string - Origin (e.g., "https://example.com:8080")
+export fn get_origin(url): string {
+    if (typeof(url) != "string") {
+        throw "get_origin() requires string argument";
+    }
+
+    let parsed = parse(url);
+    let result = "";
+
+    let scheme = parsed["scheme"];
+    if (scheme != null && scheme != "") {
+        result = result + scheme + "://";
+    }
+
+    let host = parsed["host"];
+    if (host != null) {
+        result = result + host;
+    }
+
+    let port = parsed["port"];
+    if (port != null && port != "") {
+        result = result + ":" + port;
+    }
+
+    return result;
+}
+
+// Get the path and query string
+// Parameters:
+//   url: string - URL
+// Returns: string - Path + query + fragment
+export fn get_path_query(url): string {
+    if (typeof(url) != "string") {
+        throw "get_path_query() requires string argument";
+    }
+
+    let parsed = parse(url);
+    let result = "";
+
+    let path = parsed["path"];
+    if (path != null) {
+        result = result + path;
+    }
+
+    let query = parsed["query"];
+    if (query != null && query != "") {
+        result = result + "?" + query;
+    }
+
+    let fragment = parsed["fragment"];
+    if (fragment != null && fragment != "") {
+        result = result + "#" + fragment;
+    }
+
+    if (result == "") {
+        return "/";
+    }
+
+    return result;
+}
+
+// Check if a string is a valid URL
+// Parameters:
+//   url: string - String to validate
+// Returns: bool - True if valid URL
+export fn is_valid(url): bool {
+    if (typeof(url) != "string") {
+        return false;
+    }
+
+    if (url.length == 0) {
+        return false;
+    }
+
+    // Try to parse - if it has a scheme and host, it's likely valid
+    let parsed = parse(url);
+    let scheme = parsed["scheme"];
+    let host = parsed["host"];
+
+    // Must have a scheme for a valid absolute URL
+    if (scheme == null || scheme == "") {
+        return false;
+    }
+
+    // For http/https/ws/wss/ftp, must have a host
+    if (scheme == "http" || scheme == "https" ||
+        scheme == "ws" || scheme == "wss" || scheme == "ftp") {
+        if (host == null || host == "") {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Normalize a URL (lowercase scheme and host, resolve path)
+// Parameters:
+//   url: string - URL to normalize
+// Returns: string - Normalized URL
+export fn normalize(url): string {
+    if (typeof(url) != "string") {
+        throw "normalize() requires string argument";
+    }
+
+    let parsed = parse(url);
+
+    // Normalize path
+    let path = parsed["path"];
+    if (path != null && path != "") {
+        path = normalize_path(path);
+    } else {
+        path = "/";
+    }
+
+    // Rebuild URL
+    let result = "";
+
+    let scheme = parsed["scheme"];
+    if (scheme != null && scheme != "") {
+        result = result + scheme.to_lower() + "://";
+    }
+
+    let username = parsed["username"];
+    let password = parsed["password"];
+    if (username != null && username != "") {
+        result = result + username;
+        if (password != null && password != "") {
+            result = result + ":" + password;
+        }
+        result = result + "@";
+    }
+
+    let host = parsed["host"];
+    if (host != null) {
+        result = result + host.to_lower();
+    }
+
+    // Remove default ports
+    let port = parsed["port"];
+    if (port != null && port != "") {
+        if (!((scheme == "http" && port == "80") ||
+              (scheme == "https" && port == "443"))) {
+            result = result + ":" + port;
+        }
+    }
+
+    result = result + path;
+
+    let query = parsed["query"];
+    if (query != null && query != "") {
+        result = result + "?" + query;
+    }
+
+    let fragment = parsed["fragment"];
+    if (fragment != null && fragment != "") {
+        result = result + "#" + fragment;
+    }
+
+    return result;
+}
