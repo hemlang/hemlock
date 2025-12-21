@@ -461,6 +461,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // Handle exec_argv builtin for safe command execution (no shell)
+                if ((strcmp(fn_name, "exec_argv") == 0 || strcmp(fn_name, "__exec_argv") == 0) && expr->as.call.num_args == 1) {
+                    char *args = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_exec_argv(%s);", result, args);
+                    codegen_writeln(ctx, "hml_release(&%s);", args);
+                    free(args);
+                    break;
+                }
+
                 // Handle open builtin for file I/O
                 if (strcmp(fn_name, "open") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
                     char *path = codegen_expr(ctx, expr->as.call.args[0]);
