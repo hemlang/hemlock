@@ -1,0 +1,742 @@
+// @stdlib/iter - Iterator and sequence utilities
+//
+// Provides common iteration patterns and array transformation utilities.
+//
+// Usage:
+//   import { range, enumerate, zip, chunk, take, drop } from "@stdlib/iter";
+//   import { flatten, unique, group_by, partition } from "@stdlib/iter";
+
+// ============================================================================
+// Sequence Generation
+// ============================================================================
+
+// Generate a range of integers
+// Parameters:
+//   start: i32 - Start value (inclusive), or end if only one arg
+//   end: i32 - End value (exclusive)
+//   step: i32 - Step value (default: 1)
+// Returns: array<i32> - Array of integers
+// Examples:
+//   range(5) -> [0, 1, 2, 3, 4]
+//   range(2, 5) -> [2, 3, 4]
+//   range(0, 10, 2) -> [0, 2, 4, 6, 8]
+//   range(5, 0, -1) -> [5, 4, 3, 2, 1]
+export fn range(start_or_end, end_val?: null, step?: 1): array {
+    let start: i32 = 0;
+    let stop: i32 = 0;
+
+    if (end_val == null) {
+        // Single argument: range(end) means range(0, end)
+        stop = start_or_end;
+    } else {
+        start = start_or_end;
+        stop = end_val;
+    }
+
+    if (step == 0) {
+        throw "range() step cannot be 0";
+    }
+
+    let result: array = [];
+
+    if (step > 0) {
+        let i = start;
+        while (i < stop) {
+            result.push(i);
+            i = i + step;
+        }
+    } else {
+        let i = start;
+        while (i > stop) {
+            result.push(i);
+            i = i + step;
+        }
+    }
+
+    return result;
+}
+
+// Generate a range of floats
+// Parameters:
+//   start: f64 - Start value (inclusive)
+//   end: f64 - End value (exclusive)
+//   step: f64 - Step value
+// Returns: array<f64> - Array of floats
+export fn frange(start, end, step): array {
+    if (step == 0) {
+        throw "frange() step cannot be 0";
+    }
+
+    let result: array = [];
+
+    if (step > 0) {
+        let i: f64 = start;
+        while (i < end) {
+            result.push(i);
+            i = i + step;
+        }
+    } else {
+        let i: f64 = start;
+        while (i > end) {
+            result.push(i);
+            i = i + step;
+        }
+    }
+
+    return result;
+}
+
+// Repeat a value n times
+// Parameters:
+//   value: any - Value to repeat
+//   n: i32 - Number of repetitions
+// Returns: array - Array of n copies of value
+export fn repeat(value, n): array {
+    if (n < 0) {
+        throw "repeat() n must be >= 0";
+    }
+
+    let result: array = [];
+    let i = 0;
+    while (i < n) {
+        result.push(value);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Array Transformation
+// ============================================================================
+
+// Enumerate an array, returning [index, value] pairs
+// Parameters:
+//   arr: array - Array to enumerate
+//   start: i32 - Starting index (default: 0)
+// Returns: array<array> - Array of [index, value] pairs
+export fn enumerate(arr, start?: 0): array {
+    if (typeof(arr) != "array") {
+        throw "enumerate() requires array argument";
+    }
+
+    let result: array = [];
+    let i = 0;
+    while (i < arr.length) {
+        result.push([start + i, arr[i]]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Zip two arrays together into pairs
+// Parameters:
+//   a: array - First array
+//   b: array - Second array
+// Returns: array<array> - Array of [a[i], b[i]] pairs
+// Note: Result length is minimum of both array lengths
+export fn zip(a, b): array {
+    if (typeof(a) != "array") {
+        throw "zip() first argument must be array";
+    }
+    if (typeof(b) != "array") {
+        throw "zip() second argument must be array";
+    }
+
+    let result: array = [];
+    let len = a.length;
+    if (b.length < len) {
+        len = b.length;
+    }
+
+    let i = 0;
+    while (i < len) {
+        result.push([a[i], b[i]]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Zip three arrays together into triples
+// Parameters:
+//   a, b, c: arrays - Arrays to zip
+// Returns: array<array> - Array of [a[i], b[i], c[i]] triples
+export fn zip3(a, b, c): array {
+    if (typeof(a) != "array" || typeof(b) != "array" || typeof(c) != "array") {
+        throw "zip3() requires array arguments";
+    }
+
+    let result: array = [];
+    let len = a.length;
+    if (b.length < len) { len = b.length; }
+    if (c.length < len) { len = c.length; }
+
+    let i = 0;
+    while (i < len) {
+        result.push([a[i], b[i], c[i]]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Unzip an array of pairs into two arrays
+// Parameters:
+//   pairs: array<array> - Array of [a, b] pairs
+// Returns: array - [array_of_a, array_of_b]
+export fn unzip(pairs): array {
+    if (typeof(pairs) != "array") {
+        throw "unzip() requires array argument";
+    }
+
+    let a: array = [];
+    let b: array = [];
+
+    let i = 0;
+    while (i < pairs.length) {
+        let pair = pairs[i];
+        if (typeof(pair) != "array" || pair.length < 2) {
+            throw "unzip() requires array of pairs";
+        }
+        a.push(pair[0]);
+        b.push(pair[1]);
+        i = i + 1;
+    }
+
+    return [a, b];
+}
+
+// Split array into chunks of given size
+// Parameters:
+//   arr: array - Array to chunk
+//   size: i32 - Chunk size
+// Returns: array<array> - Array of chunks
+export fn chunk(arr, size): array {
+    if (typeof(arr) != "array") {
+        throw "chunk() requires array argument";
+    }
+    if (size < 1) {
+        throw "chunk() size must be >= 1";
+    }
+
+    let result: array = [];
+    let i = 0;
+
+    while (i < arr.length) {
+        let ch: array = [];
+        let j = 0;
+        while (j < size && i + j < arr.length) {
+            ch.push(arr[i + j]);
+            j = j + 1;
+        }
+        result.push(ch);
+        i = i + size;
+    }
+
+    return result;
+}
+
+// Take first n elements from array
+// Parameters:
+//   arr: array - Source array
+//   n: i32 - Number of elements to take
+// Returns: array - First n elements
+export fn take(arr, n): array {
+    if (typeof(arr) != "array") {
+        throw "take() requires array argument";
+    }
+    if (n < 0) {
+        throw "take() n must be >= 0";
+    }
+
+    let result: array = [];
+    let count = n;
+    if (count > arr.length) {
+        count = arr.length;
+    }
+
+    let i = 0;
+    while (i < count) {
+        result.push(arr[i]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Drop first n elements from array
+// Parameters:
+//   arr: array - Source array
+//   n: i32 - Number of elements to drop
+// Returns: array - Remaining elements
+export fn drop(arr, n): array {
+    if (typeof(arr) != "array") {
+        throw "drop() requires array argument";
+    }
+    if (n < 0) {
+        throw "drop() n must be >= 0";
+    }
+
+    let result: array = [];
+    let start = n;
+    if (start > arr.length) {
+        start = arr.length;
+    }
+
+    let i = start;
+    while (i < arr.length) {
+        result.push(arr[i]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Take last n elements from array
+// Parameters:
+//   arr: array - Source array
+//   n: i32 - Number of elements to take
+// Returns: array - Last n elements
+export fn take_last(arr, n): array {
+    if (typeof(arr) != "array") {
+        throw "take_last() requires array argument";
+    }
+    if (n < 0) {
+        throw "take_last() n must be >= 0";
+    }
+
+    let start = arr.length - n;
+    if (start < 0) {
+        start = 0;
+    }
+
+    let result: array = [];
+    let i = start;
+    while (i < arr.length) {
+        result.push(arr[i]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Drop last n elements from array
+// Parameters:
+//   arr: array - Source array
+//   n: i32 - Number of elements to drop
+// Returns: array - Remaining elements
+export fn drop_last(arr, n): array {
+    if (typeof(arr) != "array") {
+        throw "drop_last() requires array argument";
+    }
+    if (n < 0) {
+        throw "drop_last() n must be >= 0";
+    }
+
+    let end = arr.length - n;
+    if (end < 0) {
+        end = 0;
+    }
+
+    let result: array = [];
+    let i = 0;
+    while (i < end) {
+        result.push(arr[i]);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Array Processing
+// ============================================================================
+
+// Flatten a nested array one level deep
+// Parameters:
+//   arr: array - Nested array
+// Returns: array - Flattened array
+export fn flatten(arr): array {
+    if (typeof(arr) != "array") {
+        throw "flatten() requires array argument";
+    }
+
+    let result: array = [];
+
+    let i = 0;
+    while (i < arr.length) {
+        let item = arr[i];
+        if (typeof(item) == "array") {
+            let j = 0;
+            while (j < item.length) {
+                result.push(item[j]);
+                j = j + 1;
+            }
+        } else {
+            result.push(item);
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Deep flatten a nested array
+// Parameters:
+//   arr: array - Nested array
+// Returns: array - Fully flattened array
+export fn flatten_deep(arr): array {
+    if (typeof(arr) != "array") {
+        throw "flatten_deep() requires array argument";
+    }
+
+    let result: array = [];
+    flatten_helper(arr, result);
+    return result;
+}
+
+fn flatten_helper(arr, result) {
+    let i = 0;
+    while (i < arr.length) {
+        let item = arr[i];
+        if (typeof(item) == "array") {
+            flatten_helper(item, result);
+        } else {
+            result.push(item);
+        }
+        i = i + 1;
+    }
+}
+
+// Return unique elements from array (preserves order)
+// Parameters:
+//   arr: array - Source array
+// Returns: array - Array with duplicates removed
+export fn unique(arr): array {
+    if (typeof(arr) != "array") {
+        throw "unique() requires array argument";
+    }
+
+    let result: array = [];
+    let seen = {};
+
+    let i = 0;
+    while (i < arr.length) {
+        let item = arr[i];
+        let key = "" + item;  // Convert to string for object key
+
+        if (seen[key] == null) {
+            seen[key] = true;
+            result.push(item);
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Group elements by a key function
+// Parameters:
+//   arr: array - Source array
+//   key_fn: function - Function to extract group key
+// Returns: object - Object with keys mapping to arrays
+export fn group_by(arr, key_fn): object {
+    if (typeof(arr) != "array") {
+        throw "group_by() requires array argument";
+    }
+    if (typeof(key_fn) != "function") {
+        throw "group_by() requires function argument";
+    }
+
+    let result = {};
+
+    let i = 0;
+    while (i < arr.length) {
+        let item = arr[i];
+        let key = "" + key_fn(item);
+
+        if (result[key] == null) {
+            result[key] = [];
+        }
+        result[key].push(item);
+
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Partition array by a predicate function
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: array - [matching, non_matching]
+export fn partition(arr, pred): array {
+    if (typeof(arr) != "array") {
+        throw "partition() requires array argument";
+    }
+    if (typeof(pred) != "function") {
+        throw "partition() requires function argument";
+    }
+
+    let matching: array = [];
+    let non_matching: array = [];
+
+    let i = 0;
+    while (i < arr.length) {
+        let item = arr[i];
+        if (pred(item)) {
+            matching.push(item);
+        } else {
+            non_matching.push(item);
+        }
+        i = i + 1;
+    }
+
+    return [matching, non_matching];
+}
+
+// ============================================================================
+// Accumulation
+// ============================================================================
+
+// Sum all elements in array
+// Parameters:
+//   arr: array - Array of numbers
+// Returns: number - Sum of all elements
+export fn sum(arr) {
+    if (typeof(arr) != "array") {
+        throw "sum() requires array argument";
+    }
+
+    let total: f64 = 0;
+    let i = 0;
+    while (i < arr.length) {
+        total = total + arr[i];
+        i = i + 1;
+    }
+
+    return total;
+}
+
+// Product of all elements in array
+// Parameters:
+//   arr: array - Array of numbers
+// Returns: number - Product of all elements
+export fn product(arr) {
+    if (typeof(arr) != "array") {
+        throw "product() requires array argument";
+    }
+
+    if (arr.length == 0) {
+        return 1;
+    }
+
+    let result: f64 = 1;
+    let i = 0;
+    while (i < arr.length) {
+        result = result * arr[i];
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Find minimum value in array
+// Parameters:
+//   arr: array - Array of numbers
+// Returns: number - Minimum value
+export fn min_val(arr) {
+    if (typeof(arr) != "array") {
+        throw "min_val() requires array argument";
+    }
+    if (arr.length == 0) {
+        throw "min_val() requires non-empty array";
+    }
+
+    let result = arr[0];
+    let i = 1;
+    while (i < arr.length) {
+        if (arr[i] < result) {
+            result = arr[i];
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Find maximum value in array
+// Parameters:
+//   arr: array - Array of numbers
+// Returns: number - Maximum value
+export fn max_val(arr) {
+    if (typeof(arr) != "array") {
+        throw "max_val() requires array argument";
+    }
+    if (arr.length == 0) {
+        throw "max_val() requires non-empty array";
+    }
+
+    let result = arr[0];
+    let i = 1;
+    while (i < arr.length) {
+        if (arr[i] > result) {
+            result = arr[i];
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Calculate average of array elements
+// Parameters:
+//   arr: array - Array of numbers
+// Returns: f64 - Average value
+export fn average(arr): f64 {
+    if (typeof(arr) != "array") {
+        throw "average() requires array argument";
+    }
+    if (arr.length == 0) {
+        throw "average() requires non-empty array";
+    }
+
+    return sum(arr) / arr.length;
+}
+
+// ============================================================================
+// Predicates
+// ============================================================================
+
+// Check if all elements satisfy predicate
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: bool - True if all elements match
+export fn all(arr, pred): bool {
+    if (typeof(arr) != "array") {
+        throw "all() requires array argument";
+    }
+    if (typeof(pred) != "function") {
+        throw "all() requires function argument";
+    }
+
+    let i = 0;
+    while (i < arr.length) {
+        if (!pred(arr[i])) {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
+}
+
+// Check if any element satisfies predicate
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: bool - True if any element matches
+export fn any(arr, pred): bool {
+    if (typeof(arr) != "array") {
+        throw "any() requires array argument";
+    }
+    if (typeof(pred) != "function") {
+        throw "any() requires function argument";
+    }
+
+    let i = 0;
+    while (i < arr.length) {
+        if (pred(arr[i])) {
+            return true;
+        }
+        i = i + 1;
+    }
+
+    return false;
+}
+
+// Check if no elements satisfy predicate
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: bool - True if no elements match
+export fn none(arr, pred): bool {
+    return !any(arr, pred);
+}
+
+// Count elements that satisfy predicate
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: i32 - Count of matching elements
+export fn count(arr, pred): i32 {
+    if (typeof(arr) != "array") {
+        throw "count() requires array argument";
+    }
+    if (typeof(pred) != "function") {
+        throw "count() requires function argument";
+    }
+
+    let n = 0;
+    let i = 0;
+    while (i < arr.length) {
+        if (pred(arr[i])) {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+
+    return n;
+}
+
+// Find first element that satisfies predicate
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: any - First matching element, or null
+export fn find_first(arr, pred) {
+    if (typeof(arr) != "array") {
+        throw "find_first() requires array argument";
+    }
+    if (typeof(pred) != "function") {
+        throw "find_first() requires function argument";
+    }
+
+    let i = 0;
+    while (i < arr.length) {
+        if (pred(arr[i])) {
+            return arr[i];
+        }
+        i = i + 1;
+    }
+
+    return null;
+}
+
+// Find index of first element that satisfies predicate
+// Parameters:
+//   arr: array - Source array
+//   pred: function - Predicate function
+// Returns: i32 - Index of first match, or -1
+export fn find_index(arr, pred): i32 {
+    if (typeof(arr) != "array") {
+        throw "find_index() requires array argument";
+    }
+    if (typeof(pred) != "function") {
+        throw "find_index() requires function argument";
+    }
+
+    let i = 0;
+    while (i < arr.length) {
+        if (pred(arr[i])) {
+            return i;
+        }
+        i = i + 1;
+    }
+
+    return -1;
+}
