@@ -1621,6 +1621,8 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = (strcmp(left.as.as_string->data, right.as.as_string->data) == 0);
         } else if (left.type == HML_VAL_RUNE && right.type == HML_VAL_RUNE) {
             equal = (left.as.as_rune == right.as.as_rune);
+        } else if (left.type == HML_VAL_PTR && right.type == HML_VAL_PTR) {
+            equal = (left.as.as_ptr == right.as.as_ptr);
         } else if (hml_is_numeric(left) && hml_is_numeric(right)) {
             double l = hml_to_f64(left);
             double r = hml_to_f64(right);
@@ -1666,6 +1668,22 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
                 return hml_val_ptr((char*)left.as.as_ptr + offset);
             case HML_OP_SUB:
                 return hml_val_ptr((char*)left.as.as_ptr - offset);
+            default:
+                hml_runtime_error("Invalid operation for pointer type");
+        }
+    }
+
+    // Pointer comparisons (both null and non-null)
+    if (left.type == HML_VAL_PTR && right.type == HML_VAL_PTR) {
+        void *lp = left.as.as_ptr;
+        void *rp = right.as.as_ptr;
+        switch (op) {
+            case HML_OP_EQUAL:         return hml_val_bool(lp == rp);
+            case HML_OP_NOT_EQUAL:     return hml_val_bool(lp != rp);
+            case HML_OP_LESS:          return hml_val_bool(lp < rp);
+            case HML_OP_LESS_EQUAL:    return hml_val_bool(lp <= rp);
+            case HML_OP_GREATER:       return hml_val_bool(lp > rp);
+            case HML_OP_GREATER_EQUAL: return hml_val_bool(lp >= rp);
             default:
                 hml_runtime_error("Invalid operation for pointer type");
         }
@@ -2816,6 +2834,34 @@ HmlValue hml_buffer_capacity(HmlValue buf) {
         hml_runtime_error("capacity requires buffer");
     }
     return hml_val_i32(buf.as.as_buffer->capacity);
+}
+
+// ========== POINTER INDEX OPERATIONS ==========
+
+HmlValue hml_ptr_get(HmlValue ptr, HmlValue index) {
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("Pointer index requires pointer");
+    }
+    void *p = ptr.as.as_ptr;
+    if (p == NULL) {
+        hml_runtime_error("Cannot index into null pointer");
+    }
+    int idx = hml_to_i32(index);
+    // Return the byte as u8 (matching interpreter behavior)
+    return hml_val_u8(((unsigned char *)p)[idx]);
+}
+
+void hml_ptr_set(HmlValue ptr, HmlValue index, HmlValue val) {
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("Pointer index assignment requires pointer");
+    }
+    void *p = ptr.as.as_ptr;
+    if (p == NULL) {
+        hml_runtime_error("Cannot index into null pointer");
+    }
+    int idx = hml_to_i32(index);
+    // Treat as byte array (matching interpreter behavior)
+    ((unsigned char *)p)[idx] = (unsigned char)hml_to_i32(val);
 }
 
 // ========== FFI CALLBACK OPERATIONS ==========
@@ -4486,16 +4532,64 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
 
         int num_params = func->num_params;
         int num_required = func->num_required;
+        int has_rest_param = func->has_rest_param;
 
         // Arity check (error cases are rare)
         if (__builtin_expect(num_args < num_required, 0)) {
-            hml_runtime_error("Function expects %d arguments, got %d", num_required, num_args);
+            if (has_rest_param) {
+                hml_runtime_error("Function expects at least %d arguments, got %d", num_required, num_args);
+            } else {
+                hml_runtime_error("Function expects %d arguments, got %d", num_required, num_args);
+            }
         }
-        if (__builtin_expect(num_args > num_params, 0)) {
+        // Only check max args if no rest param
+        if (__builtin_expect(!has_rest_param && num_args > num_params, 0)) {
             hml_runtime_error("Function expects %d arguments, got %d", num_params, num_args);
         }
 
         HmlClosureEnv *env = (HmlClosureEnv*)func->closure_env;
+
+        // Handle rest parameter: collect extra args into array
+        // Function actually takes num_params + 1 params (last is rest array)
+        if (has_rest_param) {
+            HmlValue rest_array = hml_val_array();
+            for (int i = num_params; i < num_args; i++) {
+                hml_array_push(rest_array, args[i]);
+            }
+
+            // Prepare padded args with rest array as last param
+            HmlValue padded_args[8];
+            int total_params = num_params + 1;  // Regular params + rest array
+
+            // Copy provided args up to num_params
+            int copy_count = (num_args < num_params) ? num_args : num_params;
+            for (int i = 0; i < copy_count; i++) {
+                padded_args[i] = args[i];
+            }
+            // Fill remaining regular params with null
+            for (int i = num_args; i < num_params; i++) {
+                padded_args[i] = HML_NULL_VAL;
+            }
+            // Add rest array as last param
+            padded_args[num_params] = rest_array;
+
+            HmlValue result;
+            switch (total_params) {
+                case 1: result = ((HmlFn1)fn_ptr)(env, padded_args[0]); break;
+                case 2: result = ((HmlFn2)fn_ptr)(env, padded_args[0], padded_args[1]); break;
+                case 3: result = ((HmlFn3)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2]); break;
+                case 4: result = ((HmlFn4)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3]); break;
+                case 5: result = ((HmlFn5)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4]); break;
+                case 6: result = ((HmlFn6)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5]); break;
+                case 7: result = ((HmlFn7)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5], padded_args[6]); break;
+                case 8: result = ((HmlFn8)fn_ptr)(env, padded_args[0], padded_args[1], padded_args[2], padded_args[3], padded_args[4], padded_args[5], padded_args[6], padded_args[7]); break;
+                default:
+                    hml_runtime_error("Functions with more than 7 regular parameters + rest not supported");
+                    result = hml_val_null();
+            }
+            hml_release(&rest_array);
+            return result;
+        }
 
         // Fast paths for common arities (0-3 params cover ~90% of functions)
         // Avoid padded_args array entirely when num_args == num_params

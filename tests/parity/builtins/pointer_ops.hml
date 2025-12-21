@@ -1,0 +1,32 @@
+// Test pointer indexing and comparisons
+
+// Pointer indexing (read/write)
+let p = alloc(16);
+memset(p, 0, 16);
+
+// Write bytes using index syntax
+p[0] = 65;  // 'A'
+p[1] = 66;  // 'B'
+p[2] = 67;  // 'C'
+
+// Read bytes using index syntax
+print(p[0]);  // 65
+print(p[1]);  // 66
+print(p[2]);  // 67
+
+// Pointer comparisons
+let q = p + 1;  // q points one byte after p
+
+print(p == p);  // true
+print(p != q);  // true
+print(p < q);   // true
+print(q > p);   // true
+print(p <= p);  // true
+print(p >= p);  // true
+
+// Null pointer comparison
+let null_ptr = null;
+print(p != null);  // true
+
+free(p);
+print("done");

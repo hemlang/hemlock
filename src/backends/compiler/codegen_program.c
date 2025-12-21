@@ -196,6 +196,12 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         codegen_write(ctx, ", HmlValue %s", safe_param);
         free(safe_param);
     }
+    // Add rest param as extra parameter if present
+    if (func->as.function.rest_param) {
+        char *safe_rest = codegen_sanitize_ident(func->as.function.rest_param);
+        codegen_write(ctx, ", HmlValue %s", safe_rest);
+        free(safe_rest);
+    }
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
 
@@ -218,6 +224,10 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Add parameters as locals
     for (int i = 0; i < func->as.function.num_params; i++) {
         codegen_add_local(ctx, func->as.function.param_names[i]);
+    }
+    // Add rest param as local if present
+    if (func->as.function.rest_param) {
+        codegen_add_local(ctx, func->as.function.rest_param);
     }
 
     // Extract captured variables from environment
@@ -357,14 +367,39 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "HmlClosureEnv *_closure_env = (HmlClosureEnv*)_env;");
 
+    // If function has rest param, collect extra args into an array
+    if (func->as.function.rest_param) {
+        codegen_writeln(ctx, "HmlValue _rest_array = hml_val_array();");
+        codegen_writeln(ctx, "for (int _i = %d; _i < _nargs; _i++) {", func->as.function.num_params);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "hml_array_push(_rest_array, _args[_i]);");
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
+    }
+
     // Call the actual closure function
     codegen_write(ctx, "");
     codegen_indent(ctx);
-    fprintf(ctx->output, "return %s(_closure_env", closure->func_name);
+    if (func->as.function.rest_param) {
+        // Need to capture result, release rest array, then return
+        fprintf(ctx->output, "HmlValue _result = %s(_closure_env", closure->func_name);
+    } else {
+        fprintf(ctx->output, "return %s(_closure_env", closure->func_name);
+    }
     for (int i = 0; i < func->as.function.num_params; i++) {
         fprintf(ctx->output, ", _args[%d]", i);
     }
+    // Pass rest array as last param if present
+    if (func->as.function.rest_param) {
+        fprintf(ctx->output, ", _rest_array");
+    }
     fprintf(ctx->output, ");\n");
+
+    // Cleanup and return for rest param case
+    if (func->as.function.rest_param) {
+        codegen_writeln(ctx, "hml_release(&_rest_array);");
+        codegen_writeln(ctx, "return _result;");
+    }
 
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
@@ -432,9 +467,10 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
             int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
-            codegen_writeln(ctx, "%s = hml_val_function((void*)%sfn_%s, %d, %d, %d);",
+            int has_rest = func->as.function.rest_param ? 1 : 0;
+            codegen_writeln(ctx, "%s = hml_val_function_rest((void*)%sfn_%s, %d, %d, %d, %d);",
                           mangled, module->module_prefix, name,
-                          func->as.function.num_params, num_required, func->as.function.is_async);
+                          func->as.function.num_params, num_required, func->as.function.is_async, has_rest);
         } else if (stmt->type == STMT_LET && stmt->as.let.value) {
             // Non-function let statement - assign to module global
             char mangled[256];

@@ -1,0 +1,44 @@
+// Test rest parameters (...args)
+
+// Simple varargs function
+fn sum(...args) {
+    let total = 0;
+    for (let arg in args) {
+        total = total + arg;
+    }
+    return total;
+}
+
+print(sum(1, 2, 3));
+print(sum(10));
+print(sum());
+
+// Rest param with regular params
+fn log_items(prefix, ...items) {
+    for (let item in items) {
+        print(prefix + item);
+    }
+}
+
+log_items("Item: ", "a", "b", "c");
+
+// Return rest array directly
+fn get_args(...args) {
+    return args;
+}
+
+let arr = get_args(1, 2, 3);
+print(arr.length);
+
+// Rest param in closure
+let adder = fn(base, ...nums) {
+    let result = base;
+    for (let n in nums) {
+        result = result + n;
+    }
+    return result;
+};
+
+print(adder(100, 1, 2, 3));
+
+print("done");

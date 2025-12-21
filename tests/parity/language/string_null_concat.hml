@@ -1,0 +1,15 @@
+// Test string + null concatenation
+
+let s = "hello ";
+let n = null;
+
+// String + null
+print(s + n);
+
+// null + string
+print(n + " world");
+
+// Multiple concatenations
+print("Value is: " + null + "!");
+
+print("done");

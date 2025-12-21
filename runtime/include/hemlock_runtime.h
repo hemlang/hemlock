@@ -332,6 +332,10 @@ void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val);
 HmlValue hml_buffer_length(HmlValue buf);
 HmlValue hml_buffer_capacity(HmlValue buf);
 
+// Pointer index operations (unsafe, no bounds checking)
+HmlValue hml_ptr_get(HmlValue ptr, HmlValue index);
+void hml_ptr_set(HmlValue ptr, HmlValue index, HmlValue val);
+
 // FFI callback operations
 HmlValue hml_callback_create(HmlValue fn, HmlValue arg_types, HmlValue ret_type);
 void hml_callback_free(HmlValue callback);

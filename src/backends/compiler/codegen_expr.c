@@ -2760,6 +2760,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "%s = hml_buffer_get(%s, %s);", result, obj, idx);
             codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
+            codegen_indent_inc(ctx);
+            // Raw pointer indexing - no bounds checking (unsafe!)
+            codegen_writeln(ctx, "%s = hml_ptr_get(%s, %s);", result, obj, idx);
+            codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
             codegen_indent_inc(ctx);
             // Dynamic object property access with string key
@@ -2793,6 +2798,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "hml_buffer_set(%s, %s, %s);", obj, idx, value);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
+            codegen_indent_inc(ctx);
+            // Raw pointer indexing - no bounds checking (unsafe!)
+            codegen_writeln(ctx, "hml_ptr_set(%s, %s, %s);", obj, idx, value);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
             codegen_indent_inc(ctx);
@@ -2875,8 +2885,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 closure->num_captured = 0;
                 closure->shared_env_indices = NULL;
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)%s, %d, %d, %d);",
-                              result, func_name, expr->as.function.num_params, num_required, expr->as.function.is_async);
+                int has_rest = expr->as.function.rest_param ? 1 : 0;
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function_rest((void*)%s, %d, %d, %d, %d);",
+                              result, func_name, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
             } else if (ctx->shared_env_name) {
                 // Use the shared environment
                 // Store the captured variable names and their shared env indices
@@ -2913,8 +2924,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)%s, %d, %d, %d);",
-                              result, func_name, ctx->shared_env_name, expr->as.function.num_params, num_required, expr->as.function.is_async);
+                int has_rest = expr->as.function.rest_param ? 1 : 0;
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env_rest((void*)%s, (void*)%s, %d, %d, %d, %d);",
+                              result, func_name, ctx->shared_env_name, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
 
                 // Track for self-reference fixup
                 ctx->last_closure_env_id = -1;  // Using shared env, different mechanism
@@ -2961,8 +2973,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
-                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env((void*)%s, (void*)_env_%d, %d, %d, %d);",
-                              result, func_name, env_id, expr->as.function.num_params, num_required, expr->as.function.is_async);
+                int has_rest = expr->as.function.rest_param ? 1 : 0;
+                codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env_rest((void*)%s, (void*)_env_%d, %d, %d, %d, %d);",
+                              result, func_name, env_id, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
                 ctx->temp_counter++;
 
                 // Track this closure for potential self-reference fixup in let statements
