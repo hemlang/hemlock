@@ -354,6 +354,371 @@ fn url_decode(input) {
 }
 
 // ============================================================================
+// Base32 Encoding (RFC 4648)
+// ============================================================================
+
+// Base32 encoding table (RFC 4648 standard alphabet)
+let BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+// Base32 padding character
+let BASE32_PAD = '=';
+
+// Encode string to Base32
+// Parameters:
+//   input: string - Input string to encode
+// Returns: string - Base32 encoded string
+export fn base32_encode(input) {
+    if (typeof(input) != "string") {
+        throw "base32_encode() requires string argument";
+    }
+
+    let bytes = input.bytes();
+    let result = "";
+
+    let i = 0;
+    while (i < bytes.length) {
+        // Read up to 5 bytes (40 bits) and convert to 8 Base32 characters (5 bits each)
+        let b1 = bytes[i];
+        let b2: i32 = 0;
+        let b3: i32 = 0;
+        let b4: i32 = 0;
+        let b5: i32 = 0;
+
+        if (i + 1 < bytes.length) { b2 = bytes[i + 1]; }
+        if (i + 2 < bytes.length) { b3 = bytes[i + 2]; }
+        if (i + 3 < bytes.length) { b4 = bytes[i + 3]; }
+        if (i + 4 < bytes.length) { b5 = bytes[i + 4]; }
+
+        // Character 1: bits 0-4 of byte 1
+        let idx1 = (b1 >> 3) & 31;
+        result = result + BASE32_CHARS[idx1];
+
+        // Character 2: bits 5-7 of byte 1, bits 0-1 of byte 2
+        let idx2 = ((b1 & 7) << 2) | ((b2 >> 6) & 3);
+        result = result + BASE32_CHARS[idx2];
+
+        // Character 3: bits 2-6 of byte 2
+        if (i + 1 < bytes.length) {
+            let idx3 = (b2 >> 1) & 31;
+            result = result + BASE32_CHARS[idx3];
+        } else {
+            result = result + BASE32_PAD;
+        }
+
+        // Character 4: bit 7 of byte 2, bits 0-3 of byte 3
+        if (i + 1 < bytes.length) {
+            let idx4 = ((b2 & 1) << 4) | ((b3 >> 4) & 15);
+            result = result + BASE32_CHARS[idx4];
+        } else {
+            result = result + BASE32_PAD;
+        }
+
+        // Character 5: bits 4-7 of byte 3, bit 0 of byte 4
+        if (i + 2 < bytes.length) {
+            let idx5 = ((b3 & 15) << 1) | ((b4 >> 7) & 1);
+            result = result + BASE32_CHARS[idx5];
+        } else {
+            result = result + BASE32_PAD;
+        }
+
+        // Character 6: bits 1-5 of byte 4
+        if (i + 3 < bytes.length) {
+            let idx6 = (b4 >> 2) & 31;
+            result = result + BASE32_CHARS[idx6];
+        } else {
+            result = result + BASE32_PAD;
+        }
+
+        // Character 7: bits 6-7 of byte 4, bits 0-2 of byte 5
+        if (i + 3 < bytes.length) {
+            let idx7 = ((b4 & 3) << 3) | ((b5 >> 5) & 7);
+            result = result + BASE32_CHARS[idx7];
+        } else {
+            result = result + BASE32_PAD;
+        }
+
+        // Character 8: bits 3-7 of byte 5
+        if (i + 4 < bytes.length) {
+            let idx8 = b5 & 31;
+            result = result + BASE32_CHARS[idx8];
+        } else {
+            result = result + BASE32_PAD;
+        }
+
+        i = i + 5;
+    }
+
+    return result;
+}
+
+// Helper: Convert Base32 character to value (0-31)
+fn base32_char_to_value(ch: rune): i32 {
+    let code: i32 = ch;
+    // A-Z (65-90) -> 0-25
+    if (code >= 65 && code <= 90) { return code - 65; }
+    // a-z (97-122) -> 0-25 (case insensitive)
+    if (code >= 97 && code <= 122) { return code - 97; }
+    // 2-7 (50-55) -> 26-31
+    if (code >= 50 && code <= 55) { return code - 50 + 26; }
+    return -1;
+}
+
+// Decode Base32 string to original string
+// Parameters:
+//   input: string - Base32 encoded string
+// Returns: string - Decoded string
+export fn base32_decode(input) {
+    if (typeof(input) != "string") {
+        throw "base32_decode() requires string argument";
+    }
+
+    // Remove whitespace
+    let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all("\t", "");
+
+    // Validate length (must be multiple of 8)
+    if (clean.length % 8 != 0) {
+        throw "Invalid Base32 string: length must be multiple of 8";
+    }
+
+    let bytes = [];
+    let i = 0;
+
+    while (i < clean.length) {
+        // Read 8 Base32 characters
+        let chars = [];
+        let j = 0;
+        while (j < 8) {
+            let ch = clean[i + j];
+            if (ch == BASE32_PAD) {
+                chars.push(-1);
+            } else {
+                let val = base32_char_to_value(ch);
+                if (val == -1) {
+                    throw "Invalid Base32 string: invalid character";
+                }
+                chars.push(val);
+            }
+            j = j + 1;
+        }
+
+        // Decode to up to 5 bytes
+        // Byte 1: 5 bits from char1, 3 bits from char2
+        if (chars[0] >= 0 && chars[1] >= 0) {
+            let b1 = ((chars[0] << 3) | (chars[1] >> 2)) & 255;
+            bytes.push(b1);
+        }
+
+        // Byte 2: 2 bits from char2, 5 bits from char3, 1 bit from char4
+        if (chars[2] >= 0 && chars[3] >= 0) {
+            let b2 = ((chars[1] << 6) | (chars[2] << 1) | (chars[3] >> 4)) & 255;
+            bytes.push(b2);
+        }
+
+        // Byte 3: 4 bits from char4, 4 bits from char5
+        if (chars[3] >= 0 && chars[4] >= 0) {
+            let b3 = ((chars[3] << 4) | (chars[4] >> 1)) & 255;
+            bytes.push(b3);
+        }
+
+        // Byte 4: 1 bit from char5, 5 bits from char6, 2 bits from char7
+        if (chars[5] >= 0 && chars[6] >= 0) {
+            let b4 = ((chars[4] << 7) | (chars[5] << 2) | (chars[6] >> 3)) & 255;
+            bytes.push(b4);
+        }
+
+        // Byte 5: 3 bits from char7, 5 bits from char8
+        if (chars[6] >= 0 && chars[7] >= 0) {
+            let b5 = ((chars[6] << 5) | chars[7]) & 255;
+            bytes.push(b5);
+        }
+
+        i = i + 8;
+    }
+
+    return __string_from_bytes(bytes);
+}
+
+// ============================================================================
+// Base58 Encoding (Bitcoin alphabet)
+// ============================================================================
+
+// Base58 alphabet (Bitcoin variant - no 0, O, I, l to avoid confusion)
+let BASE58_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+// Encode string to Base58
+// Parameters:
+//   input: string - Input string to encode
+// Returns: string - Base58 encoded string
+export fn base58_encode(input) {
+    if (typeof(input) != "string") {
+        throw "base58_encode() requires string argument";
+    }
+
+    let bytes = input.bytes();
+    if (bytes.length == 0) {
+        return "";
+    }
+
+    // Count leading zeros (they become leading '1's in Base58)
+    let leading_zeros = 0;
+    let k = 0;
+    while (k < bytes.length && bytes[k] == 0) {
+        leading_zeros = leading_zeros + 1;
+        k = k + 1;
+    }
+
+    // Allocate enough space for result (worst case: input_len * 138/100 + 1)
+    let size = bytes.length * 2;
+    let b58: array = [];
+    let m = 0;
+    while (m < size) {
+        b58.push(0);
+        m = m + 1;
+    }
+
+    // Process each byte
+    let i = 0;
+    while (i < bytes.length) {
+        let carry: i64 = bytes[i];
+        let j = 0;
+
+        // Apply "b58 = b58 * 256 + carry"
+        let idx = size - 1;
+        while (idx >= 0 && (carry != 0 || j < size)) {
+            carry = carry + (b58[idx] * 256);
+            b58[idx] = carry % 58;
+            carry = divi(carry, 58);
+            idx = idx - 1;
+            j = j + 1;
+        }
+
+        i = i + 1;
+    }
+
+    // Skip leading zeros in b58 result
+    let start = 0;
+    while (start < size && b58[start] == 0) {
+        start = start + 1;
+    }
+
+    // Build result string
+    let result = "";
+
+    // Add leading '1's for each leading zero byte
+    let z = 0;
+    while (z < leading_zeros) {
+        result = result + "1";
+        z = z + 1;
+    }
+
+    // Add the rest
+    while (start < size) {
+        result = result + BASE58_CHARS[b58[start]];
+        start = start + 1;
+    }
+
+    return result;
+}
+
+// Helper: Convert Base58 character to value (0-57)
+fn base58_char_to_value(ch: rune): i32 {
+    let code: i32 = ch;
+    // 1-9 (49-57) -> 0-8
+    if (code >= 49 && code <= 57) { return code - 49; }
+    // A-H (65-72) -> 9-16
+    if (code >= 65 && code <= 72) { return code - 65 + 9; }
+    // J-N (74-78) -> 17-21 (skip I)
+    if (code >= 74 && code <= 78) { return code - 74 + 17; }
+    // P-Z (80-90) -> 22-32 (skip O)
+    if (code >= 80 && code <= 90) { return code - 80 + 22; }
+    // a-k (97-107) -> 33-43
+    if (code >= 97 && code <= 107) { return code - 97 + 33; }
+    // m-z (109-122) -> 44-57 (skip l)
+    if (code >= 109 && code <= 122) { return code - 109 + 44; }
+    return -1;
+}
+
+// Decode Base58 string to original string
+// Parameters:
+//   input: string - Base58 encoded string
+// Returns: string - Decoded string
+export fn base58_decode(input) {
+    if (typeof(input) != "string") {
+        throw "base58_decode() requires string argument";
+    }
+
+    if (input.length == 0) {
+        return "";
+    }
+
+    // Count leading '1's (they become leading zero bytes)
+    let leading_ones = 0;
+    let k = 0;
+    while (k < input.length && input[k] == '1') {
+        leading_ones = leading_ones + 1;
+        k = k + 1;
+    }
+
+    // Allocate enough space for result
+    let size = input.length * 2;
+    let b256: array = [];
+    let m = 0;
+    while (m < size) {
+        b256.push(0);
+        m = m + 1;
+    }
+
+    // Process each character
+    let i = 0;
+    while (i < input.length) {
+        let ch = input[i];
+        let val = base58_char_to_value(ch);
+        if (val == -1) {
+            throw "Invalid Base58 string: invalid character";
+        }
+
+        let carry: i64 = val;
+        let j = 0;
+
+        // Apply "b256 = b256 * 58 + val"
+        let idx = size - 1;
+        while (idx >= 0 && (carry != 0 || j < size)) {
+            carry = carry + (b256[idx] * 58);
+            b256[idx] = carry % 256;
+            carry = divi(carry, 256);
+            idx = idx - 1;
+            j = j + 1;
+        }
+
+        i = i + 1;
+    }
+
+    // Skip leading zeros in b256 result
+    let start = 0;
+    while (start < size && b256[start] == 0) {
+        start = start + 1;
+    }
+
+    // Build result bytes
+    let bytes = [];
+
+    // Add leading zeros for each leading '1'
+    let z = 0;
+    while (z < leading_ones) {
+        bytes.push(0);
+        z = z + 1;
+    }
+
+    // Add the rest
+    while (start < size) {
+        bytes.push(b256[start]);
+        start = start + 1;
+    }
+
+    return __string_from_bytes(bytes);
+}
+
+// ============================================================================
 // Export Note
 // ============================================================================
 

@@ -5,6 +5,8 @@ The `@stdlib/encoding` module provides encoding and decoding utilities for commo
 ## Features
 
 - **Base64 encoding/decoding** - Standard Base64 alphabet with padding
+- **Base32 encoding/decoding** - RFC 4648 standard alphabet
+- **Base58 encoding/decoding** - Bitcoin alphabet (no confusing characters)
 - **Hexadecimal encoding/decoding** - Convert binary data to/from hex strings
 - **URL encoding/decoding** - Percent-encoding for safe URL transmission
 
@@ -13,6 +15,8 @@ The `@stdlib/encoding` module provides encoding and decoding utilities for commo
 ```hemlock
 // Import specific functions
 import { base64_encode, base64_decode } from "@stdlib/encoding";
+import { base32_encode, base32_decode } from "@stdlib/encoding";
+import { base58_encode, base58_decode } from "@stdlib/encoding";
 import { hex_encode, hex_decode } from "@stdlib/encoding";
 import { url_encode, url_decode } from "@stdlib/encoding";
 
@@ -99,6 +103,136 @@ print(decoded2 == original);  // true
 // Whitespace is automatically removed
 let decoded3 = base64_decode("SGVs bG8s IFdv cmxk IQ==");
 print(decoded3);  // "Hello, World!"
+```
+
+---
+
+## Base32 Encoding
+
+Base32 encodes binary data using a 32-character alphabet (A-Z, 2-7) with `=` padding. It's commonly used in TOTP tokens and file systems where case-insensitivity is needed.
+
+### base32_encode(input: string): string
+
+Encodes a string to Base32 format (RFC 4648).
+
+**Parameters:**
+- `input` - String to encode (required)
+
+**Returns:** Base32-encoded string with padding
+
+**Throws:**
+- Error if `input` is not a string
+
+**Examples:**
+```hemlock
+import { base32_encode } from "@stdlib/encoding";
+
+// Basic encoding
+let encoded = base32_encode("Hello");
+print(encoded);  // "JBSWY3DP"
+
+// Longer text
+let encoded2 = base32_encode("Hello, World!");
+print(encoded2);  // "JBSWY3DPFQQFO33SNRSCC==="
+```
+
+---
+
+### base32_decode(input: string): string
+
+Decodes a Base32-encoded string back to the original string.
+
+**Parameters:**
+- `input` - Base32 string to decode (required, case-insensitive)
+
+**Returns:** Decoded original string
+
+**Throws:**
+- Error if `input` is not a string
+- Error if Base32 string length is not a multiple of 8
+- Error if Base32 string contains invalid characters
+
+**Examples:**
+```hemlock
+import { base32_decode } from "@stdlib/encoding";
+
+// Basic decoding
+let decoded = base32_decode("JBSWY3DP");
+print(decoded);  // "Hello"
+
+// Case-insensitive
+let decoded2 = base32_decode("jbswy3dp");
+print(decoded2);  // "Hello"
+
+// Round-trip
+let original = "Secret123";
+let encoded = base32_encode(original);
+let decoded3 = base32_decode(encoded);
+print(decoded3 == original);  // true
+```
+
+---
+
+## Base58 Encoding
+
+Base58 uses a 58-character alphabet that excludes easily confused characters (0, O, I, l). It's commonly used in Bitcoin addresses, IPFS hashes, and other systems where human-readability matters.
+
+### base58_encode(input: string): string
+
+Encodes a string to Base58 format (Bitcoin alphabet).
+
+**Parameters:**
+- `input` - String to encode (required)
+
+**Returns:** Base58-encoded string (no padding)
+
+**Throws:**
+- Error if `input` is not a string
+
+**Examples:**
+```hemlock
+import { base58_encode } from "@stdlib/encoding";
+
+// Basic encoding
+let encoded = base58_encode("Hello");
+print(encoded);  // "9Ajdvzr"
+
+// Leading zero bytes become leading '1's
+let data = "";
+let zero: rune = 0;
+data = data + zero + zero + "Hi";
+let encoded2 = base58_encode(data);
+print(encoded2);  // "11..." (starts with two 1's)
+```
+
+---
+
+### base58_decode(input: string): string
+
+Decodes a Base58-encoded string back to the original string.
+
+**Parameters:**
+- `input` - Base58 string to decode (required)
+
+**Returns:** Decoded original string
+
+**Throws:**
+- Error if `input` is not a string
+- Error if Base58 string contains invalid characters (0, O, I, l are not valid)
+
+**Examples:**
+```hemlock
+import { base58_decode } from "@stdlib/encoding";
+
+// Basic decoding
+let decoded = base58_decode("9Ajdvzr");
+print(decoded);  // "Hello"
+
+// Round-trip
+let original = "Hello, World!";
+let encoded = base58_encode(original);
+let decoded2 = base58_decode(encoded);
+print(decoded2 == original);  // true
 ```
 
 ---
@@ -376,6 +510,22 @@ try {
 - Padding character: `=`
 - Whitespace in input is automatically removed during decoding
 - Supports binary data (all byte values 0-255)
+
+### Base32
+
+- Uses RFC 4648 standard alphabet: `A-Z`, `2-7`
+- Padding character: `=`
+- Case-insensitive decoding (accepts both uppercase and lowercase)
+- 8 output characters per 5 input bytes
+- ~60% size increase
+
+### Base58
+
+- Uses Bitcoin alphabet: `123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`
+- Excludes confusing characters: `0` (zero), `O` (uppercase o), `I` (uppercase i), `l` (lowercase L)
+- No padding (variable-length output)
+- Leading zero bytes in input become leading `1` characters
+- ~37% size increase on average
 
 ### Hexadecimal
 
