@@ -305,6 +305,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u32, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident, "__read_u64") == 0 || strcmp(expr->as.ident, "read_u64") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u64, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident, "__read_ptr") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_ptr, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident, "__strerror") == 0 || strcmp(expr->as.ident, "strerror") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strerror, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident, "__dirent_name") == 0 || strcmp(expr->as.ident, "dirent_name") == 0) {

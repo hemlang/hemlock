@@ -8239,6 +8239,15 @@ HmlValue hml_read_u64(HmlValue ptr_val) {
     return hml_val_u64(*ptr);
 }
 
+// Read a pointer value from a pointer (double indirection)
+HmlValue hml_read_ptr(HmlValue ptr_val) {
+    if (ptr_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__read_ptr() requires a pointer");
+    }
+    void **pptr = (void**)ptr_val.as.as_ptr;
+    return hml_val_ptr(*pptr);
+}
+
 // Get the last error string (strerror(errno))
 HmlValue hml_strerror(void) {
     return hml_val_string(strerror(errno));
@@ -8297,6 +8306,11 @@ HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr) {
 HmlValue hml_builtin_read_u64(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
     return hml_read_u64(ptr);
+}
+
+HmlValue hml_builtin_read_ptr(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    return hml_read_ptr(ptr);
 }
 
 HmlValue hml_builtin_strerror(HmlClosureEnv *env) {

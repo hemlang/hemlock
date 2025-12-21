@@ -1609,6 +1609,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // __read_ptr(ptr) - read pointer from pointer (double indirection)
+                if (strcmp(fn_name, "__read_ptr") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_read_ptr(%s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
                 // ========== HTTP/WEBSOCKET BUILTINS ==========
 
                 // __lws_http_get(url)

@@ -502,6 +502,7 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data);
 
 HmlValue hml_read_u32(HmlValue ptr);
 HmlValue hml_read_u64(HmlValue ptr);
+HmlValue hml_read_ptr(HmlValue ptr);
 HmlValue hml_strerror(void);
 HmlValue hml_dirent_name(HmlValue ptr);
 HmlValue hml_string_to_cstr(HmlValue str);
@@ -511,6 +512,7 @@ HmlValue hml_string_from_bytes(HmlValue arg);
 // Internal helper builtin wrappers
 HmlValue hml_builtin_read_u32(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_read_u64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_read_ptr(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_strerror(HmlClosureEnv *env);
 HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
