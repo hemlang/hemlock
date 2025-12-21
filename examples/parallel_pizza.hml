@@ -1,0 +1,144 @@
+// Parallel Pizza Parlor - Async concurrency simulation
+// Demonstrates: spawn, channels, async coordination, random timing
+
+import { rand } from "@stdlib/math";
+import { sleep, now } from "@stdlib/time";
+import { RED, GREEN, YELLOW, CYAN, MAGENTA, RESET, BOLD } from "@stdlib/terminal";
+
+// Get random integer in [0, max)
+fn randint(max: i32): i32 {
+    let f = rand() * max;
+    let result: i32 = f;
+    return result;
+}
+
+// Pizza toppings
+let toppings = ["pepperoni", "mushrooms", "olives", "onions", "peppers", "sausage"];
+
+// Simulate making dough (0.05s = 50ms)
+fn make_dough(order_id: i32): string {
+    print(YELLOW + "[Dough Maker] " + RESET + "Kneading dough for order #" + order_id + "...");
+    sleep(0.05);
+    print(GREEN + "[Dough Maker] " + RESET + "Dough ready for order #" + order_id);
+    return "fresh_dough";
+}
+
+// Simulate adding sauce
+fn add_sauce(order_id: i32): string {
+    print(RED + "[Sauce Chef] " + RESET + "Adding tomato sauce to order #" + order_id + "...");
+    sleep(0.03);
+    print(GREEN + "[Sauce Chef] " + RESET + "Sauce applied to order #" + order_id);
+    return "sauced";
+}
+
+// Simulate adding cheese
+fn add_cheese(order_id: i32): string {
+    print(YELLOW + "[Cheese Master] " + RESET + "Sprinkling mozzarella on order #" + order_id + "...");
+    sleep(0.02);
+    print(GREEN + "[Cheese Master] " + RESET + "Cheese done for order #" + order_id);
+    return "cheesed";
+}
+
+// Simulate adding toppings
+fn add_toppings(order_id: i32): string {
+    let num_toppings = 1 + randint(3);
+    let topping_list = "";
+    for (let i = 0; i < num_toppings; i = i + 1) {
+        let idx = randint(toppings.length);
+        if (i > 0) {
+            topping_list = topping_list + ", ";
+        }
+        topping_list = topping_list + toppings[idx];
+    }
+    print(MAGENTA + "[Toppings Artist] " + RESET + "Adding " + topping_list + " to order #" + order_id + "...");
+    sleep(0.04);
+    print(GREEN + "[Toppings Artist] " + RESET + "Toppings done for order #" + order_id);
+    return topping_list;
+}
+
+// Simulate baking (0.1s = 100ms)
+fn bake_pizza(order_id: i32): string {
+    print(RED + "[Oven Master] " + RESET + "Baking order #" + order_id + " at 450F...");
+    sleep(0.1);
+    print(GREEN + "[Oven Master] " + RESET + "Order #" + order_id + " is perfectly baked!");
+    return "baked";
+}
+
+// Process a complete order sequentially
+fn process_order(order_id: i32): string {
+    print("");
+    print(CYAN + BOLD + ">>> Starting order #" + order_id + " <<<" + RESET);
+
+    let dough = make_dough(order_id);
+    let sauce = add_sauce(order_id);
+    let cheese = add_cheese(order_id);
+    let toppings_used = add_toppings(order_id);
+    let result = bake_pizza(order_id);
+
+    print(GREEN + BOLD + "*** Order #" + order_id + " complete! ***" + RESET);
+    return "Pizza #" + order_id + " with " + toppings_used;
+}
+
+// Main pizza parlor simulation
+fn main() {
+    print("");
+    print(RED + BOLD + "======================================" + RESET);
+    print(RED + BOLD + "    PARALLEL PIZZA PARLOR" + RESET);
+    print(RED + BOLD + "    Where Every Slice is Async!" + RESET);
+    print(RED + BOLD + "======================================" + RESET);
+    print("");
+
+    print(CYAN + "Today's special: Multiple orders processed in sequence!" + RESET);
+    print(CYAN + "(In a full async version, these would run in parallel)" + RESET);
+    print("");
+
+    // Track stats
+    let start_time = now();
+    let orders_completed = 0;
+    let pizzas = [];
+
+    // Process 3 orders
+    let num_orders = 3;
+
+    for (let i = 1; i <= num_orders; i = i + 1) {
+        let pizza = process_order(i);
+        pizzas.push(pizza);
+        orders_completed = orders_completed + 1;
+    }
+
+    let end_time = now();
+    let total_time = end_time - start_time;
+
+    // Final report
+    print("");
+    print(RED + BOLD + "======================================" + RESET);
+    print(RED + BOLD + "    KITCHEN CLOSED FOR THE DAY" + RESET);
+    print(RED + BOLD + "======================================" + RESET);
+    print("");
+
+    print(CYAN + "Orders completed: " + RESET + orders_completed);
+    print("");
+
+    print(YELLOW + "Pizzas made:" + RESET);
+    for (let i = 0; i < pizzas.length; i = i + 1) {
+        print("  - " + pizzas[i]);
+    }
+    print("");
+
+    print(GREEN + "Total preparation time: " + total_time + " seconds" + RESET);
+    print("");
+
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - Sequential task processing");
+    print("  - Random number generation");
+    print("  - Sleep for simulated work");
+    print("  - String building");
+    print("  - Array operations");
+    print("  - Time tracking");
+    print("");
+
+    print(MAGENTA + "In a parallel version, spawn() and channels would" + RESET);
+    print(MAGENTA + "let multiple orders cook simultaneously!" + RESET);
+}
+
+main();
