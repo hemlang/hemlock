@@ -782,10 +782,19 @@ void hml_call_exit(void);
 // Thread-local call depth counter (exposed for inline macros)
 extern __thread int hml_g_call_depth;
 
+// Thread-local maximum call depth (can be modified at runtime)
+extern __thread int hml_g_max_call_depth;
+
+// Get/set stack limit functions
+HmlValue hml_get_stack_limit(void);
+HmlValue hml_set_stack_limit(HmlValue limit);
+HmlValue hml_builtin_get_stack_limit(HmlClosureEnv *env);
+HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit);
+
 // Inline call depth tracking macros (faster than function calls)
 // Use branch prediction hint - stack overflow is rare
 #define HML_CALL_ENTER() do { \
-    if (__builtin_expect(++hml_g_call_depth > HML_MAX_CALL_DEPTH, 0)) { \
+    if (__builtin_expect(++hml_g_call_depth > hml_g_max_call_depth, 0)) { \
         hml_g_call_depth = 0; \
         hml_runtime_error("Maximum call stack depth exceeded (infinite recursion?)"); \
     } \

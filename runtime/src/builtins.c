@@ -6222,6 +6222,37 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
 // Exposed globally for inline macro access (hml_g_call_depth)
 __thread int hml_g_call_depth = 0;
 
+// Thread-local maximum call depth (can be modified at runtime)
+// Initialized to default value, can be changed via set_stack_limit()
+__thread int hml_g_max_call_depth = HML_MAX_CALL_DEPTH;
+
+// Get the current stack limit
+HmlValue hml_get_stack_limit(void) {
+    return hml_val_i32(hml_g_max_call_depth);
+}
+
+// Set the stack limit (returns the old limit)
+HmlValue hml_set_stack_limit(HmlValue limit) {
+    int old_limit = hml_g_max_call_depth;
+    int new_limit = hml_to_i32(limit);
+    if (new_limit <= 0) {
+        hml_runtime_error("set_stack_limit() expects a positive integer");
+    }
+    hml_g_max_call_depth = new_limit;
+    return hml_val_i32(old_limit);
+}
+
+// Builtin wrapper versions (for function references)
+HmlValue hml_builtin_get_stack_limit(HmlClosureEnv *env) {
+    (void)env;
+    return hml_get_stack_limit();
+}
+
+HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit) {
+    (void)env;
+    return hml_set_stack_limit(limit);
+}
+
 // Function versions for backwards compatibility (macros are faster)
 void hml_call_enter(void) {
     HML_CALL_ENTER();

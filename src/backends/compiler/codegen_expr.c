@@ -437,6 +437,21 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // Handle get_stack_limit builtin
+                if (strcmp(fn_name, "get_stack_limit") == 0 && expr->as.call.num_args == 0) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_get_stack_limit();", result);
+                    break;
+                }
+
+                // Handle set_stack_limit builtin
+                if (strcmp(fn_name, "set_stack_limit") == 0 && expr->as.call.num_args == 1) {
+                    char *limit = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_set_stack_limit(%s);", result, limit);
+                    codegen_writeln(ctx, "hml_release(&%s);", limit);
+                    free(limit);
+                    break;
+                }
+
                 // Handle exec builtin for command execution
                 if ((strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 1) {
                     char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
