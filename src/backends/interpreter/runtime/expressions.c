@@ -506,6 +506,34 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
+            // Pointer comparisons (both null and non-null)
+            if (left.type == VAL_PTR && right.type == VAL_PTR) {
+                void *lp = left.as.as_ptr;
+                void *rp = right.as.as_ptr;
+                switch (expr->as.binary.op) {
+                    case OP_EQUAL:
+                        binary_result = val_bool(lp == rp);
+                        goto binary_cleanup;
+                    case OP_NOT_EQUAL:
+                        binary_result = val_bool(lp != rp);
+                        goto binary_cleanup;
+                    case OP_LESS:
+                        binary_result = val_bool(lp < rp);
+                        goto binary_cleanup;
+                    case OP_LESS_EQUAL:
+                        binary_result = val_bool(lp <= rp);
+                        goto binary_cleanup;
+                    case OP_GREATER:
+                        binary_result = val_bool(lp > rp);
+                        goto binary_cleanup;
+                    case OP_GREATER_EQUAL:
+                        binary_result = val_bool(lp >= rp);
+                        goto binary_cleanup;
+                    default:
+                        break;
+                }
+            }
+
             // Null comparisons (including NULL pointers)
             if (left.type == VAL_NULL || right.type == VAL_NULL ||
                 (left.type == VAL_PTR && left.as.as_ptr == NULL) ||
