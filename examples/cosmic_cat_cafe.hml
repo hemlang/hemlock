@@ -1,0 +1,131 @@
+// Cosmic Cat Cafe - A whimsical cat cafe simulation
+// Demonstrates: objects, arrays, string methods, terminal colors, random
+
+import { rand } from "@stdlib/math";
+import { RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, RESET, BOLD } from "@stdlib/terminal";
+
+// Get color for mood
+fn mood_color(mood: string): string {
+    if (mood == "sleepy") { return BLUE; }
+    if (mood == "chaotic") { return RED; }
+    if (mood == "hungry") { return YELLOW; }
+    if (mood == "smug") { return MAGENTA; }
+    return CYAN;
+}
+
+// Determine mood from activity
+fn get_mood_from_activity(activity: string): string {
+    if (activity.contains("napping") || activity.contains("sunbeam")) {
+        return "sleepy";
+    } else if (activity.contains("knocking") || activity.contains("zooming")) {
+        return "chaotic";
+    } else if (activity.contains("treats")) {
+        return "hungry";
+    } else if (activity.contains("judging")) {
+        return "smug";
+    }
+    return "content";
+}
+
+// Get random integer in [0, max) using type annotation for conversion
+fn randint(max: i32): i32 {
+    let f = rand() * max;
+    let result: i32 = f;
+    return result;
+}
+
+// Check if cat causes chaos based on their chaos level
+fn causes_chaos(chaos_level: i32): bool {
+    let roll = randint(10);
+    return roll < chaos_level;
+}
+
+// Main cafe simulation
+fn main() {
+    print("");
+    print(CYAN + BOLD + "========================================" + RESET);
+    print(CYAN + BOLD + "    WELCOME TO COSMIC CAT CAFE" + RESET);
+    print(CYAN + BOLD + "    Where cats run the universe..." + RESET);
+    print(CYAN + BOLD + "========================================" + RESET);
+    print("");
+
+    // Cat data - name and chaos level
+    let cat_names = ["Whiskers", "Lord Chaos", "Zen Master Mittens", "Princess Fluffybottom"];
+    let cat_chaos = [2, 8, 1, 5];
+    let cat_moods = ["content", "content", "content", "content"];
+    let cat_actions = [0, 0, 0, 0];
+
+    // Activities cats might do
+    let activities = [
+        "napping in a sunbeam",
+        "knocking a cup off the table",
+        "demanding treats loudly",
+        "judging customers silently",
+        "chasing an invisible bug",
+        "sitting in a box too small",
+        "ignoring expensive cat toy",
+        "zooming across the room"
+    ];
+
+    print(GREEN + "[CAFE]" + RESET + " Opening for business!");
+    print("");
+
+    // Each cat clocks in
+    for (let c = 0; c < 4; c = c + 1) {
+        print(MAGENTA + "[CAFE]" + RESET + " " + cat_names[c] + " clocks in (chaos level: " + cat_chaos[c] + ")");
+    }
+    print("");
+
+    // Simulate the day - each cat does activities
+    let chaos_events = [];
+
+    for (let c = 0; c < 4; c = c + 1) {
+        // Each cat does 2 activities
+        for (let i = 0; i < 2; i = i + 1) {
+            let activity_idx = randint(8);
+            let activity = activities[activity_idx];
+
+            let new_mood = get_mood_from_activity(activity);
+            cat_moods[c] = new_mood;
+            cat_actions[c] = cat_actions[c] + 1;
+
+            let color = mood_color(new_mood);
+            print(color + "[" + cat_names[c] + "]" + RESET + " is " + activity + " (mood: " + new_mood + ")");
+
+            // Check for chaos
+            if (causes_chaos(cat_chaos[c])) {
+                let event = cat_names[c] + " knocked over someone's latte!";
+                chaos_events.push(event);
+                print(RED + "  ** CHAOS! **" + RESET);
+            }
+        }
+    }
+
+    print("");
+
+    // Report chaos events
+    if (chaos_events.length > 0) {
+        print(RED + BOLD + "=== CHAOS REPORT ===" + RESET);
+        for (let e = 0; e < chaos_events.length; e = e + 1) {
+            print(RED + "  - " + chaos_events[e] + RESET);
+        }
+        print("");
+    }
+
+    // Closing time summary
+    print(CYAN + BOLD + "========================================" + RESET);
+    print(CYAN + BOLD + "        CAFE CLOSED FOR THE DAY" + RESET);
+    print(CYAN + BOLD + "========================================" + RESET);
+    print("");
+
+    // Final status for each cat
+    for (let c = 0; c < 4; c = c + 1) {
+        let color = mood_color(cat_moods[c]);
+        print(color + cat_names[c] + RESET + " did " + cat_actions[c] + " activities, now feeling " + cat_moods[c]);
+    }
+
+    print("");
+    print(GREEN + "Another successful day at Cosmic Cat Cafe!" + RESET);
+}
+
+main();
