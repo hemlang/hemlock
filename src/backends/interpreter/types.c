@@ -320,8 +320,14 @@ int value_is_truthy(Value val) {
         return value_to_float(val) != 0.0;
     } else if (val.type == VAL_NULL) {
         return 0;
+    } else if (val.type == VAL_STRING) {
+        // Empty string is falsy, non-empty string is truthy
+        return val.as.as_string != NULL && val.as.as_string->length > 0;
+    } else if (val.type == VAL_ARRAY) {
+        // Empty array is falsy, non-empty array is truthy
+        return val.as.as_array != NULL && val.as.as_array->length > 0;
     }
-    return 1;  // strings, etc. are truthy
+    return 1;  // objects, functions, etc. are truthy
 }
 
 // ========== TYPE PROMOTION ==========

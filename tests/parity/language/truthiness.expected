@@ -1,0 +1,12 @@
+=== String truthiness ===
+empty string: falsy
+non-empty string: truthy
+=== Array truthiness ===
+empty array: falsy
+non-empty array: truthy
+=== Number truthiness ===
+zero: falsy
+one: truthy
+=== Null truthiness ===
+null: falsy
+=== Done ===

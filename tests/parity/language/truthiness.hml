@@ -1,0 +1,53 @@
+// Parity test for truthiness semantics
+
+print("=== String truthiness ===");
+// Empty string should be falsy
+if ("") {
+    print("empty string: truthy");
+} else {
+    print("empty string: falsy");
+}
+
+// Non-empty string should be truthy
+if ("x") {
+    print("non-empty string: truthy");
+} else {
+    print("non-empty string: falsy");
+}
+
+print("=== Array truthiness ===");
+// Empty array should be falsy
+if ([]) {
+    print("empty array: truthy");
+} else {
+    print("empty array: falsy");
+}
+
+// Non-empty array should be truthy
+if ([1]) {
+    print("non-empty array: truthy");
+} else {
+    print("non-empty array: falsy");
+}
+
+print("=== Number truthiness ===");
+if (0) {
+    print("zero: truthy");
+} else {
+    print("zero: falsy");
+}
+
+if (1) {
+    print("one: truthy");
+} else {
+    print("one: falsy");
+}
+
+print("=== Null truthiness ===");
+if (null) {
+    print("null: truthy");
+} else {
+    print("null: falsy");
+}
+
+print("=== Done ===");
