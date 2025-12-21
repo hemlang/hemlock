@@ -579,10 +579,12 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "(void)_closure_env;");
 
-            // Save and reset locals
+            // Save and reset locals, in_function flag
             int saved_num_locals = ctx->num_locals;
             DeferEntry *saved_defer_stack = ctx->defer_stack;
             ctx->defer_stack = NULL;
+            int saved_in_function = ctx->in_function;
+            ctx->in_function = 1;  // We're now inside a function
 
             // Reset closure env tracking to prevent cross-function pollution
             ctx->last_closure_env_id = -1;
@@ -649,10 +651,11 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             // Default return null
             codegen_writeln(ctx, "return hml_val_null();");
 
-            // Restore locals, defer state, and clear shared environment
+            // Restore locals, defer state, in_function flag, and clear shared environment
             codegen_defer_clear(ctx);
             ctx->defer_stack = saved_defer_stack;
             ctx->num_locals = saved_num_locals;
+            ctx->in_function = saved_in_function;
             shared_env_clear(ctx);
 
             codegen_indent_dec(ctx);

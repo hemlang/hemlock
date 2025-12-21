@@ -523,8 +523,15 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
             free(safe_ident);
         } else if (codegen_is_local(ctx, expr->as.ident.name)) {
             // Local variable - check context to determine how to access
-            if (ctx->current_module) {
-                // In a module - check if it's a module export (self-reference in closure)
+            // Local variables in functions shadow module exports
+            if (ctx->in_function) {
+                // Inside a function - locals (params, loop vars) ALWAYS shadow module exports
+                // This must be checked BEFORE module export lookup
+                char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
+                codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                free(safe_ident);
+            } else if (ctx->current_module) {
+                // At module level (not in function) - check if it's a module export (self-reference)
                 ExportedSymbol *exp = module_find_export(ctx->current_module, expr->as.ident.name);
                 if (exp) {
                     // Use the mangled export name to access module-level function
@@ -534,11 +541,6 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
                     codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
                     free(safe_ident);
                 }
-            } else if (ctx->in_function) {
-                // Inside a function - locals (params, loop vars) shadow main vars
-                char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
-                codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
-                free(safe_ident);
             } else if (codegen_is_main_var(ctx, expr->as.ident.name)) {
                 // In main scope, and this is a main var - use _main_ prefix
                 codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident.name);
