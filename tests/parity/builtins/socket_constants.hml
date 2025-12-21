@@ -1,0 +1,9 @@
+// Test: Socket protocol constants
+// IPPROTO_TCP and IPPROTO_UDP should be available
+
+print(IPPROTO_TCP);
+print(IPPROTO_UDP);
+
+// Verify they have expected values
+print(IPPROTO_TCP == 6);
+print(IPPROTO_UDP == 17);

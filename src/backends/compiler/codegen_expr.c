@@ -437,12 +437,36 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // Handle get_stack_limit builtin
+                if (strcmp(fn_name, "get_stack_limit") == 0 && expr->as.call.num_args == 0) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_get_stack_limit();", result);
+                    break;
+                }
+
+                // Handle set_stack_limit builtin
+                if (strcmp(fn_name, "set_stack_limit") == 0 && expr->as.call.num_args == 1) {
+                    char *limit = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_set_stack_limit(%s);", result, limit);
+                    codegen_writeln(ctx, "hml_release(&%s);", limit);
+                    free(limit);
+                    break;
+                }
+
                 // Handle exec builtin for command execution
                 if ((strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 1) {
                     char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
                     codegen_writeln(ctx, "HmlValue %s = hml_exec(%s);", result, cmd);
                     codegen_writeln(ctx, "hml_release(&%s);", cmd);
                     free(cmd);
+                    break;
+                }
+
+                // Handle exec_argv builtin for safe command execution (no shell)
+                if ((strcmp(fn_name, "exec_argv") == 0 || strcmp(fn_name, "__exec_argv") == 0) && expr->as.call.num_args == 1) {
+                    char *args = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_exec_argv(%s);", result, args);
+                    codegen_writeln(ctx, "hml_release(&%s);", args);
+                    free(args);
                     break;
                 }
 
@@ -1594,6 +1618,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // __read_ptr(ptr) - read pointer from pointer (double indirection)
+                if (strcmp(fn_name, "__read_ptr") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_read_ptr(%s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
                 // ========== HTTP/WEBSOCKET BUILTINS ==========
 
                 // __lws_http_get(url)
@@ -1614,6 +1647,24 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "hml_release(&%s);", url);
                     codegen_writeln(ctx, "hml_release(&%s);", body);
                     codegen_writeln(ctx, "hml_release(&%s);", content_type);
+                    free(url);
+                    free(body);
+                    free(content_type);
+                    break;
+                }
+
+                // __lws_http_request(method, url, body, content_type)
+                if (strcmp(fn_name, "__lws_http_request") == 0 && expr->as.call.num_args == 4) {
+                    char *method = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *url = codegen_expr(ctx, expr->as.call.args[1]);
+                    char *body = codegen_expr(ctx, expr->as.call.args[2]);
+                    char *content_type = codegen_expr(ctx, expr->as.call.args[3]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_lws_http_request(%s, %s, %s, %s);", result, method, url, body, content_type);
+                    codegen_writeln(ctx, "hml_release(&%s);", method);
+                    codegen_writeln(ctx, "hml_release(&%s);", url);
+                    codegen_writeln(ctx, "hml_release(&%s);", body);
+                    codegen_writeln(ctx, "hml_release(&%s);", content_type);
+                    free(method);
                     free(url);
                     free(body);
                     free(content_type);
@@ -1775,6 +1826,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "hml_release(&%s);", text);
                     free(conn);
                     free(text);
+                    break;
+                }
+
+                // __lws_ws_send_binary(conn, buffer)
+                if (strcmp(fn_name, "__lws_ws_send_binary") == 0 && expr->as.call.num_args == 2) {
+                    char *conn = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *buffer = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_lws_ws_send_binary(%s, %s);", result, conn, buffer);
+                    codegen_writeln(ctx, "hml_release(&%s);", conn);
+                    codegen_writeln(ctx, "hml_release(&%s);", buffer);
+                    free(conn);
+                    free(buffer);
                     break;
                 }
 

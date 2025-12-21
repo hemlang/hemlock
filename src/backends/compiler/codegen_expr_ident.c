@@ -62,6 +62,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGSTOP);", result);
     } else if (strcmp(expr->as.ident.name, "SIGTSTP") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTSTP);", result);
+    } else if (strcmp(expr->as.ident.name, "SIGTTIN") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTTIN);", result);
+    } else if (strcmp(expr->as.ident.name, "SIGTTOU") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTTOU);", result);
     // Handle socket constants
     } else if (strcmp(expr->as.ident.name, "AF_INET") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET);", result);
@@ -81,6 +85,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SO_RCVTIMEO);", result);
     } else if (strcmp(expr->as.ident.name, "SO_SNDTIMEO") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SO_SNDTIMEO);", result);
+    } else if (strcmp(expr->as.ident.name, "IPPROTO_TCP") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(IPPROTO_TCP);", result);
+    } else if (strcmp(expr->as.ident.name, "IPPROTO_UDP") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(IPPROTO_UDP);", result);
     // Poll constants
     } else if (strcmp(expr->as.ident.name, "POLLIN") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLIN);", result);
@@ -90,6 +98,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLERR);", result);
     } else if (strcmp(expr->as.ident.name, "POLLHUP") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLHUP);", result);
+    } else if (strcmp(expr->as.ident.name, "POLLNVAL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLNVAL);", result);
+    } else if (strcmp(expr->as.ident.name, "POLLPRI") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLPRI);", result);
     // Handle math constants (builtins)
     } else if (strcmp(expr->as.ident.name, "__PI") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_f64(3.14159265358979323846);", result);
@@ -293,6 +305,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u32, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__read_u64") == 0 || strcmp(expr->as.ident.name, "read_u64") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u64, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__read_ptr") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_ptr, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__strerror") == 0 || strcmp(expr->as.ident.name, "strerror") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_strerror, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__dirent_name") == 0 || strcmp(expr->as.ident.name, "dirent_name") == 0) {
@@ -315,6 +329,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_get, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_post") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_post, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_http_request") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_request, 4, 4, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_response_status") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_status, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_response_body") == 0) {
@@ -348,6 +364,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_connect, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_ws_send_text") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_send_text, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_ws_send_binary") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_send_binary, 2, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_ws_recv") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_ws_recv, 2, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_ws_close") == 0) {

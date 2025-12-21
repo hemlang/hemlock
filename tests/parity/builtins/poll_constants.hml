@@ -1,0 +1,9 @@
+// Test: Poll event constants
+// POLLNVAL and POLLPRI should be available
+
+print(POLLNVAL);
+print(POLLPRI);
+
+// These should be non-zero
+print(POLLNVAL > 0);
+print(POLLPRI > 0);
