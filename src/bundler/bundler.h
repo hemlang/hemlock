@@ -6,6 +6,7 @@
  * 2. Flatten multiple modules into a single AST
  * 3. Handle symbol namespacing to avoid collisions
  * 4. Output a unified bundle ready for serialization or compilation
+ * 5. Tree-shake unused exports for smaller bundles
  */
 
 #ifndef HEMLOCK_BUNDLER_H
@@ -14,6 +15,33 @@
 #include "../include/ast.h"
 #include "../include/module.h"
 #include <stdint.h>
+
+// ========== TREE SHAKING STRUCTURES ==========
+
+// A symbol in the dependency graph
+typedef struct Symbol {
+    char *name;                  // Symbol name
+    char *module_path;           // Absolute path of defining module
+    Stmt *definition;            // Statement that defines this symbol
+    int is_export;               // 1 if this symbol is exported
+    int is_reachable;            // 1 if reachable from entry point
+    int is_side_effect;          // 1 if this is top-level side-effecting code
+    char **dependencies;         // Names of symbols this depends on
+    int num_dependencies;
+    int dep_capacity;
+} Symbol;
+
+// Dependency graph for tree shaking
+typedef struct DependencyGraph {
+    Symbol **symbols;            // All symbols in the graph
+    int num_symbols;
+    int capacity;
+
+    // Entry points: imported symbols + top-level side effects
+    char **entry_points;
+    int num_entry_points;
+    int entry_capacity;
+} DependencyGraph;
 
 // ========== BUNDLE STRUCTURES ==========
 
@@ -42,12 +70,15 @@ typedef struct Bundle {
     Stmt **statements;           // Unified statement list
     int num_statements;
     int stmt_capacity;
+
+    // Tree shaking
+    DependencyGraph *dep_graph;  // Dependency graph (NULL if tree shaking disabled)
 } Bundle;
 
 // Bundle options
 typedef struct BundleOptions {
     int include_stdlib;          // 1 to include stdlib modules (default: 1)
-    int tree_shake;              // 1 to remove unused exports (default: 0, not yet implemented)
+    int tree_shake;              // 1 to remove unused exports (default: 0)
     int namespace_symbols;       // 1 to prefix symbols with module ID (default: 1)
     int verbose;                 // 1 to print progress (default: 0)
 } BundleOptions;
@@ -126,5 +157,27 @@ BundledModule* bundle_get_module(Bundle *bundle, const char *path);
  * Print bundle summary (for debugging)
  */
 void bundle_print_summary(Bundle *bundle);
+
+/**
+ * Perform tree shaking analysis on a bundle
+ *
+ * This builds a dependency graph and marks reachable symbols.
+ * Must be called before bundle_flatten() if tree shaking is enabled.
+ *
+ * @param bundle      The bundle to analyze
+ * @param verbose     1 to print tree shaking details
+ * @return            0 on success, -1 on error
+ */
+int bundle_tree_shake(Bundle *bundle, int verbose);
+
+/**
+ * Get tree shaking statistics
+ *
+ * @param bundle      The bundle (must have been tree-shaken)
+ * @param total       Output: total symbols
+ * @param reachable   Output: reachable symbols
+ * @param eliminated  Output: eliminated symbols
+ */
+void bundle_get_shake_stats(Bundle *bundle, int *total, int *reachable, int *eliminated);
 
 #endif // HEMLOCK_BUNDLER_H

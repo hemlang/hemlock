@@ -308,6 +308,174 @@ else
     fail "Multiple stdlib modules bundle" "Bundle command failed"
 fi
 
+# ========== TREE SHAKING TESTS ==========
+
+# Test 23: Tree shaking eliminates unused exports
+echo "Test 23: Tree shaking eliminates unused exports"
+mkdir -p "$TMPDIR/treeshake_test"
+cat > "$TMPDIR/treeshake_test/utils.hml" << 'EOF'
+export fn used_fn() {
+    return "I am used";
+}
+
+export fn unused_fn() {
+    return "I am NOT used";
+}
+
+export let used_const = 42;
+export let unused_const = 999;
+EOF
+cat > "$TMPDIR/treeshake_test/main.hml" << 'EOF'
+import { used_fn, used_const } from "./utils";
+print("used_fn: " + used_fn());
+print("used_const: " + used_const);
+print("Tree shake test passed!");
+EOF
+
+# Bundle without tree shaking
+$HEMLOCK --bundle "$TMPDIR/treeshake_test/main.hml" -o "$TMPDIR/no_shake.hmlc" 2>/dev/null
+NO_SHAKE_SIZE=$(stat -c%s "$TMPDIR/no_shake.hmlc" 2>/dev/null || stat -f%z "$TMPDIR/no_shake.hmlc")
+
+# Bundle with tree shaking
+$HEMLOCK --bundle "$TMPDIR/treeshake_test/main.hml" --tree-shake -o "$TMPDIR/with_shake.hmlc" 2>/dev/null
+WITH_SHAKE_SIZE=$(stat -c%s "$TMPDIR/with_shake.hmlc" 2>/dev/null || stat -f%z "$TMPDIR/with_shake.hmlc")
+
+if [ "$WITH_SHAKE_SIZE" -lt "$NO_SHAKE_SIZE" ]; then
+    # Verify the shaken bundle still runs correctly
+    OUTPUT=$($HEMLOCK "$TMPDIR/with_shake.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Tree shake test passed"; then
+        pass "Tree shaking reduces bundle size ($WITH_SHAKE_SIZE < $NO_SHAKE_SIZE bytes)"
+    else
+        fail "Tree shaking" "Bundle runs but output incorrect: $OUTPUT"
+    fi
+else
+    fail "Tree shaking" "Shaken bundle not smaller ($WITH_SHAKE_SIZE >= $NO_SHAKE_SIZE)"
+fi
+
+# Test 24: Tree shaking preserves dependencies
+echo "Test 24: Tree shaking preserves dependencies"
+mkdir -p "$TMPDIR/treeshake_deps"
+cat > "$TMPDIR/treeshake_deps/helpers.hml" << 'EOF'
+export fn helper() {
+    return "helper called";
+}
+
+export fn unused_helper() {
+    return "unused";
+}
+EOF
+cat > "$TMPDIR/treeshake_deps/main_utils.hml" << 'EOF'
+import { helper } from "./helpers";
+
+export fn main_function() {
+    return helper();
+}
+
+export fn unused_function() {
+    return "not used";
+}
+EOF
+cat > "$TMPDIR/treeshake_deps/main.hml" << 'EOF'
+import { main_function } from "./main_utils";
+let result = main_function();
+print("Result: " + result);
+if (result == "helper called") {
+    print("Dependency test passed!");
+}
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/treeshake_deps/main.hml" --tree-shake -o "$TMPDIR/deps_shake.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/deps_shake.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Dependency test passed"; then
+        pass "Tree shaking preserves transitive dependencies"
+    else
+        fail "Tree shaking dependencies" "Execution failed: $OUTPUT"
+    fi
+else
+    fail "Tree shaking dependencies" "Bundle command failed"
+fi
+
+# Test 25: Tree shaking verbose output
+echo "Test 25: Tree shaking verbose output"
+OUTPUT=$($HEMLOCK --bundle "$TMPDIR/treeshake_test/main.hml" --tree-shake --verbose -o "$TMPDIR/verbose_shake.hmlc" 2>&1)
+if echo "$OUTPUT" | grep -q "Tree Shaking" && echo "$OUTPUT" | grep -q "eliminated"; then
+    pass "Tree shaking verbose output shows statistics"
+else
+    fail "Tree shaking verbose" "Expected tree shaking statistics not found"
+fi
+
+# Test 26: Tree shaking with multi-module example
+echo "Test 26: Tree shaking multi-module example"
+# The multi-module example has unused exports (E, is_odd, count_chars)
+$HEMLOCK --bundle examples/multi_module/main.hml -o "$TMPDIR/multi_no_shake.hmlc" 2>/dev/null
+MULTI_NO_SHAKE=$(stat -c%s "$TMPDIR/multi_no_shake.hmlc" 2>/dev/null || stat -f%z "$TMPDIR/multi_no_shake.hmlc")
+
+$HEMLOCK --bundle examples/multi_module/main.hml --tree-shake -o "$TMPDIR/multi_with_shake.hmlc" 2>/dev/null
+MULTI_WITH_SHAKE=$(stat -c%s "$TMPDIR/multi_with_shake.hmlc" 2>/dev/null || stat -f%z "$TMPDIR/multi_with_shake.hmlc")
+
+if [ "$MULTI_WITH_SHAKE" -lt "$MULTI_NO_SHAKE" ]; then
+    # Verify it still runs
+    ORIGINAL=$($HEMLOCK examples/multi_module/main.hml 2>&1)
+    SHAKEN=$($HEMLOCK "$TMPDIR/multi_with_shake.hmlc" 2>&1)
+    if [ "$ORIGINAL" = "$SHAKEN" ]; then
+        pass "Tree shaking multi-module ($MULTI_WITH_SHAKE < $MULTI_NO_SHAKE bytes, output matches)"
+    else
+        fail "Tree shaking multi-module" "Output differs after shaking"
+    fi
+else
+    fail "Tree shaking multi-module" "Shaken bundle not smaller"
+fi
+
+# Test 27: Tree shaking with package command
+echo "Test 27: Tree shaking with package"
+$HEMLOCK --package "$TMPDIR/treeshake_test/main.hml" -o "$TMPDIR/pkg_no_shake" 2>/dev/null
+PKG_NO_SHAKE=$(stat -c%s "$TMPDIR/pkg_no_shake" 2>/dev/null || stat -f%z "$TMPDIR/pkg_no_shake")
+
+$HEMLOCK --package "$TMPDIR/treeshake_test/main.hml" --tree-shake -o "$TMPDIR/pkg_with_shake" 2>/dev/null
+PKG_WITH_SHAKE=$(stat -c%s "$TMPDIR/pkg_with_shake" 2>/dev/null || stat -f%z "$TMPDIR/pkg_with_shake")
+
+if [ "$PKG_WITH_SHAKE" -lt "$PKG_NO_SHAKE" ]; then
+    OUTPUT=$("$TMPDIR/pkg_with_shake" 2>&1)
+    if echo "$OUTPUT" | grep -q "Tree shake test passed"; then
+        pass "Tree shaking with package command ($PKG_WITH_SHAKE < $PKG_NO_SHAKE bytes)"
+    else
+        fail "Tree shaking package" "Packaged bundle failed: $OUTPUT"
+    fi
+else
+    fail "Tree shaking package" "Shaken package not smaller"
+fi
+
+# Test 28: Tree shaking preserves side effects
+echo "Test 28: Tree shaking preserves side effects"
+cat > "$TMPDIR/side_effect.hml" << 'EOF'
+let counter = 0;
+
+fn increment() {
+    counter = counter + 1;
+}
+
+// Side effect - should be preserved
+increment();
+increment();
+increment();
+
+print("counter: " + counter);
+if (counter == 3) {
+    print("Side effects preserved!");
+}
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/side_effect.hml" --tree-shake -o "$TMPDIR/side_effect.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/side_effect.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Side effects preserved"; then
+        pass "Tree shaking preserves side effects"
+    else
+        fail "Tree shaking side effects" "Side effects not preserved: $OUTPUT"
+    fi
+else
+    fail "Tree shaking side effects" "Bundle command failed"
+fi
+
 echo ""
 echo "=== Results ==="
 echo -e "Passed: ${GREEN}$PASSED${NC}"

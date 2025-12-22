@@ -84,6 +84,437 @@ static char* resolve_import_path(BundleContext *ctx, const char *importer_path, 
 static BundledModule* load_module_for_bundle(BundleContext *ctx, const char *absolute_path, int is_entry);
 static int collect_exports(BundledModule *module);
 
+// ========== TREE SHAKING HELPERS ==========
+
+// Create a new symbol
+static Symbol* symbol_new(const char *name, const char *module_path, Stmt *definition) {
+    Symbol *sym = malloc(sizeof(Symbol));
+    sym->name = strdup(name);
+    sym->module_path = module_path ? strdup(module_path) : NULL;
+    sym->definition = definition;
+    sym->is_export = 0;
+    sym->is_reachable = 0;
+    sym->is_side_effect = 0;
+    sym->dependencies = malloc(sizeof(char*) * 16);
+    sym->num_dependencies = 0;
+    sym->dep_capacity = 16;
+    return sym;
+}
+
+// Add a dependency to a symbol
+static void symbol_add_dep(Symbol *sym, const char *dep_name) {
+    // Skip self-references
+    if (strcmp(sym->name, dep_name) == 0) return;
+
+    // Check for duplicates
+    for (int i = 0; i < sym->num_dependencies; i++) {
+        if (strcmp(sym->dependencies[i], dep_name) == 0) return;
+    }
+
+    if (sym->num_dependencies >= sym->dep_capacity) {
+        sym->dep_capacity *= 2;
+        sym->dependencies = realloc(sym->dependencies, sizeof(char*) * sym->dep_capacity);
+    }
+    sym->dependencies[sym->num_dependencies++] = strdup(dep_name);
+}
+
+// Free a symbol
+static void symbol_free(Symbol *sym) {
+    if (!sym) return;
+    free(sym->name);
+    free(sym->module_path);
+    for (int i = 0; i < sym->num_dependencies; i++) {
+        free(sym->dependencies[i]);
+    }
+    free(sym->dependencies);
+    free(sym);
+}
+
+// Create a new dependency graph
+static DependencyGraph* dep_graph_new(void) {
+    DependencyGraph *graph = malloc(sizeof(DependencyGraph));
+    graph->symbols = malloc(sizeof(Symbol*) * 64);
+    graph->num_symbols = 0;
+    graph->capacity = 64;
+    graph->entry_points = malloc(sizeof(char*) * 32);
+    graph->num_entry_points = 0;
+    graph->entry_capacity = 32;
+    return graph;
+}
+
+// Add a symbol to the graph
+static void dep_graph_add_symbol(DependencyGraph *graph, Symbol *sym) {
+    if (graph->num_symbols >= graph->capacity) {
+        graph->capacity *= 2;
+        graph->symbols = realloc(graph->symbols, sizeof(Symbol*) * graph->capacity);
+    }
+    graph->symbols[graph->num_symbols++] = sym;
+}
+
+// Add an entry point
+static void dep_graph_add_entry(DependencyGraph *graph, const char *name) {
+    // Check for duplicates
+    for (int i = 0; i < graph->num_entry_points; i++) {
+        if (strcmp(graph->entry_points[i], name) == 0) return;
+    }
+
+    if (graph->num_entry_points >= graph->entry_capacity) {
+        graph->entry_capacity *= 2;
+        graph->entry_points = realloc(graph->entry_points, sizeof(char*) * graph->entry_capacity);
+    }
+    graph->entry_points[graph->num_entry_points++] = strdup(name);
+}
+
+// Find a symbol by name
+static Symbol* dep_graph_find(DependencyGraph *graph, const char *name) {
+    for (int i = 0; i < graph->num_symbols; i++) {
+        if (strcmp(graph->symbols[i]->name, name) == 0) {
+            return graph->symbols[i];
+        }
+    }
+    return NULL;
+}
+
+// Free a dependency graph
+static void dep_graph_free(DependencyGraph *graph) {
+    if (!graph) return;
+    for (int i = 0; i < graph->num_symbols; i++) {
+        symbol_free(graph->symbols[i]);
+    }
+    free(graph->symbols);
+    for (int i = 0; i < graph->num_entry_points; i++) {
+        free(graph->entry_points[i]);
+    }
+    free(graph->entry_points);
+    free(graph);
+}
+
+// ========== AST DEPENDENCY WALKER ==========
+
+// Forward declarations for mutual recursion
+static void collect_expr_deps(Expr *expr, Symbol *sym);
+static void collect_stmt_deps(Stmt *stmt, Symbol *sym);
+
+// Collect identifier dependencies from an expression
+static void collect_expr_deps(Expr *expr, Symbol *sym) {
+    if (!expr) return;
+
+    switch (expr->type) {
+        case EXPR_IDENT:
+            symbol_add_dep(sym, expr->as.ident.name);
+            break;
+
+        case EXPR_BINARY:
+            collect_expr_deps(expr->as.binary.left, sym);
+            collect_expr_deps(expr->as.binary.right, sym);
+            break;
+
+        case EXPR_UNARY:
+            collect_expr_deps(expr->as.unary.operand, sym);
+            break;
+
+        case EXPR_TERNARY:
+            collect_expr_deps(expr->as.ternary.condition, sym);
+            collect_expr_deps(expr->as.ternary.true_expr, sym);
+            collect_expr_deps(expr->as.ternary.false_expr, sym);
+            break;
+
+        case EXPR_CALL:
+            collect_expr_deps(expr->as.call.func, sym);
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                collect_expr_deps(expr->as.call.args[i], sym);
+            }
+            break;
+
+        case EXPR_ASSIGN:
+            symbol_add_dep(sym, expr->as.assign.name);
+            collect_expr_deps(expr->as.assign.value, sym);
+            break;
+
+        case EXPR_GET_PROPERTY:
+            collect_expr_deps(expr->as.get_property.object, sym);
+            break;
+
+        case EXPR_SET_PROPERTY:
+            collect_expr_deps(expr->as.set_property.object, sym);
+            collect_expr_deps(expr->as.set_property.value, sym);
+            break;
+
+        case EXPR_INDEX:
+            collect_expr_deps(expr->as.index.object, sym);
+            collect_expr_deps(expr->as.index.index, sym);
+            break;
+
+        case EXPR_INDEX_ASSIGN:
+            collect_expr_deps(expr->as.index_assign.object, sym);
+            collect_expr_deps(expr->as.index_assign.index, sym);
+            collect_expr_deps(expr->as.index_assign.value, sym);
+            break;
+
+        case EXPR_FUNCTION:
+            // Collect dependencies from function body
+            // Note: params are local, so they shadow any outer references
+            collect_stmt_deps(expr->as.function.body, sym);
+            // Collect default param value dependencies
+            for (int i = 0; i < expr->as.function.num_params; i++) {
+                if (expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
+                    collect_expr_deps(expr->as.function.param_defaults[i], sym);
+                }
+            }
+            break;
+
+        case EXPR_ARRAY_LITERAL:
+            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
+                collect_expr_deps(expr->as.array_literal.elements[i], sym);
+            }
+            break;
+
+        case EXPR_OBJECT_LITERAL:
+            for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
+                collect_expr_deps(expr->as.object_literal.field_values[i], sym);
+            }
+            break;
+
+        case EXPR_PREFIX_INC:
+        case EXPR_PREFIX_DEC:
+            collect_expr_deps(expr->as.prefix_inc.operand, sym);
+            break;
+
+        case EXPR_POSTFIX_INC:
+        case EXPR_POSTFIX_DEC:
+            collect_expr_deps(expr->as.postfix_inc.operand, sym);
+            break;
+
+        case EXPR_AWAIT:
+            collect_expr_deps(expr->as.await_expr.awaited_expr, sym);
+            break;
+
+        case EXPR_STRING_INTERPOLATION:
+            for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
+                collect_expr_deps(expr->as.string_interpolation.expr_parts[i], sym);
+            }
+            break;
+
+        case EXPR_OPTIONAL_CHAIN:
+            collect_expr_deps(expr->as.optional_chain.object, sym);
+            if (expr->as.optional_chain.index) {
+                collect_expr_deps(expr->as.optional_chain.index, sym);
+            }
+            if (expr->as.optional_chain.args) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    collect_expr_deps(expr->as.optional_chain.args[i], sym);
+                }
+            }
+            break;
+
+        case EXPR_NULL_COALESCE:
+            collect_expr_deps(expr->as.null_coalesce.left, sym);
+            collect_expr_deps(expr->as.null_coalesce.right, sym);
+            break;
+
+        case EXPR_NUMBER:
+        case EXPR_BOOL:
+        case EXPR_STRING:
+        case EXPR_RUNE:
+        case EXPR_NULL:
+            // Literals have no dependencies
+            break;
+    }
+}
+
+// Collect dependencies from a statement
+static void collect_stmt_deps(Stmt *stmt, Symbol *sym) {
+    if (!stmt) return;
+
+    switch (stmt->type) {
+        case STMT_LET:
+            collect_expr_deps(stmt->as.let.value, sym);
+            break;
+
+        case STMT_CONST:
+            collect_expr_deps(stmt->as.const_stmt.value, sym);
+            break;
+
+        case STMT_EXPR:
+            collect_expr_deps(stmt->as.expr, sym);
+            break;
+
+        case STMT_IF:
+            collect_expr_deps(stmt->as.if_stmt.condition, sym);
+            collect_stmt_deps(stmt->as.if_stmt.then_branch, sym);
+            if (stmt->as.if_stmt.else_branch) {
+                collect_stmt_deps(stmt->as.if_stmt.else_branch, sym);
+            }
+            break;
+
+        case STMT_WHILE:
+            collect_expr_deps(stmt->as.while_stmt.condition, sym);
+            collect_stmt_deps(stmt->as.while_stmt.body, sym);
+            break;
+
+        case STMT_FOR:
+            collect_stmt_deps(stmt->as.for_loop.initializer, sym);
+            collect_expr_deps(stmt->as.for_loop.condition, sym);
+            collect_expr_deps(stmt->as.for_loop.increment, sym);
+            collect_stmt_deps(stmt->as.for_loop.body, sym);
+            break;
+
+        case STMT_FOR_IN:
+            collect_expr_deps(stmt->as.for_in.iterable, sym);
+            collect_stmt_deps(stmt->as.for_in.body, sym);
+            break;
+
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                collect_stmt_deps(stmt->as.block.statements[i], sym);
+            }
+            break;
+
+        case STMT_RETURN:
+            collect_expr_deps(stmt->as.return_stmt.value, sym);
+            break;
+
+        case STMT_TRY:
+            collect_stmt_deps(stmt->as.try_stmt.try_block, sym);
+            collect_stmt_deps(stmt->as.try_stmt.catch_block, sym);
+            collect_stmt_deps(stmt->as.try_stmt.finally_block, sym);
+            break;
+
+        case STMT_THROW:
+            collect_expr_deps(stmt->as.throw_stmt.value, sym);
+            break;
+
+        case STMT_SWITCH:
+            collect_expr_deps(stmt->as.switch_stmt.expr, sym);
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                collect_expr_deps(stmt->as.switch_stmt.case_values[i], sym);
+                collect_stmt_deps(stmt->as.switch_stmt.case_bodies[i], sym);
+            }
+            break;
+
+        case STMT_DEFER:
+            collect_expr_deps(stmt->as.defer_stmt.call, sym);
+            break;
+
+        case STMT_DEFINE_OBJECT:
+            // Field defaults may have dependencies
+            for (int i = 0; i < stmt->as.define_object.num_fields; i++) {
+                if (stmt->as.define_object.field_defaults &&
+                    stmt->as.define_object.field_defaults[i]) {
+                    collect_expr_deps(stmt->as.define_object.field_defaults[i], sym);
+                }
+            }
+            break;
+
+        case STMT_ENUM:
+            // Enum variant values may have dependencies
+            for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
+                if (stmt->as.enum_decl.variant_values &&
+                    stmt->as.enum_decl.variant_values[i]) {
+                    collect_expr_deps(stmt->as.enum_decl.variant_values[i], sym);
+                }
+            }
+            break;
+
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_IMPORT:
+        case STMT_EXPORT:
+        case STMT_IMPORT_FFI:
+        case STMT_EXTERN_FN:
+            // No dependencies to collect
+            break;
+    }
+}
+
+// Check if a statement defines a symbol (returns the name, or NULL)
+static const char* stmt_defines_symbol(Stmt *stmt) {
+    if (!stmt) return NULL;
+
+    switch (stmt->type) {
+        case STMT_LET:
+            return stmt->as.let.name;
+        case STMT_CONST:
+            return stmt->as.const_stmt.name;
+        case STMT_DEFINE_OBJECT:
+            return stmt->as.define_object.name;
+        case STMT_ENUM:
+            return stmt->as.enum_decl.name;
+        case STMT_EXPR:
+            // Check for function assignment: fn foo() {}
+            if (stmt->as.expr && stmt->as.expr->type == EXPR_ASSIGN) {
+                Expr *assign = stmt->as.expr;
+                if (assign->as.assign.value &&
+                    assign->as.assign.value->type == EXPR_FUNCTION) {
+                    return assign->as.assign.name;
+                }
+            }
+            break;
+        default:
+            break;
+    }
+    return NULL;
+}
+
+// Check if a statement has side effects (should always be included)
+static int stmt_has_side_effects(Stmt *stmt) {
+    if (!stmt) return 0;
+
+    switch (stmt->type) {
+        case STMT_EXPR: {
+            Expr *expr = stmt->as.expr;
+            if (!expr) return 0;
+
+            // Function calls have side effects
+            if (expr->type == EXPR_CALL) return 1;
+
+            // Assignments to non-function values are side effects
+            if (expr->type == EXPR_ASSIGN) {
+                if (!expr->as.assign.value ||
+                    expr->as.assign.value->type != EXPR_FUNCTION) {
+                    return 1;
+                }
+            }
+
+            // Property/index assignments have side effects
+            if (expr->type == EXPR_SET_PROPERTY) return 1;
+            if (expr->type == EXPR_INDEX_ASSIGN) return 1;
+
+            // Increment/decrement have side effects
+            if (expr->type == EXPR_PREFIX_INC || expr->type == EXPR_PREFIX_DEC ||
+                expr->type == EXPR_POSTFIX_INC || expr->type == EXPR_POSTFIX_DEC) {
+                return 1;
+            }
+
+            // Await has side effects
+            if (expr->type == EXPR_AWAIT) return 1;
+
+            break;
+        }
+
+        // Control flow statements may have side effects
+        case STMT_IF:
+        case STMT_WHILE:
+        case STMT_FOR:
+        case STMT_FOR_IN:
+        case STMT_TRY:
+        case STMT_THROW:
+        case STMT_SWITCH:
+        case STMT_DEFER:
+            return 1;
+
+        // Import/export statements are structural, not side effects
+        case STMT_IMPORT:
+        case STMT_EXPORT:
+            return 0;
+
+        default:
+            break;
+    }
+
+    return 0;
+}
+
 // ========== HELPER FUNCTIONS ==========
 
 static char* find_stdlib_path(void) {
@@ -358,6 +789,9 @@ static int collect_exports(BundledModule *module) {
 
 // ========== FLATTENING ==========
 
+// Forward declaration for tree shaking filter
+static int should_include_stmt(Bundle *bundle, Stmt *stmt);
+
 // Add statement to bundle's flattened output
 static void add_flattened_stmt(Bundle *bundle, Stmt *stmt) {
     if (bundle->num_statements >= bundle->stmt_capacity) {
@@ -484,10 +918,20 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
                     continue;
                 }
 
+                // Tree shaking: skip unreachable exports
+                if (!should_include_stmt(bundle, stmt)) {
+                    continue;
+                }
+
                 // Add the underlying declaration
                 add_flattened_stmt(bundle, decl);
             }
             // Skip export lists and re-exports
+            continue;
+        }
+
+        // Tree shaking: skip unreachable statements
+        if (!should_include_stmt(bundle, stmt)) {
             continue;
         }
 
@@ -537,6 +981,7 @@ Bundle* bundle_create(const char *entry_path, const BundleOptions *options) {
     bundle->statements = NULL;
     bundle->num_statements = 0;
     bundle->stmt_capacity = 0;
+    bundle->dep_graph = NULL;  // Created by bundle_tree_shake if needed
 
     if (opts.verbose) {
         fprintf(stderr, "Bundling: %s\n", absolute_entry);
@@ -684,6 +1129,11 @@ void bundle_free(Bundle *bundle) {
         free(bundle->stdlib_path);
     }
 
+    // Free dependency graph if it was created
+    if (bundle->dep_graph) {
+        dep_graph_free(bundle->dep_graph);
+    }
+
     // Don't free individual statements - they're owned by modules
     free(bundle->statements);
     free(bundle);
@@ -725,4 +1175,267 @@ void bundle_print_summary(Bundle *bundle) {
     if (bundle->statements) {
         printf("Flattened: %d statements\n", bundle->num_statements);
     }
+
+    // Print tree shaking stats if available
+    if (bundle->dep_graph) {
+        int total = 0, reachable = 0, eliminated = 0;
+        bundle_get_shake_stats(bundle, &total, &reachable, &eliminated);
+        printf("Tree Shaking: %d/%d symbols reachable (%d eliminated)\n",
+               reachable, total, eliminated);
+    }
+}
+
+// ========== TREE SHAKING IMPLEMENTATION ==========
+
+// Build dependency graph from all modules
+static int build_dependency_graph(Bundle *bundle, int verbose) {
+    DependencyGraph *graph = dep_graph_new();
+    bundle->dep_graph = graph;
+
+    // Counter for anonymous side-effect symbols
+    int side_effect_counter = 0;
+
+    // Phase 1: Collect all symbols and their definitions
+    for (int m = 0; m < bundle->num_modules; m++) {
+        BundledModule *mod = bundle->modules[m];
+
+        for (int i = 0; i < mod->num_statements; i++) {
+            Stmt *stmt = mod->statements[i];
+
+            // Handle export declarations
+            if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
+                Stmt *decl = stmt->as.export_stmt.declaration;
+                const char *name = stmt_defines_symbol(decl);
+                if (name) {
+                    Symbol *sym = symbol_new(name, mod->absolute_path, decl);
+                    sym->is_export = 1;
+                    collect_stmt_deps(decl, sym);
+                    dep_graph_add_symbol(graph, sym);
+
+                    if (verbose) {
+                        fprintf(stderr, "  Symbol: %s (export, %d deps)\n",
+                                name, sym->num_dependencies);
+                    }
+                }
+                continue;
+            }
+
+            // Handle regular declarations
+            const char *name = stmt_defines_symbol(stmt);
+            if (name) {
+                Symbol *sym = symbol_new(name, mod->absolute_path, stmt);
+                collect_stmt_deps(stmt, sym);
+                dep_graph_add_symbol(graph, sym);
+
+                if (verbose) {
+                    fprintf(stderr, "  Symbol: %s (%d deps)\n",
+                            name, sym->num_dependencies);
+                }
+            }
+            // Handle side-effecting statements (not declarations)
+            else if (stmt_has_side_effects(stmt)) {
+                // Create a synthetic symbol for side-effecting code
+                char synth_name[64];
+                snprintf(synth_name, sizeof(synth_name), "__side_effect_%d", side_effect_counter++);
+
+                Symbol *sym = symbol_new(synth_name, mod->absolute_path, stmt);
+                sym->is_side_effect = 1;
+                collect_stmt_deps(stmt, sym);
+                dep_graph_add_symbol(graph, sym);
+
+                // Side effects in entry module are always entry points
+                if (mod->is_entry) {
+                    dep_graph_add_entry(graph, synth_name);
+                }
+
+                if (verbose) {
+                    fprintf(stderr, "  Side effect: %s (%d deps)\n",
+                            synth_name, sym->num_dependencies);
+                }
+            }
+        }
+    }
+
+    // Phase 2: Collect entry points from entry module's imports
+    for (int m = 0; m < bundle->num_modules; m++) {
+        BundledModule *mod = bundle->modules[m];
+        if (!mod->is_entry) continue;
+
+        for (int i = 0; i < mod->num_statements; i++) {
+            Stmt *stmt = mod->statements[i];
+            if (stmt->type == STMT_IMPORT) {
+                // Add all imported names as entry points
+                if (!stmt->as.import_stmt.is_namespace) {
+                    for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
+                        const char *name = stmt->as.import_stmt.import_names[j];
+                        dep_graph_add_entry(graph, name);
+                        if (verbose) {
+                            fprintf(stderr, "  Entry point (import): %s\n", name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (verbose) {
+        fprintf(stderr, "Dependency graph: %d symbols, %d entry points\n",
+                graph->num_symbols, graph->num_entry_points);
+    }
+
+    return 0;
+}
+
+// Mark reachable symbols using worklist algorithm
+static void mark_reachable(DependencyGraph *graph, int verbose) {
+    // Create worklist with all entry points
+    char **worklist = malloc(sizeof(char*) * (graph->num_entry_points + graph->num_symbols));
+    int worklist_size = 0;
+
+    // Add all entry points to worklist
+    for (int i = 0; i < graph->num_entry_points; i++) {
+        worklist[worklist_size++] = graph->entry_points[i];
+    }
+
+    // Process worklist
+    while (worklist_size > 0) {
+        // Pop from worklist
+        const char *name = worklist[--worklist_size];
+
+        // Find symbol
+        Symbol *sym = dep_graph_find(graph, name);
+        if (!sym || sym->is_reachable) continue;
+
+        // Mark as reachable
+        sym->is_reachable = 1;
+
+        if (verbose) {
+            fprintf(stderr, "  Marking reachable: %s\n", name);
+        }
+
+        // Add dependencies to worklist
+        for (int i = 0; i < sym->num_dependencies; i++) {
+            const char *dep = sym->dependencies[i];
+            Symbol *dep_sym = dep_graph_find(graph, dep);
+            if (dep_sym && !dep_sym->is_reachable) {
+                worklist[worklist_size++] = sym->dependencies[i];
+            }
+        }
+    }
+
+    free(worklist);
+}
+
+// Public tree shaking function
+int bundle_tree_shake(Bundle *bundle, int verbose) {
+    if (!bundle || bundle->num_modules == 0) {
+        return -1;
+    }
+
+    if (verbose) {
+        fprintf(stderr, "\n=== Tree Shaking Analysis ===\n");
+    }
+
+    // Build dependency graph
+    if (build_dependency_graph(bundle, verbose) != 0) {
+        return -1;
+    }
+
+    // Mark reachable symbols
+    if (verbose) {
+        fprintf(stderr, "\nReachability analysis:\n");
+    }
+    mark_reachable(bundle->dep_graph, verbose);
+
+    // Print statistics
+    if (verbose) {
+        int total = 0, reachable = 0, eliminated = 0;
+        bundle_get_shake_stats(bundle, &total, &reachable, &eliminated);
+        fprintf(stderr, "\nTree shaking result: %d/%d symbols reachable (%d eliminated)\n",
+                reachable, total, eliminated);
+
+        // List eliminated symbols
+        if (eliminated > 0) {
+            fprintf(stderr, "Eliminated symbols:\n");
+            for (int i = 0; i < bundle->dep_graph->num_symbols; i++) {
+                Symbol *sym = bundle->dep_graph->symbols[i];
+                if (!sym->is_reachable && !sym->is_side_effect) {
+                    fprintf(stderr, "  - %s\n", sym->name);
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+// Get tree shaking statistics
+void bundle_get_shake_stats(Bundle *bundle, int *total, int *reachable, int *eliminated) {
+    *total = 0;
+    *reachable = 0;
+    *eliminated = 0;
+
+    if (!bundle || !bundle->dep_graph) return;
+
+    DependencyGraph *graph = bundle->dep_graph;
+    for (int i = 0; i < graph->num_symbols; i++) {
+        Symbol *sym = graph->symbols[i];
+        // Don't count side-effect symbols in statistics
+        if (sym->is_side_effect) continue;
+
+        (*total)++;
+        if (sym->is_reachable) {
+            (*reachable)++;
+        } else {
+            (*eliminated)++;
+        }
+    }
+}
+
+// Check if a statement should be included after tree shaking
+static int should_include_stmt(Bundle *bundle, Stmt *stmt) {
+    if (!bundle->dep_graph) return 1;  // No tree shaking, include everything
+
+    // Import statements are structural, handle separately during flattening
+    if (stmt->type == STMT_IMPORT) {
+        return 1;
+    }
+
+    // For export declarations, check if the exported symbol is reachable
+    if (stmt->type == STMT_EXPORT) {
+        if (stmt->as.export_stmt.is_declaration) {
+            Stmt *decl = stmt->as.export_stmt.declaration;
+            const char *name = stmt_defines_symbol(decl);
+            if (name) {
+                Symbol *sym = dep_graph_find(bundle->dep_graph, name);
+                return sym && sym->is_reachable;
+            }
+        }
+        // Export lists and re-exports are handled during flattening
+        return 1;
+    }
+
+    // Check if this statement defines a symbol
+    const char *name = stmt_defines_symbol(stmt);
+    if (name) {
+        Symbol *sym = dep_graph_find(bundle->dep_graph, name);
+        return sym && sym->is_reachable;
+    }
+
+    // Check if this is a side-effecting statement
+    if (stmt_has_side_effects(stmt)) {
+        // Side-effect statements have synthetic names, need to find by definition
+        for (int i = 0; i < bundle->dep_graph->num_symbols; i++) {
+            Symbol *sym = bundle->dep_graph->symbols[i];
+            if (sym->definition == stmt) {
+                return sym->is_reachable;
+            }
+        }
+        // If not found in graph, it's probably from a non-entry module
+        // Include it to be safe (conservative)
+        return 1;
+    }
+
+    // Default: include
+    return 1;
 }
