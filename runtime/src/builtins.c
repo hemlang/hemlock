@@ -5001,18 +5001,73 @@ HmlValue hml_file_read_all(HmlValue file) {
     FILE *fp = (FILE*)fh->fp;
     long start_pos = ftell(fp);
 
-    fseek(fp, 0, SEEK_END);
-    long end_pos = ftell(fp);
-    fseek(fp, start_pos, SEEK_SET);
+    // Check if stream is seekable (regular file vs pipe/stdin)
+    int is_seekable = (start_pos != -1 && fseek(fp, 0, SEEK_END) == 0);
 
-    long size = end_pos - start_pos;
-    char *buffer = malloc(size + 1);
-    size_t bytes_read = fread(buffer, 1, size, fp);
-    buffer[bytes_read] = '\0';
+    if (is_seekable) {
+        // Seekable stream: get size and read in one go
+        long end_pos = ftell(fp);
+        fseek(fp, start_pos, SEEK_SET);
 
-    HmlValue result = hml_val_string(buffer);
-    free(buffer);
-    return result;
+        long size = end_pos - start_pos;
+        if (size <= 0) {
+            return hml_val_string("");
+        }
+
+        char *buffer = malloc(size + 1);
+        if (!buffer) {
+            fprintf(stderr, "Error: Memory allocation failed\n");
+            exit(1);
+        }
+        size_t bytes_read = fread(buffer, 1, size, fp);
+        buffer[bytes_read] = '\0';
+
+        HmlValue result = hml_val_string(buffer);
+        free(buffer);
+        return result;
+    } else {
+        // Non-seekable stream (stdin, pipe, socket): read in chunks
+        size_t capacity = 4096;
+        size_t total_read = 0;
+        char *buffer = malloc(capacity);
+        if (!buffer) {
+            fprintf(stderr, "Error: Memory allocation failed\n");
+            exit(1);
+        }
+
+        while (1) {
+            // Ensure we have room to read
+            if (total_read + 4096 > capacity) {
+                capacity *= 2;
+                char *new_buffer = realloc(buffer, capacity);
+                if (!new_buffer) {
+                    free(buffer);
+                    fprintf(stderr, "Error: Memory allocation failed\n");
+                    exit(1);
+                }
+                buffer = new_buffer;
+            }
+
+            size_t bytes = fread(buffer + total_read, 1, 4096, fp);
+            total_read += bytes;
+
+            if (bytes < 4096) {
+                // EOF or error
+                if (ferror(fp)) {
+                    free(buffer);
+                    fprintf(stderr, "Error: Read error on file '%s'\n", fh->path);
+                    exit(1);
+                }
+                break;  // EOF reached
+            }
+        }
+
+        buffer[total_read] = '\0';
+
+        HmlValue result = hml_val_string(buffer);
+        free(buffer);
+        return result;
+    }
 }
 
 HmlValue hml_file_write(HmlValue file, HmlValue data) {

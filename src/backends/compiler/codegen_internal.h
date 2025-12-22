@@ -20,6 +20,62 @@
 #include <libgen.h>
 #include <limits.h>
 
+// ========== BUFFER SIZE CONSTANTS ==========
+
+// Buffer size for mangled names (module prefix + symbol name)
+#define CODEGEN_MANGLED_NAME_SIZE 256
+
+// Buffer size for environment variable names
+#define CODEGEN_ENV_NAME_SIZE 64
+
+// ========== IN-MEMORY BUFFER SUPPORT ==========
+
+// In-memory buffer for code generation (replaces tmpfile for better performance)
+typedef struct {
+    char *data;      // Buffer data (dynamically allocated by open_memstream)
+    size_t size;     // Current size of data
+    FILE *stream;    // Stream for writing (NULL after close)
+} MemBuffer;
+
+// Create a new in-memory buffer
+MemBuffer* membuf_new(void);
+
+// Flush buffer contents to a FILE* (can be called multiple times)
+void membuf_flush_to(MemBuffer *buf, FILE *output);
+
+// Close and free the buffer
+void membuf_free(MemBuffer *buf);
+
+// ========== FUNCTION GENERATION STATE ==========
+
+// State saved when entering a function body (for nested functions and closures)
+typedef struct {
+    int num_locals;           // Saved ctx->num_locals
+    DeferEntry *defer_stack;  // Saved ctx->defer_stack
+    int in_function;          // Saved ctx->in_function
+    int has_defers;           // Saved ctx->has_defers
+    CompiledModule *module;   // Saved ctx->current_module (for closures)
+    ClosureInfo *closure;     // Saved ctx->current_closure
+} FuncGenState;
+
+// Save function generation state before entering a function body
+void funcgen_save_state(CodegenContext *ctx, FuncGenState *state);
+
+// Restore function generation state after exiting a function body
+void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state);
+
+// Add function parameters as locals
+void funcgen_add_params(CodegenContext *ctx, Expr *func);
+
+// Apply default values for optional parameters
+void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
+
+// Scan for closures and create shared environment if needed
+void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure);
+
+// Generate function body statements
+void funcgen_generate_body(CodegenContext *ctx, Expr *func);
+
 // ========== INTERNAL HELPER FUNCTIONS ==========
 
 // Remove a local variable from scope (used for catch params that go out of scope)
@@ -124,11 +180,21 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module);
 
 // Generate function declarations for a module
 void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module,
-                          FILE *decl_buffer, FILE *impl_buffer);
+                          MemBuffer *decl_buffer, MemBuffer *impl_buffer);
 
 // ========== MODULE COMPILATION ==========
 
 // Parse a module file
 Stmt** parse_module_file(const char *path, int *stmt_count);
+
+// ========== TYPE MAPPING HELPERS ==========
+
+// Convert TypeKind to HML_VAL_* string (e.g., TYPE_I8 -> "HML_VAL_I8")
+// Returns NULL for types that don't have a direct HML_VAL mapping
+const char* type_kind_to_hml_val(TypeKind kind);
+
+// Convert TypeKind to HML_FFI_* string (e.g., TYPE_I8 -> "HML_FFI_I8")
+// Returns "HML_FFI_VOID" for unknown types
+const char* type_kind_to_ffi_type(TypeKind kind);
 
 #endif // HEMLOCK_CODEGEN_INTERNAL_H

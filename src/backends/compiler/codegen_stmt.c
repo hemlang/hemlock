@@ -25,47 +25,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                            stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                     // Typed array: let arr: array<type> = [...]
                     Type *elem_type = stmt->as.let.type_annotation->element_type;
-                    const char *hml_type = "HML_VAL_NULL";  // Default to untyped
-                    if (elem_type) {
-                        switch (elem_type->kind) {
-                            case TYPE_I8:    hml_type = "HML_VAL_I8"; break;
-                            case TYPE_I16:   hml_type = "HML_VAL_I16"; break;
-                            case TYPE_I32:   hml_type = "HML_VAL_I32"; break;
-                            case TYPE_I64:   hml_type = "HML_VAL_I64"; break;
-                            case TYPE_U8:    hml_type = "HML_VAL_U8"; break;
-                            case TYPE_U16:   hml_type = "HML_VAL_U16"; break;
-                            case TYPE_U32:   hml_type = "HML_VAL_U32"; break;
-                            case TYPE_U64:   hml_type = "HML_VAL_U64"; break;
-                            case TYPE_F32:   hml_type = "HML_VAL_F32"; break;
-                            case TYPE_F64:   hml_type = "HML_VAL_F64"; break;
-                            case TYPE_BOOL:  hml_type = "HML_VAL_BOOL"; break;
-                            case TYPE_STRING: hml_type = "HML_VAL_STRING"; break;
-                            case TYPE_RUNE:  hml_type = "HML_VAL_RUNE"; break;
-                            default: hml_type = "HML_VAL_NULL"; break;
-                        }
-                    }
+                    const char *hml_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                    if (!hml_type) hml_type = "HML_VAL_NULL";
                     codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
                                   safe_name, value, hml_type);
                 } else if (stmt->as.let.type_annotation) {
                     // Primitive type annotation: let x: i64 = 0;
                     // Convert value to the annotated type with range checking
-                    const char *hml_type = NULL;
-                    switch (stmt->as.let.type_annotation->kind) {
-                        case TYPE_I8:    hml_type = "HML_VAL_I8"; break;
-                        case TYPE_I16:   hml_type = "HML_VAL_I16"; break;
-                        case TYPE_I32:   hml_type = "HML_VAL_I32"; break;
-                        case TYPE_I64:   hml_type = "HML_VAL_I64"; break;
-                        case TYPE_U8:    hml_type = "HML_VAL_U8"; break;
-                        case TYPE_U16:   hml_type = "HML_VAL_U16"; break;
-                        case TYPE_U32:   hml_type = "HML_VAL_U32"; break;
-                        case TYPE_U64:   hml_type = "HML_VAL_U64"; break;
-                        case TYPE_F32:   hml_type = "HML_VAL_F32"; break;
-                        case TYPE_F64:   hml_type = "HML_VAL_F64"; break;
-                        case TYPE_BOOL:  hml_type = "HML_VAL_BOOL"; break;
-                        case TYPE_STRING: hml_type = "HML_VAL_STRING"; break;
-                        case TYPE_RUNE:  hml_type = "HML_VAL_RUNE"; break;
-                        default: break;
-                    }
+                    const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
                     if (hml_type) {
                         codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
                                       safe_name, value, hml_type);
@@ -693,7 +660,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             const char *raw_enum_name = stmt->as.enum_decl.name;
 
             // Determine the correct variable name with prefix
-            char prefixed_name[256];
+            char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
             const char *enum_name = raw_enum_name;
             if (ctx->current_module && !codegen_is_local(ctx, raw_enum_name)) {
                 snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
@@ -754,30 +721,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 int is_optional = stmt->as.define_object.field_optional[i];
                 Expr *default_expr = stmt->as.define_object.field_defaults[i];
 
-                // Map Type to HML_VAL_* type
-                int type_kind = -1;  // -1 means any type
-                if (field_type) {
-                    switch (field_type->kind) {
-                        case TYPE_I8:  type_kind = 0; break;  // HML_VAL_I8
-                        case TYPE_I16: type_kind = 1; break;  // HML_VAL_I16
-                        case TYPE_I32: type_kind = 2; break;  // HML_VAL_I32
-                        case TYPE_I64: type_kind = 3; break;  // HML_VAL_I64
-                        case TYPE_U8:  type_kind = 4; break;  // HML_VAL_U8
-                        case TYPE_U16: type_kind = 5; break;  // HML_VAL_U16
-                        case TYPE_U32: type_kind = 6; break;  // HML_VAL_U32
-                        case TYPE_U64: type_kind = 7; break;  // HML_VAL_U64
-                        case TYPE_F32: type_kind = 8; break;  // HML_VAL_F32
-                        case TYPE_F64: type_kind = 9; break;  // HML_VAL_F64
-                        case TYPE_BOOL: type_kind = 10; break; // HML_VAL_BOOL
-                        case TYPE_STRING: type_kind = 11; break; // HML_VAL_STRING
-                        default: type_kind = -1; break;
-                    }
-                }
-
                 codegen_writeln(ctx, "_type_fields_%s[%d].name = \"%s\";",
                               type_name, i, field_name);
-                codegen_writeln(ctx, "_type_fields_%s[%d].type_kind = %d;",
-                              type_name, i, type_kind);
+
+                // Map Type to HML_VAL_* type using helper (-1 means any type)
+                const char *type_str = field_type ? type_kind_to_hml_val(field_type->kind) : NULL;
+                if (type_str) {
+                    codegen_writeln(ctx, "_type_fields_%s[%d].type_kind = %s;",
+                                  type_name, i, type_str);
+                } else {
+                    codegen_writeln(ctx, "_type_fields_%s[%d].type_kind = -1;",
+                                  type_name, i);
+                }
                 codegen_writeln(ctx, "_type_fields_%s[%d].is_optional = %d;",
                               type_name, i, is_optional);
 
@@ -839,7 +794,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // Determine the correct variable name
                 // - In module context: use module prefix (e.g., _mod15_env)
                 // - In main file: use _main_ prefix (e.g., _main_env)
-                char prefixed_name[256];
+                char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
                 const char *var_name = ns_name;
                 if (ctx->current_module) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
@@ -898,7 +853,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
                     if (name) {
                         // Generate assignment to global mangled name (already declared as static)
-                        char mangled[256];
+                        char mangled[CODEGEN_MANGLED_NAME_SIZE];
                         snprintf(mangled, sizeof(mangled), "%s%s", ctx->current_module->module_prefix, name);
 
                         if (decl->type == STMT_LET && decl->as.let.value) {

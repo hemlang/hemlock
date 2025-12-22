@@ -810,3 +810,187 @@ void codegen_defer_clear(CodegenContext *ctx) {
     }
 }
 
+// ========== FUNCTION GENERATION STATE ==========
+
+void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
+    state->num_locals = ctx->num_locals;
+    state->defer_stack = ctx->defer_stack;
+    state->in_function = ctx->in_function;
+    state->has_defers = ctx->has_defers;
+    state->module = ctx->current_module;
+    state->closure = ctx->current_closure;
+
+    // Initialize for new function
+    ctx->defer_stack = NULL;
+    ctx->in_function = 1;
+    ctx->has_defers = 0;
+    ctx->last_closure_env_id = -1;
+}
+
+void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
+    codegen_defer_clear(ctx);
+    ctx->defer_stack = state->defer_stack;
+    ctx->num_locals = state->num_locals;
+    ctx->in_function = state->in_function;
+    ctx->has_defers = state->has_defers;
+    ctx->current_module = state->module;
+    ctx->current_closure = state->closure;
+    shared_env_clear(ctx);
+}
+
+void funcgen_add_params(CodegenContext *ctx, Expr *func) {
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        codegen_add_local(ctx, func->as.function.param_names[i]);
+    }
+    if (func->as.function.rest_param) {
+        codegen_add_local(ctx, func->as.function.rest_param);
+    }
+}
+
+void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
+    if (!func->as.function.param_defaults) return;
+
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        if (func->as.function.param_defaults[i]) {
+            char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
+            codegen_indent_inc(ctx);
+            char *default_val = codegen_expr(ctx, func->as.function.param_defaults[i]);
+            codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
+            free(default_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            free(safe_param);
+        }
+    }
+}
+
+void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure) {
+    // Create scope for scanning
+    Scope *scan_scope = scope_new(NULL);
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        scope_add_var(scan_scope, func->as.function.param_names[i]);
+    }
+    // Add captured variables if this is a closure
+    if (closure) {
+        for (int i = 0; i < closure->num_captured; i++) {
+            scope_add_var(scan_scope, closure->captured_vars[i]);
+        }
+    }
+
+    // Clear any previous shared environment and scan for closures
+    shared_env_clear(ctx);
+    if (func->as.function.body->type == STMT_BLOCK) {
+        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
+            scan_closures_stmt(ctx, func->as.function.body->as.block.statements[i], scan_scope);
+        }
+    } else {
+        scan_closures_stmt(ctx, func->as.function.body, scan_scope);
+    }
+    scope_free(scan_scope);
+
+    // Create shared environment if needed
+    if (ctx->shared_env_num_vars > 0) {
+        char env_name[CODEGEN_ENV_NAME_SIZE];
+        snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
+        ctx->shared_env_name = strdup(env_name);
+        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
+                      env_name, ctx->shared_env_num_vars);
+    }
+}
+
+void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
+    if (func->as.function.body->type == STMT_BLOCK) {
+        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
+            codegen_stmt(ctx, func->as.function.body->as.block.statements[i]);
+        }
+    } else {
+        codegen_stmt(ctx, func->as.function.body);
+    }
+}
+
+// ========== TYPE MAPPING HELPERS ==========
+
+const char* type_kind_to_hml_val(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8:     return "HML_VAL_I8";
+        case TYPE_I16:    return "HML_VAL_I16";
+        case TYPE_I32:    return "HML_VAL_I32";
+        case TYPE_I64:    return "HML_VAL_I64";
+        case TYPE_U8:     return "HML_VAL_U8";
+        case TYPE_U16:    return "HML_VAL_U16";
+        case TYPE_U32:    return "HML_VAL_U32";
+        case TYPE_U64:    return "HML_VAL_U64";
+        case TYPE_F32:    return "HML_VAL_F32";
+        case TYPE_F64:    return "HML_VAL_F64";
+        case TYPE_BOOL:   return "HML_VAL_BOOL";
+        case TYPE_STRING: return "HML_VAL_STRING";
+        case TYPE_RUNE:   return "HML_VAL_RUNE";
+        case TYPE_PTR:    return "HML_VAL_PTR";
+        case TYPE_BUFFER: return "HML_VAL_BUFFER";
+        case TYPE_ARRAY:  return "HML_VAL_ARRAY";
+        case TYPE_NULL:   return "HML_VAL_NULL";
+        default:          return NULL;
+    }
+}
+
+const char* type_kind_to_ffi_type(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8:     return "HML_FFI_I8";
+        case TYPE_I16:    return "HML_FFI_I16";
+        case TYPE_I32:    return "HML_FFI_I32";
+        case TYPE_I64:    return "HML_FFI_I64";
+        case TYPE_U8:     return "HML_FFI_U8";
+        case TYPE_U16:    return "HML_FFI_U16";
+        case TYPE_U32:    return "HML_FFI_U32";
+        case TYPE_U64:    return "HML_FFI_U64";
+        case TYPE_F32:    return "HML_FFI_F32";
+        case TYPE_F64:    return "HML_FFI_F64";
+        case TYPE_PTR:    return "HML_FFI_PTR";
+        case TYPE_STRING: return "HML_FFI_STRING";
+        case TYPE_VOID:   return "HML_FFI_VOID";
+        default:          return "HML_FFI_VOID";
+    }
+}
+
+// ========== IN-MEMORY BUFFER SUPPORT ==========
+
+MemBuffer* membuf_new(void) {
+    MemBuffer *buf = malloc(sizeof(MemBuffer));
+    if (!buf) return NULL;
+    buf->data = NULL;
+    buf->size = 0;
+    buf->stream = open_memstream(&buf->data, &buf->size);
+    if (!buf->stream) {
+        free(buf);
+        return NULL;
+    }
+    return buf;
+}
+
+void membuf_flush_to(MemBuffer *buf, FILE *output) {
+    if (!buf || !output) return;
+    // Flush the stream to update data and size
+    if (buf->stream) {
+        fflush(buf->stream);
+    }
+    // Write all buffered data to output
+    if (buf->data && buf->size > 0) {
+        fwrite(buf->data, 1, buf->size, output);
+    }
+}
+
+void membuf_free(MemBuffer *buf) {
+    if (!buf) return;
+    if (buf->stream) {
+        fclose(buf->stream);
+        buf->stream = NULL;
+    }
+    // open_memstream allocates data, we must free it
+    if (buf->data) {
+        free(buf->data);
+        buf->data = NULL;
+    }
+    free(buf);
+}
+

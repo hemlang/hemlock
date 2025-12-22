@@ -14,7 +14,10 @@ async fn consumer(ch, count: i32): i32 {
     let sum = 0;
     let i = 0;
     while (i < count) {
-        let val = ch.recv();
+        let val = ch.recv_timeout(10000);  // 10 second timeout to prevent hang
+        if (val == null) {
+            break;  // Timeout - exit gracefully
+        }
         sum = sum + val;
         i = i + 1;
     }

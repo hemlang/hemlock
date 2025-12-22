@@ -28,37 +28,87 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
         if (num_args == 0) {
             // Read entire file from current position
+            // First, check if the stream is seekable (regular file vs pipe/stdin)
             long current_pos = ftell(file->fp);
-            fseek(file->fp, 0, SEEK_END);
-            long end_pos = ftell(file->fp);
-            fseek(file->fp, current_pos, SEEK_SET);
+            int is_seekable = (current_pos != -1 && fseek(file->fp, 0, SEEK_END) == 0);
 
-            long size = end_pos - current_pos;
-            if (size <= 0) {
-                return val_string("");
+            if (is_seekable) {
+                // Seekable stream: get size and read in one go
+                long end_pos = ftell(file->fp);
+                fseek(file->fp, current_pos, SEEK_SET);
+
+                long size = end_pos - current_pos;
+                if (size <= 0) {
+                    return val_string("");
+                }
+
+                char *buffer = malloc(size + 1);
+                if (!buffer) {
+                    return throw_runtime_error(ctx, "Memory allocation failed");
+                }
+                size_t read_bytes = fread(buffer, 1, size, file->fp);
+                buffer[read_bytes] = '\0';
+
+                if (ferror(file->fp)) {
+                    free(buffer);
+                    return throw_runtime_error(ctx, "Read error on file '%s': %s",
+                            file->path, strerror(errno));
+                }
+
+                String *str = malloc(sizeof(String));
+                str->data = buffer;
+                str->length = read_bytes;
+                str->char_length = -1;
+                str->capacity = size + 1;
+                str->ref_count = 1;
+
+                return (Value){ .type = VAL_STRING, .as.as_string = str };
+            } else {
+                // Non-seekable stream (stdin, pipe, socket): read in chunks
+                size_t capacity = 4096;
+                size_t total_read = 0;
+                char *buffer = malloc(capacity);
+                if (!buffer) {
+                    return throw_runtime_error(ctx, "Memory allocation failed");
+                }
+
+                while (1) {
+                    // Ensure we have room to read
+                    if (total_read + 4096 > capacity) {
+                        capacity *= 2;
+                        char *new_buffer = realloc(buffer, capacity);
+                        if (!new_buffer) {
+                            free(buffer);
+                            return throw_runtime_error(ctx, "Memory allocation failed");
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    size_t bytes = fread(buffer + total_read, 1, 4096, file->fp);
+                    total_read += bytes;
+
+                    if (bytes < 4096) {
+                        // EOF or error
+                        if (ferror(file->fp)) {
+                            free(buffer);
+                            return throw_runtime_error(ctx, "Read error on file '%s': %s",
+                                    file->path, strerror(errno));
+                        }
+                        break;  // EOF reached
+                    }
+                }
+
+                buffer[total_read] = '\0';
+
+                String *str = malloc(sizeof(String));
+                str->data = buffer;
+                str->length = total_read;
+                str->char_length = -1;
+                str->capacity = capacity;
+                str->ref_count = 1;
+
+                return (Value){ .type = VAL_STRING, .as.as_string = str };
             }
-
-            char *buffer = malloc(size + 1);
-            if (!buffer) {
-                return throw_runtime_error(ctx, "Memory allocation failed");
-            }
-            size_t read_bytes = fread(buffer, 1, size, file->fp);
-            buffer[read_bytes] = '\0';
-
-            if (ferror(file->fp)) {
-                free(buffer);
-                return throw_runtime_error(ctx, "Read error on file '%s': %s",
-                        file->path, strerror(errno));
-            }
-
-            String *str = malloc(sizeof(String));
-            str->data = buffer;
-            str->length = read_bytes;
-            str->char_length = -1;
-            str->capacity = size + 1;
-            str->ref_count = 1;  // Start with 1 - caller owns the first reference
-
-            return (Value){ .type = VAL_STRING, .as.as_string = str };
         } else if (num_args == 1) {
             // Read specified number of bytes
             if (!is_integer(args[0])) {

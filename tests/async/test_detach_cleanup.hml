@@ -31,10 +31,16 @@ print("Detached tasks:");
 print(num_tasks);
 
 // Wait for all tasks to complete by receiving from channel
+// Use timeout to prevent test hang if a task fails to complete
 let completed = 0;
 let j = 0;
+let timeout_ms = 5000;  // 5 second timeout per task
 while (j < num_tasks) {
-    let val = ch.recv();
+    let val = ch.recv_timeout(timeout_ms);
+    if (val == null) {
+        print("Timeout waiting for task");
+        break;
+    }
     completed = completed + val;
     j = j + 1;
 }

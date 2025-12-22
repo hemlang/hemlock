@@ -42,7 +42,6 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
         codegen_write(ctx, ", HmlValue %s", safe_param);
         free(safe_param);
     }
-    // Add rest param to function signature
     if (func->as.function.rest_param) {
         char *safe_rest = codegen_sanitize_ident(func->as.function.rest_param);
         codegen_write(ctx, ", HmlValue %s", safe_rest);
@@ -50,20 +49,11 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     }
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
-    // Suppress unused parameter warning
     codegen_writeln(ctx, "(void)_closure_env;");
 
-    // Save locals and defer state
-    int saved_num_locals = ctx->num_locals;
-    DeferEntry *saved_defer_stack = ctx->defer_stack;
-    ctx->defer_stack = NULL;  // Start fresh for this function
-    int saved_in_function = ctx->in_function;
-    ctx->in_function = 1;  // We're now inside a function
-    int saved_has_defers = ctx->has_defers;
-    ctx->has_defers = 0;  // Track defers for this function
-
-    // Reset closure env tracking to prevent cross-function pollution
-    ctx->last_closure_env_id = -1;
+    // Save state and initialize for function body
+    FuncGenState saved_state;
+    funcgen_save_state(ctx, &saved_state);
 
     // OPTIMIZATION: Push type inference scope and bind parameter types
     if (ctx->type_ctx) {
@@ -100,82 +90,27 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
         }
     }
 
-    // Add parameters as locals
-    for (int i = 0; i < func->as.function.num_params; i++) {
-        codegen_add_local(ctx, func->as.function.param_names[i]);
-    }
-    // Add rest param as local if present
-    if (func->as.function.rest_param) {
-        codegen_add_local(ctx, func->as.function.rest_param);
-    }
+    // Add parameters as locals and apply defaults
+    funcgen_add_params(ctx, func);
+    funcgen_apply_defaults(ctx, func);
 
-    // Apply default values for optional parameters
-    // If a parameter with a default is null, assign the default
-    if (func->as.function.param_defaults) {
-        for (int i = 0; i < func->as.function.num_params; i++) {
-            if (func->as.function.param_defaults[i]) {
-                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
-                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
-                codegen_indent_inc(ctx);
-                char *default_val = codegen_expr(ctx, func->as.function.param_defaults[i]);
-                codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
-                free(default_val);
-                codegen_indent_dec(ctx);
-                codegen_writeln(ctx, "}");
-                free(safe_param);
-            }
-        }
-    }
-
-    // Track call depth for stack overflow detection (inline macro for speed)
+    // Track call depth for stack overflow detection
     codegen_writeln(ctx, "HML_CALL_ENTER();");
 
-    // Scan for all closures in the function body and set up a shared environment
-    // This allows multiple closures within this function to share the same environment
-    Scope *scan_scope = scope_new(NULL);
-    for (int i = 0; i < func->as.function.num_params; i++) {
-        scope_add_var(scan_scope, func->as.function.param_names[i]);
-    }
-    shared_env_clear(ctx);  // Clear any previous shared environment
-    if (func->as.function.body->type == STMT_BLOCK) {
-        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
-            scan_closures_stmt(ctx, func->as.function.body->as.block.statements[i], scan_scope);
-        }
-    } else {
-        scan_closures_stmt(ctx, func->as.function.body, scan_scope);
-    }
-    scope_free(scan_scope);
-
-    // If there are captured variables, create the shared environment
-    if (ctx->shared_env_num_vars > 0) {
-        char env_name[64];
-        snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
-        ctx->shared_env_name = strdup(env_name);
-        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
-                      env_name, ctx->shared_env_num_vars);
-    }
+    // Set up shared environment for closures
+    funcgen_setup_shared_env(ctx, func, NULL);
 
     // Generate body
-    if (func->as.function.body->type == STMT_BLOCK) {
-        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
-            codegen_stmt(ctx, func->as.function.body->as.block.statements[i]);
-        }
-    } else {
-        codegen_stmt(ctx, func->as.function.body);
-    }
+    funcgen_generate_body(ctx, func);
 
-    // Execute any remaining defers before implicit return
+    // Execute defers before implicit return
     codegen_defer_execute_all(ctx);
-
-    // Execute any runtime defers (from loops) - only if this function has defers
     if (ctx->has_defers) {
         codegen_writeln(ctx, "hml_defer_execute_all();");
     }
 
-    // Decrement call depth before implicit return
+    // Decrement call depth and return
     codegen_writeln(ctx, "HML_CALL_EXIT();");
-
-    // Default return null
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
@@ -186,13 +121,8 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
         type_env_pop(ctx->type_ctx);
     }
 
-    // Restore locals, defer state, in_function flag, and clear shared environment
-    codegen_defer_clear(ctx);
-    ctx->defer_stack = saved_defer_stack;
-    ctx->num_locals = saved_num_locals;
-    ctx->in_function = saved_in_function;
-    ctx->has_defers = saved_has_defers;
-    shared_env_clear(ctx);
+    // Restore state
+    funcgen_restore_state(ctx, &saved_state);
 }
 
 // Generate a closure function (takes environment as first hidden parameter)
@@ -206,7 +136,6 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         codegen_write(ctx, ", HmlValue %s", safe_param);
         free(safe_param);
     }
-    // Add rest param as extra parameter if present
     if (func->as.function.rest_param) {
         char *safe_rest = codegen_sanitize_ident(func->as.function.rest_param);
         codegen_write(ctx, ", HmlValue %s", safe_rest);
@@ -215,31 +144,15 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
 
-    // Save locals, defer state, module context, current closure, and in_function flag
-    int saved_num_locals = ctx->num_locals;
-    ctx->num_locals = 0;  // Reset locals - closures have their own isolated scope
-    DeferEntry *saved_defer_stack = ctx->defer_stack;
-    ctx->defer_stack = NULL;  // Start fresh for this function
-    CompiledModule *saved_module = ctx->current_module;
-    ctx->current_module = closure->source_module;  // Restore module context for function resolution
-    ClosureInfo *saved_closure = ctx->current_closure;
-    ctx->current_closure = closure;  // Track current closure for mutable captured variables
-    int saved_in_function = ctx->in_function;
-    ctx->in_function = 1;  // We're now inside a function
-    int saved_has_defers = ctx->has_defers;
-    ctx->has_defers = 0;  // Track defers for this closure
-
-    // Reset closure env tracking to prevent cross-function pollution
-    ctx->last_closure_env_id = -1;
+    // Save state and initialize for closure body
+    FuncGenState saved_state;
+    funcgen_save_state(ctx, &saved_state);
+    ctx->num_locals = 0;  // Closures have their own isolated scope
+    ctx->current_module = closure->source_module;
+    ctx->current_closure = closure;
 
     // Add parameters as locals
-    for (int i = 0; i < func->as.function.num_params; i++) {
-        codegen_add_local(ctx, func->as.function.param_names[i]);
-    }
-    // Add rest param as local if present
-    if (func->as.function.rest_param) {
-        codegen_add_local(ctx, func->as.function.rest_param);
-    }
+    funcgen_add_params(ctx, func);
 
     // Extract captured variables from environment
     for (int i = 0; i < closure->num_captured; i++) {
@@ -253,19 +166,15 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
                 break;
             }
         }
-        // Also skip if it conflicts with the rest param
         if (!is_param && func->as.function.rest_param &&
             strcmp(var_name, func->as.function.rest_param) == 0) {
             is_param = 1;
         }
-        if (is_param) {
-            // Variable is already available as a parameter, don't redeclare
-            continue;
-        }
+        if (is_param) continue;
 
         char *safe_var = codegen_sanitize_ident(var_name);
 
-        // Check if this is a module-level export (self-reference like Set calling Set)
+        // Check if this is a module-level export
         int is_module_export = 0;
         if (closure->source_module) {
             ExportedSymbol *exp = module_find_export(closure->source_module, var_name);
@@ -276,16 +185,12 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         }
 
         if (!is_module_export) {
-            // Use shared_env_indices if available (shared environment), otherwise use local ordering
             int env_index = closure->shared_env_indices ? closure->shared_env_indices[i] : i;
 
             if (env_index == -1) {
-                // Variable not in shared environment - check if it's a main file variable
                 if (codegen_is_main_var(ctx, var_name)) {
-                    // Main file function/variable - use _main_ prefix
                     codegen_writeln(ctx, "HmlValue %s = _main_%s;", safe_var, var_name);
                 } else {
-                    // Fallback - just use the variable name directly (might be a global or builtin)
                     codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, safe_var);
                 }
             } else {
@@ -297,95 +202,36 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         free(safe_var);
     }
 
-    // Apply default values for optional parameters
-    if (func->as.function.param_defaults) {
-        for (int i = 0; i < func->as.function.num_params; i++) {
-            if (func->as.function.param_defaults[i]) {
-                char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
-                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
-                codegen_indent_inc(ctx);
-                char *default_val = codegen_expr(ctx, func->as.function.param_defaults[i]);
-                codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
-                free(default_val);
-                codegen_indent_dec(ctx);
-                codegen_writeln(ctx, "}");
-                free(safe_param);
-            }
-        }
-    }
-
-    // Track call depth for stack overflow detection (inline macro for speed)
+    // Apply defaults and track call depth
+    funcgen_apply_defaults(ctx, func);
     codegen_writeln(ctx, "HML_CALL_ENTER();");
 
-    // Scan for all closures in the function body and set up a shared environment
-    // This allows multiple closures within this function to share the same environment
-    Scope *scan_scope = scope_new(NULL);
-    for (int i = 0; i < func->as.function.num_params; i++) {
-        scope_add_var(scan_scope, func->as.function.param_names[i]);
-    }
-    // Add captured variables to scan scope (they're local to this closure)
-    for (int i = 0; i < closure->num_captured; i++) {
-        scope_add_var(scan_scope, closure->captured_vars[i]);
-    }
-    shared_env_clear(ctx);  // Clear any previous shared environment
-    if (func->as.function.body->type == STMT_BLOCK) {
-        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
-            scan_closures_stmt(ctx, func->as.function.body->as.block.statements[i], scan_scope);
-        }
-    } else {
-        scan_closures_stmt(ctx, func->as.function.body, scan_scope);
-    }
-    scope_free(scan_scope);
-
-    // If there are captured variables, create the shared environment
-    if (ctx->shared_env_num_vars > 0) {
-        char env_name[64];
-        snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
-        ctx->shared_env_name = strdup(env_name);
-        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
-                      env_name, ctx->shared_env_num_vars);
-    }
+    // Set up shared environment for nested closures
+    funcgen_setup_shared_env(ctx, func, closure);
 
     // Generate body
-    if (func->as.function.body->type == STMT_BLOCK) {
-        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
-            codegen_stmt(ctx, func->as.function.body->as.block.statements[i]);
-        }
-    } else {
-        codegen_stmt(ctx, func->as.function.body);
-    }
+    funcgen_generate_body(ctx, func);
 
-    // Execute any remaining defers before implicit return
+    // Execute defers before implicit return
     codegen_defer_execute_all(ctx);
-
-    // Execute any runtime defers (from loops) - only if this closure has defers
     if (ctx->has_defers) {
         codegen_writeln(ctx, "hml_defer_execute_all();");
     }
 
-    // Release captured variables before default return
+    // Release captured variables before return
     for (int i = 0; i < closure->num_captured; i++) {
         codegen_writeln(ctx, "hml_release(&%s);", closure->captured_vars[i]);
     }
 
-    // Decrement call depth before implicit return
+    // Decrement call depth and return
     codegen_writeln(ctx, "HML_CALL_EXIT();");
-
-    // Default return null
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Restore locals, defer state, module context, current closure, in_function flag, and clear shared environment
-    codegen_defer_clear(ctx);
-    ctx->defer_stack = saved_defer_stack;
-    ctx->num_locals = saved_num_locals;
-    ctx->current_module = saved_module;
-    ctx->current_closure = saved_closure;
-    ctx->in_function = saved_in_function;
-    ctx->has_defers = saved_has_defers;
-    shared_env_clear(ctx);  // Clear shared environment after generating this closure
+    // Restore state
+    funcgen_restore_state(ctx, &saved_state);
 }
 
 // Generate wrapper function for closure (to match function pointer signature)
@@ -494,7 +340,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
 
         if (name && func) {
             // Function definition - already declared as global, just initialize
-            char mangled[256];
+            char mangled[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
             int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
             int has_rest = func->as.function.rest_param ? 1 : 0;
@@ -503,14 +349,14 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                           func->as.function.num_params, num_required, func->as.function.is_async, has_rest);
         } else if (stmt->type == STMT_LET && stmt->as.let.value) {
             // Non-function let statement - assign to module global
-            char mangled[256];
+            char mangled[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.let.name);
             char *value = codegen_expr(ctx, stmt->as.let.value);
             codegen_writeln(ctx, "%s = %s;", mangled, value);
             free(value);
         } else if (stmt->type == STMT_CONST && stmt->as.const_stmt.value) {
             // Const statement - assign to module global
-            char mangled[256];
+            char mangled[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.const_stmt.name);
             char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
             codegen_writeln(ctx, "%s = %s;", mangled, value);
@@ -529,7 +375,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
 }
 
 // Helper to generate function declarations for a module
-void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *decl_buffer, FILE *impl_buffer) {
+void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer *decl_buffer, MemBuffer *impl_buffer) {
     FILE *saved_output = ctx->output;
     CompiledModule *saved_module = ctx->current_module;
     ctx->current_module = module;
@@ -555,11 +401,11 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
         }
 
         if (name && func) {
-            char mangled_fn[256];
+            char mangled_fn[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled_fn, sizeof(mangled_fn), "%sfn_%s", module->module_prefix, name);
 
             // Generate forward declaration
-            ctx->output = decl_buffer;
+            ctx->output = decl_buffer->stream;
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
@@ -569,7 +415,7 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             codegen_write(ctx, ");\n");
 
             // Generate implementation
-            ctx->output = impl_buffer;
+            ctx->output = impl_buffer->stream;
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
@@ -580,84 +426,22 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, FILE *dec
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "(void)_closure_env;");
 
-            // Save and reset locals, in_function flag
-            int saved_num_locals = ctx->num_locals;
-            DeferEntry *saved_defer_stack = ctx->defer_stack;
-            ctx->defer_stack = NULL;
-            int saved_in_function = ctx->in_function;
-            ctx->in_function = 1;  // We're now inside a function
+            // Save state and initialize for function body
+            FuncGenState saved_state;
+            funcgen_save_state(ctx, &saved_state);
 
-            // Reset closure env tracking to prevent cross-function pollution
-            ctx->last_closure_env_id = -1;
+            // Add parameters, apply defaults, set up shared env, and generate body
+            funcgen_add_params(ctx, func);
+            funcgen_apply_defaults(ctx, func);
+            funcgen_setup_shared_env(ctx, func, NULL);
+            funcgen_generate_body(ctx, func);
 
-            // Add parameters as locals
-            for (int j = 0; j < func->as.function.num_params; j++) {
-                codegen_add_local(ctx, func->as.function.param_names[j]);
-            }
-
-            // Apply default values for optional parameters
-            if (func->as.function.param_defaults) {
-                for (int j = 0; j < func->as.function.num_params; j++) {
-                    if (func->as.function.param_defaults[j]) {
-                        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
-                        codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
-                        codegen_indent_inc(ctx);
-                        char *default_val = codegen_expr(ctx, func->as.function.param_defaults[j]);
-                        codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
-                        free(default_val);
-                        codegen_indent_dec(ctx);
-                        codegen_writeln(ctx, "}");
-                        free(safe_param);
-                    }
-                }
-            }
-
-            // Scan for all closures in the function body and set up a shared environment
-            // This allows multiple closures to share the same environment for captured variables
-            Scope *scan_scope = scope_new(NULL);
-            for (int j = 0; j < func->as.function.num_params; j++) {
-                scope_add_var(scan_scope, func->as.function.param_names[j]);
-            }
-            shared_env_clear(ctx);  // Clear any previous shared environment
-            if (func->as.function.body->type == STMT_BLOCK) {
-                for (int j = 0; j < func->as.function.body->as.block.count; j++) {
-                    scan_closures_stmt(ctx, func->as.function.body->as.block.statements[j], scan_scope);
-                }
-            } else {
-                scan_closures_stmt(ctx, func->as.function.body, scan_scope);
-            }
-            scope_free(scan_scope);
-
-            // If there are captured variables, create the shared environment
-            if (ctx->shared_env_num_vars > 0) {
-                char env_name[64];
-                snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
-                ctx->shared_env_name = strdup(env_name);
-                codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
-                              env_name, ctx->shared_env_num_vars);
-            }
-
-            // Generate body
-            if (func->as.function.body->type == STMT_BLOCK) {
-                for (int j = 0; j < func->as.function.body->as.block.count; j++) {
-                    codegen_stmt(ctx, func->as.function.body->as.block.statements[j]);
-                }
-            } else {
-                codegen_stmt(ctx, func->as.function.body);
-            }
-
-            // Execute any remaining defers before implicit return
+            // Execute defers and return
             codegen_defer_execute_all(ctx);
-
-            // Default return null
             codegen_writeln(ctx, "return hml_val_null();");
 
-            // Restore locals, defer state, in_function flag, and clear shared environment
-            codegen_defer_clear(ctx);
-            ctx->defer_stack = saved_defer_stack;
-            ctx->num_locals = saved_num_locals;
-            ctx->in_function = saved_in_function;
-            shared_env_clear(ctx);
+            // Restore state
+            funcgen_restore_state(ctx, &saved_state);
 
             codegen_indent_dec(ctx);
             codegen_write(ctx, "}\n\n");
@@ -750,11 +534,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
     }
 
-    // Buffer for named function implementations
-    FILE *func_buffer = tmpfile();
-    FILE *main_buffer = tmpfile();
-    FILE *module_decl_buffer = tmpfile();
-    FILE *module_impl_buffer = tmpfile();
+    // In-memory buffers for code generation (faster than tmpfile)
+    MemBuffer *func_buffer = membuf_new();
+    MemBuffer *main_buffer = membuf_new();
+    MemBuffer *module_decl_buffer = membuf_new();
+    MemBuffer *module_impl_buffer = membuf_new();
     FILE *saved_output = ctx->output;
 
     // Pre-pass: Collect all main file variable names BEFORE generating code
@@ -826,7 +610,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     }
 
     // Pass 1: Generate named function bodies to buffer (this collects closures)
-    ctx->output = func_buffer;
+    ctx->output = func_buffer->stream;
     for (int i = 0; i < stmt_count; i++) {
         char *name;
         Expr *func;
@@ -836,7 +620,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     }
 
     // Pass 2: Generate main function body to buffer (this collects more closures)
-    ctx->output = main_buffer;
+    ctx->output = main_buffer->stream;
     codegen_write(ctx, "int main(int argc, char **argv) {\n");
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "hml_runtime_init(argc, argv);");
@@ -928,56 +712,23 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
                                   stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
                 } else if (stmt->as.let.type_annotation) {
-                    // Primitive type annotation: let x: i64 = 0;
-                    // Convert value to the annotated type with range checking
-                    const char *hml_type = NULL;
-                    switch (stmt->as.let.type_annotation->kind) {
-                        case TYPE_I8:    hml_type = "HML_VAL_I8"; break;
-                        case TYPE_I16:   hml_type = "HML_VAL_I16"; break;
-                        case TYPE_I32:   hml_type = "HML_VAL_I32"; break;
-                        case TYPE_I64:   hml_type = "HML_VAL_I64"; break;
-                        case TYPE_U8:    hml_type = "HML_VAL_U8"; break;
-                        case TYPE_U16:   hml_type = "HML_VAL_U16"; break;
-                        case TYPE_U32:   hml_type = "HML_VAL_U32"; break;
-                        case TYPE_U64:   hml_type = "HML_VAL_U64"; break;
-                        case TYPE_F32:   hml_type = "HML_VAL_F32"; break;
-                        case TYPE_F64:   hml_type = "HML_VAL_F64"; break;
-                        case TYPE_BOOL:  hml_type = "HML_VAL_BOOL"; break;
-                        case TYPE_STRING: hml_type = "HML_VAL_STRING"; break;
-                        case TYPE_RUNE:  hml_type = "HML_VAL_RUNE"; break;
-                        case TYPE_ARRAY: {
-                            // Typed array: let arr: array<type> = [...]
-                            Type *elem_type = stmt->as.let.type_annotation->element_type;
-                            const char *arr_type = "HML_VAL_NULL";
-                            if (elem_type) {
-                                switch (elem_type->kind) {
-                                    case TYPE_I8:    arr_type = "HML_VAL_I8"; break;
-                                    case TYPE_I16:   arr_type = "HML_VAL_I16"; break;
-                                    case TYPE_I32:   arr_type = "HML_VAL_I32"; break;
-                                    case TYPE_I64:   arr_type = "HML_VAL_I64"; break;
-                                    case TYPE_U8:    arr_type = "HML_VAL_U8"; break;
-                                    case TYPE_U16:   arr_type = "HML_VAL_U16"; break;
-                                    case TYPE_U32:   arr_type = "HML_VAL_U32"; break;
-                                    case TYPE_U64:   arr_type = "HML_VAL_U64"; break;
-                                    case TYPE_F32:   arr_type = "HML_VAL_F32"; break;
-                                    case TYPE_F64:   arr_type = "HML_VAL_F64"; break;
-                                    case TYPE_BOOL:  arr_type = "HML_VAL_BOOL"; break;
-                                    case TYPE_STRING: arr_type = "HML_VAL_STRING"; break;
-                                    case TYPE_RUNE:  arr_type = "HML_VAL_RUNE"; break;
-                                    default: break;
-                                }
-                            }
-                            codegen_writeln(ctx, "_main_%s = hml_validate_typed_array(%s, %s);",
-                                          stmt->as.let.name, value, arr_type);
-                            break;
+                    // Handle type annotations
+                    if (stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
+                        // Typed array: let arr: array<type> = [...]
+                        Type *elem_type = stmt->as.let.type_annotation->element_type;
+                        const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                        if (!arr_type) arr_type = "HML_VAL_NULL";
+                        codegen_writeln(ctx, "_main_%s = hml_validate_typed_array(%s, %s);",
+                                      stmt->as.let.name, value, arr_type);
+                    } else {
+                        // Primitive type annotation: let x: i64 = 0;
+                        const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
+                        if (hml_type) {
+                            codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
+                                          stmt->as.let.name, value, hml_type);
+                        } else {
+                            codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
                         }
-                        default: break;
-                    }
-                    if (hml_type) {
-                        codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
-                                      stmt->as.let.name, value, hml_type);
-                    } else if (stmt->as.let.type_annotation->kind != TYPE_ARRAY) {
-                        codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
                     }
                 } else {
                     codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
@@ -1227,9 +978,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     free(declared_statics);
 
     // Generate closure implementations to a buffer first (this may create nested closures)
-    FILE *closure_buffer = tmpfile();
+    MemBuffer *closure_buffer = membuf_new();
     FILE *saved_for_closures = ctx->output;
-    ctx->output = closure_buffer;
+    ctx->output = closure_buffer->stream;
 
     // Iteratively generate closures until no new ones are created
     // This handles nested closures (functions inside functions)
@@ -1323,12 +1074,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
 
         // Module function forward declarations (from buffer)
         codegen_write(ctx, "// Module function forward declarations\n");
-        rewind(module_decl_buffer);
-        char buf[4096];
-        size_t n;
-        while ((n = fread(buf, 1, sizeof(buf), module_decl_buffer)) > 0) {
-            fwrite(buf, 1, n, ctx->output);
-        }
+        membuf_flush_to(module_decl_buffer, ctx->output);
         codegen_write(ctx, "\n");
 
         // Module init function forward declarations
@@ -1378,14 +1124,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     // Output closure implementations from buffer
     if (ctx->closures) {
         codegen_write(ctx, "// Closure implementations\n");
-        rewind(closure_buffer);
-        char buf[4096];
-        size_t n;
-        while ((n = fread(buf, 1, sizeof(buf), closure_buffer)) > 0) {
-            fwrite(buf, 1, n, ctx->output);
-        }
+        membuf_flush_to(closure_buffer, ctx->output);
     }
-    fclose(closure_buffer);
+    membuf_free(closure_buffer);
 
     // FFI extern function wrapper implementations (including from block scopes)
     for (int i = 0; i < all_extern_fns.count; i++) {
@@ -1407,47 +1148,13 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "    HmlFFIType _types[%d];\n", num_params + 1);
 
         // Return type
-        const char *ret_str = "HML_FFI_VOID";
-        if (return_type) {
-            switch (return_type->kind) {
-                case TYPE_I8: ret_str = "HML_FFI_I8"; break;
-                case TYPE_I16: ret_str = "HML_FFI_I16"; break;
-                case TYPE_I32: ret_str = "HML_FFI_I32"; break;
-                case TYPE_I64: ret_str = "HML_FFI_I64"; break;
-                case TYPE_U8: ret_str = "HML_FFI_U8"; break;
-                case TYPE_U16: ret_str = "HML_FFI_U16"; break;
-                case TYPE_U32: ret_str = "HML_FFI_U32"; break;
-                case TYPE_U64: ret_str = "HML_FFI_U64"; break;
-                case TYPE_F32: ret_str = "HML_FFI_F32"; break;
-                case TYPE_F64: ret_str = "HML_FFI_F64"; break;
-                case TYPE_PTR: ret_str = "HML_FFI_PTR"; break;
-                case TYPE_STRING: ret_str = "HML_FFI_STRING"; break;
-                default: ret_str = "HML_FFI_I32"; break;
-            }
-        }
+        const char *ret_str = return_type ? type_kind_to_ffi_type(return_type->kind) : "HML_FFI_VOID";
         codegen_write(ctx, "    _types[0] = %s;\n", ret_str);
 
         // Parameter types
         for (int j = 0; j < num_params; j++) {
             Type *ptype = stmt->as.extern_fn.param_types[j];
-            const char *type_str = "HML_FFI_I32";
-            if (ptype) {
-                switch (ptype->kind) {
-                    case TYPE_I8: type_str = "HML_FFI_I8"; break;
-                    case TYPE_I16: type_str = "HML_FFI_I16"; break;
-                    case TYPE_I32: type_str = "HML_FFI_I32"; break;
-                    case TYPE_I64: type_str = "HML_FFI_I64"; break;
-                    case TYPE_U8: type_str = "HML_FFI_U8"; break;
-                    case TYPE_U16: type_str = "HML_FFI_U16"; break;
-                    case TYPE_U32: type_str = "HML_FFI_U32"; break;
-                    case TYPE_U64: type_str = "HML_FFI_U64"; break;
-                    case TYPE_F32: type_str = "HML_FFI_F32"; break;
-                    case TYPE_F64: type_str = "HML_FFI_F64"; break;
-                    case TYPE_PTR: type_str = "HML_FFI_PTR"; break;
-                    case TYPE_STRING: type_str = "HML_FFI_STRING"; break;
-                    default: type_str = "HML_FFI_I32"; break;
-                }
-            }
+            const char *type_str = ptype ? type_kind_to_ffi_type(ptype->kind) : "HML_FFI_I32";
             codegen_write(ctx, "    _types[%d] = %s;\n", j + 1, type_str);
         }
 
@@ -1468,12 +1175,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     // Module function implementations (from buffer)
     if (ctx->module_cache && ctx->module_cache->modules) {
         codegen_write(ctx, "// Module function implementations\n");
-        rewind(module_impl_buffer);
-        char mbuf[4096];
-        size_t mn;
-        while ((mn = fread(mbuf, 1, sizeof(mbuf), module_impl_buffer)) > 0) {
-            fwrite(mbuf, 1, mn, ctx->output);
-        }
+        membuf_flush_to(module_impl_buffer, ctx->output);
 
         // Module init function implementations
         codegen_write(ctx, "// Module init functions\n");
@@ -1483,23 +1185,15 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             mod = mod->next;
         }
     }
-    fclose(module_decl_buffer);
-    fclose(module_impl_buffer);
+    membuf_free(module_decl_buffer);
+    membuf_free(module_impl_buffer);
 
     // Named function implementations (from buffer)
     codegen_write(ctx, "// Named function implementations\n");
-    rewind(func_buffer);
-    char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), func_buffer)) > 0) {
-        fwrite(buf, 1, n, ctx->output);
-    }
-    fclose(func_buffer);
+    membuf_flush_to(func_buffer, ctx->output);
+    membuf_free(func_buffer);
 
     // Main function (from buffer)
-    rewind(main_buffer);
-    while ((n = fread(buf, 1, sizeof(buf), main_buffer)) > 0) {
-        fwrite(buf, 1, n, ctx->output);
-    }
-    fclose(main_buffer);
+    membuf_flush_to(main_buffer, ctx->output);
+    membuf_free(main_buffer);
 }

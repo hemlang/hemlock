@@ -398,7 +398,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
                     }
                 }
                 if (name) {
-                    char mangled[256];
+                    char mangled[CODEGEN_MANGLED_NAME_SIZE];
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
                     module_add_export(module, name, mangled, is_function, num_params);
                 }
@@ -429,7 +429,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
                         }
                     }
 
-                    char mangled[256];
+                    char mangled[CODEGEN_MANGLED_NAME_SIZE];
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
                     module_add_export(module, export_name, mangled, is_function, num_params);
                 }
@@ -446,7 +446,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
             const char *name = stmt->as.let.name;
             // Check if already exported
             if (!module_find_export(module, name)) {
-                char mangled[256];
+                char mangled[CODEGEN_MANGLED_NAME_SIZE];
                 snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
                 int num_params = stmt->as.let.value->as.function.num_params;
                 module_add_export(module, name, mangled, 1, num_params);
@@ -456,7 +456,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
             const char *name = stmt->as.const_stmt.name;
             // Check if already exported
             if (!module_find_export(module, name)) {
-                char mangled[256];
+                char mangled[CODEGEN_MANGLED_NAME_SIZE];
                 snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
                 int num_params = stmt->as.const_stmt.value->as.function.num_params;
                 module_add_export(module, name, mangled, 1, num_params);
