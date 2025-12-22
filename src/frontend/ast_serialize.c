@@ -60,7 +60,9 @@ static uint32_t string_table_add(StringTable *table, const char *str) {
 
     // Add new entry
     if (table->count >= table->capacity) {
-        table->capacity *= 2;
+        // Handle zero capacity case (defensive)
+        size_t new_capacity = (table->capacity == 0) ? INITIAL_STRING_TABLE_SIZE : table->capacity * 2;
+        table->capacity = new_capacity;
         table->strings = realloc(table->strings, table->capacity * sizeof(char*));
         table->lengths = realloc(table->lengths, table->capacity * sizeof(uint32_t));
     }

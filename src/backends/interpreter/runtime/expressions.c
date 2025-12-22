@@ -2001,17 +2001,25 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             if (obj->num_fields >= obj->capacity) {
                 // Grow arrays (handle capacity=0 case)
-                obj->capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
-                char **new_names = realloc(obj->field_names, sizeof(char*) * obj->capacity);
-                Value *new_values = realloc(obj->field_values, sizeof(Value) * obj->capacity);
-                if (!new_names || !new_values) {
+                int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
+                char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                if (!new_names) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(value);
                     runtime_error(ctx, "Failed to grow object capacity");
                     return val_null();
                 }
                 obj->field_names = new_names;
+
+                Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                if (!new_values) {
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(value);
+                    runtime_error(ctx, "Failed to grow object capacity");
+                    return val_null();
+                }
                 obj->field_values = new_values;
+                obj->capacity = new_capacity;
             }
 
             obj->field_names[obj->num_fields] = strdup(property);

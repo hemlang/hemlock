@@ -19,7 +19,7 @@
 // Check if a path component contains directory traversal attempts
 // Returns 1 if path is safe, 0 if it contains traversal
 static int is_safe_subpath(const char *path) {
-    if (!path) return 0;
+    if (!path || !path[0]) return 0;  // Reject NULL or empty paths
 
     // Reject absolute paths in subpaths
     if (path[0] == '/') return 0;

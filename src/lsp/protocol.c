@@ -255,6 +255,11 @@ static JSONValue *parse_string(JSONParser *p) {
 }
 
 static JSONValue *parse_number(JSONParser *p) {
+    if (!p->current) {
+        p->error = "Invalid number";
+        return NULL;
+    }
+
     const char *start = p->current;
 
     // Handle negative
@@ -263,8 +268,8 @@ static JSONValue *parse_number(JSONParser *p) {
     // Integer part
     if (*p->current == '0') {
         p->current++;
-    } else if (isdigit(*p->current)) {
-        while (isdigit(*p->current)) p->current++;
+    } else if (isdigit((unsigned char)*p->current)) {
+        while (isdigit((unsigned char)*p->current)) p->current++;
     } else {
         p->error = "Invalid number";
         return NULL;
@@ -273,22 +278,22 @@ static JSONValue *parse_number(JSONParser *p) {
     // Fractional part
     if (*p->current == '.') {
         p->current++;
-        if (!isdigit(*p->current)) {
+        if (!isdigit((unsigned char)*p->current)) {
             p->error = "Invalid number";
             return NULL;
         }
-        while (isdigit(*p->current)) p->current++;
+        while (isdigit((unsigned char)*p->current)) p->current++;
     }
 
     // Exponent
     if (*p->current == 'e' || *p->current == 'E') {
         p->current++;
         if (*p->current == '+' || *p->current == '-') p->current++;
-        if (!isdigit(*p->current)) {
+        if (!isdigit((unsigned char)*p->current)) {
             p->error = "Invalid number";
             return NULL;
         }
-        while (isdigit(*p->current)) p->current++;
+        while (isdigit((unsigned char)*p->current)) p->current++;
     }
 
     char *numstr = strndup(start, p->current - start);
@@ -432,6 +437,11 @@ static JSONValue *parse_value(JSONParser *p) {
 }
 
 JSONValue *json_parse(const char *input, const char **error) {
+    if (!input) {
+        if (error) *error = "NULL input";
+        return NULL;
+    }
+
     JSONParser p = {
         .input = input,
         .current = input,

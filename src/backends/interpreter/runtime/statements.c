@@ -404,8 +404,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Evaluate variant values (auto-increment or explicit)
             int32_t auto_value = 0;
             int had_error = 0;
+            int variants_initialized = 0;  // Track how many variants were actually initialized
             for (int i = 0; i < type->num_variants; i++) {
                 type->variant_names[i] = strdup(stmt->as.enum_decl.variant_names[i]);
+                variants_initialized = i + 1;  // This variant name is now initialized
 
                 if (stmt->as.enum_decl.variant_values[i] != NULL) {
                     // Explicit value - evaluate the expression
@@ -433,9 +435,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
             if (had_error) {
-                // Clean up partially created enum type
-                for (int i = 0; i < type->num_variants; i++) {
-                    if (type->variant_names[i]) free(type->variant_names[i]);
+                // Clean up only the variants that were actually initialized
+                for (int i = 0; i < variants_initialized; i++) {
+                    free(type->variant_names[i]);
                 }
                 free(type->variant_names);
                 free(type->variant_values);
