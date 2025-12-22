@@ -35,6 +35,13 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // Handle 'self' specially - maps to hml_self global
     if (strcmp(expr->as.ident.name, "self") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_self;", result);
+    // Handle I/O builtins as first-class functions
+    } else if (strcmp(expr->as.ident.name, "print") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_print, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "println") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_println, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "eprint") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_eprint, 1, 1, 0);", result);
     // Handle signal constants
     } else if (strcmp(expr->as.ident.name, "SIGINT") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGINT);", result);

@@ -639,25 +639,51 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
         case STMT_DEFER: {
             ctx->has_defers = 1;  // Mark that this function has defers
-            if (ctx->loop_depth > 0) {
-                // Inside a loop - use runtime defer stack
-                // For `defer foo()`, we need to push the function `foo` to be called later
-                if (stmt->as.defer_stmt.call->type == EXPR_CALL) {
-                    // Get the function being called
-                    char *fn_val = codegen_expr(ctx, stmt->as.defer_stmt.call->as.call.func);
+            // Always use runtime defer stack - this correctly handles:
+            // - Defers inside loops
+            // - Defers inside conditionals (if/else branches)
+            // - Nested control flow
+            if (stmt->as.defer_stmt.call->type == EXPR_CALL) {
+                // Get the function being called and its arguments
+                Expr *call_expr = stmt->as.defer_stmt.call;
+                char *fn_val = codegen_expr(ctx, call_expr->as.call.func);
+                int num_args = call_expr->as.call.num_args;
+
+                if (num_args == 0) {
+                    // No arguments - use simpler push
                     codegen_writeln(ctx, "hml_defer_push_call(%s);", fn_val);
                     codegen_writeln(ctx, "hml_release(&%s);", fn_val);
-                    free(fn_val);
                 } else {
-                    // For non-call expressions, evaluate and push
-                    char *val = codegen_expr(ctx, stmt->as.defer_stmt.call);
-                    codegen_writeln(ctx, "hml_defer_push_call(%s);", val);
-                    codegen_writeln(ctx, "hml_release(&%s);", val);
-                    free(val);
+                    // Has arguments - evaluate them and push with args
+                    char **arg_vals = malloc(sizeof(char*) * num_args);
+                    for (int i = 0; i < num_args; i++) {
+                        arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
+                    }
+                    // Build array of arguments
+                    codegen_writeln(ctx, "{");
+                    ctx->indent++;
+                    codegen_writeln(ctx, "HmlValue _defer_args[%d];", num_args);
+                    for (int i = 0; i < num_args; i++) {
+                        codegen_writeln(ctx, "_defer_args[%d] = %s;", i, arg_vals[i]);
+                    }
+                    codegen_writeln(ctx, "hml_defer_push_call_with_args(%s, _defer_args, %d);", fn_val, num_args);
+                    // Release the values (runtime defer has its own copies)
+                    for (int i = 0; i < num_args; i++) {
+                        codegen_writeln(ctx, "hml_release(&%s);", arg_vals[i]);
+                        free(arg_vals[i]);
+                    }
+                    codegen_writeln(ctx, "hml_release(&%s);", fn_val);
+                    free(arg_vals);
+                    ctx->indent--;
+                    codegen_writeln(ctx, "}");
                 }
+                free(fn_val);
             } else {
-                // Not in a loop - use compile-time defer stack
-                codegen_defer_push(ctx, stmt->as.defer_stmt.call);
+                // For non-call expressions (like identifiers), evaluate and push as 0-arg call
+                char *val = codegen_expr(ctx, stmt->as.defer_stmt.call);
+                codegen_writeln(ctx, "hml_defer_push_call(%s);", val);
+                codegen_writeln(ctx, "hml_release(&%s);", val);
+                free(val);
             }
             break;
         }

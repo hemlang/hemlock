@@ -240,6 +240,25 @@ void hml_eprint(HmlValue val) {
     fflush(stderr);
 }
 
+// I/O builtins as first-class functions
+HmlValue hml_builtin_print(HmlClosureEnv *env, HmlValue val) {
+    (void)env;
+    hml_print(val);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_println(HmlClosureEnv *env, HmlValue val) {
+    (void)env;
+    hml_print(val);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_eprint(HmlClosureEnv *env, HmlValue val) {
+    (void)env;
+    hml_eprint(val);
+    return hml_val_null();
+}
+
 // ========== VALUE COMPARISON ==========
 
 int hml_values_equal(HmlValue left, HmlValue right) {
@@ -4514,6 +4533,40 @@ void hml_defer_push_call(HmlValue fn) {
     *fn_copy = fn;
     hml_retain(fn_copy);
     hml_defer_push(hml_defer_call_wrapper, fn_copy);
+}
+
+// Structure to hold a deferred call with arguments
+typedef struct {
+    HmlValue fn;
+    HmlValue *args;
+    int num_args;
+} HmlDeferCallWithArgs;
+
+// Helper for deferring HmlValue function calls with arguments
+static void hml_defer_call_with_args_wrapper(void *arg) {
+    HmlDeferCallWithArgs *call = (HmlDeferCallWithArgs *)arg;
+    HmlValue result = hml_call_function(call->fn, call->args, call->num_args);
+    hml_release(&result);
+    // Release all args
+    for (int i = 0; i < call->num_args; i++) {
+        hml_release(&call->args[i]);
+    }
+    hml_release(&call->fn);
+    free(call->args);
+    free(call);
+}
+
+void hml_defer_push_call_with_args(HmlValue fn, HmlValue *args, int num_args) {
+    HmlDeferCallWithArgs *call = malloc(sizeof(HmlDeferCallWithArgs));
+    call->fn = fn;
+    hml_retain(&call->fn);
+    call->num_args = num_args;
+    call->args = malloc(sizeof(HmlValue) * num_args);
+    for (int i = 0; i < num_args; i++) {
+        call->args[i] = args[i];
+        hml_retain(&call->args[i]);
+    }
+    hml_defer_push(hml_defer_call_with_args_wrapper, call);
 }
 
 // ========== FUNCTION CALLS ==========
