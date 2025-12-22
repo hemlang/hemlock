@@ -2792,7 +2792,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // Note: safe_var_name is allocated when needed and must be freed
             char *safe_var_name = NULL;
             const char *var_name = expr->as.assign.name;
-            char prefixed_name[256];
+            char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
             if (ctx->current_module && !codegen_is_local(ctx, var_name)) {
                 // Module context - use module prefix
                 snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
@@ -3222,7 +3222,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             if (expr->as.prefix_inc.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.prefix_inc.operand->as.ident.name;
                 const char *var;
-                char prefixed_name[256];
+                char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
@@ -3282,7 +3282,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             if (expr->as.prefix_dec.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.prefix_dec.operand->as.ident.name;
                 const char *var;
-                char prefixed_name[256];
+                char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
@@ -3343,7 +3343,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             if (expr->as.postfix_inc.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.postfix_inc.operand->as.ident.name;
                 const char *var;
-                char prefixed_name[256];
+                char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
@@ -3403,7 +3403,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             if (expr->as.postfix_dec.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.postfix_dec.operand->as.ident.name;
                 const char *var;
-                char prefixed_name[256];
+                char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
                     snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",

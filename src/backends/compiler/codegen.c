@@ -810,6 +810,105 @@ void codegen_defer_clear(CodegenContext *ctx) {
     }
 }
 
+// ========== FUNCTION GENERATION STATE ==========
+
+void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
+    state->num_locals = ctx->num_locals;
+    state->defer_stack = ctx->defer_stack;
+    state->in_function = ctx->in_function;
+    state->has_defers = ctx->has_defers;
+    state->module = ctx->current_module;
+    state->closure = ctx->current_closure;
+
+    // Initialize for new function
+    ctx->defer_stack = NULL;
+    ctx->in_function = 1;
+    ctx->has_defers = 0;
+    ctx->last_closure_env_id = -1;
+}
+
+void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
+    codegen_defer_clear(ctx);
+    ctx->defer_stack = state->defer_stack;
+    ctx->num_locals = state->num_locals;
+    ctx->in_function = state->in_function;
+    ctx->has_defers = state->has_defers;
+    ctx->current_module = state->module;
+    ctx->current_closure = state->closure;
+    shared_env_clear(ctx);
+}
+
+void funcgen_add_params(CodegenContext *ctx, Expr *func) {
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        codegen_add_local(ctx, func->as.function.param_names[i]);
+    }
+    if (func->as.function.rest_param) {
+        codegen_add_local(ctx, func->as.function.rest_param);
+    }
+}
+
+void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
+    if (!func->as.function.param_defaults) return;
+
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        if (func->as.function.param_defaults[i]) {
+            char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", safe_param);
+            codegen_indent_inc(ctx);
+            char *default_val = codegen_expr(ctx, func->as.function.param_defaults[i]);
+            codegen_writeln(ctx, "%s = %s;", safe_param, default_val);
+            free(default_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            free(safe_param);
+        }
+    }
+}
+
+void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure) {
+    // Create scope for scanning
+    Scope *scan_scope = scope_new(NULL);
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        scope_add_var(scan_scope, func->as.function.param_names[i]);
+    }
+    // Add captured variables if this is a closure
+    if (closure) {
+        for (int i = 0; i < closure->num_captured; i++) {
+            scope_add_var(scan_scope, closure->captured_vars[i]);
+        }
+    }
+
+    // Clear any previous shared environment and scan for closures
+    shared_env_clear(ctx);
+    if (func->as.function.body->type == STMT_BLOCK) {
+        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
+            scan_closures_stmt(ctx, func->as.function.body->as.block.statements[i], scan_scope);
+        }
+    } else {
+        scan_closures_stmt(ctx, func->as.function.body, scan_scope);
+    }
+    scope_free(scan_scope);
+
+    // Create shared environment if needed
+    if (ctx->shared_env_num_vars > 0) {
+        char env_name[CODEGEN_ENV_NAME_SIZE];
+        snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
+        ctx->shared_env_name = strdup(env_name);
+        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
+                      env_name, ctx->shared_env_num_vars);
+    }
+}
+
+void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
+    if (func->as.function.body->type == STMT_BLOCK) {
+        for (int i = 0; i < func->as.function.body->as.block.count; i++) {
+            codegen_stmt(ctx, func->as.function.body->as.block.statements[i]);
+        }
+    } else {
+        codegen_stmt(ctx, func->as.function.body);
+    }
+}
+
 // ========== TYPE MAPPING HELPERS ==========
 
 const char* type_kind_to_hml_val(TypeKind kind) {

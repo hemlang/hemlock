@@ -20,6 +20,14 @@
 #include <libgen.h>
 #include <limits.h>
 
+// ========== BUFFER SIZE CONSTANTS ==========
+
+// Buffer size for mangled names (module prefix + symbol name)
+#define CODEGEN_MANGLED_NAME_SIZE 256
+
+// Buffer size for environment variable names
+#define CODEGEN_ENV_NAME_SIZE 64
+
 // ========== IN-MEMORY BUFFER SUPPORT ==========
 
 // In-memory buffer for code generation (replaces tmpfile for better performance)
@@ -37,6 +45,36 @@ void membuf_flush_to(MemBuffer *buf, FILE *output);
 
 // Close and free the buffer
 void membuf_free(MemBuffer *buf);
+
+// ========== FUNCTION GENERATION STATE ==========
+
+// State saved when entering a function body (for nested functions and closures)
+typedef struct {
+    int num_locals;           // Saved ctx->num_locals
+    DeferEntry *defer_stack;  // Saved ctx->defer_stack
+    int in_function;          // Saved ctx->in_function
+    int has_defers;           // Saved ctx->has_defers
+    CompiledModule *module;   // Saved ctx->current_module (for closures)
+    ClosureInfo *closure;     // Saved ctx->current_closure
+} FuncGenState;
+
+// Save function generation state before entering a function body
+void funcgen_save_state(CodegenContext *ctx, FuncGenState *state);
+
+// Restore function generation state after exiting a function body
+void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state);
+
+// Add function parameters as locals
+void funcgen_add_params(CodegenContext *ctx, Expr *func);
+
+// Apply default values for optional parameters
+void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
+
+// Scan for closures and create shared environment if needed
+void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure);
+
+// Generate function body statements
+void funcgen_generate_body(CodegenContext *ctx, Expr *func);
 
 // ========== INTERNAL HELPER FUNCTIONS ==========
 
