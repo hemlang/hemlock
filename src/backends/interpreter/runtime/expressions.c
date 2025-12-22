@@ -1195,6 +1195,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 func = eval_expr(expr->as.call.func, env, ctx);
             }
 
+            // Check for optional chain short-circuit: obj?.method(args) when obj is null
+            // If func came from an optional chain that returned null, short-circuit the entire call
+            if (expr->as.call.func->type == EXPR_OPTIONAL_CHAIN && func.type == VAL_NULL) {
+                if (is_method_call) {
+                    VALUE_RELEASE(method_self);
+                }
+                return val_null();
+            }
+
             // Evaluate arguments - use stack allocation for small arg counts (common case)
             #define MAX_STACK_ARGS 8
             Value stack_args[MAX_STACK_ARGS];
@@ -2366,8 +2375,62 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(object_val);
                 return result;
             } else if (expr->as.optional_chain.is_call) {
-                // Optional call is not supported for now
-                runtime_error(ctx, "Optional chaining for function calls is not yet supported");
+                // obj?.(args) - call obj directly if not null
+                int num_args = expr->as.optional_chain.num_args;
+                Value *args = NULL;
+                if (num_args > 0) {
+                    args = malloc(sizeof(Value) * num_args);
+                    for (int i = 0; i < num_args; i++) {
+                        args[i] = eval_expr(expr->as.optional_chain.args[i], env, ctx);
+                    }
+                }
+
+                Value result = {0};
+                if (object_val.type == VAL_FUNCTION) {
+                    Function *fn = object_val.as.as_function;
+
+                    // Create call environment with closure_env as parent
+                    Environment *call_env = env_new(fn->closure_env);
+
+                    // Bind parameters
+                    for (int i = 0; i < fn->num_params; i++) {
+                        Value arg_value = (i < num_args) ? args[i] : val_null();
+
+                        // Type check if parameter has type annotation
+                        if (fn->param_types[i]) {
+                            arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
+                        }
+
+                        env_set(call_env, fn->param_names[i], arg_value, ctx);
+                    }
+
+                    // Execute body
+                    ctx->return_state.is_returning = 0;
+                    eval_stmt(fn->body, call_env, ctx);
+
+                    // Get return value
+                    result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();
+                    ctx->return_state.is_returning = 0;
+
+                    // Clean up
+                    env_release(call_env);
+                } else if (object_val.type == VAL_BUILTIN_FN) {
+                    BuiltinFn fn = object_val.as.as_builtin_fn;
+                    result = fn(args, num_args, ctx);
+                } else {
+                    runtime_error(ctx, "Cannot call non-function value");
+                    result = val_null();
+                }
+
+                // Cleanup args
+                if (args) {
+                    for (int i = 0; i < num_args; i++) {
+                        VALUE_RELEASE(args[i]);
+                    }
+                    free(args);
+                }
+                VALUE_RELEASE(object_val);
+                return result;
             } else {
                 // Optional indexing: obj?.[index]
                 Value index_val = eval_expr(expr->as.optional_chain.index, env, ctx);
