@@ -252,6 +252,9 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
 // Concurrency builtins (needed for await implementation)
 Value builtin_join(Value *args, int num_args, ExecutionContext *ctx);
 
+// Function call utilities
+Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx);
+
 // ========== UTF-8 UTILITIES (utf8.c) ==========
 
 int utf8_count_codepoints(const char *data, int byte_length);

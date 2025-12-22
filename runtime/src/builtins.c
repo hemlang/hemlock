@@ -5921,6 +5921,23 @@ void hml_task_debug_info(HmlValue task_val) {
     pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
 }
 
+// apply(fn, args_array) - Call a function with an array of arguments
+HmlValue hml_apply(HmlValue fn, HmlValue args_array) {
+    if (fn.type != HML_VAL_FUNCTION) {
+        hml_runtime_error("apply() first argument must be a function");
+    }
+
+    if (args_array.type != HML_VAL_ARRAY) {
+        hml_runtime_error("apply() second argument must be an array");
+    }
+
+    HmlFunction *func = fn.as.as_function;
+    HmlArray *arr = args_array.as.as_array;
+
+    // Use libffi to call the function with dynamic arguments
+    return call_hemlock_function_ffi(func->fn_ptr, func->closure_env, arr->elements, arr->length);
+}
+
 // Channel functions
 HmlValue hml_channel(int32_t capacity) {
     HmlChannel *ch = malloc(sizeof(HmlChannel));

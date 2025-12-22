@@ -568,6 +568,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // Handle apply builtin
+                if (strcmp(fn_name, "apply") == 0 && expr->as.call.num_args == 2) {
+                    char *fn_val = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *args_val = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_apply(%s, %s);", result, fn_val, args_val);
+                    codegen_writeln(ctx, "hml_release(&%s);", fn_val);
+                    codegen_writeln(ctx, "hml_release(&%s);", args_val);
+                    free(fn_val);
+                    free(args_val);
+                    break;
+                }
+
                 // Handle channel builtin
                 if (strcmp(fn_name, "channel") == 0 && expr->as.call.num_args == 1) {
                     char *cap = codegen_expr(ctx, expr->as.call.args[0]);

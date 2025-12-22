@@ -23,7 +23,7 @@ fn factorial(n) {
 print(factorial(5));
 
 // Higher-order function
-fn apply(f, x) {
+fn call_with(f, x) {
     return f(x);
 }
 
@@ -31,6 +31,6 @@ fn twice(n) {
     return n * 2;
 }
 
-print(apply(twice, 5));
+print(call_with(twice, 5));
 
 print("done");
