@@ -254,8 +254,13 @@ static JSONValue *parse_string(JSONParser *p) {
     return v;
 }
 
+// Helper to avoid isdigit macro issues with static analyzer
+static inline int is_json_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
 static JSONValue *parse_number(JSONParser *p) {
-    if (!p->current) {
+    if (!p->current || !*p->current) {
         p->error = "Invalid number";
         return NULL;
     }
@@ -268,8 +273,8 @@ static JSONValue *parse_number(JSONParser *p) {
     // Integer part
     if (*p->current == '0') {
         p->current++;
-    } else if (isdigit((unsigned char)*p->current)) {
-        while (isdigit((unsigned char)*p->current)) p->current++;
+    } else if (is_json_digit(*p->current)) {
+        while (is_json_digit(*p->current)) p->current++;
     } else {
         p->error = "Invalid number";
         return NULL;
@@ -278,22 +283,22 @@ static JSONValue *parse_number(JSONParser *p) {
     // Fractional part
     if (*p->current == '.') {
         p->current++;
-        if (!isdigit((unsigned char)*p->current)) {
+        if (!is_json_digit(*p->current)) {
             p->error = "Invalid number";
             return NULL;
         }
-        while (isdigit((unsigned char)*p->current)) p->current++;
+        while (is_json_digit(*p->current)) p->current++;
     }
 
     // Exponent
     if (*p->current == 'e' || *p->current == 'E') {
         p->current++;
         if (*p->current == '+' || *p->current == '-') p->current++;
-        if (!isdigit((unsigned char)*p->current)) {
+        if (!is_json_digit(*p->current)) {
             p->error = "Invalid number";
             return NULL;
         }
-        while (isdigit((unsigned char)*p->current)) p->current++;
+        while (is_json_digit(*p->current)) p->current++;
     }
 
     char *numstr = strndup(start, p->current - start);

@@ -19,10 +19,11 @@
 // Check if a path component contains directory traversal attempts
 // Returns 1 if path is safe, 0 if it contains traversal
 static int is_safe_subpath(const char *path) {
-    if (!path || !path[0]) return 0;  // Reject NULL or empty paths
+    // Reject NULL paths
+    if (path == NULL) return 0;
 
-    // Reject absolute paths in subpaths
-    if (path[0] == '/') return 0;
+    // Reject empty paths or absolute paths
+    if (path[0] == '\0' || path[0] == '/') return 0;
 
     // Check for ".." components
     const char *p = path;
@@ -319,12 +320,19 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
 
         if (hem_modules) {
             // Parse owner/repo from import path
-            char owner[256], repo[256];
+            char owner[256] = {0};
+            char repo[256] = {0};
             const char *subpath = NULL;
 
             // Find first slash (after owner)
             const char *first_slash = strchr(import_path, '/');
-            if (first_slash) {
+            if (!first_slash) {
+                // Invalid package path - must have at least owner/repo
+                free(hem_modules);
+                fprintf(stderr, "Error: Invalid package import '%s' - expected owner/repo format\n", import_path);
+                return NULL;
+            }
+            {
                 size_t owner_len = first_slash - import_path;
                 if (owner_len >= sizeof(owner)) owner_len = sizeof(owner) - 1;
                 strncpy(owner, import_path, owner_len);
