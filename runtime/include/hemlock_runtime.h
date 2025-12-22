@@ -397,6 +397,9 @@ HmlValue hml_join(HmlValue task);
 void hml_detach(HmlValue task);
 void hml_task_debug_info(HmlValue task);
 
+// Function application
+HmlValue hml_apply(HmlValue fn, HmlValue args_array);
+
 // Channels
 HmlValue hml_channel(int32_t capacity);
 void hml_channel_send(HmlValue channel, HmlValue value);

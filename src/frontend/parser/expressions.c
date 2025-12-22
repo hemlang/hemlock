@@ -235,9 +235,9 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
 
     // Parse parameters
-    char **param_names = malloc(sizeof(char*) * 32);  // max 32 params
-    Type **param_types = malloc(sizeof(Type*) * 32);
-    Expr **param_defaults = malloc(sizeof(Expr*) * 32);
+    char **param_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+    Type **param_types = malloc(sizeof(Type*) * MAX_FUNCTION_PARAMS);
+    Expr **param_defaults = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
     char *rest_param = NULL;
@@ -257,6 +257,12 @@ Expr* primary(Parser *p) {
                 if (!check(p, TOK_RPAREN)) {
                     error_at(p, &p->current, "Rest parameter must be the last parameter");
                 }
+                break;
+            }
+
+            // Check parameter limit before adding
+            if (num_params >= MAX_FUNCTION_PARAMS) {
+                error_at(p, &p->current, "functions cannot have more than 64 parameters");
                 break;
             }
 
@@ -347,10 +353,14 @@ Expr* postfix(Parser *p) {
                 int num_args = 0;
 
                 if (!check(p, TOK_RPAREN)) {
-                    args = malloc(sizeof(Expr*) * 8);
+                    args = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
                     args[num_args++] = expression(p);
 
                     while (match(p, TOK_COMMA)) {
+                        if (num_args >= MAX_FUNCTION_PARAMS) {
+                            error_at(p, &p->current, "function calls cannot have more than 64 arguments");
+                            break;
+                        }
                         args[num_args++] = expression(p);
                     }
                 }
@@ -380,10 +390,14 @@ Expr* postfix(Parser *p) {
             int num_args = 0;
 
             if (!check(p, TOK_RPAREN)) {
-                args = malloc(sizeof(Expr*) * 8);
+                args = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
                 args[num_args++] = expression(p);
 
                 while (match(p, TOK_COMMA)) {
+                    if (num_args >= MAX_FUNCTION_PARAMS) {
+                        error_at(p, &p->current, "function calls cannot have more than 64 arguments");
+                        break;
+                    }
                     args[num_args++] = expression(p);
                 }
             }

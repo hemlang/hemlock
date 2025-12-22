@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// ========== PARSER LIMITS ==========
+
+#define MAX_FUNCTION_PARAMS 64
+
 // ========== CORE FUNCTIONS (from core.c) ==========
 
 // Error handling

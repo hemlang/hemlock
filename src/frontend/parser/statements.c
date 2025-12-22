@@ -399,9 +399,9 @@ Stmt* export_statement(Parser *p) {
     // Parse function (same as in statement())
     consume(p, TOK_LPAREN, "Expect '(' after function name");
 
-    char **param_names = malloc(sizeof(char*) * 32);
-    Type **param_types = malloc(sizeof(Type*) * 32);
-    Expr **param_defaults = malloc(sizeof(Expr*) * 32);
+    char **param_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+    Type **param_types = malloc(sizeof(Type*) * MAX_FUNCTION_PARAMS);
+    Expr **param_defaults = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
     int num_params = 0;
     int seen_optional = 0;
     char *rest_param = NULL;
@@ -419,6 +419,12 @@ Stmt* export_statement(Parser *p) {
                 if (!check(p, TOK_RPAREN)) {
                     error_at(p, &p->current, "Rest parameter must be the last parameter");
                 }
+                break;
+            }
+
+            // Check parameter limit before adding
+            if (num_params >= MAX_FUNCTION_PARAMS) {
+                error_at(p, &p->current, "functions cannot have more than 64 parameters");
                 break;
             }
 
@@ -652,9 +658,9 @@ Stmt* statement(Parser *p) {
         consume(p, TOK_LPAREN, "Expect '(' after function name");
 
         // Parse parameters
-        char **param_names = malloc(sizeof(char*) * 32);
-        Type **param_types = malloc(sizeof(Type*) * 32);
-        Expr **param_defaults = malloc(sizeof(Expr*) * 32);
+        char **param_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+        Type **param_types = malloc(sizeof(Type*) * MAX_FUNCTION_PARAMS);
+        Expr **param_defaults = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
         int num_params = 0;
         int seen_optional = 0;
         char *rest_param = NULL;
@@ -672,6 +678,12 @@ Stmt* statement(Parser *p) {
                     if (!check(p, TOK_RPAREN)) {
                         error_at(p, &p->current, "Rest parameter must be the last parameter");
                     }
+                    break;
+                }
+
+                // Check parameter limit before adding
+                if (num_params >= MAX_FUNCTION_PARAMS) {
+                    error_at(p, &p->current, "functions cannot have more than 64 parameters");
                     break;
                 }
 

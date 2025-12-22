@@ -34,22 +34,8 @@ export fn ThreadPool(num_workers: i32) {
             let result_ch = task.result_ch;
 
             try {
-                let result = null;
-                // Call function with args
-                if (task_args.length == 0) {
-                    result = task_fn();
-                } else if (task_args.length == 1) {
-                    result = task_fn(task_args[0]);
-                } else if (task_args.length == 2) {
-                    result = task_fn(task_args[0], task_args[1]);
-                } else if (task_args.length == 3) {
-                    result = task_fn(task_args[0], task_args[1], task_args[2]);
-                } else if (task_args.length == 4) {
-                    result = task_fn(task_args[0], task_args[1], task_args[2], task_args[3]);
-                } else {
-                    // For more args, would need apply() function
-                    panic("ThreadPool: too many arguments (max 4)");
-                }
+                // Call function with args using apply()
+                let result = apply(task_fn, task_args);
                 result_ch.send({ success: true, value: result });
             } catch (e) {
                 result_ch.send({ success: false, error: e });

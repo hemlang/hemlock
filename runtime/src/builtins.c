@@ -5748,6 +5748,62 @@ HmlValue hml_builtin_absolute_path(HmlClosureEnv *env, HmlValue path) {
 
 static atomic_int g_next_task_id = 1;
 
+// Define ffi_type for HmlValue struct (16 bytes: 4 type + 4 padding + 8 union)
+static ffi_type *hml_value_elements[] = {
+    &ffi_type_uint32,   // HmlValueType (enum)
+    &ffi_type_uint32,   // padding
+    &ffi_type_uint64,   // union as (8 bytes)
+    NULL
+};
+
+static ffi_type hml_value_ffi_type = {
+    .size = 0,
+    .alignment = 0,
+    .type = FFI_TYPE_STRUCT,
+    .elements = hml_value_elements
+};
+
+// Call a Hemlock function with arbitrary number of arguments using libffi
+// Function signature: HmlValue fn(void* closure_env, HmlValue arg0, ...)
+static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlValue *args, int num_args) {
+    // Total args = 1 (closure_env) + num_args (HmlValue args)
+    int total_args = 1 + num_args;
+
+    // Prepare argument types
+    ffi_type **arg_types = malloc(sizeof(ffi_type*) * total_args);
+    arg_types[0] = &ffi_type_pointer;  // closure_env
+    for (int i = 0; i < num_args; i++) {
+        arg_types[i + 1] = &hml_value_ffi_type;
+    }
+
+    // Prepare call interface
+    ffi_cif cif;
+    ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, total_args,
+                                      &hml_value_ffi_type, arg_types);
+    if (status != FFI_OK) {
+        free(arg_types);
+        hml_runtime_error("Failed to prepare FFI call interface for async function");
+        return hml_val_null();
+    }
+
+    // Prepare argument values (pointers to the actual values)
+    void **arg_values = malloc(sizeof(void*) * total_args);
+    arg_values[0] = &closure_env;
+    for (int i = 0; i < num_args; i++) {
+        arg_values[i + 1] = &args[i];
+    }
+
+    // Make the call
+    HmlValue result;
+    ffi_call(&cif, FFI_FN(fn_ptr), &result, arg_values);
+
+    // Cleanup
+    free(arg_types);
+    free(arg_values);
+
+    return result;
+}
+
 // Thread wrapper function
 static void* task_thread_wrapper(void* arg) {
     HmlTask *task = (HmlTask*)arg;
@@ -5762,60 +5818,8 @@ static void* task_thread_wrapper(void* arg) {
     void *fn_ptr = fn->fn_ptr;
     void *closure_env = fn->closure_env;
 
-    // Call function with arguments based on num_args
-    // Supports up to 10 arguments for async functions
-    HmlValue result;
-    typedef HmlValue (*Fn0)(void*);
-    typedef HmlValue (*Fn1)(void*, HmlValue);
-    typedef HmlValue (*Fn2)(void*, HmlValue, HmlValue);
-    typedef HmlValue (*Fn3)(void*, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn4)(void*, HmlValue, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn5)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn6)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn7)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn8)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn9)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-    typedef HmlValue (*Fn10)(void*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
-
-    switch (task->num_args) {
-        case 0:
-            result = ((Fn0)fn_ptr)(closure_env);
-            break;
-        case 1:
-            result = ((Fn1)fn_ptr)(closure_env, task->args[0]);
-            break;
-        case 2:
-            result = ((Fn2)fn_ptr)(closure_env, task->args[0], task->args[1]);
-            break;
-        case 3:
-            result = ((Fn3)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2]);
-            break;
-        case 4:
-            result = ((Fn4)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3]);
-            break;
-        case 5:
-            result = ((Fn5)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4]);
-            break;
-        case 6:
-            result = ((Fn6)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4], task->args[5]);
-            break;
-        case 7:
-            result = ((Fn7)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4], task->args[5], task->args[6]);
-            break;
-        case 8:
-            result = ((Fn8)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4], task->args[5], task->args[6], task->args[7]);
-            break;
-        case 9:
-            result = ((Fn9)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4], task->args[5], task->args[6], task->args[7], task->args[8]);
-            break;
-        case 10:
-            result = ((Fn10)fn_ptr)(closure_env, task->args[0], task->args[1], task->args[2], task->args[3], task->args[4], task->args[5], task->args[6], task->args[7], task->args[8], task->args[9]);
-            break;
-        default:
-            hml_runtime_error("async functions with more than 10 arguments are not supported");
-            result = hml_val_null();
-            break;
-    }
+    // Call function with arguments using libffi (supports unlimited arguments)
+    HmlValue result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
 
     // Store result and mark as completed
     pthread_mutex_lock((pthread_mutex_t*)task->mutex);
@@ -5956,6 +5960,23 @@ void hml_task_debug_info(HmlValue task_val) {
     printf("======================\n");
 
     pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+}
+
+// apply(fn, args_array) - Call a function with an array of arguments
+HmlValue hml_apply(HmlValue fn, HmlValue args_array) {
+    if (fn.type != HML_VAL_FUNCTION) {
+        hml_runtime_error("apply() first argument must be a function");
+    }
+
+    if (args_array.type != HML_VAL_ARRAY) {
+        hml_runtime_error("apply() second argument must be an array");
+    }
+
+    HmlFunction *func = fn.as.as_function;
+    HmlArray *arr = args_array.as.as_array;
+
+    // Use libffi to call the function with dynamic arguments
+    return call_hemlock_function_ffi(func->fn_ptr, func->closure_env, arr->elements, arr->length);
 }
 
 // Channel functions
