@@ -2171,14 +2171,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     // This is safe because we know the function signature at compile time
                     int expected_params = codegen_get_main_func_params(ctx, fn_name);
                     int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
-                    char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                    char **arg_temps = expr->as.call.num_args > 0
+                        ? malloc(expr->as.call.num_args * sizeof(char*))
+                        : NULL;
                     for (int i = 0; i < expr->as.call.num_args; i++) {
                         arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
                     }
 
                     // For rest params, we need to collect extra args into an array
                     char *rest_array_temp = NULL;
-                    if (has_rest && expr->as.call.num_args > expected_params) {
+                    if (has_rest && expr->as.call.num_args > expected_params && arg_temps) {
                         // Create array for rest args
                         rest_array_temp = codegen_temp(ctx);
                         codegen_writeln(ctx, "HmlValue %s = hml_val_array();", rest_array_temp);
@@ -2192,7 +2194,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                     // Pass regular args (up to expected_params)
                     int regular_args = has_rest ? (expr->as.call.num_args < expected_params ? expr->as.call.num_args : expected_params) : expr->as.call.num_args;
-                    for (int i = 0; i < regular_args; i++) {
+                    for (int i = 0; i < regular_args && arg_temps; i++) {
                         fprintf(ctx->output, ", %s", arg_temps[i]);
                     }
                     // Fill in hml_val_null() for missing optional parameters
@@ -2228,14 +2230,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (codegen_is_main_func(ctx, fn_name) && !ctx->current_module) {
                         int expected_params = codegen_get_main_func_params(ctx, fn_name);
                         int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
-                        char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                        char **arg_temps = expr->as.call.num_args > 0
+                            ? malloc(expr->as.call.num_args * sizeof(char*))
+                            : NULL;
                         for (int i = 0; i < expr->as.call.num_args; i++) {
                             arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
                         }
 
                         // For rest params, we need to collect extra args into an array
                         char *rest_array_temp = NULL;
-                        if (has_rest && expr->as.call.num_args > expected_params) {
+                        if (has_rest && expr->as.call.num_args > expected_params && arg_temps) {
                             // Create array for rest args
                             rest_array_temp = codegen_temp(ctx);
                             codegen_writeln(ctx, "HmlValue %s = hml_val_array();", rest_array_temp);
@@ -2249,7 +2253,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                         // Pass regular args (up to expected_params)
                         int regular_args = has_rest ? (expr->as.call.num_args < expected_params ? expr->as.call.num_args : expected_params) : expr->as.call.num_args;
-                        for (int i = 0; i < regular_args; i++) {
+                        for (int i = 0; i < regular_args && arg_temps; i++) {
                             fprintf(ctx->output, ", %s", arg_temps[i]);
                         }
                         // Fill in hml_val_null() for missing optional parameters
@@ -2353,13 +2357,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *obj_val = codegen_expr(ctx, obj_expr);
 
                 // Evaluate arguments
-                char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                char **arg_temps = expr->as.call.num_args > 0
+                    ? malloc(expr->as.call.num_args * sizeof(char*))
+                    : NULL;
                 for (int i = 0; i < expr->as.call.num_args; i++) {
                     arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
                 }
 
                 // Methods that work on both strings and arrays - need runtime type check
-                if (strcmp(method, "slice") == 0 && expr->as.call.num_args == 2) {
+                if (strcmp(method, "slice") == 0 && expr->as.call.num_args == 2 && arg_temps) {
                     codegen_writeln(ctx, "HmlValue %s;", result);
                     codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
                     codegen_writeln(ctx, "    %s = hml_string_slice(%s, %s, %s);",
@@ -2574,7 +2580,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     codegen_writeln(ctx, "HmlValue %s;", result);
                     if (expr->as.call.num_args == 0) {
                         codegen_writeln(ctx, "%s = hml_channel_recv(%s);", result, obj_val);
-                    } else {
+                    } else if (arg_temps) {
                         codegen_writeln(ctx, "%s = hml_socket_recv(%s, %s);", result, obj_val, arg_temps[0]);
                     }
                 // Socket-specific methods
@@ -3203,7 +3209,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // ++x is equivalent to x = x + 1, returns new value
             if (expr->as.prefix_inc.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.prefix_inc.operand->as.ident.name;
-                const char *var = raw_var;
+                const char *var;
                 char prefixed_name[256];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
@@ -3263,7 +3269,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_PREFIX_DEC: {
             if (expr->as.prefix_dec.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.prefix_dec.operand->as.ident.name;
-                const char *var = raw_var;
+                const char *var;
                 char prefixed_name[256];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
@@ -3324,7 +3330,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // x++ returns old value, then increments
             if (expr->as.postfix_inc.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.postfix_inc.operand->as.ident.name;
-                const char *var = raw_var;
+                const char *var;
                 char prefixed_name[256];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
@@ -3384,7 +3390,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_POSTFIX_DEC: {
             if (expr->as.postfix_dec.operand->type == EXPR_IDENT) {
                 const char *raw_var = expr->as.postfix_dec.operand->as.ident.name;
-                const char *var = raw_var;
+                const char *var;
                 char prefixed_name[256];
                 char *safe_var = NULL;
                 if (ctx->current_module && !codegen_is_local(ctx, raw_var)) {
