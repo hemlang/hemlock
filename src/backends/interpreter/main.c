@@ -489,15 +489,25 @@ static int show_file_info(const char *path) {
 }
 
 // Bundle a .hml file with all its dependencies
-static int bundle_file(const char *input_path, const char *output_path, int verbose, int compressed) {
+static int bundle_file(const char *input_path, const char *output_path, int verbose, int compressed, int tree_shake) {
     BundleOptions opts = bundle_options_default();
     opts.verbose = verbose;
+    opts.tree_shake = tree_shake;
 
     // Create bundle
     Bundle *bundle = bundle_create(input_path, &opts);
     if (!bundle) {
         fprintf(stderr, "Failed to create bundle from '%s'\n", input_path);
         return 1;
+    }
+
+    // Perform tree shaking if enabled
+    if (tree_shake) {
+        if (bundle_tree_shake(bundle, verbose) != 0) {
+            fprintf(stderr, "Failed to perform tree shaking\n");
+            bundle_free(bundle);
+            return 1;
+        }
     }
 
     // Flatten all modules
@@ -556,15 +566,25 @@ static int bundle_file(const char *input_path, const char *output_path, int verb
 }
 
 // Create a self-contained executable (.hmlp) from a .hml file
-static int package_file(const char *input_path, const char *output_path, int verbose, int compress) {
+static int package_file(const char *input_path, const char *output_path, int verbose, int compress, int tree_shake) {
     BundleOptions opts = bundle_options_default();
     opts.verbose = verbose;
+    opts.tree_shake = tree_shake;
 
     // Create bundle
     Bundle *bundle = bundle_create(input_path, &opts);
     if (!bundle) {
         fprintf(stderr, "Failed to create bundle from '%s'\n", input_path);
         return 1;
+    }
+
+    // Perform tree shaking if enabled
+    if (tree_shake) {
+        if (bundle_tree_shake(bundle, verbose) != 0) {
+            fprintf(stderr, "Failed to perform tree shaking\n");
+            bundle_free(bundle);
+            return 1;
+        }
     }
 
     // Flatten all modules
@@ -872,8 +892,8 @@ static void print_help(const char *program) {
     printf("USAGE:\n");
     printf("    %s [OPTIONS] [FILE] [ARGS...]\n", program);
     printf("    %s --compile FILE [-o OUTPUT] [--debug]\n", program);
-    printf("    %s --bundle FILE [-o OUTPUT] [--compress] [--verbose]\n", program);
-    printf("    %s --package FILE [-o OUTPUT] [--no-compress] [--verbose]\n", program);
+    printf("    %s --bundle FILE [-o OUTPUT] [--compress] [--tree-shake] [--verbose]\n", program);
+    printf("    %s --package FILE [-o OUTPUT] [--no-compress] [--tree-shake] [--verbose]\n", program);
     printf("    %s lsp [--stdio | --tcp PORT]\n\n", program);
     printf("ARGUMENTS:\n");
     printf("    <FILE>       Hemlock script file to execute (.hml or .hmlc)\n");
@@ -892,6 +912,7 @@ static void print_help(const char *program) {
     printf("    --bundle <FILE>      Bundle .hml with all imports into single file\n");
     printf("    --package <FILE>     Create self-contained executable (interpreter + bundle)\n");
     printf("    --compress           Use zlib compression for bundle output (.hmlb)\n");
+    printf("    --tree-shake         Remove unused exports from bundle (dead code elimination)\n");
     printf("    --no-compress        Skip compression (faster startup, larger binary)\n");
     printf("    --info <FILE>        Show info about a .hmlc/.hmlb file\n");
     printf("    -o, --output <FILE>  Output path for compiled/bundled/packaged file\n");
@@ -977,6 +998,7 @@ int main(int argc, char **argv) {
     int bundle_mode = 0;
     int bundle_compress = 0;
     int bundle_verbose = 0;
+    int bundle_tree_shake = 0;
     int package_mode = 0;
     int info_mode = 0;
     int stack_depth = 0;  // 0 = use default (DEFAULT_MAX_STACK_DEPTH)
@@ -1046,6 +1068,8 @@ int main(int argc, char **argv) {
             bundle_compress = -1;  // Explicitly disabled
         } else if (strcmp(argv[i], "--verbose") == 0) {
             bundle_verbose = 1;
+        } else if (strcmp(argv[i], "--tree-shake") == 0) {
+            bundle_tree_shake = 1;
         } else if (strcmp(argv[i], "--stack-depth") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Error: --stack-depth requires a numeric argument\n");
@@ -1107,7 +1131,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Error: No input file specified for bundling\n");
             return 1;
         }
-        int result = bundle_file(file_to_bundle, output_path, bundle_verbose, bundle_compress);
+        int result = bundle_file(file_to_bundle, output_path, bundle_verbose, bundle_compress, bundle_tree_shake);
         return result;
     }
 
@@ -1129,7 +1153,7 @@ int main(int argc, char **argv) {
         // For --package, compression is ON by default (smaller binary)
         // Use --no-compress for faster startup at cost of larger binary
         int compress = (bundle_compress == -1) ? 0 : 1;  // Default to compressed
-        int result = package_file(file_to_package, output_path, bundle_verbose, compress);
+        int result = package_file(file_to_package, output_path, bundle_verbose, compress, bundle_tree_shake);
         return result;
     }
 
