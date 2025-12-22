@@ -1,0 +1,21 @@
+// Test async functions with many arguments (> 10)
+
+async fn sum15(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15): i32 {
+    return a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 + a11 + a12 + a13 + a14 + a15;
+}
+
+// Test with 15 arguments
+let task = spawn(sum15, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+let result = join(task);
+print(result);
+
+// Test with 10 arguments (should still work)
+async fn sum10(a, b, c, d, e, f, g, h, i, j): i32 {
+    return a + b + c + d + e + f + g + h + i + j;
+}
+
+let task2 = spawn(sum10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+let result2 = join(task2);
+print(result2);
+
+print("done");
