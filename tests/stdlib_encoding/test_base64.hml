@@ -102,14 +102,14 @@ if (decoded9 != text9) {
 print("✓ Test 9: Numbers and symbols");
 
 // Test 10: Unicode (UTF-8)
-// Note: Due to byte-by-byte string reconstruction in decode, multi-byte UTF-8
-// characters don't round-trip correctly. This is a known limitation.
-// For now, we just verify encode/decode doesn't crash
+// UTF-8 multi-byte characters now round-trip correctly via __string_from_bytes
 let text10 = "Hello 世界 🚀";
 let encoded10 = base64_encode(text10);
 let decoded10 = base64_decode(encoded10);
-// Skip exact comparison due to UTF-8 reconstruction limitation
-print("✓ Test 10: Unicode (UTF-8) - encoding works (decode has known limitation)");
+if (decoded10 != text10) {
+    throw "Failed round-trip for UTF-8 text, got: " + decoded10;
+}
+print("✓ Test 10: Unicode (UTF-8) round-trip");
 
 // Test 11: Multiple padding scenarios
 let test11a = base64_encode("a");

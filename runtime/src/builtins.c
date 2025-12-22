@@ -3679,6 +3679,41 @@ int hml_object_has_field(HmlValue obj, const char *field) {
     return 0;
 }
 
+// Delete a field from object, returns 1 if deleted, 0 if not found
+int hml_object_delete_field(HmlValue obj, const char *field) {
+    if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
+        return 0;
+    }
+
+    HmlObject *o = obj.as.as_object;
+    int found_index = -1;
+
+    // Find the field
+    for (int i = 0; i < o->num_fields; i++) {
+        if (strcmp(o->field_names[i], field) == 0) {
+            found_index = i;
+            break;
+        }
+    }
+
+    if (found_index == -1) {
+        return 0;  // Not found
+    }
+
+    // Release the value and free the field name
+    hml_release(&o->field_values[found_index]);
+    free(o->field_names[found_index]);
+
+    // Shift remaining fields down
+    for (int i = found_index; i < o->num_fields - 1; i++) {
+        o->field_names[i] = o->field_names[i + 1];
+        o->field_values[i] = o->field_values[i + 1];
+    }
+
+    o->num_fields--;
+    return 1;  // Deleted
+}
+
 // Get number of fields in object
 int hml_object_num_fields(HmlValue obj) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
@@ -4860,6 +4895,12 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
                 hml_runtime_error("Object.has() requires string argument");
             }
             return hml_val_bool(hml_object_has_field(obj, args[0].as.as_string->data));
+        }
+        if (strcmp(method, "delete") == 0 && num_args == 1) {
+            if (args[0].type != HML_VAL_STRING) {
+                hml_runtime_error("Object.delete() requires string argument");
+            }
+            return hml_val_bool(hml_object_delete_field(obj, args[0].as.as_string->data));
         }
         hml_runtime_error("Object has no method '%s'", method);
     }

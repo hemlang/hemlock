@@ -278,26 +278,31 @@ print(has(doc, "items"));  // false
 
 ---
 
-#### `delete(obj, path: string)`
+#### `delete(obj, path: string): bool`
 
-Delete value by path (sets to null).
+Delete a property by path. Supports both object properties and array elements.
 
 ```hemlock
-import { delete } from "@stdlib/json";
+import { delete, has } from "@stdlib/json";
 
 let doc = { user: { name: "Alice", email: "alice@example.com" } };
 
-delete(doc, "user.email");
-print(doc.user.email);  // null
+print(delete(doc, "user.email"));  // true
+print(has(doc, "user.email"));     // false
+
+// Also works with array indices
+let arr = { items: [1, 2, 3] };
+delete(arr, "items.1");  // Removes element at index 1
+// arr.items is now [1, 3]
 ```
 
 **Parameters:**
 - `obj` - Root object
 - `path` (string) - Path to delete
 
-**Returns:** null
+**Returns:** `true` if the property was deleted, `false` if not found
 
-**Note:** Currently sets property to null (property deletion not yet supported)
+Supports deleting both object properties and array elements (by index).
 
 ---
 
@@ -643,10 +648,9 @@ try {
 ## Current Limitations
 
 1. **No object iteration builtin** - `merge()`, `patch()`, and object `equals()` not yet implemented
-2. **No property deletion** - `delete()` sets to null instead
-3. **No line numbers in parse errors** - Validation doesn't report exact error location
-4. **No JSON Schema** - Schema validation not yet supported
-5. **No streaming** - Large files must fit in memory
+2. **No line numbers in parse errors** - Validation doesn't report exact error location
+3. **No JSON Schema** - Schema validation not yet supported
+4. **No streaming** - Large files must fit in memory
 
 ## Future Enhancements
 

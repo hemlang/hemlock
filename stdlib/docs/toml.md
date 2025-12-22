@@ -315,8 +315,18 @@ Literal strings (`'...'`) have no escape sequences - backslashes are literal.
 ## Limitations
 
 - Date/time values are parsed as strings (no native datetime type)
-- Unicode escape sequences (`\uXXXX`) not yet supported
 - Some edge cases in TOML 1.0 spec may not be fully supported
+
+## Unicode Escape Sequences
+
+Both `\uXXXX` (4-digit) and `\UXXXXXXXX` (8-digit) Unicode escape sequences are supported in basic strings:
+
+```hemlock
+import { parse } from "@stdlib/toml";
+
+let config = parse('greeting = "Hello \\u4E16\\u754C"');  // Hello 世界
+let emoji = parse('rocket = "\\U0001F680"');              // 🚀
+```
 
 ## See Also
 

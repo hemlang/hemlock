@@ -426,12 +426,66 @@ fn has(obj, path: string): bool {
     return result != sentinel;
 }
 
-// Delete value by path
-fn delete(obj, path: string) {
-    // Note: Hemlock doesn't have object property deletion yet
-    // This sets the property to null as a workaround
-    set(obj, path, null);
-    return null;
+// Delete value by path (dot notation)
+// Example: delete(obj, "user.address.city")
+// Returns true if the property was deleted, false if not found
+fn delete(obj, path: string): bool {
+    if (path.length == 0) {
+        return false;
+    }
+
+    let parts = path.split(".");
+    let current = obj;
+    let i = 0;
+
+    // Navigate to parent of the property to delete
+    while (i < parts.length - 1) {
+        if (current == null) {
+            return false;
+        }
+
+        let part = parts[i];
+
+        if (is_numeric(part)) {
+            if (typeof(current) != "array") {
+                return false;
+            }
+            let idx = parse_int(part);
+            if (idx < 0 || idx >= current.length) {
+                return false;
+            }
+            current = current[idx];
+        } else {
+            if (typeof(current) != "object") {
+                return false;
+            }
+            current = current[part];
+        }
+
+        i = i + 1;
+    }
+
+    // Delete the final property
+    let last_part = parts[parts.length - 1];
+
+    if (is_numeric(last_part)) {
+        // Array element - use remove method
+        if (typeof(current) != "array") {
+            return false;
+        }
+        let idx = parse_int(last_part);
+        if (idx < 0 || idx >= current.length) {
+            return false;
+        }
+        current.remove(idx);
+        return true;
+    } else {
+        // Object property - use delete method
+        if (typeof(current) != "object") {
+            return false;
+        }
+        return current.delete(last_part);
+    }
 }
 
 // ============================================================================

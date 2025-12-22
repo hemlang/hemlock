@@ -790,5 +790,73 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         return result;
     }
 
+    // delete(key) - remove a field from the object
+    if (strcmp(method, "delete") == 0) {
+        if (num_args != 1) {
+            return throw_runtime_error(ctx, "delete() expects 1 argument (key)");
+        }
+        if (args[0].type != VAL_STRING) {
+            return throw_runtime_error(ctx, "delete() key must be a string");
+        }
+
+        const char *key = args[0].as.as_string->data;
+
+        // Find the field index
+        int found_index = -1;
+        for (int i = 0; i < obj->num_fields; i++) {
+            if (strcmp(obj->field_names[i], key) == 0) {
+                found_index = i;
+                break;
+            }
+        }
+
+        if (found_index == -1) {
+            return val_bool(0);  // Field not found, return false
+        }
+
+        // Release the value being deleted
+        VALUE_RELEASE(obj->field_values[found_index]);
+
+        // Free the field name
+        free(obj->field_names[found_index]);
+
+        // Shift remaining fields down
+        for (int i = found_index; i < obj->num_fields - 1; i++) {
+            obj->field_names[i] = obj->field_names[i + 1];
+            obj->field_values[i] = obj->field_values[i + 1];
+        }
+
+        obj->num_fields--;
+
+        // Rebuild hash table to reflect new indices
+        if (obj->hash_table && obj->num_fields > 0) {
+            // Clear hash table
+            for (int i = 0; i < obj->hash_capacity; i++) {
+                obj->hash_table[i] = -1;
+            }
+            // Rehash all remaining fields
+            for (int i = 0; i < obj->num_fields; i++) {
+                uint32_t hash = 5381;  // DJB2 hash
+                const char *str = obj->field_names[i];
+                int c;
+                while ((c = *str++)) {
+                    hash = ((hash << 5) + hash) + c;
+                }
+                int slot = hash % obj->hash_capacity;
+                while (obj->hash_table[slot] != -1) {
+                    slot = (slot + 1) % obj->hash_capacity;
+                }
+                obj->hash_table[slot] = i;
+            }
+        } else if (obj->hash_table && obj->num_fields == 0) {
+            // Free hash table if object is now empty
+            free(obj->hash_table);
+            obj->hash_table = NULL;
+            obj->hash_capacity = 0;
+        }
+
+        return val_bool(1);  // Field deleted, return true
+    }
+
     return throw_runtime_error(ctx, "Object has no method '%s'", method);
 }

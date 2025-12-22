@@ -68,9 +68,14 @@ assert(has(doc, "user.phone") == false, "has missing user.phone");
 assert(has(doc, "nonexistent") == false, "has nonexistent path");
 assert(has(doc, "items.100") == false, "has array out of bounds");
 
-// Test delete() (sets to null)
-delete(doc, "user.age");
-assert(doc.user.age == null, "delete sets to null");
+// Test delete() (actually removes property)
+let deleted = delete(doc, "user.age");
+assert(deleted == true, "delete returns true for existing property");
+assert(has(doc, "user.age") == false, "deleted property no longer exists");
+
+// Test delete non-existent property
+let deleted2 = delete(doc, "user.nonexistent");
+assert(deleted2 == false, "delete returns false for non-existent property");
 
 // Test path with null intermediate
 let null_test = { a: { b: { c: 10 } } };

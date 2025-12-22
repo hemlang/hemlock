@@ -59,6 +59,67 @@ fn is_bare_key_char(ch): bool {
     return is_alpha(ch) || is_digit(ch) || ch == '_' || ch == '-';
 }
 
+// Convert hex character to value (0-15), returns -1 for invalid
+fn hex_to_value(ch: rune): i32 {
+    let code: i32 = ch;
+    if (code >= 48 && code <= 57) { return code - 48; }      // 0-9
+    if (code >= 65 && code <= 70) { return code - 65 + 10; } // A-F
+    if (code >= 97 && code <= 102) { return code - 97 + 10; } // a-f
+    return -1;
+}
+
+// Convert a Unicode codepoint to a UTF-8 string
+fn codepoint_to_utf8(cp: i32): string {
+    if (cp < 0) {
+        return "";
+    }
+    if (cp < 0x80) {
+        // 1-byte: ASCII
+        let r: rune = cp;
+        return "" + r;
+    }
+    if (cp < 0x800) {
+        // 2-byte
+        let b1: i32 = 0xC0 | ((cp >> 6) & 0x1F);
+        let b2: i32 = 0x80 | (cp & 0x3F);
+        return __string_from_bytes([b1, b2]);
+    }
+    if (cp < 0x10000) {
+        // 3-byte
+        let b1: i32 = 0xE0 | ((cp >> 12) & 0x0F);
+        let b2: i32 = 0x80 | ((cp >> 6) & 0x3F);
+        let b3: i32 = 0x80 | (cp & 0x3F);
+        return __string_from_bytes([b1, b2, b3]);
+    }
+    if (cp < 0x110000) {
+        // 4-byte
+        let b1: i32 = 0xF0 | ((cp >> 18) & 0x07);
+        let b2: i32 = 0x80 | ((cp >> 12) & 0x3F);
+        let b3: i32 = 0x80 | ((cp >> 6) & 0x3F);
+        let b4: i32 = 0x80 | (cp & 0x3F);
+        return __string_from_bytes([b1, b2, b3, b4]);
+    }
+    // Invalid codepoint
+    return "";
+}
+
+// Parse N hex digits from lexer and return the value
+fn parse_unicode_escape(lex, num_digits: i32): i32 {
+    let value: i32 = 0;
+    let i = 0;
+    while (i < num_digits) {
+        let ch = lexer_peek(lex);
+        let digit = hex_to_value(ch);
+        if (digit == -1) {
+            throw lexer_error(lex, "invalid hex digit in unicode escape");
+        }
+        value = (value * 16) + digit;
+        lexer_advance(lex);
+        i = i + 1;
+    }
+    return value;
+}
+
 // ============================================================================
 // Lexer
 // ============================================================================
@@ -127,13 +188,36 @@ fn lexer_read_basic_string(lex): string {
         if (ch == '\\') {
             lexer_advance(lex);
             let escape = lexer_peek(lex);
-            if (escape == 'n') { result = result + "\n"; }
-            else if (escape == 't') { result = result + "\t"; }
-            else if (escape == 'r') { result = result + "\r"; }
-            else if (escape == '\\') { result = result + "\\"; }
-            else if (escape == '"') { result = result + "\""; }
-            else { throw lexer_error(lex, "invalid escape"); }
-            lexer_advance(lex);
+            if (escape == 'n') { result = result + "\n"; lexer_advance(lex); }
+            else if (escape == 't') { result = result + "\t"; lexer_advance(lex); }
+            else if (escape == 'r') { result = result + "\r"; lexer_advance(lex); }
+            else if (escape == '\\') { result = result + "\\"; lexer_advance(lex); }
+            else if (escape == '"') { result = result + "\""; lexer_advance(lex); }
+            else if (escape == 'b') {
+                // Backspace (ASCII 8)
+                let bs: rune = 8;
+                result = result + bs;
+                lexer_advance(lex);
+            }
+            else if (escape == 'f') {
+                // Form feed (ASCII 12)
+                let ff: rune = 12;
+                result = result + ff;
+                lexer_advance(lex);
+            }
+            else if (escape == 'u') {
+                // \uXXXX - 4 hex digits
+                lexer_advance(lex);  // consume 'u'
+                let codepoint = parse_unicode_escape(lex, 4);
+                result = result + codepoint_to_utf8(codepoint);
+            }
+            else if (escape == 'U') {
+                // \UXXXXXXXX - 8 hex digits
+                lexer_advance(lex);  // consume 'U'
+                let codepoint = parse_unicode_escape(lex, 8);
+                result = result + codepoint_to_utf8(codepoint);
+            }
+            else { throw lexer_error(lex, "invalid escape sequence"); }
         } else {
             result = result + ch;
             lexer_advance(lex);
@@ -204,7 +288,31 @@ fn lexer_read_multiline_basic_string(lex): string {
             else if (escape == 'r') { result = result + "\r"; lexer_advance(lex); }
             else if (escape == '\\') { result = result + "\\"; lexer_advance(lex); }
             else if (escape == '"') { result = result + "\""; lexer_advance(lex); }
-            else { throw lexer_error(lex, "invalid escape"); }
+            else if (escape == 'b') {
+                // Backspace (ASCII 8)
+                let bs: rune = 8;
+                result = result + bs;
+                lexer_advance(lex);
+            }
+            else if (escape == 'f') {
+                // Form feed (ASCII 12)
+                let ff: rune = 12;
+                result = result + ff;
+                lexer_advance(lex);
+            }
+            else if (escape == 'u') {
+                // \uXXXX - 4 hex digits
+                lexer_advance(lex);
+                let codepoint = parse_unicode_escape(lex, 4);
+                result = result + codepoint_to_utf8(codepoint);
+            }
+            else if (escape == 'U') {
+                // \UXXXXXXXX - 8 hex digits
+                lexer_advance(lex);
+                let codepoint = parse_unicode_escape(lex, 8);
+                result = result + codepoint_to_utf8(codepoint);
+            }
+            else { throw lexer_error(lex, "invalid escape sequence"); }
         } else {
             result = result + ch;
             lexer_advance(lex);
