@@ -7,9 +7,19 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
     switch (stmt->type) {
         case STMT_LET: {
             Value value = eval_expr(stmt->as.let.value, env, ctx);
+            // Check for exception after evaluating value
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(value);
+                break;
+            }
             // If there's a type annotation, convert/check the value
             if (stmt->as.let.type_annotation != NULL) {
                 value = convert_to_type(value, stmt->as.let.type_annotation, env, ctx);
+                // Check for exception after type conversion
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(value);
+                    break;
+                }
             }
             env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
             VALUE_RELEASE(value);  // Release original reference (env_define retains)
@@ -18,9 +28,19 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_CONST: {
             Value value = eval_expr(stmt->as.const_stmt.value, env, ctx);
+            // Check for exception after evaluating value
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(value);
+                break;
+            }
             // If there's a type annotation, convert/check the value
             if (stmt->as.const_stmt.type_annotation != NULL) {
                 value = convert_to_type(value, stmt->as.const_stmt.type_annotation, env, ctx);
+                // Check for exception after type conversion
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(value);
+                    break;
+                }
             }
             env_define(env, stmt->as.const_stmt.name, value, 1, ctx);  // 1 = const
             VALUE_RELEASE(value);  // Release original reference (env_define retains)
@@ -35,6 +55,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_IF: {
             Value condition = eval_expr(stmt->as.if_stmt.condition, env, ctx);
+            // Check for exception after evaluating condition
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(condition);
+                break;
+            }
 
             if (VALUE_IS_TRUTHY_FAST(condition)) {
                 VALUE_RELEASE(condition);  // Release condition before branching
@@ -54,6 +79,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             Environment *iter_env = env_new(env);
             for (;;) {
                 Value condition = eval_expr(stmt->as.while_stmt.condition, env, ctx);
+                // Check for exception after evaluating condition
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(condition);
+                    break;
+                }
 
                 if (!VALUE_IS_TRUTHY_FAST(condition)) {
                     VALUE_RELEASE(condition);  // Release condition before breaking
@@ -324,6 +354,12 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Evaluate return value (or null if none)
             if (stmt->as.return_stmt.value) {
                 ctx->return_state.return_value = eval_expr(stmt->as.return_stmt.value, env, ctx);
+                // Check for exception - don't set is_returning if exception occurred
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(ctx->return_state.return_value);
+                    ctx->return_state.return_value = val_null();
+                    break;
+                }
             } else {
                 ctx->return_state.return_value = val_null();
             }
@@ -367,23 +403,45 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
             // Evaluate variant values (auto-increment or explicit)
             int32_t auto_value = 0;
+            int had_error = 0;
             for (int i = 0; i < type->num_variants; i++) {
                 type->variant_names[i] = strdup(stmt->as.enum_decl.variant_names[i]);
 
                 if (stmt->as.enum_decl.variant_values[i] != NULL) {
                     // Explicit value - evaluate the expression
                     Value val = eval_expr(stmt->as.enum_decl.variant_values[i], env, ctx);
+                    // Check for exception after evaluating variant value
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(val);
+                        had_error = 1;
+                        break;
+                    }
                     if (val.type != VAL_I32) {
-                        fprintf(stderr, "Runtime error: Enum variant value must be i32\n");
-                        exit(1);
+                        runtime_error(ctx, "Enum variant '%s' value must be i32",
+                                     stmt->as.enum_decl.variant_names[i]);
+                        VALUE_RELEASE(val);
+                        had_error = 1;
+                        break;
                     }
                     type->variant_values[i] = val.as.as_i32;
                     auto_value = val.as.as_i32 + 1;  // Next auto value
+                    VALUE_RELEASE(val);
                 } else {
                     // Auto value
                     type->variant_values[i] = auto_value;
                     auto_value++;
                 }
+            }
+            if (had_error) {
+                // Clean up partially created enum type
+                for (int i = 0; i < type->num_variants; i++) {
+                    if (type->variant_names[i]) free(type->variant_names[i]);
+                }
+                free(type->variant_names);
+                free(type->variant_values);
+                free(type->name);
+                free(type);
+                break;
             }
 
             // Register the enum type
@@ -488,6 +546,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         case STMT_SWITCH: {
             // Evaluate the switch expression
             Value switch_value = eval_expr(stmt->as.switch_stmt.expr, env, ctx);
+            // Check for exception after evaluating switch expression
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(switch_value);
+                break;
+            }
 
             // Find matching case or default
             int matched_case = -1;
@@ -500,6 +563,12 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 } else {
                     // Evaluate case value and compare
                     Value case_value = eval_expr(stmt->as.switch_stmt.case_values[i], env, ctx);
+                    // Check for exception after evaluating case value
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(case_value);
+                        VALUE_RELEASE(switch_value);
+                        break;
+                    }
 
                     if (values_equal(switch_value, case_value)) {
                         VALUE_RELEASE(case_value);  // Release case value after comparison
@@ -508,6 +577,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     }
                     VALUE_RELEASE(case_value);  // Release case value after comparison
                 }
+            }
+            // Check if we broke out of the loop due to an exception
+            if (ctx->exception_state.is_throwing) {
+                break;
             }
 
             // If no case matched, use default if available

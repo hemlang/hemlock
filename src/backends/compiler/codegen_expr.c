@@ -2732,8 +2732,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_ASSIGN: {
             // Check for const reassignment at compile time
             if (codegen_is_const(ctx, expr->as.assign.name)) {
-                codegen_writeln(ctx, "hml_runtime_error(\"Cannot assign to const variable '%s'\");",
-                               expr->as.assign.name);
+                codegen_error(ctx, expr->line, "cannot assign to const variable '%s'",
+                             expr->as.assign.name);
                 codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
                 break;
             }

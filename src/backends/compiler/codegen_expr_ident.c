@@ -584,10 +584,9 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
             // Main file top-level variable - use _main_ prefix
             codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident.name);
         } else {
-            // Undefined variable - will cause C compilation error
-            char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
-            codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
-            free(safe_ident);
+            // Undefined variable - report compile-time error
+            codegen_error(ctx, expr->line, "undefined variable '%s'", expr->as.ident.name);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
         }
     }
     // OPTIMIZATION: Use conditional retain to skip for primitives (i32, i64, f64, bool)

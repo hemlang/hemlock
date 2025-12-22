@@ -238,6 +238,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             // Build new string with replacement
             int new_len = str->length - old->length + new->length;
             char *result = malloc(new_len + 1);
+            if (result == NULL) {
+                return throw_runtime_error(ctx, "replace() out of memory");
+            }
 
             memcpy(result, str->data, pos);
             memcpy(result + pos, new->data, new->length);
@@ -278,6 +281,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             // Build new string
             int new_len = str->length - (count * old->length) + (count * new->length);
             char *result = malloc(new_len + 1);
+            if (result == NULL) {
+                return throw_runtime_error(ctx, "replace_all() out of memory");
+            }
             int result_pos = 0;
 
             for (int i = 0; i < str->length; ) {
@@ -311,8 +317,16 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_string("");
             }
 
+            // Check for integer overflow before multiplication
+            if (str->length > 0 && count > (INT32_MAX / str->length)) {
+                return throw_runtime_error(ctx, "repeat() would overflow: string too long");
+            }
+
             int new_len = str->length * count;
             char *result = malloc(new_len + 1);
+            if (result == NULL) {
+                return throw_runtime_error(ctx, "repeat() out of memory");
+            }
 
             for (int i = 0; i < count; i++) {
                 memcpy(result + (i * str->length), str->data, str->length);
@@ -361,6 +375,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 
             // Create new string
             char *new_data = malloc(byte_length + 1);
+            if (new_data == NULL) {
+                return throw_runtime_error(ctx, "substr() out of memory");
+            }
             memcpy(new_data, str->data + start_byte, byte_length);
             new_data[byte_length] = '\0';
 
@@ -396,6 +413,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 
             // Create new string
             char *new_data = malloc(byte_length + 1);
+            if (new_data == NULL) {
+                return throw_runtime_error(ctx, "slice() out of memory");
+            }
             memcpy(new_data, str->data + start_byte, byte_length);
             new_data[byte_length] = '\0';
 
@@ -417,6 +437,11 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 // Empty delimiter: split into individual characters
                 for (int i = 0; i < str->length; i++) {
                     char *char_str = malloc(2);
+                    if (char_str == NULL) {
+                        // Clean up already allocated array elements
+                        VALUE_RELEASE(val_array(result));
+                        return throw_runtime_error(ctx, "split() out of memory");
+                    }
                     char_str[0] = str->data[i];
                     char_str[1] = '\0';
                     array_push(result, val_string_take(char_str, 1, 2));
@@ -431,6 +456,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                     // Found delimiter, extract substring
                     int len = i - start;
                     char *part = malloc(len + 1);
+                    if (part == NULL) {
+                        VALUE_RELEASE(val_array(result));
+                        return throw_runtime_error(ctx, "split() out of memory");
+                    }
                     memcpy(part, str->data + start, len);
                     part[len] = '\0';
                     array_push(result, val_string_take(part, len, len + 1));
@@ -442,6 +471,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             // Add remaining part
             int len = str->length - start;
             char *part = malloc(len + 1);
+            if (part == NULL) {
+                VALUE_RELEASE(val_array(result));
+                return throw_runtime_error(ctx, "split() out of memory");
+            }
             memcpy(part, str->data + start, len);
             part[len] = '\0';
             array_push(result, val_string_take(part, len, len + 1));
@@ -493,6 +526,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             char *trimmed = malloc(len + 1);
+            if (trimmed == NULL) {
+                return throw_runtime_error(ctx, "trim() out of memory");
+            }
             memcpy(trimmed, str->data + start, len);
             trimmed[len] = '\0';
 
@@ -505,6 +541,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             char *upper = malloc(str->length + 1);
+            if (upper == NULL) {
+                return throw_runtime_error(ctx, "to_upper() out of memory");
+            }
             for (int i = 0; i < str->length; i++) {
                 char c = str->data[i];
                 if (c >= 'a' && c <= 'z') {
@@ -524,6 +563,9 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             char *lower = malloc(str->length + 1);
+            if (lower == NULL) {
+                return throw_runtime_error(ctx, "to_lower() out of memory");
+            }
             for (int i = 0; i < str->length; i++) {
                 char c = str->data[i];
                 if (c >= 'A' && c <= 'Z') {
@@ -543,7 +585,14 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             Buffer *buf = malloc(sizeof(Buffer));
+            if (buf == NULL) {
+                return throw_runtime_error(ctx, "to_bytes() out of memory");
+            }
             buf->data = malloc(str->length);
+            if (buf->data == NULL) {
+                free(buf);
+                return throw_runtime_error(ctx, "to_bytes() out of memory");
+            }
             memcpy(buf->data, str->data, str->length);
             buf->length = str->length;
             buf->capacity = str->length;
