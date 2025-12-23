@@ -40,6 +40,43 @@ jobs:
         name: hemlock-linux-x86_64
         path: hemlock-linux-x86_64.tar.gz
 
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
+
+    - name: Build, test, and package in ARM64 container
+      uses: uraimo/run-on-arch-action@v2
+      with:
+        arch: aarch64
+        distro: ubuntu22.04
+        githubToken: ${{ github.token }}
+        install: |
+          apt-get update
+          apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        run: |
+          make clean && make && make stdlib
+          make test
+          mkdir -p hemlock-linux-arm64
+          cp hemlock hemlock-linux-arm64/
+          cp -r stdlib hemlock-linux-arm64/
+          cp README.md LICENSE hemlock-linux-arm64/ 2>/dev/null || cp README.md hemlock-linux-arm64/
+
+    - name: Package
+      run: |
+        tar -czvf hemlock-linux-arm64.tar.gz hemlock-linux-arm64
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hemlock-linux-arm64
+        path: hemlock-linux-arm64.tar.gz
+
   build-macos-intel:
     runs-on: macos-15-intel
     steps:
@@ -103,7 +140,7 @@ jobs:
         path: hemlock-macos-arm64.tar.gz
 
   release:
-    needs: [build-linux, build-macos-intel, build-macos-arm]
+    needs: [build-linux, build-linux-arm64, build-macos-intel, build-macos-arm]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -119,6 +156,7 @@ jobs:
         generate_release_notes: true
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
+          artifacts/hemlock-linux-arm64/hemlock-linux-arm64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz
           artifacts/hemlock-macos-arm64/hemlock-macos-arm64.tar.gz
       env:
