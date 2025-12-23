@@ -429,6 +429,7 @@ int main(int argc, char **argv) {
         int fd = mkstemp(c_file);
         if (fd < 0) {
             fprintf(stderr, "Error: Could not create temporary file\n");
+            free(c_file);
             free(source);
             return 1;
         }

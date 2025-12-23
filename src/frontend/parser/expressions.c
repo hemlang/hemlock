@@ -635,11 +635,13 @@ Expr* assignment(Parser *p) {
 
         if (expr->type == EXPR_IDENT) {
             // Variable compound assignment: x += 5
-            char *name = strdup(expr->as.ident.name);
+            // Note: expr_ident and expr_assign both strdup internally
+            const char *name = expr->as.ident.name;
             Expr *lhs_copy = expr_ident(name);
             Expr *binary = expr_binary(lhs_copy, compound_op, rhs);
+            Expr *result = expr_assign(name, binary);
             expr_free(expr);
-            return expr_assign(name, binary);
+            return result;
         } else if (expr->type == EXPR_INDEX) {
             // Index compound assignment: arr[i] += 5
             // Desugar to: arr[i] = arr[i] + 5
@@ -668,7 +670,8 @@ Expr* assignment(Parser *p) {
             // Property compound assignment: obj.field += 5
             // Desugar to: obj.field = obj.field + 5
             Expr *object = expr->as.get_property.object;
-            char *property = strdup(expr->as.get_property.property);
+            // Note: expr_get_property and expr_set_property both strdup internally
+            const char *property = expr->as.get_property.property;
 
             // Clone the object for the RHS
             Expr *object_clone = expr_clone(object);
@@ -681,10 +684,11 @@ Expr* assignment(Parser *p) {
 
             // Steal the object from the EXPR_GET_PROPERTY for the assignment
             expr->as.get_property.object = NULL;
-            expr_free(expr);
 
-            // Create the assignment: obj.field = obj.field + 5
-            return expr_set_property(object, property, binary);
+            // Create the assignment before freeing expr (need property string)
+            Expr *result = expr_set_property(object, property, binary);
+            expr_free(expr);
+            return result;
         } else {
             error(p, "Invalid compound assignment target");
             expr_free(expr);
@@ -696,10 +700,12 @@ Expr* assignment(Parser *p) {
         // Check what kind of assignment target we have
         if (expr->type == EXPR_IDENT) {
             // Regular variable assignment
-            char *name = strdup(expr->as.ident.name);
+            // Note: expr_assign strdups internally
+            const char *name = expr->as.ident.name;
             Expr *value = assignment(p);
+            Expr *result = expr_assign(name, value);
             expr_free(expr);
-            return expr_assign(name, value);
+            return result;
         } else if (expr->type == EXPR_INDEX) {
             // Index assignment: obj[index] = value
             Expr *object = expr->as.index.object;
@@ -716,14 +722,17 @@ Expr* assignment(Parser *p) {
         } else if (expr->type == EXPR_GET_PROPERTY) {
             // Property assignment: obj.field = value
             Expr *object = expr->as.get_property.object;
-            char *property = strdup(expr->as.get_property.property);
+            // Note: expr_set_property strdups internally
+            const char *property = expr->as.get_property.property;
             Expr *value = assignment(p);
 
             // Steal the object from the EXPR_GET_PROPERTY
             expr->as.get_property.object = NULL;
-            expr_free(expr);
 
-            return expr_set_property(object, property, value);
+            // Create result before freeing expr (need property string)
+            Expr *result = expr_set_property(object, property, value);
+            expr_free(expr);
+            return result;
         } else {
             error(p, "Invalid assignment target");
             return expr;

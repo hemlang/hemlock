@@ -277,7 +277,7 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
         for (int i = 0; i < fn->num_params; i++) {
             Value arg_value = {0};
 
-            if (i < call_num_args) {
+            if (i < call_num_args && call_args != NULL) {
                 arg_value = call_args[i];
             } else if (fn->param_defaults && fn->param_defaults[i]) {
                 // Evaluate default expression in closure environment
@@ -300,7 +300,7 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
         // Bind rest parameter if present
         if (fn->rest_param) {
             Array *rest_arr = array_new();
-            for (int i = fn->num_params; i < call_num_args; i++) {
+            for (int i = fn->num_params; i < call_num_args && call_args != NULL; i++) {
                 Value arg = call_args[i];
                 if (fn->rest_param_type) {
                     arg = convert_to_type(arg, fn->rest_param_type, call_env, ctx);

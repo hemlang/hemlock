@@ -4623,6 +4623,11 @@ typedef HmlValue (*HmlFn8)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValu
 // Hot path: dispatch function call with optimized branching
 __attribute__((hot))
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
+    // Validate args pointer if we have arguments
+    if (__builtin_expect(num_args > 0 && args == NULL, 0)) {
+        hml_runtime_error("Function called with NULL args array");
+    }
+
     // Fast path: builtin functions (common for stdlib)
     if (__builtin_expect(fn.type == HML_VAL_BUILTIN_FN, 0)) {
         return fn.as.as_builtin_fn(args, num_args);
@@ -4661,8 +4666,10 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
         // Function actually takes num_params + 1 params (last is rest array)
         if (has_rest_param) {
             HmlValue rest_array = hml_val_array();
-            for (int i = num_params; i < num_args; i++) {
-                hml_array_push(rest_array, args[i]);
+            if (args != NULL) {
+                for (int i = num_params; i < num_args; i++) {
+                    hml_array_push(rest_array, args[i]);
+                }
             }
 
             // Prepare padded args with rest array as last param
@@ -4671,8 +4678,10 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
 
             // Copy provided args up to num_params
             int copy_count = (num_args < num_params) ? num_args : num_params;
-            for (int i = 0; i < copy_count; i++) {
-                padded_args[i] = args[i];
+            if (args != NULL) {
+                for (int i = 0; i < copy_count; i++) {
+                    padded_args[i] = args[i];
+                }
             }
             // Fill remaining regular params with null
             for (int i = num_args; i < num_params; i++) {
