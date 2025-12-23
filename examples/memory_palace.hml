@@ -1,0 +1,177 @@
+// Memory Palace - Explore memory operations in Hemlock
+// Demonstrates: alloc, free, memset, memcpy, sizeof, talloc, buffer
+
+import { GREEN, RED, YELLOW, CYAN, MAGENTA, RESET, BOLD } from "@stdlib/terminal";
+
+// Main demonstration
+fn main() {
+    print("");
+    print(MAGENTA + BOLD + "======================================" + RESET);
+    print(MAGENTA + BOLD + "    THE MEMORY PALACE" + RESET);
+    print(MAGENTA + BOLD + "    Exploring Memory in Hemlock" + RESET);
+    print(MAGENTA + BOLD + "======================================" + RESET);
+    print("");
+
+    print(CYAN + "In Hemlock, you have direct access to memory." + RESET);
+    print(CYAN + "This is powerful but DANGEROUS - use carefully!" + RESET);
+    print("");
+
+    // ========== Room 1: Type Sizes ==========
+    print(BOLD + "=== Room 1: The Hall of Types ===" + RESET);
+    print("");
+    print("Each type has a size in bytes:");
+    print("  sizeof(u8)  = " + sizeof(u8) + " byte");
+    print("  sizeof(i32) = " + sizeof(i32) + " bytes");
+    print("  sizeof(f64) = " + sizeof(f64) + " bytes");
+    print("  sizeof(ptr) = " + sizeof(ptr) + " bytes (on 64-bit)");
+    print("");
+
+    // ========== Room 2: Safe Buffers ==========
+    print(BOLD + "=== Room 2: The Safe Haven ===" + RESET);
+    print("");
+
+    print(YELLOW + "buffer() provides bounds-checked byte access:" + RESET);
+
+    let palace = buffer(64);
+    print("Created buffer of " + palace.capacity + " bytes");
+    print("");
+
+    // ========== Room 3: Writing Patterns ==========
+    print(BOLD + "=== Room 3: The Pattern Gallery ===" + RESET);
+    print("");
+
+    print("Writing patterns to the buffer...");
+
+    // Write pattern 0xAB (171) to first 16 bytes
+    for (let i = 0; i < 16; i = i + 1) {
+        palace[i] = 171;  // 0xAB
+    }
+    print(GREEN + "  Bytes 0-15:  filled with 171 (0xAB)" + RESET);
+
+    // Write pattern 0xCD (205) to next 16 bytes
+    for (let i = 16; i < 32; i = i + 1) {
+        palace[i] = 205;  // 0xCD
+    }
+    print(GREEN + "  Bytes 16-31: filled with 205 (0xCD)" + RESET);
+
+    // Write zeros to next 16 bytes
+    for (let i = 32; i < 48; i = i + 1) {
+        palace[i] = 0;
+    }
+    print(GREEN + "  Bytes 32-47: filled with 0 (zeros)" + RESET);
+
+    // Write 0xFF (255) to last 16 bytes
+    for (let i = 48; i < 64; i = i + 1) {
+        palace[i] = 255;  // 0xFF
+    }
+    print(GREEN + "  Bytes 48-63: filled with 255 (0xFF)" + RESET);
+    print("");
+
+    // ========== Room 4: Reading Memory ==========
+    print(BOLD + "=== Room 4: The Reading Room ===" + RESET);
+    print("");
+
+    print("Peeking at the first byte of each section:");
+    print("  Offset  0: " + palace[0] + " (expected 171)");
+    print("  Offset 16: " + palace[16] + " (expected 205)");
+    print("  Offset 32: " + palace[32] + " (expected 0)");
+    print("  Offset 48: " + palace[48] + " (expected 255)");
+    print("");
+
+    // ========== Room 5: Raw Allocation ==========
+    print(BOLD + "=== Room 5: The Summoning Chamber ===" + RESET);
+    print("");
+
+    print(GREEN + "alloc() gives raw memory (no bounds checking!):" + RESET);
+    let raw_mem = alloc(32);
+    print("  Allocated 32 bytes");
+    print("  Pointer address:");
+    print(raw_mem);
+
+    print("Using memset to clear memory...");
+    memset(raw_mem, 0, 32);
+    print(GREEN + "  Memory cleared!" + RESET);
+    print("");
+
+    // ========== Room 6: Memory Copy ==========
+    print(BOLD + "=== Room 6: The Mirror Chamber ===" + RESET);
+    print("");
+
+    let mirror = buffer(32);
+    print("Created mirror buffer of " + mirror.capacity + " bytes");
+
+    // Copy first 32 bytes from palace to mirror
+    // Note: We need to use a loop since palace is a buffer
+    for (let i = 0; i < 32; i = i + 1) {
+        mirror[i] = palace[i];
+    }
+
+    print("Copied 32 bytes from palace to mirror");
+    print("Mirror reflects: byte 0 = " + mirror[0] + ", byte 16 = " + mirror[16]);
+    print(GREEN + "Data duplicated!" + RESET);
+    print("");
+
+    // ========== Room 7: Typed Allocation ==========
+    print(BOLD + "=== Room 7: The Typed Treasury ===" + RESET);
+    print("");
+
+    print("talloc() allocates typed arrays:");
+
+    let int_arr = talloc(i32, 5);
+    print("  Allocated 5 i32s (20 bytes total)");
+
+    let float_arr = talloc(f64, 3);
+    print("  Allocated 3 f64s (24 bytes total)");
+
+    // Use ptr_write_i32 to write values
+    ptr_write_i32(int_arr, 42);
+    ptr_write_i32(ptr_offset(int_arr, 1, 4), 100);
+    print("  Wrote 42 and 100 to int array");
+
+    // Read back using ptr_deref_i32
+    let val1 = ptr_deref_i32(int_arr);
+    let val2 = ptr_deref_i32(ptr_offset(int_arr, 1, 4));
+    print("  Read back: " + val1 + " and " + val2);
+    print("");
+
+    // ========== Room 8: Cleanup ==========
+    print(BOLD + "=== Room 8: The Exit ===" + RESET);
+    print("");
+
+    print(RED + "Cleaning up with free()..." + RESET);
+    print("  Freeing raw_mem...");
+    free(raw_mem);
+    print("  Freeing int_arr...");
+    free(int_arr);
+    print("  Freeing float_arr...");
+    free(float_arr);
+    print("  Freeing palace buffer...");
+    free(palace);
+    print("  Freeing mirror buffer...");
+    free(mirror);
+
+    print(GREEN + "All memory released!" + RESET);
+    print("");
+
+    // ========== Summary ==========
+    print(MAGENTA + BOLD + "======================================" + RESET);
+    print(MAGENTA + BOLD + "    MEMORY PALACE TOUR COMPLETE" + RESET);
+    print(MAGENTA + BOLD + "======================================" + RESET);
+    print("");
+
+    print(CYAN + "Key lessons:" + RESET);
+    print("  1. sizeof() reveals type sizes in bytes");
+    print("  2. buffer() provides safe bounds-checked access");
+    print("  3. alloc(n) allocates n raw bytes");
+    print("  4. memset() fills memory with a pattern");
+    print("  5. talloc(type, n) allocates typed arrays");
+    print("  6. ptr_write_i32/ptr_deref_i32 for raw access");
+    print("  7. ptr_offset() calculates pointer offsets");
+    print("  8. free() releases allocated memory");
+    print("");
+
+    print(RED + "Remember: Hemlock is UNSAFE by design." + RESET);
+    print(RED + "Double-free and use-after-free WILL crash!" + RESET);
+}
+
+main();

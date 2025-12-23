@@ -1,0 +1,176 @@
+// Defer Rube Goldberg Machine - A chain reaction of cleanup operations
+// Demonstrates: defer, try/catch/finally, stack-based unwinding, nested functions
+
+import { RED, GREEN, YELLOW, CYAN, MAGENTA, RESET, BOLD, BLUE } from "@stdlib/terminal";
+
+// Global step counter for the machine
+let step = 0;
+
+fn announce(msg: string, color: string) {
+    step = step + 1;
+    print(color + "[Step " + step + "] " + msg + RESET);
+}
+
+// The domino effect - each domino sets up a defer before calling the next
+fn domino_1() {
+    announce("Domino 1 tips over...", CYAN);
+    defer announce("Domino 1 hits the floor!", CYAN);
+
+    domino_2();
+}
+
+fn domino_2() {
+    announce("Domino 2 tips over...", GREEN);
+    defer announce("Domino 2 hits the floor!", GREEN);
+
+    domino_3();
+}
+
+fn domino_3() {
+    announce("Domino 3 tips over...", YELLOW);
+    defer announce("Domino 3 hits the floor!", YELLOW);
+
+    trigger_marble();
+}
+
+// The marble run section
+fn trigger_marble() {
+    announce("A marble starts rolling...", MAGENTA);
+    defer announce("Marble reaches the bell at the bottom!", MAGENTA);
+
+    marble_track_1();
+}
+
+fn marble_track_1() {
+    announce("Marble enters spiral track...", BLUE);
+    defer announce("Marble exits spiral track!", BLUE);
+
+    marble_track_2();
+}
+
+fn marble_track_2() {
+    announce("Marble enters loop-de-loop...", CYAN);
+    defer announce("Marble completes loop-de-loop!", CYAN);
+
+    trigger_lever();
+}
+
+// The lever mechanism
+fn trigger_lever() {
+    announce("Lever is activated!", RED);
+    defer announce("Lever returns to rest position", RED);
+
+    pull_string();
+}
+
+fn pull_string() {
+    announce("String is pulled tight...", GREEN);
+    defer announce("String goes slack", GREEN);
+
+    release_balloon();
+}
+
+// The finale
+fn release_balloon() {
+    announce("Balloon is released!", YELLOW);
+    defer announce("Balloon pops on the ceiling!", YELLOW);
+
+    confetti_cannon();
+}
+
+fn confetti_cannon() {
+    announce("Confetti cannon FIRES!", MAGENTA);
+    defer announce("Confetti settles on the ground...", MAGENTA);
+
+    // The grand finale - we're at the bottom of the stack!
+    print("");
+    print(BOLD + MAGENTA + "  *** THE MACHINE HAS REACHED ITS END! ***" + RESET);
+    print(BOLD + CYAN + "  Now watch the cleanup cascade back up..." + RESET);
+    print("");
+}
+
+// Nested defer demonstration with try/catch
+fn risky_operation() {
+    print(BOLD + "=== Starting Risky Operation ===" + RESET);
+
+    defer print(YELLOW + "[Cleanup] Final safety check complete" + RESET);
+
+    try {
+        defer print(GREEN + "[Cleanup] Inner try block resources released" + RESET);
+
+        print(CYAN + "Attempting risky computation..." + RESET);
+
+        // Simulate an error condition
+        throw "Something went wrong!";
+
+    } catch (e) {
+        defer print(RED + "[Cleanup] Error handler resources released" + RESET);
+        print(RED + "Caught error: " + e + RESET);
+    } finally {
+        defer print(BLUE + "[Cleanup] Finally block cleanup done" + RESET);
+        print(MAGENTA + "Finally block executed (always runs)" + RESET);
+    }
+
+    print(GREEN + "Risky operation completed!" + RESET);
+}
+
+// Multiple defers in one function (LIFO order)
+fn multi_defer_demo() {
+    print(BOLD + "=== Multiple Defers Demo (LIFO Order) ===" + RESET);
+    print("");
+
+    defer print(CYAN + "5. [Last defer, first to run] Closing database connection" + RESET);
+    defer print(GREEN + "4. Flushing write buffers" + RESET);
+    defer print(YELLOW + "3. Releasing file locks" + RESET);
+    defer print(MAGENTA + "2. Closing file handles" + RESET);
+    defer print(RED + "1. [First defer, last to run] Final cleanup" + RESET);
+
+    print("All defers registered, now function returns...");
+    print("");
+}
+
+// Main demonstration
+fn main() {
+    print("");
+    print(MAGENTA + BOLD + "======================================================" + RESET);
+    print(MAGENTA + BOLD + "    THE DEFER RUBE GOLDBERG MACHINE" + RESET);
+    print(MAGENTA + BOLD + "    A Chain Reaction of Cleanup Operations" + RESET);
+    print(MAGENTA + BOLD + "======================================================" + RESET);
+    print("");
+
+    print(CYAN + "Watch as each function sets up a defer before calling" + RESET);
+    print(CYAN + "the next. When the chain ends, they unwind in reverse!" + RESET);
+    print("");
+
+    print(BOLD + "=== Phase 1: The Machine Runs ===" + RESET);
+    print("");
+
+    // Start the Rube Goldberg machine!
+    domino_1();
+
+    print("");
+    print(BOLD + "=== Phase 2: Multiple Defers Demo ===" + RESET);
+    print("");
+
+    multi_defer_demo();
+
+    print(BOLD + "=== Phase 3: Try/Catch with Defer ===" + RESET);
+    print("");
+
+    risky_operation();
+
+    print("");
+    print(MAGENTA + BOLD + "======================================================" + RESET);
+    print(MAGENTA + BOLD + "    MACHINE COMPLETE!" + RESET);
+    print(MAGENTA + BOLD + "======================================================" + RESET);
+    print("");
+
+    print(GREEN + "Key takeaways:" + RESET);
+    print("  1. Defers execute in LIFO (stack) order");
+    print("  2. Defers run when their function returns");
+    print("  3. Defers run even when exceptions occur");
+    print("  4. Finally blocks always execute");
+    print("  5. Great for cleanup: files, locks, connections");
+}
+
+main();
