@@ -1,7 +1,8 @@
-// Dining Philosophers Problem - A classic concurrency demonstration
-// Demonstrates: simulation of concurrent resource contention, objects, arrays, switch
+// Dining Philosophers Problem - True parallel concurrency
+// Demonstrates: spawn, channels, mutex simulation, deadlock avoidance
 
 import { rand } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
 import { RED, GREEN, YELLOW, CYAN, MAGENTA, RESET, BOLD } from "@stdlib/terminal";
 
 // Philosopher states
@@ -9,20 +10,9 @@ let STATE_THINKING = 0;
 let STATE_HUNGRY = 1;
 let STATE_EATING = 2;
 
-// State colors
-fn state_color(state: i32): string {
-    if (state == STATE_THINKING) { return CYAN; }
-    if (state == STATE_HUNGRY) { return YELLOW; }
-    if (state == STATE_EATING) { return GREEN; }
-    return RESET;
-}
-
-// State names (short)
-fn state_short(state: i32): string {
-    if (state == STATE_THINKING) { return "think"; }
-    if (state == STATE_HUNGRY) { return "hungr"; }
-    if (state == STATE_EATING) { return "eat  "; }
-    return "?????";
+// Get random float in [0, max)
+fn randf(max: f64): f64 {
+    return rand() * max;
 }
 
 // Get random integer in [0, max)
@@ -32,32 +22,84 @@ fn randint(max: i32): i32 {
     return result;
 }
 
+// Fork channels - each fork is a channel that holds a "token" when available
+// Philosopher must receive from both adjacent fork channels to eat
+
+// Async philosopher - runs in its own thread
+async fn philosopher(id: i32, name: string, left_fork, right_fork, stats_channel, done_channel) {
+    let meals_eaten = 0;
+    let max_meals = 3;
+
+    // To avoid deadlock, use resource hierarchy: always pick up lower-numbered fork first
+    let first_fork = left_fork;
+    let second_fork = right_fork;
+    let first_id = id;
+    let second_id = (id + 1) % 5;
+
+    if (second_id < first_id) {
+        first_fork = right_fork;
+        second_fork = left_fork;
+        let tmp = first_id;
+        first_id = second_id;
+        second_id = tmp;
+    }
+
+    while (meals_eaten < max_meals) {
+        // THINKING
+        print(CYAN + name + " is thinking..." + RESET);
+        sleep(randf(0.1));
+
+        // HUNGRY - try to get forks
+        print(YELLOW + name + " is hungry, reaching for forks..." + RESET);
+
+        // Pick up first fork (blocking)
+        first_fork.recv();
+        print(YELLOW + name + " picked up fork [" + first_id + "]" + RESET);
+
+        // Small delay to make race conditions visible
+        sleep(0.01);
+
+        // Pick up second fork (blocking)
+        second_fork.recv();
+        print(YELLOW + name + " picked up fork [" + second_id + "]" + RESET);
+
+        // EATING
+        print(GREEN + BOLD + name + " is EATING! (meal #" + (meals_eaten + 1) + ")" + RESET);
+        sleep(randf(0.08));
+        meals_eaten = meals_eaten + 1;
+
+        // Put down forks (in any order)
+        first_fork.send(true);
+        second_fork.send(true);
+        print(CYAN + name + " puts down both forks" + RESET);
+    }
+
+    print(MAGENTA + name + " is done dining (" + meals_eaten + " meals)" + RESET);
+
+    // Report stats
+    stats_channel.send({ name: name, meals: meals_eaten });
+    done_channel.send(id);
+}
+
 // Main simulation
 fn main() {
     print("");
     print(MAGENTA + BOLD + "============================================" + RESET);
     print(MAGENTA + BOLD + "    THE DINING PHILOSOPHERS PROBLEM" + RESET);
-    print(MAGENTA + BOLD + "    A Classic Concurrency Demonstration" + RESET);
+    print(MAGENTA + BOLD + "    True Parallel Concurrency Demo" + RESET);
     print(MAGENTA + BOLD + "============================================" + RESET);
     print("");
 
     // The philosophers
     let names = ["Plato", "Aristotle", "Socrates", "Descartes", "Kant"];
 
-    // Their states: 0=thinking, 1=hungry, 2=eating
-    let states = [STATE_THINKING, STATE_THINKING, STATE_THINKING, STATE_THINKING, STATE_THINKING];
-
-    // Fork availability: true = available, false = in use
-    // Each fork is between philosopher[i] and philosopher[(i+1)%5]
-    let forks = [true, true, true, true, true];
-
-    // Track eating counts
-    let eat_counts = [0, 0, 0, 0, 0];
-
     // Show initial state
     print(CYAN + "Five philosophers sit around a circular table." + RESET);
     print(CYAN + "Between each pair is a single fork (5 total)." + RESET);
     print(CYAN + "To eat, a philosopher needs BOTH adjacent forks." + RESET);
+    print("");
+    print(YELLOW + "Using resource hierarchy to avoid deadlock:" + RESET);
+    print(YELLOW + "Each philosopher picks up lower-numbered fork first." + RESET);
     print("");
 
     // Print table layout
@@ -73,106 +115,71 @@ fn main() {
     print("        [F2]");
     print("");
 
-    // Simulate several rounds
-    let rounds = 10;
-    print(BOLD + "=== Beginning Simulation (" + rounds + " rounds) ===" + RESET);
+    // Create fork channels - each starts with one "token" (fork is available)
+    let forks = [];
+    for (let i = 0; i < 5; i = i + 1) {
+        let fork = channel(1);  // Buffered channel of size 1
+        fork.send(true);        // Fork starts available
+        forks.push(fork);
+    }
+
+    // Channels for coordination
+    let stats_channel = channel(5);
+    let done_channel = channel(5);
+
+    print(BOLD + "=== Starting Parallel Simulation ===" + RESET);
+    print(CYAN + "Each philosopher runs in their own thread!" + RESET);
     print("");
 
-    for (let round = 1; round <= rounds; round = round + 1) {
-        print(BOLD + "--- Round " + round + " ---" + RESET);
+    // Spawn all philosophers in parallel!
+    let tasks = [];
+    for (let p = 0; p < 5; p = p + 1) {
+        let left_fork = forks[p];
+        let right_fork = forks[(p + 1) % 5];
+        let task = spawn(philosopher, p, names[p], left_fork, right_fork, stats_channel, done_channel);
+        tasks.push(task);
+    }
 
-        // Each philosopher takes an action
-        for (let p = 0; p < 5; p = p + 1) {
-            let left_fork = p;
-            let right_fork = (p + 1) % 5;
+    // Wait for all philosophers to finish
+    for (let i = 0; i < 5; i = i + 1) {
+        done_channel.recv();
+    }
 
-            if (states[p] == STATE_THINKING) {
-                // Might get hungry
-                if (randint(3) == 0) {
-                    states[p] = STATE_HUNGRY;
-                    print(YELLOW + names[p] + " is now hungry" + RESET);
-                }
-            } else if (states[p] == STATE_HUNGRY) {
-                // Try to pick up both forks
-                if (forks[left_fork] && forks[right_fork]) {
-                    // Got both forks!
-                    forks[left_fork] = false;
-                    forks[right_fork] = false;
-                    states[p] = STATE_EATING;
-                    eat_counts[p] = eat_counts[p] + 1;
-                    print(GREEN + names[p] + " picks up forks [" + left_fork + "] and [" + right_fork + "] and eats!" + RESET);
-                } else {
-                    // Can't get both forks - potential deadlock scenario
-                    let waiting_for = "";
-                    if (!forks[left_fork]) { waiting_for = "[" + left_fork + "]"; }
-                    if (!forks[right_fork]) {
-                        if (waiting_for != "") { waiting_for = waiting_for + " and "; }
-                        waiting_for = waiting_for + "[" + right_fork + "]";
-                    }
-                    print(YELLOW + names[p] + " waits for fork " + waiting_for + RESET);
-                }
-            } else if (states[p] == STATE_EATING) {
-                // Might finish eating
-                if (randint(2) == 0) {
-                    forks[left_fork] = true;
-                    forks[right_fork] = true;
-                    states[p] = STATE_THINKING;
-                    print(CYAN + names[p] + " puts down forks, thinks" + RESET);
-                }
-            }
-        }
+    // Collect stats
+    let stats = [];
+    for (let i = 0; i < 5; i = i + 1) {
+        let stat = stats_channel.recv();
+        stats.push(stat);
+    }
 
-        // Build status line
-        let status = "Status: ";
-        for (let p = 0; p < 5; p = p + 1) {
-            let color = state_color(states[p]);
-            let sname = state_short(states[p]);
-            status = status + color + names[p].substr(0, 3) + ":" + sname + RESET + " ";
-        }
-        print(status);
-
-        // Build fork status line
-        let fork_status = "Forks:  ";
-        for (let f = 0; f < 5; f = f + 1) {
-            if (forks[f]) {
-                fork_status = fork_status + GREEN + "[" + f + ":ok] " + RESET;
-            } else {
-                fork_status = fork_status + RED + "[" + f + ":--] " + RESET;
-            }
-        }
-        print(fork_status);
-        print("");
+    // Wait for tasks to fully complete
+    for (let i = 0; i < 5; i = i + 1) {
+        join(tasks[i]);
     }
 
     // Final summary
+    print("");
     print(MAGENTA + BOLD + "============================================" + RESET);
     print(MAGENTA + BOLD + "            SIMULATION COMPLETE" + RESET);
     print(MAGENTA + BOLD + "============================================" + RESET);
     print("");
 
     print(BOLD + "Eating counts:" + RESET);
-    for (let p = 0; p < 5; p = p + 1) {
-        print("  " + names[p] + ": " + eat_counts[p] + " meals");
+    let total_meals = 0;
+    for (let i = 0; i < stats.length; i = i + 1) {
+        print("  " + stats[i].name + ": " + stats[i].meals + " meals");
+        total_meals = total_meals + stats[i].meals;
     }
     print("");
-
-    // Check for starvation
-    let starved = false;
-    for (let p = 0; p < 5; p = p + 1) {
-        if (eat_counts[p] == 0) {
-            print(RED + "Warning: " + names[p] + " never got to eat! (Starvation)" + RESET);
-            starved = true;
-        }
-    }
-
-    if (!starved) {
-        print(GREEN + "All philosophers got at least one meal!" + RESET);
-    }
+    print(GREEN + "Total meals served: " + total_meals + RESET);
+    print(GREEN + "No deadlock occurred!" + RESET);
 
     print("");
-    print(CYAN + "Note: In a real concurrent system, philosophers would" + RESET);
-    print(CYAN + "run in parallel and could deadlock if all grab their" + RESET);
-    print(CYAN + "left fork simultaneously (circular wait condition)." + RESET);
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - spawn() for parallel philosopher threads");
+    print("  - Channels as mutex/semaphore (fork tokens)");
+    print("  - Resource hierarchy to prevent deadlock");
+    print("  - True concurrent execution (watch the interleaving!)");
 }
 
 main();
