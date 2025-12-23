@@ -9,10 +9,14 @@ print("Current directory: " + original_dir);
 let test_dir = "/tmp/test_nav_dir";
 make_dir(test_dir);
 
+// Resolve the test_dir path to handle symlinks (e.g., /tmp -> /private/tmp on macOS)
+let resolved_test_dir = absolute_path(test_dir);
+
 // Test chdir()
 chdir(test_dir);
 let new_dir = cwd();
-assert(new_dir == test_dir, "cwd() should return new directory after chdir()");
+// Compare against resolved path since cwd() returns the canonical path
+assert(new_dir == resolved_test_dir, "cwd() should return new directory after chdir()");
 
 // Change back to original directory
 chdir(original_dir);
@@ -24,7 +28,7 @@ let abs = absolute_path(".");
 assert(typeof(abs) == "string", "absolute_path() should return a string");
 assert(abs == original_dir, "absolute_path('.') should return current directory");
 
-// Clean up
-remove_dir(test_dir);
+// Clean up (use resolved path to ensure we remove the correct directory)
+remove_dir(resolved_test_dir);
 
 print("All directory navigation tests passed!");

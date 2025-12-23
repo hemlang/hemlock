@@ -442,11 +442,9 @@ extern fn EVP_PKEY_CTX_set_rsa_keygen_bits(ctx: ptr, bits: i32): i32;
 // int EVP_PKEY_keygen(EVP_PKEY_CTX *ctx, EVP_PKEY **ppkey)
 extern fn EVP_PKEY_keygen(ctx: ptr, ppkey: ptr): i32;
 
-// EVP_PKEY *EVP_PKEY_Q_keygen(OSSL_LIB_CTX *libctx, const char *propq, const char *type, ...)
-// OpenSSL 3.x simplified API - returns pointer directly, no need for pointer-to-pointer
-// Note: This is variadic. For RSA pass bits, for EC pass curve name.
-// We use ptr type for the variadic arg which can handle both cases.
-extern fn EVP_PKEY_Q_keygen(libctx: ptr, propq: ptr, type_name: ptr, arg: ptr): ptr;
+// EVP_PKEY *EVP_RSA_gen(unsigned int bits)
+// OpenSSL 3.0+ non-variadic RSA key generation - much safer for FFI
+extern fn EVP_RSA_gen(bits: u32): ptr;
 
 // EVP_PKEY_CTX *EVP_PKEY_CTX_new_from_name(OSSL_LIB_CTX *libctx, const char *name, const char *propquery)
 extern fn EVP_PKEY_CTX_new_from_name(libctx: ptr, name: ptr, propquery: ptr): ptr;
@@ -496,23 +494,10 @@ define RSAKeyPair {
 // Returns RSAKeyPair object with private and public keys
 // NOTE: Keys must be freed with rsa_free_keys()
 export fn rsa_generate_key() {
-    // Use OpenSSL 3.x simplified API (EVP_PKEY_Q_keygen)
-    // This avoids pointer-to-pointer issues that caused segfaults with EVP_PKEY_keygen
-
-    // Create null-terminated C string "RSA\0"
-    let type_str = buffer(4);
-    type_str[0] = 82;  // 'R'
-    type_str[1] = 83;  // 'S'
-    type_str[2] = 65;  // 'A'
-    type_str[3] = 0;   // null terminator
-
-    let type_ptr = buffer_to_ptr(type_str);
-
-    // EVP_PKEY_Q_keygen(NULL, NULL, "RSA", 2048) - returns EVP_PKEY* directly
-    let pkey = EVP_PKEY_Q_keygen(null, null, type_ptr, 2048);
-
-    // Cleanup temporary buffer
-    free(type_ptr);
+    // Use OpenSSL 3.0+ EVP_RSA_gen - a simple non-variadic function
+    // This is much safer for FFI than the variadic EVP_PKEY_Q_keygen
+    // which requires ffi_prep_cif_var() for correct calling convention
+    let pkey = EVP_RSA_gen(2048);
 
     if (pkey == null) {
         throw "RSA key generation failed";
