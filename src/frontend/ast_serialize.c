@@ -30,6 +30,10 @@ static uint32_t compute_checksum(const uint8_t *data, size_t size) {
 static void string_table_init(StringTable *table) {
     table->strings = malloc(INITIAL_STRING_TABLE_SIZE * sizeof(char*));
     table->lengths = malloc(INITIAL_STRING_TABLE_SIZE * sizeof(uint32_t));
+    if (!table->strings || !table->lengths) {
+        fprintf(stderr, "Error: Failed to allocate string table\n");
+        exit(1);
+    }
     table->count = 0;
     table->capacity = INITIAL_STRING_TABLE_SIZE;
 }
@@ -62,9 +66,15 @@ static uint32_t string_table_add(StringTable *table, const char *str) {
     if (table->count >= table->capacity) {
         // Handle zero capacity case (defensive)
         size_t new_capacity = (table->capacity == 0) ? INITIAL_STRING_TABLE_SIZE : table->capacity * 2;
+        char **new_strings = realloc(table->strings, new_capacity * sizeof(char*));
+        uint32_t *new_lengths = realloc(table->lengths, new_capacity * sizeof(uint32_t));
+        if (!new_strings || !new_lengths) {
+            fprintf(stderr, "Error: Failed to grow string table\n");
+            exit(1);
+        }
+        table->strings = new_strings;
+        table->lengths = new_lengths;
         table->capacity = new_capacity;
-        table->strings = realloc(table->strings, table->capacity * sizeof(char*));
-        table->lengths = realloc(table->lengths, table->capacity * sizeof(uint32_t));
     }
 
     table->strings[table->count] = (char*)str;  // Borrow pointer
@@ -77,6 +87,10 @@ static uint32_t string_table_add(StringTable *table, const char *str) {
 static void ctx_init(SerializeContext *ctx, uint16_t flags) {
     string_table_init(&ctx->strings);
     ctx->buffer = malloc(INITIAL_BUFFER_SIZE);
+    if (!ctx->buffer) {
+        fprintf(stderr, "Error: Failed to allocate serialization buffer\n");
+        exit(1);
+    }
     ctx->buffer_size = 0;
     ctx->buffer_capacity = INITIAL_BUFFER_SIZE;
     ctx->flags = flags;

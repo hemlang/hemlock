@@ -539,6 +539,11 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
     fseek(file, 0, SEEK_SET);
 
     char *source = malloc(file_size + 1);
+    if (!source) {
+        fprintf(stderr, "Error: Failed to allocate memory for module file: %s\n", path);
+        fclose(file);
+        return NULL;
+    }
     if (fread(source, 1, file_size, file) != (size_t)file_size) {
         fprintf(stderr, "Error: Failed to read module file: %s\n", path);
         free(source);

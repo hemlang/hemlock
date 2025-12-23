@@ -240,12 +240,21 @@ static char* make_c_filename(const char *input) {
     if (ext) {
         int base_len = ext - base;
         result = malloc(base_len + 3);  // base + ".c" + null
+        if (!result) {
+            fprintf(stderr, "Error: Failed to allocate output filename\n");
+            return NULL;
+        }
         strncpy(result, base, base_len);
         result[base_len] = '\0';
         strcat(result, ".c");
     } else {
-        result = malloc(strlen(base) + 3);
-        sprintf(result, "%s.c", base);
+        size_t len = strlen(base) + 3;
+        result = malloc(len);
+        if (!result) {
+            fprintf(stderr, "Error: Failed to allocate output filename\n");
+            return NULL;
+        }
+        snprintf(result, len, "%s.c", base);
     }
 
     return result;
@@ -435,8 +444,15 @@ int main(int argc, char **argv) {
         }
         close(fd);
         // Rename to add .c extension
-        char *new_name = malloc(strlen(c_file) + 3);
-        sprintf(new_name, "%s.c", c_file);
+        size_t name_len = strlen(c_file) + 3;
+        char *new_name = malloc(name_len);
+        if (!new_name) {
+            fprintf(stderr, "Error: Failed to allocate temporary filename\n");
+            free(c_file);
+            free(source);
+            return 1;
+        }
+        snprintf(new_name, name_len, "%s.c", c_file);
         rename(c_file, new_name);
         free(c_file);
         c_file = new_name;

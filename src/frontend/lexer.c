@@ -196,6 +196,9 @@ static Token number(Lexer *lex) {
 static Token string(Lexer *lex) {
     // Build string with escape sequence processing
     char *buffer = malloc(256);
+    if (!buffer) {
+        return error_token(lex, "Failed to allocate string buffer");
+    }
     int capacity = 256;
     int length = 0;
 
@@ -231,8 +234,14 @@ static Token string(Lexer *lex) {
 
         // Grow buffer if needed
         if (length >= capacity - 1) {
-            capacity *= 2;
-            buffer = realloc(buffer, capacity);
+            int new_capacity = capacity * 2;
+            char *new_buffer = realloc(buffer, new_capacity);
+            if (!new_buffer) {
+                free(buffer);
+                return error_token(lex, "Failed to grow string buffer");
+            }
+            buffer = new_buffer;
+            capacity = new_capacity;
         }
 
         buffer[length++] = c;
@@ -257,6 +266,9 @@ static Token string(Lexer *lex) {
 static Token template_string(Lexer *lex) {
     // Build template string with ${...} preserved for parser
     char *buffer = malloc(256);
+    if (!buffer) {
+        return error_token(lex, "Failed to allocate template string buffer");
+    }
     int capacity = 256;
     int length = 0;
 
@@ -291,8 +303,14 @@ static Token template_string(Lexer *lex) {
 
         // Grow buffer if needed
         if (length >= capacity - 1) {
-            capacity *= 2;
-            buffer = realloc(buffer, capacity);
+            int new_capacity = capacity * 2;
+            char *new_buffer = realloc(buffer, new_capacity);
+            if (!new_buffer) {
+                free(buffer);
+                return error_token(lex, "Failed to grow template string buffer");
+            }
+            buffer = new_buffer;
+            capacity = new_capacity;
         }
 
         buffer[length++] = c;

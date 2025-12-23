@@ -89,13 +89,31 @@ static int collect_exports(BundledModule *module);
 // Create a new symbol
 static Symbol* symbol_new(const char *name, const char *module_path, Stmt *definition) {
     Symbol *sym = malloc(sizeof(Symbol));
+    if (!sym) {
+        fprintf(stderr, "Error: Failed to allocate symbol\n");
+        return NULL;
+    }
     sym->name = strdup(name);
     sym->module_path = module_path ? strdup(module_path) : NULL;
+    if (!sym->name || (module_path && !sym->module_path)) {
+        fprintf(stderr, "Error: Failed to allocate symbol name\n");
+        free(sym->name);
+        free(sym->module_path);
+        free(sym);
+        return NULL;
+    }
     sym->definition = definition;
     sym->is_export = 0;
     sym->is_reachable = 0;
     sym->is_side_effect = 0;
     sym->dependencies = malloc(sizeof(char*) * 16);
+    if (!sym->dependencies) {
+        fprintf(stderr, "Error: Failed to allocate symbol dependencies\n");
+        free(sym->name);
+        free(sym->module_path);
+        free(sym);
+        return NULL;
+    }
     sym->num_dependencies = 0;
     sym->dep_capacity = 16;
     return sym;
@@ -112,10 +130,21 @@ static void symbol_add_dep(Symbol *sym, const char *dep_name) {
     }
 
     if (sym->num_dependencies >= sym->dep_capacity) {
-        sym->dep_capacity *= 2;
-        sym->dependencies = realloc(sym->dependencies, sizeof(char*) * sym->dep_capacity);
+        int new_capacity = sym->dep_capacity * 2;
+        char **new_deps = realloc(sym->dependencies, sizeof(char*) * new_capacity);
+        if (!new_deps) {
+            fprintf(stderr, "Error: Failed to grow symbol dependencies\n");
+            return;
+        }
+        sym->dependencies = new_deps;
+        sym->dep_capacity = new_capacity;
     }
-    sym->dependencies[sym->num_dependencies++] = strdup(dep_name);
+    char *dup = strdup(dep_name);
+    if (!dup) {
+        fprintf(stderr, "Error: Failed to duplicate dependency name\n");
+        return;
+    }
+    sym->dependencies[sym->num_dependencies++] = dup;
 }
 
 // Free a symbol
@@ -133,10 +162,21 @@ static void symbol_free(Symbol *sym) {
 // Create a new dependency graph
 static DependencyGraph* dep_graph_new(void) {
     DependencyGraph *graph = malloc(sizeof(DependencyGraph));
+    if (!graph) {
+        fprintf(stderr, "Error: Failed to allocate dependency graph\n");
+        return NULL;
+    }
     graph->symbols = malloc(sizeof(Symbol*) * 64);
+    graph->entry_points = malloc(sizeof(char*) * 32);
+    if (!graph->symbols || !graph->entry_points) {
+        fprintf(stderr, "Error: Failed to allocate dependency graph arrays\n");
+        free(graph->symbols);
+        free(graph->entry_points);
+        free(graph);
+        return NULL;
+    }
     graph->num_symbols = 0;
     graph->capacity = 64;
-    graph->entry_points = malloc(sizeof(char*) * 32);
     graph->num_entry_points = 0;
     graph->entry_capacity = 32;
     return graph;
@@ -145,8 +185,14 @@ static DependencyGraph* dep_graph_new(void) {
 // Add a symbol to the graph
 static void dep_graph_add_symbol(DependencyGraph *graph, Symbol *sym) {
     if (graph->num_symbols >= graph->capacity) {
-        graph->capacity *= 2;
-        graph->symbols = realloc(graph->symbols, sizeof(Symbol*) * graph->capacity);
+        int new_capacity = graph->capacity * 2;
+        Symbol **new_symbols = realloc(graph->symbols, sizeof(Symbol*) * new_capacity);
+        if (!new_symbols) {
+            fprintf(stderr, "Error: Failed to grow dependency graph symbols\n");
+            return;
+        }
+        graph->symbols = new_symbols;
+        graph->capacity = new_capacity;
     }
     graph->symbols[graph->num_symbols++] = sym;
 }
@@ -159,10 +205,21 @@ static void dep_graph_add_entry(DependencyGraph *graph, const char *name) {
     }
 
     if (graph->num_entry_points >= graph->entry_capacity) {
-        graph->entry_capacity *= 2;
-        graph->entry_points = realloc(graph->entry_points, sizeof(char*) * graph->entry_capacity);
+        int new_capacity = graph->entry_capacity * 2;
+        char **new_entries = realloc(graph->entry_points, sizeof(char*) * new_capacity);
+        if (!new_entries) {
+            fprintf(stderr, "Error: Failed to grow entry points\n");
+            return;
+        }
+        graph->entry_points = new_entries;
+        graph->entry_capacity = new_capacity;
     }
-    graph->entry_points[graph->num_entry_points++] = strdup(name);
+    char *dup = strdup(name);
+    if (!dup) {
+        fprintf(stderr, "Error: Failed to duplicate entry point name\n");
+        return;
+    }
+    graph->entry_points[graph->num_entry_points++] = dup;
 }
 
 // Find a symbol by name
@@ -656,8 +713,14 @@ static BundledModule* find_module_in_bundle(Bundle *bundle, const char *absolute
 // Add module to bundle
 static void add_module_to_bundle(Bundle *bundle, BundledModule *module) {
     if (bundle->num_modules >= bundle->capacity) {
-        bundle->capacity *= 2;
-        bundle->modules = realloc(bundle->modules, sizeof(BundledModule*) * bundle->capacity);
+        int new_capacity = bundle->capacity * 2;
+        BundledModule **new_modules = realloc(bundle->modules, sizeof(BundledModule*) * new_capacity);
+        if (!new_modules) {
+            fprintf(stderr, "Error: Failed to grow bundle modules\n");
+            return;
+        }
+        bundle->modules = new_modules;
+        bundle->capacity = new_capacity;
     }
     bundle->modules[bundle->num_modules++] = module;
 }
@@ -665,6 +728,10 @@ static void add_module_to_bundle(Bundle *bundle, BundledModule *module) {
 // Generate module ID from index
 static char* generate_module_id(int index) {
     char *id = malloc(16);
+    if (!id) {
+        fprintf(stderr, "Error: Failed to allocate module ID\n");
+        return NULL;
+    }
     snprintf(id, 16, "mod_%d", index);
     return id;
 }
@@ -683,8 +750,19 @@ static BundledModule* load_module_for_bundle(BundleContext *ctx, const char *abs
 
     // Create new module
     BundledModule *module = malloc(sizeof(BundledModule));
+    if (!module) {
+        fprintf(stderr, "Error: Failed to allocate bundled module\n");
+        return NULL;
+    }
     module->absolute_path = strdup(absolute_path);
     module->module_id = generate_module_id(ctx->bundle->num_modules);
+    if (!module->absolute_path || !module->module_id) {
+        fprintf(stderr, "Error: Failed to allocate module path or ID\n");
+        free(module->absolute_path);
+        free(module->module_id);
+        free(module);
+        return NULL;
+    }
     module->is_entry = is_entry;
     module->is_flattened = 0;
     module->export_names = NULL;

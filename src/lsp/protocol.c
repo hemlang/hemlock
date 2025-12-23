@@ -475,6 +475,10 @@ typedef struct {
 static void sb_init(StringBuilder *sb) {
     sb->capacity = 256;
     sb->buffer = malloc(sb->capacity);
+    if (!sb->buffer) {
+        fprintf(stderr, "LSP error: Failed to allocate StringBuilder buffer\n");
+        exit(1);
+    }
     sb->buffer[0] = '\0';
     sb->length = 0;
 }
