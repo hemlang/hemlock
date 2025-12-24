@@ -11,6 +11,18 @@ BLUE='\033[0;34m'
 DIM='\033[2m'
 NC='\033[0m' # No Color
 
+# Cross-platform millisecond timestamp
+# macOS date doesn't support %N, so we need alternatives
+get_time_ms() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS: use perl for millisecond precision
+        perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'
+    else
+        # Linux: use date with nanoseconds
+        date +%s%3N
+    fi
+}
+
 # Counters
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -129,10 +141,10 @@ for test_file in $TEST_FILES; do
     fi
 
     # Run the test with timeout and capture output, exit code, and timing
-    start_time=$(date +%s%3N)
+    start_time=$(get_time_ms)
     output=$(timeout 60 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
     exit_code=$?
-    end_time=$(date +%s%3N)
+    end_time=$(get_time_ms)
     duration_ms=$((end_time - start_time))
     TOTAL_TIME_MS=$((TOTAL_TIME_MS + duration_ms))
     time_str=$(format_time $duration_ms)

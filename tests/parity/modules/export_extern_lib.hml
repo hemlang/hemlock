@@ -1,4 +1,5 @@
 // Module that exports FFI functions directly
+// Note: Linux-only test (uses libc.so.6)
 import "libc.so.6";
 
 // Export extern function directly

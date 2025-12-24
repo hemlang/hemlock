@@ -44,6 +44,25 @@ if [ ! -f "$HEMLOCKC" ]; then
     exit 1
 fi
 
+# Platform-specific library paths
+EXTRA_CFLAGS=""
+EXTRA_LDFLAGS=""
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: use Homebrew paths for OpenSSL, libffi, etc.
+    if [ -d "/opt/homebrew/opt/openssl@3" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -I/opt/homebrew/opt/openssl@3/include"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L/opt/homebrew/opt/openssl@3/lib"
+    fi
+    if [ -d "/opt/homebrew/opt/libffi" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -I/opt/homebrew/opt/libffi/include"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L/opt/homebrew/opt/libffi/lib"
+    fi
+    if [ -d "/opt/homebrew/opt/libwebsockets" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -I/opt/homebrew/opt/libwebsockets/include"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L/opt/homebrew/opt/libwebsockets/lib"
+    fi
+fi
+
 # Check for optional libraries
 ZLIB_FLAG=""
 if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
@@ -51,8 +70,13 @@ if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
 fi
 
 LWS_FLAG=""
-if echo 'int main(){return 0;}' | gcc -x c - -lwebsockets -o /dev/null 2>/dev/null; then
+if echo 'int main(){return 0;}' | gcc -x c - $EXTRA_LDFLAGS -lwebsockets -o /dev/null 2>/dev/null; then
     LWS_FLAG="-lwebsockets"
+fi
+
+CRYPTO_FLAG=""
+if echo 'int main(){return 0;}' | gcc -x c - $EXTRA_LDFLAGS -lcrypto -o /dev/null 2>/dev/null; then
+    CRYPTO_FLAG="-lcrypto"
 fi
 
 echo "======================================"
@@ -154,7 +178,8 @@ run_compile_check() {
     # Try to compile the generated C code with gcc
     local gcc_output
     gcc_output=$(gcc -o "$exe_file" "$c_file" -I"$ROOT_DIR/runtime/include" -L"$ROOT_DIR" \
-         -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG -lcrypto 2>&1)
+         $EXTRA_CFLAGS $EXTRA_LDFLAGS \
+         -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG $CRYPTO_FLAG 2>&1)
     local gcc_exit=$?
 
     if [ $gcc_exit -ne 0 ]; then

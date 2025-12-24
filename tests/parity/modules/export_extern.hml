@@ -1,7 +1,8 @@
 // Test: export extern fn
 // This tests that FFI functions can be exported from modules
+// Note: Linux-only test (uses libc.so.6)
 
-import { strlen, string_length } from "./ffi_export_module.hml";
+import { strlen, string_length } from "./export_extern_lib.hml";
 
 // Test the directly exported extern function
 let msg = "Hello, Hemlock!";

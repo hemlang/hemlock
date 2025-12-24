@@ -129,10 +129,34 @@ fi
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
-# Check for zlib
+# Platform-specific library paths
+EXTRA_CFLAGS=""
+EXTRA_LDFLAGS=""
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: use Homebrew paths for OpenSSL, libffi, etc.
+    if [ -d "/opt/homebrew/opt/openssl@3" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -I/opt/homebrew/opt/openssl@3/include"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L/opt/homebrew/opt/openssl@3/lib"
+    fi
+    if [ -d "/opt/homebrew/opt/libffi" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -I/opt/homebrew/opt/libffi/include"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L/opt/homebrew/opt/libffi/lib"
+    fi
+    if [ -d "/opt/homebrew/opt/libwebsockets" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -I/opt/homebrew/opt/libwebsockets/include"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L/opt/homebrew/opt/libwebsockets/lib"
+    fi
+fi
+
+# Check for optional libraries
 ZLIB_FLAG=""
 if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
     ZLIB_FLAG="-lz"
+fi
+
+CRYPTO_FLAG=""
+if echo 'int main(){return 0;}' | gcc -x c - $EXTRA_LDFLAGS -lcrypto -o /dev/null 2>/dev/null; then
+    CRYPTO_FLAG="-lcrypto"
 fi
 
 # Function to check if a test is expected to fail (error test)
@@ -252,7 +276,9 @@ for test_file in $TEST_FILES; do
     fi
 
     # Compile C to executable
-    gcc_output=$(gcc -o "$exe_file" "$c_file" -I./runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG -lcrypto 2>&1)
+    gcc_output=$(gcc -o "$exe_file" "$c_file" -I./runtime/include -L. \
+        $EXTRA_CFLAGS $EXTRA_LDFLAGS \
+        -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG $CRYPTO_FLAG 2>&1)
     gcc_exit=$?
 
     if [ $gcc_exit -ne 0 ]; then
