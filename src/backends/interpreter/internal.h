@@ -294,7 +294,9 @@ typedef struct FFILibrary FFILibrary;
 // External function structure
 typedef struct {
     char *name;              // Function name
-    void *func_ptr;          // Function pointer from dlsym()
+    void *func_ptr;          // Function pointer from dlsym() (NULL until first call for lazy resolution)
+    void *lib_handle;        // Library handle for lazy symbol resolution
+    char *lib_path;          // Library path for error messages
     void *cif;               // ffi_cif (opaque)
     void **arg_types;        // libffi argument types (opaque)
     void *return_type;       // libffi return type (opaque)

@@ -1148,6 +1148,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "    (void)_env;\n");
         codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
         codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
+        codegen_write(ctx, "        if (!_ffi_ptr_%s) {\n", fn_name);
+        codegen_write(ctx, "            hml_runtime_error(\"FFI function '%%s' not found in library\", \"%s\");\n", fn_name);
+        codegen_write(ctx, "        }\n");
         codegen_write(ctx, "    }\n");
         codegen_write(ctx, "    HmlFFIType _types[%d];\n", num_params + 1);
 

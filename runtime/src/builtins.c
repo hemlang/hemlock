@@ -7369,14 +7369,14 @@ void hml_ffi_close(HmlValue lib) {
 
 void* hml_ffi_sym(HmlValue lib, const char *name) {
     if (lib.type != HML_VAL_PTR || !lib.as.as_ptr) {
-        hml_runtime_error("ffi_sym requires library handle");
+        // Return NULL for lazy resolution - error will be thrown when function is called
+        return NULL;
     }
     dlerror(); // Clear errors
     void *sym = dlsym(lib.as.as_ptr, name);
-    char *error = dlerror();
-    if (error) {
-        hml_runtime_error("Failed to find symbol '%s': %s", name, error);
-    }
+    // Don't throw here - let the caller handle NULL for lazy resolution
+    // This allows modules to export many extern functions without requiring
+    // all symbols to exist in the library
     return sym;
 }
 

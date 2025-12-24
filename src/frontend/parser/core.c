@@ -113,12 +113,18 @@ void parser_init(Parser *parser, Lexer *lexer) {
 }
 
 Stmt** parse_program(Parser *parser, int *stmt_count) {
-    Stmt **statements = malloc(sizeof(Stmt*) * 256);  // max 256 statements
+    int capacity = 256;
+    Stmt **statements = malloc(sizeof(Stmt*) * capacity);
     *stmt_count = 0;
 
     while (!match(parser, TOK_EOF)) {
         if (parser->panic_mode) {
             synchronize(parser);
+        }
+        // Grow array if needed
+        if (*stmt_count >= capacity) {
+            capacity *= 2;
+            statements = realloc(statements, sizeof(Stmt*) * capacity);
         }
         statements[(*stmt_count)++] = statement(parser);
     }

@@ -50,15 +50,21 @@ Stmt* const_statement(Parser *p) {
 }
 
 Stmt* block_statement(Parser *p) {
-    Stmt **statements = malloc(sizeof(Stmt*) * 256);
+    int capacity = 256;
+    Stmt **statements = malloc(sizeof(Stmt*) * capacity);
     int count = 0;
-    
+
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Grow array if needed
+        if (count >= capacity) {
+            capacity *= 2;
+            statements = realloc(statements, sizeof(Stmt*) * capacity);
+        }
         statements[count++] = statement(p);
     }
-    
+
     consume(p, TOK_RBRACE, "Expect '}' after block");
-    
+
     return stmt_block(statements, count);
 }
 

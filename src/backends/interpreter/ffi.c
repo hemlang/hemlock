@@ -370,22 +370,13 @@ FFIFunction* ffi_declare_function(
     Type *return_type,
     ExecutionContext *ctx
 ) {
-    // Look up symbol
-    dlerror();  // Clear any existing error
-    void *func_ptr = dlsym(lib->handle, name);
-    char *error_msg = dlerror();
-    if (error_msg != NULL) {
-        ctx->exception_state.is_throwing = 1;
-        char err[512];
-        snprintf(err, sizeof(err), "Function '%s' not found in '%s': %s", name, lib->path, error_msg);
-        ctx->exception_state.exception_value = val_string(err);
-        return NULL;
-    }
-
-    // Create FFI function
+    // Create FFI function with lazy symbol resolution
+    // Symbol will be resolved on first call, not at declaration time
     FFIFunction *func = malloc(sizeof(FFIFunction));
     func->name = strdup(name);
-    func->func_ptr = func_ptr;
+    func->func_ptr = NULL;  // Lazy resolution - will be set on first call
+    func->lib_handle = lib->handle;  // Store for lazy resolution
+    func->lib_path = strdup(lib->path);  // Store for error messages
     func->hemlock_params = param_types;
     func->num_params = num_params;
     func->hemlock_return = return_type;
@@ -430,6 +421,7 @@ FFIFunction* ffi_declare_function(
 void ffi_free_function(FFIFunction *func) {
     if (func == NULL) return;
     free(func->name);
+    if (func->lib_path) free(func->lib_path);
     if (func->cif) free(func->cif);
     if (func->arg_types) free(func->arg_types);
     // Note: hemlock_params and hemlock_return are managed by AST
@@ -439,6 +431,22 @@ void ffi_free_function(FFIFunction *func) {
 // ========== FUNCTION INVOCATION ==========
 
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {
+    // Lazy symbol resolution: resolve on first call
+    if (func->func_ptr == NULL) {
+        dlerror();  // Clear any existing error
+        func->func_ptr = dlsym(func->lib_handle, func->name);
+        char *error_msg = dlerror();
+        if (error_msg != NULL || func->func_ptr == NULL) {
+            ctx->exception_state.is_throwing = 1;
+            char err[512];
+            snprintf(err, sizeof(err), "FFI function '%s' not found in '%s'%s%s",
+                     func->name, func->lib_path,
+                     error_msg ? ": " : "", error_msg ? error_msg : "");
+            ctx->exception_state.exception_value = val_string(err);
+            return val_null();
+        }
+    }
+
     // Validate argument count
     if (num_args != func->num_params) {
         ctx->exception_state.is_throwing = 1;
