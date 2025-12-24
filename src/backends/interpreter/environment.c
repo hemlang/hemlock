@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "hemlock_limits.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -9,8 +10,8 @@
 // Pre-allocate environments to avoid malloc/free overhead in recursive calls
 // Uses a free list for O(1) alloc/free
 
-#define ENV_POOL_SIZE 1024
-#define ENV_DEFAULT_CAPACITY 16
+#define ENV_POOL_SIZE HML_ENV_POOL_SIZE
+#define ENV_DEFAULT_CAPACITY HML_ENV_DEFAULT_CAPACITY
 
 typedef struct {
     Environment envs[ENV_POOL_SIZE];

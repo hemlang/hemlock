@@ -3,6 +3,7 @@
 
 #include "interpreter.h"
 #include "ast.h"
+#include "hemlock_limits.h"
 #include <stdint.h>
 
 // ========== CONTROL FLOW STATE ==========
@@ -47,7 +48,7 @@ typedef struct {
 // ========== EXECUTION CONTEXT ==========
 
 // Default maximum call stack depth (configurable via set_stack_limit() or --stack-depth)
-#define DEFAULT_MAX_STACK_DEPTH 10000
+#define DEFAULT_MAX_STACK_DEPTH HML_DEFAULT_MAX_STACK_DEPTH
 
 // Execution context - holds all control flow state
 // Each async task will have its own context (future async support)

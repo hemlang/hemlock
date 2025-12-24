@@ -12,6 +12,7 @@
 #include "codegen.h"
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
+#include "hemlock_limits.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +24,10 @@
 // ========== BUFFER SIZE CONSTANTS ==========
 
 // Buffer size for mangled names (module prefix + symbol name)
-#define CODEGEN_MANGLED_NAME_SIZE 256
+#define CODEGEN_MANGLED_NAME_SIZE HML_MANGLED_NAME_SIZE
 
 // Buffer size for environment variable names
-#define CODEGEN_ENV_NAME_SIZE 64
+#define CODEGEN_ENV_NAME_SIZE HML_GENERATED_NAME_SIZE
 
 // ========== IN-MEMORY BUFFER SUPPORT ==========
 

@@ -183,11 +183,18 @@ Expr* primary(Parser *p) {
 
     // Object literal: { field: value, ... }
     if (match(p, TOK_LBRACE)) {
-        char **field_names = malloc(sizeof(char*) * 32);
-        Expr **field_values = malloc(sizeof(Expr*) * 32);
+        int capacity = 32;
+        char **field_names = malloc(sizeof(char*) * capacity);
+        Expr **field_values = malloc(sizeof(Expr*) * capacity);
         int num_fields = 0;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // Grow arrays if needed
+            if (num_fields >= capacity) {
+                capacity *= 2;
+                field_names = realloc(field_names, sizeof(char*) * capacity);
+                field_values = realloc(field_values, sizeof(Expr*) * capacity);
+            }
             field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
             consume(p, TOK_COLON, "Expect ':' after field name");
@@ -205,11 +212,17 @@ Expr* primary(Parser *p) {
 
     // Array literal: [elem1, elem2, ...]
     if (match(p, TOK_LBRACKET)) {
-        Expr **elements = malloc(sizeof(Expr*) * 256);
+        int capacity = 64;
+        Expr **elements = malloc(sizeof(Expr*) * capacity);
         int num_elements = 0;
 
         if (!check(p, TOK_RBRACKET)) {
             do {
+                // Grow array if needed
+                if (num_elements >= capacity) {
+                    capacity *= 2;
+                    elements = realloc(elements, sizeof(Expr*) * capacity);
+                }
                 elements[num_elements++] = expression(p);
             } while (match(p, TOK_COMMA));
         }

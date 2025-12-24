@@ -2,13 +2,14 @@
 #define HEMLOCK_PARSER_INTERNAL_H
 
 #include "parser.h"
+#include "hemlock_limits.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 // ========== PARSER LIMITS ==========
 
-#define MAX_FUNCTION_PARAMS 64
+#define MAX_FUNCTION_PARAMS HML_MAX_FUNCTION_PARAMS
 
 // ========== CORE FUNCTIONS (from core.c) ==========
 

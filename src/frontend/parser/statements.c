@@ -110,21 +110,34 @@ Stmt* switch_statement(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' after switch expression");
 
     // Parse cases
-    Expr **case_values = malloc(sizeof(Expr*) * 128);
-    Stmt **case_bodies = malloc(sizeof(Stmt*) * 128);
+    int case_capacity = 32;
+    Expr **case_values = malloc(sizeof(Expr*) * case_capacity);
+    Stmt **case_bodies = malloc(sizeof(Stmt*) * case_capacity);
     int num_cases = 0;
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Grow case arrays if needed
+        if (num_cases >= case_capacity) {
+            case_capacity *= 2;
+            case_values = realloc(case_values, sizeof(Expr*) * case_capacity);
+            case_bodies = realloc(case_bodies, sizeof(Stmt*) * case_capacity);
+        }
+
         if (match(p, TOK_CASE)) {
             // Parse case value
             case_values[num_cases] = expression(p);
             consume(p, TOK_COLON, "Expect ':' after case value");
 
             // Parse case body statements until we hit another case/default/closing brace
-            Stmt **statements = malloc(sizeof(Stmt*) * 128);
+            int stmt_capacity = 32;
+            Stmt **statements = malloc(sizeof(Stmt*) * stmt_capacity);
             int count = 0;
 
             while (!check(p, TOK_CASE) && !check(p, TOK_DEFAULT) && !check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+                if (count >= stmt_capacity) {
+                    stmt_capacity *= 2;
+                    statements = realloc(statements, sizeof(Stmt*) * stmt_capacity);
+                }
                 statements[count++] = statement(p);
             }
 
@@ -137,10 +150,15 @@ Stmt* switch_statement(Parser *p) {
             case_values[num_cases] = NULL;
 
             // Parse default body statements
-            Stmt **statements = malloc(sizeof(Stmt*) * 128);
+            int stmt_capacity = 32;
+            Stmt **statements = malloc(sizeof(Stmt*) * stmt_capacity);
             int count = 0;
 
             while (!check(p, TOK_CASE) && !check(p, TOK_DEFAULT) && !check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+                if (count >= stmt_capacity) {
+                    stmt_capacity *= 2;
+                    statements = realloc(statements, sizeof(Stmt*) * stmt_capacity);
+                }
                 statements[count++] = statement(p);
             }
 
@@ -305,11 +323,18 @@ Stmt* import_statement(Parser *p) {
     // Named imports: import { name1, name2 as alias } from "module"
     consume(p, TOK_LBRACE, "Expect '{', '*', or string after 'import'");
 
-    char **import_names = malloc(sizeof(char*) * 32);
-    char **import_aliases = malloc(sizeof(char*) * 32);
+    int import_capacity = 32;
+    char **import_names = malloc(sizeof(char*) * import_capacity);
+    char **import_aliases = malloc(sizeof(char*) * import_capacity);
     int num_imports = 0;
 
     do {
+        // Grow arrays if needed
+        if (num_imports >= import_capacity) {
+            import_capacity *= 2;
+            import_names = realloc(import_names, sizeof(char*) * import_capacity);
+            import_aliases = realloc(import_aliases, sizeof(char*) * import_capacity);
+        }
         consume(p, TOK_IDENT, "Expect import name");
         import_names[num_imports] = token_text(&p->previous);
 
@@ -339,11 +364,18 @@ Stmt* import_statement(Parser *p) {
 Stmt* export_statement(Parser *p) {
     // Check for re-export: export { name1, name2 } from "module"
     if (match(p, TOK_LBRACE)) {
-        char **export_names = malloc(sizeof(char*) * 32);
-        char **export_aliases = malloc(sizeof(char*) * 32);
+        int export_capacity = 32;
+        char **export_names = malloc(sizeof(char*) * export_capacity);
+        char **export_aliases = malloc(sizeof(char*) * export_capacity);
         int num_exports = 0;
 
         do {
+            // Grow arrays if needed
+            if (num_exports >= export_capacity) {
+                export_capacity *= 2;
+                export_names = realloc(export_names, sizeof(char*) * export_capacity);
+                export_aliases = realloc(export_aliases, sizeof(char*) * export_capacity);
+            }
             consume(p, TOK_IDENT, "Expect export name");
             export_names[num_exports] = token_text(&p->previous);
 
@@ -497,11 +529,17 @@ Stmt* extern_fn_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after function name");
 
     // Parse parameters
-    Type **param_types = malloc(sizeof(Type*) * 32);
+    int param_capacity = 32;
+    Type **param_types = malloc(sizeof(Type*) * param_capacity);
     int num_params = 0;
 
     if (!check(p, TOK_RPAREN)) {
         do {
+            // Grow array if needed
+            if (num_params >= param_capacity) {
+                param_capacity *= 2;
+                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+            }
             // Parameter name is not used in FFI, but required for syntax
             consume(p, TOK_IDENT, "Expect parameter name");
             consume(p, TOK_COLON, "Expect ':' after parameter name in extern declaration");
@@ -542,13 +580,22 @@ Stmt* statement(Parser *p) {
         consume(p, TOK_LBRACE, "Expect '{' after type name");
 
         // Parse fields
-        char **field_names = malloc(sizeof(char*) * 32);
-        Type **field_types = malloc(sizeof(Type*) * 32);
-        int *field_optional = malloc(sizeof(int) * 32);
-        Expr **field_defaults = malloc(sizeof(Expr*) * 32);
+        int field_capacity = 32;
+        char **field_names = malloc(sizeof(char*) * field_capacity);
+        Type **field_types = malloc(sizeof(Type*) * field_capacity);
+        int *field_optional = malloc(sizeof(int) * field_capacity);
+        Expr **field_defaults = malloc(sizeof(Expr*) * field_capacity);
         int num_fields = 0;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // Grow arrays if needed
+            if (num_fields >= field_capacity) {
+                field_capacity *= 2;
+                field_names = realloc(field_names, sizeof(char*) * field_capacity);
+                field_types = realloc(field_types, sizeof(Type*) * field_capacity);
+                field_optional = realloc(field_optional, sizeof(int) * field_capacity);
+                field_defaults = realloc(field_defaults, sizeof(Expr*) * field_capacity);
+            }
             consume(p, TOK_IDENT, "Expect field name");
             field_names[num_fields] = token_text(&p->previous);
 
@@ -622,11 +669,18 @@ Stmt* statement(Parser *p) {
         consume(p, TOK_LBRACE, "Expect '{' after enum name");
 
         // Parse variants
-        char **variant_names = malloc(sizeof(char*) * 32);
-        Expr **variant_values = malloc(sizeof(Expr*) * 32);
+        int variant_capacity = 32;
+        char **variant_names = malloc(sizeof(char*) * variant_capacity);
+        Expr **variant_values = malloc(sizeof(Expr*) * variant_capacity);
         int num_variants = 0;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // Grow arrays if needed
+            if (num_variants >= variant_capacity) {
+                variant_capacity *= 2;
+                variant_names = realloc(variant_names, sizeof(char*) * variant_capacity);
+                variant_values = realloc(variant_values, sizeof(Expr*) * variant_capacity);
+            }
             consume(p, TOK_IDENT, "Expect variant name");
             variant_names[num_variants] = token_text(&p->previous);
 
