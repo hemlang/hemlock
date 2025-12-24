@@ -522,6 +522,11 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
             // Use the imported module's symbol
             codegen_writeln(ctx, "HmlValue %s = %s%s;", result,
                           import_binding->module_prefix, import_binding->original_name);
+        } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, expr->as.ident.name)) {
+            // Variable is in current lexical scope - use bare name (shadows outer/main vars)
+            char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
+            codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+            free(safe_ident);
         } else if (codegen_is_shadow(ctx, expr->as.ident.name)) {
             // Shadow variable (like catch param) - use sanitized bare name, shadows module vars
             // Must be checked BEFORE module prefix check

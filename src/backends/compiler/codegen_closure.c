@@ -304,11 +304,15 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
             scan_closures_stmt(ctx, stmt->as.for_in.body, local_scope);
             break;
 
-        case STMT_BLOCK:
+        case STMT_BLOCK: {
+            // Create a child scope for the block to enable proper lexical scoping
+            Scope *block_scope = scope_new(local_scope);
             for (int i = 0; i < stmt->as.block.count; i++) {
-                scan_closures_stmt(ctx, stmt->as.block.statements[i], local_scope);
+                scan_closures_stmt(ctx, stmt->as.block.statements[i], block_scope);
             }
+            scope_free(block_scope);
             break;
+        }
 
         // Note: Named functions are parsed as STMT_LET with EXPR_FUNCTION value
         // They are handled in the STMT_LET case above
@@ -553,11 +557,15 @@ void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars) 
             find_free_vars_stmt(stmt->as.for_in.body, local_scope, free_vars);
             break;
 
-        case STMT_BLOCK:
+        case STMT_BLOCK: {
+            // Create a child scope for the block to enable proper lexical scoping
+            Scope *block_scope = scope_new(local_scope);
             for (int i = 0; i < stmt->as.block.count; i++) {
-                find_free_vars_stmt(stmt->as.block.statements[i], local_scope, free_vars);
+                find_free_vars_stmt(stmt->as.block.statements[i], block_scope, free_vars);
             }
+            scope_free(block_scope);
             break;
+        }
 
         case STMT_RETURN:
             if (stmt->as.return_stmt.value) {

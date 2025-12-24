@@ -339,14 +339,19 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             break;
 
         case STMT_BLOCK: {
+            // Create a new environment for the block to enable proper lexical scoping.
+            // This allows variables declared with 'let' inside a block to shadow
+            // outer variables, matching JavaScript's let/const semantics.
+            Environment *block_env = env_new(env);
             for (int i = 0; i < stmt->as.block.count; i++) {
-                eval_stmt(stmt->as.block.statements[i], env, ctx);
+                eval_stmt(stmt->as.block.statements[i], block_env, ctx);
                 // Check if a return/break/continue/exception happened
                 if (ctx->return_state.is_returning || ctx->loop_state.is_breaking ||
                     ctx->loop_state.is_continuing || ctx->exception_state.is_throwing) {
                     break;
                 }
             }
+            env_release(block_env);
             break;
         }
 

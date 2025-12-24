@@ -12,6 +12,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
     switch (stmt->type) {
         case STMT_LET: {
             codegen_add_local(ctx, stmt->as.let.name);
+            // Add to current scope for proper lexical scoping
+            if (ctx->current_scope) {
+                scope_add_var(ctx->current_scope, stmt->as.let.name);
+            }
             char *safe_name = codegen_sanitize_ident(stmt->as.let.name);
             if (stmt->as.let.value) {
                 char *value = codegen_expr(ctx, stmt->as.let.value);
@@ -66,6 +70,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         case STMT_CONST: {
             codegen_add_local(ctx, stmt->as.const_stmt.name);
             codegen_add_const(ctx, stmt->as.const_stmt.name);
+            // Add to current scope for proper lexical scoping
+            if (ctx->current_scope) {
+                scope_add_var(ctx->current_scope, stmt->as.const_stmt.name);
+            }
             char *safe_name = codegen_sanitize_ident(stmt->as.const_stmt.name);
             if (stmt->as.const_stmt.value) {
                 char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
@@ -290,6 +298,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_BLOCK: {
+            // Push a new scope for proper lexical scoping in blocks
+            codegen_push_scope(ctx);
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
             for (int i = 0; i < stmt->as.block.count; i++) {
@@ -297,6 +307,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
+            codegen_pop_scope(ctx);
             break;
         }
 

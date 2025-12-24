@@ -3101,6 +3101,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             closure->next = ctx->closures;
             ctx->closures = closure;
 
+            // Check if any captured variable is block-scoped (defined in a block inside loops).
+            // Block-scoped captures need per-iteration environments for correct JS-like semantics.
+            int has_block_scoped_capture = 0;
+            if (ctx->current_scope) {
+                for (int i = 0; i < captured->num_vars; i++) {
+                    if (scope_is_defined(ctx->current_scope, captured->vars[i])) {
+                        has_block_scoped_capture = 1;
+                        break;
+                    }
+                }
+            }
+
             if (captured->num_vars == 0) {
                 // No captures - simple function pointer
                 closure->captured_vars = NULL;
@@ -3110,8 +3122,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 int has_rest = expr->as.function.rest_param ? 1 : 0;
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function_rest((void*)%s, %d, %d, %d, %d);",
                               result, func_name, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
-            } else if (ctx->shared_env_name) {
-                // Use the shared environment
+            } else if (ctx->shared_env_name && !has_block_scoped_capture) {
+                // Use the shared environment only if no block-scoped captures.
+                // Block-scoped captures (like loop-local variables) need per-closure environments.
                 // Store the captured variable names and their shared env indices
                 closure->captured_vars = malloc(captured->num_vars * sizeof(char*));
                 closure->shared_env_indices = malloc(captured->num_vars * sizeof(int));

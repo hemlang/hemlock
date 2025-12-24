@@ -440,13 +440,14 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
         }
 
         case STMT_BLOCK: {
-            // NOTE: We don't create a new scope for blocks.
-            // Function bodies, loops, etc. already create their own scopes
-            // before their body blocks are processed.
-            // In Hemlock, standalone blocks { } don't create new scopes.
+            // Create a new scope for blocks to enable proper lexical scoping.
+            // This allows variables declared with 'let' inside a block to
+            // shadow outer variables, matching JavaScript's let/const semantics.
+            resolver_enter_scope(ctx);
             for (int i = 0; i < stmt->as.block.count; i++) {
                 resolve_stmt_internal(ctx, stmt->as.block.statements[i]);
             }
+            resolver_exit_scope(ctx);
             break;
         }
 
