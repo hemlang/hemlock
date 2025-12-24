@@ -567,8 +567,10 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_add_main_var(ctx, stmt->as.let.name);
         } else if (stmt->type == STMT_ENUM) {
             codegen_add_main_var(ctx, stmt->as.enum_decl.name);
-        } else if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace) {
+        } else if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace &&
+                   stmt->as.import_stmt.namespace_name != NULL) {
             // Track namespace imports as main vars so they get _main_ prefix
+            // (star imports without namespace don't need this)
             codegen_add_main_var(ctx, stmt->as.import_stmt.namespace_name);
         }
     }
@@ -955,10 +957,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     }
 
     // Static globals for namespace imports in main file (import * as name)
+    // Note: star imports (import * from) have namespace_name=NULL and don't need static vars
     int has_namespace_imports = 0;
     for (int i = 0; i < stmt_count; i++) {
         Stmt *stmt = stmts[i];
-        if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace) {
+        if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace &&
+            stmt->as.import_stmt.namespace_name != NULL) {
             if (!IS_STATIC_DECLARED(stmt->as.import_stmt.namespace_name)) {
                 if (!has_namespace_imports) {
                     codegen_write(ctx, "// Namespace import variables (static for function access)\n");
@@ -1053,7 +1057,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 // Skip exports (already handled above)
                 if (stmt->type == STMT_EXPORT) continue;
                 // Check if it's a namespace import (import * as name)
-                if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace) {
+                // Star imports (import * from) have namespace_name=NULL and don't need static vars
+                if (stmt->type == STMT_IMPORT && stmt->as.import_stmt.is_namespace &&
+                    stmt->as.import_stmt.namespace_name != NULL) {
                     codegen_write(ctx, "static HmlValue %s%s = {0};\n",
                                 mod->module_prefix, stmt->as.import_stmt.namespace_name);
                 }

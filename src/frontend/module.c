@@ -723,21 +723,31 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
             }
 
             if (stmt->as.import_stmt.is_namespace) {
-                // Namespace import: create an object with all exports
-                Object *ns = object_new(NULL, imported->num_exports);
-                for (int j = 0; j < imported->num_exports; j++) {
-                    char *export_name = imported->export_names[j];
-                    Value val = env_get(imported->exports_env, export_name, ctx);
-
-                    // Add to namespace object
-                    ns->field_names[ns->num_fields] = strdup(export_name);
-                    ns->field_values[ns->num_fields] = val;
-                    ns->num_fields++;
-                }
-
-                // Bind namespace to environment
                 char *ns_name = stmt->as.import_stmt.namespace_name;
-                env_define(module_env, ns_name, val_object(ns), 1, ctx);  // immutable
+                if (ns_name != NULL) {
+                    // Namespace import: create an object with all exports
+                    Object *ns = object_new(NULL, imported->num_exports);
+                    for (int j = 0; j < imported->num_exports; j++) {
+                        char *export_name = imported->export_names[j];
+                        Value val = env_get(imported->exports_env, export_name, ctx);
+
+                        // Add to namespace object
+                        ns->field_names[ns->num_fields] = strdup(export_name);
+                        ns->field_values[ns->num_fields] = val;
+                        ns->num_fields++;
+                    }
+
+                    // Bind namespace to environment
+                    env_define(module_env, ns_name, val_object(ns), 1, ctx);  // immutable
+                } else {
+                    // Star import: import * from "module" - import all exports directly
+                    for (int j = 0; j < imported->num_exports; j++) {
+                        char *export_name = imported->export_names[j];
+                        Value val = env_get(imported->exports_env, export_name, ctx);
+                        env_define(module_env, export_name, val, 1, ctx);  // immutable
+                        value_release(val);  // Release temp reference from env_get
+                    }
+                }
             } else {
                 // Named imports
                 for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
