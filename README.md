@@ -78,10 +78,11 @@ let pid = getpid();
 | **Strings** | UTF-8, mutable, 19 methods (substr, split, trim, replace, etc.) |
 | **Arrays** | Dynamic, 18 methods (push, pop, map, filter, reduce, etc.) |
 | **Concurrency** | async/await, real OS threads (pthreads), channels |
-| **FFI** | Call C functions from shared libraries |
+| **FFI** | Call C functions from shared libraries, export extern |
 | **Error Handling** | try/catch/finally/throw, panic() |
 | **I/O** | File API, signal handling, command execution |
-| **Stdlib** | 23 modules (math, net, crypto, http, json, and more) |
+| **Stdlib** | 39 modules (math, net, crypto, http, json, and more) |
+| **Packages** | [hpm](https://github.com/hemlang/hpm) package manager with GitHub registry |
 
 ## Building
 
@@ -155,12 +156,13 @@ Hemlock v1.2.2 is released with:
 - Full type system with 64-bit integers and Unicode support
 - Manual memory management with safe and unsafe options
 - Async/await with true pthread parallelism
-- 23 stdlib modules
-- FFI for C interop
+- 39 stdlib modules
+- FFI for C interop with `export extern fn` for reusable library wrappers
 - Compiler backend (C code generation)
 - LSP server with go-to-definition and find-references
 - HTTP PUT/DELETE/PATCH and WebSocket binary support
-- 625+ tests with 67 parity tests (100% pass rate)
+- [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
+- 625+ tests with 97 parity tests (100% pass rate)
 
 ## Philosophy
 

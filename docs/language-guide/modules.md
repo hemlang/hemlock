@@ -1,14 +1,16 @@
-# Hemlock Module System (Phase 1)
+# Hemlock Module System
 
 This document describes the ES6-style import/export module system implemented for Hemlock.
 
 ## Overview
 
-Hemlock now supports a file-based module system with ES6-style import/export syntax. Modules are:
+Hemlock supports a file-based module system with ES6-style import/export syntax. Modules are:
 - **Singletons**: Each module is loaded once and cached
 - **File-based**: Modules correspond to .hml files on disk
 - **Explicitly imported**: Dependencies are declared with import statements
 - **Topologically executed**: Dependencies are executed before dependents
+
+For package management and third-party dependencies, see [hpm (Hemlock Package Manager)](https://github.com/hemlang/hpm).
 
 ## Syntax
 
@@ -31,6 +33,17 @@ fn subtract(a, b) { return a - b; }
 
 export { add, subtract };
 ```
+
+**Export Extern (FFI Functions):**
+```hemlock
+import "libc.so.6";
+
+// Export FFI functions for use in other modules
+export extern fn strlen(s: string): i32;
+export extern fn getpid(): i32;
+```
+
+See [FFI Documentation](../advanced/ffi.md#exporting-ffi-functions) for more details on exporting FFI functions.
 
 **Re-exports:**
 ```hemlock
@@ -160,25 +173,49 @@ void execute_module(Module *module, ModuleCache *cache, ExecutionContext *ctx);
 
 ## Testing
 
-Test modules are located in `tests/modules/`:
+Test modules are located in `tests/modules/` and `tests/parity/modules/`:
 
 - `math.hml` - Basic module with exports
 - `test_import_named.hml` - Named import test
 - `test_import_namespace.hml` - Namespace import test
 - `test_import_alias.hml` - Import aliasing test
+- `export_extern.hml` - Export extern FFI function test (Linux)
+
+## Package Imports (hpm)
+
+With [hpm](https://github.com/hemlang/hpm) installed, you can import third-party packages from GitHub:
+
+```hemlock
+// Import from package root (uses "main" from package.json)
+import { app, router } from "hemlang/sprout";
+
+// Import from subpath
+import { middleware } from "hemlang/sprout/middleware";
+
+// Standard library (built into Hemlock)
+import { HashMap } from "@stdlib/collections";
+```
+
+Packages are installed to `hem_modules/` and resolved using GitHub `owner/repo` syntax.
+
+```bash
+# Install a package
+hpm install hemlang/sprout
+
+# Install with version constraint
+hpm install hemlang/sprout@^1.0.0
+```
+
+See the [hpm documentation](https://github.com/hemlang/hpm) for full details.
 
 ## Current Limitations
 
-1. **Main Integration**: The module system is implemented but not yet integrated with main.c by default. Files must explicitly use the module API.
-2. **No Package Management**: Only file-based modules are supported (no `hemlock_modules/` or package.json)
-3. **No Standard Library**: No `std/` prefix for built-in modules yet
-4. **No Dynamic Imports**: `import()` as a runtime function is not supported
-5. **No Conditional Exports**: Exports must be at top level
+1. **No Dynamic Imports**: `import()` as a runtime function is not supported
+2. **No Conditional Exports**: Exports must be at top level
+3. **Static Library Paths**: FFI library imports use static paths (platform-specific)
 
-## Future Work (Phase 2+)
+## Future Work
 
-- Package resolution from `hemlock_modules/`
-- Standard library with `std/` prefix
 - Dynamic imports with `import()` function
 - Conditional exports
 - Module metadata (`import.meta`)

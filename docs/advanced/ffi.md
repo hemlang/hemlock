@@ -8,6 +8,7 @@ Hemlock provides **FFI (Foreign Function Interface)** to call C functions from s
 - [Current Status](#current-status)
 - [Supported Types](#supported-types)
 - [Basic Concepts](#basic-concepts)
+- [Exporting FFI Functions](#exporting-ffi-functions)
 - [Use Cases](#use-cases)
 - [Future Development](#future-development)
 - [FFI Callbacks](#ffi-callbacks)
@@ -41,6 +42,7 @@ FFI support is available in Hemlock with the following features:
 - ✅ libffi-based implementation
 - ✅ Dynamic library loading
 - ✅ **Function pointer callbacks** - Pass Hemlock functions to C
+- ✅ **Export extern functions** - Share FFI bindings across modules
 
 **In Development:**
 - 🔄 Struct passing and return values
@@ -140,6 +142,133 @@ FFI uses **libffi** for portability:
 - Handles calling conventions automatically
 - Abstracts platform-specific ABI details
 - Supports Linux, macOS, Windows (with appropriate libffi)
+
+## Exporting FFI Functions
+
+FFI functions declared with `extern fn` can be exported from modules, allowing you to create reusable library wrappers that can be shared across multiple files.
+
+### Basic Export Syntax
+
+```hemlock
+// string_utils.hml - A library module wrapping C string functions
+import "libc.so.6";
+
+// Export the extern function directly
+export extern fn strlen(s: string): i32;
+export extern fn strcmp(s1: string, s2: string): i32;
+
+// You can also export wrapper functions alongside extern functions
+export fn string_length(s: string): i32 {
+    return strlen(s);
+}
+
+export fn strings_equal(a: string, b: string): bool {
+    return strcmp(a, b) == 0;
+}
+```
+
+### Importing Exported FFI Functions
+
+```hemlock
+// main.hml - Using the exported FFI functions
+import { strlen, string_length, strings_equal } from "./string_utils.hml";
+
+let msg = "Hello, World!";
+print(strlen(msg));           // 13 - direct extern call
+print(string_length(msg));    // 13 - wrapper function
+
+print(strings_equal("foo", "foo"));  // true
+print(strings_equal("foo", "bar"));  // false
+```
+
+### Use Cases for Export Extern
+
+**1. Platform Abstraction**
+```hemlock
+// platform.hml - Abstract platform differences
+import "libc.so.6";  // Linux
+
+export extern fn getpid(): i32;
+export extern fn getuid(): i32;
+export extern fn geteuid(): i32;
+```
+
+**2. Library Wrappers**
+```hemlock
+// crypto_lib.hml - Wrap crypto library functions
+import "libcrypto.so";
+
+export extern fn SHA256(data: ptr, len: u64, out: ptr): ptr;
+export extern fn MD5(data: ptr, len: u64, out: ptr): ptr;
+
+// Add Hemlock-friendly wrappers
+export fn sha256_string(s: string): string {
+    // Implementation using the extern function
+}
+```
+
+**3. Centralized FFI Declarations**
+```hemlock
+// libc.hml - Central module for libc bindings
+import "libc.so.6";
+
+// String functions
+export extern fn strlen(s: string): i32;
+export extern fn strcpy(dest: ptr, src: string): ptr;
+export extern fn strcat(dest: ptr, src: string): ptr;
+
+// Memory functions
+export extern fn malloc(size: u64): ptr;
+export extern fn realloc(p: ptr, size: u64): ptr;
+export extern fn calloc(nmemb: u64, size: u64): ptr;
+
+// Process functions
+export extern fn getpid(): i32;
+export extern fn getppid(): i32;
+export extern fn getenv(name: string): ptr;
+```
+
+Then use throughout your project:
+```hemlock
+import { strlen, malloc, getpid } from "./libc.hml";
+```
+
+### Combining with Regular Exports
+
+You can mix exported extern functions with regular function exports:
+
+```hemlock
+// math_extended.hml
+import "libm.so.6";
+
+// Export raw C functions
+export extern fn sin(x: f64): f64;
+export extern fn cos(x: f64): f64;
+export extern fn tan(x: f64): f64;
+
+// Export Hemlock functions that use them
+export fn deg_to_rad(degrees: f64): f64 {
+    return degrees * 3.14159265359 / 180.0;
+}
+
+export fn sin_degrees(degrees: f64): f64 {
+    return sin(deg_to_rad(degrees));
+}
+```
+
+### Platform-Specific Libraries
+
+When exporting extern functions, remember that library names differ by platform:
+
+```hemlock
+// For Linux
+import "libc.so.6";
+
+// For macOS (different approach needed)
+import "libSystem.B.dylib";
+```
+
+Currently, Hemlock's `import "library"` syntax uses static library paths, so platform-specific modules may be needed for cross-platform FFI code.
 
 ## Use Cases
 
@@ -421,7 +550,7 @@ For robust error handling, validate inputs and avoid throwing in callbacks.
 
 ## Current Limitations
 
-As of v0.1, FFI has the following limitations:
+FFI has the following limitations:
 
 **1. No Struct Passing**
 - Cannot pass complex structs by value
@@ -506,12 +635,13 @@ Hemlock's FFI provides:
 - ✅ libffi-based portability
 - ✅ Foundation for native library integration
 - ✅ **Function pointer callbacks** - pass Hemlock functions to C
+- ✅ **Export extern functions** - share FFI bindings across modules
 
-**Current status:** FFI available with primitive types and callback support
+**Current status:** FFI available with primitive types, callback support, and module exports
 
 **Future:** Structs, arrays, string marshaling
 
-**Use cases:** System libraries, third-party libraries, qsort, event loops, callback-based APIs
+**Use cases:** System libraries, third-party libraries, qsort, event loops, callback-based APIs, reusable library wrappers
 
 ## Contributing
 

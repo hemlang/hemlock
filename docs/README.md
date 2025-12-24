@@ -22,7 +22,7 @@ Welcome to the Hemlock programming language documentation!
 - [Objects](language-guide/objects.md) - Object literals, methods, and duck typing
 - [Arrays](language-guide/arrays.md) - Dynamic arrays and operations
 - [Error Handling](language-guide/error-handling.md) - try/catch/finally/throw/panic
-- [Modules](language-guide/modules.md) - Import/export system
+- [Modules](language-guide/modules.md) - Import/export system and package imports
 
 ### Advanced Topics
 - [Async & Concurrency](advanced/async-concurrency.md) - True multi-threading with async/await
@@ -104,6 +104,7 @@ We give you the tools to be safe (`buffer`, type annotations, bounds checking) b
 ## Getting Help
 
 - **Source Code**: [GitHub Repository](https://github.com/hemlang/hemlock)
+- **Package Manager**: [hpm](https://github.com/hemlang/hpm) - Hemlock Package Manager
 - **Issues**: Report bugs and request features
 - **Examples**: See the `examples/` directory
 - **Tests**: See the `tests/` directory for usage examples
