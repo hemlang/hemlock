@@ -514,6 +514,19 @@ Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path)
     return stmt;
 }
 
+Stmt* stmt_import_star(const char *module_path) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_IMPORT;
+    stmt->line = 0;
+    stmt->as.import_stmt.is_namespace = 1;  // Marks as star import
+    stmt->as.import_stmt.namespace_name = NULL;  // NULL means import directly into scope
+    stmt->as.import_stmt.import_names = NULL;
+    stmt->as.import_stmt.import_aliases = NULL;
+    stmt->as.import_stmt.num_imports = 0;
+    stmt->as.import_stmt.module_path = strdup(module_path);
+    return stmt;
+}
+
 Stmt* stmt_export_declaration(Stmt *declaration) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXPORT;

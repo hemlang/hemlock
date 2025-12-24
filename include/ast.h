@@ -413,6 +413,7 @@ Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_ca
 Stmt* stmt_defer(Expr *call);
 Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_imports, const char *module_path);
 Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path);
+Stmt* stmt_import_star(const char *module_path);
 Stmt* stmt_export_declaration(Stmt *declaration);
 Stmt* stmt_export_list(char **export_names, char **export_aliases, int num_exports);
 Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_exports, const char *module_path);

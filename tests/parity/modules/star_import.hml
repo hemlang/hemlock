@@ -1,0 +1,8 @@
+// Test star imports (import * from) - imports all exports directly into scope
+import * from "./helper.hml";
+
+// Use imported values directly (not through namespace)
+print(add(5, 3));
+print(multiply(6, 7));
+print(PI);
+print(greeting);

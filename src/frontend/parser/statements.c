@@ -302,22 +302,36 @@ Stmt* import_statement(Parser *p) {
         return stmt;
     }
 
-    // Check for namespace import: import * as name from "module"
+    // Check for star import: import * from "module" or import * as name from "module"
     if (match(p, TOK_STAR)) {
-        consume_contextual(p, "as", "Expect 'as' after '*' in namespace import");
-        consume(p, TOK_IDENT, "Expect identifier for namespace name");
-        char *namespace_name = token_text(&p->previous);
+        // Check if this is a namespace import (import * as name) or a star import (import *)
+        if (match_contextual(p, "as")) {
+            // Namespace import: import * as name from "module"
+            consume(p, TOK_IDENT, "Expect identifier for namespace name");
+            char *namespace_name = token_text(&p->previous);
 
-        consume_contextual(p, "from", "Expect 'from' in import statement");
-        consume(p, TOK_STRING, "Expect module path string");
-        char *module_path = p->previous.string_value;
+            consume_contextual(p, "from", "Expect 'from' in import statement");
+            consume(p, TOK_STRING, "Expect module path string");
+            char *module_path = p->previous.string_value;
 
-        consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
+            consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
-        Stmt *stmt = stmt_import_namespace(namespace_name, module_path);
-        free(namespace_name);
-        free(module_path);
-        return stmt;
+            Stmt *stmt = stmt_import_namespace(namespace_name, module_path);
+            free(namespace_name);
+            free(module_path);
+            return stmt;
+        } else {
+            // Star import: import * from "module" (imports all exports into current scope)
+            consume_contextual(p, "from", "Expect 'from' after '*' in import statement");
+            consume(p, TOK_STRING, "Expect module path string");
+            char *module_path = p->previous.string_value;
+
+            consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
+
+            Stmt *stmt = stmt_import_star(module_path);
+            free(module_path);
+            return stmt;
+        }
     }
 
     // Named imports: import { name1, name2 as alias } from "module"
