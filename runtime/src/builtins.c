@@ -7401,6 +7401,26 @@ static ffi_type* hml_ffi_type_to_ffi(HmlFFIType type) {
     }
 }
 
+// Get the size of an FFI type for proper argument storage allocation
+// This is critical for ARM64 where floats must use 4-byte storage
+static size_t hml_ffi_type_size(HmlFFIType type) {
+    switch (type) {
+        case HML_FFI_I8:     return sizeof(int8_t);
+        case HML_FFI_I16:    return sizeof(int16_t);
+        case HML_FFI_I32:    return sizeof(int32_t);
+        case HML_FFI_I64:    return sizeof(int64_t);
+        case HML_FFI_U8:     return sizeof(uint8_t);
+        case HML_FFI_U16:    return sizeof(uint16_t);
+        case HML_FFI_U32:    return sizeof(uint32_t);
+        case HML_FFI_U64:    return sizeof(uint64_t);
+        case HML_FFI_F32:    return sizeof(float);
+        case HML_FFI_F64:    return sizeof(double);
+        case HML_FFI_PTR:    return sizeof(void*);
+        case HML_FFI_STRING: return sizeof(char*);
+        default:             return sizeof(void*);
+    }
+}
+
 // Convert HmlValue to C value for FFI call
 static void hml_value_to_ffi(HmlValue val, HmlFFIType type, void *out) {
     switch (type) {
@@ -7476,7 +7496,7 @@ HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *
 
         for (int i = 0; i < num_args; i++) {
             arg_types[i] = hml_ffi_type_to_ffi(types[i + 1]);
-            arg_storage[i] = malloc(8); // Max size for any arg
+            arg_storage[i] = malloc(hml_ffi_type_size(types[i + 1]));
             hml_value_to_ffi(args[i], types[i + 1], arg_storage[i]);
             arg_values[i] = arg_storage[i];
         }

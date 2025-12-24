@@ -1,0 +1,23 @@
+sqrt(4.0) =
+2
+sqrt(9.0) =
+3
+sqrt(16.0) =
+4
+sin(0.0) =
+0
+cos(0.0) =
+1
+pow(2.0, 3.0) =
+8
+pow(3.0, 2.0) =
+9
+pow(10.0, 2.0) =
+100
+floor(3.7) =
+3
+ceil(3.2) =
+4
+fabs(-5.5) =
+5.5
+FFI float test complete
