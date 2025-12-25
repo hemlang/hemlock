@@ -255,6 +255,28 @@ static BuiltinInfo builtins[] = {
     {"ptr_to_buffer", builtin_ptr_to_buffer},
     {"buffer_ptr", builtin_buffer_ptr},
     {"ptr_null", builtin_ptr_null},
+    // Atomic operations (i32)
+    {"atomic_load_i32", builtin_atomic_load_i32},
+    {"atomic_store_i32", builtin_atomic_store_i32},
+    {"atomic_add_i32", builtin_atomic_add_i32},
+    {"atomic_sub_i32", builtin_atomic_sub_i32},
+    {"atomic_and_i32", builtin_atomic_and_i32},
+    {"atomic_or_i32", builtin_atomic_or_i32},
+    {"atomic_xor_i32", builtin_atomic_xor_i32},
+    {"atomic_cas_i32", builtin_atomic_cas_i32},
+    {"atomic_exchange_i32", builtin_atomic_exchange_i32},
+    // Atomic operations (i64)
+    {"atomic_load_i64", builtin_atomic_load_i64},
+    {"atomic_store_i64", builtin_atomic_store_i64},
+    {"atomic_add_i64", builtin_atomic_add_i64},
+    {"atomic_sub_i64", builtin_atomic_sub_i64},
+    {"atomic_and_i64", builtin_atomic_and_i64},
+    {"atomic_or_i64", builtin_atomic_or_i64},
+    {"atomic_xor_i64", builtin_atomic_xor_i64},
+    {"atomic_cas_i64", builtin_atomic_cas_i64},
+    {"atomic_exchange_i64", builtin_atomic_exchange_i64},
+    // Memory fence
+    {"atomic_fence", builtin_atomic_fence},
     {NULL, NULL}  // Sentinel
 };
 

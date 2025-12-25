@@ -511,6 +511,47 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_unsetenv, 1, 1, 0);", result);
     } else if (!codegen_is_local(ctx, expr->as.ident.name) && strcmp(expr->as.ident.name, "get_pid") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_pid, 0, 0, 0);", result);
+    // Atomic operations (i32)
+    } else if (strcmp(expr->as.ident.name, "atomic_load_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_load_i32, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_store_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_store_i32, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_add_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_add_i32, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_sub_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_sub_i32, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_and_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_and_i32, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_or_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_or_i32, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_xor_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_xor_i32, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_cas_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_cas_i32, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_exchange_i32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_exchange_i32, 2, 2, 0);", result);
+    // Atomic operations (i64)
+    } else if (strcmp(expr->as.ident.name, "atomic_load_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_load_i64, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_store_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_store_i64, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_add_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_add_i64, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_sub_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_sub_i64, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_and_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_and_i64, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_or_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_or_i64, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_xor_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_xor_i64, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_cas_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_cas_i64, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "atomic_exchange_i64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_exchange_i64, 2, 2, 0);", result);
+    // Memory fence
+    } else if (strcmp(expr->as.ident.name, "atomic_fence") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
     } else {
         // Check if this is an imported symbol
         ImportBinding *import_binding = NULL;

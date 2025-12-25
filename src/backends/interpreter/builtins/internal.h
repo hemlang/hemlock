@@ -281,4 +281,28 @@ Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_null(Value *args, int num_args, ExecutionContext *ctx);
 
+// Atomic operations builtins (atomics.c)
+// i32 atomics
+Value builtin_atomic_load_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_store_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_add_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_sub_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_and_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_or_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_xor_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_cas_i32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_exchange_i32(Value *args, int num_args, ExecutionContext *ctx);
+// i64 atomics
+Value builtin_atomic_load_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_store_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_add_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_sub_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_and_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_or_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_xor_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_cas_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_atomic_exchange_i64(Value *args, int num_args, ExecutionContext *ctx);
+// Memory fence
+Value builtin_atomic_fence(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H

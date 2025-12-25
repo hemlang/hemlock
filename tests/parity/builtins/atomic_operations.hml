@@ -1,0 +1,97 @@
+// Test atomic operations for lock-free concurrent programming
+
+// Allocate memory for i32 atomic operations
+let p32 = alloc(4);  // sizeof(i32) = 4
+ptr_write_i32(p32, 0);
+
+// Test atomic_load_i32
+print(atomic_load_i32(p32));  // 0
+
+// Test atomic_store_i32
+atomic_store_i32(p32, 42);
+print(atomic_load_i32(p32));  // 42
+
+// Test atomic_add_i32 (returns OLD value)
+let old_add = atomic_add_i32(p32, 10);
+print(old_add);                // 42
+print(atomic_load_i32(p32));   // 52
+
+// Test atomic_sub_i32 (returns OLD value)
+let old_sub = atomic_sub_i32(p32, 2);
+print(old_sub);                // 52
+print(atomic_load_i32(p32));   // 50
+
+// Test atomic_and_i32
+atomic_store_i32(p32, 0xFF);
+let old_and = atomic_and_i32(p32, 0x0F);
+print(old_and);                // 255 (old value was 0xFF)
+print(atomic_load_i32(p32));   // 15 (0xFF & 0x0F)
+
+// Test atomic_or_i32
+let old_or = atomic_or_i32(p32, 0xF0);
+print(old_or);                 // 15
+print(atomic_load_i32(p32));   // 255 (15 | 0xF0)
+
+// Test atomic_xor_i32
+atomic_store_i32(p32, 0xAA);
+let old_xor = atomic_xor_i32(p32, 0xFF);
+print(old_xor);                // 170 (0xAA)
+print(atomic_load_i32(p32));   // 85 (0xAA ^ 0xFF = 0x55)
+
+// Test atomic_exchange_i32
+atomic_store_i32(p32, 100);
+let old_ex = atomic_exchange_i32(p32, 200);
+print(old_ex);                 // 100
+print(atomic_load_i32(p32));   // 200
+
+// Test atomic_cas_i32 (compare-and-swap)
+// Case 1: CAS succeeds (expected matches)
+atomic_store_i32(p32, 100);
+let cas1 = atomic_cas_i32(p32, 100, 999);
+print(cas1);                   // true
+print(atomic_load_i32(p32));   // 999
+
+// Case 2: CAS fails (expected doesn't match)
+let cas2 = atomic_cas_i32(p32, 100, 888);
+print(cas2);                   // false
+print(atomic_load_i32(p32));   // 999 (unchanged)
+
+free(p32);
+
+// Test i64 atomic operations
+let p64 = alloc(8);  // sizeof(i64) = 8
+ptr_write_i64(p64, 0);
+
+// Test atomic_load_i64
+print(atomic_load_i64(p64));   // 0
+
+// Test atomic_store_i64
+atomic_store_i64(p64, 5000000000);
+print(atomic_load_i64(p64));   // 5000000000
+
+// Test atomic_add_i64
+let old64 = atomic_add_i64(p64, 1);
+print(old64);                  // 5000000000
+print(atomic_load_i64(p64));   // 5000000001
+
+// Test atomic_sub_i64
+old64 = atomic_sub_i64(p64, 1000000000);
+print(old64);                  // 5000000001
+print(atomic_load_i64(p64));   // 4000000001
+
+// Test atomic_exchange_i64
+old64 = atomic_exchange_i64(p64, 9999999999);
+print(old64);                  // 4000000001
+print(atomic_load_i64(p64));   // 9999999999
+
+// Test atomic_cas_i64
+let cas64 = atomic_cas_i64(p64, 9999999999, 1111111111);
+print(cas64);                  // true
+print(atomic_load_i64(p64));   // 1111111111
+
+free(p64);
+
+// Test memory fence (should not produce output, just ensure it runs)
+atomic_fence();
+
+print("done");

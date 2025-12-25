@@ -1,0 +1,197 @@
+// Map-Reduce Pattern - Parallel data processing
+// Demonstrates: parallel map, channel-based reduce, work distribution
+
+import { now } from "@stdlib/time";
+import { GREEN, CYAN, YELLOW, MAGENTA, RESET, BOLD } from "@stdlib/terminal";
+
+// Mapper function - process a chunk of data and emit key-value pairs
+async fn mapper(chunk: array, mapper_id: i32, emit_channel) {
+    print(CYAN + "[Mapper " + mapper_id + "] Processing " + chunk.length + " words..." + RESET);
+
+    let word_counts = {};
+
+    for (let i = 0; i < chunk.length; i = i + 1) {
+        let word = chunk[i].to_lower();
+        if (word_counts[word] == null) {
+            word_counts[word] = 0;
+        }
+        word_counts[word] = word_counts[word] + 1;
+    }
+
+    // Emit intermediate results
+    emit_channel.send({
+        mapper_id: mapper_id,
+        counts: word_counts
+    });
+
+    print(GREEN + "[Mapper " + mapper_id + "] Emitted " + chunk.length + " word counts" + RESET);
+}
+
+// Reducer function - combine intermediate results
+async fn reducer(emit_channel, num_mappers: i32, result_channel) {
+    print(YELLOW + "[Reducer] Waiting for mapper results..." + RESET);
+
+    let final_counts = {};
+    let received = 0;
+
+    while (received < num_mappers) {
+        let result = emit_channel.recv();
+        received = received + 1;
+
+        print(MAGENTA + "[Reducer] Received results from Mapper " + result.mapper_id + RESET);
+
+        // Merge counts
+        let counts = result.counts;
+        let keys = counts.keys();
+
+        for (let i = 0; i < keys.length; i = i + 1) {
+            let key = keys[i];
+            if (final_counts[key] == null) {
+                final_counts[key] = 0;
+            }
+            final_counts[key] = final_counts[key] + counts[key];
+        }
+    }
+
+    print(GREEN + "[Reducer] All mappers complete. Sending final results." + RESET);
+    result_channel.send(final_counts);
+}
+
+// Split array into n chunks
+fn chunk_array(arr: array, n: i32): array {
+    let chunks = [];
+    let chunk_size: i32 = arr.length / n;
+    let remainder: i32 = arr.length % n;
+
+    let start: i32 = 0;
+    for (let i = 0; i < n; i = i + 1) {
+        let size: i32 = chunk_size;
+        if (i < remainder) {
+            size = size + 1;
+        }
+        let end: i32 = start + size;
+        let chunk = arr.slice(start, end);
+        chunks.push(chunk);
+        start = end;
+    }
+
+    return chunks;
+}
+
+fn main() {
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    MAP-REDUCE WORD COUNT" + RESET);
+    print(MAGENTA + BOLD + "    Parallel Data Processing" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    // Sample document (repeated for more data)
+    let words = [
+        "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog",
+        "the", "dog", "barks", "at", "the", "fox", "while", "the", "fox", "runs",
+        "brown", "dogs", "and", "brown", "foxes", "are", "common", "in", "the", "forest",
+        "the", "quick", "fox", "is", "quicker", "than", "the", "lazy", "dog",
+        "lazy", "dogs", "sleep", "while", "quick", "foxes", "hunt",
+        "the", "forest", "has", "many", "brown", "animals",
+        "animals", "in", "the", "forest", "include", "foxes", "and", "dogs"
+    ];
+
+    let num_mappers = 4;
+
+    print(YELLOW + "Input: " + words.length + " words" + RESET);
+    print(YELLOW + "Mappers: " + num_mappers + RESET);
+    print("");
+
+    // Create channels
+    let emit_channel = channel(num_mappers);
+    let result_channel = channel(1);
+
+    // Partition data
+    let chunks = chunk_array(words, num_mappers);
+
+    print(BOLD + "=== Starting Map-Reduce ===" + RESET);
+    print("");
+
+    let start_time = now();
+
+    // Start reducer (will wait for mappers)
+    let reducer_task = spawn(reducer, emit_channel, num_mappers, result_channel);
+
+    // Start mappers in parallel
+    let mapper_tasks = [];
+    for (let i = 0; i < num_mappers; i = i + 1) {
+        print(CYAN + "Starting Mapper " + i + " with " + chunks[i].length + " words" + RESET);
+        let task = spawn(mapper, chunks[i], i, emit_channel);
+        mapper_tasks.push(task);
+    }
+
+    // Wait for mappers
+    for (let i = 0; i < mapper_tasks.length; i = i + 1) {
+        join(mapper_tasks[i]);
+    }
+
+    // Get final results
+    let final_counts = result_channel.recv();
+    join(reducer_task);
+
+    let end_time = now();
+    let total_time = end_time - start_time;
+
+    // Display results
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    WORD COUNT RESULTS" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    // Sort by count (manual sorting since we don't have a sort function)
+    let keys = final_counts.keys();
+    let sorted_words = [];
+
+    for (let i = 0; i < keys.length; i = i + 1) {
+        let word = keys[i];
+        let count = final_counts[word];
+        sorted_words.push({ word: word, count: count });
+    }
+
+    // Simple bubble sort by count (descending)
+    for (let i = 0; i < sorted_words.length; i = i + 1) {
+        for (let j = 0; j < sorted_words.length - i - 1; j = j + 1) {
+            if (sorted_words[j].count < sorted_words[j + 1].count) {
+                let tmp = sorted_words[j];
+                sorted_words[j] = sorted_words[j + 1];
+                sorted_words[j + 1] = tmp;
+            }
+        }
+    }
+
+    print(BOLD + "Top 10 words:" + RESET);
+    let max_display = 10;
+    if (sorted_words.length < max_display) {
+        max_display = sorted_words.length;
+    }
+
+    for (let i = 0; i < max_display; i = i + 1) {
+        let item = sorted_words[i];
+        let bar = "";
+        for (let j = 0; j < item.count; j = j + 1) {
+            bar = bar + "#";
+        }
+        print("  " + item.word + ": " + bar + " (" + item.count + ")");
+    }
+
+    print("");
+    print(GREEN + "Total unique words: " + keys.length + RESET);
+    print(GREEN + "Processing time: " + total_time + "s" + RESET);
+    print("");
+
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - Parallel mappers processing data chunks");
+    print("  - Channel-based emit for intermediate results");
+    print("  - Single reducer aggregating all results");
+    print("  - Data partitioning for work distribution");
+    print("  - Classic Map-Reduce pattern implementation");
+}
+
+main();

@@ -895,6 +895,56 @@ HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit);
     hml_g_call_depth--; \
 } while(0)
 
+// ========== ATOMIC OPERATIONS ==========
+
+// i32 atomic operations
+HmlValue hml_atomic_load_i32(HmlValue ptr);
+HmlValue hml_atomic_store_i32(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_add_i32(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_sub_i32(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_and_i32(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_or_i32(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_xor_i32(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_cas_i32(HmlValue ptr, HmlValue expected, HmlValue desired);
+HmlValue hml_atomic_exchange_i32(HmlValue ptr, HmlValue value);
+
+// i64 atomic operations
+HmlValue hml_atomic_load_i64(HmlValue ptr);
+HmlValue hml_atomic_store_i64(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_add_i64(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_sub_i64(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_and_i64(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_or_i64(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_xor_i64(HmlValue ptr, HmlValue value);
+HmlValue hml_atomic_cas_i64(HmlValue ptr, HmlValue expected, HmlValue desired);
+HmlValue hml_atomic_exchange_i64(HmlValue ptr, HmlValue value);
+
+// Memory fence
+void hml_atomic_fence(void);
+
+// Atomic builtin wrappers (for first-class function references)
+HmlValue hml_builtin_atomic_load_i32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_atomic_store_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_add_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_sub_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_and_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_or_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_xor_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_cas_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue expected, HmlValue desired);
+HmlValue hml_builtin_atomic_exchange_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+
+HmlValue hml_builtin_atomic_load_i64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_atomic_store_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_add_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_sub_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_and_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_or_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_xor_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_atomic_cas_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue expected, HmlValue desired);
+HmlValue hml_builtin_atomic_exchange_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+
+HmlValue hml_builtin_atomic_fence(HmlClosureEnv *env);
+
 // ========== UTILITY MACROS ==========
 
 // Create a string literal value (compile-time optimization)

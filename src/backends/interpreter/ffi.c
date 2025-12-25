@@ -630,10 +630,8 @@ ffi_type* hemlock_type_to_ffi_type(Type *type) {
 
 // ========== VALUE CONVERSION ==========
 
-// Global context for struct conversion (set before FFI call)
-static ExecutionContext *g_ffi_ctx = NULL;
-
-void* hemlock_to_c_value(Value val, Type *type) {
+// Thread-safe: context is now passed directly instead of using a global
+void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
     size_t size = 0;
     ffi_type *ffi_t = hemlock_type_to_ffi_type(type);
 
@@ -642,7 +640,7 @@ void* hemlock_to_c_value(Value val, Type *type) {
         FFIStructType *st = ffi_lookup_struct(type->type_name);
         if (st) {
             // Convert object to struct, return the struct memory directly
-            return ffi_object_to_struct(val, st, g_ffi_ctx);
+            return ffi_object_to_struct(val, st, ctx);
         }
         fprintf(stderr, "Error: Struct type '%s' not registered for FFI\n", type->type_name);
         exit(1);
@@ -846,9 +844,6 @@ void ffi_free_function(FFIFunction *func) {
 // ========== FUNCTION INVOCATION ==========
 
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {
-    // Set global context for struct conversion
-    g_ffi_ctx = ctx;
-
     // Lazy symbol resolution: resolve on first call
     if (func->func_ptr == NULL) {
         dlerror();  // Clear any existing error
@@ -880,7 +875,7 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
     void **arg_storage = malloc(sizeof(void*) * num_args);
 
     for (int i = 0; i < num_args; i++) {
-        arg_storage[i] = hemlock_to_c_value(args[i], func->hemlock_params[i]);
+        arg_storage[i] = hemlock_to_c_value(args[i], func->hemlock_params[i], ctx);
         if (ctx->exception_state.is_throwing) {
             // Struct conversion failed
             for (int j = 0; j < i; j++) {

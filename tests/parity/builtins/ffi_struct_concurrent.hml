@@ -1,0 +1,57 @@
+// Test concurrent FFI struct calls
+// This tests the thread-safety fix for struct conversion
+
+define Point {
+    x: f64,
+    y: f64,
+}
+
+import "stdlib/c/libffi_struct_test.so";
+
+extern fn make_point(x: f64, y: f64): Point;
+extern fn add_points(a: Point, b: Point): Point;
+extern fn point_length(p: Point): f64;
+
+// Async function that creates and manipulates structs
+async fn compute_point(id: i32, x: f64, y: f64): f64 {
+    // Create point via FFI
+    let p = make_point(x, y);
+
+    // Create another point and add them
+    let p2: Point = { x: 1.0, y: 1.0 };
+    let sum = add_points(p, p2);
+
+    // Compute length
+    let len = point_length(sum);
+
+    return len;
+}
+
+// Spawn multiple concurrent FFI struct operations
+let t1 = spawn(compute_point, 1, 3.0, 4.0);
+let t2 = spawn(compute_point, 2, 5.0, 12.0);
+let t3 = spawn(compute_point, 3, 8.0, 15.0);
+let t4 = spawn(compute_point, 4, 7.0, 24.0);
+
+// Wait for all results
+let r1 = await t1;
+let r2 = await t2;
+let r3 = await t3;
+let r4 = await t4;
+
+// Results should be the squared lengths of (x+1, y+1) for each point
+// (3+1)^2 + (4+1)^2 = 16 + 25 = 41
+// (5+1)^2 + (12+1)^2 = 36 + 169 = 205
+// (8+1)^2 + (15+1)^2 = 81 + 256 = 337
+// (7+1)^2 + (24+1)^2 = 64 + 625 = 689
+print("Result 1: " + r1);
+print("Result 2: " + r2);
+print("Result 3: " + r3);
+print("Result 4: " + r4);
+
+// Verify all operations completed correctly
+if (r1 == 41 && r2 == 205 && r3 == 337 && r4 == 689) {
+    print("All concurrent FFI struct operations succeeded");
+} else {
+    print("ERROR: Concurrent FFI struct operations produced incorrect results");
+}

@@ -258,6 +258,45 @@ Types: `FFI_INT`, `FFI_DOUBLE`, `FFI_POINTER`, `FFI_STRING`, `FFI_VOID`, etc.
 
 ---
 
+## Atomic Operations
+
+Lock-free concurrent programming with atomic operations:
+
+```hemlock
+// Allocate memory for atomic i32
+let p = alloc(4);
+ptr_write_i32(p, 0);
+
+// Atomic load/store
+let val = atomic_load_i32(p);        // Read atomically
+atomic_store_i32(p, 42);             // Write atomically
+
+// Fetch-and-modify operations (return OLD value)
+let old = atomic_add_i32(p, 10);     // Add, return old
+old = atomic_sub_i32(p, 5);          // Subtract, return old
+old = atomic_and_i32(p, 0xFF);       // Bitwise AND
+old = atomic_or_i32(p, 0x10);        // Bitwise OR
+old = atomic_xor_i32(p, 0x0F);       // Bitwise XOR
+
+// Compare-and-swap (CAS)
+let success = atomic_cas_i32(p, 42, 100);  // If *p == 42, set to 100
+// Returns true if swap succeeded, false otherwise
+
+// Atomic exchange
+old = atomic_exchange_i32(p, 999);   // Swap, return old
+
+free(p);
+
+// i64 variants available (atomic_load_i64, atomic_add_i64, etc.)
+
+// Memory fence (full barrier)
+atomic_fence();
+```
+
+All operations use sequential consistency (`memory_order_seq_cst`).
+
+---
+
 ## Project Structure
 
 ```
