@@ -1,0 +1,157 @@
+// Barrier Synchronization - Coordinated parallel phases
+// Demonstrates: barrier pattern, synchronized phases, channel-based coordination
+
+import { rand } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
+import { RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE, RESET, BOLD } from "@stdlib/terminal";
+
+// Get random float in [0, max)
+fn randf(max: f64): f64 {
+    return rand() * max;
+}
+
+// Barrier implementation using channels
+fn create_barrier(n: i32) {
+    let arrive_channel = channel(n);
+    let release_channels = [];
+
+    for (let i = 0; i < n; i = i + 1) {
+        release_channels.push(channel(1));
+    }
+
+    // Coordinator task
+    async fn coordinator(arrive_ch, release_chs, num_workers: i32) {
+        while (true) {
+            // Wait for all workers to arrive
+            let arrivals = 0;
+            while (arrivals < num_workers) {
+                let msg = arrive_ch.recv();
+                if (msg == null) {
+                    // Shutdown signal
+                    return;
+                }
+                arrivals = arrivals + 1;
+            }
+
+            // All arrived - release everyone
+            for (let i = 0; i < num_workers; i = i + 1) {
+                release_chs[i].send(true);
+            }
+        }
+    }
+
+    let coord_task = spawn(coordinator, arrive_channel, release_channels, n);
+
+    return {
+        arrive: arrive_channel,
+        release: release_channels,
+        coord_task: coord_task,
+        n: n
+    };
+}
+
+// Worker that participates in multiple synchronized phases
+async fn worker(id: i32, barrier, num_phases: i32, results_channel) {
+    let colors = [RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE];
+    let color = colors[id % colors.length];
+
+    for (let phase = 1; phase <= num_phases; phase = phase + 1) {
+        // Phase work - simulate variable computation time
+        let work_time = 0.05 + randf(0.1);
+        print(color + "[Worker " + id + "] Phase " + phase + ": Working for " + work_time + "s..." + RESET);
+        sleep(work_time);
+
+        print(color + "[Worker " + id + "] Phase " + phase + ": Arrived at barrier" + RESET);
+
+        // Signal arrival at barrier
+        barrier.arrive.send(id);
+
+        // Wait for release
+        barrier.release[id].recv();
+
+        print(color + BOLD + "[Worker " + id + "] Phase " + phase + ": Barrier released!" + RESET);
+    }
+
+    results_channel.send({
+        worker_id: id,
+        phases_completed: num_phases
+    });
+}
+
+fn main() {
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    BARRIER SYNCHRONIZATION" + RESET);
+    print(MAGENTA + BOLD + "    Coordinated Parallel Phases" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    let num_workers = 4;
+    let num_phases = 3;
+
+    print(YELLOW + "Configuration:" + RESET);
+    print("  Workers: " + num_workers);
+    print("  Phases: " + num_phases);
+    print("");
+    print(CYAN + "Each worker does independent work, then waits at the barrier." + RESET);
+    print(CYAN + "All workers must arrive before any can proceed to the next phase." + RESET);
+    print("");
+
+    // Create barrier
+    let barrier = create_barrier(num_workers);
+    let results_channel = channel(num_workers);
+
+    print(BOLD + "=== Starting Synchronized Computation ===" + RESET);
+    print("");
+
+    // Start workers
+    let tasks = [];
+    for (let i = 0; i < num_workers; i = i + 1) {
+        let task = spawn(worker, i, barrier, num_phases, results_channel);
+        tasks.push(task);
+    }
+
+    // Wait for all workers to complete
+    let results = [];
+    for (let i = 0; i < num_workers; i = i + 1) {
+        let result = results_channel.recv();
+        results.push(result);
+    }
+
+    // Shutdown barrier coordinator
+    barrier.arrive.send(null);
+    join(barrier.coord_task);
+
+    // Clean up worker tasks
+    for (let i = 0; i < tasks.length; i = i + 1) {
+        join(tasks[i]);
+    }
+
+    // Final summary
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    COMPUTATION COMPLETE" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    print(BOLD + "Worker completion status:" + RESET);
+    for (let i = 0; i < results.length; i = i + 1) {
+        let r = results[i];
+        print(GREEN + "  Worker " + r.worker_id + ": " + r.phases_completed + " phases completed" + RESET);
+    }
+
+    print("");
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - Barrier synchronization pattern");
+    print("  - Multiple synchronized phases");
+    print("  - Channel-based coordination");
+    print("  - Workers with variable completion times");
+    print("  - Graceful coordinator shutdown");
+    print("");
+    print(YELLOW + "Use cases:" + RESET);
+    print("  - Parallel simulations with discrete time steps");
+    print("  - Iterative algorithms (e.g., parallel gradient descent)");
+    print("  - Multi-phase computations requiring sync points");
+}
+
+main();

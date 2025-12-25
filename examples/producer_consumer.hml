@@ -1,0 +1,177 @@
+// Producer-Consumer Pattern - Classic concurrency example
+// Demonstrates: channels, multiple producers, multiple consumers, graceful shutdown
+
+import { rand } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
+import { RED, GREEN, YELLOW, CYAN, MAGENTA, RESET, BOLD } from "@stdlib/terminal";
+
+// Get random integer in [0, max)
+fn randint(max: i32): i32 {
+    let f = rand() * max;
+    let result: i32 = f;
+    return result;
+}
+
+// Producer - generates work items and sends to queue
+async fn producer(id: i32, work_queue, num_items: i32) {
+    print(GREEN + "[Producer " + id + "] Starting up..." + RESET);
+
+    for (let i = 0; i < num_items; i = i + 1) {
+        // Simulate variable production time
+        sleep(0.01 + rand() * 0.03);
+
+        // Create a work item
+        let item = {
+            producer_id: id,
+            item_id: i,
+            value: randint(100)
+        };
+
+        print(YELLOW + "[Producer " + id + "] Created item #" + i + " (value=" + item.value + ")" + RESET);
+        work_queue.send(item);
+    }
+
+    print(GREEN + "[Producer " + id + "] Finished producing " + num_items + " items" + RESET);
+}
+
+// Consumer - receives work items and processes them
+async fn consumer(id: i32, work_queue, result_queue, done_signal) {
+    print(CYAN + "[Consumer " + id + "] Ready for work..." + RESET);
+
+    let processed = 0;
+    let total_value = 0;
+
+    while (true) {
+        // Check for shutdown signal (non-blocking would be better, but we use done_signal)
+        let item = work_queue.recv();
+
+        // null signals shutdown
+        if (item == null) {
+            break;
+        }
+
+        // Process the item
+        print(MAGENTA + "[Consumer " + id + "] Processing item from Producer " + item.producer_id + " (value=" + item.value + ")" + RESET);
+
+        // Simulate processing time proportional to value
+        sleep(0.02);
+
+        processed = processed + 1;
+        total_value = total_value + item.value;
+    }
+
+    print(CYAN + "[Consumer " + id + "] Shutting down. Processed " + processed + " items, total value: " + total_value + RESET);
+
+    // Report statistics
+    result_queue.send({
+        consumer_id: id,
+        items_processed: processed,
+        total_value: total_value
+    });
+
+    done_signal.send(id);
+}
+
+fn main() {
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    PRODUCER-CONSUMER PATTERN" + RESET);
+    print(MAGENTA + BOLD + "    Multiple Producers, Multiple Consumers" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    let num_producers = 3;
+    let num_consumers = 2;
+    let items_per_producer = 5;
+
+    print(YELLOW + "Configuration:" + RESET);
+    print("  Producers: " + num_producers);
+    print("  Consumers: " + num_consumers);
+    print("  Items per producer: " + items_per_producer);
+    print("  Total items: " + (num_producers * items_per_producer));
+    print("");
+
+    // Create channels
+    let work_queue = channel(20);      // Buffered work queue
+    let result_queue = channel(num_consumers);
+    let done_signal = channel(num_consumers);
+
+    print(BOLD + "=== Starting Workers ===" + RESET);
+    print("");
+
+    // Start consumers first (they'll wait for work)
+    let consumer_tasks = [];
+    for (let i = 0; i < num_consumers; i = i + 1) {
+        let task = spawn(consumer, i, work_queue, result_queue, done_signal);
+        consumer_tasks.push(task);
+    }
+
+    // Start producers
+    let producer_tasks = [];
+    for (let i = 0; i < num_producers; i = i + 1) {
+        let task = spawn(producer, i, work_queue, items_per_producer);
+        producer_tasks.push(task);
+    }
+
+    // Wait for all producers to finish
+    for (let i = 0; i < producer_tasks.length; i = i + 1) {
+        join(producer_tasks[i]);
+    }
+
+    print("");
+    print(YELLOW + "All producers finished. Sending shutdown signals..." + RESET);
+
+    // Send shutdown signals to consumers
+    for (let i = 0; i < num_consumers; i = i + 1) {
+        work_queue.send(null);
+    }
+
+    // Wait for consumers to finish
+    for (let i = 0; i < num_consumers; i = i + 1) {
+        done_signal.recv();
+    }
+
+    // Collect results
+    let total_processed = 0;
+    let grand_total = 0;
+    let results = [];
+
+    for (let i = 0; i < num_consumers; i = i + 1) {
+        let result = result_queue.recv();
+        results.push(result);
+        total_processed = total_processed + result.items_processed;
+        grand_total = grand_total + result.total_value;
+    }
+
+    // Clean up tasks
+    for (let i = 0; i < consumer_tasks.length; i = i + 1) {
+        join(consumer_tasks[i]);
+    }
+
+    // Final summary
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    FINAL STATISTICS" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    print(BOLD + "Per-consumer breakdown:" + RESET);
+    for (let i = 0; i < results.length; i = i + 1) {
+        let r = results[i];
+        print("  Consumer " + r.consumer_id + ": " + r.items_processed + " items, value sum: " + r.total_value);
+    }
+
+    print("");
+    print(GREEN + "Total items processed: " + total_processed + RESET);
+    print(GREEN + "Grand total value: " + grand_total + RESET);
+    print("");
+
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - Buffered channels as work queue");
+    print("  - Multiple producer threads");
+    print("  - Multiple consumer threads");
+    print("  - Graceful shutdown with sentinel values (null)");
+    print("  - Result aggregation from parallel workers");
+}
+
+main();

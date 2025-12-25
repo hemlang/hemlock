@@ -1,0 +1,249 @@
+// Pipeline Processing - Multi-stage parallel data flow
+// Demonstrates: pipeline stages, channels connecting stages, concurrent processing
+
+import { rand } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
+import { RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE, RESET, BOLD } from "@stdlib/terminal";
+
+// Simulate variable processing time
+fn process_time(): f64 {
+    return 0.02 + rand() * 0.03;
+}
+
+// Stage 1: Data Ingestion - reads raw data and sends to parsing
+async fn stage_ingest(raw_data: array, out_channel) {
+    print(CYAN + BOLD + "[INGEST] Stage started" + RESET);
+
+    for (let i = 0; i < raw_data.length; i = i + 1) {
+        sleep(process_time());
+
+        let item = {
+            id: i,
+            raw: raw_data[i],
+            ingested_at: i * 10  // Simulated timestamp
+        };
+
+        print(CYAN + "[INGEST] Sending item #" + i + ": '" + raw_data[i] + "'" + RESET);
+        out_channel.send(item);
+    }
+
+    // Signal end of stream
+    out_channel.send(null);
+    print(CYAN + BOLD + "[INGEST] Stage complete - " + raw_data.length + " items sent" + RESET);
+}
+
+// Stage 2: Parsing - transforms raw data into structured format
+async fn stage_parse(in_channel, out_channel) {
+    print(YELLOW + BOLD + "[PARSE] Stage started" + RESET);
+
+    let count = 0;
+
+    while (true) {
+        let item = in_channel.recv();
+        if (item == null) {
+            break;
+        }
+
+        sleep(process_time());
+
+        // Parse the raw string into structured data
+        let words = item.raw.split(" ");
+        let parsed = {
+            id: item.id,
+            words: words,
+            word_count: words.length,
+            char_count: item.raw.length,
+            ingested_at: item.ingested_at
+        };
+
+        print(YELLOW + "[PARSE] Parsed item #" + item.id + ": " + words.length + " words, " + item.raw.length + " chars" + RESET);
+        out_channel.send(parsed);
+        count = count + 1;
+    }
+
+    out_channel.send(null);
+    print(YELLOW + BOLD + "[PARSE] Stage complete - " + count + " items parsed" + RESET);
+}
+
+// Stage 3: Enrichment - adds computed fields
+async fn stage_enrich(in_channel, out_channel) {
+    print(GREEN + BOLD + "[ENRICH] Stage started" + RESET);
+
+    let count = 0;
+
+    while (true) {
+        let item = in_channel.recv();
+        if (item == null) {
+            break;
+        }
+
+        sleep(process_time());
+
+        // Compute average word length
+        let total_word_len = 0;
+        for (let i = 0; i < item.words.length; i = i + 1) {
+            total_word_len = total_word_len + item.words[i].length;
+        }
+        let avg_word_len = 0;
+        if (item.word_count > 0) {
+            avg_word_len = total_word_len / item.word_count;
+        }
+
+        // Determine complexity
+        let complexity = "simple";
+        if (item.word_count > 5) {
+            complexity = "medium";
+        }
+        if (item.word_count > 10) {
+            complexity = "complex";
+        }
+
+        let enriched = {
+            id: item.id,
+            words: item.words,
+            word_count: item.word_count,
+            char_count: item.char_count,
+            avg_word_length: avg_word_len,
+            complexity: complexity,
+            ingested_at: item.ingested_at
+        };
+
+        print(GREEN + "[ENRICH] Enriched item #" + item.id + ": " + complexity + ", avg word len: " + avg_word_len + RESET);
+        out_channel.send(enriched);
+        count = count + 1;
+    }
+
+    out_channel.send(null);
+    print(GREEN + BOLD + "[ENRICH] Stage complete - " + count + " items enriched" + RESET);
+}
+
+// Stage 4: Output - collects final results
+async fn stage_output(in_channel, results_channel) {
+    print(MAGENTA + BOLD + "[OUTPUT] Stage started" + RESET);
+
+    let results = [];
+
+    while (true) {
+        let item = in_channel.recv();
+        if (item == null) {
+            break;
+        }
+
+        sleep(process_time());
+
+        print(MAGENTA + "[OUTPUT] Received final item #" + item.id + RESET);
+        results.push(item);
+    }
+
+    print(MAGENTA + BOLD + "[OUTPUT] Stage complete - " + results.length + " items collected" + RESET);
+    results_channel.send(results);
+}
+
+fn main() {
+    print("");
+    print(BLUE + BOLD + "============================================" + RESET);
+    print(BLUE + BOLD + "    PIPELINE PROCESSING" + RESET);
+    print(BLUE + BOLD + "    Multi-Stage Parallel Data Flow" + RESET);
+    print(BLUE + BOLD + "============================================" + RESET);
+    print("");
+
+    // Sample data to process
+    let raw_data = [
+        "Hello world",
+        "The quick brown fox jumps over the lazy dog",
+        "Hemlock is a systems scripting language",
+        "Async await makes concurrency easy",
+        "Channels connect pipeline stages together",
+        "This is a longer sentence with more words to process through the pipeline",
+        "Short one",
+        "Parallel processing improves throughput significantly"
+    ];
+
+    print(YELLOW + "Pipeline stages:" + RESET);
+    print("  1. INGEST  - Read raw data, add metadata");
+    print("  2. PARSE   - Split into words, count characters");
+    print("  3. ENRICH  - Compute averages, determine complexity");
+    print("  4. OUTPUT  - Collect final results");
+    print("");
+    print(CYAN + "Processing " + raw_data.length + " items through 4 concurrent stages..." + RESET);
+    print("");
+
+    // Create channels connecting stages
+    let ch_ingest_parse = channel(10);
+    let ch_parse_enrich = channel(10);
+    let ch_enrich_output = channel(10);
+    let results_channel = channel(1);
+
+    print(BOLD + "=== Starting Pipeline ===" + RESET);
+    print("");
+
+    // Start all stages concurrently (in reverse order so they're ready to receive)
+    let task_output = spawn(stage_output, ch_enrich_output, results_channel);
+    let task_enrich = spawn(stage_enrich, ch_parse_enrich, ch_enrich_output);
+    let task_parse = spawn(stage_parse, ch_ingest_parse, ch_parse_enrich);
+    let task_ingest = spawn(stage_ingest, raw_data, ch_ingest_parse);
+
+    // Wait for results
+    let results = results_channel.recv();
+
+    // Wait for all stages to complete
+    join(task_ingest);
+    join(task_parse);
+    join(task_enrich);
+    join(task_output);
+
+    // Display results
+    print("");
+    print(BLUE + BOLD + "============================================" + RESET);
+    print(BLUE + BOLD + "    PIPELINE RESULTS" + RESET);
+    print(BLUE + BOLD + "============================================" + RESET);
+    print("");
+
+    print(BOLD + "Processed items:" + RESET);
+    for (let i = 0; i < results.length; i = i + 1) {
+        let item = results[i];
+        print("");
+        print("  Item #" + item.id + ":");
+        print("    Words: " + item.word_count);
+        print("    Characters: " + item.char_count);
+        print("    Avg word length: " + item.avg_word_length);
+        print("    Complexity: " + item.complexity);
+    }
+
+    // Statistics
+    print("");
+    let total_words = 0;
+    let total_chars = 0;
+    let complexity_counts = { simple: 0, medium: 0, complex: 0 };
+
+    for (let i = 0; i < results.length; i = i + 1) {
+        total_words = total_words + results[i].word_count;
+        total_chars = total_chars + results[i].char_count;
+        let c = results[i].complexity;
+        complexity_counts[c] = complexity_counts[c] + 1;
+    }
+
+    print(GREEN + BOLD + "Summary Statistics:" + RESET);
+    print("  Total items: " + results.length);
+    print("  Total words: " + total_words);
+    print("  Total characters: " + total_chars);
+    print("  Complexity distribution:");
+    print("    Simple: " + complexity_counts.simple);
+    print("    Medium: " + complexity_counts.medium);
+    print("    Complex: " + complexity_counts.complex);
+    print("");
+
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - Multi-stage concurrent pipeline");
+    print("  - Channels connecting adjacent stages");
+    print("  - Backpressure via buffered channels");
+    print("  - End-of-stream signaling with null");
+    print("  - True parallel processing (stages run concurrently)");
+    print("");
+    print(YELLOW + "Key insight:" + RESET);
+    print("  All stages run simultaneously! While item #1 is being");
+    print("  enriched, item #2 is being parsed, and item #3 is being");
+    print("  ingested. This maximizes throughput.");
+}
+
+main();

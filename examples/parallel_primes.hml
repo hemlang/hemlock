@@ -1,0 +1,124 @@
+// Parallel Prime Finder - CPU-bound parallel computation
+// Demonstrates: spawn, parallel work distribution, join for result collection
+
+import { now } from "@stdlib/time";
+import { GREEN, CYAN, YELLOW, MAGENTA, RESET, BOLD } from "@stdlib/terminal";
+
+// Check if a number is prime
+fn is_prime(n: i64): bool {
+    if (n < 2) { return false; }
+    if (n == 2) { return true; }
+    if (n % 2 == 0) { return false; }
+
+    let i: i64 = 3;
+    while (i * i <= n) {
+        if (n % i == 0) {
+            return false;
+        }
+        i = i + 2;
+    }
+    return true;
+}
+
+// Count primes in a range [start, end)
+async fn count_primes_in_range(start: i64, end: i64, worker_id: i32): i64 {
+    let count: i64 = 0;
+    let n = start;
+    while (n < end) {
+        if (is_prime(n)) {
+            count = count + 1;
+        }
+        n = n + 1;
+    }
+    print(CYAN + "  Worker " + worker_id + ": found " + count + " primes in [" + start + ", " + end + ")" + RESET);
+    return count;
+}
+
+// Sequential prime counting for comparison
+fn count_primes_sequential(limit: i64): i64 {
+    let count: i64 = 0;
+    let n: i64 = 2;
+    while (n < limit) {
+        if (is_prime(n)) {
+            count = count + 1;
+        }
+        n = n + 1;
+    }
+    return count;
+}
+
+fn main() {
+    print("");
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    PARALLEL PRIME FINDER" + RESET);
+    print(MAGENTA + BOLD + "    CPU-Bound Parallel Computation" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    let limit: i64 = 100000;
+    let num_workers = 4;
+    let chunk_size: i64 = limit / num_workers;
+
+    print(YELLOW + "Finding primes up to " + limit + RESET);
+    print(YELLOW + "Using " + num_workers + " parallel workers" + RESET);
+    print("");
+
+    // Parallel computation
+    print(BOLD + "=== Parallel Computation ===" + RESET);
+    let parallel_start = now();
+
+    let tasks = [];
+    for (let i = 0; i < num_workers; i = i + 1) {
+        let start: i64 = i * chunk_size;
+        let end: i64 = start + chunk_size;
+        if (i == 0) { start = 2; }  // Skip 0 and 1
+        if (i == num_workers - 1) { end = limit; }  // Cover remainder
+
+        let task = spawn(count_primes_in_range, start, end, i);
+        tasks.push(task);
+    }
+
+    // Collect results
+    let total_parallel: i64 = 0;
+    for (let i = 0; i < tasks.length; i = i + 1) {
+        let count = join(tasks[i]);
+        total_parallel = total_parallel + count;
+    }
+
+    let parallel_end = now();
+    let parallel_time = parallel_end - parallel_start;
+
+    print("");
+    print(GREEN + "Parallel: " + total_parallel + " primes found in " + parallel_time + "s" + RESET);
+    print("");
+
+    // Sequential computation for comparison
+    print(BOLD + "=== Sequential Computation ===" + RESET);
+    let seq_start = now();
+    let total_seq = count_primes_sequential(limit);
+    let seq_end = now();
+    let seq_time = seq_end - seq_start;
+
+    print(YELLOW + "Sequential: " + total_seq + " primes found in " + seq_time + "s" + RESET);
+    print("");
+
+    // Results
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print(MAGENTA + BOLD + "    RESULTS" + RESET);
+    print(MAGENTA + BOLD + "============================================" + RESET);
+    print("");
+
+    if (seq_time > 0) {
+        let speedup = seq_time / parallel_time;
+        print(GREEN + "Speedup: " + speedup + "x faster with " + num_workers + " workers" + RESET);
+    }
+
+    print("");
+    print(CYAN + "Features demonstrated:" + RESET);
+    print("  - spawn() for parallel task distribution");
+    print("  - Work partitioning across multiple threads");
+    print("  - join() to collect results from workers");
+    print("  - Real CPU-bound parallelism with speedup");
+}
+
+main();
