@@ -1,0 +1,125 @@
+// Test: FFI pointer helper functions for all types
+// Tests ptr_deref_*, ptr_write_*, ffi_sizeof, buffer_ptr, ptr_to_buffer, ptr_null
+
+// Test ffi_sizeof for all types
+print("=== ffi_sizeof tests ===");
+print(ffi_sizeof("i8"));     // 1
+print(ffi_sizeof("i16"));    // 2
+print(ffi_sizeof("i32"));    // 4
+print(ffi_sizeof("i64"));    // 8
+print(ffi_sizeof("u8"));     // 1
+print(ffi_sizeof("u16"));    // 2
+print(ffi_sizeof("u32"));    // 4
+print(ffi_sizeof("u64"));    // 8
+print(ffi_sizeof("f32"));    // 4
+print(ffi_sizeof("f64"));    // 8
+print(ffi_sizeof("ptr"));    // 8 (on 64-bit)
+print(ffi_sizeof("size_t")); // 8 (on 64-bit)
+print(ffi_sizeof("usize"));  // 8 (on 64-bit)
+print(ffi_sizeof("isize"));  // 8 (on 64-bit)
+
+// Test ptr_null
+print("=== ptr_null tests ===");
+let np = ptr_null();
+print(typeof(np));  // ptr
+
+// Test integer types: allocate, write, read
+print("=== integer type tests ===");
+
+// i8
+let p = alloc(16);
+ptr_write_i8(p, 42);
+print(ptr_deref_i8(p));  // 42
+ptr_write_i8(p, -100);
+print(ptr_deref_i8(p));  // -100
+
+// i16
+ptr_write_i16(p, 1000);
+print(ptr_deref_i16(p));  // 1000
+ptr_write_i16(p, -2000);
+print(ptr_deref_i16(p));  // -2000
+
+// i32
+ptr_write_i32(p, 100000);
+print(ptr_deref_i32(p));  // 100000
+ptr_write_i32(p, -500000);
+print(ptr_deref_i32(p));  // -500000
+
+// i64
+ptr_write_i64(p, 9000000000);
+print(ptr_deref_i64(p));  // 9000000000
+ptr_write_i64(p, -9000000000);
+print(ptr_deref_i64(p));  // -9000000000
+
+// u8
+ptr_write_u8(p, 200);
+print(ptr_deref_u8(p));  // 200
+
+// u16
+ptr_write_u16(p, 50000);
+print(ptr_deref_u16(p));  // 50000
+
+// u32
+ptr_write_u32(p, 3000000000);
+print(ptr_deref_u32(p));  // 3000000000
+
+// u64
+ptr_write_u64(p, 10000000000);
+print(ptr_deref_u64(p));  // 10000000000
+
+// Test float types
+print("=== float type tests ===");
+
+// f32
+ptr_write_f32(p, 3.14);
+let f32_val = ptr_deref_f32(p);
+// f32 has limited precision, just check it's close
+print(f32_val > 3.1 && f32_val < 3.2);  // true
+
+// f64
+ptr_write_f64(p, 2.718281828);
+print(ptr_deref_f64(p));  // 2.718281828
+
+// Test pointer-to-pointer
+print("=== ptr_deref_ptr tests ===");
+let inner_ptr = alloc(8);
+ptr_write_i32(inner_ptr, 999);
+ptr_write_ptr(p, inner_ptr);
+let retrieved_ptr = ptr_deref_ptr(p);
+print(ptr_deref_i32(retrieved_ptr));  // 999
+
+// Write null pointer
+ptr_write_ptr(p, null);
+let null_retrieved = ptr_deref_ptr(p);
+print(typeof(null_retrieved));  // ptr
+
+free(inner_ptr);
+free(p);
+
+// Test buffer_ptr and ptr_to_buffer
+print("=== buffer/ptr conversion tests ===");
+let buf = buffer(64);
+memset(buffer_ptr(buf), 0, 64);
+
+// Write some values to buffer via its raw pointer
+let bp = buffer_ptr(buf);
+ptr_write_i32(bp, 12345);
+ptr_write_i32(ptr_offset(bp, 1, 4), 67890);
+
+// Read them back
+print(ptr_deref_i32(bp));  // 12345
+print(ptr_deref_i32(ptr_offset(bp, 1, 4)));  // 67890
+
+// Test ptr_to_buffer - copy data from a pointer to a new buffer
+let src = alloc(8);
+ptr_write_i32(src, 111);
+ptr_write_i32(ptr_offset(src, 1, 4), 222);
+
+let copied_buf = ptr_to_buffer(src, 8);
+let cbp = buffer_ptr(copied_buf);
+print(ptr_deref_i32(cbp));  // 111
+print(ptr_deref_i32(ptr_offset(cbp, 1, 4)));  // 222
+
+free(src);
+
+print("=== tests complete ===");

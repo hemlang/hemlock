@@ -760,6 +760,254 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
+                // ========== ADDITIONAL POINTER HELPERS FOR ALL TYPES ==========
+
+                // ptr_deref_i8(ptr) -> i8
+                if (strcmp(fn_name, "ptr_deref_i8") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_i8(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_i16(ptr) -> i16
+                if (strcmp(fn_name, "ptr_deref_i16") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_i16(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_i64(ptr) -> i64
+                if (strcmp(fn_name, "ptr_deref_i64") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_i64(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_u8(ptr) -> u8
+                if (strcmp(fn_name, "ptr_deref_u8") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_u8(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_u16(ptr) -> u16
+                if (strcmp(fn_name, "ptr_deref_u16") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_u16(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_u32(ptr) -> u32
+                if (strcmp(fn_name, "ptr_deref_u32") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_u32(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_u64(ptr) -> u64
+                if (strcmp(fn_name, "ptr_deref_u64") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_u64(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_f32(ptr) -> f32
+                if (strcmp(fn_name, "ptr_deref_f32") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_f32(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_f64(ptr) -> f64
+                if (strcmp(fn_name, "ptr_deref_f64") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_f64(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_deref_ptr(ptr) -> ptr (pointer-to-pointer)
+                if (strcmp(fn_name, "ptr_deref_ptr") == 0 && expr->as.call.num_args == 1) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_deref_ptr(NULL, %s);", result, ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    free(ptr);
+                    break;
+                }
+
+                // ptr_write_i8(ptr, value)
+                if (strcmp(fn_name, "ptr_write_i8") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_i8(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_i16(ptr, value)
+                if (strcmp(fn_name, "ptr_write_i16") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_i16(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_i64(ptr, value)
+                if (strcmp(fn_name, "ptr_write_i64") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_i64(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_u8(ptr, value)
+                if (strcmp(fn_name, "ptr_write_u8") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_u8(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_u16(ptr, value)
+                if (strcmp(fn_name, "ptr_write_u16") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_u16(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_u32(ptr, value)
+                if (strcmp(fn_name, "ptr_write_u32") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_u32(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_u64(ptr, value)
+                if (strcmp(fn_name, "ptr_write_u64") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_u64(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_f32(ptr, value)
+                if (strcmp(fn_name, "ptr_write_f32") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_f32(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_f64(ptr, value)
+                if (strcmp(fn_name, "ptr_write_f64") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_f64(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ptr_write_ptr(ptr, value)
+                if (strcmp(fn_name, "ptr_write_ptr") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *value = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_write_ptr(NULL, %s, %s);", result, ptr, value);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", value);
+                    free(ptr);
+                    free(value);
+                    break;
+                }
+
+                // ffi_sizeof(type_name) -> i32
+                if (strcmp(fn_name, "ffi_sizeof") == 0 && expr->as.call.num_args == 1) {
+                    char *type_name = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ffi_sizeof(NULL, %s);", result, type_name);
+                    codegen_writeln(ctx, "hml_release(&%s);", type_name);
+                    free(type_name);
+                    break;
+                }
+
+                // ptr_to_buffer(ptr, size) -> buffer
+                if (strcmp(fn_name, "ptr_to_buffer") == 0 && expr->as.call.num_args == 2) {
+                    char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+                    char *size = codegen_expr(ctx, expr->as.call.args[1]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_to_buffer(NULL, %s, %s);", result, ptr, size);
+                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
+                    codegen_writeln(ctx, "hml_release(&%s);", size);
+                    free(ptr);
+                    free(size);
+                    break;
+                }
+
+                // buffer_ptr(buffer) -> ptr
+                if (strcmp(fn_name, "buffer_ptr") == 0 && expr->as.call.num_args == 1) {
+                    char *buf = codegen_expr(ctx, expr->as.call.args[0]);
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_buffer_ptr(NULL, %s);", result, buf);
+                    codegen_writeln(ctx, "hml_release(&%s);", buf);
+                    free(buf);
+                    break;
+                }
+
+                // ptr_null() -> ptr
+                if (strcmp(fn_name, "ptr_null") == 0 && expr->as.call.num_args == 0) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_null(NULL);", result);
+                    break;
+                }
+
                 // ========== MATH BUILTINS ==========
 
                 // sqrt(x)

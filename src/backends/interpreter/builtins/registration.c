@@ -228,6 +228,33 @@ static BuiltinInfo builtins[] = {
     {"ptr_deref_i32", builtin_ptr_deref_i32},
     {"ptr_write_i32", builtin_ptr_write_i32},
     {"ptr_offset", builtin_ptr_offset},
+    // Additional pointer deref functions for all types
+    {"ptr_deref_i8", builtin_ptr_deref_i8},
+    {"ptr_deref_i16", builtin_ptr_deref_i16},
+    {"ptr_deref_i64", builtin_ptr_deref_i64},
+    {"ptr_deref_u8", builtin_ptr_deref_u8},
+    {"ptr_deref_u16", builtin_ptr_deref_u16},
+    {"ptr_deref_u32", builtin_ptr_deref_u32},
+    {"ptr_deref_u64", builtin_ptr_deref_u64},
+    {"ptr_deref_f32", builtin_ptr_deref_f32},
+    {"ptr_deref_f64", builtin_ptr_deref_f64},
+    {"ptr_deref_ptr", builtin_ptr_deref_ptr},
+    // Additional pointer write functions for all types
+    {"ptr_write_i8", builtin_ptr_write_i8},
+    {"ptr_write_i16", builtin_ptr_write_i16},
+    {"ptr_write_i64", builtin_ptr_write_i64},
+    {"ptr_write_u8", builtin_ptr_write_u8},
+    {"ptr_write_u16", builtin_ptr_write_u16},
+    {"ptr_write_u32", builtin_ptr_write_u32},
+    {"ptr_write_u64", builtin_ptr_write_u64},
+    {"ptr_write_f32", builtin_ptr_write_f32},
+    {"ptr_write_f64", builtin_ptr_write_f64},
+    {"ptr_write_ptr", builtin_ptr_write_ptr},
+    // FFI utility functions
+    {"ffi_sizeof", builtin_ffi_sizeof},
+    {"ptr_to_buffer", builtin_ptr_to_buffer},
+    {"buffer_ptr", builtin_buffer_ptr},
+    {"ptr_null", builtin_ptr_null},
     {NULL, NULL}  // Sentinel
 };
 

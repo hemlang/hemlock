@@ -727,6 +727,36 @@ HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
 HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue element_size);
 HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr);
 
+// Additional pointer deref helpers for all types
+HmlValue hml_builtin_ptr_deref_i8(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_i16(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_i64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_u8(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_u16(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_u32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_u64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_f32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_f64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_deref_ptr(HmlClosureEnv *env, HmlValue ptr);
+
+// Additional pointer write helpers for all types
+HmlValue hml_builtin_ptr_write_i8(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_i16(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_u8(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_u16(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_u32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_u64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_f32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_f64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+HmlValue hml_builtin_ptr_write_ptr(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
+
+// FFI utility functions
+HmlValue hml_builtin_ffi_sizeof(HmlClosureEnv *env, HmlValue type_name);
+HmlValue hml_builtin_ptr_to_buffer(HmlClosureEnv *env, HmlValue ptr, HmlValue size);
+HmlValue hml_builtin_buffer_ptr(HmlClosureEnv *env, HmlValue buf);
+HmlValue hml_builtin_ptr_null(HmlClosureEnv *env);
+
 // ========== HTTP/WEBSOCKET FUNCTIONS ==========
 // These require libwebsockets at runtime
 

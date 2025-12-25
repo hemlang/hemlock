@@ -251,4 +251,34 @@ Value builtin_ptr_deref_i32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_i32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_offset(Value *args, int num_args, ExecutionContext *ctx);
 
+// Additional pointer deref builtins for all types (ffi_builtins.c)
+Value builtin_ptr_deref_i8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_i16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_u8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_u16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_u32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_u64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_f32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_f64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_deref_ptr(Value *args, int num_args, ExecutionContext *ctx);
+
+// Additional pointer write builtins for all types (ffi_builtins.c)
+Value builtin_ptr_write_i8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_i16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_u8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_u16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_u32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_u64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_f32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_f64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx);
+
+// FFI utility builtins (ffi_builtins.c)
+Value builtin_ffi_sizeof(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_null(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H
