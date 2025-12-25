@@ -1,0 +1,11 @@
+// Helper module exporting define types
+export define Person {
+    name: string,
+    age: i32,
+    active?: true
+}
+
+export define Point {
+    x: f64,
+    y: f64
+}

@@ -1,0 +1,13 @@
+// Test exported define types
+// Import the module to register the types (types are registered globally when module loads)
+import * from "./export_define_types.hml";
+
+// Create instances using the imported types
+let p: Person = { name: "Alice", age: 30 };
+print(p.name);
+print(p.age);
+print(p.active);
+
+let pt: Point = { x: 3.5, y: 4.5 };
+print(pt.x);
+print(pt.y);

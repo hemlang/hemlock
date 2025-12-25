@@ -781,6 +781,9 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     module->export_names[module->num_exports] = strdup(decl->as.extern_fn.function_name);
                     module->num_exports++;
                 }
+                // Note: STMT_DEFINE_OBJECT doesn't add to export_names since define types
+                // are registered globally when the module loads and don't have environment values.
+                // The type will be available to all code that imports this module.
             } else if (stmt->as.export_stmt.is_reexport) {
                 // Re-export: copy exports from another module
                 char *reexport_path = stmt->as.export_stmt.module_path;
