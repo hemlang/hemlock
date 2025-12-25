@@ -437,7 +437,7 @@ make parity
 
 ## Version
 
-**v1.3.0** - Current release with:
+**v1.3.1** - Current release with:
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
 - UTF-8 strings with 19 methods
 - Arrays with 18 methods including map/filter/reduce
@@ -445,15 +445,16 @@ make parity
 - Async/await with true pthread parallelism
 - 39 stdlib modules (+ assert, semver, toml, retry, iter, random, shell)
 - FFI for C interop with `export extern fn` for reusable library wrappers
+- FFI struct support in compiler (pass C structs by value)
 - defer, try/catch/finally/throw, panic
 - File I/O, signal handling, command execution
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- Compiler backend (C code generation)
+- Compiler backend (C code generation) with 100% interpreter parity
 - LSP server with go-to-definition and find-references
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 669 tests with 97 parity tests (100% pass rate)
+- 99 parity tests (100% pass rate)
 
 ---
 
