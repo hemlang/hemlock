@@ -482,4 +482,36 @@ static inline void hml_release_if_needed(HmlValue *val) {
     }
 }
 
+// Fast path: array[i32] = value (bounds checked, handles refcounting)
+static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue val) {
+    if (index >= 0 && index < arr->length) {
+        // Release old value if needed
+        HmlValue old = arr->elements[index];
+        if (hml_needs_refcount(old)) {
+            hml_release(&old);
+        }
+        // Retain new value if needed
+        if (hml_needs_refcount(val)) {
+            hml_retain(&val);
+        }
+        arr->elements[index] = val;
+        return;
+    }
+    // Bounds error
+    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+    hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
+}
+
+// Fast path: Increment i32 variable in-place
+// Returns the new value
+static inline HmlValue hml_i32_inc(HmlValue val) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 + 1 };
+}
+
+// Fast path: Decrement i32 variable in-place
+// Returns the new value
+static inline HmlValue hml_i32_dec(HmlValue val) {
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 - 1 };
+}
+
 #endif // HEMLOCK_VALUE_H

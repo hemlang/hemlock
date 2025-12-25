@@ -652,7 +652,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *obj = codegen_expr(ctx, expr->as.index_assign.object);
             char *idx = codegen_expr(ctx, expr->as.index_assign.index);
             char *value = codegen_expr(ctx, expr->as.index_assign.value);
-            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj);
+            // Fast path for array[i32] = value (most common case)
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY && %s.type == HML_VAL_I32) {", obj, idx);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
             codegen_indent_inc(ctx);
             codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", obj, idx, value);
             codegen_indent_dec(ctx);
@@ -676,9 +681,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
-            codegen_writeln(ctx, "hml_retain(&%s);", result);
-            codegen_writeln(ctx, "hml_release(&%s);", obj);
-            codegen_writeln(ctx, "hml_release(&%s);", idx);
+            codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
             free(obj);
             free(idx);
             free(value);
@@ -898,9 +903,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     safe_var = codegen_sanitize_ident(raw_var);
                     var = safe_var;
                 }
-                codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var);
+                // Fast path for i32, fallback to generic binary_op
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
             } else if (expr->as.prefix_inc.operand->type == EXPR_INDEX) {
                 // ++arr[i]
@@ -909,7 +915,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
@@ -925,13 +931,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", obj);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
                 free(obj); free(old_val); free(new_val);
             } else {
                 codegen_writeln(ctx, "hml_runtime_error(\"Invalid operand for ++\");");
@@ -958,9 +964,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     safe_var = codegen_sanitize_ident(raw_var);
                     var = safe_var;
                 }
-                codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var);
+                // Fast path for i32, fallback to generic binary_op
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
             } else if (expr->as.prefix_dec.operand->type == EXPR_INDEX) {
                 // --arr[i]
@@ -969,14 +976,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", idx);
-                codegen_writeln(ctx, "hml_release(&%s);", arr);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", arr);
                 free(arr); free(idx); free(old_val); free(new_val);
             } else if (expr->as.prefix_dec.operand->type == EXPR_GET_PROPERTY) {
                 // --obj.prop
@@ -985,13 +992,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", obj);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
                 free(obj); free(old_val); free(new_val);
             } else {
                 codegen_writeln(ctx, "hml_runtime_error(\"Invalid operand for --\");");
@@ -1020,8 +1027,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     var = safe_var;
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                // Fast path for i32, fallback to generic binary_op
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_inc.operand->type == EXPR_INDEX) {
                 // arr[i]++
@@ -1031,13 +1039,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", idx);
-                codegen_writeln(ctx, "hml_release(&%s);", arr);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", arr);
                 free(arr); free(idx); free(old_val); free(new_val);
             } else if (expr->as.postfix_inc.operand->type == EXPR_GET_PROPERTY) {
                 // obj.prop++
@@ -1047,12 +1055,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", obj);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
                 free(obj); free(old_val); free(new_val);
             } else {
                 codegen_writeln(ctx, "hml_runtime_error(\"Invalid operand for ++\");");
@@ -1080,8 +1088,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     var = safe_var;
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "%s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                // Fast path for i32, fallback to generic binary_op
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_dec.operand->type == EXPR_INDEX) {
                 // arr[i]--
@@ -1091,13 +1100,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", idx);
-                codegen_writeln(ctx, "hml_release(&%s);", arr);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", arr);
                 free(arr); free(idx); free(old_val); free(new_val);
             } else if (expr->as.postfix_dec.operand->type == EXPR_GET_PROPERTY) {
                 // obj.prop--
@@ -1107,12 +1116,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
-                codegen_writeln(ctx, "hml_retain(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val);
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", old_val);
-                codegen_writeln(ctx, "hml_release(&%s);", new_val);
-                codegen_writeln(ctx, "hml_release(&%s);", obj);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
                 free(obj); free(old_val); free(new_val);
             } else {
                 codegen_writeln(ctx, "hml_runtime_error(\"Invalid operand for --\");");
