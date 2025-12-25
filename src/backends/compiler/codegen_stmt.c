@@ -615,6 +615,113 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             break;
         }
 
+        case STMT_MATCH: {
+            // Generate pattern matching using if-else chain
+            char *match_val = codegen_expr(ctx, stmt->as.match_stmt.expr);
+            int num_arms = stmt->as.match_stmt.num_arms;
+
+            // Generate end label for match statement
+            char *end_label = codegen_label(ctx);
+
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+
+            // Generate arm labels
+            char **arm_labels = malloc(num_arms * sizeof(char*));
+            for (int i = 0; i < num_arms; i++) {
+                arm_labels[i] = codegen_label(ctx);
+            }
+
+            // Generate pattern matching logic for each arm
+            for (int i = 0; i < num_arms; i++) {
+                Pattern *pattern = stmt->as.match_stmt.patterns[i];
+                Expr *guard = stmt->as.match_stmt.guards[i];
+
+                // Generate pattern match check
+                codegen_writeln(ctx, "// Match arm %d", i);
+                codegen_writeln(ctx, "{");
+                codegen_indent_inc(ctx);
+
+                // Track if pattern matched
+                char *matched_var = codegen_temp(ctx);
+                codegen_writeln(ctx, "int %s = 0;", matched_var);
+
+                // Generate pattern matching code
+                codegen_pattern_match(ctx, pattern, match_val, matched_var);
+
+                // Check if matched and guard passes
+                if (guard) {
+                    codegen_writeln(ctx, "if (%s) {", matched_var);
+                    codegen_indent_inc(ctx);
+                    // Generate pattern bindings for guard evaluation
+                    codegen_pattern_bindings(ctx, pattern, match_val);
+                    char *guard_val = codegen_expr(ctx, guard);
+                    codegen_writeln(ctx, "if (hml_to_bool(%s)) {", guard_val);
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_release(&%s);", guard_val);
+                    // Release pattern bindings before jumping
+                    codegen_pattern_release_bindings(ctx, pattern);
+                    codegen_writeln(ctx, "goto %s;", arm_labels[i]);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                    codegen_writeln(ctx, "hml_release(&%s);", guard_val);
+                    // Release pattern bindings if guard failed
+                    codegen_pattern_release_bindings(ctx, pattern);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                    free(guard_val);
+                } else {
+                    codegen_writeln(ctx, "if (%s) goto %s;", matched_var, arm_labels[i]);
+                }
+
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                free(matched_var);
+            }
+
+            // If no arm matched, jump to end
+            codegen_writeln(ctx, "goto %s;", end_label);
+
+            // Generate arm bodies with labels
+            for (int i = 0; i < num_arms; i++) {
+                codegen_writeln(ctx, "%s:;", arm_labels[i]);
+                codegen_writeln(ctx, "{");
+                codegen_indent_inc(ctx);
+
+                // Re-generate pattern bindings for the arm body scope
+                Pattern *pattern = stmt->as.match_stmt.patterns[i];
+                codegen_pattern_bindings(ctx, pattern, match_val);
+
+                // Generate arm body
+                codegen_stmt(ctx, stmt->as.match_stmt.bodies[i]);
+
+                // Release any pattern-bound variables
+                codegen_pattern_release_bindings(ctx, pattern);
+
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "goto %s;", end_label);
+            }
+
+            // End label
+            codegen_writeln(ctx, "%s:;", end_label);
+
+            // Release match value
+            codegen_writeln(ctx, "hml_release(&%s);", match_val);
+
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            // Free labels
+            for (int i = 0; i < num_arms; i++) {
+                free(arm_labels[i]);
+            }
+            free(arm_labels);
+            free(end_label);
+            free(match_val);
+            break;
+        }
+
         case STMT_DEFER: {
             ctx->has_defers = 1;  // Mark that this function has defers
             // Always use runtime defer stack - this correctly handles:

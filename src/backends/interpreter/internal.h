@@ -344,6 +344,12 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names, Type **
 FFIStructType* ffi_lookup_struct(const char *name);
 void ffi_struct_cleanup(void);
 
+// ========== PATTERN MATCHING (pattern_match.c) ==========
+
+// Match a pattern against a value, binding variables on success
+// Returns 1 if matched, 0 if not matched
+int pattern_match(Pattern *pattern, Value value, Environment *env, ExecutionContext *ctx);
+
 // ========== RUNTIME (runtime.c) ==========
 
 Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx);

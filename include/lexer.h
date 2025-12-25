@@ -39,6 +39,7 @@ typedef enum {
     TOK_SWITCH,
     TOK_CASE,
     TOK_DEFAULT,
+    TOK_MATCH,
     TOK_ASYNC,
     TOK_AWAIT,
     TOK_IMPORT,
@@ -111,7 +112,9 @@ typedef enum {
     TOK_LBRACE,
     TOK_RBRACE,
     TOK_DOT,
+    TOK_DOT_DOT,             // ..
     TOK_DOT_DOT_DOT,         // ...
+    TOK_FAT_ARROW,           // =>
     TOK_LBRACKET,
     TOK_RBRACKET,
     TOK_QUESTION,
