@@ -254,7 +254,7 @@ static BuiltinInfo builtins[] = {
     {"ffi_sizeof", builtin_ffi_sizeof},
     {"ptr_to_buffer", builtin_ptr_to_buffer},
     {"buffer_ptr", builtin_buffer_ptr},
-    {"null_ptr", builtin_null_ptr},
+    {"ptr_null", builtin_ptr_null},
     {NULL, NULL}  // Sentinel
 };
 

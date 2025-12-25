@@ -662,11 +662,11 @@ Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx) {
     return val_ptr(buf->data);
 }
 
-// null_ptr() - Get a null pointer constant
-Value builtin_null_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+// ptr_null() - Get a null pointer constant
+Value builtin_ptr_null(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        runtime_error(ctx, "null_ptr() expects no arguments");
+        runtime_error(ctx, "ptr_null() expects no arguments");
         return val_null();
     }
     return val_ptr(NULL);

@@ -533,7 +533,7 @@ Hemlock provides comprehensive helper functions for working with raw pointers. T
 | `ptr_write_ptr(ptr, value)` | Write pointer to pointer location |
 | `ptr_offset(ptr, index, size)` | Calculate offset: `ptr + index * size` |
 | `ptr_read_i32(ptr)` | Read i32 through pointer-to-pointer (for qsort callbacks) |
-| `null_ptr()` | Get a null pointer constant |
+| `ptr_null()` | Get a null pointer constant |
 
 #### Buffer Conversion Helpers
 

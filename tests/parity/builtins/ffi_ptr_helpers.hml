@@ -1,5 +1,5 @@
 // Test: FFI pointer helper functions for all types
-// Tests ptr_deref_*, ptr_write_*, ffi_sizeof, buffer_ptr, ptr_to_buffer, null_ptr
+// Tests ptr_deref_*, ptr_write_*, ffi_sizeof, buffer_ptr, ptr_to_buffer, ptr_null
 
 // Test ffi_sizeof for all types
 print("=== ffi_sizeof tests ===");
@@ -18,9 +18,9 @@ print(ffi_sizeof("size_t")); // 8 (on 64-bit)
 print(ffi_sizeof("usize"));  // 8 (on 64-bit)
 print(ffi_sizeof("isize"));  // 8 (on 64-bit)
 
-// Test null_ptr
-print("=== null_ptr tests ===");
-let np = null_ptr();
+// Test ptr_null
+print("=== ptr_null tests ===");
+let np = ptr_null();
 print(typeof(np));  // ptr
 
 // Test integer types: allocate, write, read

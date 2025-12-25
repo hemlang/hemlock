@@ -8736,8 +8736,8 @@ HmlValue hml_builtin_buffer_ptr(HmlClosureEnv *env, HmlValue buf) {
     return hml_val_ptr(buf.as.as_buffer->data);
 }
 
-// Builtin: null_ptr() -> ptr
-HmlValue hml_builtin_null_ptr(HmlClosureEnv *env) {
+// Builtin: ptr_null() -> ptr
+HmlValue hml_builtin_ptr_null(HmlClosureEnv *env) {
     (void)env;
     return hml_val_ptr(NULL);
 }

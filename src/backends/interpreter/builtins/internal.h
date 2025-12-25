@@ -279,6 +279,6 @@ Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ffi_sizeof(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx);
-Value builtin_null_ptr(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_null(Value *args, int num_args, ExecutionContext *ctx);
 
 #endif // BUILTINS_INTERNAL_H

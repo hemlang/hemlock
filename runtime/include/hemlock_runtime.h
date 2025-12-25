@@ -755,7 +755,7 @@ HmlValue hml_builtin_ptr_write_ptr(HmlClosureEnv *env, HmlValue ptr, HmlValue va
 HmlValue hml_builtin_ffi_sizeof(HmlClosureEnv *env, HmlValue type_name);
 HmlValue hml_builtin_ptr_to_buffer(HmlClosureEnv *env, HmlValue ptr, HmlValue size);
 HmlValue hml_builtin_buffer_ptr(HmlClosureEnv *env, HmlValue buf);
-HmlValue hml_builtin_null_ptr(HmlClosureEnv *env);
+HmlValue hml_builtin_ptr_null(HmlClosureEnv *env);
 
 // ========== HTTP/WEBSOCKET FUNCTIONS ==========
 // These require libwebsockets at runtime

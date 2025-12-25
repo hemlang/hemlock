@@ -1002,9 +1002,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     break;
                 }
 
-                // null_ptr() -> ptr
-                if (strcmp(fn_name, "null_ptr") == 0 && expr->as.call.num_args == 0) {
-                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_null_ptr(NULL);", result);
+                // ptr_null() -> ptr
+                if (strcmp(fn_name, "ptr_null") == 0 && expr->as.call.num_args == 0) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_null(NULL);", result);
                     break;
                 }
 
