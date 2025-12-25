@@ -12,6 +12,7 @@ Hemlock provides **FFI (Foreign Function Interface)** to call C functions from s
 - [Use Cases](#use-cases)
 - [Future Development](#future-development)
 - [FFI Callbacks](#ffi-callbacks)
+- [FFI Structs](#ffi-structs)
 - [Current Limitations](#current-limitations)
 - [Best Practices](#best-practices)
 
@@ -43,9 +44,9 @@ FFI support is available in Hemlock with the following features:
 - ✅ Dynamic library loading
 - ✅ **Function pointer callbacks** - Pass Hemlock functions to C
 - ✅ **Export extern functions** - Share FFI bindings across modules
+- ✅ **Struct passing and return values** - Pass C-compatible structs by value
 
 **In Development:**
-- 🔄 Struct passing and return values
 - 🔄 Array/buffer handling
 - 🔄 String marshaling helpers
 - 🔄 Error handling improvements
@@ -548,27 +549,176 @@ fn risky_callback(a: ptr): i32 {
 
 For robust error handling, validate inputs and avoid throwing in callbacks.
 
+## FFI Structs
+
+Hemlock supports passing structs by value to C functions. Struct types are automatically registered for FFI when you define them with type annotations.
+
+### Defining FFI-Compatible Structs
+
+A struct is FFI-compatible when all fields have explicit type annotations using FFI-compatible types:
+
+```hemlock
+// FFI-compatible struct
+define Point {
+    x: f64,
+    y: f64,
+}
+
+// FFI-compatible struct with multiple field types
+define Rectangle {
+    top_left: Point,      // Nested struct
+    width: f64,
+    height: f64,
+}
+
+// NOT FFI-compatible (field without type annotation)
+define DynamicObject {
+    name,                 // No type - not usable in FFI
+    value,
+}
+```
+
+### Using Structs in FFI
+
+Declare extern functions that use struct types:
+
+```hemlock
+// Define the struct type
+define Vector2D {
+    x: f64,
+    y: f64,
+}
+
+// Import the C library
+import "libmath.so";
+
+// Declare extern function that takes/returns structs
+extern fn vector_add(a: Vector2D, b: Vector2D): Vector2D;
+extern fn vector_length(v: Vector2D): f64;
+
+// Use it naturally
+let a: Vector2D = { x: 3.0, y: 0.0 };
+let b: Vector2D = { x: 0.0, y: 4.0 };
+let result = vector_add(a, b);
+print(result.x);  // 3.0
+print(result.y);  // 4.0
+
+let len = vector_length(result);
+print(len);       // 5.0
+```
+
+### Supported Field Types
+
+Struct fields must use these FFI-compatible types:
+
+| Hemlock Type | C Type | Size |
+|--------------|--------|------|
+| `i8` | `int8_t` | 1 byte |
+| `i16` | `int16_t` | 2 bytes |
+| `i32` | `int32_t` | 4 bytes |
+| `i64` | `int64_t` | 8 bytes |
+| `u8` | `uint8_t` | 1 byte |
+| `u16` | `uint16_t` | 2 bytes |
+| `u32` | `uint32_t` | 4 bytes |
+| `u64` | `uint64_t` | 8 bytes |
+| `f32` | `float` | 4 bytes |
+| `f64` | `double` | 8 bytes |
+| `ptr` | `void*` | 8 bytes |
+| `string` | `char*` | 8 bytes |
+| `bool` | `int` | varies |
+| Nested struct | struct | varies |
+
+### Struct Layout
+
+Hemlock uses the platform's native struct layout rules (matching the C ABI):
+- Fields are aligned according to their type
+- Padding is inserted as needed
+- Total size is padded to align the largest member
+
+```hemlock
+// Example: C-compatible layout
+define Mixed {
+    a: i8,    // offset 0, size 1
+              // 3 bytes padding
+    b: i32,   // offset 4, size 4
+}
+// Total size: 8 bytes (with padding)
+
+define Point3D {
+    x: f64,   // offset 0, size 8
+    y: f64,   // offset 8, size 8
+    z: f64,   // offset 16, size 8
+}
+// Total size: 24 bytes (no padding needed)
+```
+
+### Nested Structs
+
+Structs can contain other structs:
+
+```hemlock
+define Inner {
+    x: i32,
+    y: i32,
+}
+
+define Outer {
+    inner: Inner,
+    z: i32,
+}
+
+import "mylib.so";
+extern fn process_nested(data: Outer): i32;
+
+let obj: Outer = {
+    inner: { x: 1, y: 2 },
+    z: 3,
+};
+let result = process_nested(obj);
+```
+
+### Struct Return Values
+
+C functions can return structs:
+
+```hemlock
+define Point {
+    x: f64,
+    y: f64,
+}
+
+import "libmath.so";
+extern fn get_origin(): Point;
+
+let p = get_origin();
+print(p.x);  // 0.0
+print(p.y);  // 0.0
+```
+
+### Limitations
+
+- **Struct fields must have type annotations** - fields without types are not FFI-compatible
+- **No arrays in structs** - use pointers instead
+- **No unions** - only struct types are supported
+- **Callbacks cannot return structs** - use pointers for callback return values
+
 ## Current Limitations
 
 FFI has the following limitations:
 
-**1. No Struct Passing**
-- Cannot pass complex structs by value
-- Workaround: Pass pointers to structs
-
-**2. Manual Type Conversion**
+**1. Manual Type Conversion**
 - Must manually manage string conversions
 - No automatic Hemlock string ↔ C string conversion
 
-**3. Limited Error Handling**
+**2. Limited Error Handling**
 - Basic error reporting
 - Exceptions in callbacks cannot propagate to C
 
-**4. Manual Library Loading**
+**3. Manual Library Loading**
 - Must manually load libraries
 - No automatic binding generation
 
-**5. Platform-Specific Code**
+**4. Platform-Specific Code**
 - Library paths differ by platform
 - Must handle .so vs .dylib vs .dll
 

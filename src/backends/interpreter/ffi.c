@@ -14,6 +14,35 @@ struct FFILibrary {
     void *handle;            // dlopen() handle
 };
 
+// FFI struct field descriptor
+typedef struct {
+    char *name;              // Field name
+    ffi_type *ffi_type;      // libffi type for this field
+    TypeKind hemlock_type;   // Hemlock type kind
+    size_t offset;           // Byte offset within struct
+    size_t size;             // Field size in bytes
+} FFIStructField;
+
+// FFI struct type descriptor
+typedef struct FFIStructType {
+    char *name;                  // Struct type name (e.g., "Point")
+    FFIStructField *fields;      // Array of field descriptors
+    int num_fields;              // Number of fields
+    size_t size;                 // Total struct size (with padding)
+    size_t alignment;            // Struct alignment requirement
+    ffi_type *ffi_type;          // Cached libffi ffi_type struct
+    ffi_type **ffi_field_types;  // Array of field types for ffi_type
+    struct FFIStructType *next;  // Next in registry linked list
+} FFIStructType;
+
+// FFI struct registry
+typedef struct {
+    FFIStructType *types;    // Linked list of registered struct types
+    int count;               // Number of registered types
+} FFIStructRegistry;
+
+static FFIStructRegistry g_struct_registry = {NULL, 0};
+
 // Global FFI state
 typedef struct {
     FFILibrary **libraries;  // All loaded libraries
@@ -207,6 +236,357 @@ void ffi_close_library(FFILibrary *lib) {
     free(lib);
 }
 
+// ========== FFI STRUCT SUPPORT ==========
+
+// Get ffi_type for a TypeKind (helper for struct field types)
+static ffi_type* type_kind_to_ffi_type(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8:     return &ffi_type_sint8;
+        case TYPE_I16:    return &ffi_type_sint16;
+        case TYPE_I32:    return &ffi_type_sint32;
+        case TYPE_I64:    return &ffi_type_sint64;
+        case TYPE_U8:     return &ffi_type_uint8;
+        case TYPE_U16:    return &ffi_type_uint16;
+        case TYPE_U32:    return &ffi_type_uint32;
+        case TYPE_U64:    return &ffi_type_uint64;
+        case TYPE_F32:    return &ffi_type_float;
+        case TYPE_F64:    return &ffi_type_double;
+        case TYPE_PTR:    return &ffi_type_pointer;
+        case TYPE_STRING: return &ffi_type_pointer;
+        case TYPE_BOOL:   return &ffi_type_sint;
+        case TYPE_VOID:   return &ffi_type_void;
+        default:          return NULL;  // Unsupported for struct fields
+    }
+}
+
+// Get size of a TypeKind in bytes
+static size_t type_kind_size(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8:     return sizeof(int8_t);
+        case TYPE_I16:    return sizeof(int16_t);
+        case TYPE_I32:    return sizeof(int32_t);
+        case TYPE_I64:    return sizeof(int64_t);
+        case TYPE_U8:     return sizeof(uint8_t);
+        case TYPE_U16:    return sizeof(uint16_t);
+        case TYPE_U32:    return sizeof(uint32_t);
+        case TYPE_U64:    return sizeof(uint64_t);
+        case TYPE_F32:    return sizeof(float);
+        case TYPE_F64:    return sizeof(double);
+        case TYPE_PTR:    return sizeof(void*);
+        case TYPE_STRING: return sizeof(char*);
+        case TYPE_BOOL:   return sizeof(int);
+        default:          return 0;
+    }
+}
+
+// Lookup a registered FFI struct type by name
+FFIStructType* ffi_lookup_struct(const char *name) {
+    if (!name) return NULL;
+    FFIStructType *st = g_struct_registry.types;
+    while (st) {
+        if (strcmp(st->name, name) == 0) {
+            return st;
+        }
+        st = st->next;
+    }
+    return NULL;
+}
+
+// Register a struct type for FFI use
+// This creates the libffi struct type with proper layout
+FFIStructType* ffi_register_struct(const char *name, char **field_names,
+                                    Type **field_types, int num_fields) {
+    // Check if already registered
+    FFIStructType *existing = ffi_lookup_struct(name);
+    if (existing) {
+        return existing;
+    }
+
+    // Validate all field types are FFI-compatible
+    for (int i = 0; i < num_fields; i++) {
+        if (!field_types[i]) {
+            fprintf(stderr, "Error: Struct '%s' field '%s' has no type annotation (required for FFI)\n",
+                    name, field_names[i]);
+            return NULL;
+        }
+        TypeKind kind = field_types[i]->kind;
+        if (kind == TYPE_CUSTOM_OBJECT) {
+            // Nested structs - check if already registered
+            if (!ffi_lookup_struct(field_types[i]->type_name)) {
+                fprintf(stderr, "Error: Struct '%s' field '%s' uses unregistered struct type '%s'\n",
+                        name, field_names[i], field_types[i]->type_name);
+                return NULL;
+            }
+        } else if (!type_kind_to_ffi_type(kind)) {
+            fprintf(stderr, "Error: Struct '%s' field '%s' has unsupported FFI type\n",
+                    name, field_names[i]);
+            return NULL;
+        }
+    }
+
+    // Create the struct type
+    FFIStructType *st = malloc(sizeof(FFIStructType));
+    st->name = strdup(name);
+    st->num_fields = num_fields;
+    st->fields = malloc(sizeof(FFIStructField) * num_fields);
+    st->ffi_field_types = malloc(sizeof(ffi_type*) * (num_fields + 1));  // NULL-terminated
+
+    // Build field descriptors and libffi type array
+    for (int i = 0; i < num_fields; i++) {
+        st->fields[i].name = strdup(field_names[i]);
+        st->fields[i].hemlock_type = field_types[i]->kind;
+
+        if (field_types[i]->kind == TYPE_CUSTOM_OBJECT) {
+            // Nested struct
+            FFIStructType *nested = ffi_lookup_struct(field_types[i]->type_name);
+            st->fields[i].ffi_type = nested->ffi_type;
+            st->fields[i].size = nested->size;
+        } else {
+            st->fields[i].ffi_type = type_kind_to_ffi_type(field_types[i]->kind);
+            st->fields[i].size = type_kind_size(field_types[i]->kind);
+        }
+        st->ffi_field_types[i] = st->fields[i].ffi_type;
+    }
+    st->ffi_field_types[num_fields] = NULL;  // NULL-terminate
+
+    // Create the libffi struct type
+    st->ffi_type = malloc(sizeof(ffi_type));
+    st->ffi_type->size = 0;  // Let libffi compute
+    st->ffi_type->alignment = 0;  // Let libffi compute
+    st->ffi_type->type = FFI_TYPE_STRUCT;
+    st->ffi_type->elements = st->ffi_field_types;
+
+    // Compute offsets using libffi's layout
+    // We need to prepare a dummy CIF to get libffi to compute the struct layout
+    ffi_cif dummy_cif;
+    ffi_type *dummy_args[1] = { st->ffi_type };
+    ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 1, &ffi_type_void, dummy_args);
+
+    // Now st->ffi_type has computed size and alignment
+    st->size = st->ffi_type->size;
+    st->alignment = st->ffi_type->alignment;
+
+    // Compute field offsets
+    size_t offset = 0;
+    for (int i = 0; i < num_fields; i++) {
+        size_t field_align = st->fields[i].ffi_type->alignment;
+        // Align offset
+        if (field_align > 0) {
+            offset = (offset + field_align - 1) & ~(field_align - 1);
+        }
+        st->fields[i].offset = offset;
+        offset += st->fields[i].size;
+    }
+
+    // Add to registry
+    st->next = g_struct_registry.types;
+    g_struct_registry.types = st;
+    g_struct_registry.count++;
+
+    return st;
+}
+
+// Marshal a Hemlock object to C struct memory
+// Returns pointer to allocated struct memory (caller must free)
+void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, ExecutionContext *ctx) {
+    if (obj.type != VAL_OBJECT || !obj.as.as_object) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("FFI struct conversion requires an object");
+        return NULL;
+    }
+
+    Object *o = obj.as.as_object;
+    void *struct_mem = calloc(1, struct_type->size);
+
+    for (int i = 0; i < struct_type->num_fields; i++) {
+        FFIStructField *field = &struct_type->fields[i];
+        void *field_ptr = (char*)struct_mem + field->offset;
+
+        // Look up field in object
+        int field_idx = object_lookup_field(o, field->name);
+        if (field_idx < 0) {
+            ctx->exception_state.is_throwing = 1;
+            char err[256];
+            snprintf(err, sizeof(err), "FFI struct '%s' missing required field '%s'",
+                     struct_type->name, field->name);
+            ctx->exception_state.exception_value = val_string(err);
+            free(struct_mem);
+            return NULL;
+        }
+
+        Value field_val = o->field_values[field_idx];
+
+        // Convert and write field value
+        switch (field->hemlock_type) {
+            case TYPE_I8:
+                *(int8_t*)field_ptr = (int8_t)value_to_int(field_val);
+                break;
+            case TYPE_I16:
+                *(int16_t*)field_ptr = (int16_t)value_to_int(field_val);
+                break;
+            case TYPE_I32:
+                *(int32_t*)field_ptr = value_to_int(field_val);
+                break;
+            case TYPE_I64:
+                *(int64_t*)field_ptr = value_to_int64(field_val);
+                break;
+            case TYPE_U8:
+                *(uint8_t*)field_ptr = (uint8_t)value_to_int(field_val);
+                break;
+            case TYPE_U16:
+                *(uint16_t*)field_ptr = (uint16_t)value_to_int(field_val);
+                break;
+            case TYPE_U32:
+                *(uint32_t*)field_ptr = (uint32_t)value_to_int(field_val);
+                break;
+            case TYPE_U64:
+                *(uint64_t*)field_ptr = (uint64_t)value_to_int64(field_val);
+                break;
+            case TYPE_F32:
+                *(float*)field_ptr = (float)value_to_float(field_val);
+                break;
+            case TYPE_F64:
+                *(double*)field_ptr = value_to_float(field_val);
+                break;
+            case TYPE_PTR:
+                if (field_val.type == VAL_PTR) {
+                    *(void**)field_ptr = field_val.as.as_ptr;
+                } else if (field_val.type == VAL_BUFFER) {
+                    *(void**)field_ptr = field_val.as.as_buffer->data;
+                } else {
+                    *(void**)field_ptr = NULL;
+                }
+                break;
+            case TYPE_STRING:
+                if (field_val.type == VAL_STRING && field_val.as.as_string) {
+                    *(char**)field_ptr = field_val.as.as_string->data;
+                } else {
+                    *(char**)field_ptr = NULL;
+                }
+                break;
+            case TYPE_BOOL:
+                *(int*)field_ptr = value_is_truthy(field_val) ? 1 : 0;
+                break;
+            case TYPE_CUSTOM_OBJECT: {
+                // Nested struct - recursively convert
+                FFIStructType *nested = ffi_lookup_struct(field->name);
+                if (nested && field_val.type == VAL_OBJECT) {
+                    void *nested_mem = ffi_object_to_struct(field_val, nested, ctx);
+                    if (!nested_mem) {
+                        free(struct_mem);
+                        return NULL;
+                    }
+                    memcpy(field_ptr, nested_mem, nested->size);
+                    free(nested_mem);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    return struct_mem;
+}
+
+// Marshal C struct memory to a Hemlock object
+Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) {
+    Object *obj = object_new(strdup(struct_type->name), struct_type->num_fields);
+
+    for (int i = 0; i < struct_type->num_fields; i++) {
+        FFIStructField *field = &struct_type->fields[i];
+        void *field_ptr = (char*)struct_ptr + field->offset;
+        Value field_val;
+
+        switch (field->hemlock_type) {
+            case TYPE_I8:
+                field_val = val_i8(*(int8_t*)field_ptr);
+                break;
+            case TYPE_I16:
+                field_val = val_i16(*(int16_t*)field_ptr);
+                break;
+            case TYPE_I32:
+                field_val = val_i32(*(int32_t*)field_ptr);
+                break;
+            case TYPE_I64:
+                field_val = val_i64(*(int64_t*)field_ptr);
+                break;
+            case TYPE_U8:
+                field_val = val_u8(*(uint8_t*)field_ptr);
+                break;
+            case TYPE_U16:
+                field_val = val_u16(*(uint16_t*)field_ptr);
+                break;
+            case TYPE_U32:
+                field_val = val_u32(*(uint32_t*)field_ptr);
+                break;
+            case TYPE_U64:
+                field_val = val_u64(*(uint64_t*)field_ptr);
+                break;
+            case TYPE_F32:
+                field_val = val_f32(*(float*)field_ptr);
+                break;
+            case TYPE_F64:
+                field_val = val_f64(*(double*)field_ptr);
+                break;
+            case TYPE_PTR:
+                field_val = val_ptr(*(void**)field_ptr);
+                break;
+            case TYPE_STRING: {
+                char *str = *(char**)field_ptr;
+                if (str) {
+                    field_val = val_string(str);
+                } else {
+                    field_val = val_null();
+                }
+                break;
+            }
+            case TYPE_BOOL:
+                field_val = val_bool(*(int*)field_ptr != 0);
+                break;
+            case TYPE_CUSTOM_OBJECT: {
+                // Nested struct
+                FFIStructType *nested = ffi_lookup_struct(field->name);
+                if (nested) {
+                    field_val = ffi_struct_to_object(field_ptr, nested);
+                } else {
+                    field_val = val_null();
+                }
+                break;
+            }
+            default:
+                field_val = val_null();
+                break;
+        }
+
+        // Add field to object
+        obj->field_names[obj->num_fields] = strdup(field->name);
+        obj->field_values[obj->num_fields] = field_val;
+        obj->num_fields++;
+    }
+
+    return val_object(obj);
+}
+
+// Free the struct registry on cleanup
+void ffi_struct_cleanup(void) {
+    FFIStructType *st = g_struct_registry.types;
+    while (st) {
+        FFIStructType *next = st->next;
+        free(st->name);
+        for (int i = 0; i < st->num_fields; i++) {
+            free(st->fields[i].name);
+        }
+        free(st->fields);
+        free(st->ffi_field_types);
+        free(st->ffi_type);
+        free(st);
+        st = next;
+    }
+    g_struct_registry.types = NULL;
+    g_struct_registry.count = 0;
+}
+
 // ========== TYPE MAPPING ==========
 
 ffi_type* hemlock_type_to_ffi_type(Type *type) {
@@ -230,6 +610,18 @@ ffi_type* hemlock_type_to_ffi_type(Type *type) {
         case TYPE_STRING: return &ffi_type_pointer;  // string → char*
         case TYPE_BOOL:   return &ffi_type_sint;
         case TYPE_VOID:   return &ffi_type_void;
+        case TYPE_CUSTOM_OBJECT: {
+            // Look up registered struct type
+            if (type->type_name) {
+                FFIStructType *st = ffi_lookup_struct(type->type_name);
+                if (st) {
+                    return st->ffi_type;
+                }
+            }
+            fprintf(stderr, "Error: Struct type '%s' not registered for FFI\n",
+                    type->type_name ? type->type_name : "(unknown)");
+            exit(1);
+        }
         default:
             fprintf(stderr, "Error: Unsupported FFI type: %d\n", type->kind);
             exit(1);
@@ -238,11 +630,25 @@ ffi_type* hemlock_type_to_ffi_type(Type *type) {
 
 // ========== VALUE CONVERSION ==========
 
+// Global context for struct conversion (set before FFI call)
+static ExecutionContext *g_ffi_ctx = NULL;
+
 void* hemlock_to_c_value(Value val, Type *type) {
     size_t size = 0;
     ffi_type *ffi_t = hemlock_type_to_ffi_type(type);
 
-    // Determine size
+    // Handle struct types specially
+    if (type->kind == TYPE_CUSTOM_OBJECT) {
+        FFIStructType *st = ffi_lookup_struct(type->type_name);
+        if (st) {
+            // Convert object to struct, return the struct memory directly
+            return ffi_object_to_struct(val, st, g_ffi_ctx);
+        }
+        fprintf(stderr, "Error: Struct type '%s' not registered for FFI\n", type->type_name);
+        exit(1);
+    }
+
+    // Determine size for primitive types
     if (ffi_t == &ffi_type_sint8 || ffi_t == &ffi_type_uint8) size = 1;
     else if (ffi_t == &ffi_type_sint16 || ffi_t == &ffi_type_uint16) size = 2;
     else if (ffi_t == &ffi_type_sint32 || ffi_t == &ffi_type_uint32) size = 4;
@@ -354,6 +760,15 @@ Value c_to_hemlock_value(void *c_value, Type *type) {
             // Create a Hemlock string from the C string
             return val_string(str);
         }
+        case TYPE_CUSTOM_OBJECT: {
+            // Convert struct to object
+            FFIStructType *st = ffi_lookup_struct(type->type_name);
+            if (st) {
+                return ffi_struct_to_object(c_value, st);
+            }
+            fprintf(stderr, "Error: Struct type '%s' not registered for FFI\n", type->type_name);
+            exit(1);
+        }
         default:
             fprintf(stderr, "Error: Cannot convert C type to Hemlock: %d\n", type->kind);
             exit(1);
@@ -431,6 +846,9 @@ void ffi_free_function(FFIFunction *func) {
 // ========== FUNCTION INVOCATION ==========
 
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {
+    // Set global context for struct conversion
+    g_ffi_ctx = ctx;
+
     // Lazy symbol resolution: resolve on first call
     if (func->func_ptr == NULL) {
         dlerror();  // Clear any existing error
@@ -463,6 +881,15 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
 
     for (int i = 0; i < num_args; i++) {
         arg_storage[i] = hemlock_to_c_value(args[i], func->hemlock_params[i]);
+        if (ctx->exception_state.is_throwing) {
+            // Struct conversion failed
+            for (int j = 0; j < i; j++) {
+                free(arg_storage[j]);
+            }
+            free(arg_values);
+            free(arg_storage);
+            return val_null();
+        }
         arg_values[i] = arg_storage[i];
     }
 
@@ -477,6 +904,7 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
         else if (ret_type == &ffi_type_sint32 || ret_type == &ffi_type_uint32) return_size = 4;
         else if (ret_type == &ffi_type_float) return_size = sizeof(float);
         else if (ret_type == &ffi_type_double) return_size = sizeof(double);
+        else if (ret_type->type == FFI_TYPE_STRUCT) return_size = ret_type->size;
 
         return_storage = malloc(return_size);
     }
@@ -932,6 +1360,9 @@ void ffi_cleanup() {
     g_ffi_state.num_libraries = 0;
     g_ffi_state.libraries_capacity = 0;
     g_ffi_state.current_lib = NULL;
+
+    // Clean up struct registry
+    ffi_struct_cleanup();
 }
 
 void execute_import_ffi(Stmt *stmt, ExecutionContext *ctx) {

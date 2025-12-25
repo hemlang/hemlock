@@ -950,6 +950,7 @@ const char* type_kind_to_ffi_type(TypeKind kind) {
         case TYPE_PTR:    return "HML_FFI_PTR";
         case TYPE_STRING: return "HML_FFI_STRING";
         case TYPE_VOID:   return "HML_FFI_VOID";
+        case TYPE_CUSTOM_OBJECT: return "HML_FFI_STRUCT";
         default:          return "HML_FFI_VOID";
     }
 }

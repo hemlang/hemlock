@@ -1,0 +1,74 @@
+// FFI Struct Test - Tests passing structs to/from C functions
+
+// Define Point struct - must match C definition
+define Point {
+    x: f64,
+    y: f64,
+}
+
+// Define Mixed struct - must match C definition
+define Mixed {
+    a: i32,
+    b: i32,
+    c: f64,
+}
+
+// Define IntSizes struct - tests different integer sizes
+define IntSizes {
+    val_i8: i8,
+    val_i16: i16,
+    val_i32: i32,
+    val_i64: i64,
+}
+
+// Import the test library
+import "stdlib/c/libffi_struct_test.so";
+
+// Declare extern functions
+extern fn make_point(x: f64, y: f64): Point;
+extern fn add_points(a: Point, b: Point): Point;
+extern fn point_length(p: Point): f64;
+extern fn mixed_sum(m: Mixed): f64;
+extern fn make_mixed(a: i32, b: i32, c: f64): Mixed;
+extern fn sum_int_sizes(s: IntSizes): i64;
+extern fn make_int_sizes(a: i8, b: i16, c: i32, d: i64): IntSizes;
+
+// Test 1: Create point using FFI and access fields
+let p1 = make_point(3.0, 4.0);
+print("Point x: " + p1.x);
+print("Point y: " + p1.y);
+
+// Test 2: Pass struct to C function
+let length = point_length(p1);
+print("Point length squared: " + length);
+
+// Test 3: Add two points (pass two structs, return struct)
+let p2: Point = { x: 1.0, y: 2.0 };
+let sum = add_points(p1, p2);
+print("Sum x: " + sum.x);
+print("Sum y: " + sum.y);
+
+// Test 4: Mixed type struct
+let m = make_mixed(10, 20, 30.5);
+print("Mixed a: " + m.a);
+print("Mixed b: " + m.b);
+print("Mixed c: " + m.c);
+
+// Test 5: Pass mixed struct to C
+let m2: Mixed = { a: 5, b: 15, c: 25.0 };
+let total = mixed_sum(m2);
+print("Mixed sum: " + total);
+
+// Test 6: Integer sizes struct
+let sizes = make_int_sizes(1, 100, 1000, 10000);
+print("val_i8: " + sizes.val_i8);
+print("val_i16: " + sizes.val_i16);
+print("val_i32: " + sizes.val_i32);
+print("val_i64: " + sizes.val_i64);
+
+// Test 7: Sum integer sizes
+let s2: IntSizes = { val_i8: 1, val_i16: 2, val_i32: 3, val_i64: 4 };
+let sum_sizes = sum_int_sizes(s2);
+print("Sum of sizes: " + sum_sizes);
+
+print("FFI struct tests completed");

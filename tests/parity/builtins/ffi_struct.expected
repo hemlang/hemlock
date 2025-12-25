@@ -1,0 +1,15 @@
+Point x: 3
+Point y: 4
+Point length squared: 25
+Sum x: 4
+Sum y: 6
+Mixed a: 10
+Mixed b: 20
+Mixed c: 30.5
+Mixed sum: 45
+val_i8: 1
+val_i16: 100
+val_i32: 1000
+val_i64: 10000
+Sum of sizes: 10
+FFI struct tests completed

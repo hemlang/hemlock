@@ -292,6 +292,9 @@ Value builtin_open(Value *args, int num_args, ExecutionContext *ctx);
 // Forward declaration for FFI library
 typedef struct FFILibrary FFILibrary;
 
+// Forward declaration for FFI struct type
+typedef struct FFIStructType FFIStructType;
+
 // External function structure
 typedef struct {
     char *name;              // Function name
@@ -335,6 +338,11 @@ int ffi_free_callback_by_ptr(void *code_ptr);  // Free callback by its code poin
 
 // Type helpers for callback API
 Type* type_from_string(const char *name);  // Create a Type from a string like "i32", "ptr", etc.
+
+// FFI Struct support - register struct types for FFI use
+FFIStructType* ffi_register_struct(const char *name, char **field_names, Type **field_types, int num_fields);
+FFIStructType* ffi_lookup_struct(const char *name);
+void ffi_struct_cleanup(void);
 
 // ========== RUNTIME (runtime.c) ==========
 
