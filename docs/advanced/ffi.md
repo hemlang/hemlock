@@ -46,9 +46,12 @@ FFI support is available in Hemlock with the following features:
 - ✅ **Function pointer callbacks** - Pass Hemlock functions to C
 - ✅ **Export extern functions** - Share FFI bindings across modules
 - ✅ **Struct passing and return values** - Pass C-compatible structs by value
+- ✅ **Complete pointer helpers** - Read/write all types (i8-i64, u8-u64, f32, f64, ptr)
+- ✅ **Buffer/pointer conversion** - `buffer_ptr()`, `ptr_to_buffer()`
+- ✅ **FFI type sizes** - `ffi_sizeof()` for platform-aware type sizes
+- ✅ **Platform types** - `size_t`, `usize`, `isize`, `intptr_t` support
 
 **In Development:**
-- 🔄 Array/buffer handling
 - 🔄 String marshaling helpers
 - 🔄 Error handling improvements
 
@@ -490,14 +493,104 @@ free(arr);
 
 ### Pointer Helper Functions
 
-Hemlock provides helper functions for working with raw pointers in callbacks:
+Hemlock provides comprehensive helper functions for working with raw pointers. These are essential for FFI callbacks and direct memory manipulation.
+
+#### Integer Type Helpers
 
 | Function | Description |
 |----------|-------------|
+| `ptr_deref_i8(ptr)` | Dereference pointer, read i8 |
+| `ptr_deref_i16(ptr)` | Dereference pointer, read i16 |
 | `ptr_deref_i32(ptr)` | Dereference pointer, read i32 |
+| `ptr_deref_i64(ptr)` | Dereference pointer, read i64 |
+| `ptr_deref_u8(ptr)` | Dereference pointer, read u8 |
+| `ptr_deref_u16(ptr)` | Dereference pointer, read u16 |
+| `ptr_deref_u32(ptr)` | Dereference pointer, read u32 |
+| `ptr_deref_u64(ptr)` | Dereference pointer, read u64 |
+| `ptr_write_i8(ptr, value)` | Write i8 to pointer location |
+| `ptr_write_i16(ptr, value)` | Write i16 to pointer location |
 | `ptr_write_i32(ptr, value)` | Write i32 to pointer location |
+| `ptr_write_i64(ptr, value)` | Write i64 to pointer location |
+| `ptr_write_u8(ptr, value)` | Write u8 to pointer location |
+| `ptr_write_u16(ptr, value)` | Write u16 to pointer location |
+| `ptr_write_u32(ptr, value)` | Write u32 to pointer location |
+| `ptr_write_u64(ptr, value)` | Write u64 to pointer location |
+
+#### Float Type Helpers
+
+| Function | Description |
+|----------|-------------|
+| `ptr_deref_f32(ptr)` | Dereference pointer, read f32 (float) |
+| `ptr_deref_f64(ptr)` | Dereference pointer, read f64 (double) |
+| `ptr_write_f32(ptr, value)` | Write f32 to pointer location |
+| `ptr_write_f64(ptr, value)` | Write f64 to pointer location |
+
+#### Pointer Type Helpers
+
+| Function | Description |
+|----------|-------------|
+| `ptr_deref_ptr(ptr)` | Dereference pointer-to-pointer |
+| `ptr_write_ptr(ptr, value)` | Write pointer to pointer location |
 | `ptr_offset(ptr, index, size)` | Calculate offset: `ptr + index * size` |
-| `ptr_read_i32(ptr)` | Read i32 through pointer-to-pointer (for qsort) |
+| `ptr_read_i32(ptr)` | Read i32 through pointer-to-pointer (for qsort callbacks) |
+| `null_ptr()` | Get a null pointer constant |
+
+#### Buffer Conversion Helpers
+
+| Function | Description |
+|----------|-------------|
+| `buffer_ptr(buffer)` | Get raw pointer from a buffer |
+| `ptr_to_buffer(ptr, size)` | Copy data from pointer into a new buffer |
+
+#### FFI Utility Functions
+
+| Function | Description |
+|----------|-------------|
+| `ffi_sizeof(type_name)` | Get size in bytes of an FFI type |
+
+**Supported type names for `ffi_sizeof`:**
+- `"i8"`, `"i16"`, `"i32"`, `"i64"` - Signed integers (1, 2, 4, 8 bytes)
+- `"u8"`, `"u16"`, `"u32"`, `"u64"` - Unsigned integers (1, 2, 4, 8 bytes)
+- `"f32"`, `"f64"` - Floats (4, 8 bytes)
+- `"ptr"` - Pointer (8 bytes on 64-bit)
+- `"size_t"`, `"usize"` - Platform-dependent size type
+- `"intptr_t"`, `"isize"` - Platform-dependent signed pointer type
+
+#### Example: Working with Different Types
+
+```hemlock
+let p = alloc(64);
+
+// Write and read integers
+ptr_write_i8(p, 42);
+print(ptr_deref_i8(p));  // 42
+
+ptr_write_i64(ptr_offset(p, 1, 8), 9000000000);
+print(ptr_deref_i64(ptr_offset(p, 1, 8)));  // 9000000000
+
+// Write and read floats
+ptr_write_f64(p, 3.14159);
+print(ptr_deref_f64(p));  // 3.14159
+
+// Pointer-to-pointer
+let inner = alloc(4);
+ptr_write_i32(inner, 999);
+ptr_write_ptr(p, inner);
+let retrieved = ptr_deref_ptr(p);
+print(ptr_deref_i32(retrieved));  // 999
+
+// Get type sizes
+print(ffi_sizeof("i64"));  // 8
+print(ffi_sizeof("ptr"));  // 8 (on 64-bit)
+
+// Buffer conversion
+let buf = buffer(64);
+ptr_write_i32(buffer_ptr(buf), 12345);
+print(ptr_deref_i32(buffer_ptr(buf)));  // 12345
+
+free(inner);
+free(p);
+```
 
 ### Freeing Callbacks
 
@@ -828,10 +921,14 @@ Hemlock's FFI provides:
 - ✅ **Export extern functions** - share FFI bindings across modules
 - ✅ **Struct passing and return** - pass C-compatible structs by value
 - ✅ **Export define** - share struct type definitions across modules (auto-imported globally)
+- ✅ **Complete pointer helpers** - read/write all types (i8-i64, u8-u64, f32, f64, ptr)
+- ✅ **Buffer/pointer conversion** - `buffer_ptr()`, `ptr_to_buffer()` for data marshaling
+- ✅ **FFI type sizes** - `ffi_sizeof()` for platform-aware type sizes
+- ✅ **Platform types** - `size_t`, `usize`, `isize`, `intptr_t`, `uintptr_t` support
 
-**Current status:** FFI available with primitive types, structs, callback support, and module exports
+**Current status:** FFI fully featured with primitive types, structs, callbacks, module exports, and complete pointer helper functions
 
-**Future:** Arrays, string marshaling
+**Future:** String marshaling helpers
 
 **Use cases:** System libraries, third-party libraries, qsort, event loops, callback-based APIs, reusable library wrappers
 

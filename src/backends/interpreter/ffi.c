@@ -1277,11 +1277,11 @@ Type* type_from_string(const char *name) {
         type->kind = TYPE_I8;
     } else if (strcmp(name, "i16") == 0) {
         type->kind = TYPE_I16;
-    } else if (strcmp(name, "i32") == 0) {
+    } else if (strcmp(name, "i32") == 0 || strcmp(name, "integer") == 0 || strcmp(name, "int") == 0) {
         type->kind = TYPE_I32;
-    } else if (strcmp(name, "i64") == 0) {
+    } else if (strcmp(name, "i64") == 0 || strcmp(name, "long") == 0) {
         type->kind = TYPE_I64;
-    } else if (strcmp(name, "u8") == 0) {
+    } else if (strcmp(name, "u8") == 0 || strcmp(name, "byte") == 0) {
         type->kind = TYPE_U8;
     } else if (strcmp(name, "u16") == 0) {
         type->kind = TYPE_U16;
@@ -1289,9 +1289,9 @@ Type* type_from_string(const char *name) {
         type->kind = TYPE_U32;
     } else if (strcmp(name, "u64") == 0) {
         type->kind = TYPE_U64;
-    } else if (strcmp(name, "f32") == 0) {
+    } else if (strcmp(name, "f32") == 0 || strcmp(name, "float") == 0) {
         type->kind = TYPE_F32;
-    } else if (strcmp(name, "f64") == 0) {
+    } else if (strcmp(name, "f64") == 0 || strcmp(name, "double") == 0 || strcmp(name, "number") == 0) {
         type->kind = TYPE_F64;
     } else if (strcmp(name, "bool") == 0) {
         type->kind = TYPE_BOOL;
@@ -1303,9 +1303,25 @@ Type* type_from_string(const char *name) {
         type->kind = TYPE_VOID;
     } else if (strcmp(name, "null") == 0) {
         type->kind = TYPE_NULL;
+    } else if (strcmp(name, "size_t") == 0 || strcmp(name, "usize") == 0) {
+        // size_t is platform-dependent: u64 on 64-bit, u32 on 32-bit
+        type->kind = (sizeof(size_t) == 8) ? TYPE_U64 : TYPE_U32;
+    } else if (strcmp(name, "intptr_t") == 0 || strcmp(name, "isize") == 0 || strcmp(name, "ssize_t") == 0) {
+        // intptr_t is platform-dependent: i64 on 64-bit, i32 on 32-bit
+        type->kind = (sizeof(intptr_t) == 8) ? TYPE_I64 : TYPE_I32;
+    } else if (strcmp(name, "uintptr_t") == 0) {
+        // uintptr_t is platform-dependent: u64 on 64-bit, u32 on 32-bit
+        type->kind = (sizeof(uintptr_t) == 8) ? TYPE_U64 : TYPE_U32;
     } else {
-        // Unknown type - default to void
-        type->kind = TYPE_VOID;
+        // Check if it's a registered struct type
+        FFIStructType *st = ffi_lookup_struct(name);
+        if (st) {
+            type->kind = TYPE_CUSTOM_OBJECT;
+            type->type_name = strdup(name);
+        } else {
+            // Unknown type - default to void
+            type->kind = TYPE_VOID;
+        }
     }
 
     return type;

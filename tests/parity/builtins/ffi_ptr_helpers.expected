@@ -1,0 +1,42 @@
+=== ffi_sizeof tests ===
+1
+2
+4
+8
+1
+2
+4
+8
+4
+8
+8
+8
+8
+8
+=== null_ptr tests ===
+ptr
+=== integer type tests ===
+42
+-100
+1000
+-2000
+100000
+-500000
+9000000000
+-9000000000
+200
+50000
+3000000000
+10000000000
+=== float type tests ===
+true
+2.71828
+=== ptr_deref_ptr tests ===
+999
+ptr
+=== buffer/ptr conversion tests ===
+12345
+67890
+111
+222
+=== tests complete ===
