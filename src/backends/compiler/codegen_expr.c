@@ -620,11 +620,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
 
                 // Handle free builtin
+                // Note: Don't call hml_release after hml_free - the memory is already freed
                 if (strcmp(fn_name, "free") == 0 && expr->as.call.num_args == 1) {
                     char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
                     codegen_writeln(ctx, "hml_free(%s);", ptr);
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-                    codegen_writeln(ctx, "hml_release(&%s);", ptr);
                     free(ptr);
                     break;
                 }

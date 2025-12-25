@@ -95,7 +95,7 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/lsp \
              $(BUILD_DIR)/bundler
 
-all: $(BUILD_DIRS) $(TARGET)
+all: $(BUILD_DIRS) $(TARGET) compiler
 
 $(BUILD_DIRS):
 	mkdir -p $@
@@ -125,7 +125,7 @@ test: $(TARGET) stdlib
 
 # ========== STDLIB C MODULES ==========
 
-# Build stdlib C modules (lws_wrapper.so for HTTP/WebSocket)
+# Build stdlib C modules (lws_wrapper.so for HTTP/WebSocket, ffi_struct_test for tests)
 .PHONY: stdlib
 stdlib:
 ifeq ($(HAS_LIBWEBSOCKETS),1)
@@ -139,11 +139,18 @@ endif
 else
 	@echo "⊘ Skipping lws_wrapper.so (libwebsockets not installed)"
 endif
+	@echo "Building stdlib/c/libffi_struct_test..."
+ifeq ($(shell uname),Darwin)
+	$(CC) -shared -fPIC -o stdlib/c/libffi_struct_test.dylib stdlib/c/ffi_struct_test.c
+else
+	$(CC) -shared -fPIC -o stdlib/c/libffi_struct_test.so stdlib/c/ffi_struct_test.c
+endif
+	@echo "✓ libffi_struct_test built successfully"
 
 # Clean stdlib builds
 .PHONY: stdlib-clean
 stdlib-clean:
-	rm -f stdlib/c/*.so
+	rm -f stdlib/c/*.so stdlib/c/*.dylib
 
 # ========== VALGRIND MEMORY LEAK CHECKING ==========
 
@@ -274,9 +281,6 @@ compiler-clean:
 
 # Full clean including compiler, runtime, and release
 fullclean: clean compiler-clean runtime-clean release-clean
-
-# Build everything (interpreter + compiler + runtime)
-all-compiler: all compiler
 
 # Run compiler test suite
 .PHONY: test-compiler

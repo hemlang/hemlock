@@ -7320,6 +7320,57 @@ HmlValue hml_socket_get_closed(HmlValue socket_val) {
 
 // ========== FFI (Foreign Function Interface) ==========
 
+// Helper to check if a file exists
+static int ffi_file_exists(const char *path) {
+    return access(path, F_OK) == 0;
+}
+
+// Translate Linux library names to macOS equivalents (on macOS only)
+static const char* translate_library_path(const char *path) {
+#ifdef __APPLE__
+    // libc.so.6 -> libSystem.B.dylib (macOS system C library)
+    if (strcmp(path, "libc.so.6") == 0) {
+        return "libSystem.B.dylib";
+    }
+    // libm.so.6 -> libSystem.B.dylib (math is part of libSystem on macOS)
+    if (strcmp(path, "libm.so.6") == 0) {
+        return "libSystem.B.dylib";
+    }
+    // libcrypto.so.3 -> Homebrew OpenSSL
+    if (strcmp(path, "libcrypto.so.3") == 0 || strcmp(path, "libcrypto.dylib") == 0) {
+        if (ffi_file_exists("/opt/homebrew/opt/openssl@3/lib/libcrypto.dylib")) {
+            return "/opt/homebrew/opt/openssl@3/lib/libcrypto.dylib";
+        }
+        if (ffi_file_exists("/usr/local/opt/openssl@3/lib/libcrypto.dylib")) {
+            return "/usr/local/opt/openssl@3/lib/libcrypto.dylib";
+        }
+        return "libcrypto.dylib";
+    }
+    // Generic .so to .dylib translation
+    static char translated[512];
+    size_t len = strlen(path);
+    // Handle .so.N pattern (e.g., libfoo.so.6)
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos) {
+        size_t base_len = so_pos - path;
+        if (base_len < sizeof(translated) - 7) {
+            strncpy(translated, path, base_len);
+            strcpy(translated + base_len, ".dylib");
+            return translated;
+        }
+    }
+    // Handle plain .so (e.g., libfoo.so)
+    if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        if (len < sizeof(translated) - 4) {
+            strncpy(translated, path, len - 3);
+            strcpy(translated + len - 3, ".dylib");
+            return translated;
+        }
+    }
+#endif
+    return path;  // No translation on Linux or if no pattern matched
+}
+
 // SECURITY: Validate FFI library path for obvious security issues
 static const char* validate_ffi_path(const char *path) {
     if (!path || path[0] == '\0') {
@@ -7348,13 +7399,16 @@ static const char* validate_ffi_path(const char *path) {
 }
 
 HmlValue hml_ffi_load(const char *path) {
+    // Translate library path for cross-platform compatibility (e.g., .so -> .dylib on macOS)
+    const char *actual_path = translate_library_path(path);
+
     // SECURITY: Validate library path before loading
-    const char *validation_error = validate_ffi_path(path);
+    const char *validation_error = validate_ffi_path(actual_path);
     if (validation_error) {
-        hml_runtime_error("FFI security error: %s (path: %s)", validation_error, path);
+        hml_runtime_error("FFI security error: %s (path: %s)", validation_error, actual_path);
     }
 
-    void *handle = dlopen(path, RTLD_LAZY);
+    void *handle = dlopen(actual_path, RTLD_LAZY);
     if (!handle) {
         hml_runtime_error("Failed to load library '%s': %s", path, dlerror());
     }
@@ -7535,6 +7589,394 @@ HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *
     return ret;
 }
 
+// FFI call with struct support
+// struct_names: array of struct type names, one for each type that is HML_FFI_STRUCT (or NULL for non-struct types)
+//               struct_names[0] is for return type, struct_names[1..] for args
+HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
+                                    HmlFFIType *types, const char **struct_names) {
+    if (!func_ptr) {
+        hml_runtime_error("FFI call with null function pointer");
+    }
+
+    // Forward declaration
+    HmlFFIStructType* hml_ffi_lookup_struct(const char *name);
+    void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type);
+    HmlValue hml_ffi_struct_to_object(void *struct_ptr, HmlFFIStructType *struct_type);
+
+    // types[0] is return type, types[1..] are arg types
+    HmlFFIType return_type = types[0];
+    HmlFFIStructType *return_struct = NULL;
+
+    if (return_type == HML_FFI_STRUCT && struct_names && struct_names[0]) {
+        return_struct = hml_ffi_lookup_struct(struct_names[0]);
+        if (!return_struct) {
+            hml_runtime_error("FFI struct type '%s' not registered", struct_names[0]);
+        }
+    }
+
+    // Prepare libffi call interface
+    ffi_cif cif;
+    ffi_type **arg_types = NULL;
+    void **arg_values = NULL;
+    void **arg_storage = NULL;
+    HmlFFIStructType **arg_structs = NULL;
+
+    if (num_args > 0) {
+        arg_types = malloc(num_args * sizeof(ffi_type*));
+        arg_values = malloc(num_args * sizeof(void*));
+        arg_storage = malloc(num_args * sizeof(void*));
+        arg_structs = malloc(num_args * sizeof(HmlFFIStructType*));
+
+        for (int i = 0; i < num_args; i++) {
+            HmlFFIType arg_type = types[i + 1];
+            arg_structs[i] = NULL;
+
+            if (arg_type == HML_FFI_STRUCT && struct_names && struct_names[i + 1]) {
+                // Struct argument
+                arg_structs[i] = hml_ffi_lookup_struct(struct_names[i + 1]);
+                if (!arg_structs[i]) {
+                    hml_runtime_error("FFI struct type '%s' not registered", struct_names[i + 1]);
+                }
+                arg_types[i] = (ffi_type*)arg_structs[i]->ffi_type;
+                arg_storage[i] = hml_ffi_object_to_struct(args[i], arg_structs[i]);
+                arg_values[i] = arg_storage[i];
+            } else {
+                // Non-struct argument
+                arg_types[i] = hml_ffi_type_to_ffi(arg_type);
+                arg_storage[i] = malloc(hml_ffi_type_size(arg_type));
+                hml_value_to_ffi(args[i], arg_type, arg_storage[i]);
+                arg_values[i] = arg_storage[i];
+            }
+        }
+    }
+
+    ffi_type *ret_type;
+    if (return_struct) {
+        ret_type = (ffi_type*)return_struct->ffi_type;
+    } else {
+        ret_type = hml_ffi_type_to_ffi(return_type);
+    }
+
+    ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, num_args, ret_type, arg_types);
+
+    if (status != FFI_OK) {
+        hml_runtime_error("Failed to prepare FFI call");
+    }
+
+    // Allocate space for return value
+    void *result_ptr;
+    if (return_struct) {
+        result_ptr = calloc(1, return_struct->size);
+    } else {
+        result_ptr = malloc(sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
+    }
+
+    ffi_call(&cif, func_ptr, result_ptr, arg_values);
+
+    // Convert result
+    HmlValue ret;
+    if (return_struct) {
+        ret = hml_ffi_struct_to_object(result_ptr, return_struct);
+    } else {
+        ret = hml_ffi_to_value(result_ptr, return_type);
+    }
+
+    // Cleanup
+    free(result_ptr);
+    if (num_args > 0) {
+        for (int i = 0; i < num_args; i++) {
+            free(arg_storage[i]);
+        }
+        free(arg_types);
+        free(arg_values);
+        free(arg_storage);
+        free(arg_structs);
+    }
+
+    return ret;
+}
+
+// ========== FFI STRUCT SUPPORT ==========
+
+// Global struct registry
+static HmlFFIStructType *g_ffi_struct_registry = NULL;
+
+// Get ffi_type for an HmlFFIType (helper for struct field types)
+static ffi_type* hml_ffi_type_to_ffi_internal(HmlFFIType type) {
+    switch (type) {
+        case HML_FFI_VOID:   return &ffi_type_void;
+        case HML_FFI_I8:     return &ffi_type_sint8;
+        case HML_FFI_I16:    return &ffi_type_sint16;
+        case HML_FFI_I32:    return &ffi_type_sint32;
+        case HML_FFI_I64:    return &ffi_type_sint64;
+        case HML_FFI_U8:     return &ffi_type_uint8;
+        case HML_FFI_U16:    return &ffi_type_uint16;
+        case HML_FFI_U32:    return &ffi_type_uint32;
+        case HML_FFI_U64:    return &ffi_type_uint64;
+        case HML_FFI_F32:    return &ffi_type_float;
+        case HML_FFI_F64:    return &ffi_type_double;
+        case HML_FFI_PTR:    return &ffi_type_pointer;
+        case HML_FFI_STRING: return &ffi_type_pointer;
+        default:             return &ffi_type_void;
+    }
+}
+
+// Get size of an HmlFFIType in bytes
+static size_t hml_ffi_type_size_internal(HmlFFIType type) {
+    switch (type) {
+        case HML_FFI_I8:     return sizeof(int8_t);
+        case HML_FFI_I16:    return sizeof(int16_t);
+        case HML_FFI_I32:    return sizeof(int32_t);
+        case HML_FFI_I64:    return sizeof(int64_t);
+        case HML_FFI_U8:     return sizeof(uint8_t);
+        case HML_FFI_U16:    return sizeof(uint16_t);
+        case HML_FFI_U32:    return sizeof(uint32_t);
+        case HML_FFI_U64:    return sizeof(uint64_t);
+        case HML_FFI_F32:    return sizeof(float);
+        case HML_FFI_F64:    return sizeof(double);
+        case HML_FFI_PTR:    return sizeof(void*);
+        case HML_FFI_STRING: return sizeof(char*);
+        default:             return 0;
+    }
+}
+
+// Lookup a registered struct type by name
+HmlFFIStructType* hml_ffi_lookup_struct(const char *name) {
+    if (!name) return NULL;
+    HmlFFIStructType *st = g_ffi_struct_registry;
+    while (st) {
+        if (strcmp(st->name, name) == 0) {
+            return st;
+        }
+        st = st->next;
+    }
+    return NULL;
+}
+
+// Register a struct type for FFI use
+HmlFFIStructType* hml_ffi_register_struct(const char *name, const char **field_names,
+                                           HmlFFIType *field_types, int num_fields) {
+    // Check if already registered
+    HmlFFIStructType *existing = hml_ffi_lookup_struct(name);
+    if (existing) {
+        return existing;
+    }
+
+    // Create the struct type
+    HmlFFIStructType *st = malloc(sizeof(HmlFFIStructType));
+    st->name = strdup(name);
+    st->num_fields = num_fields;
+    st->fields = malloc(sizeof(HmlFFIStructField) * num_fields);
+
+    // Build ffi_type array for struct
+    ffi_type **ffi_field_types = malloc(sizeof(ffi_type*) * (num_fields + 1));
+
+    for (int i = 0; i < num_fields; i++) {
+        st->fields[i].name = strdup(field_names[i]);
+        st->fields[i].type = field_types[i];
+        st->fields[i].size = hml_ffi_type_size_internal(field_types[i]);
+        ffi_field_types[i] = hml_ffi_type_to_ffi_internal(field_types[i]);
+    }
+    ffi_field_types[num_fields] = NULL;  // NULL-terminate
+
+    // Create the libffi struct type
+    ffi_type *struct_ffi_type = malloc(sizeof(ffi_type));
+    struct_ffi_type->size = 0;  // Let libffi compute
+    struct_ffi_type->alignment = 0;  // Let libffi compute
+    struct_ffi_type->type = FFI_TYPE_STRUCT;
+    struct_ffi_type->elements = ffi_field_types;
+    st->ffi_type = struct_ffi_type;
+
+    // Compute offsets using libffi's layout
+    ffi_cif dummy_cif;
+    ffi_type *dummy_args[1] = { struct_ffi_type };
+    ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 1, &ffi_type_void, dummy_args);
+
+    // Store computed size and alignment
+    st->size = struct_ffi_type->size;
+    st->alignment = struct_ffi_type->alignment;
+
+    // Compute field offsets
+    size_t offset = 0;
+    for (int i = 0; i < num_fields; i++) {
+        size_t field_align = ffi_field_types[i]->alignment;
+        if (field_align > 0) {
+            offset = (offset + field_align - 1) & ~(field_align - 1);
+        }
+        st->fields[i].offset = offset;
+        offset += st->fields[i].size;
+    }
+
+    // Add to registry
+    st->next = g_ffi_struct_registry;
+    g_ffi_struct_registry = st;
+
+    return st;
+}
+
+// Marshal a Hemlock object to C struct memory
+void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type) {
+    if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
+        hml_runtime_error("FFI struct conversion requires an object");
+    }
+
+    HmlObject *o = obj.as.as_object;
+    void *struct_mem = calloc(1, struct_type->size);
+
+    for (int i = 0; i < struct_type->num_fields; i++) {
+        HmlFFIStructField *field = &struct_type->fields[i];
+        void *field_ptr = (char*)struct_mem + field->offset;
+
+        // Look up field in object
+        HmlValue field_val = hml_val_null();
+        for (int j = 0; j < o->num_fields; j++) {
+            if (strcmp(o->field_names[j], field->name) == 0) {
+                field_val = o->field_values[j];
+                break;
+            }
+        }
+
+        // Convert and write field value
+        switch (field->type) {
+            case HML_FFI_I8:
+                *(int8_t*)field_ptr = (int8_t)hml_to_i32(field_val);
+                break;
+            case HML_FFI_I16:
+                *(int16_t*)field_ptr = (int16_t)hml_to_i32(field_val);
+                break;
+            case HML_FFI_I32:
+                *(int32_t*)field_ptr = hml_to_i32(field_val);
+                break;
+            case HML_FFI_I64:
+                *(int64_t*)field_ptr = hml_to_i64(field_val);
+                break;
+            case HML_FFI_U8:
+                *(uint8_t*)field_ptr = (uint8_t)hml_to_i32(field_val);
+                break;
+            case HML_FFI_U16:
+                *(uint16_t*)field_ptr = (uint16_t)hml_to_i32(field_val);
+                break;
+            case HML_FFI_U32:
+                *(uint32_t*)field_ptr = (uint32_t)hml_to_i32(field_val);
+                break;
+            case HML_FFI_U64:
+                *(uint64_t*)field_ptr = (uint64_t)hml_to_i64(field_val);
+                break;
+            case HML_FFI_F32:
+                *(float*)field_ptr = (float)hml_to_f64(field_val);
+                break;
+            case HML_FFI_F64:
+                *(double*)field_ptr = hml_to_f64(field_val);
+                break;
+            case HML_FFI_PTR:
+                if (field_val.type == HML_VAL_PTR) {
+                    *(void**)field_ptr = field_val.as.as_ptr;
+                } else if (field_val.type == HML_VAL_BUFFER) {
+                    *(void**)field_ptr = field_val.as.as_buffer->data;
+                } else {
+                    *(void**)field_ptr = NULL;
+                }
+                break;
+            case HML_FFI_STRING:
+                if (field_val.type == HML_VAL_STRING && field_val.as.as_string) {
+                    *(char**)field_ptr = field_val.as.as_string->data;
+                } else {
+                    *(char**)field_ptr = NULL;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    return struct_mem;
+}
+
+// Marshal C struct memory to a Hemlock object
+HmlValue hml_ffi_struct_to_object(void *struct_ptr, HmlFFIStructType *struct_type) {
+    HmlValue obj = hml_val_object();
+
+    for (int i = 0; i < struct_type->num_fields; i++) {
+        HmlFFIStructField *field = &struct_type->fields[i];
+        void *field_ptr = (char*)struct_ptr + field->offset;
+        HmlValue field_val;
+
+        switch (field->type) {
+            case HML_FFI_I8:
+                field_val = hml_val_i8(*(int8_t*)field_ptr);
+                break;
+            case HML_FFI_I16:
+                field_val = hml_val_i16(*(int16_t*)field_ptr);
+                break;
+            case HML_FFI_I32:
+                field_val = hml_val_i32(*(int32_t*)field_ptr);
+                break;
+            case HML_FFI_I64:
+                field_val = hml_val_i64(*(int64_t*)field_ptr);
+                break;
+            case HML_FFI_U8:
+                field_val = hml_val_u8(*(uint8_t*)field_ptr);
+                break;
+            case HML_FFI_U16:
+                field_val = hml_val_u16(*(uint16_t*)field_ptr);
+                break;
+            case HML_FFI_U32:
+                field_val = hml_val_u32(*(uint32_t*)field_ptr);
+                break;
+            case HML_FFI_U64:
+                field_val = hml_val_u64(*(uint64_t*)field_ptr);
+                break;
+            case HML_FFI_F32:
+                field_val = hml_val_f32(*(float*)field_ptr);
+                break;
+            case HML_FFI_F64:
+                field_val = hml_val_f64(*(double*)field_ptr);
+                break;
+            case HML_FFI_PTR:
+                field_val = hml_val_ptr(*(void**)field_ptr);
+                break;
+            case HML_FFI_STRING: {
+                char *str = *(char**)field_ptr;
+                if (str) {
+                    field_val = hml_val_string(str);
+                } else {
+                    field_val = hml_val_null();
+                }
+                break;
+            }
+            default:
+                field_val = hml_val_null();
+                break;
+        }
+
+        // Add field to object
+        hml_object_set_field(obj, field->name, field_val);
+    }
+
+    return obj;
+}
+
+// Free FFI struct registry on cleanup
+void hml_ffi_struct_cleanup(void) {
+    HmlFFIStructType *st = g_ffi_struct_registry;
+    while (st) {
+        HmlFFIStructType *next = st->next;
+        free((void*)st->name);
+        for (int i = 0; i < st->num_fields; i++) {
+            free((void*)st->fields[i].name);
+        }
+        free(st->fields);
+        if (st->ffi_type) {
+            ffi_type *ft = (ffi_type*)st->ffi_type;
+            free(ft->elements);
+            free(ft);
+        }
+        free(st);
+        st = next;
+    }
+    g_ffi_struct_registry = NULL;
+}
+
 // ========== FFI CALLBACKS ==========
 
 // Structure for FFI callback handle
@@ -7621,6 +8063,9 @@ static void hml_value_to_ffi_storage(HmlValue val, HmlFFIType type, void *storag
         case HML_FFI_STRING:
             *(char**)storage = (val.type == HML_VAL_STRING && val.as.as_string)
                               ? val.as.as_string->data : NULL;
+            break;
+        case HML_FFI_STRUCT:
+            // Struct types are not supported as callback return values
             break;
     }
 }

@@ -513,6 +513,86 @@ static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list) {
     }
 }
 
+// Helper to collect struct definitions used in FFI
+typedef struct FFIStructInfo {
+    char *name;
+    Stmt *define_stmt;  // The STMT_DEFINE_OBJECT
+} FFIStructInfo;
+
+typedef struct FFIStructList {
+    FFIStructInfo *structs;
+    int count;
+    int capacity;
+} FFIStructList;
+
+// Check if a struct name is already in the list
+static int ffi_struct_list_contains(FFIStructList *list, const char *name) {
+    for (int i = 0; i < list->count; i++) {
+        if (strcmp(list->structs[i].name, name) == 0) return 1;
+    }
+    return 0;
+}
+
+// Add struct to list if not already present
+static void ffi_struct_list_add(FFIStructList *list, const char *name, Stmt *define_stmt) {
+    if (ffi_struct_list_contains(list, name)) return;
+    if (list->count >= list->capacity) {
+        list->capacity = list->capacity == 0 ? 8 : list->capacity * 2;
+        list->structs = realloc(list->structs, list->capacity * sizeof(FFIStructInfo));
+    }
+    list->structs[list->count].name = strdup(name);
+    list->structs[list->count].define_stmt = define_stmt;
+    list->count++;
+}
+
+// Find a define statement by name in the statements array
+static Stmt* find_define_stmt(Stmt **stmts, int count, const char *name) {
+    for (int i = 0; i < count; i++) {
+        if (stmts[i]->type == STMT_DEFINE_OBJECT) {
+            if (strcmp(stmts[i]->as.define_object.name, name) == 0) {
+                return stmts[i];
+            }
+        }
+    }
+    return NULL;
+}
+
+// Collect structs used in extern functions
+static void collect_ffi_structs(Stmt **stmts, int stmt_count, ExternFnList *extern_fns, FFIStructList *struct_list) {
+    for (int i = 0; i < extern_fns->count; i++) {
+        Stmt *fn = extern_fns->stmts[i];
+        // Check return type
+        Type *ret_type = fn->as.extern_fn.return_type;
+        if (ret_type && ret_type->kind == TYPE_CUSTOM_OBJECT && ret_type->type_name) {
+            Stmt *def = find_define_stmt(stmts, stmt_count, ret_type->type_name);
+            if (def) {
+                ffi_struct_list_add(struct_list, ret_type->type_name, def);
+            }
+        }
+        // Check param types
+        for (int j = 0; j < fn->as.extern_fn.num_params; j++) {
+            Type *param_type = fn->as.extern_fn.param_types[j];
+            if (param_type && param_type->kind == TYPE_CUSTOM_OBJECT && param_type->type_name) {
+                Stmt *def = find_define_stmt(stmts, stmt_count, param_type->type_name);
+                if (def) {
+                    ffi_struct_list_add(struct_list, param_type->type_name, def);
+                }
+            }
+        }
+    }
+}
+
+// Check if an extern function uses any struct types
+static int extern_fn_uses_structs(Stmt *fn) {
+    Type *ret_type = fn->as.extern_fn.return_type;
+    if (ret_type && ret_type->kind == TYPE_CUSTOM_OBJECT) return 1;
+    for (int j = 0; j < fn->as.extern_fn.num_params; j++) {
+        Type *param_type = fn->as.extern_fn.param_types[j];
+        if (param_type && param_type->kind == TYPE_CUSTOM_OBJECT) return 1;
+    }
+    return 0;
+}
+
 void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     // Multi-pass approach:
     // 1. First pass through imports to compile all modules
@@ -606,6 +686,21 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
     }
 
+    // Pre-pass: Collect extern functions for FFI (need this before main() generation for struct registration)
+    ExternFnList all_extern_fns = {NULL, 0, 0};
+    collect_extern_fn_from_stmts(stmts, stmt_count, &all_extern_fns);
+    if (ctx->module_cache) {
+        CompiledModule *mod = ctx->module_cache->modules;
+        while (mod) {
+            collect_extern_fn_from_stmts(mod->statements, mod->num_statements, &all_extern_fns);
+            mod = mod->next;
+        }
+    }
+
+    // Pre-pass: Collect struct types used in extern functions for FFI struct support
+    FFIStructList ffi_structs = {NULL, 0, 0};
+    collect_ffi_structs(stmts, stmt_count, &all_extern_fns, &ffi_structs);
+
     // Generate module functions first (to collect closures)
     if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;
@@ -652,6 +747,41 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     free(resolved);
                 }
             }
+        }
+        codegen_writeln(ctx, "");
+    }
+
+    // Register FFI struct types (for extern functions that use struct params/returns)
+    if (ffi_structs.count > 0) {
+        codegen_writeln(ctx, "// Register FFI struct types");
+        for (int i = 0; i < ffi_structs.count; i++) {
+            Stmt *def = ffi_structs.structs[i].define_stmt;
+            const char *struct_name = ffi_structs.structs[i].name;
+            int num_fields = def->as.define_object.num_fields;
+
+            // Generate field names array
+            codegen_writeln(ctx, "{");
+            ctx->indent++;
+            codegen_writeln(ctx, "static const char *_ffi_struct_%s_names[%d] = {", struct_name, num_fields > 0 ? num_fields : 1);
+            for (int j = 0; j < num_fields; j++) {
+                codegen_writeln(ctx, "    \"%s\"%s", def->as.define_object.field_names[j], j < num_fields - 1 ? "," : "");
+            }
+            codegen_writeln(ctx, "};");
+
+            // Generate field types array
+            codegen_writeln(ctx, "static HmlFFIType _ffi_struct_%s_types[%d] = {", struct_name, num_fields > 0 ? num_fields : 1);
+            for (int j = 0; j < num_fields; j++) {
+                Type *ftype = def->as.define_object.field_types[j];
+                const char *type_str = ftype ? type_kind_to_ffi_type(ftype->kind) : "HML_FFI_I32";
+                codegen_writeln(ctx, "    %s%s", type_str, j < num_fields - 1 ? "," : "");
+            }
+            codegen_writeln(ctx, "};");
+
+            // Register the struct
+            codegen_writeln(ctx, "hml_ffi_register_struct(\"%s\", _ffi_struct_%s_names, _ffi_struct_%s_types, %d);",
+                          struct_name, struct_name, struct_name, num_fields);
+            ctx->indent--;
+            codegen_writeln(ctx, "}");
         }
         codegen_writeln(ctx, "");
     }
@@ -797,19 +927,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, "#define SIGTSTP_VAL 20\n\n");
 
     // FFI: Global library handle and function pointer declarations
-    // Collect all extern fn declarations recursively (including from block scopes and modules)
-    ExternFnList all_extern_fns = {NULL, 0, 0};
-    collect_extern_fn_from_stmts(stmts, stmt_count, &all_extern_fns);
-
-    // Also collect from imported modules
-    if (ctx->module_cache) {
-        CompiledModule *mod = ctx->module_cache->modules;
-        while (mod) {
-            collect_extern_fn_from_stmts(mod->statements, mod->num_statements, &all_extern_fns);
-            mod = mod->next;
-        }
-    }
-
+    // (all_extern_fns and ffi_structs already collected in pre-pass)
     int has_ffi = 0;
     for (int i = 0; i < stmt_count; i++) {
         if (stmts[i]->type == STMT_IMPORT_FFI) {
@@ -1144,6 +1262,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         const char *fn_name = stmt->as.extern_fn.function_name;
         int num_params = stmt->as.extern_fn.num_params;
         Type *return_type = stmt->as.extern_fn.return_type;
+        int uses_structs = extern_fn_uses_structs(stmt);
 
         codegen_write(ctx, "// FFI wrapper for %s\n", fn_name);
         codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_env", fn_name);
@@ -1171,19 +1290,52 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_write(ctx, "    _types[%d] = %s;\n", j + 1, type_str);
         }
 
+        // Generate struct names array if using structs
+        if (uses_structs) {
+            codegen_write(ctx, "    static const char *_struct_names[%d] = {\n", num_params + 1);
+            // Return type struct name
+            if (return_type && return_type->kind == TYPE_CUSTOM_OBJECT && return_type->type_name) {
+                codegen_write(ctx, "        \"%s\"", return_type->type_name);
+            } else {
+                codegen_write(ctx, "        NULL");
+            }
+            // Param struct names
+            for (int j = 0; j < num_params; j++) {
+                Type *ptype = stmt->as.extern_fn.param_types[j];
+                if (ptype && ptype->kind == TYPE_CUSTOM_OBJECT && ptype->type_name) {
+                    codegen_write(ctx, ",\n        \"%s\"", ptype->type_name);
+                } else {
+                    codegen_write(ctx, ",\n        NULL");
+                }
+            }
+            codegen_write(ctx, "\n    };\n");
+        }
+
         if (num_params > 0) {
             codegen_write(ctx, "    HmlValue _args[%d];\n", num_params);
             for (int j = 0; j < num_params; j++) {
                 codegen_write(ctx, "    _args[%d] = _arg%d;\n", j, j);
             }
-            codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, _args, %d, _types);\n", fn_name, num_params);
+            if (uses_structs) {
+                codegen_write(ctx, "    return hml_ffi_call_with_structs(_ffi_ptr_%s, _args, %d, _types, _struct_names);\n", fn_name, num_params);
+            } else {
+                codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, _args, %d, _types);\n", fn_name, num_params);
+            }
         } else {
-            codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, NULL, 0, _types);\n", fn_name);
+            if (uses_structs) {
+                codegen_write(ctx, "    return hml_ffi_call_with_structs(_ffi_ptr_%s, NULL, 0, _types, _struct_names);\n", fn_name);
+            } else {
+                codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, NULL, 0, _types);\n", fn_name);
+            }
         }
         codegen_write(ctx, "}\n\n");
     }
-    // Free the extern fn list
+    // Free the extern fn list and struct list
     free(all_extern_fns.stmts);
+    for (int i = 0; i < ffi_structs.count; i++) {
+        free(ffi_structs.structs[i].name);
+    }
+    free(ffi_structs.structs);
 
     // Module function implementations (from buffer)
     if (ctx->module_cache && ctx->module_cache->modules) {

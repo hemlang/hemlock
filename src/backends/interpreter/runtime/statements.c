@@ -393,6 +393,21 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
             // Register the type
             register_object_type(type);
+
+            // Also register for FFI if all fields have type annotations
+            // (FFI struct registration is lazy/best-effort - it only fails
+            // when the struct is actually used in an FFI function)
+            int has_all_types = 1;
+            for (int i = 0; i < type->num_fields; i++) {
+                if (type->field_types[i] == NULL) {
+                    has_all_types = 0;
+                    break;
+                }
+            }
+            if (has_all_types && type->num_fields > 0) {
+                ffi_register_struct(type->name, type->field_names,
+                                    type->field_types, type->num_fields);
+            }
             break;
         }
 

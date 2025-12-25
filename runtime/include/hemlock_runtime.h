@@ -640,7 +640,44 @@ typedef enum {
     HML_FFI_F32, HML_FFI_F64,
     HML_FFI_PTR,
     HML_FFI_STRING,
+    HML_FFI_STRUCT,  // Struct type (requires struct metadata)
 } HmlFFIType;
+
+// FFI struct field descriptor
+typedef struct {
+    const char *name;       // Field name
+    HmlFFIType type;        // Field type
+    size_t offset;          // Byte offset within struct (computed)
+    size_t size;            // Field size in bytes
+} HmlFFIStructField;
+
+// FFI struct type descriptor
+typedef struct HmlFFIStructType {
+    const char *name;           // Struct type name (e.g., "Point")
+    HmlFFIStructField *fields;  // Array of field descriptors
+    int num_fields;             // Number of fields
+    size_t size;                // Total struct size (with padding)
+    size_t alignment;           // Struct alignment requirement
+    void *ffi_type;             // Cached libffi ffi_type_struct (opaque)
+    struct HmlFFIStructType *next;  // Next in registry linked list
+} HmlFFIStructType;
+
+// Register a struct type for FFI use (computes layout automatically)
+HmlFFIStructType* hml_ffi_register_struct(const char *name, const char **field_names,
+                                           HmlFFIType *field_types, int num_fields);
+
+// Look up a registered struct type by name
+HmlFFIStructType* hml_ffi_lookup_struct(const char *name);
+
+// Marshal a Hemlock object to C struct memory
+// Returns pointer to allocated struct (caller must free)
+void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type);
+
+// Marshal C struct memory to a Hemlock object
+HmlValue hml_ffi_struct_to_object(void *struct_ptr, HmlFFIStructType *struct_type);
+
+// Free FFI struct registry on cleanup
+void hml_ffi_struct_cleanup(void);
 
 // Load a shared library, returns opaque handle
 HmlValue hml_ffi_load(const char *path);
@@ -654,6 +691,11 @@ void* hml_ffi_sym(HmlValue lib, const char *name);
 // Call an FFI function with given arguments and types
 // types array contains: [return_type, arg1_type, arg2_type, ...]
 HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *types);
+
+// Call an FFI function with struct support
+// struct_names: array of struct type names (NULL for non-struct types), indexed same as types
+HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
+                                    HmlFFIType *types, const char **struct_names);
 
 // ========== FFI CALLBACKS ==========
 
