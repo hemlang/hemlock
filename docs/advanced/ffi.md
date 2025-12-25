@@ -13,6 +13,7 @@ Hemlock provides **FFI (Foreign Function Interface)** to call C functions from s
 - [Future Development](#future-development)
 - [FFI Callbacks](#ffi-callbacks)
 - [FFI Structs](#ffi-structs)
+- [Exporting Struct Types](#exporting-struct-types)
 - [Current Limitations](#current-limitations)
 - [Best Practices](#best-practices)
 
@@ -702,6 +703,45 @@ print(p.y);  // 0.0
 - **No unions** - only struct types are supported
 - **Callbacks cannot return structs** - use pointers for callback return values
 
+### Exporting Struct Types
+
+You can export struct type definitions from a module using `export define`:
+
+```hemlock
+// geometry.hml
+export define Vector2 {
+    x: f32,
+    y: f32,
+}
+
+export define Rectangle {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+export fn create_rect(x: f32, y: f32, w: f32, h: f32): Rectangle {
+    return { x: x, y: y, width: w, height: h };
+}
+```
+
+**Important:** Exported struct types are registered **globally** when the module is loaded. They become available automatically when you import anything from the module. You do NOT need to (and cannot) explicitly import them by name:
+
+```hemlock
+// main.hml
+
+// GOOD - struct types are auto-available after any import from the module
+import { create_rect } from "./geometry.hml";
+let v: Vector2 = { x: 1.0, y: 2.0 };      // Works - Vector2 is globally available
+let r: Rectangle = create_rect(0.0, 0.0, 100.0, 50.0);  // Works
+
+// BAD - cannot explicitly import struct types by name
+import { Vector2 } from "./geometry.hml";  // Error: Undefined variable 'Vector2'
+```
+
+This behavior exists because struct types are registered in the global type registry when the module loads, rather than being stored as values in the module's export environment. The type becomes available to all code that imports from the module.
+
 ## Current Limitations
 
 FFI has the following limitations:
@@ -786,10 +826,12 @@ Hemlock's FFI provides:
 - ✅ Foundation for native library integration
 - ✅ **Function pointer callbacks** - pass Hemlock functions to C
 - ✅ **Export extern functions** - share FFI bindings across modules
+- ✅ **Struct passing and return** - pass C-compatible structs by value
+- ✅ **Export define** - share struct type definitions across modules (auto-imported globally)
 
-**Current status:** FFI available with primitive types, callback support, and module exports
+**Current status:** FFI available with primitive types, structs, callback support, and module exports
 
-**Future:** Structs, arrays, string marshaling
+**Future:** Arrays, string marshaling
 
 **Use cases:** System libraries, third-party libraries, qsort, event loops, callback-based APIs, reusable library wrappers
 

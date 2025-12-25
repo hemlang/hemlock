@@ -45,6 +45,35 @@ export extern fn getpid(): i32;
 
 See [FFI Documentation](../advanced/ffi.md#exporting-ffi-functions) for more details on exporting FFI functions.
 
+**Export Define (Struct Types):**
+```hemlock
+// Export struct type definitions
+export define Vector2 {
+    x: f32,
+    y: f32,
+}
+
+export define Rectangle {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+```
+
+**Important:** Exported struct types are registered globally when the module is loaded. They become available automatically when you import anything from the module - you do NOT need to (and cannot) explicitly import them by name:
+
+```hemlock
+// GOOD - struct types are auto-available after any import
+import { some_function } from "./my_module.hml";
+let v: Vector2 = { x: 1.0, y: 2.0 };  // Works!
+
+// BAD - cannot explicitly import struct types
+import { Vector2 } from "./my_module.hml";  // Error: Undefined variable 'Vector2'
+```
+
+See [FFI Documentation](../advanced/ffi.md#exporting-struct-types) for more details on exporting struct types.
+
 **Re-exports:**
 ```hemlock
 // Re-export from another module

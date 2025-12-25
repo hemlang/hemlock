@@ -4,6 +4,7 @@
 
 Stmt* statement(Parser *p);
 Stmt* extern_fn_statement(Parser *p);
+Stmt* define_statement(Parser *p);
 
 Stmt* let_statement(Parser *p) {
     consume(p, TOK_IDENT, "Expect variable name");
@@ -439,6 +440,12 @@ Stmt* export_statement(Parser *p) {
         return stmt_export_declaration(extern_stmt);
     }
 
+    // Export define: export define TypeName { ... }
+    if (match(p, TOK_DEFINE)) {
+        Stmt *define_stmt = define_statement(p);
+        return stmt_export_declaration(define_stmt);
+    }
+
     // Named function: export fn name(...) or export async fn name(...)
     int is_async = 0;
     if (match(p, TOK_ASYNC)) {
@@ -577,6 +584,95 @@ Stmt* extern_fn_statement(Parser *p) {
     return stmt;
 }
 
+Stmt* define_statement(Parser *p) {
+    // Object type definition: define TypeName { ... }
+    consume(p, TOK_IDENT, "Expect object type name");
+    char *name = token_text(&p->previous);
+
+    consume(p, TOK_LBRACE, "Expect '{' after type name");
+
+    // Parse fields
+    int field_capacity = 32;
+    char **field_names = malloc(sizeof(char*) * field_capacity);
+    Type **field_types = malloc(sizeof(Type*) * field_capacity);
+    int *field_optional = malloc(sizeof(int) * field_capacity);
+    Expr **field_defaults = malloc(sizeof(Expr*) * field_capacity);
+    int num_fields = 0;
+
+    while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Grow arrays if needed
+        if (num_fields >= field_capacity) {
+            field_capacity *= 2;
+            field_names = realloc(field_names, sizeof(char*) * field_capacity);
+            field_types = realloc(field_types, sizeof(Type*) * field_capacity);
+            field_optional = realloc(field_optional, sizeof(int) * field_capacity);
+            field_defaults = realloc(field_defaults, sizeof(Expr*) * field_capacity);
+        }
+        consume(p, TOK_IDENT, "Expect field name");
+        field_names[num_fields] = token_text(&p->previous);
+
+        // Check for optional marker followed by colon (?: syntax)
+        if (match(p, TOK_QUESTION)) {
+            field_optional[num_fields] = 1;
+
+            if (match(p, TOK_COLON)) {
+                // ?: could mean:
+                // 1. Optional with type: name?: string
+                // 2. Optional with default: name?: true
+                // Check if current token is a type keyword
+                if (check(p, TOK_TYPE_I8) || check(p, TOK_TYPE_I16) || check(p, TOK_TYPE_I32) ||
+                    check(p, TOK_TYPE_U8) || check(p, TOK_TYPE_U16) || check(p, TOK_TYPE_U32) ||
+                    check(p, TOK_TYPE_F32) || check(p, TOK_TYPE_F64) ||
+                    check(p, TOK_TYPE_INTEGER) || check(p, TOK_TYPE_NUMBER) || check(p, TOK_TYPE_BYTE) ||
+                    check(p, TOK_TYPE_BOOL) || check(p, TOK_TYPE_STRING) || check(p, TOK_TYPE_RUNE) ||
+                    check(p, TOK_TYPE_PTR) || check(p, TOK_TYPE_BUFFER) ||
+                    check(p, TOK_OBJECT) || check(p, TOK_IDENT)) {
+                    // It's a type
+                    field_types[num_fields] = parse_type(p);
+                    // Optional type with no default (defaults to null)
+                    field_defaults[num_fields] = NULL;
+                } else {
+                    // It's a default value expression
+                    field_types[num_fields] = NULL;  // infer type from default
+                    field_defaults[num_fields] = expression(p);
+                }
+            } else {
+                // Just ? with no :, means optional with no type or default
+                field_types[num_fields] = NULL;
+                field_defaults[num_fields] = NULL;
+            }
+        } else {
+            // Not optional
+            field_optional[num_fields] = 0;
+
+            // Check for type annotation
+            if (match(p, TOK_COLON)) {
+                field_types[num_fields] = parse_type(p);
+            } else {
+                field_types[num_fields] = NULL;  // dynamic field
+            }
+
+            // Check for default value
+            if (match(p, TOK_EQUAL)) {
+                field_defaults[num_fields] = expression(p);
+            } else {
+                field_defaults[num_fields] = NULL;
+            }
+        }
+
+        num_fields++;
+
+        if (!match(p, TOK_COMMA)) break;
+    }
+
+    consume(p, TOK_RBRACE, "Expect '}' after fields");
+
+    Stmt *stmt = stmt_define_object(name, field_names, field_types,
+                                   field_optional, field_defaults, num_fields);
+    free(name);
+    return stmt;
+}
+
 Stmt* statement(Parser *p) {
     if (match(p, TOK_LET)) {
         return let_statement(p);
@@ -588,91 +684,7 @@ Stmt* statement(Parser *p) {
 
     // Object type definition: define TypeName { ... }
     if (match(p, TOK_DEFINE)) {
-        consume(p, TOK_IDENT, "Expect object type name");
-        char *name = token_text(&p->previous);
-
-        consume(p, TOK_LBRACE, "Expect '{' after type name");
-
-        // Parse fields
-        int field_capacity = 32;
-        char **field_names = malloc(sizeof(char*) * field_capacity);
-        Type **field_types = malloc(sizeof(Type*) * field_capacity);
-        int *field_optional = malloc(sizeof(int) * field_capacity);
-        Expr **field_defaults = malloc(sizeof(Expr*) * field_capacity);
-        int num_fields = 0;
-
-        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
-            // Grow arrays if needed
-            if (num_fields >= field_capacity) {
-                field_capacity *= 2;
-                field_names = realloc(field_names, sizeof(char*) * field_capacity);
-                field_types = realloc(field_types, sizeof(Type*) * field_capacity);
-                field_optional = realloc(field_optional, sizeof(int) * field_capacity);
-                field_defaults = realloc(field_defaults, sizeof(Expr*) * field_capacity);
-            }
-            consume(p, TOK_IDENT, "Expect field name");
-            field_names[num_fields] = token_text(&p->previous);
-
-            // Check for optional marker followed by colon (?: syntax)
-            if (match(p, TOK_QUESTION)) {
-                field_optional[num_fields] = 1;
-
-                if (match(p, TOK_COLON)) {
-                    // ?: could mean:
-                    // 1. Optional with type: name?: string
-                    // 2. Optional with default: name?: true
-                    // Check if current token is a type keyword
-                    if (check(p, TOK_TYPE_I8) || check(p, TOK_TYPE_I16) || check(p, TOK_TYPE_I32) ||
-                        check(p, TOK_TYPE_U8) || check(p, TOK_TYPE_U16) || check(p, TOK_TYPE_U32) ||
-                        check(p, TOK_TYPE_F32) || check(p, TOK_TYPE_F64) ||
-                        check(p, TOK_TYPE_INTEGER) || check(p, TOK_TYPE_NUMBER) || check(p, TOK_TYPE_BYTE) ||
-                        check(p, TOK_TYPE_BOOL) || check(p, TOK_TYPE_STRING) || check(p, TOK_TYPE_RUNE) ||
-                        check(p, TOK_TYPE_PTR) || check(p, TOK_TYPE_BUFFER) ||
-                        check(p, TOK_OBJECT) || check(p, TOK_IDENT)) {
-                        // It's a type
-                        field_types[num_fields] = parse_type(p);
-                        // Optional type with no default (defaults to null)
-                        field_defaults[num_fields] = NULL;
-                    } else {
-                        // It's a default value expression
-                        field_types[num_fields] = NULL;  // infer type from default
-                        field_defaults[num_fields] = expression(p);
-                    }
-                } else {
-                    // Just ? with no :, means optional with no type or default
-                    field_types[num_fields] = NULL;
-                    field_defaults[num_fields] = NULL;
-                }
-            } else {
-                // Not optional
-                field_optional[num_fields] = 0;
-
-                // Check for type annotation
-                if (match(p, TOK_COLON)) {
-                    field_types[num_fields] = parse_type(p);
-                } else {
-                    field_types[num_fields] = NULL;  // dynamic field
-                }
-
-                // Check for default value
-                if (match(p, TOK_EQUAL)) {
-                    field_defaults[num_fields] = expression(p);
-                } else {
-                    field_defaults[num_fields] = NULL;
-                }
-            }
-
-            num_fields++;
-
-            if (!match(p, TOK_COMMA)) break;
-        }
-
-        consume(p, TOK_RBRACE, "Expect '}' after fields");
-
-        Stmt *stmt = stmt_define_object(name, field_names, field_types,
-                                       field_optional, field_defaults, num_fields);
-        free(name);
-        return stmt;
+        return define_statement(p);
     }
 
     // Enum definition: enum EnumName { ... }
