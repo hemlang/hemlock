@@ -1,0 +1,21 @@
+// Simple hello world test
+let x = 42;
+let name = "World";
+print(`Hello, ${name}! Answer is ${x}`);
+
+// Basic math
+let a = 10;
+let b = 20;
+let sum = a + b;
+print(`Sum: ${sum}`);
+
+// Array operations
+let arr = [1, 2, 3, 4, 5];
+print(`Array length: ${arr.length()}`);
+
+// Simple function
+fn double(n) {
+    return n * 2;
+}
+
+print(`Double of 21: ${double(21)}`);
