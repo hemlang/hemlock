@@ -1,0 +1,141 @@
+// Test pattern matching
+
+// Test 1: Simple literal patterns
+fn test_literals() {
+    match (42) {
+        42 => print("matched 42");
+        _ => print("no match");
+    }
+
+    match ("hello") {
+        "hello" => print("matched hello");
+        "world" => print("matched world");
+        _ => print("no match");
+    }
+
+    match (true) {
+        true => print("matched true");
+        false => print("matched false");
+    }
+}
+
+// Test 2: Wildcard pattern
+fn test_wildcard() {
+    match (123) {
+        _ => print("wildcard matches anything");
+    }
+}
+
+// Test 3: Variable binding pattern
+fn test_binding() {
+    match (100) {
+        x => print(x);
+    }
+
+    match ("value") {
+        s => print(s);
+    }
+}
+
+// Test 4: Guard expressions
+fn test_guards() {
+    let n = 15;
+    match (n) {
+        x if x < 10 => print("small");
+        x if x < 20 => print("medium");
+        x => print("large");
+    }
+
+    let m = 5;
+    match (m) {
+        x if x < 10 => print("small");
+        x if x < 20 => print("medium");
+        x => print("large");
+    }
+
+    let l = 50;
+    match (l) {
+        x if x < 10 => print("small");
+        x if x < 20 => print("medium");
+        x => print("large");
+    }
+}
+
+// Test 5: Range patterns
+fn test_range() {
+    let age = 15;
+    match (age) {
+        0..12 => print("child");
+        13..19 => print("teen");
+        20..64 => print("adult");
+        _ => print("senior");
+    }
+
+    let age2 = 5;
+    match (age2) {
+        0..12 => print("child");
+        13..19 => print("teen");
+        _ => print("older");
+    }
+
+    let age3 = 70;
+    match (age3) {
+        0..12 => print("child");
+        13..19 => print("teen");
+        20..64 => print("adult");
+        _ => print("senior");
+    }
+}
+
+// Test 6: Array destructuring
+fn test_array() {
+    let arr = [1, 2, 3];
+    match (arr) {
+        [a, b, c] => {
+            print(a);
+            print(b);
+            print(c);
+        }
+        _ => print("no match");
+    }
+
+    let arr2 = [10, 20];
+    match (arr2) {
+        [x, y] => {
+            print(x + y);
+        }
+        _ => print("no match");
+    }
+}
+
+// Test 7: Object destructuring
+fn test_object() {
+    let obj = { name: "Alice", age: 30 };
+    match (obj) {
+        { name: n, age: a } => {
+            print(n);
+            print(a);
+        }
+        _ => print("no match");
+    }
+}
+
+// Test 8: No match (falls through)
+fn test_no_match() {
+    match (999) {
+        1 => print("one");
+        2 => print("two");
+        3 => print("three");
+    }
+    print("after match");
+}
+
+// Run all tests
+test_literals();
+test_wildcard();
+test_binding();
+test_guards();
+test_range();
+test_array();
+test_object();
+test_no_match();

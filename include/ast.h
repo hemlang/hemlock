@@ -190,6 +190,54 @@ struct Expr {
     } as;
 };
 
+// ========== PATTERN TYPES (for match expressions) ==========
+
+typedef enum {
+    PATTERN_LITERAL,    // Match a literal value (number, string, bool, null)
+    PATTERN_WILDCARD,   // Match anything (_)
+    PATTERN_BINDING,    // Bind matched value to a variable name
+    PATTERN_ARRAY,      // Destructure an array [a, b, c] or [first, ...rest]
+    PATTERN_OBJECT,     // Destructure an object { x, y }
+    PATTERN_RANGE,      // Match a range (start..end)
+    PATTERN_TYPE,       // Match a type (is i32, is string)
+    PATTERN_OR,         // Match one of multiple patterns (pat1 | pat2)
+} PatternType;
+
+typedef struct Pattern Pattern;
+
+struct Pattern {
+    PatternType type;
+    int line;  // Source line number (for error reporting)
+    union {
+        Expr *literal;              // PATTERN_LITERAL: literal expression to match
+        struct {
+            char *name;             // PATTERN_BINDING: variable name to bind
+        } binding;
+        struct {
+            Pattern **elements;     // PATTERN_ARRAY: array of patterns
+            int num_elements;
+            char *rest_name;        // Name for ...rest pattern (NULL if none)
+        } array;
+        struct {
+            char **field_names;     // PATTERN_OBJECT: field names to match
+            Pattern **field_patterns; // Patterns for each field (or NULL for shorthand)
+            int num_fields;
+            char *rest_name;        // Name for ...rest pattern (NULL if none)
+        } object;
+        struct {
+            Expr *start;            // PATTERN_RANGE: start value (inclusive)
+            Expr *end;              // PATTERN_RANGE: end value (inclusive)
+        } range;
+        struct {
+            Type *match_type;       // PATTERN_TYPE: type to match against
+        } type_pattern;
+        struct {
+            Pattern **patterns;     // PATTERN_OR: array of alternative patterns
+            int num_patterns;
+        } or_pattern;
+    } as;
+};
+
 // Type representation
 typedef enum {
     TYPE_I8,
@@ -243,6 +291,7 @@ typedef enum {
     STMT_TRY,
     STMT_THROW,
     STMT_SWITCH,
+    STMT_MATCH,
     STMT_DEFER,
     STMT_IMPORT,
     STMT_EXPORT,
@@ -324,6 +373,13 @@ struct Stmt {
             Stmt **case_bodies;      // Array of case body statements
             int num_cases;
         } switch_stmt;
+        struct {
+            Expr *expr;              // Expression to match against
+            Pattern **patterns;      // Array of patterns for each arm
+            Expr **guards;           // Array of guard expressions (NULL if no guard)
+            Stmt **bodies;           // Array of arm body statements
+            int num_arms;
+        } match_stmt;
         struct {
             Expr *call;              // Function call expression to defer
         } defer_stmt;
@@ -410,7 +466,19 @@ Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, i
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);
 Stmt* stmt_throw(Expr *value);
 Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_cases);
+Stmt* stmt_match(Expr *expr, Pattern **patterns, Expr **guards, Stmt **bodies, int num_arms);
 Stmt* stmt_defer(Expr *call);
+
+// Pattern constructors
+Pattern* pattern_literal(Expr *literal);
+Pattern* pattern_wildcard(void);
+Pattern* pattern_binding(const char *name);
+Pattern* pattern_array(Pattern **elements, int num_elements, const char *rest_name);
+Pattern* pattern_object(char **field_names, Pattern **field_patterns, int num_fields, const char *rest_name);
+Pattern* pattern_range(Expr *start, Expr *end);
+Pattern* pattern_type(Type *match_type);
+Pattern* pattern_or(Pattern **patterns, int num_patterns);
+void pattern_free(Pattern *pattern);
 Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_imports, const char *module_path);
 Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path);
 Stmt* stmt_import_star(const char *module_path);

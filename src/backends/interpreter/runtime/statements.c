@@ -634,6 +634,61 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             break;
         }
 
+        case STMT_MATCH: {
+            // Evaluate the match expression
+            Value match_value = eval_expr(stmt->as.match_stmt.expr, env, ctx);
+            // Check for exception after evaluating match expression
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(match_value);
+                break;
+            }
+
+            // Try to match each arm
+            int matched = 0;
+            for (int i = 0; i < stmt->as.match_stmt.num_arms; i++) {
+                // Create a new environment for pattern bindings
+                Environment *arm_env = env_new(env);
+
+                // Try to match the pattern
+                if (pattern_match(stmt->as.match_stmt.patterns[i], match_value, arm_env, ctx)) {
+                    // Pattern matched - check guard if present
+                    if (stmt->as.match_stmt.guards[i]) {
+                        Value guard_result = eval_expr(stmt->as.match_stmt.guards[i], arm_env, ctx);
+                        if (ctx->exception_state.is_throwing) {
+                            VALUE_RELEASE(guard_result);
+                            env_release(arm_env);
+                            VALUE_RELEASE(match_value);
+                            break;
+                        }
+                        int guard_truthy = VALUE_IS_TRUTHY_FAST(guard_result);
+                        VALUE_RELEASE(guard_result);
+                        if (!guard_truthy) {
+                            // Guard failed, try next arm
+                            env_release(arm_env);
+                            continue;
+                        }
+                    }
+
+                    // Guard passed (or no guard) - execute the arm body
+                    eval_stmt(stmt->as.match_stmt.bodies[i], arm_env, ctx);
+                    env_release(arm_env);
+                    matched = 1;
+                    break;
+                }
+
+                env_release(arm_env);
+            }
+
+            // Check for exception from pattern matching or guard evaluation
+            if (ctx->exception_state.is_throwing) {
+                // Exception already handled above
+                break;
+            }
+
+            VALUE_RELEASE(match_value);
+            break;
+        }
+
         case STMT_DEFER: {
             // Push the deferred call onto the defer stack
             // It will be executed when the function returns (or exits with exception)

@@ -175,6 +175,65 @@ Stmt* switch_statement(Parser *p) {
     return stmt_switch(expr, case_values, case_bodies, num_cases);
 }
 
+Stmt* match_statement(Parser *p) {
+    // match (expr) { pattern => body; pattern if guard => body; }
+    consume(p, TOK_LPAREN, "Expect '(' after 'match'");
+    Expr *expr = expression(p);
+    consume(p, TOK_RPAREN, "Expect ')' after match expression");
+    consume(p, TOK_LBRACE, "Expect '{' after match expression");
+
+    // Parse arms
+    int capacity = 32;
+    Pattern **patterns = malloc(sizeof(Pattern*) * capacity);
+    Expr **guards = malloc(sizeof(Expr*) * capacity);
+    Stmt **bodies = malloc(sizeof(Stmt*) * capacity);
+    int num_arms = 0;
+
+    while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Grow arrays if needed
+        if (num_arms >= capacity) {
+            capacity *= 2;
+            patterns = realloc(patterns, sizeof(Pattern*) * capacity);
+            guards = realloc(guards, sizeof(Expr*) * capacity);
+            bodies = realloc(bodies, sizeof(Stmt*) * capacity);
+        }
+
+        // Parse pattern
+        patterns[num_arms] = parse_pattern(p);
+
+        // Check for optional guard: if condition
+        if (match(p, TOK_IF)) {
+            guards[num_arms] = expression(p);
+        } else {
+            guards[num_arms] = NULL;
+        }
+
+        // Expect fat arrow
+        consume(p, TOK_FAT_ARROW, "Expect '=>' after pattern");
+
+        // Parse arm body - can be block or single statement/expression
+        if (check(p, TOK_LBRACE)) {
+            advance(p);
+            bodies[num_arms] = block_statement(p);
+        } else {
+            // Single expression followed by semicolon or comma
+            Expr *body_expr = expression(p);
+            bodies[num_arms] = stmt_expr(body_expr);
+            // Allow optional semicolon or comma
+            if (!check(p, TOK_RBRACE) && !check(p, TOK_COMMA)) {
+                consume(p, TOK_SEMICOLON, "Expect ';' or ',' after match arm body");
+            } else if (match(p, TOK_COMMA)) {
+                // Comma is fine, continue
+            }
+        }
+
+        num_arms++;
+    }
+
+    consume(p, TOK_RBRACE, "Expect '}' after match body");
+    return stmt_match(expr, patterns, guards, bodies, num_arms);
+}
+
 Stmt* for_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
@@ -907,6 +966,10 @@ not_function:
 
     if (match(p, TOK_SWITCH)) {
         return switch_statement(p);
+    }
+
+    if (match(p, TOK_MATCH)) {
+        return match_statement(p);
     }
 
     if (match(p, TOK_IMPORT)) {

@@ -354,4 +354,17 @@ char* module_gen_prefix(ModuleCache *cache);
 // Set the module cache for a codegen context
 void codegen_set_module_cache(CodegenContext *ctx, ModuleCache *cache);
 
+// ========== PATTERN MATCHING (codegen_pattern.c) ==========
+
+// Generate pattern matching check code
+// Sets matched_var to 1 if pattern matches, 0 otherwise
+void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern,
+                           const char *value_var, const char *matched_var);
+
+// Generate variable bindings for a matched pattern
+void codegen_pattern_bindings(CodegenContext *ctx, Pattern *pattern, const char *value_var);
+
+// Release pattern-bound variables
+void codegen_pattern_release_bindings(CodegenContext *ctx, Pattern *pattern);
+
 #endif // HEMLOCK_CODEGEN_H

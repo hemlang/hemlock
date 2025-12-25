@@ -481,6 +481,18 @@ Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_ca
     return stmt;
 }
 
+Stmt* stmt_match(Expr *expr, Pattern **patterns, Expr **guards, Stmt **bodies, int num_arms) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_MATCH;
+    stmt->line = 0;
+    stmt->as.match_stmt.expr = expr;
+    stmt->as.match_stmt.patterns = patterns;
+    stmt->as.match_stmt.guards = guards;
+    stmt->as.match_stmt.bodies = bodies;
+    stmt->as.match_stmt.num_arms = num_arms;
+    return stmt;
+}
+
 Stmt* stmt_defer(Expr *call) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFER;
@@ -586,6 +598,125 @@ Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_para
     stmt->as.extern_fn.num_params = num_params;
     stmt->as.extern_fn.return_type = return_type;
     return stmt;
+}
+
+// ========== PATTERN CONSTRUCTORS ==========
+
+Pattern* pattern_literal(Expr *literal) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_LITERAL;
+    pattern->line = 0;
+    pattern->as.literal = literal;
+    return pattern;
+}
+
+Pattern* pattern_wildcard(void) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_WILDCARD;
+    pattern->line = 0;
+    return pattern;
+}
+
+Pattern* pattern_binding(const char *name) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_BINDING;
+    pattern->line = 0;
+    pattern->as.binding.name = strdup(name);
+    return pattern;
+}
+
+Pattern* pattern_array(Pattern **elements, int num_elements, const char *rest_name) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_ARRAY;
+    pattern->line = 0;
+    pattern->as.array.elements = elements;
+    pattern->as.array.num_elements = num_elements;
+    pattern->as.array.rest_name = rest_name ? strdup(rest_name) : NULL;
+    return pattern;
+}
+
+Pattern* pattern_object(char **field_names, Pattern **field_patterns, int num_fields, const char *rest_name) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_OBJECT;
+    pattern->line = 0;
+    pattern->as.object.field_names = field_names;
+    pattern->as.object.field_patterns = field_patterns;
+    pattern->as.object.num_fields = num_fields;
+    pattern->as.object.rest_name = rest_name ? strdup(rest_name) : NULL;
+    return pattern;
+}
+
+Pattern* pattern_range(Expr *start, Expr *end) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_RANGE;
+    pattern->line = 0;
+    pattern->as.range.start = start;
+    pattern->as.range.end = end;
+    return pattern;
+}
+
+Pattern* pattern_type(Type *match_type) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_TYPE;
+    pattern->line = 0;
+    pattern->as.type_pattern.match_type = match_type;
+    return pattern;
+}
+
+Pattern* pattern_or(Pattern **patterns, int num_patterns) {
+    Pattern *pattern = malloc(sizeof(Pattern));
+    pattern->type = PATTERN_OR;
+    pattern->line = 0;
+    pattern->as.or_pattern.patterns = patterns;
+    pattern->as.or_pattern.num_patterns = num_patterns;
+    return pattern;
+}
+
+void pattern_free(Pattern *pattern) {
+    if (!pattern) return;
+
+    switch (pattern->type) {
+        case PATTERN_LITERAL:
+            expr_free(pattern->as.literal);
+            break;
+        case PATTERN_WILDCARD:
+            // Nothing to free
+            break;
+        case PATTERN_BINDING:
+            free(pattern->as.binding.name);
+            break;
+        case PATTERN_ARRAY:
+            for (int i = 0; i < pattern->as.array.num_elements; i++) {
+                pattern_free(pattern->as.array.elements[i]);
+            }
+            free(pattern->as.array.elements);
+            free(pattern->as.array.rest_name);
+            break;
+        case PATTERN_OBJECT:
+            for (int i = 0; i < pattern->as.object.num_fields; i++) {
+                free(pattern->as.object.field_names[i]);
+                pattern_free(pattern->as.object.field_patterns[i]);
+            }
+            free(pattern->as.object.field_names);
+            free(pattern->as.object.field_patterns);
+            free(pattern->as.object.rest_name);
+            break;
+        case PATTERN_RANGE:
+            expr_free(pattern->as.range.start);
+            expr_free(pattern->as.range.end);
+            break;
+        case PATTERN_TYPE:
+            type_free(pattern->as.type_pattern.match_type);
+            break;
+        case PATTERN_OR:
+            for (int i = 0; i < pattern->as.or_pattern.num_patterns; i++) {
+                pattern_free(pattern->as.or_pattern.patterns[i]);
+            }
+            free(pattern->as.or_pattern.patterns);
+            break;
+    }
+
+    free(pattern);
 }
 
 // ========== CLONING ==========
@@ -1035,6 +1166,17 @@ void stmt_free(Stmt *stmt) {
             }
             free(stmt->as.switch_stmt.case_values);
             free(stmt->as.switch_stmt.case_bodies);
+            break;
+        case STMT_MATCH:
+            expr_free(stmt->as.match_stmt.expr);
+            for (int i = 0; i < stmt->as.match_stmt.num_arms; i++) {
+                pattern_free(stmt->as.match_stmt.patterns[i]);
+                expr_free(stmt->as.match_stmt.guards[i]);  // NULL if no guard
+                stmt_free(stmt->as.match_stmt.bodies[i]);
+            }
+            free(stmt->as.match_stmt.patterns);
+            free(stmt->as.match_stmt.guards);
+            free(stmt->as.match_stmt.bodies);
             break;
         case STMT_DEFER:
             expr_free(stmt->as.defer_stmt.call);
