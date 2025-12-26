@@ -51,16 +51,8 @@ jobs:
         make
         make stdlib || true
 
-    - name: Run basic tests
-      run: |
-        ./hemlock tests/loops/for_basic.hml
-        ./hemlock tests/bools/operators.hml
-        ./hemlock tests/arrays/basic.hml
-        ./hemlock tests/strings/basic.hml
-
     - name: Run interpreter tests
       run: make test
-      continue-on-error: true  # May have platform-specific failures initially
 
   # Compiler tests
   compiler:
