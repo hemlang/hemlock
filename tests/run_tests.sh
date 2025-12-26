@@ -19,7 +19,7 @@ fi
 
 # Tests/categories to skip on Windows (platform-specific features)
 WINDOWS_SKIP_CATEGORIES="ffi ffi_callbacks stdlib_crypto stdlib_regex stdlib_sqlite stdlib_ipc signals networking stdlib_net"
-WINDOWS_SKIP_TESTS="io/append_file.hml io/directory_navigation.hml io/directory_ops.hml io/edge_closed_file_ops.hml io/edge_read_zero_bytes.hml io/edge_seek_bounds.hml io/edge_write_zero_bytes.hml io/exists.hml io/file_info.hml io/file_management.hml io/read_write_file.hml async_io/async_fs.hml async_io/ipv6_socket.hml async_io/nonblocking_socket.hml async_io/poll_basic.hml stdlib_env/test_env_vars.hml stdlib_hash/test_file_checksum.hml stdlib_json/integration_test.hml stdlib_process/basic_test.hml stdlib_time/test_sleep.hml stdlib_uuid/uuid.hml exec/test_exec_final.hml"
+WINDOWS_SKIP_TESTS="io/append_file.hml io/directory_navigation.hml io/directory_ops.hml io/edge_closed_file_ops.hml io/edge_read_zero_bytes.hml io/edge_seek_bounds.hml io/edge_write_zero_bytes.hml io/exists.hml io/file_info.hml io/file_management.hml io/read_write_file.hml async_io/async_fs.hml async_io/ipv6_socket.hml async_io/nonblocking_socket.hml async_io/poll_basic.hml stdlib_env/test_env_vars.hml stdlib_hash/test_file_checksum.hml stdlib_json/integration_test.hml stdlib_process/basic_test.hml stdlib_time/test_sleep.hml stdlib_uuid/uuid.hml exec/test_exec_final.hml functions/edge_recursive_no_base.hml"
 
 # Cross-platform millisecond timestamp
 # macOS date doesn't support %N, so we need alternatives
