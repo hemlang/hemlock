@@ -33,8 +33,7 @@
 #include <sys/types.h>
 
 /* Windows compatibility stubs */
-typedef int pid_t;
-typedef long ssize_t;
+/* Note: pid_t and ssize_t are already defined by MinGW */
 
 /* Directory operations */
 typedef struct {
