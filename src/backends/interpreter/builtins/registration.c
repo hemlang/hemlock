@@ -1,14 +1,7 @@
 #include "internal.h"
 
-#ifdef HML_WINDOWS
-/* Windows doesn't have poll.h - define constants for compatibility */
-#define POLLIN   0x0001
-#define POLLOUT  0x0004
-#define POLLERR  0x0008
-#define POLLHUP  0x0010
-#define POLLNVAL 0x0020
-#define POLLPRI  0x0002
-#else
+#ifndef HML_WINDOWS
+/* POSIX poll.h - Windows has these in winsock2.h */
 #include <poll.h>
 #endif
 
@@ -323,12 +316,14 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "__INF", val_f64(INFINITY), ctx);
     env_set(env, "__NAN", val_f64(NAN), ctx);
 
-    // Signal constants
+    // Signal constants - available on all platforms
     env_set(env, "SIGINT", val_i32(SIGINT), ctx);      // Interrupt (Ctrl+C)
     env_set(env, "SIGTERM", val_i32(SIGTERM), ctx);    // Termination request
+    env_set(env, "SIGABRT", val_i32(SIGABRT), ctx);    // Abort
+#ifndef HML_WINDOWS
+    // POSIX-only signals (not available on Windows)
     env_set(env, "SIGHUP", val_i32(SIGHUP), ctx);      // Hangup
     env_set(env, "SIGQUIT", val_i32(SIGQUIT), ctx);    // Quit (Ctrl+\)
-    env_set(env, "SIGABRT", val_i32(SIGABRT), ctx);    // Abort
     env_set(env, "SIGUSR1", val_i32(SIGUSR1), ctx);    // User-defined signal 1
     env_set(env, "SIGUSR2", val_i32(SIGUSR2), ctx);    // User-defined signal 2
     env_set(env, "SIGALRM", val_i32(SIGALRM), ctx);    // Alarm clock
@@ -339,6 +334,7 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "SIGTSTP", val_i32(SIGTSTP), ctx);    // Terminal stop (Ctrl+Z)
     env_set(env, "SIGTTIN", val_i32(SIGTTIN), ctx);    // Background read from terminal
     env_set(env, "SIGTTOU", val_i32(SIGTTOU), ctx);    // Background write to terminal
+#endif
 
     // Socket constants - Domain (address family)
     env_set(env, "AF_INET", val_i32(AF_INET), ctx);    // IPv4
