@@ -190,24 +190,6 @@ HML_INLINE int hml_raise(int sig) {
     return raise(sig);
 }
 
-/* sigaction is not supported on Windows - use hml_signal instead */
-struct hml_sigaction {
-    hml_sighandler_t sa_handler;
-    int sa_flags;
-};
-
-#define SA_RESTART 0  /* Not meaningful on Windows */
-
-HML_INLINE int hml_sigaction(int sig, const struct hml_sigaction *act, struct hml_sigaction *oldact) {
-    if (oldact) {
-        oldact->sa_handler = hml_signal(sig, act->sa_handler);
-        oldact->sa_flags = 0;
-    } else {
-        hml_signal(sig, act->sa_handler);
-    }
-    return 0;
-}
-
 /* Signal set operations (no-op on Windows) */
 /* Note: hml_sigset_t may also be defined in threading.h - use guard */
 #ifndef HML_SIGSET_T_DEFINED
@@ -224,6 +206,27 @@ HML_INLINE int hml_sigfillset(hml_sigset_t *set) {
     return 0;
 }
 #endif /* HML_SIGSET_T_DEFINED */
+
+/* sigaction is not supported on Windows - use hml_signal instead */
+/* Use hml_ prefixed names to match POSIX wrapper and avoid conflicts */
+struct hml_sigaction {
+    hml_sighandler_t hml_handler;
+    hml_sigset_t hml_mask;  /* Not used on Windows, but needed for struct compatibility */
+    int hml_flags;
+};
+
+#define SA_RESTART 0  /* Not meaningful on Windows */
+
+HML_INLINE int hml_sigaction(int sig, const struct hml_sigaction *act, struct hml_sigaction *oldact) {
+    if (oldact) {
+        oldact->hml_handler = hml_signal(sig, act->hml_handler);
+        oldact->hml_mask = 0;
+        oldact->hml_flags = 0;
+    } else {
+        hml_signal(sig, act->hml_handler);
+    }
+    return 0;
+}
 
 HML_INLINE int hml_sigaddset(hml_sigset_t *set, int sig) {
     *set |= (1UL << sig);

@@ -86,7 +86,7 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
     if (new_handler != NULL) {
         struct hml_sigaction sa;
         sa.hml_handler = hemlock_signal_handler;
-        hml_sig_emptyset(&sa.hml_mask);
+        hml_sigemptyset(&sa.hml_mask);
         sa.hml_flags = SA_RESTART;  // Restart syscalls if possible
         if (hml_sigaction(signum, &sa, NULL) != 0) {
             fprintf(stderr, "Runtime error: signal() failed to install handler for signal %d\n", signum);
@@ -96,7 +96,7 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
         // Reset to default handler
         struct hml_sigaction sa;
         sa.hml_handler = HML_SIG_DFL;
-        hml_sig_emptyset(&sa.hml_mask);
+        hml_sigemptyset(&sa.hml_mask);
         sa.hml_flags = 0;
         if (hml_sigaction(signum, &sa, NULL) != 0) {
             fprintf(stderr, "Runtime error: signal() failed to reset handler for signal %d\n", signum);
