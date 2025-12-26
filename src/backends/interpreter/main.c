@@ -651,26 +651,13 @@ static int package_file(const char *input_path, const char *output_path, int ver
         hmlb_payload = payload_data;  // Transfer ownership
     }
 
-    // Read our own executable
-    char exe_path[4096];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len == -1) {
-        #ifdef __APPLE__
-        uint32_t bufsize = sizeof(exe_path);
-        if (_NSGetExecutablePath(exe_path, &bufsize) != 0) {
-            fprintf(stderr, "Cannot determine executable path\n");
-            free(hmlb_payload);
-            bundle_free(bundle);
-            return 1;
-        }
-        #else
+    // Read our own executable using cross-platform helper
+    char exe_path[HML_PATH_MAX];
+    if (hml_get_executable_path(exe_path, sizeof(exe_path)) <= 0) {
         fprintf(stderr, "Cannot determine executable path\n");
         free(hmlb_payload);
         bundle_free(bundle);
         return 1;
-        #endif
-    } else {
-        exe_path[len] = '\0';
     }
 
     FILE *exe_file = fopen(exe_path, "rb");
