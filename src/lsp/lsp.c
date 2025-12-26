@@ -20,8 +20,12 @@
 
 #ifdef HML_WINDOWS
 #include <io.h>
-#define STDIN_FILENO _fileno(stdin)
-#define STDOUT_FILENO _fileno(stdout)
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+#endif
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
 #define close(fd) closesocket(fd)
 #else
 #include <unistd.h>
@@ -314,7 +318,11 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
 
     // Allow address reuse
     int opt = 1;
+#ifdef HML_WINDOWS
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+#else
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#endif
 
     // Bind
     struct sockaddr_in addr = {
