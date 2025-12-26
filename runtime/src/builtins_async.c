@@ -7,7 +7,10 @@
 #include "builtins_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
+
+#ifdef HML_RT_POSIX
 #include <poll.h>
+#endif
 
 static atomic_int g_next_task_id = 1;
 
