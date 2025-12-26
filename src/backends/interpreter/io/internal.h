@@ -3,6 +3,7 @@
 
 #include "../internal.h"
 #include "../../../compat/time.h"
+#include "../../../compat/filesystem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

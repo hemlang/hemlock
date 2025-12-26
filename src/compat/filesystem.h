@@ -220,6 +220,57 @@ HML_INLINE int hml_rename(const char *oldpath, const char *newpath) {
     return MoveFileA(oldpath, newpath) ? 0 : -1;
 }
 
+/* getline is not available on Windows - provide a compatible implementation */
+#ifndef ssize_t
+typedef long long ssize_t;
+#endif
+
+HML_INLINE ssize_t hml_getline(char **lineptr, size_t *n, FILE *stream) {
+    if (!lineptr || !n || !stream) {
+        return -1;
+    }
+
+    size_t pos = 0;
+    int c;
+
+    if (*lineptr == NULL || *n == 0) {
+        *n = 128;
+        *lineptr = (char *)malloc(*n);
+        if (!*lineptr) {
+            return -1;
+        }
+    }
+
+    while ((c = fgetc(stream)) != EOF) {
+        /* Ensure buffer has room for char + null terminator */
+        if (pos + 2 > *n) {
+            size_t new_size = *n * 2;
+            char *new_ptr = (char *)realloc(*lineptr, new_size);
+            if (!new_ptr) {
+                return -1;
+            }
+            *lineptr = new_ptr;
+            *n = new_size;
+        }
+
+        (*lineptr)[pos++] = (char)c;
+
+        if (c == '\n') {
+            break;
+        }
+    }
+
+    if (pos == 0 && c == EOF) {
+        return -1;  /* EOF with no data read */
+    }
+
+    (*lineptr)[pos] = '\0';
+    return (ssize_t)pos;
+}
+
+/* Map getline to our implementation */
+#define getline hml_getline
+
 /* Access mode constants */
 #ifndef F_OK
 #define F_OK 0
