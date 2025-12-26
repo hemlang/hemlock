@@ -1,14 +1,6 @@
 #include "internal.h"
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
 #include <string.h>
 #include <stdarg.h>
-#include <poll.h>
 #include <stdatomic.h>
 
 // ========== SOCKET BUILTINS ==========
@@ -45,8 +37,8 @@ void socket_free(SocketHandle *sock) {
     if (!sock) return;
 
     // Close socket if still open
-    if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
+    if (!sock->closed && sock->fd != HML_INVALID_SOCKET) {
+        hml_closesocket(sock->fd);
     }
 
     // Free allocated strings
@@ -83,14 +75,14 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
         }
     }
 
-    int fd = socket(domain, type, protocol);
-    if (fd < 0) {
-        return throw_runtime_error(ctx, "Failed to create socket: %s", strerror(errno));
+    hml_socket_t fd = hml_socket(domain, type, protocol);
+    if (fd == HML_INVALID_SOCKET) {
+        return throw_runtime_error(ctx, "Failed to create socket: %s", hml_socket_strerror(hml_socket_error()));
     }
 
     SocketHandle *sock = malloc(sizeof(SocketHandle));
     if (!sock) {
-        close(fd);
+        hml_closesocket(fd);
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
@@ -139,8 +131,8 @@ Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, Executio
             return throw_runtime_error(ctx, "Invalid IPv4 address: %s", address);
         }
 
-        if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-            return throw_runtime_error(ctx, "bind() failed: %s", strerror(errno));
+        if (hml_bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+            return throw_runtime_error(ctx, "bind() failed: %s", hml_socket_strerror(hml_socket_error()));
         }
     } else if (sock->domain == AF_INET6) {
         // IPv6
@@ -156,8 +148,8 @@ Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, Executio
             return throw_runtime_error(ctx, "Invalid IPv6 address: %s", address);
         }
 
-        if (bind(sock->fd, (struct sockaddr *)&addr6, sizeof(addr6)) < 0) {
-            return throw_runtime_error(ctx, "bind() failed: %s", strerror(errno));
+        if (hml_bind(sock->fd, (struct sockaddr *)&addr6, sizeof(addr6)) < 0) {
+            return throw_runtime_error(ctx, "bind() failed: %s", hml_socket_strerror(hml_socket_error()));
         }
     } else {
         return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET or AF_INET6)");
@@ -187,8 +179,8 @@ Value socket_method_listen(SocketHandle *sock, Value *args, int num_args, Execut
 
     int backlog = value_to_int(args[0]);
 
-    if (listen(sock->fd, backlog) < 0) {
-        return throw_runtime_error(ctx, "Failed to listen on socket: %s", strerror(errno));
+    if (hml_listen(sock->fd, backlog) < 0) {
+        return throw_runtime_error(ctx, "Failed to listen on socket: %s", hml_socket_strerror(hml_socket_error()));
     }
 
     sock->listening = 1;
@@ -214,19 +206,20 @@ Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, Execut
     struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
-    if (client_fd < 0) {
+    hml_socket_t client_fd = hml_accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    if (client_fd == HML_INVALID_SOCKET) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means no pending connections
-        if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        int err = hml_socket_error();
+        if (sock->nonblocking && (err == HML_EAGAIN || err == HML_EWOULDBLOCK)) {
             return val_null();  // No connection available
         }
-        return throw_runtime_error(ctx, "Failed to accept connection: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to accept connection: %s", hml_socket_strerror(err));
     }
 
     // Create new socket for client connection
     SocketHandle *client_sock = malloc(sizeof(SocketHandle));
     if (!client_sock) {
-        close(client_fd);
+        hml_closesocket(client_fd);
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
@@ -288,12 +281,12 @@ Value socket_method_connect(SocketHandle *sock, Value *args, int num_args, Execu
         return throw_runtime_error(ctx, "Failed to resolve '%s': %s", address, gai_strerror(gai_err));
     }
 
-    int connect_result = connect(sock->fd, result->ai_addr, result->ai_addrlen);
+    int connect_result = hml_connect(sock->fd, result->ai_addr, result->ai_addrlen);
     freeaddrinfo(result);
 
     if (connect_result < 0) {
         return throw_runtime_error(ctx, "Failed to connect to %s:%d: %s",
-                address, port, strerror(errno));
+                address, port, hml_socket_strerror(hml_socket_error()));
     }
 
     // Store address and port
@@ -331,13 +324,14 @@ Value socket_method_send(SocketHandle *sock, Value *args, int num_args, Executio
         return throw_runtime_error(ctx, "send() expects string or buffer argument");
     }
 
-    ssize_t sent = send(sock->fd, data, len, 0);
+    int sent = (int)hml_send(sock->fd, data, (int)len, 0);
     if (sent < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means socket buffer is full
-        if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        int err = hml_socket_error();
+        if (sock->nonblocking && (err == HML_EAGAIN || err == HML_EWOULDBLOCK)) {
             return val_i32(0);  // No bytes sent (would block)
         }
-        return throw_runtime_error(ctx, "Failed to send data: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to send data: %s", hml_socket_strerror(err));
     }
 
     return val_i32((int32_t)sent);
@@ -374,15 +368,16 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
-    ssize_t received = recv(sock->fd, data, size, 0);
+    int received = (int)hml_recv(sock->fd, data, size, 0);
     if (received < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means no data available (not an error)
-        if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        int err = hml_socket_error();
+        if (sock->nonblocking && (err == HML_EAGAIN || err == HML_EWOULDBLOCK)) {
             free(data);
             return val_null();  // No data available
         }
         free(data);
-        return throw_runtime_error(ctx, "Failed to receive data: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to receive data: %s", hml_socket_strerror(err));
     }
 
     // received == 0 means connection closed by peer
@@ -442,7 +437,7 @@ Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, Execut
         return throw_runtime_error(ctx, "sendto() data must be string or buffer");
     }
 
-    ssize_t sent;
+    int sent;
     if (sock->domain == AF_INET) {
         struct sockaddr_in dest_addr;
         memset(&dest_addr, 0, sizeof(dest_addr));
@@ -453,7 +448,7 @@ Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, Execut
             return throw_runtime_error(ctx, "Invalid IPv4 address: %s", address);
         }
 
-        sent = sendto(sock->fd, data, len, 0,
+        sent = (int)hml_sendto(sock->fd, data, (int)len, 0,
                 (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 dest_addr6;
@@ -465,7 +460,7 @@ Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, Execut
             return throw_runtime_error(ctx, "Invalid IPv6 address: %s", address);
         }
 
-        sent = sendto(sock->fd, data, len, 0,
+        sent = (int)hml_sendto(sock->fd, data, (int)len, 0,
                 (struct sockaddr *)&dest_addr6, sizeof(dest_addr6));
     } else {
         return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET or AF_INET6)");
@@ -473,7 +468,7 @@ Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, Execut
 
     if (sent < 0) {
         return throw_runtime_error(ctx, "Failed to sendto %s:%d: %s",
-                address, port, strerror(errno));
+                address, port, hml_socket_strerror(hml_socket_error()));
     }
 
     return val_i32((int32_t)sent);
@@ -507,12 +502,12 @@ Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_args, Exec
     struct sockaddr_storage src_addr;
     socklen_t addr_len = sizeof(src_addr);
 
-    ssize_t received = recvfrom(sock->fd, data, size, 0,
+    int received = (int)hml_recvfrom(sock->fd, data, size, 0,
             (struct sockaddr *)&src_addr, &addr_len);
 
     if (received < 0) {
         free(data);
-        return throw_runtime_error(ctx, "Failed to recvfrom: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to recvfrom: %s", hml_socket_strerror(hml_socket_error()));
     }
 
     // Create buffer with received data
@@ -604,8 +599,8 @@ Value socket_method_setsockopt(SocketHandle *sock, Value *args, int num_args, Ex
     int option = value_to_int(args[1]);
     int value = value_to_int(args[2]);
 
-    if (setsockopt(sock->fd, level, option, &value, sizeof(value)) < 0) {
-        return throw_runtime_error(ctx, "Failed to set socket option: %s", strerror(errno));
+    if (hml_setsockopt(sock->fd, level, option, &value, sizeof(value)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set socket option: %s", hml_socket_strerror(hml_socket_error()));
     }
 
     return val_null();
@@ -632,12 +627,12 @@ Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_args, E
     timeout.tv_usec = (long)((seconds - timeout.tv_sec) * 1000000);
 
     // Set both recv and send timeouts
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        return throw_runtime_error(ctx, "Failed to set receive timeout: %s", strerror(errno));
+    if (hml_setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set receive timeout: %s", hml_socket_strerror(hml_socket_error()));
     }
 
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
-        return throw_runtime_error(ctx, "Failed to set send timeout: %s", strerror(errno));
+    if (hml_setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set send timeout: %s", hml_socket_strerror(hml_socket_error()));
     }
 
     return val_null();
@@ -659,19 +654,8 @@ Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int num_arg
 
     int enable = args[0].as.as_bool;
 
-    int flags = fcntl(sock->fd, F_GETFL, 0);
-    if (flags < 0) {
-        return throw_runtime_error(ctx, "Failed to get socket flags: %s", strerror(errno));
-    }
-
-    if (enable) {
-        flags |= O_NONBLOCK;
-    } else {
-        flags &= ~O_NONBLOCK;
-    }
-
-    if (fcntl(sock->fd, F_SETFL, flags) < 0) {
-        return throw_runtime_error(ctx, "Failed to set socket flags: %s", strerror(errno));
+    if (hml_socket_set_nonblocking(sock->fd, enable) < 0) {
+        return throw_runtime_error(ctx, "Failed to set socket nonblocking mode: %s", hml_socket_strerror(hml_socket_error()));
     }
 
     sock->nonblocking = enable;
@@ -688,9 +672,9 @@ Value socket_method_close(SocketHandle *sock, Value *args, int num_args, Executi
     }
 
     // Idempotent - safe to call multiple times
-    if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
-        sock->fd = -1;
+    if (!sock->closed && sock->fd != HML_INVALID_SOCKET) {
+        hml_closesocket(sock->fd);
+        sock->fd = HML_INVALID_SOCKET;
         sock->closed = 1;
     }
 
@@ -827,7 +811,7 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     // Build pollfd array
-    struct pollfd *pfds = malloc(sizeof(struct pollfd) * fds_arr->length);
+    hml_pollfd *pfds = malloc(sizeof(hml_pollfd) * fds_arr->length);
     if (!pfds) {
         ctx->exception_state.exception_value = val_string("poll() memory allocation failed");
         value_retain(ctx->exception_state.exception_value);
@@ -897,7 +881,7 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     // Call poll
-    int result = poll(pfds, fds_arr->length, timeout_ms);
+    int result = hml_poll(pfds, fds_arr->length, timeout_ms);
 
     if (result < 0) {
         for (int i = 0; i < fds_arr->length; i++) {
@@ -906,7 +890,7 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
         free(pfds);
         free(original_fds);
         char err_msg[256];
-        snprintf(err_msg, sizeof(err_msg), "poll() failed: %s", strerror(errno));
+        snprintf(err_msg, sizeof(err_msg), "poll() failed: %s", hml_socket_strerror(hml_socket_error()));
         ctx->exception_state.exception_value = val_string(err_msg);
         value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;

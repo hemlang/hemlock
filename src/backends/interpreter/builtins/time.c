@@ -24,7 +24,7 @@ Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    hml_gettimeofday(&tv, NULL);
     int64_t ms = (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
     return val_i64(ms);
 }
@@ -48,7 +48,7 @@ Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
     struct timespec req;
     req.tv_sec = (time_t)seconds;
     req.tv_nsec = (long)((seconds - req.tv_sec) * 1000000000);
-    nanosleep(&req, NULL);
+    hml_nanosleep(&req, NULL);
     return val_null();
 }
 

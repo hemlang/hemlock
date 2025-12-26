@@ -112,6 +112,18 @@
     #define HML_PATH_LIST_SEP ':'
 #endif
 
+/* Maximum path length */
+#ifdef HML_WINDOWS
+    #define HML_PATH_MAX MAX_PATH
+#else
+    #include <limits.h>
+    #ifdef PATH_MAX
+        #define HML_PATH_MAX PATH_MAX
+    #else
+        #define HML_PATH_MAX 4096
+    #endif
+#endif
+
 /* Library extension */
 #ifdef HML_WINDOWS
     #define HML_LIB_EXT ".dll"
