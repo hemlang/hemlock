@@ -5,6 +5,33 @@
  */
 
 #include "builtins_internal.h"
+#include <pthread.h>
+
+#ifdef HML_RT_WINDOWS
+/* Windows dynamic library compatibility */
+#define RTLD_LAZY 0
+
+static void *dlopen(const char *filename, int flags) {
+    (void)flags;
+    return (void *)LoadLibraryA(filename);
+}
+
+static int dlclose(void *handle) {
+    return FreeLibrary((HMODULE)handle) ? 0 : -1;
+}
+
+static void *dlsym(void *handle, const char *symbol) {
+    return (void *)GetProcAddress((HMODULE)handle, symbol);
+}
+
+static char *dlerror(void) {
+    static char buf[256];
+    DWORD err = GetLastError();
+    if (err == 0) return NULL;
+    FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err, 0, buf, sizeof(buf), NULL);
+    return buf;
+}
+#endif
 
 // ========== FFI HELPERS ==========
 
