@@ -1,5 +1,16 @@
 #include "internal.h"
+
+#ifdef HML_WINDOWS
+/* Windows doesn't have poll.h - define constants for compatibility */
+#define POLLIN   0x0001
+#define POLLOUT  0x0004
+#define POLLERR  0x0008
+#define POLLHUP  0x0010
+#define POLLNVAL 0x0020
+#define POLLPRI  0x0002
+#else
 #include <poll.h>
+#endif
 
 // Structure to hold builtin function info
 typedef struct {
