@@ -476,15 +476,17 @@ make parity
 
 ## Version
 
-**v1.3.2** - Current release with:
+**v1.4.0** - Current release with:
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
 - UTF-8 strings with 19 methods
 - Arrays with 18 methods including map/filter/reduce
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
+- Atomic operations for lock-free concurrent programming
 - 39 stdlib modules (+ assert, semver, toml, retry, iter, random, shell)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
+- FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)
 - defer, try/catch/finally/throw, panic
 - File I/O, signal handling, command execution
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
