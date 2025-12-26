@@ -1,5 +1,9 @@
 #include "internal.h"
 
+#ifdef HML_POSIX
+#include <fcntl.h>  // For O_NOFOLLOW, O_CREAT, etc.
+#endif
+
 Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;
     if (num_args != 1) {
@@ -21,8 +25,8 @@ Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    struct stat st;
-    int exists = (stat(cpath, &st) == 0);
+    hml_stat_t st;
+    int exists = (hml_stat(cpath, &st) == 0);
     free(cpath);
     return val_bool(exists);
 }
@@ -48,6 +52,18 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
+#ifdef HML_WINDOWS
+    // Windows: Use standard fopen (no symlink protection needed the same way)
+    FILE *fp = fopen(cpath, "rb");
+    if (!fp) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        free(cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+#else
     // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
     int fd = open(cpath, O_RDONLY | O_NOFOLLOW);
     if (fd < 0) {
@@ -73,6 +89,7 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
+#endif
 
     // Get file size
     fseek(fp, 0, SEEK_END);
@@ -125,6 +142,18 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
+#ifdef HML_WINDOWS
+    // Windows: Use standard fopen
+    FILE *fp = fopen(cpath, "wb");
+    if (!fp) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        free(cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+#else
     // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
     // O_CREAT | O_TRUNC to create or truncate the file
     int fd = open(cpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
@@ -152,6 +181,7 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
+#endif
 
     if (args[1].type == VAL_STRING) {
         String *content = args[1].as.as_string;
@@ -188,6 +218,18 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
+#ifdef HML_WINDOWS
+    // Windows: Use standard fopen
+    FILE *fp = fopen(cpath, "ab");
+    if (!fp) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
+        free(cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+#else
     // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
     // O_CREAT | O_APPEND to create or append to the file
     int fd = open(cpath, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0644);
@@ -214,6 +256,7 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
+#endif
 
     fwrite(content->data, 1, content->length, fp);
     fclose(fp);
@@ -241,7 +284,7 @@ Value builtin_remove_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    if (unlink(cpath) != 0) {
+    if (hml_unlink(cpath) != 0) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to remove file '%s': %s", cpath, strerror(errno));
         free(cpath);
@@ -279,7 +322,7 @@ Value builtin_rename(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(new_cpath, new_path->data, new_path->length);
     new_cpath[new_path->length] = '\0';
 
-    if (rename(old_cpath, new_cpath) != 0) {
+    if (hml_rename(old_cpath, new_cpath) != 0) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to rename '%s' to '%s': %s", old_cpath, new_cpath, strerror(errno));
         free(old_cpath);
@@ -319,6 +362,22 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(dest_cpath, dest_path->data, dest_path->length);
     dest_cpath[dest_path->length] = '\0';
 
+#ifdef HML_WINDOWS
+    // Windows: Use CopyFile API for efficiency
+    if (!CopyFileA(src_cpath, dest_cpath, FALSE)) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to copy '%s' to '%s': %s",
+                 src_cpath, dest_cpath, hml_strerror(GetLastError()));
+        free(src_cpath);
+        free(dest_cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    free(src_cpath);
+    free(dest_cpath);
+    return val_null();
+#else
     // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
     int src_fd = open(src_cpath, O_RDONLY | O_NOFOLLOW);
     if (src_fd < 0) {
@@ -399,6 +458,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
     free(src_cpath);
     free(dest_cpath);
     return val_null();
+#endif
 }
 
 Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx) {
@@ -422,14 +482,14 @@ Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    struct stat st;
-    if (stat(cpath, &st) != 0) {
+    hml_stat_t st;
+    if (hml_stat(cpath, &st) != 0) {
         free(cpath);
         return val_bool(0);
     }
 
     free(cpath);
-    return val_bool(S_ISREG(st.st_mode));
+    return val_bool(st.is_file);
 }
 
 Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx) {
@@ -453,14 +513,14 @@ Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    struct stat st;
-    if (stat(cpath, &st) != 0) {
+    hml_stat_t st;
+    if (hml_stat(cpath, &st) != 0) {
         free(cpath);
         return val_bool(0);
     }
 
     free(cpath);
-    return val_bool(S_ISDIR(st.st_mode));
+    return val_bool(st.is_directory);
 }
 
 Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
@@ -483,8 +543,8 @@ Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    struct stat st;
-    if (stat(cpath, &st) != 0) {
+    hml_stat_t st;
+    if (hml_stat(cpath, &st) != 0) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to stat '%s': %s", cpath, strerror(errno));
         free(cpath);
@@ -501,13 +561,13 @@ Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
     // Add fields
     char *field_names[] = {"size", "atime", "mtime", "ctime", "mode", "is_file", "is_dir"};
     Value field_values[] = {
-        val_i64(st.st_size),
-        val_i64(st.st_atime),
-        val_i64(st.st_mtime),
-        val_i64(st.st_ctime),
-        val_u32(st.st_mode),
-        val_bool(S_ISREG(st.st_mode)),
-        val_bool(S_ISDIR(st.st_mode))
+        val_i64((int64_t)st.hml_size),
+        val_i64((int64_t)st.hml_atime),
+        val_i64((int64_t)st.hml_mtime),
+        val_i64((int64_t)st.hml_ctime),
+        val_u32(st.hml_mode),
+        val_bool(st.is_file),
+        val_bool(st.is_directory)
     };
 
     for (int i = 0; i < 7; i++) {

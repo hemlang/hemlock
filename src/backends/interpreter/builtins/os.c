@@ -1,6 +1,9 @@
 #include "internal.h"
+
+#ifdef HML_POSIX
 #include <sys/utsname.h>
 #include <pwd.h>
+#endif
 
 #ifdef __linux__
 #include <sys/sysinfo.h>
@@ -25,11 +28,11 @@ Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_LINUX
     return val_string("linux");
-#elif defined(__APPLE__)
+#elif defined(HML_MACOS)
     return val_string("macos");
-#elif defined(_WIN32) || defined(_WIN64)
+#elif defined(HML_WINDOWS)
     return val_string("windows");
 #else
     return val_string("unknown");
@@ -39,12 +42,27 @@ Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx) {
 // Get CPU architecture (x86_64, aarch64, etc.)
 Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: arch() expects no arguments\n");
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    SYSTEM_INFO si;
+    GetNativeSystemInfo(&si);
+    switch (si.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_AMD64:
+            return val_string("x86_64");
+        case PROCESSOR_ARCHITECTURE_ARM64:
+            return val_string("aarch64");
+        case PROCESSOR_ARCHITECTURE_INTEL:
+            return val_string("x86");
+        case PROCESSOR_ARCHITECTURE_ARM:
+            return val_string("arm");
+        default:
+            return val_string("unknown");
+    }
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -55,6 +73,7 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.machine);
+#endif
 }
 
 // Get system hostname
@@ -66,6 +85,16 @@ Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     char hostname[256];
+#ifdef HML_WINDOWS
+    DWORD size = sizeof(hostname);
+    if (!GetComputerNameA(hostname, &size)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "hostname() failed: %s", hml_strerror(GetLastError()));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+#else
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "hostname() failed: %s", strerror(errno));
@@ -73,6 +102,7 @@ Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
+#endif
 
     return val_string(hostname);
 }
@@ -85,8 +115,21 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-    // Try getlogin_r first
     char username[256];
+
+#ifdef HML_WINDOWS
+    DWORD size = sizeof(username);
+    if (GetUserNameA(username, &size)) {
+        return val_string(username);
+    }
+
+    // Fall back to environment variable
+    char *env_user = getenv("USERNAME");
+    if (env_user != NULL) {
+        return val_string(env_user);
+    }
+#else
+    // Try getlogin_r first
     if (getlogin_r(username, sizeof(username)) == 0) {
         return val_string(username);
     }
@@ -102,6 +145,7 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
     if (env_user != NULL) {
         return val_string(env_user);
     }
+#endif
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "username() failed: could not determine username");
@@ -118,6 +162,22 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    // Try USERPROFILE first (Windows standard)
+    char *home = getenv("USERPROFILE");
+    if (home != NULL) {
+        return val_string(home);
+    }
+
+    // Try HOMEDRIVE + HOMEPATH
+    char *homedrive = getenv("HOMEDRIVE");
+    char *homepath = getenv("HOMEPATH");
+    if (homedrive != NULL && homepath != NULL) {
+        char fullpath[HML_PATH_MAX];
+        snprintf(fullpath, sizeof(fullpath), "%s%s", homedrive, homepath);
+        return val_string(fullpath);
+    }
+#else
     // Try HOME environment variable first
     char *home = getenv("HOME");
     if (home != NULL) {
@@ -129,6 +189,7 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
     if (pw != NULL && pw->pw_dir != NULL) {
         return val_string(pw->pw_dir);
     }
+#endif
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "homedir() failed: could not determine home directory");
@@ -146,12 +207,18 @@ Value builtin_cpu_count(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return val_i32((int32_t)si.dwNumberOfProcessors);
+#else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
     if (nprocs < 1) {
         nprocs = 1;  // Default to 1 if we can't determine
     }
 
     return val_i32((int32_t)nprocs);
+#endif
 }
 
 // Get total system memory in bytes
@@ -162,7 +229,18 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    if (!GlobalMemoryStatusEx(&memStatus)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "total_memory() failed: %s", hml_strerror(GetLastError()));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    return val_i64((int64_t)memStatus.ullTotalPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
@@ -207,7 +285,18 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    if (!GlobalMemoryStatusEx(&memStatus)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: %s", hml_strerror(GetLastError()));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    return val_i64((int64_t)memStatus.ullAvailPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
@@ -226,7 +315,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
     vm_size_t page_size;
     vm_statistics64_data_t vm_stat;
     mach_msg_type_number_t host_size = sizeof(vm_stat) / sizeof(integer_t);
-    
+
     if (host_page_size(host_port, &page_size) != KERN_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not get page size");
@@ -234,7 +323,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
-    
+
     if (host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t)&vm_stat, &host_size) != KERN_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not get VM statistics");
@@ -242,7 +331,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
-    
+
     // Calculate free memory: free pages + inactive pages (can be reclaimed)
     int64_t free_memory = (int64_t)(vm_stat.free_count + vm_stat.inactive_count) * (int64_t)page_size;
     return val_i64(free_memory);
@@ -255,7 +344,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
         return val_i64((int64_t)avail_pages * (int64_t)page_size);
     }
     #endif
-    
+
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not determine free memory");
     ctx->exception_state.exception_value = val_string(error_msg);
@@ -272,6 +361,26 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    // Use RtlGetVersion via ntdll for accurate version info
+    // For simplicity, use GetVersionExA with compatibility manifest
+    OSVERSIONINFOEXA osvi;
+    ZeroMemory(&osvi, sizeof(osvi));
+    osvi.dwOSVersionInfoSize = sizeof(osvi);
+
+    // GetVersionEx is deprecated but works for basic info
+    #pragma warning(push)
+    #pragma warning(disable: 4996)
+    if (!GetVersionExA((OSVERSIONINFOA*)&osvi)) {
+        return val_string("unknown");
+    }
+    #pragma warning(pop)
+
+    char version[64];
+    snprintf(version, sizeof(version), "%lu.%lu.%lu",
+             osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber);
+    return val_string(version);
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -282,9 +391,10 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.release);
+#endif
 }
 
-// Get OS name (detailed, e.g., "Linux", "Darwin")
+// Get OS name (detailed, e.g., "Linux", "Darwin", "Windows")
 Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
@@ -292,6 +402,9 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    return val_string("Windows");
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -302,6 +415,7 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.sysname);
+#endif
 }
 
 // Get temporary directory path
@@ -313,6 +427,31 @@ Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    // GetTempPath returns the path to the temp directory
+    char tmpPath[HML_PATH_MAX];
+    DWORD len = GetTempPathA(sizeof(tmpPath), tmpPath);
+    if (len > 0 && len < sizeof(tmpPath)) {
+        // Remove trailing backslash if present
+        if (len > 0 && tmpPath[len - 1] == '\\') {
+            tmpPath[len - 1] = '\0';
+        }
+        return val_string(tmpPath);
+    }
+
+    // Fall back to environment variables
+    char *tmpdir = getenv("TEMP");
+    if (tmpdir != NULL && tmpdir[0] != '\0') {
+        return val_string(tmpdir);
+    }
+
+    tmpdir = getenv("TMP");
+    if (tmpdir != NULL && tmpdir[0] != '\0') {
+        return val_string(tmpdir);
+    }
+
+    return val_string("C:\\Temp");
+#else
     // Check TMPDIR environment variable first
     char *tmpdir = getenv("TMPDIR");
     if (tmpdir != NULL && tmpdir[0] != '\0') {
@@ -333,6 +472,7 @@ Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Default to /tmp on Unix-like systems
     return val_string("/tmp");
+#endif
 }
 
 // Get uptime in seconds (system boot time)
@@ -343,7 +483,11 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    // GetTickCount64 returns milliseconds since system start
+    ULONGLONG uptime_ms = GetTickCount64();
+    return val_i64((int64_t)(uptime_ms / 1000));
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
