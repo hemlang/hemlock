@@ -410,10 +410,19 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
     include_path[sizeof(include_path) - 1] = '\0';
 
+#ifdef HML_COMPILER_WINDOWS
+    // Windows: use -lws2_32 for sockets, no -ldl
+    snprintf(cmd, sizeof(cmd),
+        "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -lws2_32%s%s%s",
+        opts->cc, opt_flag, opts->output_file, c_file,
+        include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+#else
+    // POSIX: use -ldl for dynamic loading
     snprintf(cmd, sizeof(cmd),
         "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
         include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+#endif
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);
