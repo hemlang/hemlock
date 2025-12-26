@@ -369,12 +369,21 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
     osvi.dwOSVersionInfoSize = sizeof(osvi);
 
     // GetVersionEx is deprecated but works for basic info
+    #ifdef _MSC_VER
     #pragma warning(push)
     #pragma warning(disable: 4996)
+    #elif defined(__GNUC__) || defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    #endif
     if (!GetVersionExA((OSVERSIONINFOA*)&osvi)) {
         return val_string("unknown");
     }
+    #ifdef _MSC_VER
     #pragma warning(pop)
+    #elif defined(__GNUC__) || defined(__clang__)
+    #pragma GCC diagnostic pop
+    #endif
 
     char version[64];
     snprintf(version, sizeof(version), "%lu.%lu.%lu",

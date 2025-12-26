@@ -701,7 +701,7 @@ Value get_socket_property(SocketHandle *sock, const char *property, ExecutionCon
     }
 
     if (strcmp(property, "fd") == 0) {
-        return val_i32(sock->fd);
+        return val_i32((int32_t)sock->fd);
     }
 
     if (strcmp(property, "nonblocking") == 0) {
@@ -768,14 +768,14 @@ Value call_socket_method(SocketHandle *sock, const char *method, Value *args, in
 // ========== POLL OPERATIONS ==========
 
 // Helper to extract file descriptor from a value
-static int get_fd_from_value(Value val) {
+static hml_socket_fd_t get_fd_from_value(Value val) {
     if (val.type == VAL_SOCKET) {
         return val.as.as_socket->fd;
     }
     if (val.type == VAL_FILE) {
-        return fileno(val.as.as_file->fp);
+        return (hml_socket_fd_t)fileno(val.as.as_file->fp);
     }
-    return -1;
+    return HML_SOCKET_INVALID;
 }
 
 // poll(fds: array<{fd, events}>, timeout_ms: i32) -> array<{fd, revents}>
@@ -854,8 +854,8 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             }
         }
 
-        int fd = get_fd_from_value(fd_val);
-        if (fd < 0) {
+        hml_socket_fd_t fd = get_fd_from_value(fd_val);
+        if (fd == HML_SOCKET_INVALID) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() fd must be a socket or file");

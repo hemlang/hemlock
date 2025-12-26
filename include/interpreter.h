@@ -6,6 +6,16 @@
 #include <stdatomic.h>
 #include <stdio.h>
 
+// Cross-platform socket type (matches hml_socket_t in compat/socket.h)
+#if defined(_WIN32) || defined(_WIN64)
+#include <winsock2.h>
+typedef SOCKET hml_socket_fd_t;
+#define HML_SOCKET_INVALID INVALID_SOCKET
+#else
+typedef int hml_socket_fd_t;
+#define HML_SOCKET_INVALID (-1)
+#endif
+
 // Value types that can exist at runtime
 typedef enum {
     VAL_I8,
@@ -81,7 +91,7 @@ typedef struct {
 
 // Socket handle struct
 typedef struct {
-    int fd;              // File descriptor
+    hml_socket_fd_t fd;  // Socket descriptor (SOCKET on Windows, int on POSIX)
     char *address;       // Bound/connected address (nullable)
     int port;            // Port number
     int domain;          // AF_INET, AF_INET6

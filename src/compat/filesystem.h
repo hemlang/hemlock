@@ -358,8 +358,12 @@ HML_INLINE char *hml_dirname(char *path) {
         return buf;
     }
 
-    strncpy(buf, path, MAX_PATH - 1);
-    buf[MAX_PATH - 1] = '\0';
+    size_t len = strlen(path);
+    if (len >= MAX_PATH) {
+        len = MAX_PATH - 1;
+    }
+    memcpy(buf, path, len);
+    buf[len] = '\0';
 
     /* Find last separator */
     char *last_sep = NULL;

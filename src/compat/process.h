@@ -174,8 +174,10 @@ HML_INLINE FILE *hml_popen(const char *command, const char *mode) {
 
     /* Store the process handle in thread-local storage for pclose */
     /* This is a simplified implementation - a hash map would be better */
-    static HML_THREAD_LOCAL HANDLE last_popen_process = NULL;
+    /* Note: We store for potential future use but don't use it in pclose currently */
+    static HML_THREAD_LOCAL HANDLE last_popen_process HML_UNUSED = NULL;
     last_popen_process = pi.hProcess;
+    (void)last_popen_process;  /* Suppress unused warning */
 
     return fp;
 }
@@ -191,6 +193,7 @@ HML_INLINE int hml_pclose(FILE *stream) {
 /* Spawn a process with captured stdout/stderr */
 HML_INLINE int hml_spawn_capture(const char *program, char *const argv[],
                                    hml_process_t *proc) {
+    (void)program;  /* Windows builds command line from argv */
     SECURITY_ATTRIBUTES sa;
     sa.nLength = sizeof(SECURITY_ATTRIBUTES);
     sa.bInheritHandle = TRUE;
