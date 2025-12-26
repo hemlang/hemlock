@@ -21,9 +21,9 @@ void synchronize(Parser *p);
 
 // Token management
 void advance(Parser *p);
-void consume(Parser *p, TokenType type, const char *message);
-int check(Parser *p, TokenType type);
-int match(Parser *p, TokenType type);
+void consume(Parser *p, HmlTokenType type, const char *message);
+int check(Parser *p, HmlTokenType type);
+int match(Parser *p, HmlTokenType type);
 
 // Contextual keywords (identifiers that act as keywords in specific contexts)
 int check_contextual(Parser *p, const char *keyword);

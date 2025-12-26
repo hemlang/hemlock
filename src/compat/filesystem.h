@@ -235,6 +235,74 @@ HML_INLINE int hml_rename(const char *oldpath, const char *newpath) {
 #define S_ISLNK(m) (0)  /* Simplified - would need to check reparse points */
 #endif
 
+/* Resolve a path to an absolute canonical path (Windows) */
+HML_INLINE char *hml_realpath(const char *path, char *resolved) {
+    char buf[MAX_PATH];
+
+    /* Get full path name */
+    DWORD len = GetFullPathNameA(path, MAX_PATH, buf, NULL);
+    if (len == 0 || len > MAX_PATH) {
+        return NULL;
+    }
+
+    /* Check if the file exists */
+    DWORD attr = GetFileAttributesA(buf);
+    if (attr == INVALID_FILE_ATTRIBUTES) {
+        return NULL;
+    }
+
+    if (resolved) {
+        strcpy(resolved, buf);
+        return resolved;
+    } else {
+        return _strdup(buf);
+    }
+}
+
+/* Get the path to the current executable (Windows) */
+HML_INLINE int hml_get_executable_path(char *buf, size_t size) {
+    DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)size);
+    if (len == 0 || len >= size) {
+        return -1;
+    }
+    return (int)len;
+}
+
+/* dirname implementation for Windows */
+HML_INLINE char *hml_dirname(char *path) {
+    static HML_THREAD_LOCAL char buf[MAX_PATH];
+    if (!path || !*path) {
+        strcpy(buf, ".");
+        return buf;
+    }
+
+    strncpy(buf, path, MAX_PATH - 1);
+    buf[MAX_PATH - 1] = '\0';
+
+    /* Find last separator */
+    char *last_sep = NULL;
+    for (char *p = buf; *p; p++) {
+        if (*p == '\\' || *p == '/') {
+            last_sep = p;
+        }
+    }
+
+    if (last_sep) {
+        if (last_sep == buf) {
+            /* Root directory */
+            buf[1] = '\0';
+        } else {
+            *last_sep = '\0';
+        }
+    } else {
+        /* No separator - current directory */
+        strcpy(buf, ".");
+        return buf;
+    }
+
+    return buf;
+}
+
 #else /* POSIX Implementation */
 
 /* ========== POSIX Implementation ========== */
@@ -243,6 +311,11 @@ HML_INLINE int hml_rename(const char *oldpath, const char *newpath) {
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <libgen.h>
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 /* Directory types (use POSIX directly) */
 typedef DIR hml_dir_t;
@@ -321,6 +394,35 @@ HML_INLINE int hml_unlink(const char *path) {
 /* Rename a file */
 HML_INLINE int hml_rename(const char *oldpath, const char *newpath) {
     return rename(oldpath, newpath);
+}
+
+/* Resolve a path to an absolute canonical path (POSIX) */
+HML_INLINE char *hml_realpath(const char *path, char *resolved) {
+    return realpath(path, resolved);
+}
+
+/* Get the path to the current executable (POSIX) */
+HML_INLINE int hml_get_executable_path(char *buf, size_t size) {
+#ifdef __APPLE__
+    uint32_t bufsize = (uint32_t)size;
+    if (_NSGetExecutablePath(buf, &bufsize) == 0) {
+        return (int)strlen(buf);
+    }
+    return -1;
+#else
+    /* Linux: use /proc/self/exe */
+    ssize_t len = readlink("/proc/self/exe", buf, size - 1);
+    if (len != -1) {
+        buf[len] = '\0';
+        return (int)len;
+    }
+    return -1;
+#endif
+}
+
+/* dirname wrapper (POSIX) */
+HML_INLINE char *hml_dirname(char *path) {
+    return dirname(path);
 }
 
 #endif /* HML_WINDOWS */

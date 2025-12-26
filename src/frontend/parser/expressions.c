@@ -23,7 +23,7 @@ Expr* primary(Parser *p);
 Type* parse_type(Parser *p);
 
 // Helper: Check if current token is a type keyword and can be used as identifier
-static int is_type_keyword(TokenType type) {
+static int is_type_keyword(HmlTokenType type) {
     return type == TOK_TYPE_I8 || type == TOK_TYPE_I16 || type == TOK_TYPE_I32 || type == TOK_TYPE_I64 ||
            type == TOK_TYPE_U8 || type == TOK_TYPE_U16 || type == TOK_TYPE_U32 || type == TOK_TYPE_U64 ||
            type == TOK_TYPE_F32 || type == TOK_TYPE_F64 || type == TOK_TYPE_BOOL || type == TOK_TYPE_STRING ||
@@ -470,7 +470,7 @@ Expr* factor(Parser *p) {
     Expr *expr = unary(p);
 
     while (match(p, TOK_STAR) || match(p, TOK_SLASH) || match(p, TOK_PERCENT)) {
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_STAR) ? OP_MUL :
                       (op_type == TOK_SLASH) ? OP_DIV : OP_MOD;
         Expr *right = unary(p);
@@ -484,7 +484,7 @@ Expr* term(Parser *p) {
     Expr *expr = factor(p);
     
     while (match(p, TOK_PLUS) || match(p, TOK_MINUS)) {
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_PLUS) ? OP_ADD : OP_SUB;
         Expr *right = factor(p);
         expr = expr_binary(expr, op, right);
@@ -497,7 +497,7 @@ Expr* shift(Parser *p) {
     Expr *expr = term(p);
 
     while (match(p, TOK_LESS_LESS) || match(p, TOK_GREATER_GREATER)) {
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_LESS_LESS) ? OP_BIT_LSHIFT : OP_BIT_RSHIFT;
         Expr *right = term(p);
         expr = expr_binary(expr, op, right);
@@ -511,7 +511,7 @@ Expr* comparison(Parser *p) {
 
     while (match(p, TOK_GREATER) || match(p, TOK_GREATER_EQUAL) ||
            match(p, TOK_LESS) || match(p, TOK_LESS_EQUAL)) {
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op;
 
         switch (op_type) {
@@ -533,7 +533,7 @@ Expr* equality(Parser *p) {
     Expr *expr = comparison(p);
 
     while (match(p, TOK_EQUAL_EQUAL) || match(p, TOK_BANG_EQUAL)) {
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_EQUAL_EQUAL) ? OP_EQUAL : OP_NOT_EQUAL;
         Expr *right = comparison(p);
         expr = expr_binary(expr, op, right);

@@ -60,7 +60,7 @@ void advance(Parser *p) {
     }
 }
 
-void consume(Parser *p, TokenType type, const char *message) {
+void consume(Parser *p, HmlTokenType type, const char *message) {
     if (p->current.type == type) {
         advance(p);
         return;
@@ -69,11 +69,11 @@ void consume(Parser *p, TokenType type, const char *message) {
     error_at_current(p, message);
 }
 
-int check(Parser *p, TokenType type) {
+int check(Parser *p, HmlTokenType type) {
     return p->current.type == type;
 }
 
-int match(Parser *p, TokenType type) {
+int match(Parser *p, HmlTokenType type) {
     if (!check(p, type)) return 0;
     advance(p);
     return 1;

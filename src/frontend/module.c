@@ -3,16 +3,11 @@
 #include "parser.h"
 #include "lexer.h"
 #include "interpreter/internal.h"
+#include "compat/platform.h"
+#include "compat/filesystem.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <libgen.h>
-#include <limits.h>
-
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
-#endif
 
 // ========== PATH SECURITY ==========
 
@@ -44,24 +39,24 @@ static int is_safe_subpath(const char *path) {
 // Validate that resolved path stays within base directory
 // Returns 1 if path is contained within base, 0 otherwise
 static int path_is_within_base(const char *resolved_path, const char *base_path) {
-    char base_real[PATH_MAX];
+    char base_real[HML_PATH_MAX];
 
     // Get canonical paths
-    if (!realpath(base_path, base_real)) {
+    if (!hml_realpath(base_path, base_real)) {
         return 0;
     }
 
     // For resolved_path, we need to handle non-existent files
     // Try to resolve the directory part
-    char resolved_copy[PATH_MAX];
-    strncpy(resolved_copy, resolved_path, PATH_MAX - 1);
-    resolved_copy[PATH_MAX - 1] = '\0';
+    char resolved_copy[HML_PATH_MAX];
+    strncpy(resolved_copy, resolved_path, HML_PATH_MAX - 1);
+    resolved_copy[HML_PATH_MAX - 1] = '\0';
 
     // Get the directory part
-    char *dir = dirname(resolved_copy);
-    char dir_real[PATH_MAX];
+    char *dir = hml_dirname(resolved_copy);
+    char dir_real[HML_PATH_MAX];
 
-    if (!realpath(dir, dir_real)) {
+    if (!hml_realpath(dir, dir_real)) {
         // If directory doesn't exist, this is already suspicious
         return 0;
     }
@@ -101,67 +96,47 @@ static void ensure_export_capacity(Module *module) {
 
 // Find the stdlib directory path
 static char* find_stdlib_path() {
-    char exe_path[PATH_MAX];
-    char resolved[PATH_MAX];
-    int found_exe = 0;
+    char exe_path[HML_PATH_MAX];
+    char resolved[HML_PATH_MAX];
 
-#ifdef __APPLE__
-    // macOS: use _NSGetExecutablePath
-    uint32_t size = sizeof(exe_path);
-    if (_NSGetExecutablePath(exe_path, &size) == 0) {
-        // Resolve any symlinks
-        char *real = realpath(exe_path, NULL);
-        if (real) {
-            strncpy(exe_path, real, PATH_MAX - 1);
-            exe_path[PATH_MAX - 1] = '\0';
-            free(real);
-            found_exe = 1;
-        }
-    }
-#else
-    // Linux: use /proc/self/exe
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len != -1) {
-        exe_path[len] = '\0';
-        found_exe = 1;
-    }
-#endif
+    // Get executable path using cross-platform helper
+    int found_exe = hml_get_executable_path(exe_path, sizeof(exe_path)) > 0;
 
     if (found_exe) {
         // Make a copy because dirname may modify the string
         char *exe_copy = strdup(exe_path);
-        char *dir = dirname(exe_copy);
+        char *dir = hml_dirname(exe_copy);
 
         // Try: executable_dir/stdlib
-        snprintf(resolved, PATH_MAX, "%s/stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
+        snprintf(resolved, HML_PATH_MAX, "%s/stdlib", dir);
+        if (hml_access(resolved, F_OK) == 0) {
             free(exe_copy);
-            return realpath(resolved, NULL);
+            return hml_realpath(resolved, NULL);
         }
 
         // Try: executable_dir/../stdlib (for build directory structure)
-        snprintf(resolved, PATH_MAX, "%s/../stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
+        snprintf(resolved, HML_PATH_MAX, "%s/../stdlib", dir);
+        if (hml_access(resolved, F_OK) == 0) {
             free(exe_copy);
-            return realpath(resolved, NULL);
+            return hml_realpath(resolved, NULL);
         }
         free(exe_copy);
     }
 
     // Fallback: try current working directory + stdlib
-    if (getcwd(resolved, sizeof(resolved))) {
-        char stdlib_path[PATH_MAX];
+    if (hml_getcwd(resolved, sizeof(resolved))) {
+        char stdlib_path[HML_PATH_MAX];
         int ret = snprintf(stdlib_path, sizeof(stdlib_path), "%s/stdlib", resolved);
         // Check if snprintf succeeded without truncation
         if (ret > 0 && ret < (int)sizeof(stdlib_path)) {
-            if (access(stdlib_path, F_OK) == 0) {
-                return realpath(stdlib_path, NULL);
+            if (hml_access(stdlib_path, F_OK) == 0) {
+                return hml_realpath(stdlib_path, NULL);
             }
         }
     }
 
     // Last resort: use /usr/local/lib/hemlock/stdlib (for installed version)
-    if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
+    if (hml_access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
         return strdup("/usr/local/lib/hemlock/stdlib");
     }
 
@@ -223,28 +198,28 @@ void module_cache_free(ModuleCache *cache) {
 
 // Helper: Find hem_modules directory by walking up from a path
 static char* find_hem_modules(const char *start_path) {
-    char search_path[PATH_MAX];
-    char hem_modules_path[PATH_MAX];
+    char search_path[HML_PATH_MAX];
+    char hem_modules_path[HML_PATH_MAX];
 
     // Make a copy of start_path
-    strncpy(search_path, start_path, PATH_MAX - 1);
-    search_path[PATH_MAX - 1] = '\0';
+    strncpy(search_path, start_path, HML_PATH_MAX - 1);
+    search_path[HML_PATH_MAX - 1] = '\0';
 
     // Walk up the directory tree looking for hem_modules
     while (1) {
-        int ret = snprintf(hem_modules_path, PATH_MAX, "%s/hem_modules", search_path);
+        int ret = snprintf(hem_modules_path, HML_PATH_MAX, "%s/hem_modules", search_path);
         // Check if snprintf succeeded without truncation
-        if (ret > 0 && ret < PATH_MAX && access(hem_modules_path, F_OK) == 0) {
+        if (ret > 0 && ret < HML_PATH_MAX && hml_access(hem_modules_path, F_OK) == 0) {
             return strdup(hem_modules_path);
         }
 
         // Go up one directory
-        char *parent = dirname(search_path);
+        char *parent = hml_dirname(search_path);
         if (strcmp(parent, search_path) == 0 || strcmp(parent, "/") == 0) {
             // Reached root, not found
             break;
         }
-        strncpy(search_path, parent, PATH_MAX - 1);
+        strncpy(search_path, parent, HML_PATH_MAX - 1);
     }
 
     return NULL;
@@ -268,7 +243,7 @@ static int is_package_import(const char *import_path) {
 
 // Resolve relative or absolute path to absolute path
 char* resolve_module_path(ModuleCache *cache, const char *importer_path, const char *import_path) {
-    char resolved[PATH_MAX];
+    char resolved[HML_PATH_MAX];
 
     // Check for @stdlib alias
     if (strncmp(import_path, "@stdlib/", 8) == 0) {
@@ -287,7 +262,7 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
             return NULL;
         }
 
-        snprintf(resolved, PATH_MAX, "%s/%s", cache->stdlib_path, module_subpath);
+        snprintf(resolved, HML_PATH_MAX, "%s/%s", cache->stdlib_path, module_subpath);
 
         // SECURITY: Double-check resolved path stays within stdlib directory
         if (!path_is_within_base(resolved, cache->stdlib_path)) {
@@ -298,8 +273,8 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
     // If import_path is absolute, use it directly
     else if (import_path[0] == '/') {
         // Already absolute
-        strncpy(resolved, import_path, PATH_MAX - 1);
-        resolved[PATH_MAX - 1] = '\0';
+        strncpy(resolved, import_path, HML_PATH_MAX - 1);
+        resolved[HML_PATH_MAX - 1] = '\0';
     }
     // Check for package import (owner/repo or owner/repo/subpath)
     else if (is_package_import(import_path)) {
@@ -307,13 +282,13 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
         const char *search_from = importer_path ? importer_path : cache->current_dir;
 
         // Make a copy for dirname since it may modify the string
-        char search_dir[PATH_MAX];
-        strncpy(search_dir, search_from, PATH_MAX - 1);
-        search_dir[PATH_MAX - 1] = '\0';
+        char search_dir[HML_PATH_MAX];
+        strncpy(search_dir, search_from, HML_PATH_MAX - 1);
+        search_dir[HML_PATH_MAX - 1] = '\0';
 
         // If search_from is a file, get its directory
         if (importer_path) {
-            dirname(search_dir);
+            hml_dirname(search_dir);
         }
 
         char *hem_modules = find_hem_modules(search_dir);
@@ -374,41 +349,41 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
             // For root imports (no subpath):
             // - Read main from package.json, default to src/index.hml
 
-            char try_path[PATH_MAX];
+            char try_path[HML_PATH_MAX];
 
             if (subpath) {
                 // Has subpath - try direct file
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
+                snprintf(try_path, HML_PATH_MAX, "%s/%s/%s/%s.hml", hem_modules, owner, repo, subpath);
+                if (hml_access(try_path, F_OK) == 0) {
                     free(hem_modules);
                     return strdup(try_path);
                 }
 
                 // Try as directory with index.hml
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s/index.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
+                snprintf(try_path, HML_PATH_MAX, "%s/%s/%s/%s/index.hml", hem_modules, owner, repo, subpath);
+                if (hml_access(try_path, F_OK) == 0) {
                     free(hem_modules);
                     return strdup(try_path);
                 }
 
                 // Try in src/ directory
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
+                snprintf(try_path, HML_PATH_MAX, "%s/%s/%s/src/%s.hml", hem_modules, owner, repo, subpath);
+                if (hml_access(try_path, F_OK) == 0) {
                     free(hem_modules);
                     return strdup(try_path);
                 }
 
                 // Try in src/ as directory
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s/index.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
+                snprintf(try_path, HML_PATH_MAX, "%s/%s/%s/src/%s/index.hml", hem_modules, owner, repo, subpath);
+                if (hml_access(try_path, F_OK) == 0) {
                     free(hem_modules);
                     return strdup(try_path);
                 }
             } else {
                 // No subpath - import root of package
                 // Try to read main from package.json
-                char pkg_json_path[PATH_MAX];
-                snprintf(pkg_json_path, PATH_MAX, "%s/%s/%s/package.json", hem_modules, owner, repo);
+                char pkg_json_path[HML_PATH_MAX];
+                snprintf(pkg_json_path, HML_PATH_MAX, "%s/%s/%s/package.json", hem_modules, owner, repo);
 
                 char main_file[256] = "src/index.hml";  // Default
                 FILE *pkg_file = fopen(pkg_json_path, "r");
@@ -446,22 +421,22 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
                 }
 
                 // Build path to main file
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s", hem_modules, owner, repo, main_file);
+                snprintf(try_path, HML_PATH_MAX, "%s/%s/%s/%s", hem_modules, owner, repo, main_file);
 
                 // Add .hml if not present
                 int path_len = strlen(try_path);
                 if (path_len < 4 || strcmp(try_path + path_len - 4, ".hml") != 0) {
-                    strncat(try_path, ".hml", PATH_MAX - path_len - 1);
+                    strncat(try_path, ".hml", HML_PATH_MAX - path_len - 1);
                 }
 
-                if (access(try_path, F_OK) == 0) {
+                if (hml_access(try_path, F_OK) == 0) {
                     free(hem_modules);
                     return strdup(try_path);
                 }
 
                 // Fallback: try src/index.hml
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/index.hml", hem_modules, owner, repo);
-                if (access(try_path, F_OK) == 0) {
+                snprintf(try_path, HML_PATH_MAX, "%s/%s/%s/src/index.hml", hem_modules, owner, repo);
+                if (hml_access(try_path, F_OK) == 0) {
                     free(hem_modules);
                     return strdup(try_path);
                 }
@@ -474,17 +449,17 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
 
         // Fall back to relative path resolution for uninstalled packages
         // This will result in a "file not found" error, which is appropriate
-        snprintf(resolved, PATH_MAX, "%s/%s", cache->current_dir, import_path);
+        snprintf(resolved, HML_PATH_MAX, "%s/%s", cache->current_dir, import_path);
     } else {
         // Relative path - resolve relative to importer's directory
         const char *base_dir;
-        char importer_dir[PATH_MAX];
+        char importer_dir[HML_PATH_MAX];
 
         if (importer_path) {
             // Resolve relative to the importing file's directory
-            strncpy(importer_dir, importer_path, PATH_MAX - 1);
-            importer_dir[PATH_MAX - 1] = '\0';
-            char *dir = dirname(importer_dir);
+            strncpy(importer_dir, importer_path, HML_PATH_MAX - 1);
+            importer_dir[HML_PATH_MAX - 1] = '\0';
+            char *dir = hml_dirname(importer_dir);
             base_dir = dir;
         } else {
             // No importer - use current directory
@@ -492,17 +467,17 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
         }
 
         // Build the path
-        snprintf(resolved, PATH_MAX, "%s/%s", base_dir, import_path);
+        snprintf(resolved, HML_PATH_MAX, "%s/%s", base_dir, import_path);
     }
 
     // Add .hml extension if not present
     int len = strlen(resolved);
     if (len < 4 || strcmp(resolved + len - 4, ".hml") != 0) {
-        strncat(resolved, ".hml", PATH_MAX - len - 1);
+        strncat(resolved, ".hml", HML_PATH_MAX - len - 1);
     }
 
     // Resolve to absolute canonical path
-    char *absolute = realpath(resolved, NULL);
+    char *absolute = hml_realpath(resolved, NULL);
     if (!absolute) {
         // File doesn't exist - return the resolved path anyway for error reporting
         return strdup(resolved);
@@ -857,8 +832,8 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 // Returns 0 on success, non-zero on error
 int execute_file_with_modules(const char *file_path, Environment *global_env, int argc, char **argv, ExecutionContext *ctx) {
     // Get current working directory
-    char cwd[PATH_MAX];
-    if (!getcwd(cwd, sizeof(cwd))) {
+    char cwd[HML_PATH_MAX];
+    if (!hml_getcwd(cwd, sizeof(cwd))) {
         fprintf(stderr, "Error: Could not get current directory\n");
         return 1;
     }
