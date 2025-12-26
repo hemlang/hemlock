@@ -13,15 +13,32 @@
 #include <errno.h>
 #include <time.h>
 #include <signal.h>
+#include <limits.h>
+
+/* Platform detection */
+#if defined(_WIN32) || defined(_WIN64) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HML_WINDOWS 1
+#else
+#define HML_POSIX 1
+#endif
+
+#ifdef HML_WINDOWS
+#include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <io.h>
+#include <direct.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+/* Windows doesn't have these headers */
+#else
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <dirent.h>
-#include <limits.h>
 #include <dlfcn.h>
-#include <ffi.h>
 #include <pwd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -29,6 +46,9 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
+#endif
+
+#include <ffi.h>
 
 #ifdef HML_HAVE_ZLIB
 #include <zlib.h>
