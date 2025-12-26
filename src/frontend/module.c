@@ -500,8 +500,8 @@ Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
 // Parse a module file and return statements
 Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
     (void)ctx;  // Suppress unused parameter warning
-    // Read file
-    FILE *file = fopen(path, "r");
+    // Read file in binary mode to get accurate byte count on Windows
+    FILE *file = fopen(path, "rb");
     if (!file) {
         fprintf(stderr, "Error: Cannot open module file '%s'\n", path);
         *stmt_count = 0;
@@ -519,13 +519,14 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
         fclose(file);
         return NULL;
     }
-    if (fread(source, 1, file_size, file) != (size_t)file_size) {
+    size_t bytes_read = fread(source, 1, file_size, file);
+    if (bytes_read == 0 && file_size > 0) {
         fprintf(stderr, "Error: Failed to read module file: %s\n", path);
         free(source);
         fclose(file);
         return NULL;
     }
-    source[file_size] = '\0';
+    source[bytes_read] = '\0';
     fclose(file);
 
     // Parse

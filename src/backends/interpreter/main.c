@@ -51,14 +51,14 @@ static char* read_file(const char *path) {
     
     // Read file
     size_t bytes_read = fread(buffer, 1, size, file);
-    if (bytes_read < (size_t)size) {
+    if (bytes_read == 0 && size > 0) {
         fprintf(stderr, "Error: Could not read file\n");
         free(buffer);
         fclose(file);
         return NULL;
     }
-    
-    buffer[size] = '\0';
+
+    buffer[bytes_read] = '\0';
     fclose(file);
     return buffer;
 }
