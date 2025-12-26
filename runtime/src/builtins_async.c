@@ -16,22 +16,9 @@
 /* Windows compatibility for usleep */
 #define usleep(usec) Sleep((usec) / 1000)
 
-/* Windows compatibility for poll - stub that uses WSAPoll */
-struct pollfd {
-    int fd;
-    short events;
-    short revents;
-};
-#define POLLIN  0x0001
-#define POLLOUT 0x0004
-#define POLLERR 0x0008
-
-static int poll(struct pollfd *fds, unsigned long nfds, int timeout) {
-    /* WSAPoll requires SOCKET, not int fd - simplified stub */
-    (void)fds; (void)nfds;
-    Sleep(timeout > 0 ? timeout : 1);
-    return 0;  /* timeout */
-}
+/* Note: winsock2.h already provides struct pollfd, POLLIN, POLLOUT, POLLERR */
+/* Use WSAPoll for poll() - it has compatible signature with POSIX poll */
+#define poll(fds, nfds, timeout) WSAPoll(fds, nfds, timeout)
 #endif
 
 static atomic_int g_next_task_id = 1;
