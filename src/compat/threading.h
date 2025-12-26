@@ -113,6 +113,34 @@ HML_INLINE int hml_cond_timedwait_ms(hml_cond_t *cond, hml_mutex_t *mutex, unsig
     return SleepConditionVariableCS(cond, mutex, ms) ? 0 : -1;
 }
 
+/* Timed wait with absolute timespec deadline (Windows version) */
+HML_INLINE int hml_cond_timedwait(hml_cond_t *cond, hml_mutex_t *mutex, const struct timespec *abstime) {
+    /* Convert absolute time to relative milliseconds */
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER now;
+    now.LowPart = ft.dwLowDateTime;
+    now.HighPart = ft.dwHighDateTime;
+    now.QuadPart -= 116444736000000000ULL;  /* Convert to Unix epoch */
+    long long now_ns = now.QuadPart * 100;  /* Convert 100ns units to ns */
+
+    long long target_ns = abstime->tv_sec * 1000000000LL + abstime->tv_nsec;
+    long long diff_ms = (target_ns - now_ns) / 1000000LL;
+
+    if (diff_ms <= 0) {
+        return ETIMEDOUT;  /* Already expired */
+    }
+
+    DWORD ms = (diff_ms > MAXDWORD) ? MAXDWORD : (DWORD)diff_ms;
+    if (!SleepConditionVariableCS(cond, mutex, ms)) {
+        if (GetLastError() == ERROR_TIMEOUT) {
+            return ETIMEDOUT;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 HML_INLINE int hml_cond_signal(hml_cond_t *cond) {
     WakeConditionVariable(cond);
     return 0;
@@ -194,6 +222,22 @@ HML_INLINE int hml_pthread_sigmask(int how, const hml_sigset_t *set, hml_sigset_
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 
+/* One-time initialization (Windows version) */
+typedef INIT_ONCE hml_once_t;
+#define HML_ONCE_INIT INIT_ONCE_STATIC_INIT
+
+static BOOL CALLBACK hml_once_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+    (void)InitOnce;
+    (void)Context;
+    void (*init_routine)(void) = (void (*)(void))Parameter;
+    init_routine();
+    return TRUE;
+}
+
+HML_INLINE int hml_once(hml_once_t *once_control, void (*init_routine)(void)) {
+    return InitOnceExecuteOnce(once_control, hml_once_callback, (PVOID)init_routine, NULL) ? 0 : -1;
+}
+
 #else /* POSIX Implementation */
 
 /* ========== POSIX Implementation ========== */
@@ -264,6 +308,11 @@ HML_INLINE int hml_cond_timedwait_ms(hml_cond_t *cond, hml_mutex_t *mutex, unsig
     return pthread_cond_timedwait(cond, mutex, &ts);
 }
 
+/* Timed wait with absolute timespec deadline (POSIX version) */
+HML_INLINE int hml_cond_timedwait(hml_cond_t *cond, hml_mutex_t *mutex, const struct timespec *abstime) {
+    return pthread_cond_timedwait(cond, mutex, abstime);
+}
+
 HML_INLINE int hml_cond_signal(hml_cond_t *cond) {
     return pthread_cond_signal(cond);
 }
@@ -323,6 +372,14 @@ HML_INLINE int hml_sigemptyset(hml_sigset_t *set) {
 
 HML_INLINE int hml_pthread_sigmask(int how, const hml_sigset_t *set, hml_sigset_t *oldset) {
     return pthread_sigmask(how, set, oldset);
+}
+
+/* One-time initialization (POSIX version) */
+typedef pthread_once_t hml_once_t;
+#define HML_ONCE_INIT PTHREAD_ONCE_INIT
+
+HML_INLINE int hml_once(hml_once_t *once_control, void (*init_routine)(void)) {
+    return pthread_once(once_control, init_routine);
 }
 
 #endif /* HML_WINDOWS */

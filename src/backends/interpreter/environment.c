@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <pthread.h>
 #include <stdatomic.h>
 
 // ========== ENVIRONMENT POOL ==========
@@ -21,15 +20,15 @@ typedef struct {
     int hash_table_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY * 2];
     int free_list[ENV_POOL_SIZE];  // Stack of free indices
     int free_count;                 // Number of free slots
-    pthread_mutex_t mutex;          // Protects pool operations for thread safety
+    hml_mutex_t mutex;              // Protects pool operations for thread safety
 } EnvironmentPool;
 
 static EnvironmentPool env_pool = {0};
 static int env_pool_initialized = 0;
-static pthread_once_t env_pool_once = PTHREAD_ONCE_INIT;
+static hml_once_t env_pool_once = HML_ONCE_INIT;
 
 static void env_pool_init_internal(void) {
-    pthread_mutex_init(&env_pool.mutex, NULL);
+    hml_mutex_init(&env_pool.mutex);
     for (int i = 0; i < ENV_POOL_SIZE; i++) {
         // Pre-initialize the environment structures
         env_pool.envs[i].names = env_pool.names_storage[i];
@@ -46,18 +45,18 @@ static void env_pool_init_internal(void) {
 }
 
 static void env_pool_init(void) {
-    pthread_once(&env_pool_once, env_pool_init_internal);
+    hml_once(&env_pool_once, env_pool_init_internal);
 }
 
 static Environment* env_pool_alloc(void) {
-    env_pool_init();  // Ensure initialized (thread-safe via pthread_once)
+    env_pool_init();  // Ensure initialized (thread-safe via hml_once)
 
-    pthread_mutex_lock(&env_pool.mutex);
+    hml_mutex_lock(&env_pool.mutex);
 
     // O(1) allocation from free list
     if (env_pool.free_count > 0) {
         int idx = env_pool.free_list[--env_pool.free_count];
-        pthread_mutex_unlock(&env_pool.mutex);
+        hml_mutex_unlock(&env_pool.mutex);
 
         Environment *env = &env_pool.envs[idx];
         // Reset to default storage (in case it was grown)
@@ -70,7 +69,7 @@ static Environment* env_pool_alloc(void) {
         return env;
     }
 
-    pthread_mutex_unlock(&env_pool.mutex);
+    hml_mutex_unlock(&env_pool.mutex);
     return NULL;  // Pool exhausted
 }
 
@@ -99,9 +98,9 @@ static void env_pool_free(Environment *env) {
         env->hash_table = env_pool.hash_table_storage[idx];
     }
     // O(1) return to free list (thread-safe)
-    pthread_mutex_lock(&env_pool.mutex);
+    hml_mutex_lock(&env_pool.mutex);
     env_pool.free_list[env_pool.free_count++] = idx;
-    pthread_mutex_unlock(&env_pool.mutex);
+    hml_mutex_unlock(&env_pool.mutex);
 }
 
 // ========== ENVIRONMENT ==========

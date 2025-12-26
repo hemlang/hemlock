@@ -675,13 +675,13 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     task->ref_count = 1;  // Start with 1 - caller owns the first reference
 
     // Initialize task mutex for thread-safe state access
-    task->task_mutex = malloc(sizeof(pthread_mutex_t));
+    task->task_mutex = malloc(sizeof(hml_mutex_t));
     if (!task->task_mutex) {
         free(task);
         fprintf(stderr, "Runtime error: Memory allocation failed for task mutex\n");
         exit(1);
     }
-    pthread_mutex_init((pthread_mutex_t*)task->task_mutex, NULL);
+    hml_mutex_init((hml_mutex_t*)task->task_mutex);
 
     return task;
 }
@@ -711,7 +711,7 @@ void task_free(Task *task) {
             free(task->thread);
         }
         if (task->task_mutex) {
-            pthread_mutex_destroy((pthread_mutex_t*)task->task_mutex);
+            hml_mutex_destroy((hml_mutex_t*)task->task_mutex);
             free(task->task_mutex);
         }
         free(task);
@@ -768,13 +768,13 @@ Channel* channel_new(int capacity) {
         ch->buffer = NULL;
     }
 
-    // Initialize pthread mutex and condition variables
-    ch->mutex = malloc(sizeof(pthread_mutex_t));
-    ch->not_empty = malloc(sizeof(pthread_cond_t));
-    ch->not_full = malloc(sizeof(pthread_cond_t));
+    // Initialize mutex and condition variables
+    ch->mutex = malloc(sizeof(hml_mutex_t));
+    ch->not_empty = malloc(sizeof(hml_cond_t));
+    ch->not_full = malloc(sizeof(hml_cond_t));
 
     // For unbuffered channels, also allocate the rendezvous condvar
-    ch->rendezvous = malloc(sizeof(pthread_cond_t));
+    ch->rendezvous = malloc(sizeof(hml_cond_t));
 
     if (!ch->mutex || !ch->not_empty || !ch->not_full || !ch->rendezvous) {
         if (ch->buffer) free(ch->buffer);
@@ -787,10 +787,10 @@ Channel* channel_new(int capacity) {
         exit(1);
     }
 
-    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->rendezvous, NULL);
+    hml_mutex_init((hml_mutex_t*)ch->mutex);
+    hml_cond_init((hml_cond_t*)ch->not_empty);
+    hml_cond_init((hml_cond_t*)ch->not_full);
+    hml_cond_init((hml_cond_t*)ch->rendezvous);
 
     // Initialize unbuffered channel fields
     ch->unbuffered_value = malloc(sizeof(Value));
@@ -809,19 +809,19 @@ void channel_free(Channel *ch) {
             free(ch->buffer);
         }
         if (ch->mutex) {
-            pthread_mutex_destroy((pthread_mutex_t*)ch->mutex);
+            hml_mutex_destroy((hml_mutex_t*)ch->mutex);
             free(ch->mutex);
         }
         if (ch->not_empty) {
-            pthread_cond_destroy((pthread_cond_t*)ch->not_empty);
+            hml_cond_destroy((hml_cond_t*)ch->not_empty);
             free(ch->not_empty);
         }
         if (ch->not_full) {
-            pthread_cond_destroy((pthread_cond_t*)ch->not_full);
+            hml_cond_destroy((hml_cond_t*)ch->not_full);
             free(ch->not_full);
         }
         if (ch->rendezvous) {
-            pthread_cond_destroy((pthread_cond_t*)ch->rendezvous);
+            hml_cond_destroy((hml_cond_t*)ch->rendezvous);
             free(ch->rendezvous);
         }
         if (ch->unbuffered_value) {

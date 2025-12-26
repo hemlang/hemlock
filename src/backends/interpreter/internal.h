@@ -6,6 +6,11 @@
 #include "hemlock_limits.h"
 #include <stdint.h>
 
+/* Cross-platform compatibility layer */
+#include "../../compat/platform.h"
+#include "../../compat/threading.h"
+#include "../../compat/dlfcn.h"
+
 // ========== CONTROL FLOW STATE ==========
 
 typedef struct {
