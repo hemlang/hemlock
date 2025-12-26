@@ -110,6 +110,10 @@ HML_INLINE char *hml_getcwd(char *buf, size_t size) {
     if (result == 0 || result > size) {
         return NULL;
     }
+    /* Normalize backslashes to forward slashes */
+    for (char *p = buf; *p; p++) {
+        if (*p == '\\') *p = '/';
+    }
     return buf;
 }
 
@@ -320,6 +324,11 @@ HML_INLINE char *hml_realpath(const char *path, char *resolved) {
         return NULL;
     }
 
+    /* Normalize backslashes to forward slashes to avoid escape sequence issues */
+    for (char *p = buf; *p; p++) {
+        if (*p == '\\') *p = '/';
+    }
+
     if (resolved) {
         strcpy(resolved, buf);
         return resolved;
@@ -333,6 +342,10 @@ HML_INLINE int hml_get_executable_path(char *buf, size_t size) {
     DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)size);
     if (len == 0 || len >= size) {
         return -1;
+    }
+    /* Normalize backslashes to forward slashes */
+    for (char *p = buf; *p; p++) {
+        if (*p == '\\') *p = '/';
     }
     return (int)len;
 }
