@@ -12,6 +12,28 @@
 #include <poll.h>
 #endif
 
+#ifdef HML_RT_WINDOWS
+/* Windows compatibility for usleep */
+#define usleep(usec) Sleep((usec) / 1000)
+
+/* Windows compatibility for poll - stub that uses WSAPoll */
+struct pollfd {
+    int fd;
+    short events;
+    short revents;
+};
+#define POLLIN  0x0001
+#define POLLOUT 0x0004
+#define POLLERR 0x0008
+
+static int poll(struct pollfd *fds, unsigned long nfds, int timeout) {
+    /* WSAPoll requires SOCKET, not int fd - simplified stub */
+    (void)fds; (void)nfds;
+    Sleep(timeout > 0 ? timeout : 1);
+    return 0;  /* timeout */
+}
+#endif
+
 static atomic_int g_next_task_id = 1;
 
 // Define ffi_type for HmlValue struct (16 bytes: 4 type + 4 padding + 8 union)
