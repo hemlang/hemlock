@@ -227,8 +227,8 @@ static char* find_hem_modules(const char *start_path) {
 
 // Helper: Check if import path looks like a package (owner/repo format)
 static int is_package_import(const char *import_path) {
-    // Must not start with ./ or ../ or /
-    if (import_path[0] == '.' || import_path[0] == '/') {
+    // Must not start with ./ or ../ or be an absolute path
+    if (import_path[0] == '.' || hml_path_is_absolute(import_path)) {
         return 0;
     }
 
@@ -271,7 +271,7 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
         }
     }
     // If import_path is absolute, use it directly
-    else if (import_path[0] == '/') {
+    else if (hml_path_is_absolute(import_path)) {
         // Already absolute
         strncpy(resolved, import_path, HML_PATH_MAX - 1);
         resolved[HML_PATH_MAX - 1] = '\0';
