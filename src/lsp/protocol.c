@@ -3,13 +3,19 @@
  */
 
 #include "protocol.h"
+#include "../compat/platform.h"
+#include "../compat/filesystem.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+
+#ifdef HML_POSIX
+#include <unistd.h>
+#endif
 
 // ============================================================================
 // JSON Value Constructors
