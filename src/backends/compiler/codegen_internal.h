@@ -8,7 +8,14 @@
 #ifndef HEMLOCK_CODEGEN_INTERNAL_H
 #define HEMLOCK_CODEGEN_INTERNAL_H
 
+/* Platform detection */
+#if defined(_WIN32) || defined(_WIN64) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HML_CODEGEN_WINDOWS 1
+#else
 #define _GNU_SOURCE
+#define HML_CODEGEN_POSIX 1
+#endif
+
 #include "codegen.h"
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
@@ -17,9 +24,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
+
+#ifdef HML_CODEGEN_POSIX
 #include <unistd.h>
 #include <libgen.h>
-#include <limits.h>
+#endif
+
+#ifdef HML_CODEGEN_WINDOWS
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+#endif
 
 // ========== BUFFER SIZE CONSTANTS ==========
 
