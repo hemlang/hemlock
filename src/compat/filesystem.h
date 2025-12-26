@@ -271,6 +271,24 @@ HML_INLINE ssize_t hml_getline(char **lineptr, size_t *n, FILE *stream) {
 /* Map getline to our implementation */
 #define getline hml_getline
 
+/* strndup is not available on Windows - provide a compatible implementation */
+HML_INLINE char *hml_strndup(const char *s, size_t n) {
+    size_t len = 0;
+    while (len < n && s[len] != '\0') {
+        len++;
+    }
+    char *result = (char *)malloc(len + 1);
+    if (!result) {
+        return NULL;
+    }
+    memcpy(result, s, len);
+    result[len] = '\0';
+    return result;
+}
+
+/* Map strndup to our implementation */
+#define strndup hml_strndup
+
 /* Access mode constants */
 #ifndef F_OK
 #define F_OK 0

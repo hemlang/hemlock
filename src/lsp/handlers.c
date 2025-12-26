@@ -11,6 +11,9 @@
 #include "../../include/ast.h"
 #include "../../include/version.h"
 
+#include "../compat/platform.h"
+#include "../compat/filesystem.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
