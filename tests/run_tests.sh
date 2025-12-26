@@ -11,6 +11,16 @@ BLUE='\033[0;34m'
 DIM='\033[2m'
 NC='\033[0m' # No Color
 
+# Detect Windows (MSYS2/MinGW)
+IS_WINDOWS=0
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "mingw"* || "$OSTYPE" == "cygwin" ]]; then
+    IS_WINDOWS=1
+fi
+
+# Tests/categories to skip on Windows (platform-specific features)
+WINDOWS_SKIP_CATEGORIES="ffi ffi_callbacks stdlib_crypto stdlib_regex stdlib_sqlite stdlib_ipc signals networking stdlib_net"
+WINDOWS_SKIP_TESTS="io/append_file.hml io/directory_navigation.hml io/directory_ops.hml io/edge_closed_file_ops.hml io/edge_read_zero_bytes.hml io/edge_seek_bounds.hml io/edge_write_zero_bytes.hml io/exists.hml io/file_info.hml io/file_management.hml io/read_write_file.hml async_io/async_fs.hml async_io/ipv6_socket.hml async_io/nonblocking_socket.hml async_io/poll_basic.hml stdlib_env/test_env_vars.hml stdlib_hash/test_file_checksum.hml stdlib_json/integration_test.hml stdlib_process/basic_test.hml stdlib_time/test_sleep.hml stdlib_uuid/uuid.hml exec/test_exec_final.hml"
+
 # Cross-platform millisecond timestamp
 # macOS date doesn't support %N, so we need alternatives
 get_time_ms() {
@@ -127,6 +137,35 @@ for test_file in $TEST_FILES; do
                 echo "  Run 'sudo apt-get install libwebsockets-dev && make stdlib' to enable"
                 CURRENT_CATEGORY="$category"
             fi
+            continue
+        fi
+    fi
+
+    # Skip Windows-incompatible tests
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+        # Check if category should be skipped
+        if [[ " $WINDOWS_SKIP_CATEGORIES " == *" $category "* ]]; then
+            if [ "$category" != "$CURRENT_CATEGORY" ]; then
+                if [ -n "$CURRENT_CATEGORY" ]; then
+                    echo ""
+                fi
+                echo -e "${BLUE}[$category]${NC}"
+                echo -e "${YELLOW}⊘${NC} Skipping $category tests (not supported on Windows)"
+                CURRENT_CATEGORY="$category"
+            fi
+            continue
+        fi
+        # Check if specific test should be skipped
+        if [[ " $WINDOWS_SKIP_TESTS " == *" $test_name "* ]]; then
+            # Print category header if needed
+            if [ "$category" != "$CURRENT_CATEGORY" ]; then
+                if [ -n "$CURRENT_CATEGORY" ]; then
+                    echo ""
+                fi
+                echo -e "${BLUE}[$category]${NC}"
+                CURRENT_CATEGORY="$category"
+            fi
+            echo -e "${YELLOW}⊘${NC} $test_name ${DIM}(skipped on Windows)${NC}"
             continue
         fi
     fi
