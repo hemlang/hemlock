@@ -10,14 +10,25 @@
 #include "../../include/parser.h"
 #include "../../include/ast.h"
 
+#include "../compat/platform.h"
+#include "../compat/socket.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
+
+#ifdef HML_WINDOWS
+#include <io.h>
+#define STDIN_FILENO _fileno(stdin)
+#define STDOUT_FILENO _fileno(stdout)
+#define close(fd) closesocket(fd)
+#else
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <errno.h>
+#endif
 
 // ============================================================================
 // LSP Server Lifecycle
