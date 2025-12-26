@@ -198,10 +198,13 @@ HML_INLINE int hml_atomic_compare_exchange(hml_atomic_int *ptr, int *expected, i
 
 /* Signal masking - Windows doesn't have POSIX signals in threads */
 /* These are no-ops on Windows; signals are handled differently */
-typedef int hml_sigset_t;
+/* Note: hml_sigset_t may also be defined in signals.h - use guard */
+#ifndef HML_SIGSET_T_DEFINED
+#define HML_SIGSET_T_DEFINED
+typedef unsigned long hml_sigset_t;
 
 HML_INLINE int hml_sigfillset(hml_sigset_t *set) {
-    *set = ~0;
+    *set = ~0UL;
     return 0;
 }
 
@@ -209,6 +212,7 @@ HML_INLINE int hml_sigemptyset(hml_sigset_t *set) {
     *set = 0;
     return 0;
 }
+#endif /* HML_SIGSET_T_DEFINED */
 
 HML_INLINE int hml_pthread_sigmask(int how, const hml_sigset_t *set, hml_sigset_t *oldset) {
     /* No-op on Windows */

@@ -209,6 +209,9 @@ HML_INLINE int hml_sigaction(int sig, const struct hml_sigaction *act, struct hm
 }
 
 /* Signal set operations (no-op on Windows) */
+/* Note: hml_sigset_t may also be defined in threading.h - use guard */
+#ifndef HML_SIGSET_T_DEFINED
+#define HML_SIGSET_T_DEFINED
 typedef unsigned long hml_sigset_t;
 
 HML_INLINE int hml_sigemptyset(hml_sigset_t *set) {
@@ -220,6 +223,7 @@ HML_INLINE int hml_sigfillset(hml_sigset_t *set) {
     *set = ~0UL;
     return 0;
 }
+#endif /* HML_SIGSET_T_DEFINED */
 
 HML_INLINE int hml_sigaddset(hml_sigset_t *set, int sig) {
     *set |= (1UL << sig);
