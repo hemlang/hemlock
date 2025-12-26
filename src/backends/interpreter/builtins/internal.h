@@ -1,29 +1,35 @@
 #ifndef BUILTINS_INTERNAL_H
 #define BUILTINS_INTERNAL_H
 
-// Define feature test macros before including system headers
+// Include platform compatibility layer first
+#include "../../../compat/platform.h"
+
+#ifdef HML_POSIX
+// Define feature test macros before including system headers (POSIX only)
 #define _XOPEN_SOURCE 700
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <pthread.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <dirent.h>
-#include <unistd.h>
 #include <limits.h>
 #include <math.h>
-#include <time.h>
-#include <sys/time.h>
-#include <signal.h>
+
+// Include cross-platform compatibility headers
+#include "../../../compat/threading.h"
+#include "../../../compat/socket.h"
+#include "../../../compat/filesystem.h"
+#include "../../../compat/process.h"
+#include "../../../compat/time.h"
+#include "../../../compat/signals.h"
+#include "../../../compat/dlfcn.h"
+
+#ifdef HML_POSIX
 #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+#endif
 
 // Define math constants if not available
 #ifndef M_PI

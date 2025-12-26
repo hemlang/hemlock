@@ -167,10 +167,7 @@ HML_INLINE double hml_now(void) {
 /* ========== POSIX Implementation ========== */
 
 #include <sys/time.h>
-/* For usleep, need _DEFAULT_SOURCE or _BSD_SOURCE on some systems */
-#ifndef _DEFAULT_SOURCE
-#define _DEFAULT_SOURCE
-#endif
+/* usleep is deprecated in POSIX.1-2008, use nanosleep wrapper instead */
 #include <unistd.h>
 
 /* gettimeofday wrapper */
@@ -188,9 +185,12 @@ HML_INLINE int hml_nanosleep(const struct timespec *req, struct timespec *rem) {
     return nanosleep(req, rem);
 }
 
-/* usleep wrapper */
+/* usleep wrapper - use nanosleep instead of deprecated usleep */
 HML_INLINE int hml_usleep(unsigned int usec) {
-    return usleep(usec);
+    struct timespec ts;
+    ts.tv_sec = usec / 1000000;
+    ts.tv_nsec = (usec % 1000000) * 1000;
+    return nanosleep(&ts, NULL);
 }
 
 /* Get time in milliseconds since program start */
