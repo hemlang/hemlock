@@ -14,7 +14,7 @@
 #include "instruction.h"
 
 // Use the shared Value type from interpreter
-#include "../../../include/interpreter.h"
+#include "interpreter.h"
 
 // ============================================
 // Forward Declarations
@@ -174,11 +174,12 @@ bool vm_set_global(VM *vm, const char *name, Value value);
 // Builtins
 // ============================================
 
-typedef Value (*BuiltinFn)(VM *vm, int argc, Value *args);
+// VM-specific builtin function signature (different from interpreter's BuiltinFn)
+typedef Value (*VMBuiltinFn)(VM *vm, int argc, Value *args);
 
 typedef struct {
     const char *name;
-    BuiltinFn fn;
+    VMBuiltinFn fn;
     int min_arity;
     int max_arity;      // -1 for variadic
 } BuiltinEntry;

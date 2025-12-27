@@ -142,7 +142,7 @@ Chunk* chunk_deserialize(const uint8_t *data, size_t size);
 // Chunk Builder (for compiler)
 // ============================================
 
-typedef struct {
+typedef struct ChunkBuilder {
     Chunk *chunk;
 
     // Current scope tracking
