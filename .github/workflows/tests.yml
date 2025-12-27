@@ -24,6 +24,36 @@ jobs:
     - name: Run tests
       run: make test
 
+  # Windows build and test job
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-libffi
+          mingw-w64-x86_64-zlib
+          mingw-w64-x86_64-openssl
+          make
+
+    - name: Build
+      run: |
+        make clean
+        make
+        make stdlib || true
+
+    - name: Run interpreter tests
+      run: make test
+
   # Compiler tests
   compiler:
     runs-on: ubuntu-latest

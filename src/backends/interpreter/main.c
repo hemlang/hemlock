@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <zlib.h>
+#include "compat/platform.h"
+#include "compat/filesystem.h"
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
@@ -51,14 +51,14 @@ static char* read_file(const char *path) {
     
     // Read file
     size_t bytes_read = fread(buffer, 1, size, file);
-    if (bytes_read < (size_t)size) {
+    if (bytes_read == 0 && size > 0) {
         fprintf(stderr, "Error: Could not read file\n");
         free(buffer);
         fclose(file);
         return NULL;
     }
-    
-    buffer[size] = '\0';
+
+    buffer[bytes_read] = '\0';
     fclose(file);
     return buffer;
 }
@@ -112,21 +112,10 @@ static void run_source(const char *source, int argc, char **argv, int stack_dept
 // Check if this executable has an embedded HMLB payload
 // Returns the payload data (caller must free) or NULL if not packaged
 static uint8_t* check_embedded_payload(size_t *out_size) {
-    // Read our own executable path
-    char exe_path[4096];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len == -1) {
-        // Try macOS alternative
-        #ifdef __APPLE__
-        uint32_t bufsize = sizeof(exe_path);
-        if (_NSGetExecutablePath(exe_path, &bufsize) != 0) {
-            return NULL;
-        }
-        #else
+    // Read our own executable path using cross-platform helper
+    char exe_path[HML_PATH_MAX];
+    if (hml_get_executable_path(exe_path, sizeof(exe_path)) <= 0) {
         return NULL;
-        #endif
-    } else {
-        exe_path[len] = '\0';
     }
 
     FILE *f = fopen(exe_path, "rb");
@@ -662,26 +651,13 @@ static int package_file(const char *input_path, const char *output_path, int ver
         hmlb_payload = payload_data;  // Transfer ownership
     }
 
-    // Read our own executable
-    char exe_path[4096];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len == -1) {
-        #ifdef __APPLE__
-        uint32_t bufsize = sizeof(exe_path);
-        if (_NSGetExecutablePath(exe_path, &bufsize) != 0) {
-            fprintf(stderr, "Cannot determine executable path\n");
-            free(hmlb_payload);
-            bundle_free(bundle);
-            return 1;
-        }
-        #else
+    // Read our own executable using cross-platform helper
+    char exe_path[HML_PATH_MAX];
+    if (hml_get_executable_path(exe_path, sizeof(exe_path)) <= 0) {
         fprintf(stderr, "Cannot determine executable path\n");
         free(hmlb_payload);
         bundle_free(bundle);
         return 1;
-        #endif
-    } else {
-        exe_path[len] = '\0';
     }
 
     FILE *exe_file = fopen(exe_path, "rb");

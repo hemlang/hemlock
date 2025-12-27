@@ -53,7 +53,7 @@ static void skip_whitespace(Lexer *lex) {
     }
 }
 
-static Token make_token(Lexer *lex, TokenType type) {
+static Token make_token(Lexer *lex, HmlTokenType type) {
     Token token;
     token.type = type;
     token.start = lex->start;
@@ -453,15 +453,15 @@ static Token rune_literal(Lexer *lex) {
     return token;
 }
 
-static TokenType check_keyword(const char *start, int length, 
-                               const char *rest, TokenType type) {
+static HmlTokenType check_keyword(const char *start, int length,
+                               const char *rest, HmlTokenType type) {
     if (strncmp(start, rest, length) == 0) {
         return type;
     }
     return TOK_IDENT;
 }
 
-static TokenType identifier_type(Lexer *lex) {
+static HmlTokenType identifier_type(Lexer *lex) {
     int len = lex->current - lex->start;
     
     switch (lex->start[0]) {
@@ -588,7 +588,7 @@ static Token identifier(Lexer *lex) {
         advance(lex);
     }
     
-    TokenType type = identifier_type(lex);
+    HmlTokenType type = identifier_type(lex);
     return make_token(lex, type);
 }
 

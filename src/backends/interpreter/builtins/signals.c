@@ -84,22 +84,22 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Install C signal handler or reset to default
     if (new_handler != NULL) {
-        struct sigaction sa;
-        sa.sa_handler = hemlock_signal_handler;
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = SA_RESTART;  // Restart syscalls if possible
-        if (sigaction(signum, &sa, NULL) != 0) {
-            fprintf(stderr, "Runtime error: signal() failed to install handler for signal %d: %s\n", signum, strerror(errno));
+        struct hml_sigaction sa;
+        sa.hml_handler = hemlock_signal_handler;
+        hml_sigemptyset(&sa.hml_mask);
+        sa.hml_flags = SA_RESTART;  // Restart syscalls if possible
+        if (hml_sigaction(signum, &sa, NULL) != 0) {
+            fprintf(stderr, "Runtime error: signal() failed to install handler for signal %d\n", signum);
             exit(1);
         }
     } else {
         // Reset to default handler
-        struct sigaction sa;
-        sa.sa_handler = SIG_DFL;
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-        if (sigaction(signum, &sa, NULL) != 0) {
-            fprintf(stderr, "Runtime error: signal() failed to reset handler for signal %d: %s\n", signum, strerror(errno));
+        struct hml_sigaction sa;
+        sa.hml_handler = HML_SIG_DFL;
+        hml_sigemptyset(&sa.hml_mask);
+        sa.hml_flags = 0;
+        if (hml_sigaction(signum, &sa, NULL) != 0) {
+            fprintf(stderr, "Runtime error: signal() failed to reset handler for signal %d\n", signum);
             exit(1);
         }
     }
@@ -126,8 +126,8 @@ Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-    if (raise(signum) != 0) {
-        fprintf(stderr, "Runtime error: raise() failed for signal %d: %s\n", signum, strerror(errno));
+    if (hml_raise(signum) != 0) {
+        fprintf(stderr, "Runtime error: raise() failed for signal %d\n", signum);
         exit(1);
     }
 

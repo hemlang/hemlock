@@ -962,7 +962,13 @@ MemBuffer* membuf_new(void) {
     if (!buf) return NULL;
     buf->data = NULL;
     buf->size = 0;
+#ifdef HML_CODEGEN_WINDOWS
+    // Windows: use tmpfile() as fallback since open_memstream is not available
+    buf->stream = tmpfile();
+#else
+    // POSIX: use open_memstream for in-memory buffer
     buf->stream = open_memstream(&buf->data, &buf->size);
+#endif
     if (!buf->stream) {
         free(buf);
         return NULL;
@@ -976,10 +982,24 @@ void membuf_flush_to(MemBuffer *buf, FILE *output) {
     if (buf->stream) {
         fflush(buf->stream);
     }
-    // Write all buffered data to output
+#ifdef HML_CODEGEN_WINDOWS
+    // Windows: read from tmpfile and write to output
+    if (buf->stream) {
+        long pos = ftell(buf->stream);
+        rewind(buf->stream);
+        char tmp_buf[4096];
+        size_t n;
+        while ((n = fread(tmp_buf, 1, sizeof(tmp_buf), buf->stream)) > 0) {
+            fwrite(tmp_buf, 1, n, output);
+        }
+        fseek(buf->stream, pos, SEEK_SET);
+    }
+#else
+    // POSIX: write buffered data directly
     if (buf->data && buf->size > 0) {
         fwrite(buf->data, 1, buf->size, output);
     }
+#endif
 }
 
 void membuf_free(MemBuffer *buf) {
@@ -988,11 +1008,13 @@ void membuf_free(MemBuffer *buf) {
         fclose(buf->stream);
         buf->stream = NULL;
     }
-    // open_memstream allocates data, we must free it
+#ifndef HML_CODEGEN_WINDOWS
+    // open_memstream allocates data, we must free it (POSIX only)
     if (buf->data) {
         free(buf->data);
         buf->data = NULL;
     }
+#endif
     free(buf);
 }
 

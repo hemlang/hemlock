@@ -21,9 +21,9 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
 // ========== CHANNEL METHODS ==========
 
 Value call_channel_method(Channel *ch, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
-    pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
-    pthread_cond_t *not_empty = (pthread_cond_t*)ch->not_empty;
-    pthread_cond_t *not_full = (pthread_cond_t*)ch->not_full;
+    hml_mutex_t *mutex = (hml_mutex_t*)ch->mutex;
+    hml_cond_t *not_empty = (hml_cond_t*)ch->not_empty;
+    hml_cond_t *not_full = (hml_cond_t*)ch->not_full;
 
     // send(value) - send a message to the channel
     if (strcmp(method, "send") == 0) {
@@ -32,13 +32,13 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         }
 
         Value msg = args[0];
-        pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+        hml_cond_t *rendezvous = (hml_cond_t*)ch->rendezvous;
 
-        pthread_mutex_lock(mutex);
+        hml_mutex_lock(mutex);
 
         // Check if channel is closed
         if (ch->closed) {
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return throw_runtime_error(ctx, "cannot send to closed channel");
         }
 
@@ -49,11 +49,11 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             ch->sender_waiting = 1;
 
             // Signal any waiting receiver that data is available
-            pthread_cond_signal(not_empty);
+            hml_cond_signal(not_empty);
 
             // Wait for receiver to pick up the value
             while (ch->sender_waiting && !ch->closed) {
-                pthread_cond_wait(rendezvous, mutex);
+                hml_cond_wait(rendezvous, mutex);
             }
 
             // Check if we were woken because channel closed
@@ -61,22 +61,22 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
                 ch->sender_waiting = 0;
                 value_release(*(ch->unbuffered_value));
                 *(ch->unbuffered_value) = val_null();
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 return throw_runtime_error(ctx, "cannot send to closed channel");
             }
 
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return val_null();
         }
 
         // Buffered channel - wait while buffer is full
         while (ch->count >= ch->capacity && !ch->closed) {
-            pthread_cond_wait(not_full, mutex);
+            hml_cond_wait(not_full, mutex);
         }
 
         // Check again if closed after waking up
         if (ch->closed) {
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return throw_runtime_error(ctx, "cannot send to closed channel");
         }
 
@@ -87,8 +87,8 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         ch->count++;
 
         // Signal that buffer is not empty
-        pthread_cond_signal(not_empty);
-        pthread_mutex_unlock(mutex);
+        hml_cond_signal(not_empty);
+        hml_mutex_unlock(mutex);
 
         return val_null();
     }
@@ -99,20 +99,20 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             return throw_runtime_error(ctx, "recv() expects 0 arguments");
         }
 
-        pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+        hml_cond_t *rendezvous = (hml_cond_t*)ch->rendezvous;
 
-        pthread_mutex_lock(mutex);
+        hml_mutex_lock(mutex);
 
         if (ch->capacity == 0) {
             // Unbuffered channel - rendezvous with sender
             // Wait for sender to have data available
             while (!ch->sender_waiting && !ch->closed) {
-                pthread_cond_wait(not_empty, mutex);
+                hml_cond_wait(not_empty, mutex);
             }
 
             // If channel is closed and no sender waiting, return null
             if (!ch->sender_waiting && ch->closed) {
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 return val_null();
             }
 
@@ -122,20 +122,20 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             ch->sender_waiting = 0;
 
             // Signal sender that value was received
-            pthread_cond_signal(rendezvous);
-            pthread_mutex_unlock(mutex);
+            hml_cond_signal(rendezvous);
+            hml_mutex_unlock(mutex);
 
             return msg;
         }
 
         // Buffered channel - wait while buffer is empty
         while (ch->count == 0 && !ch->closed) {
-            pthread_cond_wait(not_empty, mutex);
+            hml_cond_wait(not_empty, mutex);
         }
 
         // If channel is closed and empty, return null
         if (ch->count == 0 && ch->closed) {
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return val_null();
         }
 
@@ -145,8 +145,8 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         ch->count--;
 
         // Signal that buffer is not full
-        pthread_cond_signal(not_full);
-        pthread_mutex_unlock(mutex);
+        hml_cond_signal(not_full);
+        hml_mutex_unlock(mutex);
 
         return msg;
     }
@@ -165,7 +165,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
 
         // Calculate deadline
         struct timespec deadline;
-        clock_gettime(CLOCK_REALTIME, &deadline);
+        hml_clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += timeout_ms / 1000;
         deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
         if (deadline.tv_nsec >= 1000000000) {
@@ -173,24 +173,24 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             deadline.tv_nsec -= 1000000000;
         }
 
-        pthread_mutex_lock(mutex);
+        hml_mutex_lock(mutex);
 
         if (ch->capacity == 0) {
             // Unbuffered channel with timeout - rendezvous with sender
-            pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+            hml_cond_t *rendezvous = (hml_cond_t*)ch->rendezvous;
 
             // Wait for sender to have data available (with timeout)
             while (!ch->sender_waiting && !ch->closed) {
-                int rc = pthread_cond_timedwait(not_empty, mutex, &deadline);
+                int rc = hml_cond_timedwait(not_empty, mutex, &deadline);
                 if (rc == ETIMEDOUT) {
-                    pthread_mutex_unlock(mutex);
+                    hml_mutex_unlock(mutex);
                     return val_null();  // Timeout
                 }
             }
 
             // If channel is closed and no sender waiting, return null
             if (!ch->sender_waiting && ch->closed) {
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 return val_null();
             }
 
@@ -200,24 +200,24 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             ch->sender_waiting = 0;
 
             // Signal sender that value was received
-            pthread_cond_signal(rendezvous);
-            pthread_mutex_unlock(mutex);
+            hml_cond_signal(rendezvous);
+            hml_mutex_unlock(mutex);
 
             return msg;
         }
 
         // Wait while buffer is empty and channel not closed
         while (ch->count == 0 && !ch->closed) {
-            int rc = pthread_cond_timedwait(not_empty, mutex, &deadline);
+            int rc = hml_cond_timedwait(not_empty, mutex, &deadline);
             if (rc == ETIMEDOUT) {
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 return val_null();  // Timeout
             }
         }
 
         // If channel is closed and empty, return null
         if (ch->count == 0 && ch->closed) {
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return val_null();
         }
 
@@ -227,8 +227,8 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         ch->count--;
 
         // Signal that buffer is not full
-        pthread_cond_signal(not_full);
-        pthread_mutex_unlock(mutex);
+        hml_cond_signal(not_full);
+        hml_mutex_unlock(mutex);
 
         return msg;
     }
@@ -249,7 +249,7 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
 
         // Calculate deadline
         struct timespec deadline;
-        clock_gettime(CLOCK_REALTIME, &deadline);
+        hml_clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += timeout_ms / 1000;
         deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
         if (deadline.tv_nsec >= 1000000000) {
@@ -257,34 +257,34 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             deadline.tv_nsec -= 1000000000;
         }
 
-        pthread_mutex_lock(mutex);
+        hml_mutex_lock(mutex);
 
         // Check if channel is closed
         if (ch->closed) {
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return throw_runtime_error(ctx, "cannot send to closed channel");
         }
 
         if (ch->capacity == 0) {
             // Unbuffered channel with timeout - rendezvous with receiver
-            pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+            hml_cond_t *rendezvous = (hml_cond_t*)ch->rendezvous;
 
             value_retain(msg);
             *(ch->unbuffered_value) = msg;
             ch->sender_waiting = 1;
 
             // Signal any waiting receiver that data is available
-            pthread_cond_signal(not_empty);
+            hml_cond_signal(not_empty);
 
             // Wait for receiver to pick up the value (with timeout)
             while (ch->sender_waiting && !ch->closed) {
-                int rc = pthread_cond_timedwait(rendezvous, mutex, &deadline);
+                int rc = hml_cond_timedwait(rendezvous, mutex, &deadline);
                 if (rc == ETIMEDOUT) {
                     // Timeout - clean up and return failure
                     ch->sender_waiting = 0;
                     value_release(*(ch->unbuffered_value));
                     *(ch->unbuffered_value) = val_null();
-                    pthread_mutex_unlock(mutex);
+                    hml_mutex_unlock(mutex);
                     return val_bool(0);  // Timeout - send failed
                 }
             }
@@ -294,26 +294,26 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
                 ch->sender_waiting = 0;
                 value_release(*(ch->unbuffered_value));
                 *(ch->unbuffered_value) = val_null();
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 return throw_runtime_error(ctx, "cannot send to closed channel");
             }
 
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return val_bool(1);  // Success
         }
 
         // Wait while buffer is full
         while (ch->count >= ch->capacity && !ch->closed) {
-            int rc = pthread_cond_timedwait(not_full, mutex, &deadline);
+            int rc = hml_cond_timedwait(not_full, mutex, &deadline);
             if (rc == ETIMEDOUT) {
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 return val_bool(0);  // Timeout - send failed
             }
         }
 
         // Check again if closed after waking up
         if (ch->closed) {
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
             return throw_runtime_error(ctx, "cannot send to closed channel");
         }
 
@@ -324,8 +324,8 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         ch->count++;
 
         // Signal that buffer is not empty
-        pthread_cond_signal(not_empty);
-        pthread_mutex_unlock(mutex);
+        hml_cond_signal(not_empty);
+        hml_mutex_unlock(mutex);
 
         return val_bool(1);  // Success
     }
@@ -336,16 +336,16 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             return throw_runtime_error(ctx, "close() expects 0 arguments");
         }
 
-        pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+        hml_cond_t *rendezvous = (hml_cond_t*)ch->rendezvous;
 
-        pthread_mutex_lock(mutex);
+        hml_mutex_lock(mutex);
         ch->closed = 1;
         // Wake up all waiting threads
-        pthread_cond_broadcast(not_empty);
-        pthread_cond_broadcast(not_full);
+        hml_cond_broadcast(not_empty);
+        hml_cond_broadcast(not_full);
         // Also wake up any unbuffered channel senders waiting on rendezvous
-        pthread_cond_broadcast(rendezvous);
-        pthread_mutex_unlock(mutex);
+        hml_cond_broadcast(rendezvous);
+        hml_mutex_unlock(mutex);
 
         return val_null();
     }

@@ -611,7 +611,7 @@ typedef enum {
     // ... existing tokens
     TOKEN_PERCENT,
     // ...
-} TokenType;
+} HmlTokenType;
 ```
 
 **3. AST (ast.h):**

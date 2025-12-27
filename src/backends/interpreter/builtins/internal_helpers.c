@@ -72,7 +72,7 @@ Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-    struct dirent *entry = (struct dirent*)args[0].as.as_ptr;
+    hml_dirent_t *entry = (hml_dirent_t*)args[0].as.as_ptr;
     return val_string(entry->d_name);
 }
 

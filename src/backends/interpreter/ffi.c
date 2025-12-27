@@ -1,10 +1,8 @@
 #include "internal.h"
 #include <ffi.h>
-#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <pthread.h>
 
 // ========== FFI DATA STRUCTURES ==========
 
@@ -54,7 +52,12 @@ typedef struct {
 static FFIState g_ffi_state = {NULL, 0, 0, NULL};
 
 // Thread-safety: Mutex for FFI library cache access
-static pthread_mutex_t ffi_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+static hml_mutex_t ffi_cache_mutex;
+static hml_once_t ffi_mutex_once = HML_ONCE_INIT;
+
+static void ffi_mutex_init_internal(void) {
+    hml_mutex_init(&ffi_cache_mutex);
+}
 
 // Callback tracking for cleanup
 typedef struct {
@@ -68,7 +71,18 @@ static int g_next_callback_id = 1;
 
 // Thread-safety: Mutex for callback invocations
 // Note: Hemlock interpreter is not fully thread-safe, so callbacks must be serialized
-static pthread_mutex_t ffi_callback_mutex = PTHREAD_MUTEX_INITIALIZER;
+static hml_mutex_t ffi_callback_mutex;
+static hml_once_t ffi_callback_mutex_once = HML_ONCE_INIT;
+
+static void ffi_callback_mutex_init_internal(void) {
+    hml_mutex_init(&ffi_callback_mutex);
+}
+
+// Helper to ensure mutexes are initialized
+static void ffi_ensure_mutex_init(void) {
+    hml_once(&ffi_mutex_once, ffi_mutex_init_internal);
+    hml_once(&ffi_callback_mutex_once, ffi_callback_mutex_init_internal);
+}
 
 // ========== PLATFORM-SPECIFIC LIBRARY PATH TRANSLATION ==========
 
@@ -172,7 +186,8 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
         return NULL;
     }
 
-    pthread_mutex_lock(&ffi_cache_mutex);
+    ffi_ensure_mutex_init();
+    hml_mutex_lock(&ffi_cache_mutex);
 
 #ifdef __APPLE__
     // Translate Linux library names to macOS equivalents
@@ -186,18 +201,18 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
         if (strcmp(g_ffi_state.libraries[i]->path, path) == 0 ||
             strcmp(g_ffi_state.libraries[i]->path, actual_path) == 0) {
             FFILibrary *lib = g_ffi_state.libraries[i];
-            pthread_mutex_unlock(&ffi_cache_mutex);
+            hml_mutex_unlock(&ffi_cache_mutex);
             return lib;
         }
     }
 
     // Open library with RTLD_LAZY (resolve symbols on first call)
-    void *handle = dlopen(actual_path, RTLD_LAZY);
+    void *handle = hml_dlopen(actual_path, RTLD_LAZY);
     if (handle == NULL) {
-        pthread_mutex_unlock(&ffi_cache_mutex);
+        hml_mutex_unlock(&ffi_cache_mutex);
         ctx->exception_state.is_throwing = 1;
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to load library '%s': %s", path, dlerror());
+        snprintf(error_msg, sizeof(error_msg), "Failed to load library '%s': %s", path, hml_dlerror());
         ctx->exception_state.exception_value = val_string(error_msg);
         return NULL;
     }
@@ -214,7 +229,7 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
             // Overflow detected - free allocated resources before returning
             free(lib->path);
             free(lib);
-            pthread_mutex_unlock(&ffi_cache_mutex);
+            hml_mutex_unlock(&ffi_cache_mutex);
             ctx->exception_state.is_throwing = 1;
             ctx->exception_state.exception_value = val_string("FFI library cache capacity overflow");
             return NULL;
@@ -224,13 +239,13 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
     }
     g_ffi_state.libraries[g_ffi_state.num_libraries++] = lib;
 
-    pthread_mutex_unlock(&ffi_cache_mutex);
+    hml_mutex_unlock(&ffi_cache_mutex);
     return lib;
 }
 
 void ffi_close_library(FFILibrary *lib) {
     if (lib->handle != NULL) {
-        dlclose(lib->handle);
+        hml_dlclose(lib->handle);
     }
     free(lib->path);
     free(lib);
@@ -846,9 +861,9 @@ void ffi_free_function(FFIFunction *func) {
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {
     // Lazy symbol resolution: resolve on first call
     if (func->func_ptr == NULL) {
-        dlerror();  // Clear any existing error
-        func->func_ptr = dlsym(func->lib_handle, func->name);
-        char *error_msg = dlerror();
+        hml_dlerror();  // Clear any existing error
+        func->func_ptr = hml_dlsym(func->lib_handle, func->name);
+        char *error_msg = hml_dlerror();
         if (error_msg != NULL || func->func_ptr == NULL) {
             ctx->exception_state.is_throwing = 1;
             char err[512];
@@ -1034,7 +1049,8 @@ static void ffi_callback_handler(ffi_cif *cif, void *ret, void **args, void *use
     Function *fn = cb->hemlock_fn;
 
     // Lock to ensure thread-safety (Hemlock interpreter is not fully thread-safe)
-    pthread_mutex_lock(&ffi_callback_mutex);
+    ffi_ensure_mutex_init();
+    hml_mutex_lock(&ffi_callback_mutex);
 
     // Create a fresh execution context for this callback invocation
     ExecutionContext *ctx = exec_context_new();
@@ -1068,7 +1084,7 @@ static void ffi_callback_handler(ffi_cif *cif, void *ret, void **args, void *use
     env_release(func_env);
     exec_context_free(ctx);
 
-    pthread_mutex_unlock(&ffi_callback_mutex);
+    hml_mutex_unlock(&ffi_callback_mutex);
 }
 
 // Create a C-callable function pointer from a Hemlock function
@@ -1150,13 +1166,14 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     }
 
     // Track the callback for cleanup
-    pthread_mutex_lock(&ffi_cache_mutex);
+    ffi_ensure_mutex_init();
+    hml_mutex_lock(&ffi_cache_mutex);
     if (g_callback_state.num_callbacks >= g_callback_state.callbacks_capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
         int new_capacity = g_callback_state.callbacks_capacity == 0 ? 8 : g_callback_state.callbacks_capacity * 2;
         if (new_capacity < g_callback_state.callbacks_capacity) {
             // Overflow detected
-            pthread_mutex_unlock(&ffi_cache_mutex);
+            hml_mutex_unlock(&ffi_cache_mutex);
             ffi_closure_free(closure);
             function_release(fn);
             free(cb->hemlock_params);
@@ -1171,7 +1188,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
         g_callback_state.callbacks = realloc(g_callback_state.callbacks, sizeof(FFICallback*) * g_callback_state.callbacks_capacity);
     }
     g_callback_state.callbacks[g_callback_state.num_callbacks++] = cb;
-    pthread_mutex_unlock(&ffi_cache_mutex);
+    hml_mutex_unlock(&ffi_cache_mutex);
 
     return cb;
 }
@@ -1181,7 +1198,8 @@ void ffi_free_callback(FFICallback *cb) {
     if (cb == NULL) return;
 
     // Remove from tracking list
-    pthread_mutex_lock(&ffi_cache_mutex);
+    ffi_ensure_mutex_init();
+    hml_mutex_lock(&ffi_cache_mutex);
     for (int i = 0; i < g_callback_state.num_callbacks; i++) {
         if (g_callback_state.callbacks[i] == cb) {
             // Shift remaining elements
@@ -1192,7 +1210,7 @@ void ffi_free_callback(FFICallback *cb) {
             break;
         }
     }
-    pthread_mutex_unlock(&ffi_cache_mutex);
+    hml_mutex_unlock(&ffi_cache_mutex);
 
     // Free the closure
     if (cb->closure) {
@@ -1227,7 +1245,8 @@ void* ffi_callback_get_ptr(FFICallback *cb) {
 int ffi_free_callback_by_ptr(void *code_ptr) {
     if (code_ptr == NULL) return 0;
 
-    pthread_mutex_lock(&ffi_cache_mutex);
+    ffi_ensure_mutex_init();
+    hml_mutex_lock(&ffi_cache_mutex);
     for (int i = 0; i < g_callback_state.num_callbacks; i++) {
         FFICallback *cb = g_callback_state.callbacks[i];
         if (cb && cb->code_ptr == code_ptr) {
@@ -1236,7 +1255,7 @@ int ffi_free_callback_by_ptr(void *code_ptr) {
                 g_callback_state.callbacks[j] = g_callback_state.callbacks[j + 1];
             }
             g_callback_state.num_callbacks--;
-            pthread_mutex_unlock(&ffi_cache_mutex);
+            hml_mutex_unlock(&ffi_cache_mutex);
 
             // Free the callback (now outside the mutex)
             if (cb->closure) {
@@ -1258,7 +1277,7 @@ int ffi_free_callback_by_ptr(void *code_ptr) {
             return 1;  // Success
         }
     }
-    pthread_mutex_unlock(&ffi_cache_mutex);
+    hml_mutex_unlock(&ffi_cache_mutex);
     return 0;  // Not found
 }
 
@@ -1380,16 +1399,18 @@ void execute_import_ffi(Stmt *stmt, ExecutionContext *ctx) {
     const char *library_path = stmt->as.import_ffi.library_path;
     FFILibrary *lib = ffi_load_library(library_path, ctx);
     if (lib != NULL) {
-        pthread_mutex_lock(&ffi_cache_mutex);
+        ffi_ensure_mutex_init();
+        hml_mutex_lock(&ffi_cache_mutex);
         g_ffi_state.current_lib = lib;
-        pthread_mutex_unlock(&ffi_cache_mutex);
+        hml_mutex_unlock(&ffi_cache_mutex);
     }
 }
 
 void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
-    pthread_mutex_lock(&ffi_cache_mutex);
+    ffi_ensure_mutex_init();
+    hml_mutex_lock(&ffi_cache_mutex);
     FFILibrary *current_lib = g_ffi_state.current_lib;
-    pthread_mutex_unlock(&ffi_cache_mutex);
+    hml_mutex_unlock(&ffi_cache_mutex);
 
     if (current_lib == NULL) {
         ctx->exception_state.is_throwing = 1;

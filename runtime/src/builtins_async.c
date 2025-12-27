@@ -7,7 +7,19 @@
 #include "builtins_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
+
+#ifdef HML_RT_POSIX
 #include <poll.h>
+#endif
+
+#ifdef HML_RT_WINDOWS
+/* Windows compatibility for usleep */
+#define usleep(usec) Sleep((usec) / 1000)
+
+/* Note: winsock2.h already provides struct pollfd, POLLIN, POLLOUT, POLLERR */
+/* Use WSAPoll for poll() - it has compatible signature with POSIX poll */
+#define poll(fds, nfds, timeout) WSAPoll(fds, nfds, timeout)
+#endif
 
 static atomic_int g_next_task_id = 1;
 

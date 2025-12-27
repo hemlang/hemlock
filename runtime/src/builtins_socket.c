@@ -6,6 +6,13 @@
 
 #include "builtins_internal.h"
 
+#ifdef HML_RT_WINDOWS
+/* Windows uses different type for setsockopt value parameter */
+#define HML_SETSOCKOPT_CAST (const char *)
+#else
+#define HML_SETSOCKOPT_CAST
+#endif
+
 // ========== SOCKET OPERATIONS ==========
 
 // socket_create(domain, type, protocol) -> socket
@@ -357,7 +364,7 @@ void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option,
     int opt = hml_to_i32(option);
     int val = hml_to_i32(value);
 
-    if (setsockopt(sock->fd, lvl, opt, &val, sizeof(val)) < 0) {
+    if (setsockopt(sock->fd, lvl, opt, HML_SETSOCKOPT_CAST &val, sizeof(val)) < 0) {
         hml_runtime_error("Failed to set socket option: %s", strerror(errno));
     }
 }
@@ -380,11 +387,11 @@ void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds_val) {
     timeout.tv_usec = (long)((seconds - timeout.tv_sec) * 1000000);
 
     // Set both recv and send timeouts
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, HML_SETSOCKOPT_CAST &timeout, sizeof(timeout)) < 0) {
         hml_runtime_error("Failed to set receive timeout: %s", strerror(errno));
     }
 
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, HML_SETSOCKOPT_CAST &timeout, sizeof(timeout)) < 0) {
         hml_runtime_error("Failed to set send timeout: %s", strerror(errno));
     }
 }
@@ -402,6 +409,12 @@ void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
 
     int enable = hml_to_bool(enable_val);
 
+#ifdef HML_RT_WINDOWS
+    u_long mode = enable ? 1 : 0;
+    if (ioctlsocket(sock->fd, FIONBIO, &mode) != 0) {
+        hml_runtime_error("Failed to set socket nonblocking mode: %d", WSAGetLastError());
+    }
+#else
     int flags = fcntl(sock->fd, F_GETFL, 0);
     if (flags < 0) {
         hml_runtime_error("Failed to get socket flags: %s", strerror(errno));
@@ -416,6 +429,7 @@ void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
     if (fcntl(sock->fd, F_SETFL, flags) < 0) {
         hml_runtime_error("Failed to set socket flags: %s", strerror(errno));
     }
+#endif
 
     sock->nonblocking = enable;
 }

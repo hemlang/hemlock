@@ -8,14 +8,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <limits.h>
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
 #include "../../include/ast.h"
 #include "../../include/version.h"
 #include "codegen.h"
+
+/* Platform detection */
+#if defined(_WIN32) || defined(_WIN64) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HML_COMPILER_WINDOWS 1
+#include <windows.h>
+#include <process.h>
+#include <direct.h>
+#include <io.h>
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+/* access() mode constants for Windows */
+#ifndef R_OK
+#define R_OK 4
+#define W_OK 2
+#define X_OK 1
+#define F_OK 0
+#endif
+/* On Windows, system() returns the exit code directly */
+#define WEXITSTATUS(status) (status)
+#else
+#define HML_COMPILER_POSIX 1
+#include <unistd.h>
+#include <sys/wait.h>
+#endif
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -28,7 +51,19 @@
 static char* get_self_dir(void) {
     static char path[PATH_MAX];
 
-#ifdef __APPLE__
+#ifdef HML_COMPILER_WINDOWS
+    DWORD len = GetModuleFileNameA(NULL, path, sizeof(path));
+    if (len == 0 || len >= sizeof(path)) {
+        return NULL;
+    }
+    // Find last backslash and truncate to get directory
+    char *last_sep = strrchr(path, '\\');
+    if (!last_sep) last_sep = strrchr(path, '/');
+    if (last_sep) {
+        *last_sep = '\0';
+    }
+    return path;
+#elif defined(__APPLE__)
     uint32_t size = sizeof(path);
     if (_NSGetExecutablePath(path, &size) != 0) {
         return NULL;
@@ -55,11 +90,13 @@ static char* get_self_dir(void) {
     path[len] = '\0';
 #endif
 
+#ifndef HML_COMPILER_WINDOWS
     // Find last slash and truncate to get directory
     char *last_slash = strrchr(path, '/');
     if (last_slash) {
         *last_slash = '\0';
     }
+#endif
     return path;
 }
 
@@ -373,10 +410,19 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
     include_path[sizeof(include_path) - 1] = '\0';
 
+#ifdef HML_COMPILER_WINDOWS
+    // Windows: use -lws2_32 for sockets, no -ldl
+    snprintf(cmd, sizeof(cmd),
+        "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -lws2_32%s%s%s",
+        opts->cc, opt_flag, opts->output_file, c_file,
+        include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+#else
+    // POSIX: use -ldl for dynamic loading
     snprintf(cmd, sizeof(cmd),
         "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
         include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+#endif
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);

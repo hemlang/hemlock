@@ -9,13 +9,18 @@
 #include "../include/parser.h"
 #include "../include/lexer.h"
 #include "../include/ast_serialize.h"
+#include "../compat/platform.h"
+#include "../compat/filesystem.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <libgen.h>
 #include <limits.h>
 #include <zlib.h>
+
+#ifdef HML_POSIX
+#include <unistd.h>
+#include <libgen.h>
+#endif
 
 // ========== PATH SECURITY ==========
 
@@ -575,42 +580,44 @@ static int stmt_has_side_effects(Stmt *stmt) {
 // ========== HELPER FUNCTIONS ==========
 
 static char* find_stdlib_path(void) {
-    char exe_path[PATH_MAX];
-    char resolved[PATH_MAX];
+    char exe_path[HML_PATH_MAX];
+    char resolved[HML_PATH_MAX];
 
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    int len = hml_get_executable_path(exe_path, sizeof(exe_path) - 1);
     if (len != -1) {
         exe_path[len] = '\0';
-        char *dir = dirname(exe_path);
+        char *dir = hml_dirname(exe_path);
 
         snprintf(resolved, sizeof(resolved), "%s/stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            return realpath(resolved, NULL);
+        if (hml_access(resolved, F_OK) == 0) {
+            return hml_realpath(resolved, NULL);
         }
 
         snprintf(resolved, sizeof(resolved), "%s/../stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            return realpath(resolved, NULL);
+        if (hml_access(resolved, F_OK) == 0) {
+            return hml_realpath(resolved, NULL);
         }
     }
 
-    if (getcwd(resolved, sizeof(resolved))) {
-        char stdlib_path[PATH_MAX + 16];
+    if (hml_getcwd(resolved, sizeof(resolved))) {
+        char stdlib_path[HML_PATH_MAX + 16];
         snprintf(stdlib_path, sizeof(stdlib_path), "%s/stdlib", resolved);
-        if (access(stdlib_path, F_OK) == 0) {
-            return realpath(stdlib_path, NULL);
+        if (hml_access(stdlib_path, F_OK) == 0) {
+            return hml_realpath(stdlib_path, NULL);
         }
     }
 
-    if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
+#ifdef HML_POSIX
+    if (hml_access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
         return strdup("/usr/local/lib/hemlock/stdlib");
     }
+#endif
 
     return NULL;
 }
 
 static char* resolve_import_path(BundleContext *ctx, const char *importer_path, const char *import_path) {
-    char resolved[PATH_MAX];
+    char resolved[HML_PATH_MAX];
 
     // Handle @stdlib alias
     if (strncmp(import_path, "@stdlib/", 8) == 0) {
@@ -626,36 +633,36 @@ static char* resolve_import_path(BundleContext *ctx, const char *importer_path, 
             return NULL;
         }
 
-        snprintf(resolved, PATH_MAX, "%s/%s", ctx->bundle->stdlib_path, module_subpath);
+        snprintf(resolved, HML_PATH_MAX, "%s/%s", ctx->bundle->stdlib_path, module_subpath);
     }
     // Absolute path
     else if (import_path[0] == '/') {
-        strncpy(resolved, import_path, PATH_MAX - 1);
-        resolved[PATH_MAX - 1] = '\0';
+        strncpy(resolved, import_path, HML_PATH_MAX - 1);
+        resolved[HML_PATH_MAX - 1] = '\0';
     }
     // Relative path
     else {
         const char *base_dir;
-        char importer_dir[PATH_MAX];
+        char importer_dir[HML_PATH_MAX];
 
         if (importer_path) {
-            strncpy(importer_dir, importer_path, PATH_MAX - 1);
-            importer_dir[PATH_MAX - 1] = '\0';
-            base_dir = dirname(importer_dir);
+            strncpy(importer_dir, importer_path, HML_PATH_MAX - 1);
+            importer_dir[HML_PATH_MAX - 1] = '\0';
+            base_dir = hml_dirname(importer_dir);
         } else {
             base_dir = ctx->current_dir;
         }
 
-        snprintf(resolved, PATH_MAX, "%s/%s", base_dir, import_path);
+        snprintf(resolved, HML_PATH_MAX, "%s/%s", base_dir, import_path);
     }
 
     // Add .hml extension if needed
     size_t len = strlen(resolved);
     if (len < 4 || strcmp(resolved + len - 4, ".hml") != 0) {
-        strncat(resolved, ".hml", PATH_MAX - len - 1);
+        strncat(resolved, ".hml", HML_PATH_MAX - len - 1);
     }
 
-    char *absolute = realpath(resolved, NULL);
+    char *absolute = hml_realpath(resolved, NULL);
     if (!absolute) {
         fprintf(stderr, "Error: Cannot resolve import path '%s' -> '%s'\n", import_path, resolved);
         return NULL;
@@ -1036,14 +1043,14 @@ Bundle* bundle_create(const char *entry_path, const BundleOptions *options) {
     BundleOptions opts = options ? *options : bundle_options_default();
 
     // Get current directory
-    char cwd[PATH_MAX];
-    if (!getcwd(cwd, sizeof(cwd))) {
+    char cwd[HML_PATH_MAX];
+    if (!hml_getcwd(cwd, sizeof(cwd))) {
         fprintf(stderr, "Error: Could not get current directory\n");
         return NULL;
     }
 
     // Resolve entry path
-    char *absolute_entry = realpath(entry_path, NULL);
+    char *absolute_entry = hml_realpath(entry_path, NULL);
     if (!absolute_entry) {
         fprintf(stderr, "Error: Cannot find entry file '%s'\n", entry_path);
         return NULL;

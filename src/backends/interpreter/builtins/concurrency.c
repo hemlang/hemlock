@@ -1,8 +1,7 @@
 #include "internal.h"
-#include <stdatomic.h>
 
 // Global task ID counter (atomic for thread-safety in concurrent spawns)
-static atomic_int next_task_id = 1;
+static hml_atomic_int next_task_id = 1;
 
 // Thread wrapper function that executes a task
 static void* task_thread_wrapper(void* arg) {
@@ -11,14 +10,14 @@ static void* task_thread_wrapper(void* arg) {
 
     // Block all signals in worker thread - only main thread should handle signals
     // This prevents signal handlers from corrupting task state during execution
-    sigset_t set;
-    sigfillset(&set);
-    pthread_sigmask(SIG_BLOCK, &set, NULL);
+    hml_sigset_t set;
+    hml_sigfillset(&set);
+    hml_pthread_sigmask(SIG_BLOCK, &set, NULL);
 
     // Mark as running (thread-safe)
-    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_lock((hml_mutex_t*)task->task_mutex);
     task->state = TASK_RUNNING;
-    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
 
     // Create environment for function execution with closure env as parent
     // This gives read access to builtins and global functions
@@ -46,11 +45,11 @@ static void* task_thread_wrapper(void* arg) {
     }
 
     // Store result and mark as completed (thread-safe)
-    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_lock((hml_mutex_t*)task->task_mutex);
     task->result = malloc(sizeof(Value));
     *task->result = result;
     task->state = TASK_COMPLETED;
-    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
 
     // Release function environment (reference counted)
     env_release(func_env);
@@ -104,18 +103,18 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // NOTE: We keep closure_env for read access to builtins and global functions
     // Arguments are deep-copied above to prevent sharing mutable data
     // Modifying parent scope variables from tasks is undefined behavior
-    int task_id = atomic_fetch_add(&next_task_id, 1);
+    int task_id = hml_atomic_fetch_add(&next_task_id, 1);
     Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
-    // Allocate pthread_t
-    task->thread = malloc(sizeof(pthread_t));
+    // Allocate thread handle
+    task->thread = malloc(sizeof(hml_thread_t));
     if (!task->thread) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
 
     // Create thread to execute task
-    int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+    int rc = hml_thread_create((hml_thread_t*)task->thread, task_thread_wrapper, task);
     if (rc != 0) {
         fprintf(stderr, "Runtime error: Failed to create thread: %d\n", rc);
         exit(1);
@@ -140,16 +139,16 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     Task *task = task_val.as.as_task;
 
     // Check if task is already joined or detached (thread-safe)
-    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_lock((hml_mutex_t*)task->task_mutex);
 
     if (task->joined) {
-        pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+        hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
         runtime_error(ctx, "task handle already joined");
         return val_null();
     }
 
     if (task->detached) {
-        pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+        hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
         runtime_error(ctx, "cannot join detached task");
         return val_null();
     }
@@ -157,25 +156,25 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     // Mark as joined
     task->joined = 1;
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
 
     // Wait for thread to complete (outside of mutex to avoid deadlock)
     if (task->thread) {
-        int rc = pthread_join(*(pthread_t*)task->thread, NULL);
+        int rc = hml_thread_join(*(hml_thread_t*)task->thread, NULL);
         if (rc != 0) {
-            runtime_error(ctx, "pthread_join failed: %d", rc);
+            runtime_error(ctx, "thread_join failed: %d", rc);
             return val_null();
         }
     }
 
     // Access exception state and result (thread-safe)
-    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_lock((hml_mutex_t*)task->task_mutex);
 
     // Check if task threw an exception
     if (task->ctx->exception_state.is_throwing) {
         // Re-throw the exception in the current context
         ctx->exception_state = task->ctx->exception_state;
-        pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+        hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
         return val_null();
     }
 
@@ -185,7 +184,7 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
         result = *task->result;
     }
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
 
     // NOTE: We do NOT release the task here. The task will be released when the
     // variable goes out of scope (automatic refcounting handles this).
@@ -217,16 +216,16 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         Task *t = first_arg.as.as_task;
 
         // Check if already detached or joined (thread-safe)
-        pthread_mutex_lock((pthread_mutex_t*)t->task_mutex);
+        hml_mutex_lock((hml_mutex_t*)t->task_mutex);
 
         if (t->joined) {
-            pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
+            hml_mutex_unlock((hml_mutex_t*)t->task_mutex);
             runtime_error(ctx, "cannot detach already joined task");
             return val_null();
         }
 
         if (t->detached) {
-            pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
+            hml_mutex_unlock((hml_mutex_t*)t->task_mutex);
             runtime_error(ctx, "task already detached");
             return val_null();
         }
@@ -234,13 +233,13 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         // Mark as detached
         t->detached = 1;
 
-        pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
+        hml_mutex_unlock((hml_mutex_t*)t->task_mutex);
 
-        // Detach the pthread (fire and forget)
+        // Detach the thread (fire and forget)
         if (t->thread) {
-            int rc = pthread_detach(*(pthread_t*)t->thread);
+            int rc = hml_thread_detach(*(hml_thread_t*)t->thread);
             if (rc != 0) {
-                runtime_error(ctx, "pthread_detach failed: %d", rc);
+                runtime_error(ctx, "thread_detach failed: %d", rc);
                 return val_null();
             }
         }
@@ -273,26 +272,26 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         // Create task (atomically increment task ID for thread-safety)
         // NOTE: We keep closure_env for read access to builtins and global functions
         // Arguments are deep-copied above to prevent sharing mutable data
-        int task_id = atomic_fetch_add(&next_task_id, 1);
+        int task_id = hml_atomic_fetch_add(&next_task_id, 1);
         Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
         // Mark as detached before starting thread
         task->detached = 1;
 
-        // Allocate pthread_t
-        task->thread = malloc(sizeof(pthread_t));
+        // Allocate thread handle
+        task->thread = malloc(sizeof(hml_thread_t));
         if (!task->thread) {
             runtime_error(ctx, "Memory allocation failed");
             return val_null();
         }
 
-        // CRITICAL: Retain task to prevent premature cleanup during pthread_detach
+        // CRITICAL: Retain task to prevent premature cleanup during thread_detach
         // Without this, the worker thread may complete and free the task before
-        // we finish calling pthread_detach, leading to use-after-free
+        // we finish calling thread_detach, leading to use-after-free
         task_retain(task);  // ref_count: 1 -> 2
 
         // Create thread to execute task
-        int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+        int rc = hml_thread_create((hml_thread_t*)task->thread, task_thread_wrapper, task);
         if (rc != 0) {
             runtime_error(ctx, "Failed to create thread: %d", rc);
             free(task->thread);
@@ -300,11 +299,11 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
 
-        // Detach the pthread immediately (fire and forget)
+        // Detach the thread immediately (fire and forget)
         // Safe to access task->thread because we're holding a reference
-        rc = pthread_detach(*(pthread_t*)task->thread);
+        rc = hml_thread_detach(*(hml_thread_t*)task->thread);
         if (rc != 0) {
-            runtime_error(ctx, "pthread_detach failed: %d", rc);
+            runtime_error(ctx, "thread_detach failed: %d", rc);
             task_release(task);  // Release our temporary reference
             return val_null();
         }
@@ -384,7 +383,7 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
     struct timespec deadline;
     struct timespec *deadline_ptr = NULL;
     if (timeout_ms >= 0) {
-        clock_gettime(CLOCK_REALTIME, &deadline);
+        hml_clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += timeout_ms / 1000;
         deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
         if (deadline.tv_nsec >= 1000000000) {
@@ -400,9 +399,9 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
         // Check each channel for available data
         for (int i = 0; i < channels->length; i++) {
             Channel *ch = channels->elements[i].as.as_channel;
-            pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
+            hml_mutex_t *mutex = (hml_mutex_t*)ch->mutex;
 
-            pthread_mutex_lock(mutex);
+            hml_mutex_lock(mutex);
 
             // Check if channel has data
             if (ch->count > 0) {
@@ -412,8 +411,8 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 ch->count--;
 
                 // Signal that buffer is not full
-                pthread_cond_signal((pthread_cond_t*)ch->not_full);
-                pthread_mutex_unlock(mutex);
+                hml_cond_signal((hml_cond_t*)ch->not_full);
+                hml_mutex_unlock(mutex);
 
                 // Create result object { channel, value }
                 Object *result = object_new(NULL, 2);
@@ -431,7 +430,7 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
 
             // Check if channel is closed and empty
             if (ch->closed) {
-                pthread_mutex_unlock(mutex);
+                hml_mutex_unlock(mutex);
                 // Return null for this closed channel
                 Object *result = object_new(NULL, 2);
                 result->field_names[0] = strdup("channel");
@@ -446,13 +445,13 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 return val_object(result);
             }
 
-            pthread_mutex_unlock(mutex);
+            hml_mutex_unlock(mutex);
         }
 
         // Check timeout
         if (deadline_ptr != NULL) {
             struct timespec now;
-            clock_gettime(CLOCK_REALTIME, &now);
+            hml_clock_gettime(CLOCK_REALTIME, &now);
             if (now.tv_sec > deadline_ptr->tv_sec ||
                 (now.tv_sec == deadline_ptr->tv_sec && now.tv_nsec >= deadline_ptr->tv_nsec)) {
                 return val_null();  // Timeout
@@ -460,8 +459,7 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         // Brief sleep before retrying (1ms)
-        struct timespec sleep_time = { 0, 1000000 };  // 1ms
-        nanosleep(&sleep_time, NULL);
+        hml_sleep_ms(1);
     }
 }
 
@@ -481,7 +479,7 @@ Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx) 
     Task *task = args[0].as.as_task;
 
     // Lock mutex to safely read task state
-    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_lock((hml_mutex_t*)task->task_mutex);
 
     printf("=== Task Debug Info ===\n");
     printf("Task ID: %d\n", task->id);
@@ -500,7 +498,7 @@ Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx) 
     printf("Exception: %s\n", task->ctx->exception_state.is_throwing ? "true" : "false");
     printf("======================\n");
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+    hml_mutex_unlock((hml_mutex_t*)task->task_mutex);
 
     return val_null();
 }

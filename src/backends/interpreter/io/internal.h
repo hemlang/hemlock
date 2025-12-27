@@ -2,11 +2,12 @@
 #define HEMLOCK_IO_INTERNAL_H
 
 #include "../internal.h"
+#include "../../../compat/time.h"
+#include "../../../compat/filesystem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <pthread.h>
 
 // ========== SERIALIZATION SUPPORT ==========
 

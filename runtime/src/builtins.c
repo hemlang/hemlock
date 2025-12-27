@@ -13,15 +13,186 @@
 #include <errno.h>
 #include <time.h>
 #include <signal.h>
+#include <limits.h>
+#include <inttypes.h>
+
+/* Platform detection */
+#if defined(_WIN32) || defined(_WIN64) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HML_WINDOWS 1
+#else
+#define HML_POSIX 1
+#endif
+
+#ifdef HML_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#include <process.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+/* Windows compatibility stubs */
+/* Note: pid_t and ssize_t are already defined by MinGW */
+
+/* Directory operations */
+typedef struct {
+    HANDLE hFind;
+    WIN32_FIND_DATAA find_data;
+    int first_read;
+    char path[MAX_PATH];
+} DIR;
+
+struct dirent {
+    char d_name[MAX_PATH];
+};
+
+static DIR *opendir(const char *path) {
+    DIR *dir = (DIR *)malloc(sizeof(DIR));
+    if (!dir) return NULL;
+    char pattern[MAX_PATH];
+    snprintf(pattern, MAX_PATH, "%s\\*", path);
+    dir->hFind = FindFirstFileA(pattern, &dir->find_data);
+    if (dir->hFind == INVALID_HANDLE_VALUE) {
+        free(dir);
+        return NULL;
+    }
+    dir->first_read = 1;
+    return dir;
+}
+
+static struct dirent *readdir(DIR *dir) {
+    static struct dirent entry;
+    if (dir->first_read) {
+        dir->first_read = 0;
+        strcpy(entry.d_name, dir->find_data.cFileName);
+        return &entry;
+    }
+    if (FindNextFileA(dir->hFind, &dir->find_data)) {
+        strcpy(entry.d_name, dir->find_data.cFileName);
+        return &entry;
+    }
+    return NULL;
+}
+
+static int closedir(DIR *dir) {
+    if (dir) {
+        FindClose(dir->hFind);
+        free(dir);
+    }
+    return 0;
+}
+
+/* Process functions - stubs */
+#define fork() (-1)
+#define pipe(fds) (-1)
+#define execvp(file, argv) (-1)
+#define waitpid(pid, status, opts) (-1)
+#define wait(status) (-1)
+#define kill(pid, sig) (-1)
+#define WIFEXITED(s) (1)
+#define WEXITSTATUS(s) (s)
+
+/* User/group IDs - Windows stubs */
+#define getpid() ((int)GetCurrentProcessId())
+#define getppid() (0)
+#define getuid() (0)
+#define geteuid() (0)
+#define getgid() (0)
+#define getegid() (0)
+
+/* Environment - Windows uses _putenv */
+static int setenv(const char *name, const char *value, int overwrite) {
+    if (!overwrite && getenv(name)) return 0;
+    char buf[4096];
+    snprintf(buf, sizeof(buf), "%s=%s", name, value);
+    return _putenv(buf);
+}
+
+static int unsetenv(const char *name) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s=", name);
+    return _putenv(buf);
+}
+
+/* Path resolution */
+static char *realpath(const char *path, char *resolved) {
+    char buf[MAX_PATH];
+    DWORD len = GetFullPathNameA(path, MAX_PATH, buf, NULL);
+    if (len == 0 || len > MAX_PATH) return NULL;
+    if (GetFileAttributesA(buf) == INVALID_FILE_ATTRIBUTES) return NULL;
+    if (resolved) {
+        strcpy(resolved, buf);
+        return resolved;
+    }
+    return _strdup(buf);
+}
+
+/* Line reading */
+static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+    if (!lineptr || !n || !stream) return -1;
+    size_t pos = 0;
+    int c;
+    if (*lineptr == NULL || *n == 0) {
+        *n = 128;
+        *lineptr = (char *)malloc(*n);
+        if (!*lineptr) return -1;
+    }
+    while ((c = fgetc(stream)) != EOF) {
+        if (pos + 2 > *n) {
+            size_t new_size = *n * 2;
+            char *new_ptr = (char *)realloc(*lineptr, new_size);
+            if (!new_ptr) return -1;
+            *lineptr = new_ptr;
+            *n = new_size;
+        }
+        (*lineptr)[pos++] = (char)c;
+        if (c == '\n') break;
+    }
+    if (pos == 0 && c == EOF) return -1;
+    (*lineptr)[pos] = '\0';
+    return (ssize_t)pos;
+}
+
+/* mkdir with mode (Windows ignores mode) */
+#define mkdir(path, mode) _mkdir(path)
+
+/* System info stubs */
+#define sysconf(name) (-1)
+#define _SC_NPROCESSORS_ONLN 0
+#define _SC_PHYS_PAGES 0
+#define _SC_PAGE_SIZE 0
+#define _SC_AVPHYS_PAGES 0
+
+/* User info stubs */
+struct passwd { char *pw_name; char *pw_dir; };
+#define getpwuid(uid) ((struct passwd *)NULL)
+#define getlogin_r(buf, size) (-1)
+
+/* uname stubs */
+struct utsname { char sysname[256]; char release[256]; char machine[256]; };
+static int uname(struct utsname *buf) {
+    strcpy(buf->sysname, "Windows");
+    strcpy(buf->release, "");
+    strcpy(buf->machine, "x86_64");
+    return 0;
+}
+
+/* Signal handling stubs */
+struct sigaction { void (*sa_handler)(int); int sa_flags; unsigned long sa_mask; };
+#define SA_RESTART 0
+#define sigemptyset(set) (*(set) = 0)
+#define sigaction(sig, act, oldact) (0)
+
+#else
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <dirent.h>
-#include <limits.h>
 #include <dlfcn.h>
-#include <ffi.h>
 #include <pwd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -29,6 +200,9 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
+#endif
+
+#include <ffi.h>
 
 #ifdef HML_HAVE_ZLIB
 #include <zlib.h>
@@ -137,7 +311,7 @@ static void print_value_to(FILE *out, HmlValue val) {
             fprintf(out, "%d", val.as.as_i32);
             break;
         case HML_VAL_I64:
-            fprintf(out, "%ld", val.as.as_i64);
+            fprintf(out, "%" PRId64, val.as.as_i64);
             break;
         case HML_VAL_U8:
             fprintf(out, "%u", val.as.as_u8);
@@ -149,7 +323,7 @@ static void print_value_to(FILE *out, HmlValue val) {
             fprintf(out, "%u", val.as.as_u32);
             break;
         case HML_VAL_U64:
-            fprintf(out, "%lu", val.as.as_u64);
+            fprintf(out, "%" PRIu64, val.as.as_u64);
             break;
         case HML_VAL_F32:
             fprintf(out, "%g", val.as.as_f32);
@@ -391,21 +565,21 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         case HML_VAL_I8:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < -128 || int_val > 127) {
-                hml_runtime_error("Value %ld out of range for i8 [-128, 127]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for i8 [-128, 127]", int_val);
             }
             return hml_val_i8((int8_t)int_val);
 
         case HML_VAL_I16:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < -32768 || int_val > 32767) {
-                hml_runtime_error("Value %ld out of range for i16 [-32768, 32767]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for i16 [-32768, 32767]", int_val);
             }
             return hml_val_i16((int16_t)int_val);
 
         case HML_VAL_I32:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < -2147483648LL || int_val > 2147483647LL) {
-                hml_runtime_error("Value %ld out of range for i32 [-2147483648, 2147483647]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for i32 [-2147483648, 2147483647]", int_val);
             }
             return hml_val_i32((int32_t)int_val);
 
@@ -416,28 +590,28 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         case HML_VAL_U8:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 255) {
-                hml_runtime_error("Value %ld out of range for u8 [0, 255]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u8 [0, 255]", int_val);
             }
             return hml_val_u8((uint8_t)int_val);
 
         case HML_VAL_U16:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 65535) {
-                hml_runtime_error("Value %ld out of range for u16 [0, 65535]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u16 [0, 65535]", int_val);
             }
             return hml_val_u16((uint16_t)int_val);
 
         case HML_VAL_U32:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 4294967295LL) {
-                hml_runtime_error("Value %ld out of range for u32 [0, 4294967295]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u32 [0, 4294967295]", int_val);
             }
             return hml_val_u32((uint32_t)int_val);
 
         case HML_VAL_U64:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0) {
-                hml_runtime_error("Value %ld out of range for u64 [0, 18446744073709551615]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u64 [0, 18446744073709551615]", int_val);
             }
             return hml_val_u64((uint64_t)int_val);
 
@@ -458,7 +632,7 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         case HML_VAL_RUNE:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 0x10FFFF) {
-                hml_runtime_error("Value %ld out of range for rune [0, 0x10FFFF]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for rune [0, 0x10FFFF]", int_val);
             }
             return hml_val_rune((uint32_t)int_val);
 
@@ -1505,7 +1679,7 @@ HmlValue hml_to_string(HmlValue val) {
             snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
             break;
         case HML_VAL_I64:
-            snprintf(buffer, sizeof(buffer), "%ld", val.as.as_i64);
+            snprintf(buffer, sizeof(buffer), "%" PRId64, val.as.as_i64);
             break;
         case HML_VAL_U8:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
@@ -1517,7 +1691,7 @@ HmlValue hml_to_string(HmlValue val) {
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
             break;
         case HML_VAL_U64:
-            snprintf(buffer, sizeof(buffer), "%lu", val.as.as_u64);
+            snprintf(buffer, sizeof(buffer), "%" PRIu64, val.as.as_u64);
             break;
         case HML_VAL_F32:
             snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);

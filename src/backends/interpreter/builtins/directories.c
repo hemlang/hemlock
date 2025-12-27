@@ -29,9 +29,9 @@ Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    if (mkdir(cpath, mode) != 0) {
+    if (hml_mkdir(cpath, mode) != 0) {
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to create directory '%s': %s", cpath, strerror(errno));
+        snprintf(error_msg, sizeof(error_msg), "Failed to create directory '%s'", cpath);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
@@ -62,9 +62,9 @@ Value builtin_remove_dir(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    if (rmdir(cpath) != 0) {
+    if (hml_rmdir(cpath) != 0) {
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to remove directory '%s': %s", cpath, strerror(errno));
+        snprintf(error_msg, sizeof(error_msg), "Failed to remove directory '%s'", cpath);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
@@ -95,10 +95,10 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    DIR *dir = opendir(cpath);
+    hml_dir_t *dir = hml_opendir(cpath);
     if (!dir) {
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to open directory '%s': %s", cpath, strerror(errno));
+        snprintf(error_msg, sizeof(error_msg), "Failed to open directory '%s'", cpath);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
@@ -106,8 +106,8 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     Array *entries = array_new();
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
+    hml_dirent_t *entry;
+    while ((entry = hml_readdir(dir)) != NULL) {
         // Skip "." and ".."
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -115,7 +115,7 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
         array_push(entries, val_string(entry->d_name));
     }
 
-    closedir(dir);
+    hml_closedir(dir);
     free(cpath);
     return val_array(entries);
 }
@@ -127,9 +127,9 @@ Value builtin_cwd(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-    char buffer[PATH_MAX];
-    if (getcwd(buffer, sizeof(buffer)) == NULL) {
-        ctx->exception_state.exception_value = val_string(strerror(errno));
+    char buffer[HML_PATH_MAX];
+    if (hml_getcwd(buffer, sizeof(buffer)) == NULL) {
+        ctx->exception_state.exception_value = val_string("Failed to get current directory");
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -157,9 +157,9 @@ Value builtin_chdir(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    if (chdir(cpath) != 0) {
+    if (hml_chdir(cpath) != 0) {
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to change directory to '%s': %s", cpath, strerror(errno));
+        snprintf(error_msg, sizeof(error_msg), "Failed to change directory to '%s'", cpath);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
@@ -190,10 +190,14 @@ Value builtin_absolute_path(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    char buffer[PATH_MAX];
+    char buffer[HML_PATH_MAX];
+#ifdef HML_WINDOWS
+    if (_fullpath(buffer, cpath, sizeof(buffer)) == NULL) {
+#else
     if (realpath(cpath, buffer) == NULL) {
+#endif
         char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed to resolve path '%s': %s", cpath, strerror(errno));
+        snprintf(error_msg, sizeof(error_msg), "Failed to resolve path '%s'", cpath);
         free(cpath);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;

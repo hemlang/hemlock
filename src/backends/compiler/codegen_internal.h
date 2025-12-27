@@ -8,7 +8,14 @@
 #ifndef HEMLOCK_CODEGEN_INTERNAL_H
 #define HEMLOCK_CODEGEN_INTERNAL_H
 
+/* Platform detection */
+#if defined(_WIN32) || defined(_WIN64) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HML_CODEGEN_WINDOWS 1
+#else
 #define _GNU_SOURCE
+#define HML_CODEGEN_POSIX 1
+#endif
+
 #include "codegen.h"
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
@@ -17,9 +24,88 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
+
+#ifdef HML_CODEGEN_POSIX
 #include <unistd.h>
 #include <libgen.h>
-#include <limits.h>
+#endif
+
+#ifdef HML_CODEGEN_WINDOWS
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+
+/* Windows compatibility: ssize_t */
+#ifndef ssize_t
+typedef long long ssize_t;
+#endif
+
+/* Windows compatibility: access mode constants */
+#ifndef F_OK
+#define F_OK 0
+#define R_OK 4
+#define W_OK 2
+#define X_OK 1
+#endif
+
+/* Windows compatibility: getcwd */
+#define getcwd _getcwd
+
+/* Windows compatibility: realpath using _fullpath */
+static inline char *hml_realpath(const char *path, char *resolved) {
+    char buf[PATH_MAX];
+    char *result = _fullpath(buf, path, PATH_MAX);
+    if (!result) return NULL;
+    /* Check if path exists */
+    if (_access(buf, F_OK) != 0) return NULL;
+    if (resolved) {
+        strcpy(resolved, buf);
+        return resolved;
+    }
+    return _strdup(buf);
+}
+#define realpath hml_realpath
+
+/* Windows compatibility: dirname */
+static inline char *hml_dirname(char *path) {
+    static char buf[PATH_MAX];
+    if (!path || !*path) {
+        strcpy(buf, ".");
+        return buf;
+    }
+    strncpy(buf, path, PATH_MAX - 1);
+    buf[PATH_MAX - 1] = '\0';
+    /* Find last separator */
+    char *last_sep = NULL;
+    for (char *p = buf; *p; p++) {
+        if (*p == '\\' || *p == '/') last_sep = p;
+    }
+    if (last_sep) {
+        if (last_sep == buf) {
+            buf[1] = '\0';
+        } else {
+            *last_sep = '\0';
+        }
+    } else {
+        strcpy(buf, ".");
+    }
+    return buf;
+}
+#define dirname hml_dirname
+
+/* Windows compatibility: get executable path length */
+static inline ssize_t hml_get_exe_path(char *buf, size_t size) {
+    DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)size);
+    if (len == 0 || len >= size) return -1;
+    return (ssize_t)len;
+}
+#define readlink(path, buf, size) hml_get_exe_path(buf, size)
+
+#endif /* HML_CODEGEN_WINDOWS */
 
 // ========== BUFFER SIZE CONSTANTS ==========
 
