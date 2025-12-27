@@ -87,3 +87,6 @@ docs/docs.html
 *.hmlc
 *.hmlb
 *.hmlp
+# VM binaries
+src/backends/vm/hemlockvm
+src/backends/vm/hemlockvm_asan
