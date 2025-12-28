@@ -868,6 +868,37 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
+            case BC_GET_UPVALUE: {
+                uint8_t slot = READ_BYTE();
+                // The closure is stored in slot 0 of this frame
+                Value closure_val = slots[0];
+                if (is_vm_closure(closure_val)) {
+                    VMClosure *closure = as_vm_closure(closure_val);
+                    if (closure && slot < closure->upvalue_count && closure->upvalues[slot]) {
+                        ObjUpvalue *upvalue = closure->upvalues[slot];
+                        PUSH(*upvalue->location);
+                    } else {
+                        PUSH(vm_null_value());
+                    }
+                } else {
+                    PUSH(vm_null_value());
+                }
+                break;
+            }
+
+            case BC_SET_UPVALUE: {
+                uint8_t slot = READ_BYTE();
+                Value closure_val = slots[0];
+                if (is_vm_closure(closure_val)) {
+                    VMClosure *closure = as_vm_closure(closure_val);
+                    if (closure && slot < closure->upvalue_count && closure->upvalues[slot]) {
+                        ObjUpvalue *upvalue = closure->upvalues[slot];
+                        *upvalue->location = PEEK(0);
+                    }
+                }
+                break;
+            }
+
             case BC_GET_GLOBAL: {
                 Constant c = READ_CONSTANT();
                 Value v;
@@ -1316,6 +1347,33 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
+            case BC_FOR_IN_INIT: {
+                // No longer used - kept for compatibility
+                break;
+            }
+
+            case BC_FOR_IN_NEXT: {
+                // Stack: [array, index] -> [element] or jump (consume array, index)
+                uint16_t offset = READ_SHORT();
+                Value idx_val = POP();
+                Value arr_val = POP();
+
+                if (arr_val.type != VAL_ARRAY) {
+                    vm_runtime_error(vm, "for-in requires an array");
+                    return VM_RUNTIME_ERROR;
+                }
+
+                int32_t idx = idx_val.as.as_i32;
+                Array *arr = arr_val.as.as_array;
+
+                if (idx >= arr->length) {
+                    ip += offset;
+                } else {
+                    PUSH(arr->elements[idx]);
+                }
+                break;
+            }
+
             case BC_POP:
                 POP();
                 break;
@@ -1504,8 +1562,18 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                         closure->upvalues[i] = vm_capture_upvalue(vm, slots + index);
                     } else {
                         // Get from enclosing closure's upvalues
-                        // For now, we don't support nested closures fully
-                        closure->upvalues[i] = NULL;
+                        // The enclosing closure is in slot 0
+                        Value enclosing_val = slots[0];
+                        if (is_vm_closure(enclosing_val)) {
+                            VMClosure *enclosing = as_vm_closure(enclosing_val);
+                            if (enclosing && index < enclosing->upvalue_count) {
+                                closure->upvalues[i] = enclosing->upvalues[index];
+                            } else {
+                                closure->upvalues[i] = NULL;
+                            }
+                        } else {
+                            closure->upvalues[i] = NULL;
+                        }
                     }
                 }
 

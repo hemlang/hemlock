@@ -767,6 +767,81 @@ static void compile_continue(Compiler *compiler) {
     builder_emit_continue(compiler->builder);
 }
 
+static void compile_for_in(Compiler *compiler, Stmt *stmt) {
+    builder_begin_scope(compiler->builder);
+
+    // Compile iterable expression -> array on stack
+    compile_expression(compiler, stmt->as.for_in.iterable);
+
+    // Reserve hidden local for array
+    int array_slot = builder_declare_local(compiler->builder, " arr", false, TYPE_ID_NULL);
+    builder_mark_initialized(compiler->builder);
+
+    // Push initial index 0 and reserve local
+    emit_byte(compiler, BC_CONST_BYTE);
+    emit_byte(compiler, 0);
+    int index_slot = builder_declare_local(compiler->builder, " idx", false, TYPE_ID_NULL);
+    builder_mark_initialized(compiler->builder);
+
+    // Push placeholder for loop variable and reserve local
+    emit_byte(compiler, BC_NULL);
+    int var_slot = builder_declare_local(compiler->builder, stmt->as.for_in.value_var, false, TYPE_ID_NULL);
+    builder_mark_initialized(compiler->builder);
+
+    // Loop start: check if index < array.length
+    int loop_start = compiler->builder->chunk->code_count;
+    builder_begin_loop(compiler->builder);
+
+    // Check: index < array.length
+    emit_byte(compiler, BC_GET_LOCAL);
+    emit_byte(compiler, (uint8_t)index_slot);
+    emit_byte(compiler, BC_GET_LOCAL);
+    emit_byte(compiler, (uint8_t)array_slot);
+    emit_byte(compiler, BC_GET_PROPERTY);
+    int len_idx = chunk_add_identifier(compiler->builder->chunk, "length");
+    emit_short(compiler, len_idx);
+    emit_byte(compiler, BC_LT);  // index < length
+
+    int exit_jump = emit_jump(compiler, BC_JUMP_IF_FALSE);
+    emit_byte(compiler, BC_POP);  // Pop condition
+
+    // Set loop variable: x = array[index]
+    emit_byte(compiler, BC_GET_LOCAL);
+    emit_byte(compiler, (uint8_t)array_slot);
+    emit_byte(compiler, BC_GET_LOCAL);
+    emit_byte(compiler, (uint8_t)index_slot);
+    emit_byte(compiler, BC_GET_INDEX);
+    emit_byte(compiler, BC_SET_LOCAL);
+    emit_byte(compiler, (uint8_t)var_slot);
+    emit_byte(compiler, BC_POP);  // Pop assignment result
+
+    // Set continue target here (before increment)
+    builder_set_continue_target(compiler->builder);
+
+    // Compile body
+    compile_statement(compiler, stmt->as.for_in.body);
+
+    // Increment index: index = index + 1
+    emit_byte(compiler, BC_GET_LOCAL);
+    emit_byte(compiler, (uint8_t)index_slot);
+    emit_byte(compiler, BC_CONST_BYTE);
+    emit_byte(compiler, 1);
+    emit_byte(compiler, BC_ADD);
+    emit_byte(compiler, BC_SET_LOCAL);
+    emit_byte(compiler, (uint8_t)index_slot);
+    emit_byte(compiler, BC_POP);  // Pop assignment result
+
+    // Loop back
+    emit_loop(compiler, loop_start);
+
+    // Exit point
+    patch_jump(compiler, exit_jump);
+    emit_byte(compiler, BC_POP);  // Pop condition
+
+    builder_end_loop(compiler->builder);
+    builder_end_scope(compiler->builder);
+}
+
 static void compile_statement(Compiler *compiler, Stmt *stmt) {
     if (!stmt) return;
 
@@ -790,6 +865,9 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
             break;
         case STMT_FOR:
             compile_for(compiler, stmt);
+            break;
+        case STMT_FOR_IN:
+            compile_for_in(compiler, stmt);
             break;
         case STMT_BLOCK:
             compile_block(compiler, stmt);
