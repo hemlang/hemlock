@@ -163,11 +163,15 @@ typedef struct ChunkBuilder {
 
     // Loop tracking (for break/continue)
     struct {
-        int start;          // Loop start offset
+        int start;          // Loop start offset (condition check)
+        int continue_target;// Continue target (-1 = use start, set for for-loops)
         int scope_depth;    // Scope depth at loop start
         int *breaks;        // Break jump offsets to patch
         int break_count;
         int break_capacity;
+        int *continues;     // Continue jump offsets to patch (for for-loops)
+        int continue_count;
+        int continue_capacity;
     } *loops;
     int loop_count;
     int loop_capacity;
@@ -196,5 +200,6 @@ void builder_begin_loop(ChunkBuilder *builder);
 void builder_end_loop(ChunkBuilder *builder);
 void builder_emit_break(ChunkBuilder *builder);
 void builder_emit_continue(ChunkBuilder *builder);
+void builder_set_continue_target(ChunkBuilder *builder);  // Mark current position as continue target
 
 #endif // HEMLOCK_VM_CHUNK_H

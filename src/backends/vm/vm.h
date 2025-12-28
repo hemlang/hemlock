@@ -38,6 +38,21 @@ struct CallFrame {
 };
 
 // ============================================
+// VM Closure (compiled function + captured upvalues)
+// ============================================
+
+typedef struct VMClosure {
+    Chunk *chunk;           // Compiled function bytecode
+    ObjUpvalue **upvalues;  // Captured upvalue pointers
+    int upvalue_count;      // Number of upvalues
+    int ref_count;          // Reference count
+} VMClosure;
+
+// Create a new closure
+VMClosure* vm_closure_new(Chunk *chunk);
+void vm_closure_free(VMClosure *closure);
+
+// ============================================
 // Open Upvalue (for closures)
 // ============================================
 

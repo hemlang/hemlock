@@ -66,10 +66,10 @@ static int run_source(const char *source, bool disassemble, bool trace) {
         return 1;
     }
 
-    // Resolve variables
-    resolve_program(statements, stmt_count);
+    // Note: Skip resolver for VM - the VM compiler handles its own variable resolution
+    // resolve_program(statements, stmt_count);
 
-    // Optimize AST
+    // Optimize AST (constant folding, etc.)
     optimize_program(statements, stmt_count);
 
     // Compile to bytecode

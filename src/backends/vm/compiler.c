@@ -104,8 +104,9 @@ static void emit_constant(Compiler *compiler, Constant constant) {
 // Expression Compilation
 // ============================================
 
-// Forward declaration
+// Forward declarations
 static void compile_expression(Compiler *compiler, Expr *expr);
+static void compile_statement(Compiler *compiler, Stmt *stmt);
 
 static void compile_number(Compiler *compiler, Expr *expr) {
     // Check if we can use a byte constant (integer 0-255)
@@ -460,6 +461,87 @@ static void compile_null_coalesce(Compiler *compiler, Expr *expr) {
     patch_jump(compiler, end_jump);
 }
 
+static void compile_function(Compiler *compiler, Expr *expr) {
+    // Create a new compiler for the function body
+    Compiler *fn_compiler = malloc(sizeof(Compiler));
+    fn_compiler->builder = chunk_builder_new(compiler->builder);
+    fn_compiler->enclosing = compiler;
+    fn_compiler->function_name = NULL;
+    fn_compiler->is_async = expr->as.function.is_async;
+    fn_compiler->current_line = expr->line;
+    fn_compiler->had_error = false;
+    fn_compiler->panic_mode = false;
+
+    // Set function metadata
+    fn_compiler->builder->chunk->arity = expr->as.function.num_params;
+    fn_compiler->builder->chunk->optional_count = 0;
+    fn_compiler->builder->chunk->has_rest_param = expr->as.function.rest_param != NULL;
+    fn_compiler->builder->chunk->is_async = expr->as.function.is_async;
+
+    // Begin the function scope
+    builder_begin_scope(fn_compiler->builder);
+
+    // Reserve slot 0 for the function/closure itself
+    builder_declare_local(fn_compiler->builder, "", false, TYPE_ID_NULL);
+    builder_mark_initialized(fn_compiler->builder);
+
+    // Declare parameters as locals (starting at slot 1)
+    for (int i = 0; i < expr->as.function.num_params; i++) {
+        builder_declare_local(fn_compiler->builder,
+                              expr->as.function.param_names[i],
+                              false, TYPE_ID_NULL);
+        builder_mark_initialized(fn_compiler->builder);
+
+        // Count optional params
+        if (expr->as.function.param_defaults &&
+            expr->as.function.param_defaults[i]) {
+            fn_compiler->builder->chunk->optional_count++;
+        }
+    }
+
+    // Compile the function body
+    if (expr->as.function.body) {
+        if (expr->as.function.body->type == STMT_BLOCK) {
+            // Compile block statements directly (don't create nested scope)
+            for (int i = 0; i < expr->as.function.body->as.block.count; i++) {
+                compile_statement(fn_compiler, expr->as.function.body->as.block.statements[i]);
+            }
+        } else {
+            compile_statement(fn_compiler, expr->as.function.body);
+        }
+    }
+
+    // Implicit return null if no explicit return
+    emit_byte(fn_compiler, BC_NULL);
+    emit_byte(fn_compiler, BC_RETURN);
+
+    // End scope (will emit POPs for locals)
+    builder_end_scope(fn_compiler->builder);
+
+    // Finish building the function chunk
+    Chunk *fn_chunk = chunk_builder_finish(fn_compiler->builder);
+    fn_compiler->builder = NULL;
+
+    // Check for compilation errors
+    if (fn_compiler->had_error) {
+        compiler->had_error = true;
+    }
+
+    free(fn_compiler);
+
+    // Add the function to the constant pool and emit closure
+    int fn_index = chunk_add_function(compiler->builder->chunk, fn_chunk);
+    emit_byte(compiler, BC_CLOSURE);
+    emit_short(compiler, fn_index);
+    emit_byte(compiler, (uint8_t)fn_chunk->upvalue_count);  // Upvalue count
+
+    // Emit upvalue info
+    for (int i = 0; i < fn_chunk->upvalue_count; i++) {
+        emit_byte(compiler, fn_chunk->upvalues[i].is_local ? 1 : 0);
+        emit_byte(compiler, fn_chunk->upvalues[i].index);
+    }
+}
+
 static void compile_expression(Compiler *compiler, Expr *expr) {
     if (!expr) {
         emit_byte(compiler, BC_NULL);
@@ -527,8 +609,7 @@ static void compile_expression(Compiler *compiler, Expr *expr) {
             compile_null_coalesce(compiler, expr);
             break;
         case EXPR_FUNCTION:
-            // TODO: Compile function
-            emit_byte(compiler, BC_NULL);
+            compile_function(compiler, expr);
             break;
         case EXPR_AWAIT:
             // TODO: Compile await
@@ -544,8 +625,6 @@ static void compile_expression(Compiler *compiler, Expr *expr) {
 // ============================================
 // Statement Compilation
 // ============================================
-
-static void compile_statement(Compiler *compiler, Stmt *stmt);
 
 static void compile_let(Compiler *compiler, Stmt *stmt, bool is_const) {
     const char *name = stmt->as.let.name;
@@ -601,6 +680,8 @@ static void compile_if(Compiler *compiler, Stmt *stmt) {
 static void compile_while(Compiler *compiler, Stmt *stmt) {
     int loop_start = compiler->builder->chunk->code_count;
     builder_begin_loop(compiler->builder);
+    // For while loops, continue jumps directly to condition check
+    builder_set_continue_target(compiler->builder);
 
     compile_expression(compiler, stmt->as.while_stmt.condition);
 
@@ -627,6 +708,7 @@ static void compile_for(Compiler *compiler, Stmt *stmt) {
 
     int loop_start = compiler->builder->chunk->code_count;
     builder_begin_loop(compiler->builder);
+    // Note: continue_target left as -1, will be set before increment
 
     // Condition
     int exit_jump = -1;
@@ -638,6 +720,10 @@ static void compile_for(Compiler *compiler, Stmt *stmt) {
 
     // Body
     compile_statement(compiler, stmt->as.for_loop.body);
+
+    // Set continue target here (before increment)
+    // This patches any pending continue jumps to this point
+    builder_set_continue_target(compiler->builder);
 
     // Increment
     if (stmt->as.for_loop.increment) {

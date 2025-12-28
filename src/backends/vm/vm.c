@@ -132,6 +132,88 @@ static const char* val_type_name(ValueType t) {
     }
 }
 
+// Convert a value to a string representation (allocates memory)
+static char* value_to_string_alloc(Value v) {
+    char buf[256];
+    switch (v.type) {
+        case VAL_NULL:
+            return strdup("null");
+        case VAL_BOOL:
+            return strdup(v.as.as_bool ? "true" : "false");
+        case VAL_I8:
+            snprintf(buf, sizeof(buf), "%d", v.as.as_i8);
+            return strdup(buf);
+        case VAL_I16:
+            snprintf(buf, sizeof(buf), "%d", v.as.as_i16);
+            return strdup(buf);
+        case VAL_I32:
+            snprintf(buf, sizeof(buf), "%d", v.as.as_i32);
+            return strdup(buf);
+        case VAL_I64:
+            snprintf(buf, sizeof(buf), "%ld", (long)v.as.as_i64);
+            return strdup(buf);
+        case VAL_U8:
+            snprintf(buf, sizeof(buf), "%u", v.as.as_u8);
+            return strdup(buf);
+        case VAL_U16:
+            snprintf(buf, sizeof(buf), "%u", v.as.as_u16);
+            return strdup(buf);
+        case VAL_U32:
+            snprintf(buf, sizeof(buf), "%u", v.as.as_u32);
+            return strdup(buf);
+        case VAL_U64:
+            snprintf(buf, sizeof(buf), "%lu", (unsigned long)v.as.as_u64);
+            return strdup(buf);
+        case VAL_F32:
+        case VAL_F64: {
+            double d = v.type == VAL_F32 ? v.as.as_f32 : v.as.as_f64;
+            if (d == (long)d) {
+                snprintf(buf, sizeof(buf), "%.0f", d);
+            } else {
+                snprintf(buf, sizeof(buf), "%g", d);
+            }
+            return strdup(buf);
+        }
+        case VAL_STRING:
+            if (v.as.as_string) {
+                return strdup(v.as.as_string->data);
+            }
+            return strdup("");
+        case VAL_RUNE: {
+            // Convert rune to UTF-8 string
+            uint32_t r = v.as.as_rune;
+            if (r < 0x80) {
+                buf[0] = (char)r;
+                buf[1] = '\0';
+            } else if (r < 0x800) {
+                buf[0] = (char)(0xC0 | (r >> 6));
+                buf[1] = (char)(0x80 | (r & 0x3F));
+                buf[2] = '\0';
+            } else if (r < 0x10000) {
+                buf[0] = (char)(0xE0 | (r >> 12));
+                buf[1] = (char)(0x80 | ((r >> 6) & 0x3F));
+                buf[2] = (char)(0x80 | (r & 0x3F));
+                buf[3] = '\0';
+            } else {
+                buf[0] = (char)(0xF0 | (r >> 18));
+                buf[1] = (char)(0x80 | ((r >> 12) & 0x3F));
+                buf[2] = (char)(0x80 | ((r >> 6) & 0x3F));
+                buf[3] = (char)(0x80 | (r & 0x3F));
+                buf[4] = '\0';
+            }
+            return strdup(buf);
+        }
+        case VAL_ARRAY:
+            return strdup("[array]");
+        case VAL_OBJECT:
+            return strdup("[object]");
+        case VAL_FUNCTION:
+            return strdup("[function]");
+        default:
+            return strdup("[unknown]");
+    }
+}
+
 // ============================================
 // VM Lifecycle
 // ============================================
@@ -328,6 +410,56 @@ bool vm_set_global(VM *vm, const char *name, Value value) {
 }
 
 // ============================================
+// VM Closures
+// ============================================
+
+VMClosure* vm_closure_new(Chunk *chunk) {
+    VMClosure *closure = malloc(sizeof(VMClosure));
+    closure->chunk = chunk;
+    closure->upvalue_count = chunk->upvalue_count;
+    if (closure->upvalue_count > 0) {
+        closure->upvalues = malloc(sizeof(ObjUpvalue*) * closure->upvalue_count);
+        for (int i = 0; i < closure->upvalue_count; i++) {
+            closure->upvalues[i] = NULL;
+        }
+    } else {
+        closure->upvalues = NULL;
+    }
+    closure->ref_count = 1;
+    return closure;
+}
+
+void vm_closure_free(VMClosure *closure) {
+    if (!closure) return;
+    if (--closure->ref_count <= 0) {
+        free(closure->upvalues);
+        // Note: Don't free the chunk - it's owned by the constant pool
+        free(closure);
+    }
+}
+
+// Create a Value from a VMClosure (stores as function pointer)
+static Value val_vm_closure(VMClosure *closure) {
+    Value v;
+    v.type = VAL_FUNCTION;
+    // Store the closure pointer - we'll cast it back when calling
+    v.as.as_function = (Function*)closure;
+    return v;
+}
+
+// Check if a Value is a VM closure (vs an interpreter function)
+// VM closures have a special marker - they came from the VM context
+// For now, all functions in the VM are closures
+static bool is_vm_closure(Value v) {
+    return v.type == VAL_FUNCTION && v.as.as_function != NULL;
+}
+
+// Get the VMClosure from a Value
+static VMClosure* as_vm_closure(Value v) {
+    return (VMClosure*)v.as.as_function;
+}
+
+// ============================================
 // Error Handling
 // ============================================
 
@@ -423,15 +555,36 @@ static ValueType promote_types(ValueType a, ValueType b) {
 
 // Binary arithmetic with type promotion
 static Value binary_add(VM *vm, Value a, Value b) {
+    (void)vm; // May be unused after removing error
+
     // i32 fast path
     if (a.type == VAL_I32 && b.type == VAL_I32) {
         return val_i32_vm(a.as.as_i32 + b.as.as_i32);
     }
 
-    // String concatenation
-    if (a.type == VAL_STRING && b.type == VAL_STRING) {
-        // TODO: Implement string concatenation
-        return vm_null_value();
+    // String concatenation - if either operand is a string, convert and concat
+    if (a.type == VAL_STRING || b.type == VAL_STRING) {
+        char *str_a = value_to_string_alloc(a);
+        char *str_b = value_to_string_alloc(b);
+        int len_a = strlen(str_a);
+        int len_b = strlen(str_b);
+        int total_len = len_a + len_b;
+
+        String *s = malloc(sizeof(String));
+        s->data = malloc(total_len + 1);
+        memcpy(s->data, str_a, len_a);
+        memcpy(s->data + len_a, str_b, len_b);
+        s->data[total_len] = '\0';
+        s->length = total_len;
+        s->char_length = -1;
+        s->capacity = total_len + 1;
+        s->ref_count = 1;
+
+        free(str_a);
+        free(str_b);
+
+        Value v = {.type = VAL_STRING, .as.as_string = s};
+        return v;
     }
 
     // Numeric
@@ -583,10 +736,8 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
     frame->upvalues = NULL;
     frame->slot_count = chunk->local_count;
 
-    // Reserve space for locals
-    for (int i = 0; i < chunk->local_count; i++) {
-        vm_push(vm, vm_null_value());
-    }
+    // Note: Locals are pushed by the compiler when declared, not pre-allocated
+    // The compiler emits code to push values for let statements
 
     uint8_t *ip = frame->ip;
     Value *slots = frame->slots;
@@ -1288,30 +1439,78 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 uint8_t argc = READ_BYTE();
                 Value callee = PEEK(argc);
 
-                if (callee.type != VAL_FUNCTION || !callee.as.as_function) {
+                if (!is_vm_closure(callee)) {
                     vm_runtime_error(vm, "Can only call functions");
                     return VM_RUNTIME_ERROR;
                 }
 
-                Function *fn = callee.as.as_function;
+                VMClosure *closure = as_vm_closure(callee);
+                Chunk *fn_chunk = closure->chunk;
 
                 // Check arity
-                if (argc < fn->num_params - (fn->rest_param ? 1 : 0)) {
-                    // Check for default params
-                    int required = 0;
-                    for (int i = 0; i < fn->num_params; i++) {
-                        if (!fn->param_defaults || !fn->param_defaults[i]) required++;
-                    }
+                if (argc < fn_chunk->arity) {
+                    // Allow optional params
+                    int required = fn_chunk->arity - fn_chunk->optional_count;
                     if (argc < required) {
-                        vm_runtime_error(vm, "Expected %d arguments but got %d", required, argc);
+                        vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
                         return VM_RUNTIME_ERROR;
                     }
                 }
 
-                // For now, we don't support user functions in VM
-                // This would require compiling the function body to bytecode
-                vm_runtime_error(vm, "User-defined functions not yet supported in VM");
-                return VM_RUNTIME_ERROR;
+                // Save current frame state
+                frame->ip = ip;
+
+                // Check for stack overflow
+                if (vm->frame_count >= vm->frame_capacity) {
+                    vm->frame_capacity *= 2;
+                    vm->frames = realloc(vm->frames, sizeof(CallFrame) * vm->frame_capacity);
+                }
+
+                // Set up new call frame
+                // The stack layout is: [callee] [arg0] [arg1] ... [argN]
+                // After call, slots points to where callee was
+                CallFrame *new_frame = &vm->frames[vm->frame_count++];
+                new_frame->chunk = fn_chunk;
+                new_frame->ip = fn_chunk->code;
+                new_frame->slots = vm->stack_top - argc - 1;  // Include the callee slot
+                new_frame->upvalues = NULL;  // TODO: support upvalues
+                new_frame->slot_count = fn_chunk->local_count;
+
+                // Update frame pointers
+                frame = new_frame;
+                ip = frame->ip;
+                slots = frame->slots;
+                break;
+            }
+
+            case BC_CLOSURE: {
+                // Read function index from constant pool
+                Constant c = READ_CONSTANT();
+                uint8_t upvalue_count = READ_BYTE();
+
+                if (c.type != CONST_FUNCTION) {
+                    vm_runtime_error(vm, "Expected function in constant pool");
+                    return VM_RUNTIME_ERROR;
+                }
+
+                Chunk *fn_chunk = c.as.function;
+                VMClosure *closure = vm_closure_new(fn_chunk);
+
+                // Capture upvalues
+                for (int i = 0; i < upvalue_count; i++) {
+                    uint8_t is_local = READ_BYTE();
+                    uint8_t index = READ_BYTE();
+                    if (is_local) {
+                        closure->upvalues[i] = vm_capture_upvalue(vm, slots + index);
+                    } else {
+                        // Get from enclosing closure's upvalues
+                        // For now, we don't support nested closures fully
+                        closure->upvalues[i] = NULL;
+                    }
+                }
+
+                PUSH(val_vm_closure(closure));
+                break;
             }
 
             case BC_RETURN: {

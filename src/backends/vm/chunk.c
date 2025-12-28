@@ -146,7 +146,8 @@ void chunk_patch_jump(Chunk *chunk, int offset) {
 
 // Patch a loop (backward jump)
 void chunk_patch_loop(Chunk *chunk, int loop_start) {
-    int offset = chunk->code_count - loop_start + 2;
+    // +3 accounts for: 1 byte opcode + 2 byte offset that will be read before jumping
+    int offset = chunk->code_count - loop_start + 3;
 
     if (offset > 0xFFFF) {
         fprintf(stderr, "Error: Loop too large (%d bytes)\n", offset);
@@ -508,10 +509,14 @@ void builder_begin_loop(ChunkBuilder *builder) {
 
     int i = builder->loop_count++;
     builder->loops[i].start = builder->chunk->code_count;
+    builder->loops[i].continue_target = -1;  // Will be set by for-loops
     builder->loops[i].scope_depth = builder->scope_depth;
     builder->loops[i].breaks = malloc(sizeof(int) * 8);
     builder->loops[i].break_count = 0;
     builder->loops[i].break_capacity = 8;
+    builder->loops[i].continues = malloc(sizeof(int) * 8);
+    builder->loops[i].continue_count = 0;
+    builder->loops[i].continue_capacity = 8;
 }
 
 void builder_end_loop(ChunkBuilder *builder) {
@@ -524,7 +529,11 @@ void builder_end_loop(ChunkBuilder *builder) {
         chunk_patch_jump(builder->chunk, builder->loops[i].breaks[j]);
     }
 
+    // Note: continues are patched immediately when continue_target is set
+    // (they're forward jumps that get patched by builder_set_continue_target)
+
     free(builder->loops[i].breaks);
+    free(builder->loops[i].continues);
     builder->loop_count--;
 }
 
@@ -568,6 +577,32 @@ void builder_emit_continue(ChunkBuilder *builder) {
         }
     }
 
-    // Jump back to loop start
-    chunk_patch_loop(builder->chunk, builder->loops[i].start);
+    if (builder->loops[i].continue_target >= 0) {
+        // We already know the continue target (while loops, or after increment in for-loops)
+        chunk_patch_loop(builder->chunk, builder->loops[i].continue_target);
+    } else {
+        // For-loop: continue target not yet known, emit forward jump to be patched later
+        if (builder->loops[i].continue_count >= builder->loops[i].continue_capacity) {
+            builder->loops[i].continue_capacity *= 2;
+            builder->loops[i].continues = realloc(builder->loops[i].continues,
+                                                   sizeof(int) * builder->loops[i].continue_capacity);
+        }
+        int offset = chunk_write_jump(builder->chunk, BC_JUMP, 0);
+        builder->loops[i].continues[builder->loops[i].continue_count++] = offset;
+    }
+}
+
+void builder_set_continue_target(ChunkBuilder *builder) {
+    if (builder->loop_count == 0) return;
+
+    int i = builder->loop_count - 1;
+
+    // Record current position as continue target
+    builder->loops[i].continue_target = builder->chunk->code_count;
+
+    // Patch all pending continue jumps to point here
+    for (int j = 0; j < builder->loops[i].continue_count; j++) {
+        chunk_patch_jump(builder->chunk, builder->loops[i].continues[j]);
+    }
+    builder->loops[i].continue_count = 0;
 }
