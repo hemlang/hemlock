@@ -854,6 +854,9 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
     int switch_slot = builder_declare_local(compiler->builder, " switch", false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
 
+    // Register as pseudo-loop so break works (exits switch, not enclosing loop)
+    builder_begin_loop(compiler->builder);
+
     int num_cases = stmt->as.switch_stmt.num_cases;
     int *case_jumps = malloc(sizeof(int) * num_cases);
     int default_idx = -1;
@@ -915,6 +918,9 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
     for (int i = 0; i < num_cases; i++) {
         patch_jump(compiler, end_jumps[i]);
     }
+
+    // End pseudo-loop (for break support)
+    builder_end_loop(compiler->builder);
 
     // End switch scope (will pop the hidden local)
     builder_end_scope(compiler->builder);
