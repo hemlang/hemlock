@@ -122,6 +122,10 @@ typedef enum {
     BUILTIN_SOCKET_CREATE,
     BUILTIN_POLL,
 
+    // Math (79-80)
+    BUILTIN_DIVI,       // Integer division (floor)
+    BUILTIN_MODI,       // Integer modulo
+
     BUILTIN_COUNT  // Total number of builtins
 } BuiltinId;
 

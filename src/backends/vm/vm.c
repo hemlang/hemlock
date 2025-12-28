@@ -1535,6 +1535,37 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         fprintf(stderr, "panic: %s\n", msg);
                         exit(1);
                     }
+                    case BUILTIN_DIVI: {
+                        // Integer division (floor)
+                        if (argc >= 2) {
+                            int64_t a = value_to_i64(args[0]);
+                            int64_t b = value_to_i64(args[1]);
+                            if (b == 0) {
+                                vm_runtime_error(vm, "Division by zero");
+                                return VM_RUNTIME_ERROR;
+                            }
+                            // Floor division: towards negative infinity
+                            int64_t q = a / b;
+                            if ((a ^ b) < 0 && a % b != 0) {
+                                q--;  // Adjust for floor behavior
+                            }
+                            result = val_i64_vm(q);
+                        }
+                        break;
+                    }
+                    case BUILTIN_MODI: {
+                        // Integer modulo
+                        if (argc >= 2) {
+                            int64_t a = value_to_i64(args[0]);
+                            int64_t b = value_to_i64(args[1]);
+                            if (b == 0) {
+                                vm_runtime_error(vm, "Modulo by zero");
+                                return VM_RUNTIME_ERROR;
+                            }
+                            result = val_i64_vm(a % b);
+                        }
+                        break;
+                    }
                     default:
                         vm_runtime_error(vm, "Builtin %d not implemented", builtin_id);
                         return VM_RUNTIME_ERROR;

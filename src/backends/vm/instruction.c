@@ -249,6 +249,10 @@ static const char* builtin_names[BUILTIN_COUNT] = {
     [BUILTIN_DNS_RESOLVE] = "dns_resolve",
     [BUILTIN_SOCKET_CREATE] = "socket_create",
     [BUILTIN_POLL] = "poll",
+
+    // Math (79-80)
+    [BUILTIN_DIVI] = "divi",
+    [BUILTIN_MODI] = "modi",
 };
 
 const char* builtin_name(BuiltinId id) {
