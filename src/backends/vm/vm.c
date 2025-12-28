@@ -1038,6 +1038,14 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_CLOSE_UPVALUE: {
+                // Close the upvalue at the top of the stack
+                // This is called when a captured variable goes out of scope
+                vm_close_upvalues(vm, vm->stack_top - 1);
+                POP();  // Pop the closed value
+                break;
+            }
+
             case BC_GET_INDEX: {
                 Value idx = POP();
                 Value obj = POP();
@@ -1885,6 +1893,43 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         vm_runtime_error(vm, "Unknown string method: %s", method);
                         return VM_RUNTIME_ERROR;
                     }
+                } else if (receiver.type == VAL_OBJECT && receiver.as.as_object) {
+                    // Object method call - look up method property and call it
+                    Object *obj = receiver.as.as_object;
+                    Value method_val = vm_null_value();
+                    bool found = false;
+
+                    // Find the method in object properties
+                    for (int i = 0; i < obj->num_fields; i++) {
+                        if (strcmp(obj->field_names[i], method) == 0) {
+                            method_val = obj->field_values[i];
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        vm_runtime_error(vm, "Object has no method '%s'", method);
+                        return VM_RUNTIME_ERROR;
+                    }
+
+                    if (!is_vm_closure(method_val)) {
+                        vm_runtime_error(vm, "Property '%s' is not a function", method);
+                        return VM_RUNTIME_ERROR;
+                    }
+
+                    VMClosure *closure = as_vm_closure(method_val);
+
+                    // Save frame state before calling closure
+                    frame->ip = ip;
+
+                    // Call the method with the provided arguments
+                    result = vm_call_closure(vm, closure, args, argc);
+
+                    // Restore frame state
+                    frame = &vm->frames[vm->frame_count - 1];
+                    ip = frame->ip;
+                    slots = frame->slots;
                 } else {
                     vm_runtime_error(vm, "Cannot call method on %s", val_type_name(receiver.type));
                     return VM_RUNTIME_ERROR;
