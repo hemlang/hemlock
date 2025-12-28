@@ -1125,6 +1125,73 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
     free(case_jumps);
 }
 
+static void compile_try(Compiler *compiler, Stmt *stmt) {
+    Chunk *chunk = compiler->builder->chunk;
+
+    // Emit BC_TRY with placeholder offsets for catch and finally
+    emit_byte(compiler, BC_TRY);
+    int catch_offset_pos = chunk->code_count;
+    emit_short(compiler, 0);  // Placeholder for catch offset
+    int finally_offset_pos = chunk->code_count;
+    emit_short(compiler, 0);  // Placeholder for finally offset
+
+    // Compile try block
+    compile_statement(compiler, stmt->as.try_stmt.try_block);
+
+    // Jump past catch/finally after successful try
+    int try_end_jump = emit_jump(compiler, BC_JUMP);
+
+    // Patch catch offset
+    int catch_offset = chunk->code_count - catch_offset_pos + 2;
+    chunk->code[catch_offset_pos] = (catch_offset >> 8) & 0xFF;
+    chunk->code[catch_offset_pos + 1] = catch_offset & 0xFF;
+
+    // Compile catch block (if present)
+    if (stmt->as.try_stmt.catch_block) {
+        emit_byte(compiler, BC_CATCH);
+
+        // Begin a scope for the catch parameter
+        builder_begin_scope(compiler->builder);
+
+        // Declare catch parameter
+        if (stmt->as.try_stmt.catch_param) {
+            builder_declare_local(compiler->builder, stmt->as.try_stmt.catch_param, false, TYPE_ID_STRING);
+            builder_mark_initialized(compiler->builder);
+        } else {
+            // No parameter - just pop the exception
+            emit_byte(compiler, BC_POP);
+        }
+
+        compile_statement(compiler, stmt->as.try_stmt.catch_block);
+        builder_end_scope(compiler->builder);
+    }
+
+    // Jump past finally to end
+    int catch_end_jump = emit_jump(compiler, BC_JUMP);
+
+    // Patch finally offset
+    int finally_offset = chunk->code_count - finally_offset_pos + 2;
+    chunk->code[finally_offset_pos] = (finally_offset >> 8) & 0xFF;
+    chunk->code[finally_offset_pos + 1] = finally_offset & 0xFF;
+
+    // Compile finally block (if present)
+    if (stmt->as.try_stmt.finally_block) {
+        emit_byte(compiler, BC_FINALLY);
+        compile_statement(compiler, stmt->as.try_stmt.finally_block);
+    }
+
+    emit_byte(compiler, BC_END_TRY);
+
+    // Patch jumps
+    patch_jump(compiler, try_end_jump);
+    patch_jump(compiler, catch_end_jump);
+}
+
+static void compile_throw(Compiler *compiler, Stmt *stmt) {
+    compile_expression(compiler, stmt->as.throw_stmt.value);
+    emit_byte(compiler, BC_THROW);
+}
+
 static void compile_statement(Compiler *compiler, Stmt *stmt) {
     if (!stmt) return;
 
@@ -1166,6 +1233,12 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
             break;
         case STMT_SWITCH:
             compile_switch(compiler, stmt);
+            break;
+        case STMT_TRY:
+            compile_try(compiler, stmt);
+            break;
+        case STMT_THROW:
+            compile_throw(compiler, stmt);
             break;
         default:
             // TODO: Handle other statement types
