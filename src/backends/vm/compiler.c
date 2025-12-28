@@ -842,6 +842,86 @@ static void compile_for_in(Compiler *compiler, Stmt *stmt) {
     builder_end_scope(compiler->builder);
 }
 
+static void compile_switch(Compiler *compiler, Stmt *stmt) {
+    // Create scope for switch (needed for hidden local at global scope)
+    builder_begin_scope(compiler->builder);
+
+    // Compile switch expression
+    compile_expression(compiler, stmt->as.switch_stmt.expr);
+
+    // Store in a hidden local so we can compare multiple times
+    int switch_slot = builder_declare_local(compiler->builder, " switch", false, TYPE_ID_NULL);
+    builder_mark_initialized(compiler->builder);
+
+    int num_cases = stmt->as.switch_stmt.num_cases;
+    int *case_jumps = malloc(sizeof(int) * num_cases);
+    int default_idx = -1;
+
+    // First pass: emit comparisons and conditional jumps to case bodies
+    for (int i = 0; i < num_cases; i++) {
+        if (stmt->as.switch_stmt.case_values[i] == NULL) {
+            // Default case - remember index, handle after all comparisons
+            default_idx = i;
+            case_jumps[i] = -1;
+            continue;
+        }
+
+        // Get switch value
+        emit_byte(compiler, BC_GET_LOCAL);
+        emit_byte(compiler, (uint8_t)switch_slot);
+
+        // Compile case value
+        compile_expression(compiler, stmt->as.switch_stmt.case_values[i]);
+
+        // Compare
+        emit_byte(compiler, BC_EQ);
+
+        // Jump to case body if equal
+        case_jumps[i] = emit_jump(compiler, BC_JUMP_IF_TRUE);
+        emit_byte(compiler, BC_POP);  // Pop false comparison result
+    }
+
+    // No case matched - jump to default or end
+    int default_jump = emit_jump(compiler, BC_JUMP);
+
+    // Second pass: emit case bodies and patch jumps
+    int *end_jumps = malloc(sizeof(int) * num_cases);
+    for (int i = 0; i < num_cases; i++) {
+        if (i == default_idx) {
+            // Patch default jump to here
+            patch_jump(compiler, default_jump);
+        } else if (case_jumps[i] >= 0) {
+            // Patch case jump to here
+            patch_jump(compiler, case_jumps[i]);
+            emit_byte(compiler, BC_POP);  // Pop true comparison result
+        }
+
+        // Compile case body
+        if (stmt->as.switch_stmt.case_bodies[i]) {
+            compile_statement(compiler, stmt->as.switch_stmt.case_bodies[i]);
+        }
+
+        // Jump to end after case body
+        end_jumps[i] = emit_jump(compiler, BC_JUMP);
+    }
+
+    // If no default case, patch default_jump to end
+    if (default_idx < 0) {
+        patch_jump(compiler, default_jump);
+    }
+
+    // Patch all end jumps to here
+    for (int i = 0; i < num_cases; i++) {
+        patch_jump(compiler, end_jumps[i]);
+    }
+
+    // End switch scope (will pop the hidden local)
+    builder_end_scope(compiler->builder);
+
+    free(case_jumps);
+    free(end_jumps);
+}
+
 static void compile_statement(Compiler *compiler, Stmt *stmt) {
     if (!stmt) return;
 
@@ -880,6 +960,9 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
             break;
         case STMT_CONTINUE:
             compile_continue(compiler);
+            break;
+        case STMT_SWITCH:
+            compile_switch(compiler, stmt);
             break;
         default:
             // TODO: Handle other statement types
