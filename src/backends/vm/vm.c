@@ -661,6 +661,49 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 PUSH(val_bool_vm(0));
                 break;
 
+            case BC_ARRAY: {
+                uint16_t count = READ_SHORT();
+                // Allocate array
+                Array *arr = malloc(sizeof(Array));
+                arr->elements = malloc(sizeof(Value) * (count > 0 ? count : 1));
+                arr->length = count;
+                arr->capacity = count > 0 ? count : 1;
+                arr->element_type = NULL;
+                arr->ref_count = 1;
+                // Pop elements from stack (they're in reverse order)
+                for (int i = count - 1; i >= 0; i--) {
+                    arr->elements[i] = POP();
+                }
+                Value v = {.type = VAL_ARRAY, .as.as_array = arr};
+                PUSH(v);
+                break;
+            }
+
+            case BC_OBJECT: {
+                uint16_t count = READ_SHORT();
+                // Allocate object
+                Object *obj = malloc(sizeof(Object));
+                obj->field_names = malloc(sizeof(char*) * (count > 0 ? count : 1));
+                obj->field_values = malloc(sizeof(Value) * (count > 0 ? count : 1));
+                obj->num_fields = count;
+                obj->capacity = count > 0 ? count : 1;
+                obj->ref_count = 1;
+                // Pop key-value pairs (value first, then key, in reverse order)
+                for (int i = count - 1; i >= 0; i--) {
+                    Value val = POP();
+                    Value key = POP();
+                    if (key.type == VAL_STRING && key.as.as_string) {
+                        obj->field_names[i] = strdup(key.as.as_string->data);
+                    } else {
+                        obj->field_names[i] = strdup("?");
+                    }
+                    obj->field_values[i] = val;
+                }
+                Value v = {.type = VAL_OBJECT, .as.as_object = obj};
+                PUSH(v);
+                break;
+            }
+
             // Variables
             case BC_GET_LOCAL: {
                 uint8_t slot = READ_BYTE();
@@ -696,6 +739,180 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
             case BC_DEFINE_GLOBAL: {
                 Constant c = READ_CONSTANT();
                 vm_define_global(vm, c.as.string.data, POP(), false);
+                break;
+            }
+
+            case BC_GET_PROPERTY: {
+                Constant c = READ_CONSTANT();
+                Value obj = POP();
+                if (obj.type == VAL_OBJECT && obj.as.as_object) {
+                    Object *o = obj.as.as_object;
+                    const char *key = c.as.string.data;
+                    for (int i = 0; i < o->num_fields; i++) {
+                        if (strcmp(o->field_names[i], key) == 0) {
+                            PUSH(o->field_values[i]);
+                            goto property_found;
+                        }
+                    }
+                    PUSH(vm_null_value());
+                    property_found:;
+                } else if (obj.type == VAL_ARRAY && obj.as.as_array) {
+                    // Array properties: length
+                    const char *key = c.as.string.data;
+                    if (strcmp(key, "length") == 0) {
+                        PUSH(val_i32_vm(obj.as.as_array->length));
+                    } else {
+                        PUSH(vm_null_value());
+                    }
+                } else if (obj.type == VAL_STRING && obj.as.as_string) {
+                    // String properties: length
+                    const char *key = c.as.string.data;
+                    if (strcmp(key, "length") == 0) {
+                        PUSH(val_i32_vm(obj.as.as_string->length));
+                    } else {
+                        PUSH(vm_null_value());
+                    }
+                } else {
+                    vm_runtime_error(vm, "Cannot get property of %s", val_type_name(obj.type));
+                    return VM_RUNTIME_ERROR;
+                }
+                break;
+            }
+
+            case BC_SET_PROPERTY: {
+                Constant c = READ_CONSTANT();
+                Value val = POP();
+                Value obj = POP();
+                if (obj.type == VAL_OBJECT && obj.as.as_object) {
+                    Object *o = obj.as.as_object;
+                    const char *key = c.as.string.data;
+                    // Find existing key or add new
+                    for (int i = 0; i < o->num_fields; i++) {
+                        if (strcmp(o->field_names[i], key) == 0) {
+                            o->field_values[i] = val;
+                            PUSH(val);
+                            goto property_set;
+                        }
+                    }
+                    // Add new key
+                    if (o->num_fields >= o->capacity) {
+                        o->capacity = o->capacity * 2;
+                        o->field_names = realloc(o->field_names, sizeof(char*) * o->capacity);
+                        o->field_values = realloc(o->field_values, sizeof(Value) * o->capacity);
+                    }
+                    o->field_names[o->num_fields] = strdup(key);
+                    o->field_values[o->num_fields] = val;
+                    o->num_fields++;
+                    PUSH(val);
+                    property_set:;
+                } else {
+                    vm_runtime_error(vm, "Cannot set property on %s", val_type_name(obj.type));
+                    return VM_RUNTIME_ERROR;
+                }
+                break;
+            }
+
+            case BC_GET_INDEX: {
+                Value idx = POP();
+                Value obj = POP();
+                if (obj.type == VAL_ARRAY && obj.as.as_array) {
+                    Array *arr = obj.as.as_array;
+                    int i = (int)value_to_i64(idx);
+                    if (i < 0 || i >= arr->length) {
+                        PUSH(vm_null_value());
+                    } else {
+                        PUSH(arr->elements[i]);
+                    }
+                } else if (obj.type == VAL_STRING && obj.as.as_string) {
+                    String *s = obj.as.as_string;
+                    int i = (int)value_to_i64(idx);
+                    if (i < 0 || i >= s->length) {
+                        PUSH(vm_null_value());
+                    } else {
+                        // Create single-char string
+                        String *ch = malloc(sizeof(String));
+                        ch->data = malloc(2);
+                        ch->data[0] = s->data[i];
+                        ch->data[1] = '\0';
+                        ch->length = 1;
+                        ch->char_length = 1;
+                        ch->capacity = 2;
+                        ch->ref_count = 1;
+                        Value v = {.type = VAL_STRING, .as.as_string = ch};
+                        PUSH(v);
+                    }
+                } else if (obj.type == VAL_OBJECT && obj.as.as_object) {
+                    Object *o = obj.as.as_object;
+                    if (idx.type == VAL_STRING && idx.as.as_string) {
+                        const char *key = idx.as.as_string->data;
+                        for (int i = 0; i < o->num_fields; i++) {
+                            if (strcmp(o->field_names[i], key) == 0) {
+                                PUSH(o->field_values[i]);
+                                goto index_found;
+                            }
+                        }
+                    }
+                    PUSH(vm_null_value());
+                    index_found:;
+                } else {
+                    vm_runtime_error(vm, "Cannot index %s", val_type_name(obj.type));
+                    return VM_RUNTIME_ERROR;
+                }
+                break;
+            }
+
+            case BC_SET_INDEX: {
+                Value val = POP();
+                Value idx = POP();
+                Value obj = POP();
+                if (obj.type == VAL_ARRAY && obj.as.as_array) {
+                    Array *arr = obj.as.as_array;
+                    int i = (int)value_to_i64(idx);
+                    if (i < 0) {
+                        vm_runtime_error(vm, "Array index out of bounds: %d", i);
+                        return VM_RUNTIME_ERROR;
+                    }
+                    // Grow array if needed
+                    while (i >= arr->capacity) {
+                        arr->capacity = arr->capacity * 2;
+                        arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                    }
+                    // Fill with nulls if needed
+                    while (arr->length <= i) {
+                        arr->elements[arr->length++] = vm_null_value();
+                    }
+                    arr->elements[i] = val;
+                    PUSH(val);
+                } else if (obj.type == VAL_OBJECT && obj.as.as_object) {
+                    Object *o = obj.as.as_object;
+                    if (idx.type == VAL_STRING && idx.as.as_string) {
+                        const char *key = idx.as.as_string->data;
+                        for (int i = 0; i < o->num_fields; i++) {
+                            if (strcmp(o->field_names[i], key) == 0) {
+                                o->field_values[i] = val;
+                                PUSH(val);
+                                goto index_set;
+                            }
+                        }
+                        // Add new key
+                        if (o->num_fields >= o->capacity) {
+                            o->capacity = o->capacity * 2;
+                            o->field_names = realloc(o->field_names, sizeof(char*) * o->capacity);
+                            o->field_values = realloc(o->field_values, sizeof(Value) * o->capacity);
+                        }
+                        o->field_names[o->num_fields] = strdup(key);
+                        o->field_values[o->num_fields] = val;
+                        o->num_fields++;
+                        PUSH(val);
+                        index_set:;
+                    } else {
+                        vm_runtime_error(vm, "Object key must be string");
+                        return VM_RUNTIME_ERROR;
+                    }
+                } else {
+                    vm_runtime_error(vm, "Cannot set index on %s", val_type_name(obj.type));
+                    return VM_RUNTIME_ERROR;
+                }
                 break;
             }
 
@@ -1001,6 +1218,102 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 break;
             }
 
+            case BC_CALL_BUILTIN: {
+                uint16_t builtin_id = READ_SHORT();
+                uint8_t argc = READ_BYTE();
+                Value *args = vm->stack_top - argc;
+                Value result = vm_null_value();
+
+                switch (builtin_id) {
+                    case BUILTIN_TYPEOF: {
+                        if (argc >= 1) {
+                            const char *type_str = val_type_name(args[0].type);
+                            String *s = malloc(sizeof(String));
+                            s->data = strdup(type_str);
+                            s->length = strlen(type_str);
+                            s->char_length = s->length;
+                            s->capacity = s->length + 1;
+                            s->ref_count = 1;
+                            result.type = VAL_STRING;
+                            result.as.as_string = s;
+                        }
+                        break;
+                    }
+                    case BUILTIN_PRINT: {
+                        for (int i = 0; i < argc; i++) {
+                            if (i > 0) printf(" ");
+                            Value v = args[i];
+                            switch (v.type) {
+                                case VAL_NULL: printf("null"); break;
+                                case VAL_BOOL: printf("%s", v.as.as_bool ? "true" : "false"); break;
+                                case VAL_I32: printf("%d", v.as.as_i32); break;
+                                case VAL_I64: printf("%lld", (long long)v.as.as_i64); break;
+                                case VAL_F64: printf("%g", v.as.as_f64); break;
+                                case VAL_STRING:
+                                    if (v.as.as_string) printf("%s", v.as.as_string->data);
+                                    break;
+                                default:
+                                    printf("<%s>", val_type_name(v.type));
+                            }
+                        }
+                        printf("\n");
+                        break;
+                    }
+                    case BUILTIN_ASSERT: {
+                        if (argc >= 1 && !value_is_truthy(args[0])) {
+                            const char *msg = (argc >= 2 && args[1].type == VAL_STRING)
+                                ? args[1].as.as_string->data : "Assertion failed";
+                            vm_runtime_error(vm, "%s", msg);
+                            return VM_RUNTIME_ERROR;
+                        }
+                        break;
+                    }
+                    case BUILTIN_PANIC: {
+                        const char *msg = (argc >= 1 && args[0].type == VAL_STRING)
+                            ? args[0].as.as_string->data : "panic";
+                        fprintf(stderr, "panic: %s\n", msg);
+                        exit(1);
+                    }
+                    default:
+                        vm_runtime_error(vm, "Builtin %d not implemented", builtin_id);
+                        return VM_RUNTIME_ERROR;
+                }
+
+                vm_popn(vm, argc);
+                PUSH(result);
+                break;
+            }
+
+            case BC_CALL: {
+                uint8_t argc = READ_BYTE();
+                Value callee = PEEK(argc);
+
+                if (callee.type != VAL_FUNCTION || !callee.as.as_function) {
+                    vm_runtime_error(vm, "Can only call functions");
+                    return VM_RUNTIME_ERROR;
+                }
+
+                Function *fn = callee.as.as_function;
+
+                // Check arity
+                if (argc < fn->num_params - (fn->rest_param ? 1 : 0)) {
+                    // Check for default params
+                    int required = 0;
+                    for (int i = 0; i < fn->num_params; i++) {
+                        if (!fn->param_defaults || !fn->param_defaults[i]) required++;
+                    }
+                    if (argc < required) {
+                        vm_runtime_error(vm, "Expected %d arguments but got %d", required, argc);
+                        return VM_RUNTIME_ERROR;
+                    }
+                }
+
+                // For now, we don't support user functions in VM
+                // This would require compiling the function body to bytecode
+                vm_runtime_error(vm, "User-defined functions not yet supported in VM");
+                return VM_RUNTIME_ERROR;
+            }
+
             case BC_RETURN: {
                 Value result = POP();
 
@@ -1021,6 +1334,154 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                 frame = &vm->frames[vm->frame_count - 1];
                 ip = frame->ip;
                 slots = frame->slots;
+                break;
+            }
+
+            case BC_CALL_METHOD: {
+                Constant method_c = READ_CONSTANT();
+                uint8_t argc = READ_BYTE();
+                const char *method = method_c.as.string.data;
+                Value *args = vm->stack_top - argc;
+                Value receiver = args[-1];  // Object is before args
+                Value result = vm_null_value();
+
+                if (receiver.type == VAL_ARRAY && receiver.as.as_array) {
+                    Array *arr = receiver.as.as_array;
+                    if (strcmp(method, "push") == 0 && argc >= 1) {
+                        // Ensure capacity
+                        if (arr->length >= arr->capacity) {
+                            arr->capacity = arr->capacity * 2;
+                            arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                        }
+                        arr->elements[arr->length++] = args[0];
+                        result = val_i32_vm(arr->length);
+                    } else if (strcmp(method, "pop") == 0) {
+                        if (arr->length > 0) {
+                            result = arr->elements[--arr->length];
+                        }
+                    } else if (strcmp(method, "shift") == 0) {
+                        if (arr->length > 0) {
+                            result = arr->elements[0];
+                            memmove(arr->elements, arr->elements + 1, sizeof(Value) * (arr->length - 1));
+                            arr->length--;
+                        }
+                    } else if (strcmp(method, "unshift") == 0 && argc >= 1) {
+                        if (arr->length >= arr->capacity) {
+                            arr->capacity = arr->capacity * 2;
+                            arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                        }
+                        memmove(arr->elements + 1, arr->elements, sizeof(Value) * arr->length);
+                        arr->elements[0] = args[0];
+                        arr->length++;
+                        result = val_i32_vm(arr->length);
+                    } else if (strcmp(method, "join") == 0) {
+                        const char *sep = (argc >= 1 && args[0].type == VAL_STRING)
+                            ? args[0].as.as_string->data : ",";
+                        // Calculate total length
+                        int total = 0;
+                        int sep_len = strlen(sep);
+                        for (int i = 0; i < arr->length; i++) {
+                            if (i > 0) total += sep_len;
+                            if (arr->elements[i].type == VAL_STRING && arr->elements[i].as.as_string) {
+                                total += arr->elements[i].as.as_string->length;
+                            } else if (arr->elements[i].type == VAL_I32) {
+                                total += 12;  // max int length
+                            } else {
+                                total += 10;  // placeholder
+                            }
+                        }
+                        char *buf = malloc(total + 1);
+                        buf[0] = '\0';
+                        for (int i = 0; i < arr->length; i++) {
+                            if (i > 0) strcat(buf, sep);
+                            if (arr->elements[i].type == VAL_STRING && arr->elements[i].as.as_string) {
+                                strcat(buf, arr->elements[i].as.as_string->data);
+                            } else if (arr->elements[i].type == VAL_I32) {
+                                char num[20];
+                                sprintf(num, "%d", arr->elements[i].as.as_i32);
+                                strcat(buf, num);
+                            }
+                        }
+                        String *s = malloc(sizeof(String));
+                        s->data = buf;
+                        s->length = strlen(buf);
+                        s->char_length = s->length;
+                        s->capacity = total + 1;
+                        s->ref_count = 1;
+                        result.type = VAL_STRING;
+                        result.as.as_string = s;
+                    } else {
+                        vm_runtime_error(vm, "Unknown array method: %s", method);
+                        return VM_RUNTIME_ERROR;
+                    }
+                } else if (receiver.type == VAL_STRING && receiver.as.as_string) {
+                    String *str = receiver.as.as_string;
+                    if (strcmp(method, "split") == 0) {
+                        const char *sep = (argc >= 1 && args[0].type == VAL_STRING)
+                            ? args[0].as.as_string->data : "";
+                        // Simple split implementation
+                        Array *arr = malloc(sizeof(Array));
+                        arr->elements = malloc(sizeof(Value) * 8);
+                        arr->length = 0;
+                        arr->capacity = 8;
+                        arr->element_type = NULL;
+                        arr->ref_count = 1;
+
+                        if (strlen(sep) == 0) {
+                            // Split into chars
+                            for (int i = 0; i < str->length; i++) {
+                                if (arr->length >= arr->capacity) {
+                                    arr->capacity *= 2;
+                                    arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                                }
+                                String *ch = malloc(sizeof(String));
+                                ch->data = malloc(2);
+                                ch->data[0] = str->data[i];
+                                ch->data[1] = '\0';
+                                ch->length = 1;
+                                ch->char_length = 1;
+                                ch->capacity = 2;
+                                ch->ref_count = 1;
+                                arr->elements[arr->length].type = VAL_STRING;
+                                arr->elements[arr->length].as.as_string = ch;
+                                arr->length++;
+                            }
+                        } else {
+                            // Split by separator
+                            char *copy = strdup(str->data);
+                            char *token = strtok(copy, sep);
+                            while (token) {
+                                if (arr->length >= arr->capacity) {
+                                    arr->capacity *= 2;
+                                    arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                                }
+                                String *s = malloc(sizeof(String));
+                                s->data = strdup(token);
+                                s->length = strlen(token);
+                                s->char_length = s->length;
+                                s->capacity = s->length + 1;
+                                s->ref_count = 1;
+                                arr->elements[arr->length].type = VAL_STRING;
+                                arr->elements[arr->length].as.as_string = s;
+                                arr->length++;
+                                token = strtok(NULL, sep);
+                            }
+                            free(copy);
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = arr;
+                    } else {
+                        vm_runtime_error(vm, "Unknown string method: %s", method);
+                        return VM_RUNTIME_ERROR;
+                    }
+                } else {
+                    vm_runtime_error(vm, "Cannot call method on %s", val_type_name(receiver.type));
+                    return VM_RUNTIME_ERROR;
+                }
+
+                // Pop args and receiver, push result
+                vm_popn(vm, argc + 1);
+                PUSH(result);
                 break;
             }
 
