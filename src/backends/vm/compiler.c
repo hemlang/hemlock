@@ -460,15 +460,156 @@ static void compile_index_assign(Compiler *compiler, Expr *expr) {
     emit_byte(compiler, BC_SET_INDEX);
 }
 
+// Helper to compile increment/decrement for different operand types
+// is_increment: true for ++, false for --
+// is_prefix: true for ++a/--a (return new value), false for a++/a-- (return old value)
+static void compile_inc_dec(Compiler *compiler, Expr *operand, bool is_increment, bool is_prefix) {
+    if (operand->type == EXPR_IDENT) {
+        const char *name = operand->as.ident.name;
+        int slot = builder_resolve_local(compiler->builder, name);
+
+        if (slot != -1) {
+            // Local variable
+            emit_byte(compiler, BC_GET_LOCAL);
+            emit_byte(compiler, (uint8_t)slot);
+
+            if (!is_prefix) {
+                // Postfix: duplicate old value for return
+                emit_byte(compiler, BC_DUP);
+            }
+
+            emit_byte(compiler, BC_CONST_BYTE);
+            emit_byte(compiler, 1);
+            emit_byte(compiler, is_increment ? BC_ADD : BC_SUB);
+
+            if (is_prefix) {
+                // Prefix: duplicate new value for return
+                emit_byte(compiler, BC_DUP);
+            }
+
+            emit_byte(compiler, BC_SET_LOCAL);
+            emit_byte(compiler, (uint8_t)slot);
+            emit_byte(compiler, BC_POP);  // Pop the set result
+        } else {
+            // Global variable
+            int idx = chunk_add_identifier(compiler->builder->chunk, name);
+            emit_byte(compiler, BC_GET_GLOBAL);
+            emit_short(compiler, idx);
+
+            if (!is_prefix) {
+                emit_byte(compiler, BC_DUP);
+            }
+
+            emit_byte(compiler, BC_CONST_BYTE);
+            emit_byte(compiler, 1);
+            emit_byte(compiler, is_increment ? BC_ADD : BC_SUB);
+
+            if (is_prefix) {
+                emit_byte(compiler, BC_DUP);
+            }
+
+            emit_byte(compiler, BC_SET_GLOBAL);
+            emit_short(compiler, idx);
+            emit_byte(compiler, BC_POP);  // Pop the set value
+        }
+    } else if (operand->type == EXPR_INDEX) {
+        // arr[idx]++ or ++arr[idx]
+        compile_expression(compiler, operand->as.index.object);
+        compile_expression(compiler, operand->as.index.index);
+
+        // Duplicate object and index for later SET_INDEX
+        emit_byte(compiler, BC_DUP2);  // [arr, idx, arr, idx]
+
+        // Get current value
+        emit_byte(compiler, BC_GET_INDEX);  // [arr, idx, old]
+
+        if (is_prefix) {
+            // Prefix: compute new value and set
+            // [arr, idx, old]
+            emit_byte(compiler, BC_CONST_BYTE);
+            emit_byte(compiler, 1);
+            emit_byte(compiler, is_increment ? BC_ADD : BC_SUB);
+            // [arr, idx, new]
+            emit_byte(compiler, BC_SET_INDEX);
+            // SET_INDEX pops [new, idx, arr], sets arr[idx]=new, pushes new
+            // [new] - this is our result
+        } else {
+            // Postfix: save old, compute new, rearrange, set
+            // [arr, idx, old]
+            emit_byte(compiler, BC_DUP);  // [arr, idx, old, old]
+            emit_byte(compiler, BC_CONST_BYTE);
+            emit_byte(compiler, 1);
+            emit_byte(compiler, is_increment ? BC_ADD : BC_SUB);
+            // [arr, idx, old, new]
+            emit_byte(compiler, BC_BURY3);
+            // [old, arr, idx, new]
+            emit_byte(compiler, BC_SET_INDEX);
+            // [old, new]
+            emit_byte(compiler, BC_POP);
+            // [old] - this is our result
+        }
+    } else if (operand->type == EXPR_GET_PROPERTY) {
+        // obj.x++ or ++obj.x
+        int prop_idx = chunk_add_string(compiler->builder->chunk,
+            operand->as.get_property.property,
+            strlen(operand->as.get_property.property));
+
+        compile_expression(compiler, operand->as.get_property.object);
+        emit_byte(compiler, BC_DUP);  // [obj, obj]
+
+        // Get current value
+        emit_byte(compiler, BC_GET_PROPERTY);
+        emit_short(compiler, prop_idx);  // [obj, old]
+
+        if (is_prefix) {
+            // Prefix: compute new and set
+            // [obj, old]
+            emit_byte(compiler, BC_CONST_BYTE);
+            emit_byte(compiler, 1);
+            emit_byte(compiler, is_increment ? BC_ADD : BC_SUB);
+            // [obj, new]
+            emit_byte(compiler, BC_SET_PROPERTY);
+            emit_short(compiler, prop_idx);
+            // SET_PROPERTY pops [new, obj], sets obj.x=new, pushes new
+            // [new] - this is our result
+        } else {
+            // Postfix: save old, compute new, rearrange, set
+            // [obj, old]
+            emit_byte(compiler, BC_DUP);  // [obj, old, old]
+            emit_byte(compiler, BC_CONST_BYTE);
+            emit_byte(compiler, 1);
+            emit_byte(compiler, is_increment ? BC_ADD : BC_SUB);
+            // [obj, old, new]
+            emit_byte(compiler, BC_ROT3);
+            // [old, new, obj]
+            emit_byte(compiler, BC_SWAP);
+            // [old, obj, new]
+            emit_byte(compiler, BC_SET_PROPERTY);
+            emit_short(compiler, prop_idx);
+            // [old, new]
+            emit_byte(compiler, BC_POP);
+            // [old] - this is our result
+        }
+    } else {
+        compiler_error(compiler, "Invalid operand for increment/decrement");
+        emit_byte(compiler, BC_NULL);
+    }
+}
+
 static void compile_prefix_inc(Compiler *compiler, Expr *expr) {
-    // Get current value
-    compile_expression(compiler, expr->as.prefix_inc.operand);
-    // Increment
-    emit_byte(compiler, BC_CONST_BYTE);
-    emit_byte(compiler, 1);
-    emit_byte(compiler, BC_ADD);
-    // Store back and leave new value on stack
-    // TODO: Need to handle assignment target properly
+    compile_inc_dec(compiler, expr->as.prefix_inc.operand, true, true);
+}
+
+static void compile_prefix_dec(Compiler *compiler, Expr *expr) {
+    compile_inc_dec(compiler, expr->as.prefix_dec.operand, false, true);
+}
+
+static void compile_postfix_inc(Compiler *compiler, Expr *expr) {
+    compile_inc_dec(compiler, expr->as.postfix_inc.operand, true, false);
+}
+
+static void compile_postfix_dec(Compiler *compiler, Expr *expr) {
+    compile_inc_dec(compiler, expr->as.postfix_dec.operand, false, false);
 }
 
 static void compile_null_coalesce(Compiler *compiler, Expr *expr) {
@@ -623,6 +764,15 @@ static void compile_expression(Compiler *compiler, Expr *expr) {
             break;
         case EXPR_PREFIX_INC:
             compile_prefix_inc(compiler, expr);
+            break;
+        case EXPR_PREFIX_DEC:
+            compile_prefix_dec(compiler, expr);
+            break;
+        case EXPR_POSTFIX_INC:
+            compile_postfix_inc(compiler, expr);
+            break;
+        case EXPR_POSTFIX_DEC:
+            compile_postfix_dec(compiler, expr);
             break;
         case EXPR_NULL_COALESCE:
             compile_null_coalesce(compiler, expr);
@@ -908,7 +1058,7 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
     int default_jump = emit_jump(compiler, BC_JUMP);
 
     // Second pass: emit case bodies and patch jumps
-    int *end_jumps = malloc(sizeof(int) * num_cases);
+    // Cases without break should fall through to the next case
     for (int i = 0; i < num_cases; i++) {
         if (i == default_idx) {
             // Patch default jump to here
@@ -919,13 +1069,12 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
             emit_byte(compiler, BC_POP);  // Pop true comparison result
         }
 
-        // Compile case body
+        // Compile case body - no automatic jump at end (allows fallthrough)
+        // break statements will jump to end via builder_end_loop
         if (stmt->as.switch_stmt.case_bodies[i]) {
             compile_statement(compiler, stmt->as.switch_stmt.case_bodies[i]);
         }
-
-        // Jump to end after case body
-        end_jumps[i] = emit_jump(compiler, BC_JUMP);
+        // Fall through to next case (no jump emitted)
     }
 
     // If no default case, patch default_jump to end
@@ -933,19 +1082,13 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
         patch_jump(compiler, default_jump);
     }
 
-    // Patch all end jumps to here
-    for (int i = 0; i < num_cases; i++) {
-        patch_jump(compiler, end_jumps[i]);
-    }
-
-    // End pseudo-loop (for break support)
+    // End pseudo-loop (for break support) - patches break jumps to here
     builder_end_loop(compiler->builder);
 
     // End switch scope (will pop the hidden local)
     builder_end_scope(compiler->builder);
 
     free(case_jumps);
-    free(end_jumps);
 }
 
 static void compile_statement(Compiler *compiler, Stmt *stmt) {

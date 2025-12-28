@@ -1436,6 +1436,61 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_DUP: {
+                // Duplicate top of stack
+                Value top = PEEK(0);
+                PUSH(top);
+                break;
+            }
+
+            case BC_DUP2: {
+                // Duplicate top two stack values
+                // [a, b] -> [a, b, a, b]
+                Value b = PEEK(0);
+                Value a = PEEK(1);
+                PUSH(a);
+                PUSH(b);
+                break;
+            }
+
+            case BC_SWAP: {
+                // Swap top two stack values
+                // [a, b] -> [b, a]
+                Value top = PEEK(0);
+                Value second = PEEK(1);
+                vm->stack_top[-1] = second;
+                vm->stack_top[-2] = top;
+                break;
+            }
+
+            case BC_BURY3: {
+                // Move second-from-top under bottom of 4
+                // [a, b, c, d] -> [c, a, b, d]
+                // (where d is top of stack)
+                Value d = PEEK(0);  // top
+                Value c = PEEK(1);  // 2nd from top - this moves to bottom
+                Value b = PEEK(2);
+                Value a = PEEK(3);  // bottom of 4
+                vm->stack_top[-4] = c;  // c moves to bottom
+                vm->stack_top[-3] = a;  // a moves up
+                vm->stack_top[-2] = b;  // b moves up
+                vm->stack_top[-1] = d;  // d stays on top
+                break;
+            }
+
+            case BC_ROT3: {
+                // Rotate 3 elements, bring bottom to top
+                // [a, b, c] -> [b, c, a]
+                // (where c is top of stack)
+                Value c = PEEK(0);  // top
+                Value b = PEEK(1);
+                Value a = PEEK(2);  // bottom of 3
+                vm->stack_top[-3] = b;  // b moves to bottom
+                vm->stack_top[-2] = c;  // c moves to middle
+                vm->stack_top[-1] = a;  // a moves to top
+                break;
+            }
+
             // Print (builtin)
             case BC_PRINT: {
                 uint8_t argc = READ_BYTE();

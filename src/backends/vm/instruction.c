@@ -84,6 +84,11 @@ static const InstructionInfo info_table[256] = {
     [BC_FOR_IN_NEXT]    = {"FOR_IN_NEXT",    2, 1},
     [BC_POP]            = {"POP",            0, -1},
     [BC_POPN]           = {"POPN",           1, STACK_EFFECT_VARIABLE},
+    [BC_DUP]            = {"DUP",            0, 1},
+    [BC_DUP2]           = {"DUP2",           0, 2},
+    [BC_SWAP]           = {"SWAP",           0, 0},
+    [BC_BURY3]          = {"BURY3",          0, 0},
+    [BC_ROT3]           = {"ROT3",           0, 0},
 
     // Category 7: Functions & Calls (0x60-0x6F)
     [BC_CALL]           = {"CALL",           1, STACK_EFFECT_VARIABLE},

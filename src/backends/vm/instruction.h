@@ -244,6 +244,9 @@ typedef enum {
     BC_FOR_IN_NEXT      = 0x5A,  // [off:16]  Get next or jump to end
     BC_POP              = 0x5B,  // []        Discard top of stack
     BC_POPN             = 0x5C,  // [n:8]     Discard n values from stack
+    BC_DUP              = 0x5D,  // []        Duplicate top of stack
+    BC_DUP2             = 0x5E,  // []        Duplicate top two stack values
+    BC_SWAP             = 0x5F,  // []        Swap top two stack values
 
     // ========================================
     // Category 7: Functions & Calls (0x60-0x6F)
@@ -294,6 +297,8 @@ typedef enum {
     BC_NOP              = 0xF0,  // []        No operation
     BC_PRINT            = 0xF1,  // [argc:8]  Print values
     BC_ASSERT           = 0xF2,  // []        Assert with optional message
+    BC_BURY3            = 0xF3,  // []        [a,b,c,d] -> [c,a,b,d] (move 2nd under 4th)
+    BC_ROT3             = 0xF4,  // []        [a,b,c] -> [b,c,a] (rotate 3, bottom to top)
     BC_DEBUG_BREAK      = 0xFE,  // []        Debugger breakpoint
     BC_HALT             = 0xFF,  // []        Stop execution
 
