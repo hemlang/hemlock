@@ -366,6 +366,25 @@ static void compile_call(Compiler *compiler, Expr *expr) {
         }
     }
 
+    // Check for method call: obj.method(args)
+    if (func->type == EXPR_GET_PROPERTY) {
+        // Compile the receiver object
+        compile_expression(compiler, func->as.get_property.object);
+
+        // Compile arguments
+        for (int i = 0; i < argc; i++) {
+            compile_expression(compiler, expr->as.call.args[i]);
+        }
+
+        // Emit method call with method name
+        emit_byte(compiler, BC_CALL_METHOD);
+        const char *method = func->as.get_property.property;
+        int idx = chunk_add_string(compiler->builder->chunk, method, strlen(method));
+        emit_short(compiler, idx);
+        emit_byte(compiler, (uint8_t)argc);
+        return;
+    }
+
     // General function call
     compile_expression(compiler, func);
 

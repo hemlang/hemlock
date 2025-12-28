@@ -724,21 +724,65 @@ static Value binary_lt(VM *vm, Value a, Value b) {
 }
 
 // ============================================
+// Closure Call Helper (for array methods)
+// ============================================
+
+// Forward declaration of the execution loop
+static VMResult vm_execute(VM *vm, int base_frame_count);
+
+// Call a closure and return its result
+// Returns vm_null_value() on error
+static Value vm_call_closure(VM *vm, VMClosure *closure, Value *args, int argc) {
+    // Push closure to stack (using val_vm_closure helper)
+    Value closure_val = val_vm_closure(closure);
+    *vm->stack_top++ = closure_val;
+
+    // Push arguments
+    for (int i = 0; i < argc; i++) {
+        *vm->stack_top++ = args[i];
+    }
+
+    // Save base frame count to know when callback returns
+    int base_frame_count = vm->frame_count;
+
+    // Set up call frame (similar to BC_CALL)
+    if (vm->frame_count >= vm->frame_capacity) {
+        vm->frame_capacity *= 2;
+        vm->frames = realloc(vm->frames, sizeof(CallFrame) * vm->frame_capacity);
+    }
+
+    Chunk *fn_chunk = closure->chunk;
+    CallFrame *new_frame = &vm->frames[vm->frame_count++];
+    new_frame->chunk = fn_chunk;
+    new_frame->ip = fn_chunk->code;
+    new_frame->slots = vm->stack_top - argc - 1;
+    new_frame->upvalues = NULL;
+    new_frame->slot_count = fn_chunk->local_count;
+
+    // Store closure in slot 0 for upvalue access
+    new_frame->slots[0] = closure_val;
+
+    // Execute until we return to base frame
+    VMResult result = vm_execute(vm, base_frame_count);
+
+    if (result != VM_OK) {
+        return vm_null_value();
+    }
+
+    // Result should be on stack (pushed by BC_RETURN)
+    if (vm->stack_top > vm->stack) {
+        return *--vm->stack_top;
+    }
+    return vm_null_value();
+}
+
+// ============================================
 // Main Execution Loop
 // ============================================
 
-VMResult vm_run(VM *vm, Chunk *chunk) {
-    // Set up initial call frame
-    CallFrame *frame = &vm->frames[vm->frame_count++];
-    frame->chunk = chunk;
-    frame->ip = chunk->code;
-    frame->slots = vm->stack;
-    frame->upvalues = NULL;
-    frame->slot_count = chunk->local_count;
-
-    // Note: Locals are pushed by the compiler when declared, not pre-allocated
-    // The compiler emits code to push values for let statements
-
+// Core execution loop - runs until frame_count reaches base_frame_count
+static VMResult vm_execute(VM *vm, int base_frame_count) {
+    CallFrame *frame = &vm->frames[vm->frame_count - 1];
     uint8_t *ip = frame->ip;
     Value *slots = frame->slots;
 
@@ -1589,12 +1633,19 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
 
                 vm->frame_count--;
                 if (vm->frame_count == 0) {
-                    // Done
+                    // Script returning - just exit
                     POP();  // Pop script slot
                     return VM_OK;
                 }
 
-                // Restore previous frame
+                if (vm->frame_count <= base_frame_count) {
+                    // Callback returning to caller (vm_call_closure)
+                    vm->stack_top = slots;
+                    PUSH(result);
+                    return VM_OK;
+                }
+
+                // Normal function return - restore previous frame
                 vm->stack_top = slots;
                 PUSH(result);
 
@@ -1677,6 +1728,99 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
                         s->ref_count = 1;
                         result.type = VAL_STRING;
                         result.as.as_string = s;
+                    } else if (strcmp(method, "map") == 0 && argc >= 1) {
+                        // map(callback) - transform each element
+                        if (!is_vm_closure(args[0])) {
+                            vm_runtime_error(vm, "map() callback must be a function");
+                            return VM_RUNTIME_ERROR;
+                        }
+                        VMClosure *callback = as_vm_closure(args[0]);
+
+                        // Create new result array
+                        Array *new_arr = malloc(sizeof(Array));
+                        new_arr->elements = malloc(sizeof(Value) * (arr->length > 0 ? arr->length : 1));
+                        new_arr->length = 0;
+                        new_arr->capacity = arr->length > 0 ? arr->length : 1;
+                        new_arr->element_type = NULL;
+                        new_arr->ref_count = 1;
+
+                        // Save frame state before calling closures
+                        frame->ip = ip;
+
+                        for (int i = 0; i < arr->length; i++) {
+                            Value elem = arr->elements[i];
+                            Value mapped = vm_call_closure(vm, callback, &elem, 1);
+                            new_arr->elements[new_arr->length++] = mapped;
+                        }
+
+                        // Restore frame state after closure calls
+                        frame = &vm->frames[vm->frame_count - 1];
+                        ip = frame->ip;
+                        slots = frame->slots;
+
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = new_arr;
+                    } else if (strcmp(method, "filter") == 0 && argc >= 1) {
+                        // filter(callback) - keep elements where callback returns true
+                        if (!is_vm_closure(args[0])) {
+                            vm_runtime_error(vm, "filter() callback must be a function");
+                            return VM_RUNTIME_ERROR;
+                        }
+                        VMClosure *callback = as_vm_closure(args[0]);
+
+                        // Create new result array
+                        Array *new_arr = malloc(sizeof(Array));
+                        new_arr->elements = malloc(sizeof(Value) * (arr->length > 0 ? arr->length : 1));
+                        new_arr->length = 0;
+                        new_arr->capacity = arr->length > 0 ? arr->length : 1;
+                        new_arr->element_type = NULL;
+                        new_arr->ref_count = 1;
+
+                        // Save frame state
+                        frame->ip = ip;
+
+                        for (int i = 0; i < arr->length; i++) {
+                            Value elem = arr->elements[i];
+                            Value keep = vm_call_closure(vm, callback, &elem, 1);
+                            if (value_is_truthy(keep)) {
+                                if (new_arr->length >= new_arr->capacity) {
+                                    new_arr->capacity *= 2;
+                                    new_arr->elements = realloc(new_arr->elements, sizeof(Value) * new_arr->capacity);
+                                }
+                                new_arr->elements[new_arr->length++] = elem;
+                            }
+                        }
+
+                        // Restore frame state
+                        frame = &vm->frames[vm->frame_count - 1];
+                        ip = frame->ip;
+                        slots = frame->slots;
+
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = new_arr;
+                    } else if (strcmp(method, "reduce") == 0 && argc >= 2) {
+                        // reduce(callback, initial) - accumulate values
+                        if (!is_vm_closure(args[0])) {
+                            vm_runtime_error(vm, "reduce() callback must be a function");
+                            return VM_RUNTIME_ERROR;
+                        }
+                        VMClosure *callback = as_vm_closure(args[0]);
+                        Value accumulator = args[1];
+
+                        // Save frame state
+                        frame->ip = ip;
+
+                        for (int i = 0; i < arr->length; i++) {
+                            Value callback_args[2] = {accumulator, arr->elements[i]};
+                            accumulator = vm_call_closure(vm, callback, callback_args, 2);
+                        }
+
+                        // Restore frame state
+                        frame = &vm->frames[vm->frame_count - 1];
+                        ip = frame->ip;
+                        slots = frame->slots;
+
+                        result = accumulator;
                     } else {
                         vm_runtime_error(vm, "Unknown array method: %s", method);
                         return VM_RUNTIME_ERROR;
@@ -1787,6 +1931,23 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
 #undef PUSH
 #undef POP
 #undef PEEK
+}
+
+// ============================================
+// Public Entry Point
+// ============================================
+
+VMResult vm_run(VM *vm, Chunk *chunk) {
+    // Set up initial call frame
+    CallFrame *initial_frame = &vm->frames[vm->frame_count++];
+    initial_frame->chunk = chunk;
+    initial_frame->ip = chunk->code;
+    initial_frame->slots = vm->stack;
+    initial_frame->upvalues = NULL;
+    initial_frame->slot_count = chunk->local_count;
+
+    // Execute from base frame 0
+    return vm_execute(vm, 0);
 }
 
 // ============================================
