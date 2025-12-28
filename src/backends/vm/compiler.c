@@ -612,6 +612,37 @@ static void compile_postfix_dec(Compiler *compiler, Expr *expr) {
     compile_inc_dec(compiler, expr->as.postfix_dec.operand, false, false);
 }
 
+static void compile_string_interpolation(Compiler *compiler, Expr *expr) {
+    int num_parts = expr->as.string_interpolation.num_parts;
+    char **string_parts = expr->as.string_interpolation.string_parts;
+    Expr **expr_parts = expr->as.string_interpolation.expr_parts;
+
+    // String interpolation creates a string from alternating literal parts and expressions
+    // string_parts has num_parts + 1 elements (strings between expressions)
+    // expr_parts has num_parts elements (the ${...} expressions)
+
+    // Push all parts onto the stack: str0, expr0, str1, expr1, ..., strN
+    int total_parts = 0;
+    for (int i = 0; i <= num_parts; i++) {
+        // Push string part (even if empty)
+        if (string_parts[i] && strlen(string_parts[i]) > 0) {
+            int idx = chunk_add_string(compiler->builder->chunk, string_parts[i], strlen(string_parts[i]));
+            emit_byte(compiler, BC_CONST);
+            emit_short(compiler, idx);
+            total_parts++;
+        }
+
+        // Push expression part (if not at the end)
+        if (i < num_parts) {
+            compile_expression(compiler, expr_parts[i]);
+            total_parts++;
+        }
+    }
+
+    emit_byte(compiler, BC_STRING_INTERP);
+    emit_short(compiler, (uint16_t)total_parts);
+}
+
 static void compile_null_coalesce(Compiler *compiler, Expr *expr) {
     compile_expression(compiler, expr->as.null_coalesce.left);
     // If not null, skip the right side
@@ -776,6 +807,9 @@ static void compile_expression(Compiler *compiler, Expr *expr) {
             break;
         case EXPR_NULL_COALESCE:
             compile_null_coalesce(compiler, expr);
+            break;
+        case EXPR_STRING_INTERPOLATION:
+            compile_string_interpolation(compiler, expr);
             break;
         case EXPR_FUNCTION:
             compile_function(compiler, expr);

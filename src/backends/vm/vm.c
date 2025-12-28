@@ -899,6 +899,79 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_STRING_INTERP: {
+                uint16_t count = READ_SHORT();
+                // Concatenate all parts on the stack into a single string
+                // First, compute total length
+                size_t total_len = 0;
+                Value *parts = vm->stack_top - count;
+                for (int i = 0; i < count; i++) {
+                    Value v = parts[i];
+                    if (v.type == VAL_STRING && v.as.as_string) {
+                        total_len += v.as.as_string->length;
+                    } else {
+                        // Convert to string representation
+                        char buf[64];
+                        switch (v.type) {
+                            case VAL_NULL: total_len += 4; break;  // "null"
+                            case VAL_BOOL: total_len += v.as.as_bool ? 4 : 5; break;  // "true"/"false"
+                            case VAL_I32: snprintf(buf, 64, "%d", v.as.as_i32); total_len += strlen(buf); break;
+                            case VAL_I64: snprintf(buf, 64, "%lld", (long long)v.as.as_i64); total_len += strlen(buf); break;
+                            case VAL_F64: snprintf(buf, 64, "%g", v.as.as_f64); total_len += strlen(buf); break;
+                            default: total_len += 16; break;  // "<type>"
+                        }
+                    }
+                }
+
+                // Allocate result string
+                char *result = malloc(total_len + 1);
+                char *ptr = result;
+
+                // Build the result
+                for (int i = 0; i < count; i++) {
+                    Value v = parts[i];
+                    if (v.type == VAL_STRING && v.as.as_string) {
+                        memcpy(ptr, v.as.as_string->data, v.as.as_string->length);
+                        ptr += v.as.as_string->length;
+                    } else {
+                        char buf[64];
+                        int len = 0;
+                        switch (v.type) {
+                            case VAL_NULL: strcpy(ptr, "null"); len = 4; break;
+                            case VAL_BOOL: strcpy(ptr, v.as.as_bool ? "true" : "false"); len = v.as.as_bool ? 4 : 5; break;
+                            case VAL_I8: len = sprintf(ptr, "%d", v.as.as_i8); break;
+                            case VAL_I16: len = sprintf(ptr, "%d", v.as.as_i16); break;
+                            case VAL_I32: len = sprintf(ptr, "%d", v.as.as_i32); break;
+                            case VAL_I64: len = sprintf(ptr, "%lld", (long long)v.as.as_i64); break;
+                            case VAL_U8: len = sprintf(ptr, "%u", v.as.as_u8); break;
+                            case VAL_U16: len = sprintf(ptr, "%u", v.as.as_u16); break;
+                            case VAL_U32: len = sprintf(ptr, "%u", v.as.as_u32); break;
+                            case VAL_U64: len = sprintf(ptr, "%llu", (unsigned long long)v.as.as_u64); break;
+                            case VAL_F32: len = sprintf(ptr, "%g", v.as.as_f32); break;
+                            case VAL_F64: len = sprintf(ptr, "%g", v.as.as_f64); break;
+                            default: len = sprintf(ptr, "<%s>", val_type_name(v.type)); break;
+                        }
+                        ptr += len;
+                    }
+                }
+                *ptr = '\0';
+
+                // Pop all parts
+                vm_popn(vm, count);
+
+                // Create and push result string
+                String *s = malloc(sizeof(String));
+                s->data = result;
+                s->length = ptr - result;
+                s->char_length = s->length;  // TODO: compute UTF-8 char length
+                s->capacity = total_len + 1;
+                s->ref_count = 1;
+
+                Value str_val = {.type = VAL_STRING, .as.as_string = s};
+                PUSH(str_val);
+                break;
+            }
+
             // Variables
             case BC_GET_LOCAL: {
                 uint8_t slot = READ_BYTE();
