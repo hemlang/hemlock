@@ -815,11 +815,12 @@ static void compile_for_in(Compiler *compiler, Stmt *stmt) {
     emit_byte(compiler, (uint8_t)var_slot);
     emit_byte(compiler, BC_POP);  // Pop assignment result
 
-    // Set continue target here (before increment)
-    builder_set_continue_target(compiler->builder);
-
     // Compile body
     compile_statement(compiler, stmt->as.for_in.body);
+
+    // Set continue target here (after body, before increment)
+    // This patches any pending continue jumps to this point
+    builder_set_continue_target(compiler->builder);
 
     // Increment index: index = index + 1
     emit_byte(compiler, BC_GET_LOCAL);
