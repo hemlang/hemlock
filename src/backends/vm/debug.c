@@ -268,6 +268,8 @@ int disassemble_instruction(Chunk *chunk, int offset) {
         case BC_BREAK:
         case BC_CONTINUE:
         case BC_FOR_IN_INIT:
+        case BC_GET_SELF:
+        case BC_SET_SELF:
             return simple_instruction(info->name, offset);
 
         // Byte operand instructions

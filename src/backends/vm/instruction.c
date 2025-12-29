@@ -106,7 +106,9 @@ static const InstructionInfo info_table[256] = {
     [BC_FINALLY]        = {"FINALLY",        0, 0},
     [BC_END_TRY]        = {"END_TRY",        0, 0},
     [BC_THROW]          = {"THROW",          0, -1},
-    [BC_DEFER]          = {"DEFER",          2, 0},
+    [BC_DEFER]          = {"DEFER",          0, -1},
+    [BC_GET_SELF]       = {"GET_SELF",       0, 1},
+    [BC_SET_SELF]       = {"SET_SELF",       0, -1},
 
     // Category 9: Async & Concurrency (0x80-0x8F)
     [BC_SPAWN]          = {"SPAWN",          1, STACK_EFFECT_VARIABLE},

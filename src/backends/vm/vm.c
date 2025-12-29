@@ -1021,6 +1021,18 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_GET_SELF: {
+                // Push the method receiver (self) onto the stack
+                PUSH(vm->method_self);
+                break;
+            }
+
+            case BC_SET_SELF: {
+                // Pop and set the method receiver (self)
+                vm->method_self = POP();
+                break;
+            }
+
             case BC_GET_GLOBAL: {
                 Constant c = READ_CONSTANT();
                 Value v;
@@ -2180,8 +2192,15 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     // Save frame state before calling closure
                     frame->ip = ip;
 
+                    // Set method_self so 'self' can be accessed inside the method
+                    Value prev_self = vm->method_self;
+                    vm->method_self = receiver;
+
                     // Call the method with the provided arguments
                     result = vm_call_closure(vm, closure, args, argc);
+
+                    // Restore previous self
+                    vm->method_self = prev_self;
 
                     // Restore frame state
                     frame = &vm->frames[vm->frame_count - 1];

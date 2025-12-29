@@ -160,6 +160,12 @@ static void compile_rune(Compiler *compiler, Expr *expr) {
 static void compile_identifier(Compiler *compiler, Expr *expr) {
     const char *name = expr->as.ident.name;
 
+    // Special handling for 'self' - get method receiver
+    if (strcmp(name, "self") == 0) {
+        emit_byte(compiler, BC_GET_SELF);
+        return;
+    }
+
     // Check for resolved local
     if (expr->as.ident.resolved.is_resolved) {
         int depth = expr->as.ident.resolved.depth;

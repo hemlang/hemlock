@@ -131,6 +131,9 @@ struct VM {
     bool is_breaking;
     bool is_continuing;
 
+    // Method receiver (self)
+    Value method_self;
+
     // Defer stack
     DeferEntry *defers;
     int defer_count;

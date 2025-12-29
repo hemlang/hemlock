@@ -269,6 +269,8 @@ typedef enum {
     BC_END_TRY          = 0x73,  // []        End try-catch-finally
     BC_THROW            = 0x74,  // []        Throw exception
     BC_DEFER            = 0x75,  // [idx:16]  Register deferred call
+    BC_GET_SELF         = 0x76,  // []        Get method receiver (self)
+    BC_SET_SELF         = 0x77,  // []        Set method receiver (self)
 
     // ========================================
     // Category 9: Async & Concurrency (0x80-0x8F)
