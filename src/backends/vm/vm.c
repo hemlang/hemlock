@@ -1033,6 +1033,36 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_GET_KEY: {
+                // [iterable, index] -> [key]
+                // For objects: return field name at index
+                // For arrays: return index as i32
+                Value idx = POP();
+                Value obj = POP();
+                int i = (int)value_to_i64(idx);
+
+                if (obj.type == VAL_OBJECT && obj.as.as_object) {
+                    Object *o = obj.as.as_object;
+                    if (i >= 0 && i < o->num_fields) {
+                        // Return field name as string
+                        String *s = malloc(sizeof(String));
+                        s->data = strdup(o->field_names[i]);
+                        s->length = strlen(s->data);
+                        s->char_length = s->length;
+                        s->capacity = s->length + 1;
+                        s->ref_count = 1;
+                        Value v = {.type = VAL_STRING, .as.as_string = s};
+                        PUSH(v);
+                    } else {
+                        PUSH(vm_null_value());
+                    }
+                } else {
+                    // For arrays, the key is just the index
+                    PUSH(val_i32_vm(i));
+                }
+                break;
+            }
+
             case BC_GET_GLOBAL: {
                 Constant c = READ_CONSTANT();
                 Value v;
@@ -1064,6 +1094,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 if (obj.type == VAL_OBJECT && obj.as.as_object) {
                     Object *o = obj.as.as_object;
                     const char *key = c.as.string.data;
+                    // Check for built-in length property
+                    if (strcmp(key, "length") == 0) {
+                        PUSH(val_i32_vm(o->num_fields));
+                        goto property_found;
+                    }
                     for (int i = 0; i < o->num_fields; i++) {
                         if (strcmp(o->field_names[i], key) == 0) {
                             PUSH(o->field_values[i]);
@@ -1197,8 +1232,16 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                                 goto index_found;
                             }
                         }
+                        PUSH(vm_null_value());
+                    } else {
+                        // Integer index - get by field index
+                        int i = (int)value_to_i64(idx);
+                        if (i >= 0 && i < o->num_fields) {
+                            PUSH(o->field_values[i]);
+                        } else {
+                            PUSH(vm_null_value());
+                        }
                     }
-                    PUSH(vm_null_value());
                     index_found:;
                 } else {
                     vm_runtime_error(vm, "Cannot index %s", val_type_name(obj.type));
@@ -1782,20 +1825,69 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 VMClosure *closure = as_vm_closure(callee);
                 Chunk *fn_chunk = closure->chunk;
 
-                // Check arity
-                if (argc < fn_chunk->arity) {
-                    // Allow optional params
-                    int required = fn_chunk->arity - fn_chunk->optional_count;
-                    if (argc < required) {
-                        vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
-                        return VM_RUNTIME_ERROR;
+                // Handle rest parameters
+                if (fn_chunk->has_rest_param) {
+                    // Rest param functions: collect extra args into array
+                    int regular_params = fn_chunk->arity;
+                    int rest_count = (argc > regular_params) ? argc - regular_params : 0;
+
+                    // Create array for rest arguments
+                    Array *rest_arr = malloc(sizeof(Array));
+                    rest_arr->elements = malloc(sizeof(Value) * (rest_count > 0 ? rest_count : 1));
+                    rest_arr->length = rest_count;
+                    rest_arr->capacity = rest_count > 0 ? rest_count : 1;
+                    rest_arr->element_type = NULL;
+                    rest_arr->ref_count = 1;
+
+                    // Copy rest arguments to array
+                    Value *args_start = vm->stack_top - argc;
+                    for (int i = 0; i < rest_count; i++) {
+                        rest_arr->elements[i] = args_start[regular_params + i];
                     }
-                    // Push null for missing optional parameters
-                    int missing = fn_chunk->arity - argc;
-                    for (int i = 0; i < missing; i++) {
-                        PUSH(vm_null_value());
+
+                    // Pop extra arguments from stack (keep only regular params)
+                    if (rest_count > 0) {
+                        vm->stack_top -= rest_count;
                     }
-                    argc = fn_chunk->arity;
+
+                    // Push null for missing regular params
+                    if (argc < regular_params) {
+                        int required = regular_params - fn_chunk->optional_count;
+                        if (argc < required) {
+                            vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
+                            free(rest_arr->elements);
+                            free(rest_arr);
+                            return VM_RUNTIME_ERROR;
+                        }
+                        int missing = regular_params - argc;
+                        for (int i = 0; i < missing; i++) {
+                            PUSH(vm_null_value());
+                        }
+                    }
+
+                    // Push the rest array
+                    Value rest_val;
+                    rest_val.type = VAL_ARRAY;
+                    rest_val.as.as_array = rest_arr;
+                    PUSH(rest_val);
+
+                    argc = regular_params + 1;  // regular params + rest array
+                } else {
+                    // Check arity for non-rest-param functions
+                    if (argc < fn_chunk->arity) {
+                        // Allow optional params
+                        int required = fn_chunk->arity - fn_chunk->optional_count;
+                        if (argc < required) {
+                            vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
+                            return VM_RUNTIME_ERROR;
+                        }
+                        // Push null for missing optional parameters
+                        int missing = fn_chunk->arity - argc;
+                        for (int i = 0; i < missing; i++) {
+                            PUSH(vm_null_value());
+                        }
+                        argc = fn_chunk->arity;
+                    }
                 }
 
                 // Save current frame state
@@ -2158,13 +2250,93 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         result.type = VAL_ARRAY;
                         result.as.as_array = arr;
+                    } else if (strcmp(method, "contains") == 0 && argc >= 1) {
+                        // Check if string contains substring
+                        if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+                            result = val_bool_vm(false);
+                        } else {
+                            const char *needle = args[0].as.as_string->data;
+                            result = val_bool_vm(strstr(str->data, needle) != NULL);
+                        }
+                    } else if (strcmp(method, "length") == 0) {
+                        // String length (just return char_length)
+                        result.type = VAL_I32;
+                        result.as.as_i32 = str->char_length;
                     } else {
                         vm_runtime_error(vm, "Unknown string method: %s", method);
                         return VM_RUNTIME_ERROR;
                     }
                 } else if (receiver.type == VAL_OBJECT && receiver.as.as_object) {
-                    // Object method call - look up method property and call it
+                    // Object method call - first check for built-in methods
                     Object *obj = receiver.as.as_object;
+
+                    if (strcmp(method, "keys") == 0) {
+                        // Return array of property names
+                        Array *arr = malloc(sizeof(Array));
+                        arr->elements = malloc(sizeof(Value) * (obj->num_fields + 1));
+                        arr->length = obj->num_fields;
+                        arr->capacity = obj->num_fields + 1;
+                        for (int i = 0; i < obj->num_fields; i++) {
+                            String *s = malloc(sizeof(String));
+                            s->data = strdup(obj->field_names[i]);
+                            s->length = strlen(s->data);
+                            s->char_length = s->length;
+                            s->capacity = s->length + 1;
+                            s->ref_count = 1;
+                            arr->elements[i].type = VAL_STRING;
+                            arr->elements[i].as.as_string = s;
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = arr;
+                        goto object_method_done;
+                    } else if (strcmp(method, "has") == 0 && argc >= 1) {
+                        // Check if property exists
+                        if (args[0].type != VAL_STRING) {
+                            result = val_bool_vm(false);
+                        } else {
+                            const char *key = args[0].as.as_string->data;
+                            bool found = false;
+                            for (int i = 0; i < obj->num_fields; i++) {
+                                if (strcmp(obj->field_names[i], key) == 0) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            result = val_bool_vm(found);
+                        }
+                        goto object_method_done;
+                    } else if (strcmp(method, "serialize") == 0) {
+                        // Simple JSON serialization
+                        size_t buf_size = 1024;
+                        char *buf = malloc(buf_size);
+                        size_t pos = 0;
+                        buf[pos++] = '{';
+                        for (int i = 0; i < obj->num_fields; i++) {
+                            if (i > 0) buf[pos++] = ',';
+                            pos += snprintf(buf + pos, buf_size - pos, "\"%s\":", obj->field_names[i]);
+                            Value v = obj->field_values[i];
+                            char *val_str = value_to_string_alloc(v);
+                            if (v.type == VAL_STRING) {
+                                pos += snprintf(buf + pos, buf_size - pos, "\"%s\"", val_str);
+                            } else {
+                                pos += snprintf(buf + pos, buf_size - pos, "%s", val_str);
+                            }
+                            free(val_str);
+                        }
+                        buf[pos++] = '}';
+                        buf[pos] = '\0';
+                        String *s = malloc(sizeof(String));
+                        s->data = buf;
+                        s->length = pos;
+                        s->char_length = pos;
+                        s->capacity = buf_size;
+                        s->ref_count = 1;
+                        result.type = VAL_STRING;
+                        result.as.as_string = s;
+                        goto object_method_done;
+                    }
+
+                    // Not a built-in method - look up method property
                     Value method_val = vm_null_value();
                     bool found = false;
 
@@ -2206,6 +2378,8 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     frame = &vm->frames[vm->frame_count - 1];
                     ip = frame->ip;
                     slots = frame->slots;
+
+                object_method_done:;
                 } else {
                     vm_runtime_error(vm, "Cannot call method on %s", val_type_name(receiver.type));
                     return VM_RUNTIME_ERROR;

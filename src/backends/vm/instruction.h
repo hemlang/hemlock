@@ -271,6 +271,7 @@ typedef enum {
     BC_DEFER            = 0x75,  // [idx:16]  Register deferred call
     BC_GET_SELF         = 0x76,  // []        Get method receiver (self)
     BC_SET_SELF         = 0x77,  // []        Set method receiver (self)
+    BC_GET_KEY          = 0x78,  // []        Get key at index (for object iteration)
 
     // ========================================
     // Category 9: Async & Concurrency (0x80-0x8F)

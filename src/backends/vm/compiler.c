@@ -732,6 +732,14 @@ static void compile_function(Compiler *compiler, Expr *expr) {
         }
     }
 
+    // Declare rest parameter if present (comes after all regular params)
+    if (expr->as.function.rest_param) {
+        builder_declare_local(fn_compiler->builder,
+                              expr->as.function.rest_param,
+                              false, TYPE_ID_NULL);
+        builder_mark_initialized(fn_compiler->builder);
+    }
+
     // Emit default value initialization for optional parameters
     // Parameter slots are 1, 2, 3, ... (slot 0 is the closure)
     for (int i = 0; i < expr->as.function.num_params; i++) {
@@ -1048,11 +1056,11 @@ static void compile_continue(Compiler *compiler) {
 static void compile_for_in(Compiler *compiler, Stmt *stmt) {
     builder_begin_scope(compiler->builder);
 
-    // Compile iterable expression -> array on stack
+    // Compile iterable expression -> array/object on stack
     compile_expression(compiler, stmt->as.for_in.iterable);
 
-    // Reserve hidden local for array
-    int array_slot = builder_declare_local(compiler->builder, " arr", false, TYPE_ID_NULL);
+    // Reserve hidden local for iterable
+    int iterable_slot = builder_declare_local(compiler->builder, " iter", false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
 
     // Push initial index 0 and reserve local
@@ -1061,20 +1069,28 @@ static void compile_for_in(Compiler *compiler, Stmt *stmt) {
     int index_slot = builder_declare_local(compiler->builder, " idx", false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
 
-    // Push placeholder for loop variable and reserve local
+    // Declare key variable if present (for "for (let key, value in obj)")
+    int key_slot = -1;
+    if (stmt->as.for_in.key_var) {
+        emit_byte(compiler, BC_NULL);
+        key_slot = builder_declare_local(compiler->builder, stmt->as.for_in.key_var, false, TYPE_ID_NULL);
+        builder_mark_initialized(compiler->builder);
+    }
+
+    // Push placeholder for value variable and reserve local
     emit_byte(compiler, BC_NULL);
     int var_slot = builder_declare_local(compiler->builder, stmt->as.for_in.value_var, false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
 
-    // Loop start: check if index < array.length
+    // Loop start: check if index < iterable.length
     int loop_start = compiler->builder->chunk->code_count;
     builder_begin_loop(compiler->builder);
 
-    // Check: index < array.length
+    // Check: index < iterable.length
     emit_byte(compiler, BC_GET_LOCAL);
     emit_byte(compiler, (uint8_t)index_slot);
     emit_byte(compiler, BC_GET_LOCAL);
-    emit_byte(compiler, (uint8_t)array_slot);
+    emit_byte(compiler, (uint8_t)iterable_slot);
     emit_byte(compiler, BC_GET_PROPERTY);
     int len_idx = chunk_add_identifier(compiler->builder->chunk, "length");
     emit_short(compiler, len_idx);
@@ -1083,9 +1099,25 @@ static void compile_for_in(Compiler *compiler, Stmt *stmt) {
     int exit_jump = emit_jump(compiler, BC_JUMP_IF_FALSE);
     emit_byte(compiler, BC_POP);  // Pop condition
 
-    // Set loop variable: x = array[index]
+    // Set key variable if present (for objects: key = field name at index)
+    if (key_slot >= 0) {
+        // We use BC_CALL_BUILTIN with "key_at" to get the key at the index
+        // Actually, let's use a simpler approach: call keys() method and index into it
+        // But that's expensive. Instead, let's add a special opcode.
+        // For now, use BC_GET_KEY opcode (we'll add it)
+        emit_byte(compiler, BC_GET_LOCAL);
+        emit_byte(compiler, (uint8_t)iterable_slot);
+        emit_byte(compiler, BC_GET_LOCAL);
+        emit_byte(compiler, (uint8_t)index_slot);
+        emit_byte(compiler, BC_GET_KEY);
+        emit_byte(compiler, BC_SET_LOCAL);
+        emit_byte(compiler, (uint8_t)key_slot);
+        emit_byte(compiler, BC_POP);
+    }
+
+    // Set value variable: x = iterable[index]
     emit_byte(compiler, BC_GET_LOCAL);
-    emit_byte(compiler, (uint8_t)array_slot);
+    emit_byte(compiler, (uint8_t)iterable_slot);
     emit_byte(compiler, BC_GET_LOCAL);
     emit_byte(compiler, (uint8_t)index_slot);
     emit_byte(compiler, BC_GET_INDEX);
@@ -1379,6 +1411,40 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
         case STMT_DEFER:
             compile_defer(compiler, stmt);
             break;
+        case STMT_ENUM: {
+            // Create an object with enum variants
+            // enum Color { RED, GREEN, BLUE } -> { RED: 0, GREEN: 1, BLUE: 2 }
+            int num_variants = stmt->as.enum_decl.num_variants;
+            int auto_value = 0;
+
+            // Push each key-value pair
+            for (int i = 0; i < num_variants; i++) {
+                // Push variant name as string constant
+                const char *name = stmt->as.enum_decl.variant_names[i];
+                int idx = chunk_add_string(compiler->builder->chunk, name, strlen(name));
+                emit_byte(compiler, BC_CONST);
+                emit_short(compiler, idx);
+
+                // Push variant value
+                if (stmt->as.enum_decl.variant_values && stmt->as.enum_decl.variant_values[i]) {
+                    compile_expression(compiler, stmt->as.enum_decl.variant_values[i]);
+                } else {
+                    emit_byte(compiler, BC_CONST_BYTE);
+                    emit_byte(compiler, (uint8_t)auto_value);
+                }
+                auto_value++;
+            }
+
+            // Create the object with N pairs
+            emit_byte(compiler, BC_OBJECT);
+            emit_short(compiler, num_variants);
+
+            // Define as global
+            int name_idx = chunk_add_identifier(compiler->builder->chunk, stmt->as.enum_decl.name);
+            emit_byte(compiler, BC_DEFINE_GLOBAL);
+            emit_short(compiler, name_idx);
+            break;
+        }
         default:
             // TODO: Handle other statement types
             break;
