@@ -70,8 +70,20 @@ struct DeferEntry {
     Chunk *chunk;           // Deferred function chunk
     Value *args;            // Captured arguments
     int arg_count;
-    CallFrame *frame;       // Frame that registered the defer
+    int frame_index;        // Frame count when defer was registered
 };
+
+// ============================================
+// Exception Handler (for try/catch)
+// ============================================
+
+typedef struct ExceptionHandler {
+    uint8_t *catch_ip;      // IP to jump to for catch
+    uint8_t *finally_ip;    // IP to jump to for finally
+    Value *stack_top;       // Stack top when try was entered
+    CallFrame *frame;       // Frame that registered the handler
+    int frame_count;        // Frame count when try was entered
+} ExceptionHandler;
 
 // ============================================
 // VM State
@@ -123,6 +135,11 @@ struct VM {
     DeferEntry *defers;
     int defer_count;
     int defer_capacity;
+
+    // Exception handler stack
+    ExceptionHandler *handlers;
+    int handler_count;
+    int handler_capacity;
 
     // Module cache
     struct {

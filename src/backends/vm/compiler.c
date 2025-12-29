@@ -652,6 +652,42 @@ static void compile_null_coalesce(Compiler *compiler, Expr *expr) {
     patch_jump(compiler, end_jump);
 }
 
+static void compile_optional_chain(Compiler *compiler, Expr *expr) {
+    // Compile the object expression
+    compile_expression(compiler, expr->as.optional_chain.object);
+
+    // If null, jump to end (keeping null on stack)
+    int end_jump = emit_jump(compiler, BC_OPTIONAL_CHAIN);
+
+    // Object is not null - perform the operation
+    if (expr->as.optional_chain.is_call) {
+        // Method call: obj?.method(args)
+        const char *method_name = expr->as.optional_chain.property;
+        int idx = chunk_add_identifier(compiler->builder->chunk, method_name);
+
+        // Compile arguments
+        for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+            compile_expression(compiler, expr->as.optional_chain.args[i]);
+        }
+
+        emit_byte(compiler, BC_CALL_METHOD);
+        emit_short(compiler, idx);
+        emit_byte(compiler, expr->as.optional_chain.num_args);
+    } else if (expr->as.optional_chain.is_property) {
+        // Property access: obj?.prop
+        const char *name = expr->as.optional_chain.property;
+        int idx = chunk_add_identifier(compiler->builder->chunk, name);
+        emit_byte(compiler, BC_GET_PROPERTY);
+        emit_short(compiler, idx);
+    } else {
+        // Index access: obj?.[index]
+        compile_expression(compiler, expr->as.optional_chain.index);
+        emit_byte(compiler, BC_GET_INDEX);
+    }
+
+    patch_jump(compiler, end_jump);
+}
+
 static void compile_function(Compiler *compiler, Expr *expr) {
     // Create a new compiler for the function body
     Compiler *fn_compiler = malloc(sizeof(Compiler));
@@ -687,6 +723,36 @@ static void compile_function(Compiler *compiler, Expr *expr) {
         if (expr->as.function.param_defaults &&
             expr->as.function.param_defaults[i]) {
             fn_compiler->builder->chunk->optional_count++;
+        }
+    }
+
+    // Emit default value initialization for optional parameters
+    // Parameter slots are 1, 2, 3, ... (slot 0 is the closure)
+    for (int i = 0; i < expr->as.function.num_params; i++) {
+        if (expr->as.function.param_defaults &&
+            expr->as.function.param_defaults[i]) {
+            // Get current parameter value
+            emit_byte(fn_compiler, BC_GET_LOCAL);
+            emit_byte(fn_compiler, (uint8_t)(i + 1));  // +1 because slot 0 is closure
+
+            // If not null, skip default assignment
+            int skip_jump = emit_jump(fn_compiler, BC_COALESCE);
+
+            // Pop the null value
+            emit_byte(fn_compiler, BC_POP);
+
+            // Compile the default expression
+            compile_expression(fn_compiler, expr->as.function.param_defaults[i]);
+
+            // Store in parameter slot
+            emit_byte(fn_compiler, BC_SET_LOCAL);
+            emit_byte(fn_compiler, (uint8_t)(i + 1));
+
+            // Patch the skip jump
+            patch_jump(fn_compiler, skip_jump);
+
+            // Pop the value (either from coalesce or set_local)
+            emit_byte(fn_compiler, BC_POP);
         }
     }
 
@@ -807,6 +873,9 @@ static void compile_expression(Compiler *compiler, Expr *expr) {
             break;
         case EXPR_NULL_COALESCE:
             compile_null_coalesce(compiler, expr);
+            break;
+        case EXPR_OPTIONAL_CHAIN:
+            compile_optional_chain(compiler, expr);
             break;
         case EXPR_STRING_INTERPOLATION:
             compile_string_interpolation(compiler, expr);
@@ -1135,14 +1204,17 @@ static void compile_try(Compiler *compiler, Stmt *stmt) {
     int finally_offset_pos = chunk->code_count;
     emit_short(compiler, 0);  // Placeholder for finally offset
 
+    // Position after all BC_TRY operands (where ip will be during execution)
+    int base_pos = chunk->code_count;
+
     // Compile try block
     compile_statement(compiler, stmt->as.try_stmt.try_block);
 
-    // Jump past catch/finally after successful try
-    int try_end_jump = emit_jump(compiler, BC_JUMP);
+    // Jump to finally (not to end - finally always runs)
+    int try_to_finally_jump = emit_jump(compiler, BC_JUMP);
 
-    // Patch catch offset
-    int catch_offset = chunk->code_count - catch_offset_pos + 2;
+    // Patch catch offset (relative to base_pos)
+    int catch_offset = chunk->code_count - base_pos;
     chunk->code[catch_offset_pos] = (catch_offset >> 8) & 0xFF;
     chunk->code[catch_offset_pos + 1] = catch_offset & 0xFF;
 
@@ -1165,14 +1237,15 @@ static void compile_try(Compiler *compiler, Stmt *stmt) {
         compile_statement(compiler, stmt->as.try_stmt.catch_block);
         builder_end_scope(compiler->builder);
     }
+    // Note: catch block falls through to finally
 
-    // Jump past finally to end
-    int catch_end_jump = emit_jump(compiler, BC_JUMP);
-
-    // Patch finally offset
-    int finally_offset = chunk->code_count - finally_offset_pos + 2;
+    // Patch finally offset (relative to base_pos)
+    int finally_offset = chunk->code_count - base_pos;
     chunk->code[finally_offset_pos] = (finally_offset >> 8) & 0xFF;
     chunk->code[finally_offset_pos + 1] = finally_offset & 0xFF;
+
+    // Patch try jump to here (before finally)
+    patch_jump(compiler, try_to_finally_jump);
 
     // Compile finally block (if present)
     if (stmt->as.try_stmt.finally_block) {
@@ -1181,15 +1254,72 @@ static void compile_try(Compiler *compiler, Stmt *stmt) {
     }
 
     emit_byte(compiler, BC_END_TRY);
-
-    // Patch jumps
-    patch_jump(compiler, try_end_jump);
-    patch_jump(compiler, catch_end_jump);
 }
 
 static void compile_throw(Compiler *compiler, Stmt *stmt) {
     compile_expression(compiler, stmt->as.throw_stmt.value);
     emit_byte(compiler, BC_THROW);
+}
+
+static void compile_defer(Compiler *compiler, Stmt *stmt) {
+    // Create a closure that wraps the deferred call
+    // The closure captures the current environment and will be called at function exit
+
+    // Create a new compiler for the deferred expression
+    Compiler *defer_compiler = malloc(sizeof(Compiler));
+    defer_compiler->builder = chunk_builder_new(compiler->builder);
+    defer_compiler->enclosing = compiler;
+    defer_compiler->function_name = NULL;
+    defer_compiler->is_async = false;
+    defer_compiler->current_line = stmt->line;
+    defer_compiler->had_error = false;
+    defer_compiler->panic_mode = false;
+
+    // Set function metadata (no params, not async)
+    defer_compiler->builder->chunk->arity = 0;
+    defer_compiler->builder->chunk->optional_count = 0;
+    defer_compiler->builder->chunk->has_rest_param = false;
+    defer_compiler->builder->chunk->is_async = false;
+
+    // Begin the function scope
+    builder_begin_scope(defer_compiler->builder);
+
+    // Reserve slot 0 for the closure itself
+    builder_declare_local(defer_compiler->builder, "", false, TYPE_ID_NULL);
+    builder_mark_initialized(defer_compiler->builder);
+
+    // Compile the deferred expression (usually a call)
+    compile_expression(defer_compiler, stmt->as.defer_stmt.call);
+    emit_byte(defer_compiler, BC_POP);  // Discard result
+
+    // Return null
+    emit_byte(defer_compiler, BC_NULL);
+    emit_byte(defer_compiler, BC_RETURN);
+
+    // End scope
+    builder_end_scope(defer_compiler->builder);
+
+    // Finish building the function chunk
+    Chunk *defer_chunk = chunk_builder_finish(defer_compiler->builder);
+    defer_compiler->builder = NULL;
+
+    if (defer_compiler->had_error) {
+        compiler->had_error = true;
+    }
+
+    free(defer_compiler);
+
+    // Add the deferred function to the constant pool
+    Constant c = {.type = CONST_FUNCTION, .as.function = defer_chunk};
+    int idx = chunk_add_constant(compiler->builder->chunk, c);
+
+    // Emit closure creation with no upvalues (for simplicity)
+    emit_byte(compiler, BC_CLOSURE);
+    emit_short(compiler, idx);
+    emit_byte(compiler, 0);  // No upvalues
+
+    // Register the closure as a deferred call
+    emit_byte(compiler, BC_DEFER);
 }
 
 static void compile_statement(Compiler *compiler, Stmt *stmt) {
@@ -1239,6 +1369,9 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
             break;
         case STMT_THROW:
             compile_throw(compiler, stmt);
+            break;
+        case STMT_DEFER:
+            compile_defer(compiler, stmt);
             break;
         default:
             // TODO: Handle other statement types

@@ -255,6 +255,11 @@ VM* vm_new(void) {
     vm->defer_count = 0;
     vm->defer_capacity = VM_DEFER_INITIAL;
 
+    // Exception handlers
+    vm->handlers = malloc(sizeof(ExceptionHandler) * 16);
+    vm->handler_count = 0;
+    vm->handler_capacity = 16;
+
     // Module cache
     vm->module_cache.paths = NULL;
     vm->module_cache.modules = NULL;
@@ -1133,19 +1138,41 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 } else if (obj.type == VAL_STRING && obj.as.as_string) {
                     String *s = obj.as.as_string;
                     int i = (int)value_to_i64(idx);
-                    if (i < 0 || i >= s->length) {
+                    // Count codepoints to get to index i
+                    const char *p = s->data;
+                    const char *end = s->data + s->length;
+                    int cp_idx = 0;
+                    uint32_t codepoint = 0;
+                    while (p < end && cp_idx < i) {
+                        // Skip UTF-8 sequence
+                        unsigned char c = (unsigned char)*p;
+                        if ((c & 0x80) == 0) { p += 1; }
+                        else if ((c & 0xE0) == 0xC0) { p += 2; }
+                        else if ((c & 0xF0) == 0xE0) { p += 3; }
+                        else { p += 4; }
+                        cp_idx++;
+                    }
+                    if (p >= end) {
                         PUSH(vm_null_value());
                     } else {
-                        // Create single-char string
-                        String *ch = malloc(sizeof(String));
-                        ch->data = malloc(2);
-                        ch->data[0] = s->data[i];
-                        ch->data[1] = '\0';
-                        ch->length = 1;
-                        ch->char_length = 1;
-                        ch->capacity = 2;
-                        ch->ref_count = 1;
-                        Value v = {.type = VAL_STRING, .as.as_string = ch};
+                        // Decode UTF-8 codepoint at position p
+                        unsigned char c = (unsigned char)*p;
+                        if ((c & 0x80) == 0) {
+                            codepoint = c;
+                        } else if ((c & 0xE0) == 0xC0) {
+                            codepoint = (c & 0x1F) << 6;
+                            codepoint |= ((unsigned char)p[1] & 0x3F);
+                        } else if ((c & 0xF0) == 0xE0) {
+                            codepoint = (c & 0x0F) << 12;
+                            codepoint |= ((unsigned char)p[1] & 0x3F) << 6;
+                            codepoint |= ((unsigned char)p[2] & 0x3F);
+                        } else {
+                            codepoint = (c & 0x07) << 18;
+                            codepoint |= ((unsigned char)p[1] & 0x3F) << 12;
+                            codepoint |= ((unsigned char)p[2] & 0x3F) << 6;
+                            codepoint |= ((unsigned char)p[3] & 0x3F);
+                        }
+                        Value v = {.type = VAL_RUNE, .as.as_rune = codepoint};
                         PUSH(v);
                     }
                 } else if (obj.type == VAL_OBJECT && obj.as.as_object) {
@@ -1466,6 +1493,30 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_COALESCE: {
+                // Null coalescing: if value is NOT null, jump (keep value)
+                // Otherwise, pop null and continue to evaluate fallback
+                uint16_t offset = READ_SHORT();
+                Value val = PEEK(0);
+                if (val.type != VAL_NULL) {
+                    ip += offset;  // Value is not null, skip fallback
+                }
+                // If null, leave on stack for explicit POP before fallback
+                break;
+            }
+
+            case BC_OPTIONAL_CHAIN: {
+                // Optional chaining: if value IS null, jump (keep null)
+                // Otherwise, continue to property access/method call
+                uint16_t offset = READ_SHORT();
+                Value val = PEEK(0);
+                if (val.type == VAL_NULL) {
+                    ip += offset;  // Value is null, skip property access
+                }
+                // If not null, leave on stack for property/index/method
+                break;
+            }
+
             case BC_LOOP: {
                 uint16_t offset = READ_SHORT();
                 ip -= offset;
@@ -1588,15 +1639,18 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         case VAL_STRING:
                             if (v.as.as_string) printf("%s", v.as.as_string->data);
                             break;
-                        case VAL_RUNE:
-                            // UTF-8 encode the rune
-                            if (v.as.as_rune < 0x80) {
-                                printf("%c", (char)v.as.as_rune);
+                        case VAL_RUNE: {
+                            // Print rune as character if printable, otherwise as U+XXXX
+                            uint32_t r = v.as.as_rune;
+                            if (r >= 32 && r < 127) {
+                                printf("'%c'", (char)r);
+                            } else if (r < 0x10000) {
+                                printf("U+%04X", r);
                             } else {
-                                // TODO: Proper UTF-8 encoding
-                                printf("\\u%04X", v.as.as_rune);
+                                printf("U+%X", r);
                             }
                             break;
+                        }
                         default:
                             printf("<%s>", val_type_name(v.type));
                     }
@@ -1724,6 +1778,12 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
                         return VM_RUNTIME_ERROR;
                     }
+                    // Push null for missing optional parameters
+                    int missing = fn_chunk->arity - argc;
+                    for (int i = 0; i < missing; i++) {
+                        PUSH(vm_null_value());
+                    }
+                    argc = fn_chunk->arity;
                 }
 
                 // Save current frame state
@@ -1792,8 +1852,46 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 break;
             }
 
+            case BC_DEFER: {
+                // Pop the closure from the stack and add to defer stack
+                Value closure_val = POP();
+                if (!is_vm_closure(closure_val)) {
+                    vm_runtime_error(vm, "defer requires a closure");
+                    return VM_RUNTIME_ERROR;
+                }
+
+                // Ensure defer stack has capacity
+                if (vm->defer_count >= vm->defer_capacity) {
+                    vm->defer_capacity *= 2;
+                    vm->defers = realloc(vm->defers, sizeof(DeferEntry) * vm->defer_capacity);
+                }
+
+                // Store the deferred closure
+                DeferEntry *entry = &vm->defers[vm->defer_count++];
+                VMClosure *closure = as_vm_closure(closure_val);
+                entry->chunk = closure->chunk;
+                entry->args = NULL;
+                entry->arg_count = 0;
+                entry->frame_index = vm->frame_count;  // Current frame index
+                break;
+            }
+
             case BC_RETURN: {
                 Value result = POP();
+
+                // Execute deferred closures in LIFO order for this frame
+                int returning_frame_index = vm->frame_count;
+                frame->ip = ip;  // Save IP
+
+                while (vm->defer_count > 0 &&
+                       vm->defers[vm->defer_count - 1].frame_index == returning_frame_index) {
+                    DeferEntry *entry = &vm->defers[--vm->defer_count];
+
+                    // Call the deferred closure using vm_call_closure
+                    VMClosure *defer_closure = vm_closure_new(entry->chunk);
+                    Value defer_result = vm_call_closure(vm, defer_closure, NULL, 0);
+                    (void)defer_result;  // Ignore return value
+                }
 
                 // Close upvalues
                 vm_close_upvalues(vm, slots);
@@ -2121,6 +2219,72 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 return VM_OK;
 
             case BC_NOP:
+                break;
+
+            // Exception handling
+            case BC_TRY: {
+                // Read catch and finally offsets (relative to position after both offsets)
+                uint16_t catch_offset = READ_SHORT();
+                uint16_t finally_offset = READ_SHORT();
+
+                // Push exception handler
+                if (vm->handler_count >= vm->handler_capacity) {
+                    vm->handler_capacity *= 2;
+                    vm->handlers = realloc(vm->handlers, sizeof(ExceptionHandler) * vm->handler_capacity);
+                }
+
+                ExceptionHandler *handler = &vm->handlers[vm->handler_count++];
+                handler->catch_ip = ip + catch_offset;  // ip is now after both offsets
+                handler->finally_ip = ip + finally_offset;
+                handler->stack_top = vm->stack_top;
+                handler->frame = frame;
+                handler->frame_count = vm->frame_count;
+                break;
+            }
+
+            case BC_THROW: {
+                Value exception = POP();
+
+                // Find nearest exception handler
+                if (vm->handler_count > 0) {
+                    ExceptionHandler *handler = &vm->handlers[vm->handler_count - 1];
+
+                    // Restore stack to handler's saved state
+                    vm->stack_top = handler->stack_top;
+
+                    // Push exception for catch block
+                    PUSH(exception);
+
+                    // Jump to catch handler
+                    ip = handler->catch_ip;
+                } else {
+                    // No handler - propagate as runtime error
+                    vm->is_throwing = true;
+                    vm->exception = exception;
+                    if (exception.type == VAL_STRING && exception.as.as_string) {
+                        vm_runtime_error(vm, "%s", exception.as.as_string->data);
+                    } else {
+                        vm_runtime_error(vm, "Uncaught exception");
+                    }
+                    return VM_RUNTIME_ERROR;
+                }
+                break;
+            }
+
+            case BC_CATCH:
+                // Exception value is already on stack from BC_THROW
+                // Just continue execution of catch block
+                break;
+
+            case BC_FINALLY:
+                // Finally block just executes - nothing special needed
+                break;
+
+            case BC_END_TRY:
+                // Pop exception handler
+                if (vm->handler_count > 0) {
+                    vm->handler_count--;
+                }
                 break;
 
             default:
