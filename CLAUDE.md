@@ -132,6 +132,20 @@ let val = ch.recv();
 ch.close();
 ```
 
+### User Input
+```hemlock
+let name = read_line();          // Read line from stdin (blocks)
+print("Hello, " + name);
+eprint("Error message");         // Print to stderr
+
+// read_line() returns null on EOF
+while (true) {
+    let line = read_line();
+    if (line == null) { break; }
+    print("Got:", line);
+}
+```
+
 ### File I/O
 ```hemlock
 let f = open("file.txt", "r");  // modes: r, w, a, r+, w+, a+
