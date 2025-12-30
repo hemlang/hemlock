@@ -14,6 +14,10 @@
 #include <stdarg.h>
 #include <math.h>
 #include <errno.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <signal.h>
+#include <time.h>
 
 // Debug tracing
 static int vm_trace_enabled = 0;
@@ -109,6 +113,225 @@ static int utf8_encode(uint32_t codepoint, char *buf) {
     buf[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
     buf[3] = (char)(0x80 | (codepoint & 0x3F));
     return 4;
+}
+
+// ============================================
+// Async Support
+// ============================================
+
+// Global task ID counter (atomic for thread-safety)
+static atomic_int vm_next_task_id = 1;
+
+// VM Task structure for async execution
+typedef struct VMTask {
+    int id;
+    TaskState state;
+    VMClosure *closure;     // The function to execute
+    Value *args;            // Arguments
+    int argc;
+    Value result;           // Return value when completed
+    int joined;             // Flag: task has been joined
+    int detached;           // Flag: task is detached
+    pthread_t thread;       // Thread handle
+    pthread_mutex_t mutex;  // For thread-safe state access
+    int ref_count;          // Reference count
+    bool has_exception;     // Flag: task threw an exception
+    Value exception;        // Exception value if thrown
+} VMTask;
+
+// Forward declarations
+static VMResult vm_execute(VM *vm, int base_frame_count);
+static Value vm_deep_copy(Value v);
+
+// Create a new VMTask
+static VMTask* vm_task_new(VMClosure *closure, Value *args, int argc) {
+    VMTask *task = malloc(sizeof(VMTask));
+    if (!task) return NULL;
+
+    task->id = atomic_fetch_add(&vm_next_task_id, 1);
+    task->state = TASK_READY;
+    task->closure = closure;
+    closure->ref_count++;  // Retain closure
+
+    // Deep copy arguments for thread safety
+    task->args = NULL;
+    task->argc = argc;
+    if (argc > 0) {
+        task->args = malloc(sizeof(Value) * argc);
+        for (int i = 0; i < argc; i++) {
+            task->args[i] = vm_deep_copy(args[i]);
+        }
+    }
+
+    task->result.type = VAL_NULL;
+    task->joined = 0;
+    task->detached = 0;
+    task->ref_count = 1;
+    task->has_exception = false;
+    task->exception.type = VAL_NULL;
+    pthread_mutex_init(&task->mutex, NULL);
+
+    return task;
+}
+
+// Free a VMTask
+static void vm_task_free(VMTask *task) {
+    if (!task) return;
+
+    pthread_mutex_destroy(&task->mutex);
+    if (task->closure) {
+        task->closure->ref_count--;
+        if (task->closure->ref_count <= 0) {
+            vm_closure_free(task->closure);
+        }
+    }
+    if (task->args) {
+        free(task->args);
+    }
+    free(task);
+}
+
+// Retain a VMTask
+static void vm_task_retain(VMTask *task) {
+    if (task) {
+        __atomic_add_fetch(&task->ref_count, 1, __ATOMIC_SEQ_CST);
+    }
+}
+
+// Release a VMTask
+static void vm_task_release(VMTask *task) {
+    if (task) {
+        int old = __atomic_sub_fetch(&task->ref_count, 1, __ATOMIC_SEQ_CST);
+        if (old == 0) {
+            vm_task_free(task);
+        }
+    }
+}
+
+// Thread wrapper for async execution
+typedef struct {
+    VMTask *task;
+    Chunk *chunk;
+} TaskThreadArg;
+
+static void* vm_task_thread_wrapper(void *arg) {
+    TaskThreadArg *thread_arg = (TaskThreadArg*)arg;
+    VMTask *task = thread_arg->task;
+    Chunk *chunk = thread_arg->chunk;
+    free(thread_arg);
+
+    // Block all signals in worker thread
+    sigset_t set;
+    sigfillset(&set);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+
+    // Mark as running
+    pthread_mutex_lock(&task->mutex);
+    task->state = TASK_RUNNING;
+    pthread_mutex_unlock(&task->mutex);
+
+    // Create a new VM for this thread
+    VM *vm = vm_new();
+
+    // Set up the call frame for the function
+    CallFrame *frame = &vm->frames[vm->frame_count++];
+    frame->chunk = chunk;
+    frame->ip = chunk->code;
+    frame->slots = vm->stack;
+    frame->upvalues = task->closure->upvalues ? task->closure->upvalues[0] : NULL;
+    frame->slot_count = chunk->local_count;
+
+    // Put closure in slot 0 (placeholder)
+    vm->stack[0].type = VAL_NULL;
+
+    // Put arguments in local slots (parameters start at slot 1)
+    for (int i = 0; i < task->argc && i < chunk->arity; i++) {
+        vm->stack[i + 1] = task->args[i];  // +1 because slot 0 is closure
+    }
+    // Fill remaining params with null
+    for (int i = task->argc; i < chunk->arity + chunk->optional_count; i++) {
+        vm->stack[i + 1].type = VAL_NULL;  // +1 because slot 0 is closure
+    }
+    vm->stack_top = vm->stack + chunk->local_count;
+
+    // Execute the function
+    VMResult result = vm_execute(vm, 0);
+
+    // Get return value
+    pthread_mutex_lock(&task->mutex);
+    if (result == VM_OK && vm->is_returning) {
+        task->result = vm->return_value;
+    } else if (vm->is_throwing) {
+        task->has_exception = true;
+        task->exception = vm->exception;
+    }
+    task->state = TASK_COMPLETED;
+    pthread_mutex_unlock(&task->mutex);
+
+    // Cleanup
+    vm_free(vm);
+
+    // Release task if detached
+    if (task->detached) {
+        vm_task_release(task);
+    }
+
+    return NULL;
+}
+
+// ============================================
+// Channel Implementation (for VM)
+// ============================================
+
+static Channel* vm_channel_new(int capacity) {
+    Channel *ch = malloc(sizeof(Channel));
+    if (!ch) return NULL;
+
+    ch->capacity = capacity;
+    ch->head = 0;
+    ch->tail = 0;
+    ch->count = 0;
+    ch->closed = 0;
+    ch->ref_count = 1;
+
+    if (capacity > 0) {
+        ch->buffer = malloc(sizeof(Value) * capacity);
+        if (!ch->buffer) {
+            free(ch);
+            return NULL;
+        }
+    } else {
+        ch->buffer = NULL;
+    }
+
+    ch->mutex = malloc(sizeof(pthread_mutex_t));
+    ch->not_empty = malloc(sizeof(pthread_cond_t));
+    ch->not_full = malloc(sizeof(pthread_cond_t));
+    ch->rendezvous = malloc(sizeof(pthread_cond_t));
+
+    if (!ch->mutex || !ch->not_empty || !ch->not_full || !ch->rendezvous) {
+        if (ch->buffer) free(ch->buffer);
+        if (ch->mutex) free(ch->mutex);
+        if (ch->not_empty) free(ch->not_empty);
+        if (ch->not_full) free(ch->not_full);
+        if (ch->rendezvous) free(ch->rendezvous);
+        free(ch);
+        return NULL;
+    }
+
+    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
+    pthread_cond_init((pthread_cond_t*)ch->rendezvous, NULL);
+
+    ch->unbuffered_value = malloc(sizeof(Value));
+    if (ch->unbuffered_value) {
+        ch->unbuffered_value->type = VAL_NULL;
+    }
+    ch->sender_waiting = 0;
+    ch->receiver_waiting = 0;
+
+    return ch;
 }
 
 // ============================================
@@ -231,6 +454,85 @@ static Value vm_make_string(const char *data, int len) {
     v.type = VAL_STRING;
     v.as.as_string = s;
     return v;
+}
+
+// Deep copy a value for thread isolation
+static Value vm_deep_copy(Value v) {
+    switch (v.type) {
+        case VAL_NULL:
+        case VAL_BOOL:
+        case VAL_I8:
+        case VAL_I16:
+        case VAL_I32:
+        case VAL_I64:
+        case VAL_U8:
+        case VAL_U16:
+        case VAL_U32:
+        case VAL_U64:
+        case VAL_F32:
+        case VAL_F64:
+        case VAL_RUNE:
+            // Primitive types can be copied directly
+            return v;
+
+        case VAL_STRING:
+            if (v.as.as_string) {
+                return vm_make_string(v.as.as_string->data, v.as.as_string->length);
+            }
+            return vm_null_value();
+
+        case VAL_ARRAY:
+            if (v.as.as_array) {
+                Array *src = v.as.as_array;
+                Array *dst = malloc(sizeof(Array));
+                dst->length = src->length;
+                dst->capacity = src->capacity;
+                dst->ref_count = 1;
+                dst->element_type = NULL;
+                dst->freed = 0;
+                dst->elements = malloc(sizeof(Value) * dst->capacity);
+                for (int i = 0; i < src->length; i++) {
+                    dst->elements[i] = vm_deep_copy(src->elements[i]);
+                }
+                Value result;
+                result.type = VAL_ARRAY;
+                result.as.as_array = dst;
+                return result;
+            }
+            return vm_null_value();
+
+        case VAL_OBJECT:
+            if (v.as.as_object) {
+                Object *src = v.as.as_object;
+                Object *dst = malloc(sizeof(Object));
+                dst->type_name = src->type_name ? strdup(src->type_name) : NULL;
+                dst->num_fields = src->num_fields;
+                dst->capacity = src->capacity;
+                dst->ref_count = 1;
+                dst->freed = 0;
+                dst->hash_table = NULL;
+                dst->hash_capacity = 0;
+                dst->field_names = malloc(sizeof(char*) * dst->capacity);
+                dst->field_values = malloc(sizeof(Value) * dst->capacity);
+                for (int i = 0; i < src->num_fields; i++) {
+                    dst->field_names[i] = strdup(src->field_names[i]);
+                    dst->field_values[i] = vm_deep_copy(src->field_values[i]);
+                }
+                Value result;
+                result.type = VAL_OBJECT;
+                result.as.as_object = dst;
+                return result;
+            }
+            return vm_null_value();
+
+        case VAL_CHANNEL:
+            // Channels are shared between threads - just return same reference
+            return v;
+
+        default:
+            // For other types (functions, files, etc.), return as-is
+            return v;
+    }
 }
 
 // ============================================
@@ -584,8 +886,8 @@ VM* vm_new(void) {
     VM *vm = malloc(sizeof(VM));
     if (!vm) return NULL;
 
-    // Initialize stack
-    vm->stack = malloc(sizeof(Value) * VM_STACK_INITIAL);
+    // Initialize stack (use calloc to zero out memory)
+    vm->stack = calloc(VM_STACK_INITIAL, sizeof(Value));
     vm->stack_top = vm->stack;
     vm->stack_capacity = VM_STACK_INITIAL;
 
@@ -2380,6 +2682,184 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         break;
                     }
+                    case BUILTIN_SPAWN: {
+                        // spawn(async_fn, args...) - spawn async task
+                        if (argc < 1) {
+                            THROW_ERROR("spawn() expects at least 1 argument (async function)");
+                        }
+                        Value func_val = args[0];
+                        if (!is_vm_closure(func_val)) {
+                            THROW_ERROR("spawn() expects an async function");
+                        }
+
+                        VMClosure *closure = as_vm_closure(func_val);
+                        if (!closure->chunk->is_async) {
+                            THROW_ERROR("spawn() requires an async function");
+                        }
+
+                        // Create task with remaining args
+                        int task_argc = argc - 1;
+                        Value *task_args = (task_argc > 0) ? &args[1] : NULL;
+                        VMTask *task = vm_task_new(closure, task_args, task_argc);
+                        if (!task) {
+                            THROW_ERROR("Failed to create task");
+                        }
+
+                        // Create thread argument
+                        TaskThreadArg *thread_arg = malloc(sizeof(TaskThreadArg));
+                        thread_arg->task = task;
+                        thread_arg->chunk = closure->chunk;
+
+                        // Create thread
+                        int rc = pthread_create(&task->thread, NULL, vm_task_thread_wrapper, thread_arg);
+                        if (rc != 0) {
+                            free(thread_arg);
+                            vm_task_free(task);
+                            THROW_ERROR("Failed to create thread");
+                        }
+
+                        // Return task handle (using VAL_TASK)
+                        result.type = VAL_TASK;
+                        result.as.as_task = (Task*)task;  // Store VMTask as Task*
+                        break;
+                    }
+                    case BUILTIN_JOIN: {
+                        // join(task) - wait for task to complete
+                        if (argc != 1) {
+                            THROW_ERROR("join() expects 1 argument (task handle)");
+                        }
+                        if (args[0].type != VAL_TASK) {
+                            THROW_ERROR("join() expects a task handle");
+                        }
+
+                        VMTask *task = (VMTask*)args[0].as.as_task;
+
+                        pthread_mutex_lock(&task->mutex);
+                        if (task->joined) {
+                            pthread_mutex_unlock(&task->mutex);
+                            THROW_ERROR("task handle already joined");
+                        }
+                        if (task->detached) {
+                            pthread_mutex_unlock(&task->mutex);
+                            THROW_ERROR("cannot join detached task");
+                        }
+                        task->joined = 1;
+                        pthread_mutex_unlock(&task->mutex);
+
+                        // Wait for thread to complete
+                        int rc = pthread_join(task->thread, NULL);
+                        if (rc != 0) {
+                            THROW_ERROR("pthread_join failed");
+                        }
+
+                        // Check for exception
+                        pthread_mutex_lock(&task->mutex);
+                        if (task->has_exception) {
+                            Value exc = task->exception;
+                            pthread_mutex_unlock(&task->mutex);
+                            // Re-throw the exception
+                            vm->is_throwing = true;
+                            vm->exception = exc;
+                            vm_popn(vm, argc);
+                            goto handle_exception;
+                        }
+                        result = task->result;
+                        pthread_mutex_unlock(&task->mutex);
+                        break;
+                    }
+                    case BUILTIN_DETACH: {
+                        // detach(task) or detach(async_fn, args...) - fire and forget
+                        if (argc < 1) {
+                            THROW_ERROR("detach() expects at least 1 argument");
+                        }
+
+                        // Pattern 1: detach(task_handle)
+                        if (args[0].type == VAL_TASK) {
+                            if (argc != 1) {
+                                THROW_ERROR("detach() with task handle expects exactly 1 argument");
+                            }
+
+                            VMTask *task = (VMTask*)args[0].as.as_task;
+
+                            pthread_mutex_lock(&task->mutex);
+                            if (task->joined) {
+                                pthread_mutex_unlock(&task->mutex);
+                                THROW_ERROR("cannot detach already joined task");
+                            }
+                            if (task->detached) {
+                                pthread_mutex_unlock(&task->mutex);
+                                THROW_ERROR("task already detached");
+                            }
+                            task->detached = 1;
+                            pthread_mutex_unlock(&task->mutex);
+
+                            int rc = pthread_detach(task->thread);
+                            if (rc != 0) {
+                                THROW_ERROR("pthread_detach failed");
+                            }
+                        }
+                        // Pattern 2: detach(async_fn, args...) - spawn and detach
+                        else if (is_vm_closure(args[0])) {
+                            VMClosure *closure = as_vm_closure(args[0]);
+                            if (!closure->chunk->is_async) {
+                                THROW_ERROR("detach() requires an async function");
+                            }
+
+                            int task_argc = argc - 1;
+                            Value *task_args = (task_argc > 0) ? &args[1] : NULL;
+                            VMTask *task = vm_task_new(closure, task_args, task_argc);
+                            if (!task) {
+                                THROW_ERROR("Failed to create task");
+                            }
+                            task->detached = 1;
+
+                            // Retain for thread
+                            vm_task_retain(task);
+
+                            TaskThreadArg *thread_arg = malloc(sizeof(TaskThreadArg));
+                            thread_arg->task = task;
+                            thread_arg->chunk = closure->chunk;
+
+                            int rc = pthread_create(&task->thread, NULL, vm_task_thread_wrapper, thread_arg);
+                            if (rc != 0) {
+                                free(thread_arg);
+                                vm_task_release(task);
+                                THROW_ERROR("Failed to create thread");
+                            }
+
+                            rc = pthread_detach(task->thread);
+                            if (rc != 0) {
+                                vm_task_release(task);
+                                THROW_ERROR("pthread_detach failed");
+                            }
+
+                            vm_task_release(task);  // Release our reference
+                        } else {
+                            THROW_ERROR("detach() expects a task handle or async function");
+                        }
+                        break;
+                    }
+                    case BUILTIN_CHANNEL: {
+                        // channel(capacity?) - create a channel
+                        int capacity = 0;  // unbuffered by default
+                        if (argc > 0) {
+                            if (args[0].type != VAL_I32 && args[0].type != VAL_I64) {
+                                THROW_ERROR("channel() capacity must be an integer");
+                            }
+                            capacity = value_to_i32(args[0]);
+                            if (capacity < 0) {
+                                THROW_ERROR("channel() capacity cannot be negative");
+                            }
+                        }
+
+                        Channel *ch = vm_channel_new(capacity);
+                        if (!ch) {
+                            THROW_ERROR("Failed to create channel");
+                        }
+                        result.type = VAL_CHANNEL;
+                        result.as.as_channel = ch;
+                        break;
+                    }
                     default:
                         vm_runtime_error(vm, "Builtin %d not implemented", builtin_id);
                         return VM_RUNTIME_ERROR;
@@ -2575,8 +3055,9 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
 
                 vm->frame_count--;
                 if (vm->frame_count == 0) {
-                    // Script returning - just exit
-                    POP();  // Pop script slot
+                    // Script/async function returning - store result
+                    vm->is_returning = true;
+                    vm->return_value = result;
                     return VM_OK;
                 }
 
@@ -2584,6 +3065,8 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     // Callback returning to caller (vm_call_closure)
                     vm->stack_top = slots;
                     PUSH(result);
+                    vm->is_returning = true;
+                    vm->return_value = result;
                     return VM_OK;
                 }
 
@@ -3294,6 +3777,108 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else {
                         THROW_ERROR_FMT("File has no method '%s'", method);
                     }
+                } else if (receiver.type == VAL_CHANNEL && receiver.as.as_channel) {
+                    // Channel method calls
+                    Channel *ch = receiver.as.as_channel;
+                    pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
+                    pthread_cond_t *not_empty = (pthread_cond_t*)ch->not_empty;
+                    pthread_cond_t *not_full = (pthread_cond_t*)ch->not_full;
+                    pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+
+                    if (strcmp(method, "send") == 0) {
+                        // send(value) - send a message to the channel
+                        if (argc != 1) {
+                            THROW_ERROR("send() expects 1 argument");
+                        }
+                        Value msg = args[0];
+
+                        pthread_mutex_lock(mutex);
+                        if (ch->closed) {
+                            pthread_mutex_unlock(mutex);
+                            THROW_ERROR("cannot send to closed channel");
+                        }
+
+                        if (ch->capacity == 0) {
+                            // Unbuffered channel - rendezvous with receiver
+                            *(ch->unbuffered_value) = msg;
+                            ch->sender_waiting = 1;
+                            pthread_cond_signal(not_empty);
+                            while (ch->sender_waiting && !ch->closed) {
+                                pthread_cond_wait(rendezvous, mutex);
+                            }
+                            if (ch->closed && ch->sender_waiting) {
+                                ch->sender_waiting = 0;
+                                pthread_mutex_unlock(mutex);
+                                THROW_ERROR("cannot send to closed channel");
+                            }
+                            pthread_mutex_unlock(mutex);
+                        } else {
+                            // Buffered channel - wait while full
+                            while (ch->count >= ch->capacity && !ch->closed) {
+                                pthread_cond_wait(not_full, mutex);
+                            }
+                            if (ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                THROW_ERROR("cannot send to closed channel");
+                            }
+                            ch->buffer[ch->tail] = msg;
+                            ch->tail = (ch->tail + 1) % ch->capacity;
+                            ch->count++;
+                            pthread_cond_signal(not_empty);
+                            pthread_mutex_unlock(mutex);
+                        }
+                    } else if (strcmp(method, "recv") == 0) {
+                        // recv() - receive a message from the channel
+                        if (argc != 0) {
+                            THROW_ERROR("recv() expects 0 arguments");
+                        }
+
+                        pthread_mutex_lock(mutex);
+                        if (ch->capacity == 0) {
+                            // Unbuffered channel - rendezvous with sender
+                            while (!ch->sender_waiting && !ch->closed) {
+                                pthread_cond_wait(not_empty, mutex);
+                            }
+                            if (!ch->sender_waiting && ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                result = vm_null_value();
+                            } else {
+                                result = *(ch->unbuffered_value);
+                                *(ch->unbuffered_value) = vm_null_value();
+                                ch->sender_waiting = 0;
+                                pthread_cond_signal(rendezvous);
+                                pthread_mutex_unlock(mutex);
+                            }
+                        } else {
+                            // Buffered channel - wait while empty
+                            while (ch->count == 0 && !ch->closed) {
+                                pthread_cond_wait(not_empty, mutex);
+                            }
+                            if (ch->count == 0 && ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                result = vm_null_value();
+                            } else {
+                                result = ch->buffer[ch->head];
+                                ch->head = (ch->head + 1) % ch->capacity;
+                                ch->count--;
+                                pthread_cond_signal(not_full);
+                                pthread_mutex_unlock(mutex);
+                            }
+                        }
+                    } else if (strcmp(method, "close") == 0) {
+                        // close() - close the channel
+                        if (argc != 0) {
+                            THROW_ERROR("close() expects 0 arguments");
+                        }
+                        pthread_mutex_lock(mutex);
+                        ch->closed = 1;
+                        pthread_cond_broadcast(not_empty);
+                        pthread_cond_broadcast(not_full);
+                        pthread_cond_broadcast(rendezvous);
+                        pthread_mutex_unlock(mutex);
+                    } else {
+                        THROW_ERROR_FMT("Channel has no method '%s'", method);
+                    }
                 } else if (receiver.type == VAL_OBJECT && receiver.as.as_object) {
                     // Object method call - first check for built-in methods
                     Object *obj = receiver.as.as_object;
@@ -3571,6 +4156,49 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     vm->handler_count--;
                 }
                 break;
+
+            case BC_AWAIT: {
+                // await task - same as join(task)
+                Value task_val = POP();
+                if (task_val.type != VAL_TASK) {
+                    THROW_ERROR("await expects a task");
+                }
+
+                VMTask *task = (VMTask*)task_val.as.as_task;
+
+                pthread_mutex_lock(&task->mutex);
+                if (task->joined) {
+                    pthread_mutex_unlock(&task->mutex);
+                    THROW_ERROR("task handle already joined");
+                }
+                if (task->detached) {
+                    pthread_mutex_unlock(&task->mutex);
+                    THROW_ERROR("cannot await detached task");
+                }
+                task->joined = 1;
+                pthread_mutex_unlock(&task->mutex);
+
+                // Wait for thread to complete
+                int rc = pthread_join(task->thread, NULL);
+                if (rc != 0) {
+                    THROW_ERROR("pthread_join failed");
+                }
+
+                // Check for exception
+                pthread_mutex_lock(&task->mutex);
+                if (task->has_exception) {
+                    Value exc = task->exception;
+                    pthread_mutex_unlock(&task->mutex);
+                    vm->is_throwing = true;
+                    vm->exception = exc;
+                    goto handle_exception;
+                }
+                Value result = task->result;
+                pthread_mutex_unlock(&task->mutex);
+
+                PUSH(result);
+                break;
+            }
 
             default:
                 vm_runtime_error(vm, "Unknown opcode %d", instruction);

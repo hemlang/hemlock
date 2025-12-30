@@ -807,8 +807,14 @@ static void compile_function(Compiler *compiler, Expr *expr) {
     emit_byte(fn_compiler, BC_NULL);
     emit_byte(fn_compiler, BC_RETURN);
 
-    // End scope (will emit POPs for locals)
+    // Save the local count BEFORE ending scope (end_scope decrements it)
+    int saved_local_count = fn_compiler->builder->local_count;
+
+    // End scope (will emit POPs for locals - but we saved local_count above)
     builder_end_scope(fn_compiler->builder);
+
+    // Restore the local count for the chunk (needed for stack setup)
+    fn_compiler->builder->local_count = saved_local_count;
 
     // Finish building the function chunk
     Chunk *fn_chunk = chunk_builder_finish(fn_compiler->builder);
