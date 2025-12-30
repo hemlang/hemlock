@@ -2086,6 +2086,26 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         printf("\n");
                         break;
                     }
+                    case BUILTIN_EPRINT: {
+                        for (int i = 0; i < argc; i++) {
+                            if (i > 0) fprintf(stderr, " ");
+                            Value v = args[i];
+                            switch (v.type) {
+                                case VAL_NULL: fprintf(stderr, "null"); break;
+                                case VAL_BOOL: fprintf(stderr, "%s", v.as.as_bool ? "true" : "false"); break;
+                                case VAL_I32: fprintf(stderr, "%d", v.as.as_i32); break;
+                                case VAL_I64: fprintf(stderr, "%lld", (long long)v.as.as_i64); break;
+                                case VAL_F64: fprintf(stderr, "%g", v.as.as_f64); break;
+                                case VAL_STRING:
+                                    if (v.as.as_string) fprintf(stderr, "%s", v.as.as_string->data);
+                                    break;
+                                default:
+                                    fprintf(stderr, "<%s>", val_type_name(v.type));
+                            }
+                        }
+                        fprintf(stderr, "\n");
+                        break;
+                    }
                     case BUILTIN_ASSERT: {
                         if (argc >= 1 && !value_is_truthy(args[0])) {
                             const char *msg = (argc >= 2 && args[1].type == VAL_STRING)
@@ -2097,7 +2117,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     }
                     case BUILTIN_PANIC: {
                         const char *msg = (argc >= 1 && args[0].type == VAL_STRING)
-                            ? args[0].as.as_string->data : "panic";
+                            ? args[0].as.as_string->data : "panic!";
                         fprintf(stderr, "panic: %s\n", msg);
                         exit(1);
                     }
