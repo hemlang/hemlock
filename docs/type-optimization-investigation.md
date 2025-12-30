@@ -243,9 +243,31 @@ HmlValue hml_fn_sum_to_n(HmlClosureEnv *env, HmlValue n) {
 
 ---
 
+## Implementation Status
+
+### ✓ Implemented: Typed Variable Unboxing
+
+Variables with explicit type annotations (`:i32`, `:i64`, `:f64`, `:bool`) that don't escape
+are now stored as native C types instead of boxed `HmlValue`.
+
+**Files changed:**
+- `type_infer.c`: Added `type_analyze_typed_variables()` and escape analysis
+- `codegen_stmt.c`: Generate native C type declarations for unboxed vars
+- `codegen_expr.c`: Handle assignments to unboxed variables
+- `codegen_expr_ident.c`: Box unboxed variables when accessed
+
+**Parity test:** `tests/parity/language/typed_variable_unboxing.hml`
+
+### Remaining Optimizations
+
+1. **Direct C arithmetic for unboxed operands** - When both operands of a binary operation
+   are unboxed, generate `a + b` instead of boxing/unboxing.
+2. **Branch type narrowing** - After `typeof(x) == "i32"`, know x is i32 in that branch.
+3. **Typed array element access** - For `array<i32>`, generate specialized element access.
+4. **Accumulator optimization** - Use `type_is_accumulator()` (infrastructure exists).
+
 ## Next Steps
 
-1. Add a `--dump-types` flag to show inferred types for debugging
-2. Implement typed variable unboxing for simple cases
-3. Add parity tests for each optimization
-4. Measure performance impact with benchmarks
+1. Implement direct C arithmetic for unboxed binary operations
+2. Add `--dump-types` flag for debugging type inference
+3. Measure performance impact with benchmarks
