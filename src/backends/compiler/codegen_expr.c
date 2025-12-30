@@ -915,42 +915,77 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         }
 
         case EXPR_INDEX: {
+            // OPTIMIZATION: When index type is known at compile time, skip runtime checks
+            InferredType idx_type = infer_expr(ctx->type_ctx, expr->as.index.index);
+            InferredType obj_type = infer_expr(ctx->type_ctx, expr->as.index.object);
+            int idx_is_i32 = ctx->optimize && infer_is_i32(idx_type);
+            int obj_is_array = ctx->optimize && obj_type.kind == INFER_ARRAY;
+
             char *obj = codegen_expr(ctx, expr->as.index.object);
             char *idx = codegen_expr(ctx, expr->as.index.index);
             codegen_writeln(ctx, "HmlValue %s;", result);
-            // OPTIMIZATION: Fast path for array[i32] - the most common indexing case
-            // This matches the interpreter's fast path and avoids function call overhead
-            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY && %s.type == HML_VAL_I32) {", obj, idx);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_array_get_i32_fast(%s.as.as_array, %s.as.as_i32);", result, obj, idx);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", result, obj, idx);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_string_index(%s, %s);", result, obj, idx);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_buffer_get(%s, %s);", result, obj, idx);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
-            codegen_indent_inc(ctx);
-            // Raw pointer indexing - no bounds checking (unsafe!)
-            codegen_writeln(ctx, "%s = hml_ptr_get(%s, %s);", result, obj, idx);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
-            codegen_indent_inc(ctx);
-            // Dynamic object property access with string key
-            codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else {");
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_val_null();", result);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "}");
+
+            if (obj_is_array && idx_is_i32) {
+                // OPTIMIZATION: Both array and i32 index known at compile time
+                // Skip runtime type checks entirely
+                codegen_writeln(ctx, "%s = hml_array_get_i32_fast(%s.as.as_array, %s.as.as_i32);", result, obj, idx);
+            } else if (idx_is_i32) {
+                // OPTIMIZATION: Index is known i32 - skip index type check
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_array_get_i32_fast(%s.as.as_array, %s.as.as_i32);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_string_index(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_buffer_get(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_ptr_get(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_null();", result);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else {
+                // General case: full runtime type checking
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY && %s.type == HML_VAL_I32) {", obj, idx);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_array_get_i32_fast(%s.as.as_array, %s.as.as_i32);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_string_index(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_buffer_get(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
+                codegen_indent_inc(ctx);
+                // Raw pointer indexing - no bounds checking (unsafe!)
+                codegen_writeln(ctx, "%s = hml_ptr_get(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+                codegen_indent_inc(ctx);
+                // Dynamic object property access with string key
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_null();", result);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            }
             // Use optimized release that skips primitives (index is often i32)
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
@@ -960,37 +995,68 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         }
 
         case EXPR_INDEX_ASSIGN: {
+            // OPTIMIZATION: When index type is known at compile time, skip runtime checks
+            InferredType idx_type = infer_expr(ctx->type_ctx, expr->as.index_assign.index);
+            InferredType obj_type = infer_expr(ctx->type_ctx, expr->as.index_assign.object);
+            int idx_is_i32 = ctx->optimize && infer_is_i32(idx_type);
+            int obj_is_array = ctx->optimize && obj_type.kind == INFER_ARRAY;
+
             char *obj = codegen_expr(ctx, expr->as.index_assign.object);
             char *idx = codegen_expr(ctx, expr->as.index_assign.index);
             char *value = codegen_expr(ctx, expr->as.index_assign.value);
-            // Fast path for array[i32] = value (most common case)
-            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY && %s.type == HML_VAL_I32) {", obj, idx);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", obj, idx, value);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "hml_buffer_set(%s, %s, %s);", obj, idx, value);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
-            codegen_indent_inc(ctx);
-            // Raw pointer indexing - no bounds checking (unsafe!)
-            codegen_writeln(ctx, "hml_ptr_set(%s, %s, %s);", obj, idx, value);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
-            codegen_indent_inc(ctx);
-            // Dynamic object property assignment with string key
-            codegen_writeln(ctx, "hml_object_set_field(%s, %s.as.as_string->data, %s);", obj, idx, value);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "}");
+
+            if (obj_is_array && idx_is_i32) {
+                // OPTIMIZATION: Both array and i32 index known at compile time
+                codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
+            } else if (idx_is_i32) {
+                // OPTIMIZATION: Index is known i32 - skip index type check
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_buffer_set(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_ptr_set(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else {
+                // General case: full runtime type checking
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY && %s.type == HML_VAL_I32) {", obj, idx);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_buffer_set(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_PTR) {", obj);
+                codegen_indent_inc(ctx);
+                // Raw pointer indexing - no bounds checking (unsafe!)
+                codegen_writeln(ctx, "hml_ptr_set(%s, %s, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+                codegen_indent_inc(ctx);
+                // Dynamic object property assignment with string key
+                codegen_writeln(ctx, "hml_object_set_field(%s, %s.as.as_string->data, %s);", obj, idx, value);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            }
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
             codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);

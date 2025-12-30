@@ -543,9 +543,40 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "return %s;", ret_val);
                 free(ret_val);
             } else {
-                // No defers or try-finally - simple return
-                // Evaluate expression first, then decrement call depth
-                if (stmt->as.return_stmt.value) {
+                // No defers or try-finally - check for tail call optimization
+                // OPTIMIZATION: If returning a tail call to the current function,
+                // convert to parameter reassignment + goto instead of actual call
+                if (ctx->tail_call_func_name && stmt->as.return_stmt.value &&
+                    is_tail_call_expr(stmt->as.return_stmt.value, ctx->tail_call_func_name)) {
+                    // Tail call optimization: reassign parameters and goto start
+                    Expr *call_expr = stmt->as.return_stmt.value;
+                    Expr *func = ctx->tail_call_func_expr;
+                    int num_params = func->as.function.num_params;
+
+                    // Evaluate new argument values first (before releasing old ones)
+                    char **new_arg_vals = malloc(num_params * sizeof(char*));
+                    for (int i = 0; i < num_params && i < call_expr->as.call.num_args; i++) {
+                        new_arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
+                    }
+                    // Fill in defaults for missing args
+                    for (int i = call_expr->as.call.num_args; i < num_params; i++) {
+                        new_arg_vals[i] = strdup("hml_val_null()");
+                    }
+
+                    // Release old parameter values and assign new ones
+                    for (int i = 0; i < num_params; i++) {
+                        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+                        codegen_writeln(ctx, "hml_release(&%s);", safe_param);
+                        codegen_writeln(ctx, "%s = %s;", safe_param, new_arg_vals[i]);
+                        free(safe_param);
+                        free(new_arg_vals[i]);
+                    }
+                    free(new_arg_vals);
+
+                    // Jump back to the start of the function
+                    codegen_writeln(ctx, "goto %s;", ctx->tail_call_label);
+                } else if (stmt->as.return_stmt.value) {
+                    // Regular return with value
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {

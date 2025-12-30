@@ -158,6 +158,21 @@ void type_analyze_for_loop(TypeInferContext *ctx, Stmt *stmt);
 // Analyze a while-loop for unboxable accumulators
 void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt);
 
+// ========== TAIL CALL OPTIMIZATION ==========
+
+// Check if a function has a single tail recursive call pattern
+// Returns 1 if the function can be optimized with tail call elimination, 0 otherwise
+// A function is tail-recursive if all return statements either:
+//   - Return a non-recursive value (base case)
+//   - Return a call to the same function (tail call)
+int is_tail_recursive_function(Stmt *body, const char *func_name);
+
+// Check if a statement contains only tail calls or non-recursive returns
+int stmt_is_tail_recursive(Stmt *stmt, const char *func_name);
+
+// Check if an expression is a tail call to the given function
+int is_tail_call_expr(Expr *expr, const char *func_name);
+
 // ========== DEBUG ==========
 
 const char* infer_type_name(InferredType t);

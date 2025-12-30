@@ -97,6 +97,18 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     // Track call depth for stack overflow detection
     codegen_writeln(ctx, "HML_CALL_ENTER();");
 
+    // OPTIMIZATION: Tail call elimination
+    // Check if function is tail recursive and set up for tail call optimization
+    // Tail call optimization converts: return func(args) -> reassign params; goto start
+    // This is only safe when there are no defers and no rest params
+    if (ctx->optimize && !func->as.function.rest_param &&
+        is_tail_recursive_function(func->as.function.body, name)) {
+        ctx->tail_call_func_name = (char*)name;  // Borrowed reference
+        ctx->tail_call_label = codegen_label(ctx);
+        ctx->tail_call_func_expr = func;
+        codegen_writeln(ctx, "%s:;  // tail call target", ctx->tail_call_label);
+    }
+
     // Set up shared environment for closures
     funcgen_setup_shared_env(ctx, func, NULL);
 

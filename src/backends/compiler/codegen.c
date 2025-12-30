@@ -83,6 +83,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->type_ctx = type_infer_new();
     ctx->optimize = 1;  // Enable optimization by default
     ctx->has_defers = 0;  // Track if any defers exist in current function
+    ctx->tail_call_func_name = NULL;  // Tail call optimization tracking
+    ctx->tail_call_label = NULL;
+    ctx->tail_call_func_expr = NULL;
     ctx->error_count = 0;
     ctx->warning_count = 0;
     return ctx;
@@ -820,12 +823,18 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->has_defers = ctx->has_defers;
     state->module = ctx->current_module;
     state->closure = ctx->current_closure;
+    state->tail_call_func_name = ctx->tail_call_func_name;
+    state->tail_call_label = ctx->tail_call_label;
+    state->tail_call_func_expr = ctx->tail_call_func_expr;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
     ctx->in_function = 1;
     ctx->has_defers = 0;
     ctx->last_closure_env_id = -1;
+    ctx->tail_call_func_name = NULL;
+    ctx->tail_call_label = NULL;
+    ctx->tail_call_func_expr = NULL;
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -836,6 +845,11 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->has_defers = state->has_defers;
     ctx->current_module = state->module;
     ctx->current_closure = state->closure;
+    // Free any allocated tail call labels
+    free(ctx->tail_call_label);
+    ctx->tail_call_func_name = state->tail_call_func_name;
+    ctx->tail_call_label = state->tail_call_label;
+    ctx->tail_call_func_expr = state->tail_call_func_expr;
     shared_env_clear(ctx);
 }
 

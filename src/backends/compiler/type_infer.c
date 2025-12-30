@@ -938,6 +938,149 @@ void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt) {
     }
 }
 
+// ========== TAIL CALL OPTIMIZATION ==========
+
+// Helper: Check if expression contains a call to the given function (non-tail position)
+static int contains_recursive_call(Expr *expr, const char *func_name) {
+    if (!expr) return 0;
+
+    switch (expr->type) {
+        case EXPR_CALL:
+            // Check if this is a call to the function
+            if (expr->as.call.func->type == EXPR_IDENT &&
+                strcmp(expr->as.call.func->as.ident.name, func_name) == 0) {
+                return 1;
+            }
+            // Check callee and arguments
+            if (contains_recursive_call(expr->as.call.func, func_name)) return 1;
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                if (contains_recursive_call(expr->as.call.args[i], func_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_BINARY:
+            return contains_recursive_call(expr->as.binary.left, func_name) ||
+                   contains_recursive_call(expr->as.binary.right, func_name);
+
+        case EXPR_UNARY:
+            return contains_recursive_call(expr->as.unary.operand, func_name);
+
+        case EXPR_TERNARY:
+            return contains_recursive_call(expr->as.ternary.condition, func_name) ||
+                   contains_recursive_call(expr->as.ternary.true_expr, func_name) ||
+                   contains_recursive_call(expr->as.ternary.false_expr, func_name);
+
+        case EXPR_ARRAY_LITERAL:
+            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
+                if (contains_recursive_call(expr->as.array_literal.elements[i], func_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_OBJECT_LITERAL:
+            for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
+                if (contains_recursive_call(expr->as.object_literal.field_values[i], func_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_INDEX:
+            return contains_recursive_call(expr->as.index.object, func_name) ||
+                   contains_recursive_call(expr->as.index.index, func_name);
+
+        case EXPR_INDEX_ASSIGN:
+            return contains_recursive_call(expr->as.index_assign.object, func_name) ||
+                   contains_recursive_call(expr->as.index_assign.index, func_name) ||
+                   contains_recursive_call(expr->as.index_assign.value, func_name);
+
+        case EXPR_ASSIGN:
+            return contains_recursive_call(expr->as.assign.value, func_name);
+
+        default:
+            return 0;
+    }
+}
+
+int is_tail_call_expr(Expr *expr, const char *func_name) {
+    if (!expr || expr->type != EXPR_CALL) return 0;
+
+    // Check if the callee is the function we're looking for
+    if (expr->as.call.func->type != EXPR_IDENT) return 0;
+    if (strcmp(expr->as.call.func->as.ident.name, func_name) != 0) return 0;
+
+    // Check that arguments don't contain recursive calls (that would make it non-tail)
+    for (int i = 0; i < expr->as.call.num_args; i++) {
+        if (contains_recursive_call(expr->as.call.args[i], func_name)) return 0;
+    }
+
+    return 1;
+}
+
+int stmt_is_tail_recursive(Stmt *stmt, const char *func_name) {
+    if (!stmt) return 1;  // Empty statement is fine
+
+    switch (stmt->type) {
+        case STMT_RETURN:
+            if (!stmt->as.return_stmt.value) return 1;  // return; is fine
+            // Either it's a tail call, or it doesn't contain recursive calls
+            if (is_tail_call_expr(stmt->as.return_stmt.value, func_name)) return 1;
+            return !contains_recursive_call(stmt->as.return_stmt.value, func_name);
+
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (!stmt_is_tail_recursive(stmt->as.block.statements[i], func_name)) {
+                    return 0;
+                }
+            }
+            return 1;
+
+        case STMT_IF:
+            // Both branches must be tail recursive
+            if (!stmt_is_tail_recursive(stmt->as.if_stmt.then_branch, func_name)) return 0;
+            if (stmt->as.if_stmt.else_branch) {
+                if (!stmt_is_tail_recursive(stmt->as.if_stmt.else_branch, func_name)) return 0;
+            }
+            // Condition must not contain recursive calls
+            return !contains_recursive_call(stmt->as.if_stmt.condition, func_name);
+
+        case STMT_EXPR:
+            // Expression statements can't contain recursive calls in tail position
+            return !contains_recursive_call(stmt->as.expr, func_name);
+
+        case STMT_LET:
+        case STMT_CONST:
+            // Variable declarations can't have recursive calls in value
+            if (stmt->as.let.value) {
+                return !contains_recursive_call(stmt->as.let.value, func_name);
+            }
+            return 1;
+
+        case STMT_WHILE:
+        case STMT_FOR:
+        case STMT_FOR_IN:
+            // Loops are not compatible with tail call optimization
+            // (they could contain recursive calls in non-tail position)
+            return 0;
+
+        case STMT_TRY:
+            // Try-catch is not compatible with simple tail call optimization
+            return 0;
+
+        case STMT_DEFER:
+            // Defer is not compatible with tail call optimization
+            return 0;
+
+        default:
+            return 1;
+    }
+}
+
+int is_tail_recursive_function(Stmt *body, const char *func_name) {
+    if (!body || !func_name) return 0;
+
+    // The body must contain at least one tail call to be worth optimizing
+    // and all returns must be either base cases or tail calls
+    return stmt_is_tail_recursive(body, func_name);
+}
+
 // ========== DEBUG ==========
 
 const char* infer_type_name(InferredType t) {
