@@ -93,6 +93,52 @@ static int64_t value_to_i64(Value v) {
     }
 }
 
+// Convert value to i32
+static int32_t value_to_i32(Value v) {
+    return (int32_t)value_to_i64(v);
+}
+
+// Compare two values for equality
+static bool vm_values_equal(Value a, Value b) {
+    if (a.type != b.type) return false;
+    switch (a.type) {
+        case VAL_NULL: return true;
+        case VAL_BOOL: return a.as.as_bool == b.as.as_bool;
+        case VAL_I8: return a.as.as_i8 == b.as.as_i8;
+        case VAL_I16: return a.as.as_i16 == b.as.as_i16;
+        case VAL_I32: return a.as.as_i32 == b.as.as_i32;
+        case VAL_I64: return a.as.as_i64 == b.as.as_i64;
+        case VAL_U8: return a.as.as_u8 == b.as.as_u8;
+        case VAL_U16: return a.as.as_u16 == b.as.as_u16;
+        case VAL_U32: return a.as.as_u32 == b.as.as_u32;
+        case VAL_U64: return a.as.as_u64 == b.as.as_u64;
+        case VAL_F32: return a.as.as_f32 == b.as.as_f32;
+        case VAL_F64: return a.as.as_f64 == b.as.as_f64;
+        case VAL_STRING:
+            if (!a.as.as_string || !b.as.as_string) return a.as.as_string == b.as.as_string;
+            return strcmp(a.as.as_string->data, b.as.as_string->data) == 0;
+        case VAL_ARRAY: return a.as.as_array == b.as.as_array;
+        case VAL_OBJECT: return a.as.as_object == b.as.as_object;
+        default: return false;
+    }
+}
+
+// Create a new string Value
+static Value vm_make_string(const char *data, int len) {
+    String *s = malloc(sizeof(String));
+    s->data = malloc(len + 1);
+    memcpy(s->data, data, len);
+    s->data[len] = '\0';
+    s->length = len;
+    s->char_length = len;
+    s->capacity = len + 1;
+    s->ref_count = 1;
+    Value v;
+    v.type = VAL_STRING;
+    v.as.as_string = s;
+    return v;
+}
+
 // Check if value is a numeric type
 static int is_numeric(ValueType t) {
     return t >= VAL_I8 && t <= VAL_F64;
@@ -2228,19 +2274,33 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
 
                         result.type = VAL_ARRAY;
                         result.as.as_array = new_arr;
-                    } else if (strcmp(method, "reduce") == 0 && argc >= 2) {
-                        // reduce(callback, initial) - accumulate values
+                    } else if (strcmp(method, "reduce") == 0 && argc >= 1) {
+                        // reduce(callback, initial?) - accumulate values
                         if (!is_vm_closure(args[0])) {
                             vm_runtime_error(vm, "reduce() callback must be a function");
                             return VM_RUNTIME_ERROR;
                         }
                         VMClosure *callback = as_vm_closure(args[0]);
-                        Value accumulator = args[1];
+
+                        // Determine starting accumulator and index
+                        Value accumulator;
+                        int start_idx;
+                        if (argc >= 2) {
+                            accumulator = args[1];
+                            start_idx = 0;
+                        } else {
+                            if (arr->length == 0) {
+                                vm_runtime_error(vm, "reduce() on empty array with no initial value");
+                                return VM_RUNTIME_ERROR;
+                            }
+                            accumulator = arr->elements[0];
+                            start_idx = 1;
+                        }
 
                         // Save frame state
                         frame->ip = ip;
 
-                        for (int i = 0; i < arr->length; i++) {
+                        for (int i = start_idx; i < arr->length; i++) {
                             Value callback_args[2] = {accumulator, arr->elements[i]};
                             accumulator = vm_call_closure(vm, callback, callback_args, 2);
                         }
@@ -2251,6 +2311,114 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         slots = frame->slots;
 
                         result = accumulator;
+                    } else if (strcmp(method, "slice") == 0 && argc >= 2) {
+                        // slice(start, end) - return new subarray
+                        int start = value_to_i32(args[0]);
+                        int end = value_to_i32(args[1]);
+                        if (start < 0) start = 0;
+                        if (start > arr->length) start = arr->length;
+                        if (end < start) end = start;
+                        if (end > arr->length) end = arr->length;
+
+                        Array *new_arr = malloc(sizeof(Array));
+                        int new_len = end - start;
+                        new_arr->elements = malloc(sizeof(Value) * (new_len > 0 ? new_len : 1));
+                        new_arr->length = new_len;
+                        new_arr->capacity = new_len > 0 ? new_len : 1;
+                        new_arr->element_type = NULL;
+                        new_arr->ref_count = 1;
+                        for (int i = 0; i < new_len; i++) {
+                            new_arr->elements[i] = arr->elements[start + i];
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = new_arr;
+                    } else if (strcmp(method, "concat") == 0 && argc >= 1) {
+                        // concat(other) - return new concatenated array
+                        if (args[0].type != VAL_ARRAY || !args[0].as.as_array) {
+                            vm_runtime_error(vm, "concat() argument must be an array");
+                            return VM_RUNTIME_ERROR;
+                        }
+                        Array *other = args[0].as.as_array;
+                        int new_len = arr->length + other->length;
+                        Array *new_arr = malloc(sizeof(Array));
+                        new_arr->elements = malloc(sizeof(Value) * (new_len > 0 ? new_len : 1));
+                        new_arr->length = new_len;
+                        new_arr->capacity = new_len > 0 ? new_len : 1;
+                        new_arr->element_type = NULL;
+                        new_arr->ref_count = 1;
+                        for (int i = 0; i < arr->length; i++) {
+                            new_arr->elements[i] = arr->elements[i];
+                        }
+                        for (int i = 0; i < other->length; i++) {
+                            new_arr->elements[arr->length + i] = other->elements[i];
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = new_arr;
+                    } else if (strcmp(method, "find") == 0 && argc >= 1) {
+                        // find(value) - return index or -1
+                        result = val_i32_vm(-1);
+                        for (int i = 0; i < arr->length; i++) {
+                            if (vm_values_equal(arr->elements[i], args[0])) {
+                                result = val_i32_vm(i);
+                                break;
+                            }
+                        }
+                    } else if (strcmp(method, "contains") == 0 && argc >= 1) {
+                        // contains(value) - return true/false
+                        result = val_bool_vm(false);
+                        for (int i = 0; i < arr->length; i++) {
+                            if (vm_values_equal(arr->elements[i], args[0])) {
+                                result = val_bool_vm(true);
+                                break;
+                            }
+                        }
+                    } else if (strcmp(method, "first") == 0) {
+                        // first() - return first element or null
+                        if (arr->length > 0) {
+                            result = arr->elements[0];
+                        }
+                    } else if (strcmp(method, "last") == 0) {
+                        // last() - return last element or null
+                        if (arr->length > 0) {
+                            result = arr->elements[arr->length - 1];
+                        }
+                    } else if (strcmp(method, "clear") == 0) {
+                        // clear() - remove all elements
+                        arr->length = 0;
+                    } else if (strcmp(method, "reverse") == 0) {
+                        // reverse() - reverse in place
+                        int left = 0, right = arr->length - 1;
+                        while (left < right) {
+                            Value temp = arr->elements[left];
+                            arr->elements[left] = arr->elements[right];
+                            arr->elements[right] = temp;
+                            left++;
+                            right--;
+                        }
+                    } else if (strcmp(method, "insert") == 0 && argc >= 2) {
+                        // insert(index, value)
+                        int index = value_to_i32(args[0]);
+                        if (index < 0 || index > arr->length) {
+                            vm_runtime_error(vm, "insert index %d out of bounds (length %d)", index, arr->length);
+                            return VM_RUNTIME_ERROR;
+                        }
+                        if (arr->length >= arr->capacity) {
+                            arr->capacity *= 2;
+                            arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+                        }
+                        memmove(arr->elements + index + 1, arr->elements + index, sizeof(Value) * (arr->length - index));
+                        arr->elements[index] = args[1];
+                        arr->length++;
+                    } else if (strcmp(method, "remove") == 0 && argc >= 1) {
+                        // remove(index) - remove and return element at index
+                        int index = value_to_i32(args[0]);
+                        if (index < 0 || index >= arr->length) {
+                            vm_runtime_error(vm, "remove index %d out of bounds (length %d)", index, arr->length);
+                            return VM_RUNTIME_ERROR;
+                        }
+                        result = arr->elements[index];
+                        memmove(arr->elements + index, arr->elements + index + 1, sizeof(Value) * (arr->length - index - 1));
+                        arr->length--;
                     } else {
                         vm_runtime_error(vm, "Unknown array method: %s", method);
                         return VM_RUNTIME_ERROR;
@@ -2323,6 +2491,219 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         // String length (just return char_length)
                         result.type = VAL_I32;
                         result.as.as_i32 = str->char_length;
+                    } else if (strcmp(method, "substr") == 0 && argc >= 2) {
+                        // substr(start, length)
+                        int start = value_to_i32(args[0]);
+                        int len = value_to_i32(args[1]);
+                        if (start < 0) start = 0;
+                        if (start > str->length) start = str->length;
+                        if (len < 0) len = 0;
+                        if (start + len > str->length) len = str->length - start;
+                        char *buf = malloc(len + 1);
+                        memcpy(buf, str->data + start, len);
+                        buf[len] = '\0';
+                        result = vm_make_string(buf, len);
+                        free(buf);
+                    } else if (strcmp(method, "slice") == 0 && argc >= 2) {
+                        // slice(start, end)
+                        int start = value_to_i32(args[0]);
+                        int end = value_to_i32(args[1]);
+                        if (start < 0) start = 0;
+                        if (start > str->length) start = str->length;
+                        if (end < start) end = start;
+                        if (end > str->length) end = str->length;
+                        int len = end - start;
+                        char *buf = malloc(len + 1);
+                        memcpy(buf, str->data + start, len);
+                        buf[len] = '\0';
+                        result = vm_make_string(buf, len);
+                        free(buf);
+                    } else if (strcmp(method, "find") == 0 && argc >= 1) {
+                        // find(substring)
+                        if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+                            result = val_i32_vm(-1);
+                        } else {
+                            const char *needle = args[0].as.as_string->data;
+                            char *found = strstr(str->data, needle);
+                            result = val_i32_vm(found ? (int)(found - str->data) : -1);
+                        }
+                    } else if (strcmp(method, "trim") == 0) {
+                        // trim() - remove leading/trailing whitespace
+                        int start = 0, end = str->length;
+                        while (start < end && (str->data[start] == ' ' || str->data[start] == '\t' ||
+                               str->data[start] == '\n' || str->data[start] == '\r')) start++;
+                        while (end > start && (str->data[end-1] == ' ' || str->data[end-1] == '\t' ||
+                               str->data[end-1] == '\n' || str->data[end-1] == '\r')) end--;
+                        int len = end - start;
+                        char *buf = malloc(len + 1);
+                        memcpy(buf, str->data + start, len);
+                        buf[len] = '\0';
+                        result = vm_make_string(buf, len);
+                        free(buf);
+                    } else if (strcmp(method, "to_upper") == 0) {
+                        // to_upper()
+                        char *buf = malloc(str->length + 1);
+                        for (int i = 0; i < str->length; i++) {
+                            buf[i] = (str->data[i] >= 'a' && str->data[i] <= 'z')
+                                   ? str->data[i] - 32 : str->data[i];
+                        }
+                        buf[str->length] = '\0';
+                        result = vm_make_string(buf, str->length);
+                        free(buf);
+                    } else if (strcmp(method, "to_lower") == 0) {
+                        // to_lower()
+                        char *buf = malloc(str->length + 1);
+                        for (int i = 0; i < str->length; i++) {
+                            buf[i] = (str->data[i] >= 'A' && str->data[i] <= 'Z')
+                                   ? str->data[i] + 32 : str->data[i];
+                        }
+                        buf[str->length] = '\0';
+                        result = vm_make_string(buf, str->length);
+                        free(buf);
+                    } else if (strcmp(method, "starts_with") == 0 && argc >= 1) {
+                        // starts_with(prefix)
+                        if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+                            result = val_bool_vm(false);
+                        } else {
+                            const char *prefix = args[0].as.as_string->data;
+                            int prefix_len = args[0].as.as_string->length;
+                            result = val_bool_vm(str->length >= prefix_len &&
+                                                 strncmp(str->data, prefix, prefix_len) == 0);
+                        }
+                    } else if (strcmp(method, "ends_with") == 0 && argc >= 1) {
+                        // ends_with(suffix)
+                        if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+                            result = val_bool_vm(false);
+                        } else {
+                            const char *suffix = args[0].as.as_string->data;
+                            int suffix_len = args[0].as.as_string->length;
+                            result = val_bool_vm(str->length >= suffix_len &&
+                                strcmp(str->data + str->length - suffix_len, suffix) == 0);
+                        }
+                    } else if (strcmp(method, "replace") == 0 && argc >= 2) {
+                        // replace(old, new) - replace first occurrence
+                        if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
+                            result.type = VAL_STRING;
+                            result.as.as_string = str;
+                        } else {
+                            const char *old_str = args[0].as.as_string->data;
+                            const char *new_str = args[1].as.as_string->data;
+                            char *found = strstr(str->data, old_str);
+                            if (!found) {
+                                result.type = VAL_STRING;
+                                result.as.as_string = str;
+                            } else {
+                                int old_len = args[0].as.as_string->length;
+                                int new_len = args[1].as.as_string->length;
+                                int result_len = str->length - old_len + new_len;
+                                char *buf = malloc(result_len + 1);
+                                int prefix_len = found - str->data;
+                                memcpy(buf, str->data, prefix_len);
+                                memcpy(buf + prefix_len, new_str, new_len);
+                                memcpy(buf + prefix_len + new_len, found + old_len,
+                                       str->length - prefix_len - old_len);
+                                buf[result_len] = '\0';
+                                result = vm_make_string(buf, result_len);
+                                free(buf);
+                            }
+                        }
+                    } else if (strcmp(method, "replace_all") == 0 && argc >= 2) {
+                        // replace_all(old, new)
+                        if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
+                            result.type = VAL_STRING;
+                            result.as.as_string = str;
+                        } else {
+                            const char *old_str = args[0].as.as_string->data;
+                            const char *new_str = args[1].as.as_string->data;
+                            int old_len = args[0].as.as_string->length;
+                            int new_len = args[1].as.as_string->length;
+                            if (old_len == 0) {
+                                result.type = VAL_STRING;
+                                result.as.as_string = str;
+                            } else {
+                                // Count occurrences
+                                int count = 0;
+                                const char *p = str->data;
+                                while ((p = strstr(p, old_str)) != NULL) {
+                                    count++;
+                                    p += old_len;
+                                }
+                                int result_len = str->length + count * (new_len - old_len);
+                                char *buf = malloc(result_len + 1);
+                                char *dest = buf;
+                                p = str->data;
+                                const char *prev = p;
+                                while ((p = strstr(prev, old_str)) != NULL) {
+                                    memcpy(dest, prev, p - prev);
+                                    dest += p - prev;
+                                    memcpy(dest, new_str, new_len);
+                                    dest += new_len;
+                                    prev = p + old_len;
+                                }
+                                strcpy(dest, prev);
+                                result = vm_make_string(buf, result_len);
+                                free(buf);
+                            }
+                        }
+                    } else if (strcmp(method, "repeat") == 0 && argc >= 1) {
+                        // repeat(count)
+                        int count = value_to_i32(args[0]);
+                        if (count <= 0) {
+                            result = vm_make_string("", 0);
+                        } else {
+                            int result_len = str->length * count;
+                            char *buf = malloc(result_len + 1);
+                            for (int i = 0; i < count; i++) {
+                                memcpy(buf + i * str->length, str->data, str->length);
+                            }
+                            buf[result_len] = '\0';
+                            result = vm_make_string(buf, result_len);
+                            free(buf);
+                        }
+                    } else if (strcmp(method, "char_at") == 0 && argc >= 1) {
+                        // char_at(index)
+                        int index = value_to_i32(args[0]);
+                        if (index < 0 || index >= str->length) {
+                            result = vm_make_string("", 0);
+                        } else {
+                            char buf[2] = {str->data[index], '\0'};
+                            result = vm_make_string(buf, 1);
+                        }
+                    } else if (strcmp(method, "byte_at") == 0 && argc >= 1) {
+                        // byte_at(index)
+                        int index = value_to_i32(args[0]);
+                        if (index < 0 || index >= str->length) {
+                            result = val_i32_vm(0);
+                        } else {
+                            result = val_i32_vm((unsigned char)str->data[index]);
+                        }
+                    } else if (strcmp(method, "chars") == 0) {
+                        // chars() - return array of single-char strings
+                        Array *arr = malloc(sizeof(Array));
+                        arr->elements = malloc(sizeof(Value) * (str->length > 0 ? str->length : 1));
+                        arr->length = str->length;
+                        arr->capacity = str->length > 0 ? str->length : 1;
+                        arr->element_type = NULL;
+                        arr->ref_count = 1;
+                        for (int i = 0; i < str->length; i++) {
+                            char buf[2] = {str->data[i], '\0'};
+                            arr->elements[i] = vm_make_string(buf, 1);
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = arr;
+                    } else if (strcmp(method, "bytes") == 0) {
+                        // bytes() - return array of byte values
+                        Array *arr = malloc(sizeof(Array));
+                        arr->elements = malloc(sizeof(Value) * (str->length > 0 ? str->length : 1));
+                        arr->length = str->length;
+                        arr->capacity = str->length > 0 ? str->length : 1;
+                        arr->element_type = NULL;
+                        arr->ref_count = 1;
+                        for (int i = 0; i < str->length; i++) {
+                            arr->elements[i] = val_i32_vm((unsigned char)str->data[i]);
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = arr;
                     } else {
                         vm_runtime_error(vm, "Unknown string method: %s", method);
                         return VM_RUNTIME_ERROR;
