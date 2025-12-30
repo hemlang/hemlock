@@ -1,0 +1,91 @@
+// Test typed variable unboxing optimization
+// Typed variables with primitive types should use native C arithmetic
+
+// Test i32 typed variable
+fn sum_to_n(n: i32): i32 {
+    let total: i32 = 0;
+    for (let i = 0; i < n; i = i + 1) {
+        total = total + i;
+    }
+    return total;
+}
+
+// Test i64 typed variable
+fn sum_to_n_i64(n: i64): i64 {
+    let total: i64 = 0;
+    let i: i64 = 0;
+    while (i < n) {
+        total = total + i;
+        i = i + 1;
+    }
+    return total;
+}
+
+// Test f64 typed variable
+fn compute_pi_approx(): f64 {
+    let pi: f64 = 0.0;
+    let sign: f64 = 1.0;
+    for (let i = 0; i < 100; i = i + 1) {
+        let term: f64 = sign / (2.0 * i + 1.0);
+        pi = pi + term;
+        sign = sign * -1.0;
+    }
+    return pi * 4.0;
+}
+
+// Test mixed operations with literals
+fn test_mixed_ops(): i32 {
+    let x: i32 = 10;
+    let y: i32 = x + 5;
+    let z: i32 = y * 2;
+    let w: i32 = z - 3;
+    return w;
+}
+
+// Test comparison operations
+fn test_comparisons(): bool {
+    let a: i32 = 5;
+    let b: i32 = 10;
+    let c: bool = a < b;
+    let d: bool = b > a;
+    let e: bool = a <= 5;
+    let f: bool = b >= 10;
+    return c && d && e && f;
+}
+
+// Test bitwise operations
+fn test_bitwise(): i32 {
+    let a: i32 = 0xFF;
+    let b: i32 = 0x0F;
+    let c: i32 = a & b;  // 0x0F
+    let d: i32 = a | b;  // 0xFF
+    let e: i32 = a ^ b;  // 0xF0
+    return c + d + e;
+}
+
+// Run tests
+print("sum_to_n(10) = " + sum_to_n(10));
+print("sum_to_n(100) = " + sum_to_n(100));
+print("sum_to_n_i64(10) = " + sum_to_n_i64(10));
+print("test_mixed_ops() = " + test_mixed_ops());
+print("test_comparisons() = " + test_comparisons());
+print("test_bitwise() = " + test_bitwise());
+
+// Test unsigned types
+fn test_unsigned(): u32 {
+    let a: u32 = 100;
+    let b: u32 = 50;
+    let c: u32 = a + b;
+    let d: u32 = a - b;
+    return c + d;
+}
+print("test_unsigned() = " + test_unsigned());
+
+// Test smaller integer types
+fn test_small_ints(): i32 {
+    let a: i8 = 10;
+    let b: i8 = 20;
+    let sum: i8 = a + b;
+    return sum;
+}
+print("test_small_ints() = " + test_small_ints());

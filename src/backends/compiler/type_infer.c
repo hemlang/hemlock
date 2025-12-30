@@ -1086,8 +1086,15 @@ int is_tail_recursive_function(Stmt *body, const char *func_name) {
 const char* infer_type_name(InferredType t) {
     switch (t.kind) {
         case INFER_UNKNOWN: return "unknown";
+        case INFER_I8: return "i8";
+        case INFER_I16: return "i16";
         case INFER_I32: return "i32";
         case INFER_I64: return "i64";
+        case INFER_U8: return "u8";
+        case INFER_U16: return "u16";
+        case INFER_U32: return "u32";
+        case INFER_U64: return "u64";
+        case INFER_F32: return "f32";
         case INFER_F64: return "f64";
         case INFER_BOOL: return "bool";
         case INFER_STRING: return "string";
@@ -1098,5 +1105,140 @@ const char* infer_type_name(InferredType t) {
         case INFER_NUMERIC: return "numeric";
         case INFER_INTEGER: return "integer";
         default: return "?";
+    }
+}
+
+// ========== TYPED VARIABLE UNBOXING ==========
+
+// Convert type annotation to inferred type kind for unboxing
+InferredTypeKind type_can_unbox_annotation(Type *type_annotation) {
+    if (!type_annotation) return INFER_UNKNOWN;
+
+    switch (type_annotation->kind) {
+        case TYPE_I8: return INFER_I8;
+        case TYPE_I16: return INFER_I16;
+        case TYPE_I32: return INFER_I32;
+        case TYPE_I64: return INFER_I64;
+        case TYPE_U8: return INFER_U8;
+        case TYPE_U16: return INFER_U16;
+        case TYPE_U32: return INFER_U32;
+        case TYPE_U64: return INFER_U64;
+        case TYPE_F32: return INFER_F32;
+        case TYPE_F64: return INFER_F64;
+        case TYPE_BOOL: return INFER_BOOL;
+        default:
+            // Non-primitive types (string, array, object, etc.) cannot be unboxed
+            return INFER_UNKNOWN;
+    }
+}
+
+// Check if a variable escapes in an expression
+// Uses the existing variable_escapes_in_expr function (now exposed)
+int type_variable_escapes_in_expr(const char *var_name, Expr *expr) {
+    return variable_escapes_in_expr(expr, var_name);
+}
+
+// Check if a variable escapes in a statement
+int type_variable_escapes(const char *var_name, Stmt *stmt) {
+    return variable_escapes_in_stmt(stmt, var_name);
+}
+
+// Check if variable is an unboxable typed variable (not loop counter or accumulator)
+int type_is_unboxed_typed_var(TypeInferContext *ctx, const char *name) {
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            return u->is_typed_var;
+        }
+    }
+    return 0;
+}
+
+// Analyze a typed let statement to determine if it can be unboxed
+void type_analyze_typed_let(TypeInferContext *ctx, Stmt *stmt, Stmt *containing_block, int stmt_index) {
+    if (!stmt || stmt->type != STMT_LET) return;
+    if (!stmt->as.let.type_annotation) return;
+
+    const char *var_name = stmt->as.let.name;
+
+    // Check if type annotation allows unboxing
+    InferredTypeKind native_type = type_can_unbox_annotation(stmt->as.let.type_annotation);
+    if (native_type == INFER_UNKNOWN) return;
+
+    // Check if variable escapes in subsequent statements in the containing block
+    if (containing_block && containing_block->type == STMT_BLOCK) {
+        for (int i = stmt_index + 1; i < containing_block->as.block.count; i++) {
+            if (variable_escapes_in_stmt(containing_block->as.block.statements[i], var_name)) {
+                return;  // Variable escapes, cannot unbox
+            }
+        }
+    }
+
+    // Variable can be unboxed!
+    // Check if already marked (e.g., as loop counter)
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, var_name) == 0) {
+            // Already marked, update to include typed_var flag
+            u->is_typed_var = 1;
+            if (native_type != INFER_UNKNOWN) {
+                u->native_type = native_type;
+            }
+            return;
+        }
+    }
+
+    // Add new entry
+    UnboxableVar *u = malloc(sizeof(UnboxableVar));
+    u->name = strdup(var_name);
+    u->native_type = native_type;
+    u->is_loop_counter = 0;
+    u->is_accumulator = 0;
+    u->is_typed_var = 1;
+    u->next = ctx->unboxable_vars;
+    ctx->unboxable_vars = u;
+}
+
+// Analyze all statements in a block for unboxable typed variables
+void type_analyze_block_for_unboxing(TypeInferContext *ctx, Stmt *block) {
+    if (!block) return;
+
+    if (block->type == STMT_BLOCK) {
+        for (int i = 0; i < block->as.block.count; i++) {
+            Stmt *stmt = block->as.block.statements[i];
+
+            // Analyze typed let statements
+            if (stmt->type == STMT_LET && stmt->as.let.type_annotation) {
+                type_analyze_typed_let(ctx, stmt, block, i);
+            }
+
+            // Recursively analyze nested blocks
+            if (stmt->type == STMT_IF) {
+                type_analyze_block_for_unboxing(ctx, stmt->as.if_stmt.then_branch);
+                if (stmt->as.if_stmt.else_branch) {
+                    type_analyze_block_for_unboxing(ctx, stmt->as.if_stmt.else_branch);
+                }
+            } else if (stmt->type == STMT_WHILE) {
+                type_analyze_block_for_unboxing(ctx, stmt->as.while_stmt.body);
+            } else if (stmt->type == STMT_FOR) {
+                type_analyze_block_for_unboxing(ctx, stmt->as.for_loop.body);
+            } else if (stmt->type == STMT_FOR_IN) {
+                type_analyze_block_for_unboxing(ctx, stmt->as.for_in.body);
+            } else if (stmt->type == STMT_BLOCK) {
+                type_analyze_block_for_unboxing(ctx, stmt);
+            } else if (stmt->type == STMT_TRY) {
+                type_analyze_block_for_unboxing(ctx, stmt->as.try_stmt.try_block);
+                if (stmt->as.try_stmt.catch_block) {
+                    type_analyze_block_for_unboxing(ctx, stmt->as.try_stmt.catch_block);
+                }
+                if (stmt->as.try_stmt.finally_block) {
+                    type_analyze_block_for_unboxing(ctx, stmt->as.try_stmt.finally_block);
+                }
+            }
+        }
+    } else {
+        // Single statement - analyze if it's a typed let at top level
+        if (block->type == STMT_LET && block->as.let.type_annotation) {
+            // No containing block context for single statements
+            type_analyze_typed_let(ctx, block, NULL, 0);
+        }
     }
 }

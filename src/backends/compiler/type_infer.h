@@ -14,8 +14,15 @@
 // Inferred type kinds
 typedef enum {
     INFER_UNKNOWN,      // Type not yet inferred / can be anything
+    INFER_I8,           // Known to be i8
+    INFER_I16,          // Known to be i16
     INFER_I32,          // Known to be i32
     INFER_I64,          // Known to be i64
+    INFER_U8,           // Known to be u8
+    INFER_U16,          // Known to be u16
+    INFER_U32,          // Known to be u32
+    INFER_U64,          // Known to be u64
+    INFER_F32,          // Known to be f32
     INFER_F64,          // Known to be f64
     INFER_BOOL,         // Known to be bool
     INFER_STRING,       // Known to be string
@@ -59,6 +66,7 @@ typedef struct UnboxableVar {
     InferredTypeKind native_type;  // INFER_I32, INFER_I64, INFER_BOOL, INFER_F64
     int is_loop_counter;           // Whether this is a loop counter
     int is_accumulator;            // Whether this is used as an accumulator
+    int is_typed_var;              // Whether this is a typed variable (let x: i32 = ...)
     struct UnboxableVar *next;
 } UnboxableVar;
 
@@ -157,6 +165,32 @@ void type_analyze_for_loop(TypeInferContext *ctx, Stmt *stmt);
 
 // Analyze a while-loop for unboxable accumulators
 void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt);
+
+// ========== TYPED VARIABLE UNBOXING ==========
+
+// Analyze a typed variable declaration and determine if it can be unboxed
+// A variable can be unboxed if:
+// 1. It has a primitive type annotation (i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool)
+// 2. It doesn't escape (not passed to functions, stored in arrays/objects, returned, etc.)
+// 3. It's only used in operations that preserve its type
+void type_analyze_typed_let(TypeInferContext *ctx, Stmt *stmt, Stmt *containing_block, int stmt_index);
+
+// Analyze all statements in a function/block for unboxable typed variables
+void type_analyze_block_for_unboxing(TypeInferContext *ctx, Stmt *block);
+
+// Check if a typed variable can be unboxed based on its type annotation
+// Returns the native type if unboxable, INFER_UNKNOWN otherwise
+InferredTypeKind type_can_unbox_annotation(Type *type_annotation);
+
+// Check if a variable escapes in the given statement(s)
+// Returns 1 if the variable escapes (needs to stay boxed), 0 otherwise
+int type_variable_escapes(const char *var_name, Stmt *stmt);
+
+// Check if a variable escapes in an expression
+int type_variable_escapes_in_expr(const char *var_name, Expr *expr);
+
+// Check if variable is an unboxable typed variable (not loop counter or accumulator)
+int type_is_unboxed_typed_var(TypeInferContext *ctx, const char *name);
 
 // ========== TAIL CALL OPTIMIZATION ==========
 
