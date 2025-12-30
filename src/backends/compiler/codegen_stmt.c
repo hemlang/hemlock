@@ -17,36 +17,87 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 scope_add_var(ctx->current_scope, stmt->as.let.name);
             }
             char *safe_name = codegen_sanitize_ident(stmt->as.let.name);
+
+            // OPTIMIZATION: Check if this variable can be unboxed to a native C type
+            InferredTypeKind unboxable_type = INFER_UNKNOWN;
+            if (ctx->optimize && ctx->type_ctx) {
+                unboxable_type = type_get_unboxable(ctx->type_ctx, stmt->as.let.name);
+            }
+
             if (stmt->as.let.value) {
-                char *value = codegen_expr(ctx, stmt->as.let.value);
-                // Check if there's a custom object type annotation (for duck typing)
-                if (stmt->as.let.type_annotation &&
-                    stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
-                    stmt->as.let.type_annotation->type_name) {
-                    codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
-                                  safe_name, value, stmt->as.let.type_annotation->type_name);
-                } else if (stmt->as.let.type_annotation &&
-                           stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
-                    // Typed array: let arr: array<type> = [...]
-                    Type *elem_type = stmt->as.let.type_annotation->element_type;
-                    const char *hml_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
-                    if (!hml_type) hml_type = "HML_VAL_NULL";
-                    codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
-                                  safe_name, value, hml_type);
-                } else if (stmt->as.let.type_annotation) {
-                    // Primitive type annotation: let x: i64 = 0;
-                    // Convert value to the annotated type with range checking
-                    const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
-                    if (hml_type) {
-                        codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
+                // Check for unboxable typed variable with literal initializer
+                if (unboxable_type != INFER_UNKNOWN && stmt->as.let.value->type == EXPR_NUMBER) {
+                    // OPTIMIZED: Generate native C type declaration with literal value
+                    if (unboxable_type == INFER_I32) {
+                        int32_t val = (int32_t)stmt->as.let.value->as.number.int_value;
+                        codegen_writeln(ctx, "int32_t %s = %d;", safe_name, val);
+                    } else if (unboxable_type == INFER_I64) {
+                        int64_t val = stmt->as.let.value->as.number.int_value;
+                        codegen_writeln(ctx, "int64_t %s = %lldLL;", safe_name, (long long)val);
+                    } else if (unboxable_type == INFER_F64) {
+                        double val = stmt->as.let.value->as.number.is_float
+                            ? stmt->as.let.value->as.number.float_value
+                            : (double)stmt->as.let.value->as.number.int_value;
+                        codegen_writeln(ctx, "double %s = %g;", safe_name, val);
+                    } else {
+                        // Fallback to boxed
+                        char *value = codegen_expr(ctx, stmt->as.let.value);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
+                        free(value);
+                    }
+                } else if (unboxable_type != INFER_UNKNOWN && stmt->as.let.value->type == EXPR_BOOL) {
+                    // OPTIMIZED: Bool literal
+                    int val = stmt->as.let.value->as.boolean ? 1 : 0;
+                    codegen_writeln(ctx, "int %s = %d;", safe_name, val);
+                } else if (unboxable_type != INFER_UNKNOWN) {
+                    // OPTIMIZED: Extract native value from expression
+                    char *value = codegen_expr(ctx, stmt->as.let.value);
+                    if (unboxable_type == INFER_I32) {
+                        codegen_writeln(ctx, "int32_t %s = hml_to_i32(%s);", safe_name, value);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
+                    } else if (unboxable_type == INFER_I64) {
+                        codegen_writeln(ctx, "int64_t %s = hml_to_i64(%s);", safe_name, value);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
+                    } else if (unboxable_type == INFER_F64) {
+                        codegen_writeln(ctx, "double %s = hml_to_f64(%s);", safe_name, value);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
+                    } else if (unboxable_type == INFER_BOOL) {
+                        codegen_writeln(ctx, "int %s = hml_to_bool(%s);", safe_name, value);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
+                    }
+                    free(value);
+                } else {
+                    // Standard boxed path
+                    char *value = codegen_expr(ctx, stmt->as.let.value);
+                    // Check if there's a custom object type annotation (for duck typing)
+                    if (stmt->as.let.type_annotation &&
+                        stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                        stmt->as.let.type_annotation->type_name) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
+                                      safe_name, value, stmt->as.let.type_annotation->type_name);
+                    } else if (stmt->as.let.type_annotation &&
+                               stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
+                        // Typed array: let arr: array<type> = [...]
+                        Type *elem_type = stmt->as.let.type_annotation->element_type;
+                        const char *hml_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                        if (!hml_type) hml_type = "HML_VAL_NULL";
+                        codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
                                       safe_name, value, hml_type);
+                    } else if (stmt->as.let.type_annotation) {
+                        // Primitive type annotation: let x: i64 = 0;
+                        // Convert value to the annotated type with range checking
+                        const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
+                        if (hml_type) {
+                            codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
+                                          safe_name, value, hml_type);
+                        } else {
+                            codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
+                        }
                     } else {
                         codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
                     }
-                } else {
-                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
+                    free(value);
                 }
-                free(value);
 
                 // Check if this was a self-referential function (e.g., let factorial = fn(n) { ... factorial(n-1) ... })
                 // If so, update the closure environment to point to the now-initialized variable
@@ -61,7 +112,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     ctx->last_closure_env_id = -1;
                 }
             } else {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_name);
+                // No initializer
+                if (unboxable_type == INFER_I32) {
+                    codegen_writeln(ctx, "int32_t %s = 0;", safe_name);
+                } else if (unboxable_type == INFER_I64) {
+                    codegen_writeln(ctx, "int64_t %s = 0LL;", safe_name);
+                } else if (unboxable_type == INFER_F64) {
+                    codegen_writeln(ctx, "double %s = 0.0;", safe_name);
+                } else if (unboxable_type == INFER_BOOL) {
+                    codegen_writeln(ctx, "int %s = 0;", safe_name);
+                } else {
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_name);
+                }
             }
             free(safe_name);
             break;

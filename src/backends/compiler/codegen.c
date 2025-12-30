@@ -915,6 +915,13 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
 }
 
 void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
+    // OPTIMIZATION: Analyze function body for typed variables that can be unboxed
+    if (ctx->optimize && ctx->type_ctx) {
+        // Clear previous function's unboxable markings to avoid interference
+        type_clear_unboxable(ctx->type_ctx);
+        type_analyze_typed_variables(ctx->type_ctx, func->as.function.body);
+    }
+
     if (func->as.function.body->type == STMT_BLOCK) {
         for (int i = 0; i < func->as.function.body->as.block.count; i++) {
             codegen_stmt(ctx, func->as.function.body->as.block.statements[i]);

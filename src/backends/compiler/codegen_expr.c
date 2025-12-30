@@ -747,6 +747,44 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
             }
 
+            // OPTIMIZATION: Check if this is an unboxed variable
+            InferredTypeKind unboxable_type = INFER_UNKNOWN;
+            if (ctx->optimize && ctx->type_ctx) {
+                unboxable_type = type_get_unboxable(ctx->type_ctx, expr->as.assign.name);
+            }
+
+            if (unboxable_type != INFER_UNKNOWN) {
+                // OPTIMIZED: Direct C assignment to unboxed variable
+                char *value = codegen_expr(ctx, expr->as.assign.value);
+                char *safe_name = codegen_sanitize_ident(expr->as.assign.name);
+
+                if (unboxable_type == INFER_I32) {
+                    codegen_writeln(ctx, "%s = hml_to_i32(%s);", safe_name, value);
+                } else if (unboxable_type == INFER_I64) {
+                    codegen_writeln(ctx, "%s = hml_to_i64(%s);", safe_name, value);
+                } else if (unboxable_type == INFER_F64) {
+                    codegen_writeln(ctx, "%s = hml_to_f64(%s);", safe_name, value);
+                } else if (unboxable_type == INFER_BOOL) {
+                    codegen_writeln(ctx, "%s = hml_to_bool(%s);", safe_name, value);
+                }
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
+
+                // Return the boxed value as the expression result
+                if (unboxable_type == INFER_I32) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s);", result, safe_name);
+                } else if (unboxable_type == INFER_I64) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, safe_name);
+                } else if (unboxable_type == INFER_F64) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%s);", result, safe_name);
+                } else if (unboxable_type == INFER_BOOL) {
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s);", result, safe_name);
+                }
+
+                free(safe_name);
+                free(value);
+                break;
+            }
+
             char *value = codegen_expr(ctx, expr->as.assign.value);
             // Determine the correct variable name with prefix
             // Note: safe_var_name is allocated when needed and must be freed

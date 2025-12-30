@@ -158,6 +158,14 @@ void type_analyze_for_loop(TypeInferContext *ctx, Stmt *stmt);
 // Analyze a while-loop for unboxable accumulators
 void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt);
 
+// Analyze a function body to find typed variables that can be unboxed
+// Variables with explicit type annotations (e.g., let x: i32 = 0) that don't escape
+// can be stored as native C types instead of HmlValue for better performance
+void type_analyze_typed_variables(TypeInferContext *ctx, Stmt *body);
+
+// Clear all unboxable variable markings (call before analyzing a new function)
+void type_clear_unboxable(TypeInferContext *ctx);
+
 // ========== TAIL CALL OPTIMIZATION ==========
 
 // Check if a function has a single tail recursive call pattern

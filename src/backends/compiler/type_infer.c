@@ -782,11 +782,13 @@ static int variable_escapes_in_stmt(Stmt *stmt, const char *var_name) {
             return 0;
 
         case STMT_RETURN:
-            // Returning the variable - it escapes
+            // Returning a primitive variable is OK - we can box at return time
+            // Only consider it escaping if it's used in a complex expression
             if (stmt->as.return_stmt.value) {
+                // Direct return of the variable is fine (we'll box at return)
                 if (stmt->as.return_stmt.value->type == EXPR_IDENT &&
                     strcmp(stmt->as.return_stmt.value->as.ident.name, var_name) == 0) {
-                    return 1;
+                    return 0;  // NOT escaping - will box at return point
                 }
                 return variable_escapes_in_expr(stmt->as.return_stmt.value, var_name);
             }
@@ -936,6 +938,171 @@ void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt) {
             }
         }
     }
+}
+
+// ========== TYPED VARIABLE UNBOXING ==========
+
+// Helper: Find typed variable declarations in a statement
+static void find_typed_variables(TypeInferContext *ctx, Stmt *stmt, Stmt *containing_body);
+
+static void find_typed_variables_in_expr(TypeInferContext *ctx, Expr *expr, Stmt *containing_body) {
+    if (!expr) return;
+
+    // Check for function expressions - they create a new scope, don't recurse
+    if (expr->type == EXPR_FUNCTION) return;
+
+    switch (expr->type) {
+        case EXPR_BINARY:
+            find_typed_variables_in_expr(ctx, expr->as.binary.left, containing_body);
+            find_typed_variables_in_expr(ctx, expr->as.binary.right, containing_body);
+            break;
+        case EXPR_UNARY:
+            find_typed_variables_in_expr(ctx, expr->as.unary.operand, containing_body);
+            break;
+        case EXPR_TERNARY:
+            find_typed_variables_in_expr(ctx, expr->as.ternary.condition, containing_body);
+            find_typed_variables_in_expr(ctx, expr->as.ternary.true_expr, containing_body);
+            find_typed_variables_in_expr(ctx, expr->as.ternary.false_expr, containing_body);
+            break;
+        case EXPR_CALL:
+            find_typed_variables_in_expr(ctx, expr->as.call.func, containing_body);
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                find_typed_variables_in_expr(ctx, expr->as.call.args[i], containing_body);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void find_typed_variables(TypeInferContext *ctx, Stmt *stmt, Stmt *containing_body) {
+    if (!stmt) return;
+
+    switch (stmt->type) {
+        case STMT_LET: {
+            // Check for primitive type annotation
+            if (stmt->as.let.type_annotation) {
+                Type *type = stmt->as.let.type_annotation;
+                InferredTypeKind native_type = INFER_UNKNOWN;
+
+                // Only unbox primitive numeric types and bool (not strings - they need refcounting)
+                switch (type->kind) {
+                    case TYPE_I32: native_type = INFER_I32; break;
+                    case TYPE_I64: native_type = INFER_I64; break;
+                    case TYPE_F64:
+                    case TYPE_F32: native_type = INFER_F64; break;
+                    case TYPE_BOOL: native_type = INFER_BOOL; break;
+                    default: break;
+                }
+
+                // Skip nullable types - they could be null
+                if (native_type != INFER_UNKNOWN && !type->nullable) {
+                    // Check if variable escapes in the containing body
+                    if (!variable_escapes_in_stmt(containing_body, stmt->as.let.name)) {
+                        type_mark_unboxable(ctx, stmt->as.let.name, native_type, 0, 0);
+                    }
+                }
+            }
+            // Also check the initializer for nested expressions
+            if (stmt->as.let.value) {
+                find_typed_variables_in_expr(ctx, stmt->as.let.value, containing_body);
+            }
+            break;
+        }
+
+        case STMT_CONST: {
+            // Same logic for const declarations
+            if (stmt->as.const_stmt.type_annotation) {
+                Type *type = stmt->as.const_stmt.type_annotation;
+                InferredTypeKind native_type = INFER_UNKNOWN;
+
+                switch (type->kind) {
+                    case TYPE_I32: native_type = INFER_I32; break;
+                    case TYPE_I64: native_type = INFER_I64; break;
+                    case TYPE_F64:
+                    case TYPE_F32: native_type = INFER_F64; break;
+                    case TYPE_BOOL: native_type = INFER_BOOL; break;
+                    default: break;
+                }
+
+                if (native_type != INFER_UNKNOWN && !type->nullable) {
+                    if (!variable_escapes_in_stmt(containing_body, stmt->as.const_stmt.name)) {
+                        type_mark_unboxable(ctx, stmt->as.const_stmt.name, native_type, 0, 0);
+                    }
+                }
+            }
+            if (stmt->as.const_stmt.value) {
+                find_typed_variables_in_expr(ctx, stmt->as.const_stmt.value, containing_body);
+            }
+            break;
+        }
+
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                find_typed_variables(ctx, stmt->as.block.statements[i], containing_body);
+            }
+            break;
+
+        case STMT_IF:
+            find_typed_variables(ctx, stmt->as.if_stmt.then_branch, containing_body);
+            if (stmt->as.if_stmt.else_branch) {
+                find_typed_variables(ctx, stmt->as.if_stmt.else_branch, containing_body);
+            }
+            break;
+
+        case STMT_WHILE:
+            find_typed_variables(ctx, stmt->as.while_stmt.body, containing_body);
+            break;
+
+        case STMT_FOR:
+            if (stmt->as.for_loop.initializer) {
+                find_typed_variables(ctx, stmt->as.for_loop.initializer, containing_body);
+            }
+            find_typed_variables(ctx, stmt->as.for_loop.body, containing_body);
+            break;
+
+        case STMT_FOR_IN:
+            find_typed_variables(ctx, stmt->as.for_in.body, containing_body);
+            break;
+
+        case STMT_TRY:
+            find_typed_variables(ctx, stmt->as.try_stmt.try_block, containing_body);
+            if (stmt->as.try_stmt.catch_block) {
+                find_typed_variables(ctx, stmt->as.try_stmt.catch_block, containing_body);
+            }
+            if (stmt->as.try_stmt.finally_block) {
+                find_typed_variables(ctx, stmt->as.try_stmt.finally_block, containing_body);
+            }
+            break;
+
+        case STMT_EXPR:
+            find_typed_variables_in_expr(ctx, stmt->as.expr, containing_body);
+            break;
+
+        default:
+            break;
+    }
+}
+
+void type_analyze_typed_variables(TypeInferContext *ctx, Stmt *body) {
+    // Analyze a function body to find typed variables that can be unboxed
+    if (!body) return;
+
+    // Pass the body as both the statement to scan and the containing body for escape analysis
+    find_typed_variables(ctx, body, body);
+}
+
+void type_clear_unboxable(TypeInferContext *ctx) {
+    // Clear all unboxable variable markings
+    // Call this before analyzing a new function to avoid interference between functions
+    UnboxableVar *u = ctx->unboxable_vars;
+    while (u) {
+        UnboxableVar *next = u->next;
+        free(u->name);
+        free(u);
+        u = next;
+    }
+    ctx->unboxable_vars = NULL;
 }
 
 // ========== TAIL CALL OPTIMIZATION ==========

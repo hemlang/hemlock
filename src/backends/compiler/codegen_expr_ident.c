@@ -553,9 +553,9 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "atomic_fence") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
     } else {
-        // OPTIMIZATION: Check if this is an unboxed loop counter
-        // If so, convert the native int32_t to HmlValue
-        if (ctx->optimize && type_is_loop_counter(ctx->type_ctx, expr->as.ident.name)) {
+        // OPTIMIZATION: Check if this is an unboxed variable (loop counter or typed variable)
+        // If so, convert the native C type to HmlValue
+        if (ctx->optimize && ctx->type_ctx) {
             InferredTypeKind native_type = type_get_unboxable(ctx->type_ctx, expr->as.ident.name);
             if (native_type == INFER_I32) {
                 char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
@@ -568,6 +568,16 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, safe_ident);
                 free(safe_ident);
                 // No retain needed for primitives
+                return result;
+            } else if (native_type == INFER_F64) {
+                char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%s);", result, safe_ident);
+                free(safe_ident);
+                return result;
+            } else if (native_type == INFER_BOOL) {
+                char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s);", result, safe_ident);
+                free(safe_ident);
                 return result;
             }
         }
