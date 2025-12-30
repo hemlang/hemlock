@@ -139,6 +139,228 @@ static Value vm_make_string(const char *data, int len) {
     return v;
 }
 
+// ============================================
+// Simple JSON Parser for deserialize()
+// ============================================
+
+static const char *json_skip_whitespace(const char *p, const char *end) {
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
+    return p;
+}
+
+static Value vm_json_parse_value(const char **pp, const char *end);
+
+static Value vm_json_parse_string(const char **pp, const char *end) {
+    const char *p = *pp;
+    if (p >= end || *p != '"') return vm_null_value();
+    p++;  // Skip opening quote
+
+    // Find closing quote and calculate length
+    const char *start = p;
+    while (p < end && *p != '"') {
+        if (*p == '\\' && p + 1 < end) p++;  // Skip escaped char
+        p++;
+    }
+    int len = p - start;
+    char *buf = malloc(len + 1);
+
+    // Copy with escape handling
+    const char *src = start;
+    char *dst = buf;
+    while (src < p) {
+        if (*src == '\\' && src + 1 < p) {
+            src++;
+            switch (*src) {
+                case 'n': *dst++ = '\n'; break;
+                case 't': *dst++ = '\t'; break;
+                case 'r': *dst++ = '\r'; break;
+                case '"': *dst++ = '"'; break;
+                case '\\': *dst++ = '\\'; break;
+                default: *dst++ = *src; break;
+            }
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+    int actual_len = dst - buf;
+
+    if (p < end) p++;  // Skip closing quote
+    *pp = p;
+
+    Value result = vm_make_string(buf, actual_len);
+    free(buf);
+    return result;
+}
+
+static Value vm_json_parse_number(const char **pp, const char *end) {
+    const char *p = *pp;
+    const char *start = p;
+    bool is_float = false;
+
+    if (p < end && *p == '-') p++;
+    while (p < end && *p >= '0' && *p <= '9') p++;
+    if (p < end && *p == '.') {
+        is_float = true;
+        p++;
+        while (p < end && *p >= '0' && *p <= '9') p++;
+    }
+    if (p < end && (*p == 'e' || *p == 'E')) {
+        is_float = true;
+        p++;
+        if (p < end && (*p == '+' || *p == '-')) p++;
+        while (p < end && *p >= '0' && *p <= '9') p++;
+    }
+
+    char buf[64];
+    int len = p - start;
+    if (len >= 63) len = 63;
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+
+    *pp = p;
+
+    Value result;
+    if (is_float) {
+        result.type = VAL_F64;
+        result.as.as_f64 = atof(buf);
+    } else {
+        int64_t n = strtoll(buf, NULL, 10);
+        if (n >= INT32_MIN && n <= INT32_MAX) {
+            result.type = VAL_I32;
+            result.as.as_i32 = (int32_t)n;
+        } else {
+            result.type = VAL_I64;
+            result.as.as_i64 = n;
+        }
+    }
+    return result;
+}
+
+static Value vm_json_parse_array(const char **pp, const char *end) {
+    const char *p = *pp;
+    p++;  // Skip '['
+    p = json_skip_whitespace(p, end);
+
+    Array *arr = malloc(sizeof(Array));
+    arr->elements = malloc(sizeof(Value) * 8);
+    arr->length = 0;
+    arr->capacity = 8;
+    arr->element_type = NULL;
+    arr->ref_count = 1;
+
+    while (p < end && *p != ']') {
+        Value elem = vm_json_parse_value(&p, end);
+        if (arr->length >= arr->capacity) {
+            arr->capacity *= 2;
+            arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
+        }
+        arr->elements[arr->length++] = elem;
+
+        p = json_skip_whitespace(p, end);
+        if (p < end && *p == ',') {
+            p++;
+            p = json_skip_whitespace(p, end);
+        }
+    }
+    if (p < end) p++;  // Skip ']'
+    *pp = p;
+
+    Value result;
+    result.type = VAL_ARRAY;
+    result.as.as_array = arr;
+    return result;
+}
+
+static Value vm_json_parse_object(const char **pp, const char *end) {
+    const char *p = *pp;
+    p++;  // Skip '{'
+    p = json_skip_whitespace(p, end);
+
+    Object *obj = malloc(sizeof(Object));
+    obj->type_name = NULL;
+    obj->field_names = malloc(sizeof(char*) * 8);
+    obj->field_values = malloc(sizeof(Value) * 8);
+    obj->num_fields = 0;
+    obj->capacity = 8;
+    obj->ref_count = 1;
+
+    while (p < end && *p != '}') {
+        // Parse key
+        Value key = vm_json_parse_string(&p, end);
+        if (key.type != VAL_STRING) break;
+
+        p = json_skip_whitespace(p, end);
+        if (p < end && *p == ':') p++;
+        p = json_skip_whitespace(p, end);
+
+        // Parse value
+        Value val = vm_json_parse_value(&p, end);
+
+        // Add to object
+        if (obj->num_fields >= obj->capacity) {
+            obj->capacity *= 2;
+            obj->field_names = realloc(obj->field_names, sizeof(char*) * obj->capacity);
+            obj->field_values = realloc(obj->field_values, sizeof(Value) * obj->capacity);
+        }
+        obj->field_names[obj->num_fields] = strdup(key.as.as_string->data);
+        obj->field_values[obj->num_fields] = val;
+        obj->num_fields++;
+
+        // Free key string
+        free(key.as.as_string->data);
+        free(key.as.as_string);
+
+        p = json_skip_whitespace(p, end);
+        if (p < end && *p == ',') {
+            p++;
+            p = json_skip_whitespace(p, end);
+        }
+    }
+    if (p < end) p++;  // Skip '}'
+    *pp = p;
+
+    Value result;
+    result.type = VAL_OBJECT;
+    result.as.as_object = obj;
+    return result;
+}
+
+static Value vm_json_parse_value(const char **pp, const char *end) {
+    const char *p = json_skip_whitespace(*pp, end);
+    *pp = p;
+
+    if (p >= end) return vm_null_value();
+
+    if (*p == '"') {
+        return vm_json_parse_string(pp, end);
+    } else if (*p == '{') {
+        return vm_json_parse_object(pp, end);
+    } else if (*p == '[') {
+        return vm_json_parse_array(pp, end);
+    } else if (*p == 't' && p + 4 <= end && strncmp(p, "true", 4) == 0) {
+        *pp = p + 4;
+        return val_bool_vm(true);
+    } else if (*p == 'f' && p + 5 <= end && strncmp(p, "false", 5) == 0) {
+        *pp = p + 5;
+        return val_bool_vm(false);
+    } else if (*p == 'n' && p + 4 <= end && strncmp(p, "null", 4) == 0) {
+        *pp = p + 4;
+        return vm_null_value();
+    } else if (*p == '-' || (*p >= '0' && *p <= '9')) {
+        return vm_json_parse_number(pp, end);
+    }
+
+    return vm_null_value();
+}
+
+static Value vm_json_parse(const char *json, int len) {
+    const char *p = json;
+    const char *end = json + len;
+    return vm_json_parse_value(&p, end);
+}
+
 // Check if value is a numeric type
 static int is_numeric(ValueType t) {
     return t >= VAL_I8 && t <= VAL_F64;
@@ -2704,6 +2926,23 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         result.type = VAL_ARRAY;
                         result.as.as_array = arr;
+                    } else if (strcmp(method, "to_bytes") == 0) {
+                        // to_bytes() - return array of byte values (u8)
+                        Array *arr = malloc(sizeof(Array));
+                        arr->elements = malloc(sizeof(Value) * (str->length > 0 ? str->length : 1));
+                        arr->length = str->length;
+                        arr->capacity = str->length > 0 ? str->length : 1;
+                        arr->element_type = NULL;
+                        arr->ref_count = 1;
+                        for (int i = 0; i < str->length; i++) {
+                            arr->elements[i].type = VAL_U8;
+                            arr->elements[i].as.as_u8 = (uint8_t)str->data[i];
+                        }
+                        result.type = VAL_ARRAY;
+                        result.as.as_array = arr;
+                    } else if (strcmp(method, "deserialize") == 0) {
+                        // deserialize() - parse JSON string into object/array/value
+                        result = vm_json_parse(str->data, str->length);
                     } else {
                         vm_runtime_error(vm, "Unknown string method: %s", method);
                         return VM_RUNTIME_ERROR;
