@@ -171,12 +171,11 @@ static void compile_string(Compiler *compiler, Expr *expr) {
 }
 
 static void compile_rune(Compiler *compiler, Expr *expr) {
-    // Runes are stored as i32 constants
-    Constant c = {.type = CONST_I32, .as.i32 = (int32_t)expr->as.rune};
+    // Runes are stored as rune constants (u32 codepoint)
+    Constant c = {.type = CONST_RUNE, .as.rune = expr->as.rune};
     int idx = make_constant(compiler, c);
     emit_byte(compiler, BC_CONST);
     emit_short(compiler, idx);
-    // TODO: Mark as rune type
 }
 
 static void compile_identifier(Compiler *compiler, Expr *expr) {

@@ -24,6 +24,7 @@ typedef enum {
     CONST_I32,          // 32-bit signed integer
     CONST_I64,          // 64-bit signed integer
     CONST_F64,          // 64-bit float
+    CONST_RUNE,         // Unicode codepoint (u32)
     CONST_STRING,       // Interned string
     CONST_FUNCTION,     // Compiled function (Chunk*)
     CONST_IDENTIFIER,   // Variable/property name
@@ -35,6 +36,7 @@ typedef struct {
         int32_t i32;
         int64_t i64;
         double f64;
+        uint32_t rune;
         struct {
             char *data;
             int length;

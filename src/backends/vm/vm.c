@@ -19,6 +19,99 @@
 static int vm_trace_enabled = 0;
 
 // ============================================
+// UTF-8 Helpers
+// ============================================
+
+// Get byte length of UTF-8 character from first byte
+static int utf8_char_byte_length(unsigned char first_byte) {
+    if ((first_byte & 0x80) == 0) return 1;      // 0xxxxxxx (ASCII)
+    if ((first_byte & 0xE0) == 0xC0) return 2;   // 110xxxxx
+    if ((first_byte & 0xF0) == 0xE0) return 3;   // 1110xxxx
+    if ((first_byte & 0xF8) == 0xF0) return 4;   // 11110xxx
+    return 1;  // Invalid, treat as 1 byte
+}
+
+// Count Unicode codepoints in UTF-8 string
+static int utf8_count_codepoints(const char *data, int byte_length) {
+    int count = 0;
+    int pos = 0;
+    while (pos < byte_length) {
+        unsigned char byte = (unsigned char)data[pos];
+        if ((byte & 0xC0) != 0x80) {  // Not a continuation byte
+            count++;
+        }
+        pos++;
+    }
+    return count;
+}
+
+// Find byte offset of the i-th codepoint (0-indexed)
+static int utf8_byte_offset(const char *data, int byte_length, int char_index) {
+    int pos = 0;
+    int codepoint_count = 0;
+    while (pos < byte_length) {
+        unsigned char byte = (unsigned char)data[pos];
+        if ((byte & 0xC0) != 0x80) {  // Start byte
+            if (codepoint_count == char_index) {
+                return pos;
+            }
+            codepoint_count++;
+        }
+        pos++;
+    }
+    return pos;
+}
+
+// Decode UTF-8 codepoint at byte position
+static uint32_t utf8_decode_at(const char *data, int byte_pos) {
+    unsigned char b1 = (unsigned char)data[byte_pos];
+
+    if ((b1 & 0x80) == 0) {
+        return b1;  // ASCII
+    }
+    if ((b1 & 0xE0) == 0xC0) {
+        unsigned char b2 = (unsigned char)data[byte_pos + 1];
+        return ((b1 & 0x1F) << 6) | (b2 & 0x3F);
+    }
+    if ((b1 & 0xF0) == 0xE0) {
+        unsigned char b2 = (unsigned char)data[byte_pos + 1];
+        unsigned char b3 = (unsigned char)data[byte_pos + 2];
+        return ((b1 & 0x0F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+    }
+    if ((b1 & 0xF8) == 0xF0) {
+        unsigned char b2 = (unsigned char)data[byte_pos + 1];
+        unsigned char b3 = (unsigned char)data[byte_pos + 2];
+        unsigned char b4 = (unsigned char)data[byte_pos + 3];
+        return ((b1 & 0x07) << 18) | ((b2 & 0x3F) << 12) | ((b3 & 0x3F) << 6) | (b4 & 0x3F);
+    }
+    return b1;  // Invalid, return as-is
+}
+
+// Encode codepoint to UTF-8, return number of bytes written
+static int utf8_encode(uint32_t codepoint, char *buf) {
+    if (codepoint < 0x80) {
+        buf[0] = (char)codepoint;
+        return 1;
+    }
+    if (codepoint < 0x800) {
+        buf[0] = (char)(0xC0 | (codepoint >> 6));
+        buf[1] = (char)(0x80 | (codepoint & 0x3F));
+        return 2;
+    }
+    if (codepoint < 0x10000) {
+        buf[0] = (char)(0xE0 | (codepoint >> 12));
+        buf[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (codepoint & 0x3F));
+        return 3;
+    }
+    buf[0] = (char)(0xF0 | (codepoint >> 18));
+    buf[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+    buf[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+    buf[3] = (char)(0x80 | (codepoint & 0x3F));
+    return 4;
+}
+
+// ============================================
 // Value Helpers (matching interpreter semantics)
 // ============================================
 
@@ -1022,6 +1115,7 @@ static Value binary_eq(Value a, Value b) {
         case VAL_I32: return val_bool_vm(a.as.as_i32 == b.as.as_i32);
         case VAL_I64: return val_bool_vm(a.as.as_i64 == b.as.as_i64);
         case VAL_F64: return val_bool_vm(a.as.as_f64 == b.as.as_f64);
+        case VAL_RUNE: return val_bool_vm(a.as.as_rune == b.as.as_rune);
         case VAL_STRING:
             if (a.as.as_string == b.as.as_string) return val_bool_vm(1);
             if (!a.as.as_string || !b.as.as_string) return val_bool_vm(0);
@@ -1161,6 +1255,10 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     case CONST_I32: v = val_i32_vm(c.as.i32); break;
                     case CONST_I64: v = val_i64_vm(c.as.i64); break;
                     case CONST_F64: v = val_f64_vm(c.as.f64); break;
+                    case CONST_RUNE:
+                        v.type = VAL_RUNE;
+                        v.as.as_rune = c.as.rune;
+                        break;
                     case CONST_STRING: {
                         // Create string value
                         String *s = malloc(sizeof(String));
@@ -3021,13 +3119,16 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                             free(buf);
                         }
                     } else if (strcmp(method, "char_at") == 0 && argc >= 1) {
-                        // char_at(index)
+                        // char_at(index) - returns rune at character index (UTF-8 aware)
                         int index = value_to_i32(args[0]);
-                        if (index < 0 || index >= str->length) {
-                            result = vm_make_string("", 0);
+                        int char_count = utf8_count_codepoints(str->data, str->length);
+                        if (index < 0 || index >= char_count) {
+                            result = vm_null_value();
                         } else {
-                            char buf[2] = {str->data[index], '\0'};
-                            result = vm_make_string(buf, 1);
+                            int byte_pos = utf8_byte_offset(str->data, str->length, index);
+                            uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+                            result.type = VAL_RUNE;
+                            result.as.as_rune = codepoint;
                         }
                     } else if (strcmp(method, "byte_at") == 0 && argc >= 1) {
                         // byte_at(index)
@@ -3038,16 +3139,20 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                             result = val_i32_vm((unsigned char)str->data[index]);
                         }
                     } else if (strcmp(method, "chars") == 0) {
-                        // chars() - return array of single-char strings
+                        // chars() - return array of runes (UTF-8 aware)
+                        int char_count = utf8_count_codepoints(str->data, str->length);
                         Array *arr = malloc(sizeof(Array));
-                        arr->elements = malloc(sizeof(Value) * (str->length > 0 ? str->length : 1));
-                        arr->length = str->length;
-                        arr->capacity = str->length > 0 ? str->length : 1;
+                        arr->elements = malloc(sizeof(Value) * (char_count > 0 ? char_count : 1));
+                        arr->length = char_count;
+                        arr->capacity = char_count > 0 ? char_count : 1;
                         arr->element_type = NULL;
                         arr->ref_count = 1;
-                        for (int i = 0; i < str->length; i++) {
-                            char buf[2] = {str->data[i], '\0'};
-                            arr->elements[i] = vm_make_string(buf, 1);
+                        int byte_pos = 0;
+                        for (int i = 0; i < char_count; i++) {
+                            uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
+                            arr->elements[i].type = VAL_RUNE;
+                            arr->elements[i].as.as_rune = codepoint;
+                            byte_pos += utf8_char_byte_length((unsigned char)str->data[byte_pos]);
                         }
                         result.type = VAL_ARRAY;
                         result.as.as_array = arr;
