@@ -17,6 +17,26 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     return val_null();
 }
 
+static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...) {
+    char buffer[512];
+    char full_buffer[600];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (line > 0) {
+        snprintf(full_buffer, sizeof(full_buffer), "[line %d] %s", line, buffer);
+    } else {
+        snprintf(full_buffer, sizeof(full_buffer), "%s", buffer);
+    }
+
+    ctx->exception_state.exception_value = val_string(full_buffer);
+    value_retain(ctx->exception_state.exception_value);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
+}
+
 // ========== FUNCTION CALL HELPER ==========
 
 // Helper to call a function value with given arguments
@@ -134,7 +154,7 @@ int values_equal(Value a, Value b) {
     }
 }
 
-Value call_array_method(Array *arr, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
+Value call_array_method(Array *arr, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx) {
     // Fast dispatch by first character to reduce strcmp calls
     switch (method[0]) {
     case 'p':
@@ -640,5 +660,5 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         break;
     }
 
-    return throw_runtime_error(ctx, "Array has no method '%s'", method);
+    return throw_runtime_error_at(ctx, line, "Array has no method '%s'", method);
 }
