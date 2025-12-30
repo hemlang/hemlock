@@ -636,13 +636,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 should_release_args = 1;
             } else if (func.type == VAL_TYPE) {
                 // Type constructor: i32("42"), f64("3.14"), bool("true"), etc.
-                if (expr->as.call.num_args != 1) {
+                if (expr->as.call.num_args != 1 || args == NULL) {
                     runtime_error(ctx, "Type constructor expects exactly 1 argument");
+                    result = val_null();  // Unreachable, but satisfies analyzer
+                } else {
+                    TypeKind target_kind = func.as.as_type;
+                    // Create a temporary Type struct for convert_to_type
+                    Type temp_type = { .kind = target_kind, .nullable = 0, .type_name = NULL, .element_type = NULL };
+                    result = convert_to_type(args[0], &temp_type, env, ctx);
                 }
-                TypeKind target_kind = func.as.as_type;
-                // Create a temporary Type struct for convert_to_type
-                Type temp_type = { .kind = target_kind, .nullable = 0, .type_name = NULL, .element_type = NULL };
-                result = convert_to_type(args[0], &temp_type, env, ctx);
                 // Type constructors don't retain args via env_set, so we must release them
                 should_release_args = 1;
             } else {

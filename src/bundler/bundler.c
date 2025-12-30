@@ -774,6 +774,8 @@ static BundledModule* load_module_for_bundle(BundleContext *ctx, const char *abs
     // Parse the file
     module->statements = parse_file(absolute_path, &module->num_statements);
     if (!module->statements) {
+        // Note: module is already in the bundle and will be freed by bundle_free()
+        // on error. This is not a memory leak - the bundle owns this module.
         return NULL;
     }
 
