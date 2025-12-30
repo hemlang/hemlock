@@ -303,6 +303,43 @@ parity: $(TARGET) compiler
 parity-full: $(TARGET) compiler
 	@bash tests/run_full_parity.sh
 
+# ========== BYTECODE VM ==========
+
+# Build the bytecode VM
+.PHONY: vm
+vm:
+	@echo "Building bytecode VM..."
+	$(MAKE) -C src/backends/vm
+	@echo "✓ Bytecode VM built: src/backends/vm/hemlockvm"
+
+# Clean the bytecode VM
+.PHONY: vm-clean
+vm-clean:
+	$(MAKE) -C src/backends/vm clean
+
+# Run VM parity tests
+.PHONY: test-vm
+test-vm: vm
+	@echo "Running VM parity tests..."
+	@passed=0; failed=0; \
+	for test in tests/parity/language/*.hml; do \
+		expected="$${test%.hml}.expected"; \
+		if [ -f "$$expected" ]; then \
+			output=$$(src/backends/vm/hemlockvm "$$test" 2>&1); \
+			expected_content=$$(cat "$$expected"); \
+			if [ "$$output" = "$$expected_content" ]; then \
+				echo "✓ PASS: $$(basename $$test)"; \
+				passed=$$((passed + 1)); \
+			else \
+				echo "✗ FAIL: $$(basename $$test)"; \
+				failed=$$((failed + 1)); \
+			fi; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "VM Parity: $$passed passed, $$failed failed"; \
+	if [ $$failed -gt 0 ]; then exit 1; fi
+
 # Run bundler test suite
 .PHONY: test-bundler
 test-bundler: $(TARGET)
