@@ -62,13 +62,8 @@ fn stringify(value) {
 
 // Helper: Format number to string
 fn format_number(value) {
-    // Use a temporary object to leverage .serialize()
-    let wrapper = { n: value };
-    let json = wrapper.serialize();
-    // Extract just the number part: {"n":42} -> "42"
-    let colon_pos = json.find(":");
-    let close_brace_pos = json.find("}");
-    return json.slice(colon_pos + 1, close_brace_pos);
+    // Convert number to string using string concatenation
+    return "" + value;
 }
 
 // Parse JSON from file
@@ -299,20 +294,7 @@ fn is_numeric(s: string): bool {
 
 // Internal: Parse string to integer
 fn parse_int(s: string): i32 {
-    // Simple integer parser
-    let result = 0;
-    let i = 0;
-    let zero_code: i32 = '0';
-
-    while (i < s.length) {
-        let ch = s[i];
-        let ch_code: i32 = ch;
-        let digit = ch_code - zero_code;
-        result = result * 10 + digit;
-        i = i + 1;
-    }
-
-    return result;
+    return i32(s);
 }
 
 // Get value by path (dot notation)

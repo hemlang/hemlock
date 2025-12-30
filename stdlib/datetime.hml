@@ -189,184 +189,21 @@ export fn parse_iso(date_str: string) {
 
         let time_parts = time_part.split(":");
 
-        let year = 0;
-        let month = 0;
-        let day = 0;
-        let hour = 0;
-        let minute = 0;
-        let second = 0;
-
-        // Parse integers (Hemlock doesn't have parseInt yet, so we construct from string)
-        let i = 0;
-        while (i < date_parts[0].length) {
-            let ch = date_parts[0][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            year = year * 10 + digit;
-            i = i + 1;
-        }
-
-        i = 0;
-        while (i < date_parts[1].length) {
-            let ch = date_parts[1][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            month = month * 10 + digit;
-            i = i + 1;
-        }
-
-        i = 0;
-        while (i < date_parts[2].length) {
-            let ch = date_parts[2][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            day = day * 10 + digit;
-            i = i + 1;
-        }
-
-        // Parse time components similarly
-        i = 0;
-        while (i < time_parts[0].length) {
-            let ch = time_parts[0][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            hour = hour * 10 + digit;
-            i = i + 1;
-        }
-
-        i = 0;
-        while (i < time_parts[1].length) {
-            let ch = time_parts[1][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            minute = minute * 10 + digit;
-            i = i + 1;
-        }
-
-        i = 0;
-        while (i < time_parts[2].length) {
-            let ch = time_parts[2][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            second = second * 10 + digit;
-            i = i + 1;
-        }
+        // Parse date and time components using type constructor
+        let year = i32(date_parts[0]);
+        let month = i32(date_parts[1]);
+        let day = i32(date_parts[2]);
+        let hour = i32(time_parts[0]);
+        let minute = i32(time_parts[1]);
+        let second = i32(time_parts[2]);
 
         return from_date(year, month, day, hour, minute, second);
     } else {
-        // Parse YYYY-MM-DD
+        // Parse YYYY-MM-DD using type constructor
         let parts = date_str.split("-");
-        let year = 0;
-        let month = 0;
-        let day = 0;
-
-        let i = 0;
-        while (i < parts[0].length) {
-            let ch = parts[0][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            year = year * 10 + digit;
-            i = i + 1;
-        }
-
-        i = 0;
-        while (i < parts[1].length) {
-            let ch = parts[1][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            month = month * 10 + digit;
-            i = i + 1;
-        }
-
-        i = 0;
-        while (i < parts[2].length) {
-            let ch = parts[2][i];
-            let digit = 0;
-            if (ch == '0') { digit = 0; }
-            if (ch == '1') { digit = 1; }
-            if (ch == '2') { digit = 2; }
-            if (ch == '3') { digit = 3; }
-            if (ch == '4') { digit = 4; }
-            if (ch == '5') { digit = 5; }
-            if (ch == '6') { digit = 6; }
-            if (ch == '7') { digit = 7; }
-            if (ch == '8') { digit = 8; }
-            if (ch == '9') { digit = 9; }
-            day = day * 10 + digit;
-            i = i + 1;
-        }
+        let year = i32(parts[0]);
+        let month = i32(parts[1]);
+        let day = i32(parts[2]);
 
         return from_date(year, month, day, 0, 0, 0);
     }
