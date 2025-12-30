@@ -83,6 +83,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->type_ctx = type_infer_new();
     ctx->optimize = 1;  // Enable optimization by default
     ctx->has_defers = 0;  // Track if any defers exist in current function
+    ctx->tail_call_func_name = NULL;  // Tail call optimization tracking
+    ctx->tail_call_label = NULL;
+    ctx->tail_call_func_expr = NULL;
     ctx->error_count = 0;
     ctx->warning_count = 0;
     return ctx;
@@ -820,12 +823,18 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->has_defers = ctx->has_defers;
     state->module = ctx->current_module;
     state->closure = ctx->current_closure;
+    state->tail_call_func_name = ctx->tail_call_func_name;
+    state->tail_call_label = ctx->tail_call_label;
+    state->tail_call_func_expr = ctx->tail_call_func_expr;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
     ctx->in_function = 1;
     ctx->has_defers = 0;
     ctx->last_closure_env_id = -1;
+    ctx->tail_call_func_name = NULL;
+    ctx->tail_call_label = NULL;
+    ctx->tail_call_func_expr = NULL;
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -836,6 +845,11 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->has_defers = state->has_defers;
     ctx->current_module = state->module;
     ctx->current_closure = state->closure;
+    // Free any allocated tail call labels
+    free(ctx->tail_call_label);
+    ctx->tail_call_func_name = state->tail_call_func_name;
+    ctx->tail_call_label = state->tail_call_label;
+    ctx->tail_call_func_expr = state->tail_call_func_expr;
     shared_env_clear(ctx);
 }
 
@@ -901,6 +915,12 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
 }
 
 void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
+    // OPTIMIZATION: Analyze function body for unboxable typed variables
+    // This identifies variables like "let x: i32 = 0" that can use native C types
+    if (ctx->optimize && ctx->type_ctx) {
+        type_analyze_block_for_unboxing(ctx->type_ctx, func->as.function.body);
+    }
+
     if (func->as.function.body->type == STMT_BLOCK) {
         for (int i = 0; i < func->as.function.body->as.block.count; i++) {
             codegen_stmt(ctx, func->as.function.body->as.block.statements[i]);
@@ -953,6 +973,98 @@ const char* type_kind_to_ffi_type(TypeKind kind) {
         case TYPE_CUSTOM_OBJECT: return "HML_FFI_STRUCT";
         default:          return "HML_FFI_VOID";
     }
+}
+
+// ========== UNBOXED TYPE HELPERS ==========
+
+const char* inferred_type_to_c_type(InferredTypeKind kind) {
+    switch (kind) {
+        case INFER_I8:   return "int8_t";
+        case INFER_I16:  return "int16_t";
+        case INFER_I32:  return "int32_t";
+        case INFER_I64:  return "int64_t";
+        case INFER_U8:   return "uint8_t";
+        case INFER_U16:  return "uint16_t";
+        case INFER_U32:  return "uint32_t";
+        case INFER_U64:  return "uint64_t";
+        case INFER_F32:  return "float";
+        case INFER_F64:  return "double";
+        case INFER_BOOL: return "int";  // C doesn't have native bool
+        default:         return NULL;
+    }
+}
+
+const char* inferred_type_to_box_func(InferredTypeKind kind) {
+    switch (kind) {
+        case INFER_I8:   return "hml_val_i8";
+        case INFER_I16:  return "hml_val_i16";
+        case INFER_I32:  return "hml_val_i32";
+        case INFER_I64:  return "hml_val_i64";
+        case INFER_U8:   return "hml_val_u8";
+        case INFER_U16:  return "hml_val_u16";
+        case INFER_U32:  return "hml_val_u32";
+        case INFER_U64:  return "hml_val_u64";
+        case INFER_F32:  return "hml_val_f32";
+        case INFER_F64:  return "hml_val_f64";
+        case INFER_BOOL: return "hml_val_bool";
+        default:         return NULL;
+    }
+}
+
+const char* inferred_type_to_unbox_func(InferredTypeKind kind) {
+    // Note: runtime only has hml_to_i32, hml_to_i64, hml_to_f64, hml_to_bool
+    // Other types need casts, which are handled by inferred_type_to_unbox_cast
+    switch (kind) {
+        case INFER_I32:  return "hml_to_i32";
+        case INFER_I64:  return "hml_to_i64";
+        case INFER_F64:  return "hml_to_f64";
+        case INFER_BOOL: return "hml_to_bool";
+        // Types that need casts return NULL - caller should use inferred_type_to_unbox_cast
+        case INFER_I8:
+        case INFER_I16:
+        case INFER_U8:
+        case INFER_U16:
+        case INFER_U32:
+        case INFER_U64:
+        case INFER_F32:
+            return NULL;
+        default:
+            return NULL;
+    }
+}
+
+// Get the cast wrapper for unboxing (e.g., "(int8_t)hml_to_i32" for i8)
+const char* inferred_type_to_unbox_cast(InferredTypeKind kind) {
+    switch (kind) {
+        case INFER_I8:   return "(int8_t)hml_to_i32";
+        case INFER_I16:  return "(int16_t)hml_to_i32";
+        case INFER_U8:   return "(uint8_t)hml_to_i32";
+        case INFER_U16:  return "(uint16_t)hml_to_i32";
+        case INFER_U32:  return "(uint32_t)hml_to_i64";
+        case INFER_U64:  return "(uint64_t)hml_to_i64";
+        case INFER_F32:  return "(float)hml_to_f64";
+        // These have direct functions
+        case INFER_I32:  return "hml_to_i32";
+        case INFER_I64:  return "hml_to_i64";
+        case INFER_F64:  return "hml_to_f64";
+        case INFER_BOOL: return "hml_to_bool";
+        default:         return NULL;
+    }
+}
+
+int inferred_type_is_numeric(InferredTypeKind kind) {
+    return kind == INFER_I8 || kind == INFER_I16 || kind == INFER_I32 || kind == INFER_I64 ||
+           kind == INFER_U8 || kind == INFER_U16 || kind == INFER_U32 || kind == INFER_U64 ||
+           kind == INFER_F32 || kind == INFER_F64;
+}
+
+int inferred_type_is_integer(InferredTypeKind kind) {
+    return kind == INFER_I8 || kind == INFER_I16 || kind == INFER_I32 || kind == INFER_I64 ||
+           kind == INFER_U8 || kind == INFER_U16 || kind == INFER_U32 || kind == INFER_U64;
+}
+
+int inferred_type_is_float(InferredTypeKind kind) {
+    return kind == INFER_F32 || kind == INFER_F64;
 }
 
 // ========== IN-MEMORY BUFFER SUPPORT ==========

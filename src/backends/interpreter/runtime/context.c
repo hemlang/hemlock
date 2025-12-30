@@ -107,25 +107,33 @@ void call_stack_print(CallStack *stack) {
     for (int i = stack->count - 1; i >= 0; i--) {
         CallFrame *frame = &stack->frames[i];
 
+        // Print frame number for easier reference
+        int frame_num = stack->count - 1 - i;
+
         if (frame->source_file && frame->line > 0) {
             // Full info: file:line
-            fprintf(stderr, "    at %s (%s:%d)\n",
+            fprintf(stderr, "  #%d  %s (%s:%d)\n",
+                    frame_num,
                     frame->function_name,
                     frame->source_file,
                     frame->line);
         } else if (frame->line > 0) {
             // Line only
-            fprintf(stderr, "    at %s (line %d)\n",
+            fprintf(stderr, "  #%d  %s (line %d)\n",
+                    frame_num,
                     frame->function_name,
                     frame->line);
         } else if (frame->source_file) {
             // File only
-            fprintf(stderr, "    at %s (%s)\n",
+            fprintf(stderr, "  #%d  %s (%s)\n",
+                    frame_num,
                     frame->function_name,
                     frame->source_file);
         } else {
             // No location info
-            fprintf(stderr, "    at %s\n", frame->function_name);
+            fprintf(stderr, "  #%d  %s\n",
+                    frame_num,
+                    frame->function_name);
         }
     }
 }
@@ -234,6 +242,34 @@ void runtime_error(ExecutionContext *ctx, const char *format, ...) {
     } else {
         // No context - print error and exit
         fprintf(stderr, "Runtime error: %s\n", buffer);
+        exit(1);
+    }
+}
+
+// Runtime error with line number
+void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...) {
+    char buffer[512];
+    char full_buffer[600];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    // Include line number in the error message
+    if (line > 0) {
+        snprintf(full_buffer, sizeof(full_buffer), "[line %d] %s", line, buffer);
+    } else {
+        snprintf(full_buffer, sizeof(full_buffer), "%s", buffer);
+    }
+
+    // Set exception state for catchable errors
+    if (ctx) {
+        ctx->exception_state.exception_value = val_string(full_buffer);
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+    } else {
+        // No context - print error and exit
+        fprintf(stderr, "Runtime error: %s\n", full_buffer);
         exit(1);
     }
 }

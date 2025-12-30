@@ -11,6 +11,7 @@ typedef struct {
     Token previous;
     int had_error;
     int panic_mode;
+    const char *source;  // Source code for error messages
 } Parser;
 
 // Public interface

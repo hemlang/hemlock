@@ -14,8 +14,15 @@
 // Inferred type kinds
 typedef enum {
     INFER_UNKNOWN,      // Type not yet inferred / can be anything
+    INFER_I8,           // Known to be i8
+    INFER_I16,          // Known to be i16
     INFER_I32,          // Known to be i32
     INFER_I64,          // Known to be i64
+    INFER_U8,           // Known to be u8
+    INFER_U16,          // Known to be u16
+    INFER_U32,          // Known to be u32
+    INFER_U64,          // Known to be u64
+    INFER_F32,          // Known to be f32
     INFER_F64,          // Known to be f64
     INFER_BOOL,         // Known to be bool
     INFER_STRING,       // Known to be string
@@ -53,11 +60,22 @@ typedef struct FuncReturnType {
     struct FuncReturnType *next;
 } FuncReturnType;
 
+// Unboxable variable info (variables that can use native C types)
+typedef struct UnboxableVar {
+    char *name;
+    InferredTypeKind native_type;  // INFER_I32, INFER_I64, INFER_BOOL, INFER_F64
+    int is_loop_counter;           // Whether this is a loop counter
+    int is_accumulator;            // Whether this is used as an accumulator
+    int is_typed_var;              // Whether this is a typed variable (let x: i32 = ...)
+    struct UnboxableVar *next;
+} UnboxableVar;
+
 // Type inference context
 typedef struct {
     TypeEnv *current_env;
     FuncReturnType *func_returns;  // Registry of function return types
     int changed;  // Set to 1 if any type was refined this pass
+    UnboxableVar *unboxable_vars;  // Variables that can be unboxed
 } TypeInferContext;
 
 // ========== TYPE CONSTRUCTORS ==========
@@ -81,6 +99,7 @@ int infer_is_known(InferredType t);
 int infer_is_i32(InferredType t);
 int infer_is_i64(InferredType t);
 int infer_is_f64(InferredType t);
+int infer_is_bool(InferredType t);
 int infer_is_integer(InferredType t);  // i32, i64, or INTEGER
 int infer_is_numeric(InferredType t);  // any numeric type
 
@@ -125,6 +144,68 @@ void infer_stmt(TypeInferContext *ctx, Stmt *stmt);
 
 // Analyze a function and infer parameter/return types
 void infer_function(TypeInferContext *ctx, Expr *func_expr);
+
+// ========== ESCAPE ANALYSIS & UNBOXING ==========
+
+// Mark a variable as unboxable (can use native C type instead of HmlValue)
+void type_mark_unboxable(TypeInferContext *ctx, const char *name,
+                         InferredTypeKind native_type, int is_loop_counter, int is_accumulator);
+
+// Check if a variable is unboxable (returns native type, or INFER_UNKNOWN if not unboxable)
+InferredTypeKind type_get_unboxable(TypeInferContext *ctx, const char *name);
+
+// Check if variable is an unboxable loop counter
+int type_is_loop_counter(TypeInferContext *ctx, const char *name);
+
+// Check if variable is an unboxable accumulator
+int type_is_accumulator(TypeInferContext *ctx, const char *name);
+
+// Analyze a for-loop and detect unboxable loop counters
+void type_analyze_for_loop(TypeInferContext *ctx, Stmt *stmt);
+
+// Analyze a while-loop for unboxable accumulators
+void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt);
+
+// ========== TYPED VARIABLE UNBOXING ==========
+
+// Analyze a typed variable declaration and determine if it can be unboxed
+// A variable can be unboxed if:
+// 1. It has a primitive type annotation (i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool)
+// 2. It doesn't escape (not passed to functions, stored in arrays/objects, returned, etc.)
+// 3. It's only used in operations that preserve its type
+void type_analyze_typed_let(TypeInferContext *ctx, Stmt *stmt, Stmt *containing_block, int stmt_index);
+
+// Analyze all statements in a function/block for unboxable typed variables
+void type_analyze_block_for_unboxing(TypeInferContext *ctx, Stmt *block);
+
+// Check if a typed variable can be unboxed based on its type annotation
+// Returns the native type if unboxable, INFER_UNKNOWN otherwise
+InferredTypeKind type_can_unbox_annotation(Type *type_annotation);
+
+// Check if a variable escapes in the given statement(s)
+// Returns 1 if the variable escapes (needs to stay boxed), 0 otherwise
+int type_variable_escapes(const char *var_name, Stmt *stmt);
+
+// Check if a variable escapes in an expression
+int type_variable_escapes_in_expr(const char *var_name, Expr *expr);
+
+// Check if variable is an unboxable typed variable (not loop counter or accumulator)
+int type_is_unboxed_typed_var(TypeInferContext *ctx, const char *name);
+
+// ========== TAIL CALL OPTIMIZATION ==========
+
+// Check if a function has a single tail recursive call pattern
+// Returns 1 if the function can be optimized with tail call elimination, 0 otherwise
+// A function is tail-recursive if all return statements either:
+//   - Return a non-recursive value (base case)
+//   - Return a call to the same function (tail call)
+int is_tail_recursive_function(Stmt *body, const char *func_name);
+
+// Check if a statement contains only tail calls or non-recursive returns
+int stmt_is_tail_recursive(Stmt *stmt, const char *func_name);
+
+// Check if an expression is a tail call to the given function
+int is_tail_call_expr(Expr *expr, const char *func_name);
 
 // ========== DEBUG ==========
 

@@ -810,6 +810,7 @@ static int is_hmlc_extension(const char *path) {
 
 static void run_repl(int stack_depth) {
     char line[1024];
+    char input_buffer[2048];  // Buffer for input with optional semicolon
     Environment *env = env_new(NULL);
 
     // Create execution context for REPL (persists across lines)
@@ -843,13 +844,22 @@ static void run_repl(int stack_depth) {
         }
 
         // Skip empty lines
-        if (strlen(line) == 0) {
+        size_t len = strlen(line);
+        if (len == 0) {
             continue;
+        }
+
+        // REPL convenience: auto-append semicolon if missing
+        // This makes single expressions like "2 + 2" work without requiring "2 + 2;"
+        const char *input = line;
+        if (len > 0 && line[len - 1] != ';' && line[len - 1] != '}') {
+            snprintf(input_buffer, sizeof(input_buffer), "%s;", line);
+            input = input_buffer;
         }
 
         // Parse and execute
         Lexer lexer;
-        lexer_init(&lexer, line);
+        lexer_init(&lexer, input);
 
         Parser parser;
         parser_init(&parser, &lexer);

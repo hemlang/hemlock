@@ -66,10 +66,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_SUB: return val_i32(l - r);
             case OP_MUL: return val_i32(l * r);
             case OP_DIV:
-                if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_f64((double)l / (double)r);  // Always float division
             case OP_MOD:
-                if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_i32(l % r);
             case OP_LESS: return val_bool(l < r);
             case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -95,10 +95,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_SUB: return val_i64(l - r);
             case OP_MUL: return val_i64(l * r);
             case OP_DIV:
-                if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_f64((double)l / (double)r);  // Always float division
             case OP_MOD:
-                if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_i64(l % r);
             case OP_LESS: return val_bool(l < r);
             case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -146,10 +146,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_SUB: return val_i64(l - r);
             case OP_MUL: return val_i64(l * r);
             case OP_DIV:
-                if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_f64((double)l / (double)r);  // Always float division
             case OP_MOD:
-                if (r == 0) { runtime_error(ctx, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_i64(l % r);
             case OP_LESS: return val_bool(l < r);
             case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -525,7 +525,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             double l = value_to_float(left);
             double r = value_to_float(right);
             if (r == 0.0) {
-                runtime_error(ctx, "Division by zero");
+                runtime_error_at(ctx, expr->line, "Division by zero");
                 goto binary_cleanup;
             }
             binary_result = val_f64(l / r);
@@ -544,7 +544,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         int8_t l = left.as.as_i8;
                         int8_t r = right.as.as_i8;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         int8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -558,7 +558,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         int16_t l = left.as.as_i16;
                         int16_t r = right.as.as_i16;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         int16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -572,7 +572,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         int32_t l = left.as.as_i32;
                         int32_t r = right.as.as_i32;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         int32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -586,7 +586,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         int64_t l = left.as.as_i64;
                         int64_t r = right.as.as_i64;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         int64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -600,7 +600,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         uint8_t l = left.as.as_u8;
                         uint8_t r = right.as.as_u8;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         uint8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -614,7 +614,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         uint16_t l = left.as.as_u16;
                         uint16_t r = right.as.as_u16;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         uint16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -628,7 +628,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         uint32_t l = left.as.as_u32;
                         uint32_t r = right.as.as_u32;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         uint32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
@@ -642,7 +642,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         uint64_t l = left.as.as_u64;
                         uint64_t r = right.as.as_u64;
                         if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error(ctx, "Division by zero");
+                            runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
                         uint64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
