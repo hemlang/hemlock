@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <math.h>
+#include <errno.h>
 
 // Debug tracing
 static int vm_trace_enabled = 0;
@@ -2235,6 +2236,52 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         break;
                     }
+                    case BUILTIN_OPEN: {
+                        // open(path, mode?) - open file, returns file handle
+                        if (argc < 1 || args[0].type != VAL_STRING) {
+                            THROW_ERROR("open() expects (path: string, mode?: string)");
+                        }
+                        const char *path = args[0].as.as_string->data;
+                        const char *mode = "r";  // Default mode
+                        if (argc >= 2 && args[1].type == VAL_STRING) {
+                            mode = args[1].as.as_string->data;
+                        }
+                        FILE *fp = fopen(path, mode);
+                        if (!fp) {
+                            THROW_ERROR_FMT("Failed to open '%s': %s", path, strerror(errno));
+                        }
+                        FileHandle *file = malloc(sizeof(FileHandle));
+                        file->fp = fp;
+                        file->path = strdup(path);
+                        file->mode = strdup(mode);
+                        file->closed = 0;
+                        result.type = VAL_FILE;
+                        result.as.as_file = file;
+                        break;
+                    }
+                    case BUILTIN_READ_LINE: {
+                        // read_line() - read line from stdin
+                        char *line = NULL;
+                        size_t len = 0;
+                        ssize_t read_len = getline(&line, &len, stdin);
+                        if (read_len == -1) {
+                            free(line);
+                            result = vm_null_value();  // EOF
+                        } else {
+                            // Strip newline
+                            if (read_len > 0 && line[read_len - 1] == '\n') {
+                                line[read_len - 1] = '\0';
+                                read_len--;
+                            }
+                            if (read_len > 0 && line[read_len - 1] == '\r') {
+                                line[read_len - 1] = '\0';
+                                read_len--;
+                            }
+                            result = vm_make_string(line, read_len);
+                            free(line);
+                        }
+                        break;
+                    }
                     default:
                         vm_runtime_error(vm, "Builtin %d not implemented", builtin_id);
                         return VM_RUNTIME_ERROR;
@@ -3036,6 +3083,111 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         result = vm_json_parse(str->data, str->length);
                     } else {
                         THROW_ERROR_FMT("Unknown string method: %s", method);
+                    }
+                } else if (receiver.type == VAL_FILE && receiver.as.as_file) {
+                    // File method calls
+                    FileHandle *file = receiver.as.as_file;
+
+                    if (strcmp(method, "read") == 0) {
+                        // read() or read(size) - read text from file
+                        if (file->closed) {
+                            THROW_ERROR_FMT("Cannot read from closed file '%s'", file->path);
+                        }
+                        if (argc == 0) {
+                            // Read entire file from current position
+                            long current_pos = ftell(file->fp);
+                            int is_seekable = (current_pos != -1 && fseek(file->fp, 0, SEEK_END) == 0);
+                            if (is_seekable) {
+                                long end_pos = ftell(file->fp);
+                                fseek(file->fp, current_pos, SEEK_SET);
+                                long size = end_pos - current_pos;
+                                if (size <= 0) {
+                                    result = vm_make_string("", 0);
+                                } else {
+                                    char *buffer = malloc(size + 1);
+                                    size_t read_bytes = fread(buffer, 1, size, file->fp);
+                                    buffer[read_bytes] = '\0';
+                                    result = vm_make_string(buffer, read_bytes);
+                                    free(buffer);
+                                }
+                            } else {
+                                // Non-seekable: read in chunks
+                                size_t capacity = 4096;
+                                size_t total_read = 0;
+                                char *buffer = malloc(capacity);
+                                while (1) {
+                                    if (total_read + 4096 > capacity) {
+                                        capacity *= 2;
+                                        buffer = realloc(buffer, capacity);
+                                    }
+                                    size_t bytes = fread(buffer + total_read, 1, 4096, file->fp);
+                                    total_read += bytes;
+                                    if (bytes < 4096) break;
+                                }
+                                buffer[total_read] = '\0';
+                                result = vm_make_string(buffer, total_read);
+                                free(buffer);
+                            }
+                        } else {
+                            // Read specified size
+                            int size = value_to_i32(args[0]);
+                            if (size <= 0) {
+                                result = vm_make_string("", 0);
+                            } else {
+                                char *buffer = malloc(size + 1);
+                                size_t read_bytes = fread(buffer, 1, size, file->fp);
+                                buffer[read_bytes] = '\0';
+                                result = vm_make_string(buffer, read_bytes);
+                                free(buffer);
+                            }
+                        }
+                    } else if (strcmp(method, "write") == 0) {
+                        // write(data) - write string to file
+                        if (file->closed) {
+                            THROW_ERROR_FMT("Cannot write to closed file '%s'", file->path);
+                        }
+                        if (argc < 1 || args[0].type != VAL_STRING) {
+                            THROW_ERROR("write() expects string argument");
+                        }
+                        String *str = args[0].as.as_string;
+                        size_t written = fwrite(str->data, 1, str->length, file->fp);
+                        result = val_i32_vm((int32_t)written);
+                    } else if (strcmp(method, "seek") == 0) {
+                        // seek(position) - move file pointer
+                        if (file->closed) {
+                            THROW_ERROR_FMT("Cannot seek in closed file '%s'", file->path);
+                        }
+                        if (argc < 1) {
+                            THROW_ERROR("seek() expects 1 argument (position)");
+                        }
+                        int position = value_to_i32(args[0]);
+                        if (fseek(file->fp, position, SEEK_SET) != 0) {
+                            THROW_ERROR_FMT("Seek error on file '%s': %s", file->path, strerror(errno));
+                        }
+                        result = val_i32_vm((int32_t)ftell(file->fp));
+                    } else if (strcmp(method, "tell") == 0) {
+                        // tell() - get current file position
+                        if (file->closed) {
+                            THROW_ERROR_FMT("Cannot tell position in closed file '%s'", file->path);
+                        }
+                        long pos = ftell(file->fp);
+                        result = val_i32_vm((int32_t)pos);
+                    } else if (strcmp(method, "close") == 0) {
+                        // close() - close file
+                        if (!file->closed && file->fp) {
+                            fclose(file->fp);
+                            file->fp = NULL;
+                            file->closed = 1;
+                        }
+                        result = vm_null_value();
+                    } else if (strcmp(method, "flush") == 0) {
+                        // flush() - flush file buffer
+                        if (!file->closed && file->fp) {
+                            fflush(file->fp);
+                        }
+                        result = vm_null_value();
+                    } else {
+                        THROW_ERROR_FMT("File has no method '%s'", method);
                     }
                 } else if (receiver.type == VAL_OBJECT && receiver.as.as_object) {
                     // Object method call - first check for built-in methods
