@@ -17,6 +17,31 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 scope_add_var(ctx->current_scope, stmt->as.let.name);
             }
             char *safe_name = codegen_sanitize_ident(stmt->as.let.name);
+
+            // OPTIMIZATION: Check if this typed variable can be unboxed
+            // Unboxed variables use native C types for 5-10x faster arithmetic
+            if (ctx->optimize && stmt->as.let.type_annotation && stmt->as.let.value) {
+                InferredTypeKind native_type = type_can_unbox_annotation(stmt->as.let.type_annotation);
+                if (native_type != INFER_UNKNOWN) {
+                    // Check if variable is marked as unboxable (escape analysis passed)
+                    if (type_is_unboxed_typed_var(ctx->type_ctx, stmt->as.let.name) ||
+                        type_get_unboxable(ctx->type_ctx, stmt->as.let.name) != INFER_UNKNOWN) {
+                        const char *c_type = inferred_type_to_c_type(native_type);
+                        const char *unbox_cast = inferred_type_to_unbox_cast(native_type);
+                        if (c_type && unbox_cast) {
+                            // Generate unboxed variable with native C type
+                            char *value = codegen_expr(ctx, stmt->as.let.value);
+                            codegen_writeln(ctx, "%s %s = %s(%s);", c_type, safe_name, unbox_cast, value);
+                            codegen_writeln(ctx, "hml_release(&%s);", value);
+                            free(value);
+                            free(safe_name);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Standard boxed variable handling
             if (stmt->as.let.value) {
                 char *value = codegen_expr(ctx, stmt->as.let.value);
                 // Check if there's a custom object type annotation (for duck typing)

@@ -1,0 +1,8 @@
+sum_to_n(10) = 45
+sum_to_n(100) = 4950
+sum_to_n_i64(10) = 45
+test_mixed_ops() = 27
+test_comparisons() = true
+test_bitwise() = 510
+test_unsigned() = 200
+test_small_ints() = 30

@@ -209,6 +209,178 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 break;
             }
 
+            // OPTIMIZATION: Native C arithmetic for unboxed typed variables
+            // When both operands are unboxed variables of the same numeric type,
+            // use pure C arithmetic instead of HmlValue boxing/unboxing
+            if (ctx->optimize &&
+                expr->as.binary.left->type == EXPR_IDENT &&
+                expr->as.binary.right->type == EXPR_IDENT) {
+                InferredTypeKind left_native = type_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                InferredTypeKind right_native = type_get_unboxable(ctx->type_ctx, expr->as.binary.right->as.ident.name);
+
+                // Both operands must be unboxed and of the same numeric type
+                if (left_native != INFER_UNKNOWN && left_native == right_native &&
+                    inferred_type_is_numeric(left_native)) {
+                    const char *box_func = inferred_type_to_box_func(left_native);
+                    char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
+                    char *right_var = codegen_sanitize_ident(expr->as.binary.right->as.ident.name);
+                    int handled = 1;
+
+                    switch (expr->as.binary.op) {
+                        case OP_ADD:
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s + %s);", result, box_func, left_var, right_var);
+                            break;
+                        case OP_SUB:
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s - %s);", result, box_func, left_var, right_var);
+                            break;
+                        case OP_MUL:
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s * %s);", result, box_func, left_var, right_var);
+                            break;
+                        case OP_MOD:
+                            if (inferred_type_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s %% %s);", result, box_func, left_var, right_var);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(fmod(%s, %s));", result, left_var, right_var);
+                            }
+                            break;
+                        case OP_DIV:
+                            // Division always returns float
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_f64((double)%s / (double)%s);", result, left_var, right_var);
+                            break;
+                        case OP_LESS:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %s);", result, left_var, right_var);
+                            break;
+                        case OP_LESS_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %s);", result, left_var, right_var);
+                            break;
+                        case OP_GREATER:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %s);", result, left_var, right_var);
+                            break;
+                        case OP_GREATER_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %s);", result, left_var, right_var);
+                            break;
+                        case OP_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s == %s);", result, left_var, right_var);
+                            break;
+                        case OP_NOT_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s != %s);", result, left_var, right_var);
+                            break;
+                        case OP_BIT_AND:
+                            if (inferred_type_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s & %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_OR:
+                            if (inferred_type_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s | %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_XOR:
+                            if (inferred_type_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s ^ %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_LSHIFT:
+                            if (inferred_type_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s << %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_RSHIFT:
+                            if (inferred_type_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s >> %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        default:
+                            handled = 0;
+                            break;
+                    }
+
+                    free(left_var);
+                    free(right_var);
+                    if (handled) break;
+                }
+            }
+
+            // OPTIMIZATION: Native C arithmetic for one unboxed variable and one literal
+            if (ctx->optimize && expr->as.binary.left->type == EXPR_IDENT &&
+                expr->as.binary.right->type == EXPR_NUMBER) {
+                InferredTypeKind left_native = type_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                if (left_native != INFER_UNKNOWN && inferred_type_is_numeric(left_native)) {
+                    const char *box_func = inferred_type_to_box_func(left_native);
+                    char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
+                    int handled = 1;
+                    int is_float = expr->as.binary.right->as.number.is_float;
+                    const char *literal_suffix = (left_native == INFER_I64 || left_native == INFER_U64) ? "LL" : "";
+
+                    switch (expr->as.binary.op) {
+                        case OP_ADD:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %lld%s);", result, box_func, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_SUB:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %lld%s);", result, box_func, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_MUL:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %lld%s);", result, box_func, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_LESS:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_LESS_EQUAL:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_GREATER:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_GREATER_EQUAL:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        default:
+                            handled = 0;
+                            break;
+                    }
+                    free(left_var);
+                    if (handled) break;
+                }
+            }
+
             // OPTIMIZATION: Detect chained string concatenations (a + b + c + ...)
             // Use hml_string_concat3/4/5 for single-allocation efficiency
             {
@@ -696,6 +868,27 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                              expr->as.assign.name);
                 codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
                 break;
+            }
+
+            // OPTIMIZATION: Check if assigning to an unboxed variable
+            if (ctx->optimize) {
+                InferredTypeKind native_type = type_get_unboxable(ctx->type_ctx, expr->as.assign.name);
+                if (native_type != INFER_UNKNOWN) {
+                    const char *unbox_cast = inferred_type_to_unbox_cast(native_type);
+                    const char *box_func = inferred_type_to_box_func(native_type);
+                    if (unbox_cast && box_func) {
+                        char *value = codegen_expr(ctx, expr->as.assign.value);
+                        char *safe_var_name = codegen_sanitize_ident(expr->as.assign.name);
+                        // Unbox value and assign to native variable
+                        codegen_writeln(ctx, "%s = %s(%s);", safe_var_name, unbox_cast, value);
+                        codegen_writeln(ctx, "hml_release(&%s);", value);
+                        // Return boxed value as result
+                        codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, safe_var_name);
+                        free(value);
+                        free(safe_var_name);
+                        break;
+                    }
+                }
             }
 
             // OPTIMIZATION: Detect pattern "x = x + y" for in-place string append
