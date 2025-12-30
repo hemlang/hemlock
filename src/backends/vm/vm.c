@@ -558,6 +558,36 @@ static ValueType promote_types(ValueType a, ValueType b) {
     return (rank_a > rank_b) ? a : b;
 }
 
+// Create value of specified type from int64
+static Value val_int_typed(int64_t val, ValueType type) {
+    Value v;
+    v.type = type;
+    switch (type) {
+        case VAL_I8:  v.as.as_i8 = (int8_t)val; break;
+        case VAL_I16: v.as.as_i16 = (int16_t)val; break;
+        case VAL_I32: v.as.as_i32 = (int32_t)val; break;
+        case VAL_I64: v.as.as_i64 = val; break;
+        case VAL_U8:  v.as.as_u8 = (uint8_t)val; break;
+        case VAL_U16: v.as.as_u16 = (uint16_t)val; break;
+        case VAL_U32: v.as.as_u32 = (uint32_t)val; break;
+        case VAL_U64: v.as.as_u64 = (uint64_t)val; break;
+        default: v.type = VAL_I32; v.as.as_i32 = (int32_t)val; break;
+    }
+    return v;
+}
+
+// Create value of specified float type
+static Value val_float_typed(double val, ValueType type) {
+    Value v;
+    v.type = type;
+    if (type == VAL_F32) {
+        v.as.as_f32 = (float)val;
+    } else {
+        v.as.as_f64 = val;
+    }
+    return v;
+}
+
 // Binary arithmetic with type promotion
 static Value binary_add(VM *vm, Value a, Value b) {
     (void)vm; // May be unused after removing error
@@ -595,14 +625,17 @@ static Value binary_add(VM *vm, Value a, Value b) {
     // Numeric
     if (is_numeric(a.type) && is_numeric(b.type)) {
         if (is_float(a.type) || is_float(b.type)) {
-            return val_f64_vm(value_to_f64(a) + value_to_f64(b));
+            // Float promotion: use larger float type, or f32 if int + f32
+            ValueType result_type = VAL_F64;
+            if ((a.type == VAL_F32 || b.type == VAL_F32) &&
+                a.type != VAL_F64 && b.type != VAL_F64) {
+                result_type = VAL_F32;
+            }
+            return val_float_typed(value_to_f64(a) + value_to_f64(b), result_type);
         }
-        // Both integers
+        // Both integers - use proper promoted type
         ValueType result_type = promote_types(a.type, b.type);
-        if (result_type == VAL_I64 || a.type == VAL_I64 || b.type == VAL_I64) {
-            return val_i64_vm(value_to_i64(a) + value_to_i64(b));
-        }
-        return val_i32_vm((int32_t)(value_to_i64(a) + value_to_i64(b)));
+        return val_int_typed(value_to_i64(a) + value_to_i64(b), result_type);
     }
 
     vm_runtime_error(vm, "Cannot add %s and %s",
@@ -616,12 +649,15 @@ static Value binary_sub(VM *vm, Value a, Value b) {
     }
     if (is_numeric(a.type) && is_numeric(b.type)) {
         if (is_float(a.type) || is_float(b.type)) {
-            return val_f64_vm(value_to_f64(a) - value_to_f64(b));
+            ValueType result_type = VAL_F64;
+            if ((a.type == VAL_F32 || b.type == VAL_F32) &&
+                a.type != VAL_F64 && b.type != VAL_F64) {
+                result_type = VAL_F32;
+            }
+            return val_float_typed(value_to_f64(a) - value_to_f64(b), result_type);
         }
-        if (a.type == VAL_I64 || b.type == VAL_I64) {
-            return val_i64_vm(value_to_i64(a) - value_to_i64(b));
-        }
-        return val_i32_vm((int32_t)(value_to_i64(a) - value_to_i64(b)));
+        ValueType result_type = promote_types(a.type, b.type);
+        return val_int_typed(value_to_i64(a) - value_to_i64(b), result_type);
     }
     vm_runtime_error(vm, "Cannot subtract %s and %s",
                      val_type_name(a.type), val_type_name(b.type));
@@ -634,12 +670,15 @@ static Value binary_mul(VM *vm, Value a, Value b) {
     }
     if (is_numeric(a.type) && is_numeric(b.type)) {
         if (is_float(a.type) || is_float(b.type)) {
-            return val_f64_vm(value_to_f64(a) * value_to_f64(b));
+            ValueType result_type = VAL_F64;
+            if ((a.type == VAL_F32 || b.type == VAL_F32) &&
+                a.type != VAL_F64 && b.type != VAL_F64) {
+                result_type = VAL_F32;
+            }
+            return val_float_typed(value_to_f64(a) * value_to_f64(b), result_type);
         }
-        if (a.type == VAL_I64 || b.type == VAL_I64) {
-            return val_i64_vm(value_to_i64(a) * value_to_i64(b));
-        }
-        return val_i32_vm((int32_t)(value_to_i64(a) * value_to_i64(b)));
+        ValueType result_type = promote_types(a.type, b.type);
+        return val_int_typed(value_to_i64(a) * value_to_i64(b), result_type);
     }
     vm_runtime_error(vm, "Cannot multiply %s and %s",
                      val_type_name(a.type), val_type_name(b.type));
@@ -1059,6 +1098,21 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 } else {
                     // For arrays, the key is just the index
                     PUSH(val_i32_vm(i));
+                }
+                break;
+            }
+
+            case BC_SET_OBJ_TYPE: {
+                // Set the type name on the object at top of stack
+                Constant c = READ_CONSTANT();
+                Value obj = PEEK(0);
+                if (obj.type == VAL_OBJECT && obj.as.as_object) {
+                    Object *o = obj.as.as_object;
+                    // Free old type_name if present
+                    if (o->type_name) {
+                        free(o->type_name);
+                    }
+                    o->type_name = strdup(c.as.string.data);
                 }
                 break;
             }
@@ -1725,7 +1779,14 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 switch (builtin_id) {
                     case BUILTIN_TYPEOF: {
                         if (argc >= 1) {
-                            const char *type_str = val_type_name(args[0].type);
+                            Value v = args[0];
+                            const char *type_str;
+                            // Check for custom object type name
+                            if (v.type == VAL_OBJECT && v.as.as_object && v.as.as_object->type_name) {
+                                type_str = v.as.as_object->type_name;
+                            } else {
+                                type_str = val_type_name(v.type);
+                            }
                             String *s = malloc(sizeof(String));
                             s->data = strdup(type_str);
                             s->length = strlen(type_str);
@@ -2393,7 +2454,13 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
 
             case BC_TYPEOF: {
                 Value v = POP();
-                const char *type_str = val_type_name(v.type);
+                const char *type_str;
+                // Check for custom object type name
+                if (v.type == VAL_OBJECT && v.as.as_object && v.as.as_object->type_name) {
+                    type_str = v.as.as_object->type_name;
+                } else {
+                    type_str = val_type_name(v.type);
+                }
                 // Create string value
                 String *s = malloc(sizeof(String));
                 s->data = strdup(type_str);
@@ -2405,6 +2472,67 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 sv.type = VAL_STRING;
                 sv.as.as_string = s;
                 PUSH(sv);
+                break;
+            }
+
+            case BC_CAST: {
+                // Cast top of stack to specified type
+                uint8_t target_type = READ_BYTE();
+                Value v = POP();
+                Value result;
+
+                // Convert based on target type
+                switch (target_type) {
+                    case TYPE_ID_I8:
+                        result.type = VAL_I8;
+                        result.as.as_i8 = (int8_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_I16:
+                        result.type = VAL_I16;
+                        result.as.as_i16 = (int16_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_I32:
+                        result.type = VAL_I32;
+                        result.as.as_i32 = (int32_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_I64:
+                        result.type = VAL_I64;
+                        result.as.as_i64 = value_to_i64(v);
+                        break;
+                    case TYPE_ID_U8:
+                        result.type = VAL_U8;
+                        result.as.as_u8 = (uint8_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_U16:
+                        result.type = VAL_U16;
+                        result.as.as_u16 = (uint16_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_U32:
+                        result.type = VAL_U32;
+                        result.as.as_u32 = (uint32_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_U64:
+                        result.type = VAL_U64;
+                        result.as.as_u64 = (uint64_t)value_to_i64(v);
+                        break;
+                    case TYPE_ID_F32:
+                        result.type = VAL_F32;
+                        result.as.as_f32 = (float)value_to_f64(v);
+                        break;
+                    case TYPE_ID_F64:
+                        result.type = VAL_F64;
+                        result.as.as_f64 = value_to_f64(v);
+                        break;
+                    case TYPE_ID_BOOL:
+                        result.type = VAL_BOOL;
+                        result.as.as_bool = value_is_truthy(v);
+                        break;
+                    default:
+                        // For other types, keep as-is
+                        result = v;
+                        break;
+                }
+                PUSH(result);
                 break;
             }
 

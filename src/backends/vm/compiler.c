@@ -10,6 +10,28 @@
 #include <string.h>
 #include <stdio.h>
 
+// Convert AST TypeKind to VM TypeId
+static int type_kind_to_id(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8:     return TYPE_ID_I8;
+        case TYPE_I16:    return TYPE_ID_I16;
+        case TYPE_I32:    return TYPE_ID_I32;
+        case TYPE_I64:    return TYPE_ID_I64;
+        case TYPE_U8:     return TYPE_ID_U8;
+        case TYPE_U16:    return TYPE_ID_U16;
+        case TYPE_U32:    return TYPE_ID_U32;
+        case TYPE_U64:    return TYPE_ID_U64;
+        case TYPE_F32:    return TYPE_ID_F32;
+        case TYPE_F64:    return TYPE_ID_F64;
+        case TYPE_BOOL:   return TYPE_ID_BOOL;
+        case TYPE_STRING: return TYPE_ID_STRING;
+        case TYPE_RUNE:   return TYPE_ID_RUNE;
+        case TYPE_ARRAY:  return TYPE_ID_ARRAY;
+        case TYPE_NULL:   return TYPE_ID_NULL;
+        default:          return -1;  // Unknown/unsupported type
+    }
+}
+
 // ============================================
 // Compiler Lifecycle
 // ============================================
@@ -920,6 +942,23 @@ static void compile_let(Compiler *compiler, Stmt *stmt, bool is_const) {
         compile_expression(compiler, stmt->as.let.value);
     } else {
         emit_byte(compiler, BC_NULL);
+    }
+
+    // Cast to declared type if type annotation is present
+    if (stmt->as.let.type_annotation && stmt->as.let.type_annotation->kind != TYPE_INFER) {
+        int type_id = type_kind_to_id(stmt->as.let.type_annotation->kind);
+        if (type_id >= 0) {
+            emit_byte(compiler, BC_CAST);
+            emit_byte(compiler, (uint8_t)type_id);
+        }
+        // Set custom object type name for typeof()
+        if (stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+            stmt->as.let.type_annotation->type_name) {
+            int idx = chunk_add_identifier(compiler->builder->chunk,
+                                           stmt->as.let.type_annotation->type_name);
+            emit_byte(compiler, BC_SET_OBJ_TYPE);
+            emit_short(compiler, idx);
+        }
     }
 
     // Define variable

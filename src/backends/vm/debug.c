@@ -300,6 +300,7 @@ int disassemble_instruction(Chunk *chunk, int offset) {
         case BC_DEFINE_TYPE:
         case BC_DEFINE_ENUM:
         case BC_ENUM_VALUE:
+        case BC_SET_OBJ_TYPE:
             return constant_instruction(info->name, chunk, offset);
 
         // Jump instructions

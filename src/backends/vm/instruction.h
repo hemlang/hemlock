@@ -272,6 +272,7 @@ typedef enum {
     BC_GET_SELF         = 0x76,  // []        Get method receiver (self)
     BC_SET_SELF         = 0x77,  // []        Set method receiver (self)
     BC_GET_KEY          = 0x78,  // []        Get key at index (for object iteration)
+    BC_SET_OBJ_TYPE     = 0x79,  // [idx:16]  Set object type name (for typeof)
 
     // ========================================
     // Category 9: Async & Concurrency (0x80-0x8F)

@@ -110,6 +110,7 @@ static const InstructionInfo info_table[256] = {
     [BC_GET_SELF]       = {"GET_SELF",       0, 1},
     [BC_SET_SELF]       = {"SET_SELF",       0, -1},
     [BC_GET_KEY]        = {"GET_KEY",        0, -1},  // [obj, idx] -> [key]
+    [BC_SET_OBJ_TYPE]   = {"SET_OBJ_TYPE",   2, 0},   // Set object type name
 
     // Category 9: Async & Concurrency (0x80-0x8F)
     [BC_SPAWN]          = {"SPAWN",          1, STACK_EFFECT_VARIABLE},
