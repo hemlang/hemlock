@@ -262,6 +262,9 @@ static const char* builtin_names[BUILTIN_COUNT] = {
     // Math (79-80)
     [BUILTIN_DIVI] = "divi",
     [BUILTIN_MODI] = "modi",
+
+    // String helpers (81)
+    [BUILTIN_STRING_CONCAT_MANY] = "string_concat_many",
 };
 
 const char* builtin_name(BuiltinId id) {

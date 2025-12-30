@@ -2152,6 +2152,35 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         break;
                     }
+                    case BUILTIN_STRING_CONCAT_MANY: {
+                        // string_concat_many(array) - concatenate array of strings
+                        if (argc >= 1 && args[0].type == VAL_ARRAY && args[0].as.as_array) {
+                            Array *arr = args[0].as.as_array;
+                            // Calculate total length
+                            int total_len = 0;
+                            for (int i = 0; i < arr->length; i++) {
+                                if (arr->elements[i].type == VAL_STRING && arr->elements[i].as.as_string) {
+                                    total_len += arr->elements[i].as.as_string->length;
+                                }
+                            }
+                            // Allocate and build result
+                            char *buf = malloc(total_len + 1);
+                            char *p = buf;
+                            for (int i = 0; i < arr->length; i++) {
+                                if (arr->elements[i].type == VAL_STRING && arr->elements[i].as.as_string) {
+                                    String *s = arr->elements[i].as.as_string;
+                                    memcpy(p, s->data, s->length);
+                                    p += s->length;
+                                }
+                            }
+                            *p = '\0';
+                            result = vm_make_string(buf, total_len);
+                            free(buf);
+                        } else {
+                            result = vm_make_string("", 0);
+                        }
+                        break;
+                    }
                     default:
                         vm_runtime_error(vm, "Builtin %d not implemented", builtin_id);
                         return VM_RUNTIME_ERROR;

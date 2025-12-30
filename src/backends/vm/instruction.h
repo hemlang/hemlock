@@ -126,6 +126,9 @@ typedef enum {
     BUILTIN_DIVI,       // Integer division (floor)
     BUILTIN_MODI,       // Integer modulo
 
+    // String helpers (81)
+    BUILTIN_STRING_CONCAT_MANY,
+
     BUILTIN_COUNT  // Total number of builtins
 } BuiltinId;
 
