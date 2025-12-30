@@ -162,6 +162,10 @@ struct VM {
 
     // Async task context (when running in spawned task)
     void *task;             // Task* when running async
+
+    // Pending error from helper functions (for catchable errors)
+    const char *pending_error;
+    char error_buf[256];
 };
 
 // ============================================

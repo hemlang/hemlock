@@ -543,6 +543,8 @@ VM* vm_new(void) {
     vm->max_stack_depth = 1024;
     vm->task = NULL;
 
+    vm->pending_error = NULL;
+
     return vm;
 }
 
@@ -667,18 +669,26 @@ bool vm_get_global(VM *vm, const char *name, Value *out) {
     return false;
 }
 
+// Helper macros for setting catchable errors from static helper functions
+// After calling a helper function, check vm->pending_error and handle it
+#define SET_ERROR(vm, msg) do { (vm)->pending_error = (msg); } while(0)
+#define SET_ERROR_FMT(vm, fmt, ...) do { \
+    snprintf((vm)->error_buf, sizeof((vm)->error_buf), fmt, ##__VA_ARGS__); \
+    (vm)->pending_error = (vm)->error_buf; \
+} while(0)
+
 bool vm_set_global(VM *vm, const char *name, Value value) {
     for (int i = 0; i < vm->globals.count; i++) {
         if (strcmp(vm->globals.names[i], name) == 0) {
             if (vm->globals.is_const[i]) {
-                vm_runtime_error(vm, "Cannot reassign constant '%s'", name);
+                SET_ERROR_FMT(vm, "Cannot reassign constant '%s'", name);
                 return false;
             }
             vm->globals.values[i] = value;
             return true;
         }
     }
-    vm_runtime_error(vm, "Undefined variable '%s'", name);
+    SET_ERROR_FMT(vm, "Undefined variable '%s'", name);
     return false;
 }
 
@@ -737,6 +747,7 @@ static VMClosure* as_vm_closure(Value v) {
 // ============================================
 
 void vm_runtime_error(VM *vm, const char *format, ...) {
+    fflush(stdout);  // Ensure all output is printed before error
     va_list args;
     va_start(args, format);
     fprintf(stderr, "Runtime error: ");
@@ -906,8 +917,8 @@ static Value binary_add(VM *vm, Value a, Value b) {
         return val_int_typed(value_to_i64(a) + value_to_i64(b), result_type);
     }
 
-    vm_runtime_error(vm, "Cannot add %s and %s",
-                     val_type_name(a.type), val_type_name(b.type));
+    SET_ERROR_FMT(vm, "Cannot add %s and %s",
+                  val_type_name(a.type), val_type_name(b.type));
     return vm_null_value();
 }
 
@@ -927,8 +938,8 @@ static Value binary_sub(VM *vm, Value a, Value b) {
         ValueType result_type = promote_types(a.type, b.type);
         return val_int_typed(value_to_i64(a) - value_to_i64(b), result_type);
     }
-    vm_runtime_error(vm, "Cannot subtract %s and %s",
-                     val_type_name(a.type), val_type_name(b.type));
+    SET_ERROR_FMT(vm, "Cannot subtract %s and %s",
+                  val_type_name(a.type), val_type_name(b.type));
     return vm_null_value();
 }
 
@@ -948,8 +959,8 @@ static Value binary_mul(VM *vm, Value a, Value b) {
         ValueType result_type = promote_types(a.type, b.type);
         return val_int_typed(value_to_i64(a) * value_to_i64(b), result_type);
     }
-    vm_runtime_error(vm, "Cannot multiply %s and %s",
-                     val_type_name(a.type), val_type_name(b.type));
+    SET_ERROR_FMT(vm, "Cannot multiply %s and %s",
+                  val_type_name(a.type), val_type_name(b.type));
     return vm_null_value();
 }
 
@@ -957,7 +968,7 @@ static Value binary_div(VM *vm, Value a, Value b) {
     // Division always returns f64 (Hemlock semantics)
     double bval = value_to_f64(b);
     if (bval == 0.0) {
-        vm_runtime_error(vm, "Division by zero");
+        SET_ERROR(vm, "Division by zero");
         return vm_null_value();
     }
     return val_f64_vm(value_to_f64(a) / bval);
@@ -966,7 +977,7 @@ static Value binary_div(VM *vm, Value a, Value b) {
 static Value binary_mod(VM *vm, Value a, Value b) {
     if (a.type == VAL_I32 && b.type == VAL_I32) {
         if (b.as.as_i32 == 0) {
-            vm_runtime_error(vm, "Division by zero");
+            SET_ERROR(vm, "Division by zero");
             return vm_null_value();
         }
         return val_i32_vm(a.as.as_i32 % b.as.as_i32);
@@ -975,14 +986,14 @@ static Value binary_mod(VM *vm, Value a, Value b) {
         if (is_float(a.type) || is_float(b.type)) {
             double bval = value_to_f64(b);
             if (bval == 0.0) {
-                vm_runtime_error(vm, "Division by zero");
+                SET_ERROR(vm, "Division by zero");
                 return vm_null_value();
             }
             return val_f64_vm(fmod(value_to_f64(a), bval));
         }
         int64_t bval = value_to_i64(b);
         if (bval == 0) {
-            vm_runtime_error(vm, "Division by zero");
+            SET_ERROR(vm, "Division by zero");
             return vm_null_value();
         }
         if (a.type == VAL_I64 || b.type == VAL_I64) {
@@ -990,8 +1001,8 @@ static Value binary_mod(VM *vm, Value a, Value b) {
         }
         return val_i32_vm((int32_t)(value_to_i64(a) % bval));
     }
-    vm_runtime_error(vm, "Cannot modulo %s and %s",
-                     val_type_name(a.type), val_type_name(b.type));
+    SET_ERROR_FMT(vm, "Cannot modulo %s and %s",
+                  val_type_name(a.type), val_type_name(b.type));
     return vm_null_value();
 }
 
@@ -1030,8 +1041,8 @@ static Value binary_lt(VM *vm, Value a, Value b) {
     if (a.type == VAL_STRING && b.type == VAL_STRING) {
         return val_bool_vm(strcmp(a.as.as_string->data, b.as.as_string->data) < 0);
     }
-    vm_runtime_error(vm, "Cannot compare %s and %s",
-                     val_type_name(a.type), val_type_name(b.type));
+    SET_ERROR_FMT(vm, "Cannot compare %s and %s",
+                  val_type_name(a.type), val_type_name(b.type));
     return vm_null_value();
 }
 
@@ -1107,6 +1118,23 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
 #define PUSH(v) (*vm->stack_top++ = (v))
 #define POP() (*--vm->stack_top)
 #define PEEK(n) (vm->stack_top[-1 - (n)])
+
+// Macro for throwing catchable errors
+// If a handler exists, jump to it; otherwise return runtime error
+#define THROW_ERROR(msg) do { \
+    pending_exception_msg = (msg); \
+    goto handle_exception; \
+} while(0)
+
+#define THROW_ERROR_FMT(fmt, ...) do { \
+    snprintf(exception_buf, sizeof(exception_buf), fmt, ##__VA_ARGS__); \
+    pending_exception_msg = exception_buf; \
+    goto handle_exception; \
+} while(0)
+
+    // Exception handling state
+    const char *pending_exception_msg = NULL;
+    char exception_buf[256];
 
     for (;;) {
         if (vm_trace_enabled) {
@@ -1389,8 +1417,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Constant c = READ_CONSTANT();
                 Value v;
                 if (!vm_get_global(vm, c.as.string.data, &v)) {
-                    vm_runtime_error(vm, "Undefined variable '%s'", c.as.string.data);
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Undefined variable '%s'", c.as.string.data);
                 }
                 PUSH(v);
                 break;
@@ -1399,7 +1426,9 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
             case BC_SET_GLOBAL: {
                 Constant c = READ_CONSTANT();
                 if (!vm_set_global(vm, c.as.string.data, PEEK(0))) {
-                    return VM_RUNTIME_ERROR;
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
                 }
                 break;
             }
@@ -1446,8 +1475,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         PUSH(vm_null_value());
                     }
                 } else {
-                    vm_runtime_error(vm, "Cannot get property of %s", val_type_name(obj.type));
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Cannot get property of %s", val_type_name(obj.type));
                 }
                 break;
             }
@@ -1479,8 +1507,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     PUSH(val);
                     property_set:;
                 } else {
-                    vm_runtime_error(vm, "Cannot set property on %s", val_type_name(obj.type));
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Cannot set property on %s", val_type_name(obj.type));
                 }
                 break;
             }
@@ -1566,8 +1593,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     }
                     index_found:;
                 } else {
-                    vm_runtime_error(vm, "Cannot index %s", val_type_name(obj.type));
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Cannot index %s", val_type_name(obj.type));
                 }
                 break;
             }
@@ -1580,8 +1606,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     Array *arr = obj.as.as_array;
                     int i = (int)value_to_i64(idx);
                     if (i < 0) {
-                        vm_runtime_error(vm, "Array index out of bounds: %d", i);
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR_FMT("Array index out of bounds: %d", i);
                     }
                     // Grow array if needed
                     while (i >= arr->capacity) {
@@ -1617,12 +1642,10 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         PUSH(val);
                         index_set:;
                     } else {
-                        vm_runtime_error(vm, "Object key must be string");
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR("Object key must be string");
                     }
                 } else {
-                    vm_runtime_error(vm, "Cannot set index on %s", val_type_name(obj.type));
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Cannot set index on %s", val_type_name(obj.type));
                 }
                 break;
             }
@@ -1632,7 +1655,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 PUSH(binary_add(vm, a, b));
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 break;
             }
 
@@ -1640,7 +1667,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 PUSH(binary_sub(vm, a, b));
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 break;
             }
 
@@ -1648,7 +1679,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 PUSH(binary_mul(vm, a, b));
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 break;
             }
 
@@ -1656,7 +1691,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 PUSH(binary_div(vm, a, b));
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 break;
             }
 
@@ -1664,7 +1703,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 PUSH(binary_mod(vm, a, b));
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 break;
             }
 
@@ -1675,8 +1718,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     case VAL_I64: PUSH(val_i64_vm(-a.as.as_i64)); break;
                     case VAL_F64: PUSH(val_f64_vm(-a.as.as_f64)); break;
                     default:
-                        vm_runtime_error(vm, "Cannot negate %s", val_type_name(a.type));
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR_FMT("Cannot negate %s", val_type_name(a.type));
                 }
                 break;
             }
@@ -1723,7 +1765,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 PUSH(binary_lt(vm, a, b));
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 break;
             }
 
@@ -1731,7 +1777,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 Value lt = binary_lt(vm, a, b);
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 Value eq = binary_eq(a, b);
                 PUSH(val_bool_vm(lt.as.as_bool || eq.as.as_bool));
                 break;
@@ -1741,7 +1791,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 Value lt = binary_lt(vm, b, a);  // Swap operands
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 PUSH(lt);
                 break;
             }
@@ -1750,7 +1804,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value b = POP();
                 Value a = POP();
                 Value lt = binary_lt(vm, a, b);
-                if (vm->is_throwing) return VM_RUNTIME_ERROR;
+                if (vm->pending_error) {
+                    pending_exception_msg = vm->pending_error;
+                    vm->pending_error = NULL;
+                    goto handle_exception;
+                }
                 PUSH(val_bool_vm(!lt.as.as_bool));
                 break;
             }
@@ -1784,8 +1842,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 } else if (a.type == VAL_I64) {
                     PUSH(val_i64_vm(~a.as.as_i64));
                 } else {
-                    vm_runtime_error(vm, "Cannot bitwise NOT %s", val_type_name(a.type));
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Cannot bitwise NOT %s", val_type_name(a.type));
                 }
                 break;
             }
@@ -1912,8 +1969,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value arr_val = POP();
 
                 if (arr_val.type != VAL_ARRAY) {
-                    vm_runtime_error(vm, "for-in requires an array");
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR("for-in requires an array or object");
                 }
 
                 int32_t idx = idx_val.as.as_i32;
@@ -2110,12 +2166,12 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         if (argc >= 1 && !value_is_truthy(args[0])) {
                             const char *msg = (argc >= 2 && args[1].type == VAL_STRING)
                                 ? args[1].as.as_string->data : "Assertion failed";
-                            vm_runtime_error(vm, "%s", msg);
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR(msg);
                         }
                         break;
                     }
                     case BUILTIN_PANIC: {
+                        fflush(stdout);  // Ensure all output is printed before panic
                         const char *msg = (argc >= 1 && args[0].type == VAL_STRING)
                             ? args[0].as.as_string->data : "panic!";
                         fprintf(stderr, "panic: %s\n", msg);
@@ -2127,8 +2183,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                             int64_t a = value_to_i64(args[0]);
                             int64_t b = value_to_i64(args[1]);
                             if (b == 0) {
-                                vm_runtime_error(vm, "Division by zero");
-                                return VM_RUNTIME_ERROR;
+                                THROW_ERROR("Division by zero");
                             }
                             // Floor division: towards negative infinity
                             int64_t q = a / b;
@@ -2145,8 +2200,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                             int64_t a = value_to_i64(args[0]);
                             int64_t b = value_to_i64(args[1]);
                             if (b == 0) {
-                                vm_runtime_error(vm, "Modulo by zero");
-                                return VM_RUNTIME_ERROR;
+                                THROW_ERROR("Modulo by zero");
                             }
                             result = val_i64_vm(a % b);
                         }
@@ -2196,8 +2250,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 Value callee = PEEK(argc);
 
                 if (!is_vm_closure(callee)) {
-                    vm_runtime_error(vm, "Can only call functions");
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR("Can only call functions");
                 }
 
                 VMClosure *closure = as_vm_closure(callee);
@@ -2232,10 +2285,9 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     if (argc < regular_params) {
                         int required = regular_params - fn_chunk->optional_count;
                         if (argc < required) {
-                            vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
                             free(rest_arr->elements);
                             free(rest_arr);
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR_FMT("Expected at least %d arguments but got %d", required, argc);
                         }
                         int missing = regular_params - argc;
                         for (int i = 0; i < missing; i++) {
@@ -2256,8 +2308,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         // Allow optional params
                         int required = fn_chunk->arity - fn_chunk->optional_count;
                         if (argc < required) {
-                            vm_runtime_error(vm, "Expected at least %d arguments but got %d", required, argc);
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR_FMT("Expected at least %d arguments but got %d", required, argc);
                         }
                         // Push null for missing optional parameters
                         int missing = fn_chunk->arity - argc;
@@ -2338,8 +2389,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 // Pop the closure from the stack and add to defer stack
                 Value closure_val = POP();
                 if (!is_vm_closure(closure_val)) {
-                    vm_runtime_error(vm, "defer requires a closure");
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR("defer requires a closure");
                 }
 
                 // Ensure defer stack has capacity
@@ -2478,8 +2528,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else if (strcmp(method, "map") == 0 && argc >= 1) {
                         // map(callback) - transform each element
                         if (!is_vm_closure(args[0])) {
-                            vm_runtime_error(vm, "map() callback must be a function");
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR("map() callback must be a function");
                         }
                         VMClosure *callback = as_vm_closure(args[0]);
 
@@ -2510,8 +2559,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else if (strcmp(method, "filter") == 0 && argc >= 1) {
                         // filter(callback) - keep elements where callback returns true
                         if (!is_vm_closure(args[0])) {
-                            vm_runtime_error(vm, "filter() callback must be a function");
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR("filter() callback must be a function");
                         }
                         VMClosure *callback = as_vm_closure(args[0]);
 
@@ -2548,8 +2596,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else if (strcmp(method, "reduce") == 0 && argc >= 1) {
                         // reduce(callback, initial?) - accumulate values
                         if (!is_vm_closure(args[0])) {
-                            vm_runtime_error(vm, "reduce() callback must be a function");
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR("reduce() callback must be a function");
                         }
                         VMClosure *callback = as_vm_closure(args[0]);
 
@@ -2561,8 +2608,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                             start_idx = 0;
                         } else {
                             if (arr->length == 0) {
-                                vm_runtime_error(vm, "reduce() on empty array with no initial value");
-                                return VM_RUNTIME_ERROR;
+                                THROW_ERROR("reduce() on empty array with no initial value");
                             }
                             accumulator = arr->elements[0];
                             start_idx = 1;
@@ -2606,8 +2652,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else if (strcmp(method, "concat") == 0 && argc >= 1) {
                         // concat(other) - return new concatenated array
                         if (args[0].type != VAL_ARRAY || !args[0].as.as_array) {
-                            vm_runtime_error(vm, "concat() argument must be an array");
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR("concat() argument must be an array");
                         }
                         Array *other = args[0].as.as_array;
                         int new_len = arr->length + other->length;
@@ -2670,8 +2715,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         // insert(index, value)
                         int index = value_to_i32(args[0]);
                         if (index < 0 || index > arr->length) {
-                            vm_runtime_error(vm, "insert index %d out of bounds (length %d)", index, arr->length);
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR_FMT("insert index %d out of bounds (length %d)", index, arr->length);
                         }
                         if (arr->length >= arr->capacity) {
                             arr->capacity *= 2;
@@ -2684,15 +2728,13 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         // remove(index) - remove and return element at index
                         int index = value_to_i32(args[0]);
                         if (index < 0 || index >= arr->length) {
-                            vm_runtime_error(vm, "remove index %d out of bounds (length %d)", index, arr->length);
-                            return VM_RUNTIME_ERROR;
+                            THROW_ERROR_FMT("remove index %d out of bounds (length %d)", index, arr->length);
                         }
                         result = arr->elements[index];
                         memmove(arr->elements + index, arr->elements + index + 1, sizeof(Value) * (arr->length - index - 1));
                         arr->length--;
                     } else {
-                        vm_runtime_error(vm, "Unknown array method: %s", method);
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR_FMT("Unknown array method: %s", method);
                     }
                 } else if (receiver.type == VAL_STRING && receiver.as.as_string) {
                     String *str = receiver.as.as_string;
@@ -2993,8 +3035,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         // deserialize() - parse JSON string into object/array/value
                         result = vm_json_parse(str->data, str->length);
                     } else {
-                        vm_runtime_error(vm, "Unknown string method: %s", method);
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR_FMT("Unknown string method: %s", method);
                     }
                 } else if (receiver.type == VAL_OBJECT && receiver.as.as_object) {
                     // Object method call - first check for built-in methods
@@ -3080,13 +3121,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     }
 
                     if (!found) {
-                        vm_runtime_error(vm, "Object has no method '%s'", method);
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR_FMT("Object has no method '%s'", method);
                     }
 
                     if (!is_vm_closure(method_val)) {
-                        vm_runtime_error(vm, "Property '%s' is not a function", method);
-                        return VM_RUNTIME_ERROR;
+                        THROW_ERROR_FMT("Property '%s' is not a function", method);
                     }
 
                     VMClosure *closure = as_vm_closure(method_val);
@@ -3111,8 +3150,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
 
                 object_method_done:;
                 } else {
-                    vm_runtime_error(vm, "Cannot call method on %s", val_type_name(receiver.type));
-                    return VM_RUNTIME_ERROR;
+                    THROW_ERROR_FMT("Cannot call method on %s", val_type_name(receiver.type));
                 }
 
                 // Pop args and receiver, push result
@@ -3281,6 +3319,40 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 vm_runtime_error(vm, "Unknown opcode %d", instruction);
                 return VM_RUNTIME_ERROR;
         }
+
+        // Skip exception handling if no exception pending
+        continue;
+
+handle_exception:
+        // Handle a thrown exception (from THROW_ERROR macro)
+        if (vm->handler_count > 0) {
+            ExceptionHandler *handler = &vm->handlers[vm->handler_count - 1];
+
+            // Restore stack to handler's saved state
+            vm->stack_top = handler->stack_top;
+
+            // Create exception string value and push it
+            Value exception = vm_make_string(pending_exception_msg, strlen(pending_exception_msg));
+            PUSH(exception);
+
+            // Jump to catch handler
+            ip = handler->catch_ip;
+
+            // Restore frame if we unwound the stack
+            if (vm->frame_count != handler->frame_count) {
+                vm->frame_count = handler->frame_count;
+                frame = &vm->frames[vm->frame_count - 1];
+                slots = frame->slots;
+            }
+
+            // Clear pending exception and continue execution
+            pending_exception_msg = NULL;
+            continue;
+        } else {
+            // No handler - fatal error
+            vm_runtime_error(vm, "%s", pending_exception_msg);
+            return VM_RUNTIME_ERROR;
+        }
     }
 
 #undef READ_BYTE
@@ -3289,6 +3361,8 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
 #undef PUSH
 #undef POP
 #undef PEEK
+#undef THROW_ERROR
+#undef THROW_ERROR_FMT
 }
 
 // ============================================
