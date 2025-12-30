@@ -226,22 +226,13 @@ fn hex_decode(input) {
 
 // Helper: Convert hex character to value (0-15)
 fn hex_char_to_value(ch: rune): i32 {
-    if (ch == '0') { return 0; }
-    if (ch == '1') { return 1; }
-    if (ch == '2') { return 2; }
-    if (ch == '3') { return 3; }
-    if (ch == '4') { return 4; }
-    if (ch == '5') { return 5; }
-    if (ch == '6') { return 6; }
-    if (ch == '7') { return 7; }
-    if (ch == '8') { return 8; }
-    if (ch == '9') { return 9; }
-    if (ch == 'a') { return 10; }
-    if (ch == 'b') { return 11; }
-    if (ch == 'c') { return 12; }
-    if (ch == 'd') { return 13; }
-    if (ch == 'e') { return 14; }
-    if (ch == 'f') { return 15; }
+    let code: i32 = ch;
+    // 0-9 (48-57) -> 0-9
+    if (code >= 48 && code <= 57) { return code - 48; }
+    // a-f (97-102) -> 10-15
+    if (code >= 97 && code <= 102) { return code - 97 + 10; }
+    // A-F (65-70) -> 10-15 (support uppercase)
+    if (code >= 65 && code <= 70) { return code - 65 + 10; }
     return -1;
 }
 

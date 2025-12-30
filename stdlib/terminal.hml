@@ -182,30 +182,9 @@ export fn size() {
         return { rows: 24, cols: 80 };
     }
 
-    // Convert strings to integers manually (rune-based parsing)
-    let rows = 0;
-    let cols = 0;
-    let zero: i32 = '0';  // Get ASCII value of '0'
-
-    // Parse rows
-    let i = 0;
-    while (i < parts[0].length) {
-        let ch: i32 = parts[0].char_at(i);  // Convert rune to integer
-        if (ch >= 48 && ch <= 57) {  // ASCII '0' = 48, '9' = 57
-            rows = rows * 10 + (ch - 48);
-        }
-        i = i + 1;
-    }
-
-    // Parse cols
-    i = 0;
-    while (i < parts[1].length) {
-        let ch: i32 = parts[1].char_at(i);
-        if (ch >= 48 && ch <= 57) {
-            cols = cols * 10 + (ch - 48);
-        }
-        i = i + 1;
-    }
+    // Parse terminal dimensions using type constructor
+    let rows = i32(parts[0]);
+    let cols = i32(parts[1]);
 
     if (rows == 0) { rows = 24; }
     if (cols == 0) { cols = 80; }
