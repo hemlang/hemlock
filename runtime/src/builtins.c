@@ -372,6 +372,7 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
     int64_t int_val = 0;
     double float_val = 0.0;
     int is_source_float = hml_is_float_type(val);
+    int is_source_string = 0;
 
     if (hml_is_integer_type(val) || val.type == HML_VAL_BOOL || val.type == HML_VAL_RUNE) {
         int_val = hml_val_to_int64(val);
@@ -379,6 +380,58 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         float_val = hml_val_to_double(val);
     } else if (val.type == HML_VAL_STRING && target_type == HML_VAL_STRING) {
         return val;
+    } else if (val.type == HML_VAL_STRING && target_type == HML_VAL_BOOL) {
+        // String to bool: check for "true" or "false"
+        HmlString *str = val.as.as_string;
+        if (str && str->length == 4 &&
+            str->data[0] == 't' && str->data[1] == 'r' &&
+            str->data[2] == 'u' && str->data[3] == 'e') {
+            return hml_val_bool(1);
+        } else if (str && str->length == 5 &&
+            str->data[0] == 'f' && str->data[1] == 'a' &&
+            str->data[2] == 'l' && str->data[3] == 's' && str->data[4] == 'e') {
+            return hml_val_bool(0);
+        }
+        hml_runtime_error("Cannot parse string as bool (expected 'true' or 'false')");
+        return hml_val_null();
+    } else if (val.type == HML_VAL_STRING) {
+        // String to numeric conversion - parse the string
+        is_source_string = 1;
+        HmlString *str = val.as.as_string;
+        if (str && str->length > 0) {
+            // Create null-terminated copy for parsing
+            char *cstr = malloc(str->length + 1);
+            memcpy(cstr, str->data, str->length);
+            cstr[str->length] = '\0';
+
+            // Try to parse as number
+            char *endptr;
+
+            // Check for float (contains '.' or 'e'/'E')
+            int has_decimal = 0;
+            for (int64_t i = 0; i < str->length; i++) {
+                if (cstr[i] == '.' || cstr[i] == 'e' || cstr[i] == 'E') {
+                    has_decimal = 1;
+                    break;
+                }
+            }
+
+            if (has_decimal) {
+                float_val = strtod(cstr, &endptr);
+                if (endptr == cstr || *endptr != '\0') {
+                    hml_runtime_error("Cannot parse '%s' as number", cstr);
+                }
+                is_source_float = 1;
+            } else {
+                int_val = strtoll(cstr, &endptr, 0);  // base 0 supports hex, octal
+                if (endptr == cstr || *endptr != '\0') {
+                    hml_runtime_error("Cannot parse '%s' as integer", cstr);
+                }
+            }
+            free(cstr);
+        } else {
+            hml_runtime_error("Cannot convert empty string to number");
+        }
     } else if (val.type == HML_VAL_NULL && target_type == HML_VAL_NULL) {
         return val;
     } else {
@@ -463,7 +516,12 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
             return hml_val_rune((uint32_t)int_val);
 
         case HML_VAL_BOOL:
-            return hml_val_bool(int_val != 0 || float_val != 0.0);
+            // String -> bool is handled above with early return
+            // Allow conversion from numeric types to bool (0 = false, non-zero = true)
+            if (is_source_float) {
+                return hml_val_bool(float_val != 0.0);
+            }
+            return hml_val_bool(int_val != 0);
 
         case HML_VAL_STRING:
             // Allow conversion from rune to string (match interpreter behavior)
@@ -472,6 +530,23 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
                 int rune_len = utf8_encode_rune(val.as.as_rune, rune_bytes);
                 rune_bytes[rune_len] = '\0';
                 return hml_val_string(rune_bytes);
+            }
+            // Allow conversion from bool to string
+            if (val.type == HML_VAL_BOOL) {
+                return hml_val_string(val.as.as_bool ? "true" : "false");
+            }
+            // Allow conversion from numeric types to string
+            if (hml_is_integer_type(val)) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%ld", hml_val_to_int64(val));
+                return hml_val_string(buf);
+            }
+            if (hml_is_float_type(val)) {
+                char buf[64];
+                double fval = hml_val_to_double(val);
+                // Use %g to avoid trailing zeros, but ensure we get enough precision
+                snprintf(buf, sizeof(buf), "%.17g", fval);
+                return hml_val_string(buf);
             }
             hml_runtime_error("Cannot convert %s to string", hml_type_name(val.type));
             return hml_val_null();

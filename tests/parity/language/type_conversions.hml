@@ -1,0 +1,91 @@
+// Test type conversions using type annotations
+
+// String to integer
+let s1 = "42";
+let n1: i32 = s1;
+print(n1);
+print(typeof(n1));
+
+// String to i64
+let s2 = "9876543210";
+let n2: i64 = s2;
+print(n2);
+print(typeof(n2));
+
+// String to float
+let s3 = "3.14159";
+let f1: f64 = s3;
+print(f1);
+print(typeof(f1));
+
+// String with hex to integer
+let s4 = "0xFF";
+let n3: i32 = s4;
+print(n3);
+
+// String with negative
+let s5 = "-123";
+let n4: i32 = s5;
+print(n4);
+
+// Integer to string
+let num = 42;
+let str1: string = num;
+print(str1);
+print(typeof(str1));
+
+// Float to string
+let fnum = 3.14;
+let str2: string = fnum;
+print(str2);
+print(typeof(str2));
+
+// Bool to string
+let b1 = true;
+let str3: string = b1;
+print(str3);
+print(typeof(str3));
+
+let b2 = false;
+let str4: string = b2;
+print(str4);
+
+// String to bool
+let strue = "true";
+let btrue: bool = strue;
+print(btrue);
+print(typeof(btrue));
+
+let sfalse = "false";
+let bfalse: bool = sfalse;
+print(bfalse);
+
+// Integer to bool
+let zero = 0;
+let bzero: bool = zero;
+print(bzero);
+
+let one = 1;
+let bone: bool = one;
+print(bone);
+
+// Float to bool
+let fzero = 0.0;
+let bfzero: bool = fzero;
+print(bfzero);
+
+let fone = 1.5;
+let bfone: bool = fone;
+print(bfone);
+
+// Negative number to string
+let neg = -999;
+let strneg: string = neg;
+print(strneg);
+
+// Large number to string
+let big: i64 = 9223372036854775807;
+let strbig: string = big;
+print(strbig);
+
+print("done");

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <errno.h>
 
 // ========== OBJECT TYPE REGISTRY ==========
 
@@ -528,6 +529,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     int64_t int_val = 0;
     double float_val = 0.0;
     int is_source_float = 0;
+    int is_source_string = 0;
 
     // Extract source value (use int64 to preserve full range)
     if (is_integer(value)) {
@@ -543,6 +545,64 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         int_val = value.as.as_rune;
     } else if (value.type == VAL_STRING && target_kind == TYPE_STRING) {
         return value;  // String to string, ok
+    } else if (value.type == VAL_STRING && target_kind == TYPE_BOOL) {
+        // String to bool: check for "true" or "false"
+        String *str = value.as.as_string;
+        if (str && str->length == 4 &&
+            str->data[0] == 't' && str->data[1] == 'r' &&
+            str->data[2] == 'u' && str->data[3] == 'e') {
+            return val_bool(1);
+        } else if (str && str->length == 5 &&
+            str->data[0] == 'f' && str->data[1] == 'a' &&
+            str->data[2] == 'l' && str->data[3] == 's' && str->data[4] == 'e') {
+            return val_bool(0);
+        }
+        fprintf(stderr, "Runtime error: Cannot parse string as bool (expected 'true' or 'false')\n");
+        exit(1);
+    } else if (value.type == VAL_STRING) {
+        // String to numeric conversion - parse the string
+        is_source_string = 1;
+        String *str = value.as.as_string;
+        if (str && str->length > 0) {
+            // Create null-terminated copy for parsing
+            char *cstr = malloc(str->length + 1);
+            memcpy(cstr, str->data, str->length);
+            cstr[str->length] = '\0';
+
+            // Try to parse as number
+            char *endptr;
+            errno = 0;
+
+            // Check for float (contains '.' or 'e'/'E')
+            int has_decimal = 0;
+            for (int i = 0; i < str->length; i++) {
+                if (cstr[i] == '.' || cstr[i] == 'e' || cstr[i] == 'E') {
+                    has_decimal = 1;
+                    break;
+                }
+            }
+
+            if (has_decimal) {
+                float_val = strtod(cstr, &endptr);
+                if (endptr == cstr || *endptr != '\0') {
+                    fprintf(stderr, "Runtime error: Cannot parse '%s' as number\n", cstr);
+                    free(cstr);
+                    exit(1);
+                }
+                is_source_float = 1;
+            } else {
+                int_val = strtoll(cstr, &endptr, 0);  // base 0 supports hex, octal
+                if (endptr == cstr || *endptr != '\0') {
+                    fprintf(stderr, "Runtime error: Cannot parse '%s' as integer\n", cstr);
+                    free(cstr);
+                    exit(1);
+                }
+            }
+            free(cstr);
+        } else {
+            fprintf(stderr, "Runtime error: Cannot convert empty string to number\n");
+            exit(1);
+        }
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
     } else if (value.type == VAL_NULL && target_kind == TYPE_NULL) {
@@ -651,8 +711,12 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (value.type == VAL_BOOL) {
                 return value;
             }
-            fprintf(stderr, "Runtime error: Cannot convert to bool\n");
-            exit(1);
+            // String -> bool is handled above with early return
+            // Allow conversion from numeric types to bool (0 = false, non-zero = true)
+            if (is_source_float) {
+                return val_bool(float_val != 0.0);
+            }
+            return val_bool(int_val != 0);
 
         case TYPE_STRING:
             if (value.type == VAL_STRING) {
@@ -664,6 +728,23 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int rune_len = utf8_encode(value.as.as_rune, rune_bytes);
                 rune_bytes[rune_len] = '\0';
                 return val_string(rune_bytes);
+            }
+            // Allow conversion from bool to string
+            if (value.type == VAL_BOOL) {
+                return val_string(value.as.as_bool ? "true" : "false");
+            }
+            // Allow conversion from numeric types to string
+            if (is_integer(value)) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%" PRId64, value_to_int64(value));
+                return val_string(buf);
+            }
+            if (is_float(value)) {
+                char buf[64];
+                double fval = value_to_float(value);
+                // Use %g to avoid trailing zeros, but ensure we get enough precision
+                snprintf(buf, sizeof(buf), "%.17g", fval);
+                return val_string(buf);
             }
             fprintf(stderr, "Runtime error: Cannot convert to string\n");
             exit(1);
