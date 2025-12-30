@@ -5,6 +5,38 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 
 // ========== HELPER FUNCTIONS ==========
 
+// Get the type name of a value for error messages
+static const char* get_value_type_name(Value val) {
+    switch (val.type) {
+        case VAL_NULL: return "null";
+        case VAL_BOOL: return "bool";
+        case VAL_I8: return "i8";
+        case VAL_I16: return "i16";
+        case VAL_I32: return "i32";
+        case VAL_I64: return "i64";
+        case VAL_U8: return "u8";
+        case VAL_U16: return "u16";
+        case VAL_U32: return "u32";
+        case VAL_U64: return "u64";
+        case VAL_F32: return "f32";
+        case VAL_F64: return "f64";
+        case VAL_RUNE: return "rune";
+        case VAL_STRING: return "string";
+        case VAL_ARRAY: return "array";
+        case VAL_OBJECT: return "object";
+        case VAL_FUNCTION: return "function";
+        case VAL_BUILTIN_FN: return "builtin function";
+        case VAL_FFI_FUNCTION: return "ffi function";
+        case VAL_PTR: return "pointer";
+        case VAL_BUFFER: return "buffer";
+        case VAL_FILE: return "file";
+        case VAL_TASK: return "task";
+        case VAL_CHANNEL: return "channel";
+        case VAL_SOCKET: return "socket";
+        default: return "unknown";
+    }
+}
+
 // Helper to add two values (for increment operations)
 static Value value_add_one(Value val, ExecutionContext *ctx) {
     if (is_float(val)) {
@@ -237,7 +269,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    Value result = call_array_method(method_self.as.as_array, method, args, expr->as.call.num_args, ctx);
+                    Value result = call_array_method(method_self.as.as_array, method, args, expr->as.call.num_args, expr->line, ctx);
                     // Release argument values (array methods don't retain them)
                     if (args) {
                         for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -263,7 +295,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    Value result = call_string_method(method_self.as.as_string, method, args, expr->as.call.num_args, ctx);
+                    Value result = call_string_method(method_self.as.as_string, method, args, expr->as.call.num_args, expr->line, ctx);
                     // Release argument values (string methods don't retain them)
                     if (args) {
                         for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -379,7 +411,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     func = obj->field_values[method_idx];
                     VALUE_RETAIN(func);
                 } else {
-                    runtime_error(ctx, "Object has no method '%s'", method_name);
+                    runtime_error_at(ctx, expr->line, "Object has no method '%s'", method_name);
                     VALUE_RELEASE(method_self);
                     return val_null();
                 }
@@ -603,7 +635,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // FFI functions don't retain args, so we must release them
                 should_release_args = 1;
             } else {
-                runtime_error(ctx, "Value is not a function");
+                // Provide a descriptive error message with context
+                const char *type_name = get_value_type_name(func);
+                if (expr->as.call.func->type == EXPR_IDENT) {
+                    runtime_error_at(ctx, expr->line, "'%s' is not a function (got %s)",
+                            expr->as.call.func->as.ident.name, type_name);
+                } else if (expr->as.call.func->type == EXPR_GET_PROPERTY) {
+                    runtime_error_at(ctx, expr->line, "'%s' is not a function (got %s)",
+                            expr->as.call.func->as.get_property.property, type_name);
+                } else {
+                    runtime_error_at(ctx, expr->line, "Value is not a function (got %s)", type_name);
+                }
             }
 
             // Release args if needed (for builtin/FFI functions)

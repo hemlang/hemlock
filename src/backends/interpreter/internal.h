@@ -274,8 +274,8 @@ int values_equal(Value a, Value b);
 
 Value call_file_method(FileHandle *file, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 Value call_socket_method(SocketHandle *sock, const char *method, Value *args, int num_args, ExecutionContext *ctx);
-Value call_array_method(Array *arr, const char *method, Value *args, int num_args, ExecutionContext *ctx);
-Value call_string_method(String *str, const char *method, Value *args, int num_args, ExecutionContext *ctx);
+Value call_array_method(Array *arr, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx);
+Value call_string_method(String *str, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx);
 Value call_channel_method(Channel *ch, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 Value call_object_method(Object *obj, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 

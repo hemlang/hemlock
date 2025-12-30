@@ -17,9 +17,33 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     return val_null();
 }
 
+static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...) {
+    char buffer[512];
+    char full_buffer[600];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (line > 0) {
+        snprintf(full_buffer, sizeof(full_buffer), "[line %d] %s", line, buffer);
+    } else {
+        snprintf(full_buffer, sizeof(full_buffer), "%s", buffer);
+    }
+
+    ctx->exception_state.exception_value = val_string(full_buffer);
+    value_retain(ctx->exception_state.exception_value);
+    ctx->exception_state.is_throwing = 1;
+    return val_null();
+}
+
+// Line number for error reporting (set by caller)
+static __thread int current_line = 0;
+
 // ========== STRING METHOD HANDLING ==========
 
-Value call_string_method(String *str, const char *method, Value *args, int num_args, ExecutionContext *ctx) {
+Value call_string_method(String *str, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx) {
+    current_line = line;  // Store for potential use in nested error messages
     // Fast dispatch by first character to reduce strcmp calls
     switch (method[0]) {
     case 'b':
@@ -607,5 +631,5 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
     }
 
-    return throw_runtime_error(ctx, "String has no method '%s'", method);
+    return throw_runtime_error_at(ctx, line, "String has no method '%s'", method);
 }
