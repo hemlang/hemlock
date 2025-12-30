@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "vm.h"
 #include "compiler.h"
 #include "debug.h"
@@ -16,6 +17,7 @@
 #include "resolver.h"
 #include "optimizer.h"
 #include "version.h"
+#include "bundler.h"
 
 // Read entire file into a string
 static char* read_file(const char *path) {
@@ -50,7 +52,7 @@ static char* read_file(const char *path) {
 }
 
 // Run source code through the bytecode VM
-static int run_source(const char *source, bool disassemble, bool trace) {
+static int run_source(const char *source, bool disassemble, bool trace, int script_argc, char **script_argv) {
     // Parse
     Lexer lexer;
     lexer_init(&lexer, source);
@@ -89,6 +91,7 @@ static int run_source(const char *source, bool disassemble, bool trace) {
     // Execute
     VM *vm = vm_new();
     vm_trace_execution(vm, trace);
+    vm_set_args(vm, script_argc, script_argv);  // Set command-line args
 
     VMResult result = vm_run(vm, chunk);
 
@@ -104,14 +107,119 @@ static int run_source(const char *source, bool disassemble, bool trace) {
     return (result == VM_OK) ? 0 : 1;
 }
 
-// Run file
-static int run_file(const char *path, bool disassemble, bool trace) {
+// Check if source has any import statements
+static bool has_imports(const char *source) {
+    // Quick scan for import keyword
+    const char *p = source;
+    while (*p) {
+        // Skip comments
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p && *p != '\n') p++;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            continue;
+        }
+        // Skip strings
+        if (*p == '"') {
+            p++;
+            while (*p && *p != '"') {
+                if (*p == '\\' && p[1]) p++;
+                p++;
+            }
+            if (*p) p++;
+            continue;
+        }
+        // Check for 'import' keyword
+        if (strncmp(p, "import", 6) == 0 &&
+            (p == source || !isalnum((unsigned char)p[-1])) &&
+            !isalnum((unsigned char)p[6])) {
+            return true;
+        }
+        p++;
+    }
+    return false;
+}
+
+// Run file using bundler for imports
+static int run_file_with_imports(const char *path, bool disassemble, bool trace, int script_argc, char **script_argv) {
+    // Use bundler to resolve all imports
+    BundleOptions opts = bundle_options_default();
+    opts.verbose = false;
+    opts.tree_shake = false;  // Don't tree shake for now
+
+    Bundle *bundle = bundle_create(path, &opts);
+    if (!bundle) {
+        fprintf(stderr, "Error: Failed to create bundle from '%s'\n", path);
+        return 1;
+    }
+
+    // Flatten all modules into single AST
+    if (bundle_flatten(bundle) != 0) {
+        fprintf(stderr, "Error: Failed to flatten bundle\n");
+        bundle_free(bundle);
+        return 1;
+    }
+
+    // Get the flattened statements
+    int stmt_count;
+    Stmt **statements = bundle_get_statements(bundle, &stmt_count);
+    if (!statements || stmt_count == 0) {
+        fprintf(stderr, "Error: Bundle produced no statements\n");
+        bundle_free(bundle);
+        return 1;
+    }
+
+    // Optimize AST
+    optimize_program(statements, stmt_count);
+
+    // Compile to bytecode
+    Chunk *chunk = compile_program(statements, stmt_count);
+    if (!chunk) {
+        fprintf(stderr, "Compilation failed!\n");
+        bundle_free(bundle);
+        return 1;
+    }
+
+    // Disassemble if requested
+    if (disassemble) {
+        disassemble_chunk(chunk, "script");
+        chunk_free(chunk);
+        bundle_free(bundle);
+        return 0;
+    }
+
+    // Execute
+    VM *vm = vm_new();
+    vm_trace_execution(vm, trace);
+    vm_set_args(vm, script_argc, script_argv);  // Set command-line args
+
+    VMResult result = vm_run(vm, chunk);
+
+    vm_free(vm);
+    chunk_free(chunk);
+    bundle_free(bundle);
+
+    return (result == VM_OK) ? 0 : 1;
+}
+
+// Run file - use bundler if imports detected, otherwise direct parse
+static int run_file(const char *path, bool disassemble, bool trace, int script_argc, char **script_argv) {
     char *source = read_file(path);
     if (!source) {
         return 1;
     }
 
-    int result = run_source(source, disassemble, trace);
+    // Check if file has imports - if so, use bundler
+    if (has_imports(source)) {
+        free(source);
+        return run_file_with_imports(path, disassemble, trace, script_argc, script_argv);
+    }
+
+    int result = run_source(source, disassemble, trace, script_argc, script_argv);
     free(source);
     return result;
 }
@@ -200,9 +308,14 @@ int main(int argc, char **argv) {
     const char *file = NULL;
     bool disassemble = false;
     bool trace = false;
+    int script_arg_start = 0;  // Index where script args begin
 
-    // Parse arguments
+    // Parse arguments - stop at first non-option (the file)
     for (int i = 1; i < argc; i++) {
+        if (file != NULL) {
+            // Already found file, remaining args are script args
+            break;
+        }
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -215,6 +328,7 @@ int main(int argc, char **argv) {
             trace = true;
         } else if (argv[i][0] != '-') {
             file = argv[i];
+            script_arg_start = i;  // Script args start at file (inclusive, like interpreter)
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -223,7 +337,9 @@ int main(int argc, char **argv) {
     }
 
     if (file) {
-        return run_file(file, disassemble, trace);
+        int script_argc = argc - script_arg_start;
+        char **script_argv = &argv[script_arg_start];
+        return run_file(file, disassemble, trace, script_argc, script_argv);
     } else {
         run_repl();
         return 0;

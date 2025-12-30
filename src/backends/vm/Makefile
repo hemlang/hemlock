@@ -2,7 +2,7 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra -g -O2 -std=c11 -D_POSIX_C_SOURCE=200809L
-CFLAGS += -I../../../include -I. -I../../frontend -I..
+CFLAGS += -I../../../include -I. -I../../frontend -I.. -I../../bundler
 
 # Source files (VM-specific)
 VM_SRCS = main.c \
@@ -20,7 +20,12 @@ FRONTEND_SRCS = $(FRONTEND_DIR)/lexer.c \
                 $(FRONTEND_DIR)/parser/core.c \
                 $(FRONTEND_DIR)/parser/expressions.c \
                 $(FRONTEND_DIR)/parser/statements.c \
-                $(FRONTEND_DIR)/ast.c
+                $(FRONTEND_DIR)/ast.c \
+                $(FRONTEND_DIR)/ast_serialize.c
+
+# Bundler
+BUNDLER_DIR = ../../bundler
+BUNDLER_SRCS = $(BUNDLER_DIR)/bundler.c
 
 # Interpreter objects we can reuse
 INTERP_DIR = ../interpreter
@@ -35,8 +40,8 @@ TARGET = hemlockvm
 all: $(TARGET)
 
 # Build by compiling all sources directly
-$(TARGET): $(VM_SRCS) $(FRONTEND_SRCS) $(SHARED_SRCS)
-	$(CC) $(CFLAGS) -o $@ $^ -lpthread -lm -ldl
+$(TARGET): $(VM_SRCS) $(FRONTEND_SRCS) $(BUNDLER_SRCS) $(SHARED_SRCS)
+	$(CC) $(CFLAGS) -o $@ $^ -lpthread -lm -ldl -lz
 
 # Individual object compilation
 %.o: %.c

@@ -280,8 +280,8 @@ runtime-clean:
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
 
-# Full clean including compiler, runtime, and release
-fullclean: clean compiler-clean runtime-clean release-clean
+# Full clean including compiler, runtime, VM, and release
+fullclean: clean compiler-clean runtime-clean vm-clean release-clean
 
 # Run compiler test suite
 .PHONY: test-compiler
@@ -305,17 +305,21 @@ parity-full: $(TARGET) compiler
 
 # ========== BYTECODE VM ==========
 
-# Build the bytecode VM
+VM_TARGET = hemlockvm
+
+# Build the bytecode VM (output to root directory like hemlock and hemlockc)
 .PHONY: vm
 vm:
 	@echo "Building bytecode VM..."
 	$(MAKE) -C src/backends/vm
-	@echo "✓ Bytecode VM built: src/backends/vm/hemlockvm"
+	@cp src/backends/vm/hemlockvm ./$(VM_TARGET)
+	@echo "✓ Bytecode VM built: $(VM_TARGET)"
 
 # Clean the bytecode VM
 .PHONY: vm-clean
 vm-clean:
 	$(MAKE) -C src/backends/vm clean
+	rm -f $(VM_TARGET)
 
 # Run VM parity tests
 .PHONY: test-vm
@@ -325,7 +329,7 @@ test-vm: vm
 	for test in tests/parity/language/*.hml; do \
 		expected="$${test%.hml}.expected"; \
 		if [ -f "$$expected" ]; then \
-			output=$$(src/backends/vm/hemlockvm "$$test" 2>&1); \
+			output=$$(./$(VM_TARGET) "$$test" 2>&1); \
 			expected_content=$$(cat "$$expected"); \
 			if [ "$$output" = "$$expected_content" ]; then \
 				echo "✓ PASS: $$(basename $$test)"; \

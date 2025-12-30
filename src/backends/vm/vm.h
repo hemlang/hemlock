@@ -209,6 +209,9 @@ void vm_define_global(VM *vm, const char *name, Value value, bool is_const);
 bool vm_get_global(VM *vm, const char *name, Value *out);
 bool vm_set_global(VM *vm, const char *name, Value value);
 
+// Set command-line arguments (creates 'args' global array)
+void vm_set_args(VM *vm, int argc, char **argv);
+
 // ============================================
 // Builtins
 // ============================================

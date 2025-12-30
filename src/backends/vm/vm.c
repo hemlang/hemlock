@@ -5,6 +5,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE  // For M_PI, M_E
 
 #include "vm.h"
 #include "debug.h"
@@ -23,6 +24,121 @@
 
 // Debug tracing
 static int vm_trace_enabled = 0;
+
+// ============================================
+// Math Builtin Implementations for stdlib
+// ============================================
+
+// Value constructors for stdlib (simple inline versions)
+static inline Value stdlib_val_f64(double f) {
+    Value v; v.type = VAL_F64; v.as.as_f64 = f; return v;
+}
+static inline Value stdlib_val_null(void) {
+    Value v; v.type = VAL_NULL; return v;
+}
+
+static double vm_get_number(Value v) {
+    switch (v.type) {
+        case VAL_I8:  return (double)v.as.as_i8;
+        case VAL_I16: return (double)v.as.as_i16;
+        case VAL_I32: return (double)v.as.as_i32;
+        case VAL_I64: return (double)v.as.as_i64;
+        case VAL_U8:  return (double)v.as.as_u8;
+        case VAL_U16: return (double)v.as.as_u16;
+        case VAL_U32: return (double)v.as.as_u32;
+        case VAL_U64: return (double)v.as.as_u64;
+        case VAL_F32: return (double)v.as.as_f32;
+        case VAL_F64: return v.as.as_f64;
+        default: return 0.0;
+    }
+}
+
+#define VM_MATH_UNARY(name, func) \
+    static Value vm_builtin_##name(Value *args, int argc, void *ctx) { \
+        (void)ctx; (void)argc; \
+        return stdlib_val_f64(func(vm_get_number(args[0]))); \
+    }
+
+#define VM_MATH_BINARY(name, func) \
+    static Value vm_builtin_##name(Value *args, int argc, void *ctx) { \
+        (void)ctx; (void)argc; \
+        return stdlib_val_f64(func(vm_get_number(args[0]), vm_get_number(args[1]))); \
+    }
+
+VM_MATH_UNARY(sin, sin)
+VM_MATH_UNARY(cos, cos)
+VM_MATH_UNARY(tan, tan)
+VM_MATH_UNARY(asin, asin)
+VM_MATH_UNARY(acos, acos)
+VM_MATH_UNARY(atan, atan)
+VM_MATH_BINARY(atan2, atan2)
+VM_MATH_UNARY(sqrt, sqrt)
+VM_MATH_BINARY(pow, pow)
+VM_MATH_UNARY(exp, exp)
+VM_MATH_UNARY(log, log)
+VM_MATH_UNARY(log10, log10)
+VM_MATH_UNARY(log2, log2)
+VM_MATH_UNARY(floor, floor)
+VM_MATH_UNARY(ceil, ceil)
+VM_MATH_UNARY(round, round)
+VM_MATH_UNARY(trunc, trunc)
+VM_MATH_UNARY(vm_fabs, fabs)
+
+static Value vm_builtin_abs(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double v = vm_get_number(args[0]);
+    return stdlib_val_f64(v < 0 ? -v : v);
+}
+
+static Value vm_builtin_min(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double a = vm_get_number(args[0]);
+    double b = vm_get_number(args[1]);
+    return stdlib_val_f64(a < b ? a : b);
+}
+
+static Value vm_builtin_max(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double a = vm_get_number(args[0]);
+    double b = vm_get_number(args[1]);
+    return stdlib_val_f64(a > b ? a : b);
+}
+
+static Value vm_builtin_clamp(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double v = vm_get_number(args[0]);
+    double lo = vm_get_number(args[1]);
+    double hi = vm_get_number(args[2]);
+    if (v < lo) return stdlib_val_f64(lo);
+    if (v > hi) return stdlib_val_f64(hi);
+    return stdlib_val_f64(v);
+}
+
+static Value vm_builtin_rand(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_f64((double)rand() / (double)RAND_MAX);
+}
+
+static Value vm_builtin_rand_range(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double lo = vm_get_number(args[0]);
+    double hi = vm_get_number(args[1]);
+    double t = (double)rand() / (double)RAND_MAX;
+    return stdlib_val_f64(lo + t * (hi - lo));
+}
+
+static Value vm_builtin_seed(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    srand((unsigned int)vm_get_number(args[0]));
+    return stdlib_val_null();
+}
+
+static Value vm_val_builtin_fn(BuiltinFn fn) {
+    Value v;
+    v.type = VAL_BUILTIN_FN;
+    v.as.as_builtin_fn = fn;
+    return v;
+}
 
 // ============================================
 // UTF-8 Helpers
@@ -881,6 +997,68 @@ static char* value_to_string_alloc(Value v) {
 }
 
 // ============================================
+// Stdlib Initialization
+// ============================================
+
+// Forward declaration
+void vm_define_global(VM *vm, const char *name, Value value, bool is_const);
+
+static void vm_init_stdlib(VM *vm) {
+    // Math constants (both __ prefixed and non-prefixed for bundler compatibility)
+    vm_define_global(vm, "__PI", stdlib_val_f64(M_PI), true);
+    vm_define_global(vm, "__E", stdlib_val_f64(M_E), true);
+    vm_define_global(vm, "__TAU", stdlib_val_f64(2.0 * M_PI), true);
+    vm_define_global(vm, "__INF", stdlib_val_f64(INFINITY), true);
+    vm_define_global(vm, "__NAN", stdlib_val_f64(NAN), true);
+
+    // Math functions - using VM-specific implementations
+    // __ prefixed versions (for stdlib/math.hml exports)
+    vm_define_global(vm, "__sin", vm_val_builtin_fn((BuiltinFn)vm_builtin_sin), true);
+    vm_define_global(vm, "__cos", vm_val_builtin_fn((BuiltinFn)vm_builtin_cos), true);
+    vm_define_global(vm, "__tan", vm_val_builtin_fn((BuiltinFn)vm_builtin_tan), true);
+    vm_define_global(vm, "__asin", vm_val_builtin_fn((BuiltinFn)vm_builtin_asin), true);
+    vm_define_global(vm, "__acos", vm_val_builtin_fn((BuiltinFn)vm_builtin_acos), true);
+    vm_define_global(vm, "__atan", vm_val_builtin_fn((BuiltinFn)vm_builtin_atan), true);
+    vm_define_global(vm, "__atan2", vm_val_builtin_fn((BuiltinFn)vm_builtin_atan2), true);
+    vm_define_global(vm, "__sqrt", vm_val_builtin_fn((BuiltinFn)vm_builtin_sqrt), true);
+    vm_define_global(vm, "__pow", vm_val_builtin_fn((BuiltinFn)vm_builtin_pow), true);
+    vm_define_global(vm, "__exp", vm_val_builtin_fn((BuiltinFn)vm_builtin_exp), true);
+    vm_define_global(vm, "__log", vm_val_builtin_fn((BuiltinFn)vm_builtin_log), true);
+    vm_define_global(vm, "__log10", vm_val_builtin_fn((BuiltinFn)vm_builtin_log10), true);
+    vm_define_global(vm, "__log2", vm_val_builtin_fn((BuiltinFn)vm_builtin_log2), true);
+    vm_define_global(vm, "__floor", vm_val_builtin_fn((BuiltinFn)vm_builtin_floor), true);
+    vm_define_global(vm, "__ceil", vm_val_builtin_fn((BuiltinFn)vm_builtin_ceil), true);
+    vm_define_global(vm, "__round", vm_val_builtin_fn((BuiltinFn)vm_builtin_round), true);
+    vm_define_global(vm, "__trunc", vm_val_builtin_fn((BuiltinFn)vm_builtin_trunc), true);
+    vm_define_global(vm, "__abs", vm_val_builtin_fn((BuiltinFn)vm_builtin_abs), true);
+    vm_define_global(vm, "__min", vm_val_builtin_fn((BuiltinFn)vm_builtin_min), true);
+    vm_define_global(vm, "__max", vm_val_builtin_fn((BuiltinFn)vm_builtin_max), true);
+    vm_define_global(vm, "__clamp", vm_val_builtin_fn((BuiltinFn)vm_builtin_clamp), true);
+    vm_define_global(vm, "__rand", vm_val_builtin_fn((BuiltinFn)vm_builtin_rand), true);
+    vm_define_global(vm, "__rand_range", vm_val_builtin_fn((BuiltinFn)vm_builtin_rand_range), true);
+    vm_define_global(vm, "__seed", vm_val_builtin_fn((BuiltinFn)vm_builtin_seed), true);
+
+    // Non-prefixed versions (for bundler which skips stdlib exports for these)
+    vm_define_global(vm, "sin", vm_val_builtin_fn((BuiltinFn)vm_builtin_sin), true);
+    vm_define_global(vm, "cos", vm_val_builtin_fn((BuiltinFn)vm_builtin_cos), true);
+    vm_define_global(vm, "tan", vm_val_builtin_fn((BuiltinFn)vm_builtin_tan), true);
+    vm_define_global(vm, "asin", vm_val_builtin_fn((BuiltinFn)vm_builtin_asin), true);
+    vm_define_global(vm, "acos", vm_val_builtin_fn((BuiltinFn)vm_builtin_acos), true);
+    vm_define_global(vm, "atan", vm_val_builtin_fn((BuiltinFn)vm_builtin_atan), true);
+    vm_define_global(vm, "atan2", vm_val_builtin_fn((BuiltinFn)vm_builtin_atan2), true);
+    vm_define_global(vm, "sqrt", vm_val_builtin_fn((BuiltinFn)vm_builtin_sqrt), true);
+    vm_define_global(vm, "pow", vm_val_builtin_fn((BuiltinFn)vm_builtin_pow), true);
+    vm_define_global(vm, "exp", vm_val_builtin_fn((BuiltinFn)vm_builtin_exp), true);
+    vm_define_global(vm, "log", vm_val_builtin_fn((BuiltinFn)vm_builtin_log), true);
+    vm_define_global(vm, "log10", vm_val_builtin_fn((BuiltinFn)vm_builtin_log10), true);
+    vm_define_global(vm, "log2", vm_val_builtin_fn((BuiltinFn)vm_builtin_log2), true);
+    vm_define_global(vm, "floor", vm_val_builtin_fn((BuiltinFn)vm_builtin_floor), true);
+    vm_define_global(vm, "ceil", vm_val_builtin_fn((BuiltinFn)vm_builtin_ceil), true);
+    vm_define_global(vm, "round", vm_val_builtin_fn((BuiltinFn)vm_builtin_round), true);
+    vm_define_global(vm, "trunc", vm_val_builtin_fn((BuiltinFn)vm_builtin_trunc), true);
+}
+
+// ============================================
 // VM Lifecycle
 // ============================================
 
@@ -942,6 +1120,9 @@ VM* vm_new(void) {
     vm->task = NULL;
 
     vm->pending_error = NULL;
+
+    // Initialize stdlib globals
+    vm_init_stdlib(vm);
 
     return vm;
 }
@@ -1088,6 +1269,23 @@ bool vm_set_global(VM *vm, const char *name, Value value) {
     }
     SET_ERROR_FMT(vm, "Undefined variable '%s'", name);
     return false;
+}
+
+void vm_set_args(VM *vm, int argc, char **argv) {
+    // Create an array of strings from command-line arguments
+    Array *arr = malloc(sizeof(Array));
+    arr->elements = malloc(sizeof(Value) * (argc > 0 ? argc : 1));
+    arr->length = argc;
+    arr->capacity = argc > 0 ? argc : 1;
+    arr->element_type = NULL;
+    arr->ref_count = 1;
+
+    for (int i = 0; i < argc; i++) {
+        arr->elements[i] = vm_make_string(argv[i], strlen(argv[i]));
+    }
+
+    Value args_val = {.type = VAL_ARRAY, .as.as_array = arr};
+    vm_define_global(vm, "args", args_val, false);
 }
 
 // ============================================
@@ -4015,6 +4213,23 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
             case BC_CALL: {
                 uint8_t argc = READ_BYTE();
                 Value callee = PEEK(argc);
+
+                // Handle builtin function values (from stdlib)
+                if (callee.type == VAL_BUILTIN_FN) {
+                    // The callee is a builtin function pointer
+                    BuiltinFn fn = callee.as.as_builtin_fn;
+
+                    // Create args array pointing to stack values
+                    Value *args = vm->stack_top - argc;
+
+                    // Call the builtin (pass NULL for ctx - VM doesn't use it)
+                    Value result = fn(args, argc, NULL);
+
+                    // Pop args and callee, push result
+                    vm_popn(vm, argc + 1);
+                    PUSH(result);
+                    break;
+                }
 
                 if (!is_vm_closure(callee)) {
                     THROW_ERROR("Can only call functions");
