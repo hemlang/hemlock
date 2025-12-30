@@ -151,7 +151,7 @@ if (x > 0) {
 ```hemlock
 let count = 0;
 while (count < 5) {
-    print("Count: " + typeof(count));
+    print(`Count: ${count}`);
     count = count + 1;
 }
 ```
@@ -167,7 +167,7 @@ for (let i = 0; i < 10; i = i + 1) {
 // For-in loop (arrays)
 let items = [10, 20, 30, 40];
 for (let item in items) {
-    print("Item: " + typeof(item));
+    print(`Item: ${item}`);
 }
 ```
 
@@ -573,7 +573,7 @@ try {
 try {
     throw { code: 404, message: "Not found" };
 } catch (e) {
-    print("Error " + typeof(e.code) + ": " + e.message);
+    print(`Error ${e.code}: ${e.message}`);
 }
 // Output: Error 404: Not found
 ```
@@ -697,7 +697,7 @@ if (args.length < 2) {
     let words = count_words(filename);
 
     if (words >= 0) {
-        print("Word count: " + typeof(words));
+        print(`Word count: ${words}`);
     }
 }
 ```

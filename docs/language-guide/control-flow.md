@@ -11,6 +11,7 @@ Available control flow features:
 - `for` loops - C-style and for-in iteration
 - `switch` statements - Multi-way branching
 - `break`/`continue` - Loop control
+- `defer` - Deferred execution (cleanup)
 - Boolean operators: `&&`, `||`, `!`
 - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Bitwise operators: `&`, `|`, `^`, `<<`, `>>`, `~`
@@ -151,7 +152,7 @@ for (let item in arr) {
 ```hemlock
 let arr = ["a", "b", "c"];
 for (let i = 0; i < arr.length; i = i + 1) {
-    print("Index: " + typeof(i) + ", Value: " + arr[i]);
+    print(`Index: ${i}, Value: ${arr[i]}`);
 }
 ```
 
@@ -336,6 +337,183 @@ for (let i = 0; i < 10; i = i + 1) {
 **Difference:**
 - `break` - Exits loop entirely
 - `continue` - Skips to next iteration
+
+## Defer Statement
+
+The `defer` statement schedules code to execute when the current function returns. This is useful for cleanup operations like closing files, freeing resources, or releasing locks.
+
+### Basic Defer
+
+```hemlock
+fn example() {
+    print("start");
+    defer print("cleanup");  // Runs when function returns
+    print("end");
+}
+
+example();
+// Output:
+// start
+// end
+// cleanup
+```
+
+**Key behavior:**
+- Deferred statements execute **after** the function body completes
+- Deferred statements execute **before** the function returns to its caller
+- Deferred statements always execute, even if the function throws an exception
+
+### Multiple Defers (LIFO Order)
+
+When multiple `defer` statements are used, they execute in **reverse order** (Last-In-First-Out):
+
+```hemlock
+fn example() {
+    defer print("first");   // Executes last
+    defer print("second");  // Executes second
+    defer print("third");   // Executes first
+    print("body");
+}
+
+example();
+// Output:
+// body
+// third
+// second
+// first
+```
+
+This LIFO order is intentional - it matches the natural order for nested resource cleanup (close inner resources before outer ones).
+
+### Defer with Return
+
+Deferred statements execute before `return` transfers control:
+
+```hemlock
+fn get_value(): i32 {
+    defer print("cleanup");
+    print("before return");
+    return 42;
+}
+
+let result = get_value();
+print("result:", result);
+// Output:
+// before return
+// cleanup
+// result: 42
+```
+
+### Defer with Exceptions
+
+Deferred statements execute even when an exception is thrown:
+
+```hemlock
+fn risky() {
+    defer print("cleanup 1");
+    defer print("cleanup 2");
+    print("before throw");
+    throw "error!";
+    print("after throw");  // Never reached
+}
+
+try {
+    risky();
+} catch (e) {
+    print("Caught:", e);
+}
+// Output:
+// before throw
+// cleanup 2
+// cleanup 1
+// Caught: error!
+```
+
+### Resource Cleanup Pattern
+
+The primary use case for `defer` is ensuring resources are cleaned up:
+
+```hemlock
+fn process_file(filename: string) {
+    let file = open(filename, "r");
+    defer file.close();  // Always closes, even on error
+
+    let content = file.read();
+    // ... process content ...
+
+    // File automatically closed when function returns
+}
+```
+
+**Without defer (error-prone):**
+```hemlock
+fn process_file_bad(filename: string) {
+    let file = open(filename, "r");
+    let content = file.read();
+    // If this throws, file.close() is never called!
+    process(content);
+    file.close();
+}
+```
+
+### Defer with Closures
+
+Defer can use closures to capture state:
+
+```hemlock
+fn example() {
+    let resource = acquire_resource();
+    defer fn() {
+        print("Releasing resource");
+        release(resource);
+    }();  // Note: immediately-invoked function expression
+
+    use_resource(resource);
+}
+```
+
+### When to Use Defer
+
+**Use defer for:**
+- Closing files and network connections
+- Freeing allocated memory
+- Releasing locks and mutexes
+- Cleanup in any function that acquires resources
+
+**Defer vs Finally:**
+- `defer` is simpler for single-resource cleanup
+- `try/finally` is better for complex error handling with recovery
+
+### Best Practices
+
+1. **Place defer immediately after acquiring a resource:**
+   ```hemlock
+   let file = open("data.txt", "r");
+   defer file.close();
+   // ... use file ...
+   ```
+
+2. **Use multiple defers for multiple resources:**
+   ```hemlock
+   let file1 = open("input.txt", "r");
+   defer file1.close();
+
+   let file2 = open("output.txt", "w");
+   defer file2.close();
+
+   // Both files will be closed in reverse order
+   ```
+
+3. **Remember LIFO order for dependent resources:**
+   ```hemlock
+   let outer = acquire_outer();
+   defer release_outer(outer);
+
+   let inner = acquire_inner(outer);
+   defer release_inner(inner);
+
+   // inner released before outer (correct dependency order)
+   ```
 
 ## Boolean Operators
 
