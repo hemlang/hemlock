@@ -3613,57 +3613,56 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         VMClosure *closure = as_vm_closure(args[0]);
                         Array *args_arr = args[1].as.as_array;
+                        Chunk *fn_chunk = closure->chunk;
 
-                        // Save the closure_val before popping
+                        // Save the closure before popping
                         Value closure_val = args[0];
 
-                        // Pop the apply arguments
+                        // Pop the apply arguments (fn, args_array)
                         vm_popn(vm, argc);
 
-                        // Push the function and its arguments
+                        // Push the closure and all arguments onto the stack
+                        // Stack layout should be: [closure] [arg0] [arg1] ... [argN]
                         PUSH(closure_val);
                         for (int i = 0; i < args_arr->length; i++) {
                             PUSH(args_arr->elements[i]);
                         }
 
-                        // Now we need to call the function
-                        // We'll set up a new call frame
-                        Chunk *fn_chunk = closure->chunk;
-
-                        if (vm->frame_count >= vm->frame_capacity) {
-                            THROW_ERROR("Stack overflow");
+                        // Push nulls for missing optional parameters
+                        int call_argc = args_arr->length;
+                        if (call_argc < fn_chunk->arity) {
+                            int required = fn_chunk->arity - fn_chunk->optional_count;
+                            if (call_argc < required) {
+                                THROW_ERROR_FMT("Expected at least %d arguments but got %d", required, call_argc);
+                            }
+                            int missing = fn_chunk->arity - call_argc;
+                            for (int i = 0; i < missing; i++) {
+                                PUSH(vm_null_value());
+                            }
+                            call_argc = fn_chunk->arity;
                         }
 
-                        // Set up call frame
+                        // Save current frame state
+                        frame->ip = ip;
+
+                        // Check for stack overflow
+                        if (vm->frame_count >= vm->frame_capacity) {
+                            vm->frame_capacity *= 2;
+                            vm->frames = realloc(vm->frames, sizeof(CallFrame) * vm->frame_capacity);
+                        }
+
+                        // Set up new call frame (same as BC_CALL)
                         CallFrame *new_frame = &vm->frames[vm->frame_count++];
                         new_frame->chunk = fn_chunk;
                         new_frame->ip = fn_chunk->code;
-                        new_frame->slots = vm->stack_top - args_arr->length - 1;
+                        new_frame->slots = vm->stack_top - call_argc - 1;  // Include the closure slot
                         new_frame->upvalues = NULL;
                         new_frame->slot_count = fn_chunk->local_count;
 
-                        // Update local variables for new frame
+                        // Update frame pointers
                         frame = new_frame;
                         ip = frame->ip;
                         slots = frame->slots;
-
-                        // Put closure in slot 0
-                        slots[0] = closure_val;
-
-                        // Set up parameters in slots 1..arity
-                        for (int i = 0; i < args_arr->length && i < fn_chunk->arity; i++) {
-                            slots[i + 1] = args_arr->elements[i];
-                        }
-
-                        // Ensure stack is set up for local_count
-                        if (fn_chunk->local_count > args_arr->length + 1) {
-                            // Push nulls for remaining slots
-                            int extras = fn_chunk->local_count - args_arr->length - 1;
-                            for (int i = 0; i < extras; i++) {
-                                PUSH(vm_null_value());
-                            }
-                        }
-
                         continue;  // Continue dispatch loop with new frame
                     }
 
