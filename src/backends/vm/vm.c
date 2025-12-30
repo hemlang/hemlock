@@ -1875,6 +1875,17 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else {
                         PUSH(vm_null_value());
                     }
+                } else if (obj.type == VAL_BUFFER && obj.as.as_buffer) {
+                    // Buffer properties: length, capacity
+                    const char *key = c.as.string.data;
+                    Buffer *buf = obj.as.as_buffer;
+                    if (strcmp(key, "length") == 0) {
+                        PUSH(val_i32_vm(buf->length));
+                    } else if (strcmp(key, "capacity") == 0) {
+                        PUSH(val_i32_vm(buf->capacity));
+                    } else {
+                        PUSH(vm_null_value());
+                    }
                 } else {
                     THROW_ERROR_FMT("Cannot get property of %s", val_type_name(obj.type));
                 }
@@ -1972,6 +1983,15 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         Value v = {.type = VAL_RUNE, .as.as_rune = codepoint};
                         PUSH(v);
                     }
+                } else if (obj.type == VAL_BUFFER && obj.as.as_buffer) {
+                    // Buffer indexing - returns byte as i32
+                    Buffer *buf = obj.as.as_buffer;
+                    int i = (int)value_to_i64(idx);
+                    if (i < 0 || i >= buf->length) {
+                        THROW_ERROR_FMT("Buffer index out of bounds: %d", i);
+                    }
+                    uint8_t *data = (uint8_t*)buf->data;
+                    PUSH(val_i32_vm(data[i]));
                 } else if (obj.type == VAL_OBJECT && obj.as.as_object) {
                     Object *o = obj.as.as_object;
                     if (idx.type == VAL_STRING && idx.as.as_string) {
@@ -2045,6 +2065,16 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     } else {
                         THROW_ERROR("Object key must be string");
                     }
+                } else if (obj.type == VAL_BUFFER && obj.as.as_buffer) {
+                    // Buffer indexing - write byte
+                    Buffer *buf = obj.as.as_buffer;
+                    int i = (int)value_to_i64(idx);
+                    if (i < 0 || i >= buf->length) {
+                        THROW_ERROR_FMT("Buffer index out of bounds: %d", i);
+                    }
+                    uint8_t *data = (uint8_t*)buf->data;
+                    data[i] = (uint8_t)value_to_i64(val);
+                    PUSH(val);
                 } else {
                     THROW_ERROR_FMT("Cannot set index on %s", val_type_name(obj.type));
                 }
@@ -2860,6 +2890,783 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         result.as.as_channel = ch;
                         break;
                     }
+                    // ========== Memory Operations ==========
+                    case BUILTIN_ALLOC: {
+                        // alloc(size) - allocate memory
+                        if (argc != 1) {
+                            THROW_ERROR("alloc() expects 1 argument (size in bytes)");
+                        }
+                        int64_t size = value_to_i64(args[0]);
+                        if (size <= 0) {
+                            THROW_ERROR("alloc() size must be positive");
+                        }
+                        void *ptr = malloc((size_t)size);
+                        if (!ptr) {
+                            result = vm_null_value();
+                        } else {
+                            result.type = VAL_PTR;
+                            result.as.as_ptr = ptr;
+                        }
+                        break;
+                    }
+                    case BUILTIN_TALLOC: {
+                        // talloc(type, count) - type-aware allocation
+                        if (argc != 2) {
+                            THROW_ERROR("talloc() expects 2 arguments (type, count)");
+                        }
+                        if (args[0].type != VAL_TYPE) {
+                            THROW_ERROR("talloc() first argument must be a type");
+                        }
+                        TypeKind type = args[0].as.as_type;
+                        int64_t count = value_to_i64(args[1]);
+                        if (count <= 0) {
+                            THROW_ERROR("talloc() count must be positive");
+                        }
+                        // Get element size
+                        int elem_size;
+                        switch (type) {
+                            case TYPE_I8: case TYPE_U8: elem_size = 1; break;
+                            case TYPE_I16: case TYPE_U16: elem_size = 2; break;
+                            case TYPE_I32: case TYPE_U32: case TYPE_F32: elem_size = 4; break;
+                            case TYPE_I64: case TYPE_U64: case TYPE_F64: elem_size = 8; break;
+                            case TYPE_PTR: case TYPE_BUFFER: elem_size = sizeof(void*); break;
+                            case TYPE_BOOL: elem_size = sizeof(int); break;
+                            default: elem_size = 8; break;
+                        }
+                        size_t total_size = (size_t)elem_size * (size_t)count;
+                        void *ptr = malloc(total_size);
+                        if (!ptr) {
+                            result = vm_null_value();
+                        } else {
+                            result.type = VAL_PTR;
+                            result.as.as_ptr = ptr;
+                        }
+                        break;
+                    }
+                    case BUILTIN_REALLOC: {
+                        // realloc(ptr, new_size) - reallocate memory
+                        if (argc != 2) {
+                            THROW_ERROR("realloc() expects 2 arguments (ptr, new_size)");
+                        }
+                        if (args[0].type != VAL_PTR) {
+                            THROW_ERROR("realloc() first argument must be a pointer");
+                        }
+                        int64_t new_size = value_to_i64(args[1]);
+                        if (new_size <= 0) {
+                            THROW_ERROR("realloc() new_size must be positive");
+                        }
+                        void *old_ptr = args[0].as.as_ptr;
+                        void *new_ptr = realloc(old_ptr, (size_t)new_size);
+                        if (!new_ptr) {
+                            result = vm_null_value();
+                        } else {
+                            result.type = VAL_PTR;
+                            result.as.as_ptr = new_ptr;
+                        }
+                        break;
+                    }
+                    case BUILTIN_FREE: {
+                        // free(ptr|buffer|array|object) - free memory
+                        if (argc != 1) {
+                            THROW_ERROR("free() expects 1 argument");
+                        }
+                        Value arg = args[0];
+                        if (arg.type == VAL_PTR) {
+                            free(arg.as.as_ptr);
+                        } else if (arg.type == VAL_BUFFER) {
+                            Buffer *buf = arg.as.as_buffer;
+                            int expected = 0;
+                            if (!atomic_compare_exchange_strong(&buf->freed, &expected, 1)) {
+                                THROW_ERROR("double free detected on buffer");
+                            }
+                            free(buf->data);
+                            buf->data = NULL;
+                            buf->length = 0;
+                            buf->capacity = 0;
+                        } else if (arg.type == VAL_ARRAY) {
+                            Array *arr = arg.as.as_array;
+                            int expected = 0;
+                            if (!atomic_compare_exchange_strong(&arr->freed, &expected, 1)) {
+                                THROW_ERROR("double free detected on array");
+                            }
+                            free(arr->elements);
+                            arr->elements = NULL;
+                            arr->length = 0;
+                            arr->capacity = 0;
+                        } else if (arg.type == VAL_OBJECT) {
+                            Object *obj = arg.as.as_object;
+                            int expected = 0;
+                            if (!atomic_compare_exchange_strong(&obj->freed, &expected, 1)) {
+                                THROW_ERROR("double free detected on object");
+                            }
+                            for (int i = 0; i < obj->num_fields; i++) {
+                                free(obj->field_names[i]);
+                            }
+                            free(obj->field_names);
+                            free(obj->field_values);
+                            if (obj->type_name) free(obj->type_name);
+                            obj->field_names = NULL;
+                            obj->field_values = NULL;
+                            obj->type_name = NULL;
+                            obj->num_fields = 0;
+                        } else if (arg.type == VAL_NULL) {
+                            // free(null) is a no-op
+                        } else {
+                            THROW_ERROR("free() requires a pointer, buffer, object, or array");
+                        }
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_MEMSET: {
+                        // memset(ptr, byte, size) - set memory
+                        if (argc != 3) {
+                            THROW_ERROR("memset() expects 3 arguments (ptr, byte, size)");
+                        }
+                        if (args[0].type != VAL_PTR) {
+                            THROW_ERROR("memset() first argument must be a pointer");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        int byte = (int)value_to_i64(args[1]);
+                        int64_t size = value_to_i64(args[2]);
+                        if (size < 0) {
+                            THROW_ERROR("memset() size cannot be negative");
+                        }
+                        memset(ptr, byte, (size_t)size);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_MEMCPY: {
+                        // memcpy(dest, src, size) - copy memory
+                        if (argc != 3) {
+                            THROW_ERROR("memcpy() expects 3 arguments (dest, src, size)");
+                        }
+                        if (args[0].type != VAL_PTR || args[1].type != VAL_PTR) {
+                            THROW_ERROR("memcpy() requires pointers for dest and src");
+                        }
+                        void *dest = args[0].as.as_ptr;
+                        void *src = args[1].as.as_ptr;
+                        int64_t size = value_to_i64(args[2]);
+                        if (size < 0) {
+                            THROW_ERROR("memcpy() size cannot be negative");
+                        }
+                        memcpy(dest, src, (size_t)size);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_SIZEOF: {
+                        // sizeof(type) - get size of type
+                        if (argc != 1) {
+                            THROW_ERROR("sizeof() expects 1 argument (type)");
+                        }
+                        int size = 0;
+                        if (args[0].type == VAL_TYPE) {
+                            TypeKind kind = args[0].as.as_type;
+                            switch (kind) {
+                                case TYPE_I8: case TYPE_U8: size = 1; break;
+                                case TYPE_I16: case TYPE_U16: size = 2; break;
+                                case TYPE_I32: case TYPE_U32: case TYPE_F32: size = 4; break;
+                                case TYPE_I64: case TYPE_U64: case TYPE_F64: size = 8; break;
+                                case TYPE_PTR: case TYPE_BUFFER: size = sizeof(void*); break;
+                                case TYPE_BOOL: size = sizeof(int); break;
+                                case TYPE_RUNE: size = 4; break;
+                                default: size = 0; break;
+                            }
+                        } else if (args[0].type == VAL_STRING && args[0].as.as_string) {
+                            const char *type_name = args[0].as.as_string->data;
+                            if (strcmp(type_name, "i8") == 0) size = 1;
+                            else if (strcmp(type_name, "i16") == 0) size = 2;
+                            else if (strcmp(type_name, "i32") == 0 || strcmp(type_name, "integer") == 0) size = 4;
+                            else if (strcmp(type_name, "i64") == 0) size = 8;
+                            else if (strcmp(type_name, "u8") == 0 || strcmp(type_name, "byte") == 0) size = 1;
+                            else if (strcmp(type_name, "u16") == 0) size = 2;
+                            else if (strcmp(type_name, "u32") == 0) size = 4;
+                            else if (strcmp(type_name, "u64") == 0) size = 8;
+                            else if (strcmp(type_name, "f32") == 0) size = 4;
+                            else if (strcmp(type_name, "f64") == 0 || strcmp(type_name, "number") == 0) size = 8;
+                            else if (strcmp(type_name, "bool") == 0) size = sizeof(int);
+                            else if (strcmp(type_name, "ptr") == 0) size = sizeof(void*);
+                            else if (strcmp(type_name, "rune") == 0) size = 4;
+                            else size = 0;
+                        } else {
+                            THROW_ERROR("sizeof() requires a type argument");
+                        }
+                        result = val_i32_vm(size);
+                        break;
+                    }
+                    case BUILTIN_BUFFER: {
+                        // buffer(size) - create a safe buffer
+                        if (argc != 1) {
+                            THROW_ERROR("buffer() expects 1 argument (size)");
+                        }
+                        int64_t size = value_to_i64(args[0]);
+                        if (size <= 0) {
+                            THROW_ERROR("buffer() size must be positive");
+                        }
+                        Buffer *buf = malloc(sizeof(Buffer));
+                        if (!buf) {
+                            result = vm_null_value();
+                            break;
+                        }
+                        buf->data = malloc((size_t)size);
+                        if (!buf->data) {
+                            free(buf);
+                            result = vm_null_value();
+                            break;
+                        }
+                        buf->length = (int)size;
+                        buf->capacity = (int)size;
+                        buf->ref_count = 1;
+                        atomic_store(&buf->freed, 0);
+                        result.type = VAL_BUFFER;
+                        result.as.as_buffer = buf;
+                        break;
+                    }
+                    case BUILTIN_BUFFER_PTR: {
+                        // buffer_ptr(buffer) - get raw pointer from buffer
+                        if (argc != 1) {
+                            THROW_ERROR("buffer_ptr() expects 1 argument (buffer)");
+                        }
+                        if (args[0].type != VAL_BUFFER) {
+                            THROW_ERROR("buffer_ptr() argument must be a buffer");
+                        }
+                        Buffer *buf = args[0].as.as_buffer;
+                        result.type = VAL_PTR;
+                        result.as.as_ptr = buf->data;
+                        break;
+                    }
+                    case BUILTIN_PTR_NULL: {
+                        // ptr_null() - get null pointer
+                        if (argc != 0) {
+                            THROW_ERROR("ptr_null() expects no arguments");
+                        }
+                        result.type = VAL_PTR;
+                        result.as.as_ptr = NULL;
+                        break;
+                    }
+
+                    // ========== Pointer Read Operations ==========
+                    case BUILTIN_PTR_READ_I8: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_i8() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_i8() cannot read from null pointer"); }
+                        result.type = VAL_I32;
+                        result.as.as_i32 = *(int8_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_I16: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_i16() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_i16() cannot read from null pointer"); }
+                        result.type = VAL_I32;
+                        result.as.as_i32 = *(int16_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_I32: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_i32() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_i32() cannot read from null pointer"); }
+                        result.type = VAL_I32;
+                        result.as.as_i32 = *(int32_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_I64: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_i64() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_i64() cannot read from null pointer"); }
+                        result.type = VAL_I64;
+                        result.as.as_i64 = *(int64_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_U8: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_u8() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_u8() cannot read from null pointer"); }
+                        result.type = VAL_I32;
+                        result.as.as_i32 = *(uint8_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_U16: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_u16() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_u16() cannot read from null pointer"); }
+                        result.type = VAL_I32;
+                        result.as.as_i32 = *(uint16_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_U32: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_u32() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_u32() cannot read from null pointer"); }
+                        result.type = VAL_I64;
+                        result.as.as_i64 = *(uint32_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_U64: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_u64() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_u64() cannot read from null pointer"); }
+                        result.type = VAL_I64;
+                        result.as.as_i64 = (int64_t)*(uint64_t*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_F32: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_f32() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_f32() cannot read from null pointer"); }
+                        result.type = VAL_F64;
+                        result.as.as_f64 = *(float*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_F64: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_f64() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_f64() cannot read from null pointer"); }
+                        result.type = VAL_F64;
+                        result.as.as_f64 = *(double*)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_READ_PTR: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_read_ptr() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_read_ptr() cannot read from null pointer"); }
+                        result.type = VAL_PTR;
+                        result.as.as_ptr = *(void**)ptr;
+                        break;
+                    }
+                    case BUILTIN_PTR_OFFSET: {
+                        // ptr_offset(ptr, offset, element_size) - calculate pointer offset
+                        if (argc != 3) {
+                            THROW_ERROR("ptr_offset() expects 3 arguments (ptr, offset, element_size)");
+                        }
+                        if (args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_offset() first argument must be a pointer");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        int64_t offset = value_to_i64(args[1]);
+                        int64_t elem_size = value_to_i64(args[2]);
+                        result.type = VAL_PTR;
+                        result.as.as_ptr = (char*)ptr + (offset * elem_size);
+                        break;
+                    }
+                    case BUILTIN_PTR_DEREF_I32: {
+                        // ptr_deref_i32(ptr) - alias for ptr_read_i32
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_deref_i32() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_deref_i32() cannot dereference null pointer"); }
+                        result.type = VAL_I32;
+                        result.as.as_i32 = *(int32_t*)ptr;
+                        break;
+                    }
+
+                    // ========== Pointer Write Operations ==========
+                    case BUILTIN_PTR_WRITE_I8: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_i8() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_i8() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_i8() cannot write to null pointer"); }
+                        *(int8_t*)ptr = (int8_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_I16: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_i16() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_i16() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_i16() cannot write to null pointer"); }
+                        *(int16_t*)ptr = (int16_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_I32: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_i32() cannot write to null pointer"); }
+                        *(int32_t*)ptr = (int32_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_I64: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_i64() cannot write to null pointer"); }
+                        *(int64_t*)ptr = value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_U8: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_u8() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_u8() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_u8() cannot write to null pointer"); }
+                        *(uint8_t*)ptr = (uint8_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_U16: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_u16() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_u16() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_u16() cannot write to null pointer"); }
+                        *(uint16_t*)ptr = (uint16_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_U32: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_u32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_u32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_u32() cannot write to null pointer"); }
+                        *(uint32_t*)ptr = (uint32_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_U64: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_u64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_u64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_u64() cannot write to null pointer"); }
+                        *(uint64_t*)ptr = (uint64_t)value_to_i64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_F32: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_f32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_f32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_f32() cannot write to null pointer"); }
+                        *(float*)ptr = (float)value_to_f64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_F64: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_f64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_f64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_f64() cannot write to null pointer"); }
+                        *(double*)ptr = value_to_f64(args[1]);
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_PTR_WRITE_PTR: {
+                        if (argc != 2) { THROW_ERROR("ptr_write_ptr() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("ptr_write_ptr() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("ptr_write_ptr() cannot write to null pointer"); }
+                        if (args[1].type != VAL_PTR && args[1].type != VAL_NULL) {
+                            THROW_ERROR("ptr_write_ptr() second arg must be pointer or null");
+                        }
+                        *(void**)ptr = args[1].type == VAL_NULL ? NULL : args[1].as.as_ptr;
+                        result = vm_null_value();
+                        break;
+                    }
+
+                    // ========== Atomic Operations ==========
+                    case BUILTIN_ATOMIC_LOAD_I32: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("atomic_load_i32() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_load_i32() cannot load from null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_load(aptr);
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_STORE_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_store_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_store_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_store_i32() cannot store to null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        atomic_store(aptr, (int32_t)value_to_i64(args[1]));
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_ADD_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_add_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_add_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_add_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_fetch_add(aptr, (int32_t)value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_SUB_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_sub_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_sub_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_sub_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_fetch_sub(aptr, (int32_t)value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_AND_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_and_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_and_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_and_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_fetch_and(aptr, (int32_t)value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_OR_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_or_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_or_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_or_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_fetch_or(aptr, (int32_t)value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_XOR_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_xor_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_xor_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_xor_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_fetch_xor(aptr, (int32_t)value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_CAS_I32: {
+                        if (argc != 3) { THROW_ERROR("atomic_cas_i32() expects 3 arguments (ptr, expected, desired)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_cas_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_cas_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        int32_t expected = (int32_t)value_to_i64(args[1]);
+                        int32_t desired = (int32_t)value_to_i64(args[2]);
+                        bool success = atomic_compare_exchange_strong(aptr, &expected, desired);
+                        result.type = VAL_BOOL;
+                        result.as.as_bool = success;
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_EXCHANGE_I32: {
+                        if (argc != 2) { THROW_ERROR("atomic_exchange_i32() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_exchange_i32() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_exchange_i32() cannot operate on null pointer"); }
+                        _Atomic int32_t *aptr = (_Atomic int32_t*)ptr;
+                        result.type = VAL_I32;
+                        result.as.as_i32 = atomic_exchange(aptr, (int32_t)value_to_i64(args[1]));
+                        break;
+                    }
+
+                    // ========== Atomic i64 Operations ==========
+                    case BUILTIN_ATOMIC_LOAD_I64: {
+                        if (argc != 1 || args[0].type != VAL_PTR) {
+                            THROW_ERROR("atomic_load_i64() expects 1 pointer argument");
+                        }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_load_i64() cannot load from null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_load(aptr);
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_STORE_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_store_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_store_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_store_i64() cannot store to null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        atomic_store(aptr, value_to_i64(args[1]));
+                        result = vm_null_value();
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_ADD_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_add_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_add_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_add_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_fetch_add(aptr, value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_SUB_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_sub_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_sub_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_sub_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_fetch_sub(aptr, value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_AND_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_and_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_and_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_and_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_fetch_and(aptr, value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_OR_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_or_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_or_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_or_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_fetch_or(aptr, value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_XOR_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_xor_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_xor_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_xor_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_fetch_xor(aptr, value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_CAS_I64: {
+                        if (argc != 3) { THROW_ERROR("atomic_cas_i64() expects 3 arguments (ptr, expected, desired)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_cas_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_cas_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        int64_t expected = value_to_i64(args[1]);
+                        int64_t desired = value_to_i64(args[2]);
+                        bool success = atomic_compare_exchange_strong(aptr, &expected, desired);
+                        result.type = VAL_BOOL;
+                        result.as.as_bool = success;
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_EXCHANGE_I64: {
+                        if (argc != 2) { THROW_ERROR("atomic_exchange_i64() expects 2 arguments (ptr, value)"); }
+                        if (args[0].type != VAL_PTR) { THROW_ERROR("atomic_exchange_i64() first arg must be pointer"); }
+                        void *ptr = args[0].as.as_ptr;
+                        if (!ptr) { THROW_ERROR("atomic_exchange_i64() cannot operate on null pointer"); }
+                        _Atomic int64_t *aptr = (_Atomic int64_t*)ptr;
+                        result.type = VAL_I64;
+                        result.as.as_i64 = atomic_exchange(aptr, value_to_i64(args[1]));
+                        break;
+                    }
+                    case BUILTIN_ATOMIC_FENCE: {
+                        // atomic_fence() - full memory barrier
+                        atomic_thread_fence(memory_order_seq_cst);
+                        result = vm_null_value();
+                        break;
+                    }
+
+                    // ========== Signal Handling ==========
+                    case BUILTIN_SIGNAL: {
+                        // signal(signum, handler) - register signal handler
+                        // For now, we support basic signal handling
+                        if (argc != 2) {
+                            THROW_ERROR("signal() expects 2 arguments (signum, handler)");
+                        }
+                        int signum = (int)value_to_i64(args[0]);
+                        // Just acknowledge the signal registration for now
+                        // Full signal handling would require storing handlers and calling them
+                        result = vm_null_value();
+                        (void)signum;  // Silence unused warning
+                        break;
+                    }
+
+                    // ========== apply() builtin ==========
+                    case BUILTIN_APPLY: {
+                        // apply(fn, args_array) - call function with array of arguments
+                        if (argc != 2) {
+                            THROW_ERROR("apply() expects 2 arguments (function, args_array)");
+                        }
+                        if (!is_vm_closure(args[0])) {
+                            THROW_ERROR("apply() first argument must be a function");
+                        }
+                        if (args[1].type != VAL_ARRAY || !args[1].as.as_array) {
+                            THROW_ERROR("apply() second argument must be an array");
+                        }
+                        VMClosure *closure = as_vm_closure(args[0]);
+                        Array *args_arr = args[1].as.as_array;
+
+                        // Save the closure_val before popping
+                        Value closure_val = args[0];
+
+                        // Pop the apply arguments
+                        vm_popn(vm, argc);
+
+                        // Push the function and its arguments
+                        PUSH(closure_val);
+                        for (int i = 0; i < args_arr->length; i++) {
+                            PUSH(args_arr->elements[i]);
+                        }
+
+                        // Now we need to call the function
+                        // We'll set up a new call frame
+                        Chunk *fn_chunk = closure->chunk;
+
+                        if (vm->frame_count >= vm->frame_capacity) {
+                            THROW_ERROR("Stack overflow");
+                        }
+
+                        // Set up call frame
+                        CallFrame *new_frame = &vm->frames[vm->frame_count++];
+                        new_frame->chunk = fn_chunk;
+                        new_frame->ip = fn_chunk->code;
+                        new_frame->slots = vm->stack_top - args_arr->length - 1;
+                        new_frame->upvalues = NULL;
+                        new_frame->slot_count = fn_chunk->local_count;
+
+                        // Update local variables for new frame
+                        frame = new_frame;
+                        ip = frame->ip;
+                        slots = frame->slots;
+
+                        // Put closure in slot 0
+                        slots[0] = closure_val;
+
+                        // Set up parameters in slots 1..arity
+                        for (int i = 0; i < args_arr->length && i < fn_chunk->arity; i++) {
+                            slots[i + 1] = args_arr->elements[i];
+                        }
+
+                        // Ensure stack is set up for local_count
+                        if (fn_chunk->local_count > args_arr->length + 1) {
+                            // Push nulls for remaining slots
+                            int extras = fn_chunk->local_count - args_arr->length - 1;
+                            for (int i = 0; i < extras; i++) {
+                                PUSH(vm_null_value());
+                            }
+                        }
+
+                        continue;  // Continue dispatch loop with new frame
+                    }
+
                     default:
                         vm_runtime_error(vm, "Builtin %d not implemented", builtin_id);
                         return VM_RUNTIME_ERROR;
