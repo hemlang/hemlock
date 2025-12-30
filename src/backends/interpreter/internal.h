@@ -377,4 +377,7 @@ void defer_stack_free(DeferStack *stack);
 // Now throws catchable exceptions when ctx is provided
 void runtime_error(ExecutionContext *ctx, const char *format, ...);
 
+// Runtime error with line number (for better error reporting)
+void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...);
+
 #endif // HEMLOCK_INTERPRETER_INTERNAL_H

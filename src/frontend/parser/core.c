@@ -2,12 +2,45 @@
 
 // ========== ERROR HANDLING ==========
 
+// Helper to get a line from source code
+static const char* get_source_line(const char *source, int line_num, int *line_length) {
+    if (!source) {
+        *line_length = 0;
+        return NULL;
+    }
+
+    const char *p = source;
+    int current_line = 1;
+
+    // Find the start of the requested line
+    while (*p && current_line < line_num) {
+        if (*p == '\n') {
+            current_line++;
+        }
+        p++;
+    }
+
+    if (!*p && current_line < line_num) {
+        *line_length = 0;
+        return NULL;
+    }
+
+    // Find the end of the line
+    const char *line_start = p;
+    while (*p && *p != '\n') {
+        p++;
+    }
+
+    *line_length = (int)(p - line_start);
+    return line_start;
+}
+
 void error_at(Parser *p, Token *token, const char *message) {
     if (p->panic_mode) return;
     p->panic_mode = 1;
-    
-    fprintf(stderr, "[line %d] Error", token->line);
-    
+
+    fprintf(stderr, "[line %d:%d] Error", token->line, token->column);
+
     if (token->type == TOK_EOF) {
         fprintf(stderr, " at end");
     } else if (token->type == TOK_ERROR) {
@@ -15,8 +48,31 @@ void error_at(Parser *p, Token *token, const char *message) {
     } else {
         fprintf(stderr, " at '%.*s'", token->length, token->start);
     }
-    
+
     fprintf(stderr, ": %s\n", message);
+
+    // Show source context if available
+    if (p->source) {
+        int line_length;
+        const char *line = get_source_line(p->source, token->line, &line_length);
+        if (line && line_length > 0) {
+            // Print the source line
+            fprintf(stderr, "    %.*s\n", line_length, line);
+
+            // Print the caret pointing to the error position
+            fprintf(stderr, "    ");
+            for (int i = 1; i < token->column && i <= line_length; i++) {
+                // Preserve tabs for alignment
+                if (line[i-1] == '\t') {
+                    fprintf(stderr, "\t");
+                } else {
+                    fprintf(stderr, " ");
+                }
+            }
+            fprintf(stderr, "^\n");
+        }
+    }
+
     p->had_error = 1;
 }
 
@@ -108,7 +164,8 @@ void parser_init(Parser *parser, Lexer *lexer) {
     parser->lexer = lexer;
     parser->had_error = 0;
     parser->panic_mode = 0;
-    
+    parser->source = lexer->source;  // Store source for error messages
+
     advance(parser);  // Prime the pump
 }
 

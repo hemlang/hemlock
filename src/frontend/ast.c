@@ -8,6 +8,7 @@ Expr* expr_number_int(int64_t value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
     expr->line = 0;
+    expr->column = 0;
     expr->as.number.int_value = value;
     expr->as.number.is_float = 0;
     return expr;
@@ -17,6 +18,7 @@ Expr* expr_number_float(double value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
     expr->line = 0;
+    expr->column = 0;
     expr->as.number.float_value = value;
     expr->as.number.is_float = 1;
     return expr;
@@ -30,6 +32,7 @@ Expr* expr_bool(int value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_BOOL;
     expr->line = 0;
+    expr->column = 0;
     expr->as.boolean = value ? 1 : 0;
     return expr;
 }
@@ -38,6 +41,7 @@ Expr* expr_string(const char *str) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_STRING;
     expr->line = 0;
+    expr->column = 0;
     expr->as.string = strdup(str);
     return expr;
 }
@@ -46,6 +50,7 @@ Expr* expr_rune(uint32_t codepoint) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_RUNE;
     expr->line = 0;
+    expr->column = 0;
     expr->as.rune = codepoint;
     return expr;
 }
@@ -54,6 +59,7 @@ Expr* expr_ident(const char *name) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_IDENT;
     expr->line = 0;
+    expr->column = 0;
     expr->as.ident.name = strdup(name);
     expr->as.ident.resolved.is_resolved = 0;  // Not resolved yet
     expr->as.ident.resolved.depth = 0;
@@ -65,6 +71,7 @@ Expr* expr_null(void) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NULL;
     expr->line = 0;
+    expr->column = 0;
     return expr;
 }
 
@@ -72,6 +79,7 @@ Expr* expr_binary(Expr *left, BinaryOp op, Expr *right) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_BINARY;
     expr->line = 0;
+    expr->column = 0;
     expr->as.binary.left = left;
     expr->as.binary.op = op;
     expr->as.binary.right = right;
@@ -82,6 +90,7 @@ Expr* expr_unary(UnaryOp op, Expr *operand) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_UNARY;
     expr->line = 0;
+    expr->column = 0;
     expr->as.unary.op = op;
     expr->as.unary.operand = operand;
     return expr;
@@ -91,6 +100,7 @@ Expr* expr_ternary(Expr *condition, Expr *true_expr, Expr *false_expr) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_TERNARY;
     expr->line = 0;
+    expr->column = 0;
     expr->as.ternary.condition = condition;
     expr->as.ternary.true_expr = true_expr;
     expr->as.ternary.false_expr = false_expr;
@@ -101,6 +111,7 @@ Expr* expr_call(Expr *func, Expr **args, int num_args) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_CALL;
     expr->line = 0;
+    expr->column = 0;
     expr->as.call.func = func;
     expr->as.call.args = args;
     expr->as.call.num_args = num_args;
@@ -111,6 +122,7 @@ Expr* expr_assign(const char *name, Expr *value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_ASSIGN;
     expr->line = 0;
+    expr->column = 0;
     expr->as.assign.name = strdup(name);
     expr->as.assign.value = value;
     expr->as.assign.resolved.is_resolved = 0;  // Not resolved yet
@@ -123,6 +135,7 @@ Expr* expr_get_property(Expr *object, const char *property) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_GET_PROPERTY;
     expr->line = 0;
+    expr->column = 0;
     expr->as.get_property.object = object;
     expr->as.get_property.property = strdup(property);
     return expr;
@@ -132,6 +145,7 @@ Expr* expr_set_property(Expr *object, const char *property, Expr *value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_SET_PROPERTY;
     expr->line = 0;
+    expr->column = 0;
     expr->as.set_property.object = object;
     expr->as.set_property.property = strdup(property);
     expr->as.set_property.value = value;
@@ -142,6 +156,7 @@ Expr* expr_index(Expr *object, Expr *index) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_INDEX;
     expr->line = 0;
+    expr->column = 0;
     expr->as.index.object = object;
     expr->as.index.index = index;
     return expr;
@@ -151,6 +166,7 @@ Expr* expr_index_assign(Expr *object, Expr *index, Expr *value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_INDEX_ASSIGN;
     expr->line = 0;
+    expr->column = 0;
     expr->as.index_assign.object = object;
     expr->as.index_assign.index = index;
     expr->as.index_assign.value = value;
@@ -161,6 +177,7 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_FUNCTION;
     expr->line = 0;
+    expr->column = 0;
     expr->as.function.is_async = is_async;
     expr->as.function.param_names = param_names;
     expr->as.function.param_types = param_types;
@@ -177,6 +194,7 @@ Expr* expr_array_literal(Expr **elements, int num_elements) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_ARRAY_LITERAL;
     expr->line = 0;
+    expr->column = 0;
     expr->as.array_literal.elements = elements;
     expr->as.array_literal.num_elements = num_elements;
     return expr;
@@ -186,6 +204,7 @@ Expr* expr_object_literal(char **field_names, Expr **field_values, int num_field
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OBJECT_LITERAL;
     expr->line = 0;
+    expr->column = 0;
     expr->as.object_literal.field_names = field_names;
     expr->as.object_literal.field_values = field_values;
     expr->as.object_literal.num_fields = num_fields;
@@ -196,6 +215,7 @@ Expr* expr_prefix_inc(Expr *operand) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_PREFIX_INC;
     expr->line = 0;
+    expr->column = 0;
     expr->as.prefix_inc.operand = operand;
     return expr;
 }
@@ -204,6 +224,7 @@ Expr* expr_prefix_dec(Expr *operand) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_PREFIX_DEC;
     expr->line = 0;
+    expr->column = 0;
     expr->as.prefix_dec.operand = operand;
     return expr;
 }
@@ -212,6 +233,7 @@ Expr* expr_postfix_inc(Expr *operand) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_POSTFIX_INC;
     expr->line = 0;
+    expr->column = 0;
     expr->as.postfix_inc.operand = operand;
     return expr;
 }
@@ -220,6 +242,7 @@ Expr* expr_postfix_dec(Expr *operand) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_POSTFIX_DEC;
     expr->line = 0;
+    expr->column = 0;
     expr->as.postfix_dec.operand = operand;
     return expr;
 }
@@ -228,6 +251,7 @@ Expr* expr_await(Expr *awaited_expr) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_AWAIT;
     expr->line = 0;
+    expr->column = 0;
     expr->as.await_expr.awaited_expr = awaited_expr;
     return expr;
 }
@@ -236,6 +260,7 @@ Expr* expr_string_interpolation(char **string_parts, Expr **expr_parts, int num_
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_STRING_INTERPOLATION;
     expr->line = 0;
+    expr->column = 0;
     expr->as.string_interpolation.string_parts = string_parts;
     expr->as.string_interpolation.expr_parts = expr_parts;
     expr->as.string_interpolation.num_parts = num_parts;
@@ -246,6 +271,7 @@ Expr* expr_optional_chain_property(Expr *object, const char *property) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OPTIONAL_CHAIN;
     expr->line = 0;
+    expr->column = 0;
     expr->as.optional_chain.object = object;
     expr->as.optional_chain.property = strdup(property);
     expr->as.optional_chain.index = NULL;
@@ -260,6 +286,7 @@ Expr* expr_optional_chain_index(Expr *object, Expr *index) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OPTIONAL_CHAIN;
     expr->line = 0;
+    expr->column = 0;
     expr->as.optional_chain.object = object;
     expr->as.optional_chain.property = NULL;
     expr->as.optional_chain.index = index;
@@ -274,6 +301,7 @@ Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OPTIONAL_CHAIN;
     expr->line = 0;
+    expr->column = 0;
     expr->as.optional_chain.object = object;
     expr->as.optional_chain.property = NULL;
     expr->as.optional_chain.index = NULL;
@@ -288,6 +316,7 @@ Expr* expr_null_coalesce(Expr *left, Expr *right) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NULL_COALESCE;
     expr->line = 0;
+    expr->column = 0;
     expr->as.null_coalesce.left = left;
     expr->as.null_coalesce.right = right;
     return expr;
@@ -322,6 +351,7 @@ Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_LET;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.let.name = strdup(name);
     stmt->as.let.type_annotation = type_annotation;  // Can be NULL
     stmt->as.let.value = value;
@@ -336,6 +366,7 @@ Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_CONST;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.const_stmt.name = strdup(name);
     stmt->as.const_stmt.type_annotation = type_annotation;  // Can be NULL
     stmt->as.const_stmt.value = value;
@@ -350,6 +381,7 @@ Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_IF;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.if_stmt.condition = condition;
     stmt->as.if_stmt.then_branch = then_branch;
     stmt->as.if_stmt.else_branch = else_branch;
@@ -360,6 +392,7 @@ Stmt* stmt_while(Expr *condition, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_WHILE;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.while_stmt.condition = condition;
     stmt->as.while_stmt.body = body;
     return stmt;
@@ -369,6 +402,7 @@ Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) 
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_FOR;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.for_loop.initializer = initializer;
     stmt->as.for_loop.condition = condition;
     stmt->as.for_loop.increment = increment;
@@ -380,6 +414,7 @@ Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_FOR_IN;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.for_in.key_var = key_var;
     stmt->as.for_in.value_var = value_var;
     stmt->as.for_in.iterable = iterable;
@@ -391,6 +426,7 @@ Stmt* stmt_break(void) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_BREAK;
     stmt->line = 0;
+    stmt->column = 0;
     return stmt;
 }
 
@@ -398,6 +434,7 @@ Stmt* stmt_continue(void) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_CONTINUE;
     stmt->line = 0;
+    stmt->column = 0;
     return stmt;
 }
 
@@ -405,6 +442,7 @@ Stmt* stmt_block(Stmt **statements, int count) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_BLOCK;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.block.statements = statements;
     stmt->as.block.count = count;
     return stmt;
@@ -414,6 +452,7 @@ Stmt* stmt_expr(Expr *expr) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXPR;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.expr = expr;
     return stmt;
 }
@@ -422,6 +461,7 @@ Stmt* stmt_return(Expr *value) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_RETURN;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.return_stmt.value = value;
     return stmt;
 }
@@ -431,6 +471,7 @@ Stmt* stmt_define_object(const char *name, char **field_names, Type **field_type
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFINE_OBJECT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.define_object.name = strdup(name);
     stmt->as.define_object.field_names = field_names;
     stmt->as.define_object.field_types = field_types;
@@ -444,6 +485,7 @@ Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, i
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_ENUM;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.enum_decl.name = strdup(name);
     stmt->as.enum_decl.variant_names = variant_names;
     stmt->as.enum_decl.variant_values = variant_values;
@@ -455,6 +497,7 @@ Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *fina
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_TRY;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.try_stmt.try_block = try_block;
     stmt->as.try_stmt.catch_param = catch_param;
     stmt->as.try_stmt.catch_block = catch_block;
@@ -466,6 +509,7 @@ Stmt* stmt_throw(Expr *value) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_THROW;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.throw_stmt.value = value;
     return stmt;
 }
@@ -474,6 +518,7 @@ Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_ca
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_SWITCH;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.switch_stmt.expr = expr;
     stmt->as.switch_stmt.case_values = case_values;
     stmt->as.switch_stmt.case_bodies = case_bodies;
@@ -484,6 +529,8 @@ Stmt* stmt_switch(Expr *expr, Expr **case_values, Stmt **case_bodies, int num_ca
 Stmt* stmt_defer(Expr *call) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFER;
+    stmt->line = 0;
+    stmt->column = 0;
     stmt->as.defer_stmt.call = call;
     return stmt;
 }
@@ -492,6 +539,7 @@ Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_impo
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_IMPORT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.import_stmt.is_namespace = 0;
     stmt->as.import_stmt.namespace_name = NULL;
     stmt->as.import_stmt.import_names = import_names;
@@ -505,6 +553,7 @@ Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path)
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_IMPORT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.import_stmt.is_namespace = 1;
     stmt->as.import_stmt.namespace_name = strdup(namespace_name);
     stmt->as.import_stmt.import_names = NULL;
@@ -518,6 +567,7 @@ Stmt* stmt_import_star(const char *module_path) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_IMPORT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.import_stmt.is_namespace = 1;  // Marks as star import
     stmt->as.import_stmt.namespace_name = NULL;  // NULL means import directly into scope
     stmt->as.import_stmt.import_names = NULL;
@@ -531,6 +581,7 @@ Stmt* stmt_export_declaration(Stmt *declaration) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXPORT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.export_stmt.is_declaration = 1;
     stmt->as.export_stmt.is_reexport = 0;
     stmt->as.export_stmt.declaration = declaration;
@@ -545,6 +596,7 @@ Stmt* stmt_export_list(char **export_names, char **export_aliases, int num_expor
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXPORT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.export_stmt.is_declaration = 0;
     stmt->as.export_stmt.is_reexport = 0;
     stmt->as.export_stmt.declaration = NULL;
@@ -559,6 +611,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXPORT;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.export_stmt.is_declaration = 0;
     stmt->as.export_stmt.is_reexport = 1;
     stmt->as.export_stmt.declaration = NULL;
@@ -573,6 +626,7 @@ Stmt* stmt_import_ffi(const char *library_path) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_IMPORT_FFI;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.import_ffi.library_path = strdup(library_path);
     return stmt;
 }
@@ -581,6 +635,7 @@ Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_para
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXTERN_FN;
     stmt->line = 0;
+    stmt->column = 0;
     stmt->as.extern_fn.function_name = strdup(function_name);
     stmt->as.extern_fn.param_types = param_types;
     stmt->as.extern_fn.num_params = num_params;

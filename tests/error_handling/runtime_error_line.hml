@@ -1,0 +1,5 @@
+// Test that runtime errors include line numbers
+let x = 10;
+let y = 0;
+let z = x / y;  // Line 4: Division by zero
+print(z);

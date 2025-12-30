@@ -892,10 +892,12 @@ not_function:
 
     if (match(p, TOK_THROW)) {
         int throw_line = p->previous.line;  // Save line of 'throw' for stack trace
+        int throw_column = p->previous.column;
         Expr *value = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after throw statement");
         Stmt *stmt = stmt_throw(value);
         stmt->line = throw_line;  // Set line number for stack trace
+        stmt->column = throw_column;
         return stmt;
     }
 
