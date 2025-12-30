@@ -78,7 +78,8 @@ typedef struct {
 // Expression node
 struct Expr {
     ExprType type;
-    int line;  // Source line number (for error reporting)
+    int line;    // Source line number (for error reporting)
+    int column;  // Source column number (for error reporting)
     union {
         struct {           // ← Number can be int or float
             int64_t int_value;  // Changed to int64_t to support 64-bit literals
@@ -253,7 +254,8 @@ typedef enum {
 // Statement node
 struct Stmt {
     StmtType type;
-    int line;  // Source line number (for error reporting)
+    int line;    // Source line number (for error reporting)
+    int column;  // Source column number (for error reporting)
     union {
         struct {
             char *name;

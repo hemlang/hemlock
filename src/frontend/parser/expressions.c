@@ -399,6 +399,7 @@ Expr* postfix(Parser *p) {
         } else if (match(p, TOK_LPAREN)) {
             // Function call: func(...) or obj.method(...)
             int call_line = p->previous.line;  // Save line of '(' for stack trace
+            int call_column = p->previous.column;
             Expr **args = NULL;
             int num_args = 0;
 
@@ -418,6 +419,7 @@ Expr* postfix(Parser *p) {
             consume(p, TOK_RPAREN, "Expect ')' after arguments");
             expr = expr_call(expr, args, num_args);
             expr->line = call_line;  // Set line number for stack trace
+            expr->column = call_column;
         } else if (match(p, TOK_PLUS_PLUS)) {
             // Postfix increment: x++
             expr = expr_postfix_inc(expr);
@@ -470,11 +472,15 @@ Expr* factor(Parser *p) {
     Expr *expr = unary(p);
 
     while (match(p, TOK_STAR) || match(p, TOK_SLASH) || match(p, TOK_PERCENT)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         TokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_STAR) ? OP_MUL :
                       (op_type == TOK_SLASH) ? OP_DIV : OP_MOD;
         Expr *right = unary(p);
         expr = expr_binary(expr, op, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -482,14 +488,18 @@ Expr* factor(Parser *p) {
 
 Expr* term(Parser *p) {
     Expr *expr = factor(p);
-    
+
     while (match(p, TOK_PLUS) || match(p, TOK_MINUS)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         TokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_PLUS) ? OP_ADD : OP_SUB;
         Expr *right = factor(p);
         expr = expr_binary(expr, op, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
-    
+
     return expr;
 }
 
@@ -497,10 +507,14 @@ Expr* shift(Parser *p) {
     Expr *expr = term(p);
 
     while (match(p, TOK_LESS_LESS) || match(p, TOK_GREATER_GREATER)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         TokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_LESS_LESS) ? OP_BIT_LSHIFT : OP_BIT_RSHIFT;
         Expr *right = term(p);
         expr = expr_binary(expr, op, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -511,6 +525,8 @@ Expr* comparison(Parser *p) {
 
     while (match(p, TOK_GREATER) || match(p, TOK_GREATER_EQUAL) ||
            match(p, TOK_LESS) || match(p, TOK_LESS_EQUAL)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         TokenType op_type = p->previous.type;
         BinaryOp op;
 
@@ -524,6 +540,8 @@ Expr* comparison(Parser *p) {
 
         Expr *right = shift(p);
         expr = expr_binary(expr, op, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -533,10 +551,14 @@ Expr* equality(Parser *p) {
     Expr *expr = comparison(p);
 
     while (match(p, TOK_EQUAL_EQUAL) || match(p, TOK_BANG_EQUAL)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         TokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_EQUAL_EQUAL) ? OP_EQUAL : OP_NOT_EQUAL;
         Expr *right = comparison(p);
         expr = expr_binary(expr, op, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -546,8 +568,12 @@ Expr* bitwise_and(Parser *p) {
     Expr *expr = equality(p);
 
     while (match(p, TOK_AMP)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         Expr *right = equality(p);
         expr = expr_binary(expr, OP_BIT_AND, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -557,8 +583,12 @@ Expr* bitwise_xor(Parser *p) {
     Expr *expr = bitwise_and(p);
 
     while (match(p, TOK_CARET)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         Expr *right = bitwise_and(p);
         expr = expr_binary(expr, OP_BIT_XOR, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -568,8 +598,12 @@ Expr* bitwise_or(Parser *p) {
     Expr *expr = bitwise_xor(p);
 
     while (match(p, TOK_PIPE)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         Expr *right = bitwise_xor(p);
         expr = expr_binary(expr, OP_BIT_OR, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -579,8 +613,12 @@ Expr* logical_and(Parser *p) {
     Expr *expr = bitwise_or(p);
 
     while (match(p, TOK_AMP_AMP)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         Expr *right = bitwise_or(p);
         expr = expr_binary(expr, OP_AND, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;
@@ -590,8 +628,12 @@ Expr* logical_or(Parser *p) {
     Expr *expr = logical_and(p);
 
     while (match(p, TOK_PIPE_PIPE)) {
+        int op_line = p->previous.line;
+        int op_column = p->previous.column;
         Expr *right = logical_and(p);
         expr = expr_binary(expr, OP_OR, right);
+        expr->line = op_line;
+        expr->column = op_column;
     }
 
     return expr;

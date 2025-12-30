@@ -127,6 +127,7 @@ typedef struct {
     const char *start;  // Points into source (don't free!)
     int length;
     int line;
+    int column;         // Column number (1-based)
 
     // For numbers
     int64_t int_value;  // Changed to int64_t to support 64-bit literals
@@ -144,6 +145,8 @@ typedef struct {
 typedef struct {
     const char *start;
     const char *current;
+    const char *source;      // Original source (for error messages)
+    const char *line_start;  // Start of current line (for column calculation)
     int line;
 } Lexer;
 

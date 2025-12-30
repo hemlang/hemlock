@@ -36,6 +36,7 @@ static void skip_whitespace(Lexer *lex) {
             case '\n':
                 lex->line++;
                 advance(lex);
+                lex->line_start = lex->current;  // Track start of new line
                 break;
             case '/':
                 // Comment support: // until end of line
@@ -59,6 +60,7 @@ static Token make_token(Lexer *lex, TokenType type) {
     token.start = lex->start;
     token.length = (int)(lex->current - lex->start);
     token.line = lex->line;
+    token.column = (int)(lex->start - lex->line_start) + 1;  // 1-based column
     token.int_value = 0;
     return token;
 }
@@ -69,6 +71,7 @@ static Token error_token(Lexer *lex, const char *message) {
     token.start = message;
     token.length = (int)strlen(message);
     token.line = lex->line;
+    token.column = (int)(lex->current - lex->line_start) + 1;  // 1-based column
     token.int_value = 0;
     return token;
 }
@@ -203,10 +206,18 @@ static Token string(Lexer *lex) {
     int length = 0;
 
     while (peek(lex) != '"' && !is_at_end(lex)) {
-        if (peek(lex) == '\n') lex->line++;
+        if (peek(lex) == '\n') {
+            lex->line++;
+            // Note: line_start will be updated after advance
+        }
 
         char c = peek(lex);
         advance(lex);
+
+        // Update line_start after newline
+        if (c == '\n') {
+            lex->line_start = lex->current;
+        }
 
         // Handle escape sequences
         if (c == '\\') {
@@ -273,10 +284,18 @@ static Token template_string(Lexer *lex) {
     int length = 0;
 
     while (peek(lex) != '`' && !is_at_end(lex)) {
-        if (peek(lex) == '\n') lex->line++;
+        if (peek(lex) == '\n') {
+            lex->line++;
+            // Note: line_start will be updated after advance
+        }
 
         char c = peek(lex);
         advance(lex);
+
+        // Update line_start after newline
+        if (c == '\n') {
+            lex->line_start = lex->current;
+        }
 
         // Handle escape sequences
         if (c == '\\') {
@@ -597,6 +616,8 @@ static Token identifier(Lexer *lex) {
 void lexer_init(Lexer *lexer, const char *source) {
     lexer->start = source;
     lexer->current = source;
+    lexer->source = source;
+    lexer->line_start = source;
     lexer->line = 1;
 
     // Skip shebang line if present (e.g., #!/usr/bin/env hemlock)
@@ -607,6 +628,7 @@ void lexer_init(Lexer *lexer, const char *source) {
         if (*lexer->current == '\n') {
             lexer->current++;
             lexer->line++;
+            lexer->line_start = lexer->current;
         }
         lexer->start = lexer->current;
     }
