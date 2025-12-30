@@ -18,6 +18,8 @@
 #include <stdatomic.h>
 #include <signal.h>
 #include <time.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 // Debug tracing
 static int vm_trace_enabled = 0;
@@ -3664,6 +3666,340 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         ip = frame->ip;
                         slots = frame->slots;
                         continue;  // Continue dispatch loop with new frame
+                    }
+
+                    // ========== select() for channels ==========
+                    case BUILTIN_SELECT: {
+                        // select(channels, timeout_ms?) - wait for any channel to have data
+                        if (argc < 1 || argc > 2) {
+                            THROW_ERROR("select() expects 1-2 arguments (channels, timeout_ms?)");
+                        }
+                        if (args[0].type != VAL_ARRAY || !args[0].as.as_array) {
+                            THROW_ERROR("select() first argument must be an array of channels");
+                        }
+                        Array *channels = args[0].as.as_array;
+                        int timeout_ms = -1;  // -1 means infinite
+                        if (argc > 1) {
+                            timeout_ms = (int)value_to_i64(args[1]);
+                        }
+                        if (channels->length == 0) {
+                            THROW_ERROR("select() requires at least one channel");
+                        }
+                        // Validate all elements are channels
+                        for (int i = 0; i < channels->length; i++) {
+                            if (channels->elements[i].type != VAL_CHANNEL) {
+                                THROW_ERROR("select() array must contain only channels");
+                            }
+                        }
+                        // Calculate deadline
+                        struct timespec deadline;
+                        struct timespec *deadline_ptr = NULL;
+                        if (timeout_ms >= 0) {
+                            clock_gettime(CLOCK_REALTIME, &deadline);
+                            deadline.tv_sec += timeout_ms / 1000;
+                            deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+                            if (deadline.tv_nsec >= 1000000000) {
+                                deadline.tv_sec++;
+                                deadline.tv_nsec -= 1000000000;
+                            }
+                            deadline_ptr = &deadline;
+                        }
+                        // Polling loop with sleep
+                        while (1) {
+                            for (int i = 0; i < channels->length; i++) {
+                                Channel *ch = channels->elements[i].as.as_channel;
+                                pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
+                                pthread_mutex_lock(mutex);
+                                if (ch->count > 0) {
+                                    // Read the value
+                                    Value msg = ch->buffer[ch->head];
+                                    ch->head = (ch->head + 1) % ch->capacity;
+                                    ch->count--;
+                                    pthread_cond_signal((pthread_cond_t*)ch->not_full);
+                                    pthread_mutex_unlock(mutex);
+                                    // Create result object { channel, value }
+                                    Object *res_obj = malloc(sizeof(Object));
+                                    res_obj->field_names = malloc(sizeof(char*) * 2);
+                                    res_obj->field_values = malloc(sizeof(Value) * 2);
+                                    res_obj->field_names[0] = strdup("channel");
+                                    res_obj->field_values[0] = channels->elements[i];
+                                    res_obj->field_names[1] = strdup("value");
+                                    res_obj->field_values[1] = msg;
+                                    res_obj->num_fields = 2;
+                                    res_obj->capacity = 2;
+                                    res_obj->type_name = NULL;
+                                    res_obj->ref_count = 1;
+                                    atomic_store(&res_obj->freed, 0);
+                                    result.type = VAL_OBJECT;
+                                    result.as.as_object = res_obj;
+                                    goto select_done;
+                                }
+                                if (ch->closed) {
+                                    pthread_mutex_unlock(mutex);
+                                    Object *res_obj = malloc(sizeof(Object));
+                                    res_obj->field_names = malloc(sizeof(char*) * 2);
+                                    res_obj->field_values = malloc(sizeof(Value) * 2);
+                                    res_obj->field_names[0] = strdup("channel");
+                                    res_obj->field_values[0] = channels->elements[i];
+                                    res_obj->field_names[1] = strdup("value");
+                                    res_obj->field_values[1] = vm_null_value();
+                                    res_obj->num_fields = 2;
+                                    res_obj->capacity = 2;
+                                    res_obj->type_name = NULL;
+                                    res_obj->ref_count = 1;
+                                    atomic_store(&res_obj->freed, 0);
+                                    result.type = VAL_OBJECT;
+                                    result.as.as_object = res_obj;
+                                    goto select_done;
+                                }
+                                pthread_mutex_unlock(mutex);
+                            }
+                            // Check timeout
+                            if (deadline_ptr) {
+                                struct timespec now;
+                                clock_gettime(CLOCK_REALTIME, &now);
+                                if (now.tv_sec > deadline_ptr->tv_sec ||
+                                    (now.tv_sec == deadline_ptr->tv_sec && now.tv_nsec >= deadline_ptr->tv_nsec)) {
+                                    result = vm_null_value();
+                                    goto select_done;
+                                }
+                            }
+                            // Sleep briefly before retrying
+                            struct timespec sleep_time = {0, 1000000};  // 1ms
+                            nanosleep(&sleep_time, NULL);
+                        }
+                        select_done:
+                        break;
+                    }
+
+                    // ========== raise() for signals ==========
+                    case BUILTIN_RAISE: {
+                        if (argc != 1) {
+                            THROW_ERROR("raise() expects 1 argument (signum)");
+                        }
+                        int signum = (int)value_to_i64(args[0]);
+                        if (raise(signum) != 0) {
+                            THROW_ERROR_FMT("raise() failed for signal %d: %s", signum, strerror(errno));
+                        }
+                        result = vm_null_value();
+                        break;
+                    }
+
+                    // ========== exec() for command execution ==========
+                    case BUILTIN_EXEC: {
+                        if (argc != 1) {
+                            THROW_ERROR("exec() expects 1 argument (command string)");
+                        }
+                        if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+                            THROW_ERROR("exec() argument must be a string");
+                        }
+                        String *command = args[0].as.as_string;
+                        char *ccmd = malloc(command->length + 1);
+                        memcpy(ccmd, command->data, command->length);
+                        ccmd[command->length] = '\0';
+                        FILE *pipe_f = popen(ccmd, "r");
+                        if (!pipe_f) {
+                            free(ccmd);
+                            THROW_ERROR_FMT("exec() failed: %s", strerror(errno));
+                        }
+                        // Read output
+                        char *output = NULL;
+                        size_t output_size = 0;
+                        size_t output_cap = 4096;
+                        output = malloc(output_cap);
+                        char chunk[4096];
+                        size_t bytes;
+                        while ((bytes = fread(chunk, 1, sizeof(chunk), pipe_f)) > 0) {
+                            while (output_size + bytes > output_cap) {
+                                output_cap *= 2;
+                                output = realloc(output, output_cap);
+                            }
+                            memcpy(output + output_size, chunk, bytes);
+                            output_size += bytes;
+                        }
+                        int status = pclose(pipe_f);
+                        int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+                        free(ccmd);
+                        // Create result object
+                        Object *res = malloc(sizeof(Object));
+                        res->field_names = malloc(sizeof(char*) * 2);
+                        res->field_values = malloc(sizeof(Value) * 2);
+                        res->field_names[0] = strdup("output");
+                        String *out_str = malloc(sizeof(String));
+                        out_str->data = output;
+                        out_str->length = (int)output_size;
+                        out_str->capacity = (int)output_cap;
+                        out_str->ref_count = 1;
+                        out_str->char_length = -1;
+                        res->field_values[0].type = VAL_STRING;
+                        res->field_values[0].as.as_string = out_str;
+                        res->field_names[1] = strdup("exit_code");
+                        res->field_values[1] = val_i32_vm(exit_code);
+                        res->num_fields = 2;
+                        res->capacity = 2;
+                        res->type_name = NULL;
+                        res->ref_count = 1;
+                        atomic_store(&res->freed, 0);
+                        result.type = VAL_OBJECT;
+                        result.as.as_object = res;
+                        break;
+                    }
+
+                    // ========== exec_argv() for safe command execution ==========
+                    case BUILTIN_EXEC_ARGV: {
+                        if (argc != 1) {
+                            THROW_ERROR("exec_argv() expects 1 argument (array of strings)");
+                        }
+                        if (args[0].type != VAL_ARRAY || !args[0].as.as_array) {
+                            THROW_ERROR("exec_argv() argument must be an array of strings");
+                        }
+                        Array *arr = args[0].as.as_array;
+                        if (arr->length == 0) {
+                            THROW_ERROR("exec_argv() array must not be empty");
+                        }
+                        // Build argv
+                        char **argv = malloc((arr->length + 1) * sizeof(char*));
+                        for (int i = 0; i < arr->length; i++) {
+                            if (arr->elements[i].type != VAL_STRING) {
+                                for (int j = 0; j < i; j++) free(argv[j]);
+                                free(argv);
+                                THROW_ERROR("exec_argv() array elements must be strings");
+                            }
+                            String *s = arr->elements[i].as.as_string;
+                            argv[i] = malloc(s->length + 1);
+                            memcpy(argv[i], s->data, s->length);
+                            argv[i][s->length] = '\0';
+                        }
+                        argv[arr->length] = NULL;
+                        // Create pipes
+                        int stdout_pipe[2], stderr_pipe[2];
+                        if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
+                            for (int i = 0; i < arr->length; i++) free(argv[i]);
+                            free(argv);
+                            THROW_ERROR("exec_argv() pipe creation failed");
+                        }
+                        pid_t pid = fork();
+                        if (pid < 0) {
+                            for (int i = 0; i < arr->length; i++) free(argv[i]);
+                            free(argv);
+                            close(stdout_pipe[0]); close(stdout_pipe[1]);
+                            close(stderr_pipe[0]); close(stderr_pipe[1]);
+                            THROW_ERROR("exec_argv() fork failed");
+                        }
+                        if (pid == 0) {
+                            // Child
+                            close(stdout_pipe[0]);
+                            close(stderr_pipe[0]);
+                            dup2(stdout_pipe[1], STDOUT_FILENO);
+                            dup2(stderr_pipe[1], STDERR_FILENO);
+                            close(stdout_pipe[1]);
+                            close(stderr_pipe[1]);
+                            execvp(argv[0], argv);
+                            _exit(127);
+                        }
+                        // Parent
+                        close(stdout_pipe[1]);
+                        close(stderr_pipe[1]);
+                        for (int i = 0; i < arr->length; i++) free(argv[i]);
+                        free(argv);
+                        // Read stdout
+                        char *output = NULL;
+                        size_t output_size = 0;
+                        size_t output_cap = 4096;
+                        output = malloc(output_cap);
+                        char buf[4096];
+                        ssize_t n;
+                        while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0) {
+                            while (output_size + n > output_cap) {
+                                output_cap *= 2;
+                                output = realloc(output, output_cap);
+                            }
+                            memcpy(output + output_size, buf, n);
+                            output_size += n;
+                        }
+                        close(stdout_pipe[0]);
+                        close(stderr_pipe[0]);
+                        int status;
+                        waitpid(pid, &status, 0);
+                        int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+                        // Create result object
+                        Object *res = malloc(sizeof(Object));
+                        res->field_names = malloc(sizeof(char*) * 2);
+                        res->field_values = malloc(sizeof(Value) * 2);
+                        res->field_names[0] = strdup("output");
+                        String *out_str = malloc(sizeof(String));
+                        out_str->data = output;
+                        out_str->length = (int)output_size;
+                        out_str->capacity = (int)output_cap;
+                        out_str->ref_count = 1;
+                        out_str->char_length = -1;
+                        res->field_values[0].type = VAL_STRING;
+                        res->field_values[0].as.as_string = out_str;
+                        res->field_names[1] = strdup("exit_code");
+                        res->field_values[1] = val_i32_vm(exit_code);
+                        res->num_fields = 2;
+                        res->capacity = 2;
+                        res->type_name = NULL;
+                        res->ref_count = 1;
+                        atomic_store(&res->freed, 0);
+                        result.type = VAL_OBJECT;
+                        result.as.as_object = res;
+                        break;
+                    }
+
+                    // ========== ptr_to_buffer() ==========
+                    case BUILTIN_PTR_TO_BUFFER: {
+                        // ptr_to_buffer(ptr, size) - wrap raw pointer in buffer
+                        if (argc != 2) {
+                            THROW_ERROR("ptr_to_buffer() expects 2 arguments (ptr, size)");
+                        }
+                        if (args[0].type != VAL_PTR) {
+                            THROW_ERROR("ptr_to_buffer() first argument must be a pointer");
+                        }
+                        int64_t size = value_to_i64(args[1]);
+                        if (size <= 0) {
+                            THROW_ERROR("ptr_to_buffer() size must be positive");
+                        }
+                        Buffer *buf = malloc(sizeof(Buffer));
+                        buf->data = args[0].as.as_ptr;
+                        buf->length = (int)size;
+                        buf->capacity = (int)size;
+                        buf->ref_count = 1;
+                        atomic_store(&buf->freed, 0);
+                        result.type = VAL_BUFFER;
+                        result.as.as_buffer = buf;
+                        break;
+                    }
+
+                    // ========== task_debug_info() ==========
+                    case BUILTIN_TASK_DEBUG_INFO: {
+                        // task_debug_info(task) - get debug info about a task
+                        if (argc != 1) {
+                            THROW_ERROR("task_debug_info() expects 1 argument (task)");
+                        }
+                        // For now, return a basic object with status info
+                        // In the VM, we don't have access to the full task info easily
+                        Object *info = malloc(sizeof(Object));
+                        info->field_names = malloc(sizeof(char*) * 1);
+                        info->field_values = malloc(sizeof(Value) * 1);
+                        info->field_names[0] = strdup("status");
+                        // Create string value for "unknown"
+                        String *status_str = malloc(sizeof(String));
+                        status_str->data = strdup("unknown");
+                        status_str->length = 7;
+                        status_str->capacity = 8;
+                        status_str->ref_count = 1;
+                        status_str->char_length = 7;
+                        info->field_values[0].type = VAL_STRING;
+                        info->field_values[0].as.as_string = status_str;
+                        info->num_fields = 1;
+                        info->capacity = 1;
+                        info->type_name = NULL;
+                        info->ref_count = 1;
+                        atomic_store(&info->freed, 0);
+                        result.type = VAL_OBJECT;
+                        result.as.as_object = info;
+                        break;
                     }
 
                     default:
