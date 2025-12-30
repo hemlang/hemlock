@@ -345,6 +345,49 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             char *operand = codegen_expr(ctx, expr->as.unary.operand);
+
+            // OPTIMIZATION: Use direct operations when type is known
+            InferredType operand_type = infer_expr(ctx->type_ctx, expr->as.unary.operand);
+            if (ctx->optimize && infer_is_i32(operand_type)) {
+                switch (expr->as.unary.op) {
+                    case UNARY_NEGATE:
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(-%s.as.as_i32);", result, operand);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
+                        free(operand);
+                        break;
+                    case UNARY_BIT_NOT:
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(~%s.as.as_i32);", result, operand);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
+                        free(operand);
+                        break;
+                    default:
+                        goto unary_generic;
+                }
+                break;
+            } else if (ctx->optimize && infer_is_i64(operand_type)) {
+                switch (expr->as.unary.op) {
+                    case UNARY_NEGATE:
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(-%s.as.as_i64);", result, operand);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
+                        free(operand);
+                        break;
+                    case UNARY_BIT_NOT:
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(~%s.as.as_i64);", result, operand);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
+                        free(operand);
+                        break;
+                    default:
+                        goto unary_generic;
+                }
+                break;
+            } else if (ctx->optimize && infer_is_bool(operand_type) && expr->as.unary.op == UNARY_NOT) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(!%s.as.as_bool);", result, operand);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
+                free(operand);
+                break;
+            }
+
+        unary_generic:
             codegen_writeln(ctx, "HmlValue %s = hml_unary_op(%s, %s);",
                           result, codegen_hml_unary_op(expr->as.unary.op), operand);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);

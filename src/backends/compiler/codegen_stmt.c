@@ -128,41 +128,176 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
         case STMT_FOR: {
             ctx->loop_depth++;
-            codegen_writeln(ctx, "{");
-            codegen_indent_inc(ctx);
-            // Initializer
-            if (stmt->as.for_loop.initializer) {
-                codegen_stmt(ctx, stmt->as.for_loop.initializer);
-            }
-            // Create continue label for this for loop (continue jumps here, before increment)
-            char *continue_label = codegen_label(ctx);
-            codegen_push_for_continue(ctx, continue_label);
 
-            codegen_writeln(ctx, "while (1) {");
-            codegen_indent_inc(ctx);
-            // Condition
-            if (stmt->as.for_loop.condition) {
-                char *cond = codegen_expr(ctx, stmt->as.for_loop.condition);
-                codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
-                codegen_writeln(ctx, "hml_release(&%s);", cond);
-                free(cond);
+            // OPTIMIZATION: Analyze loop for unboxable counter
+            type_analyze_for_loop(ctx->type_ctx, stmt);
+
+            // Check if we can generate an optimized loop with native counter
+            const char *counter_name = NULL;
+            InferredTypeKind counter_type = INFER_UNKNOWN;
+            if (stmt->as.for_loop.initializer &&
+                stmt->as.for_loop.initializer->type == STMT_LET) {
+                counter_name = stmt->as.for_loop.initializer->as.let.name;
+                counter_type = type_get_unboxable(ctx->type_ctx, counter_name);
             }
-            // Body
-            codegen_stmt(ctx, stmt->as.for_loop.body);
-            // Continue label - continue jumps here to execute increment
-            codegen_writeln(ctx, "%s:;", continue_label);
-            // Increment
-            if (stmt->as.for_loop.increment) {
-                char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
-                codegen_writeln(ctx, "hml_release(&%s);", inc);
-                free(inc);
+
+            if (ctx->optimize && counter_type == INFER_I32 &&
+                type_is_loop_counter(ctx->type_ctx, counter_name)) {
+                // OPTIMIZED: Generate loop with native int32_t counter
+                codegen_writeln(ctx, "{");
+                codegen_indent_inc(ctx);
+
+                // Get initial value
+                Stmt *init = stmt->as.for_loop.initializer;
+                int32_t init_val = (int32_t)init->as.let.value->as.number.int_value;
+                char *safe_name = codegen_sanitize_ident(counter_name);
+
+                // Declare native counter
+                codegen_writeln(ctx, "int32_t %s = %d;", safe_name, init_val);
+                codegen_add_local(ctx, counter_name);
+
+                // Create continue label
+                char *continue_label = codegen_label(ctx);
+                codegen_push_for_continue(ctx, continue_label);
+
+                // Generate optimized condition
+                Expr *cond = stmt->as.for_loop.condition;
+                if (cond && cond->type == EXPR_BINARY) {
+                    const char *op_str = NULL;
+                    switch (cond->as.binary.op) {
+                        case OP_LESS: op_str = "<"; break;
+                        case OP_LESS_EQUAL: op_str = "<="; break;
+                        case OP_GREATER: op_str = ">"; break;
+                        case OP_GREATER_EQUAL: op_str = ">="; break;
+                        case OP_EQUAL: op_str = "=="; break;
+                        case OP_NOT_EQUAL: op_str = "!="; break;
+                        default: break;
+                    }
+
+                    if (op_str) {
+                        // Determine the bound expression
+                        Expr *bound_expr = NULL;
+                        int counter_on_left = 0;
+                        if (cond->as.binary.left->type == EXPR_IDENT &&
+                            strcmp(cond->as.binary.left->as.ident.name, counter_name) == 0) {
+                            bound_expr = cond->as.binary.right;
+                            counter_on_left = 1;
+                        } else if (cond->as.binary.right->type == EXPR_IDENT &&
+                                   strcmp(cond->as.binary.right->as.ident.name, counter_name) == 0) {
+                            bound_expr = cond->as.binary.left;
+                            counter_on_left = 0;
+                        }
+
+                        if (bound_expr && bound_expr->type == EXPR_NUMBER &&
+                            !bound_expr->as.number.is_float) {
+                            // Constant bound - fully optimized loop
+                            int32_t bound = (int32_t)bound_expr->as.number.int_value;
+                            if (counter_on_left) {
+                                codegen_writeln(ctx, "while (%s %s %d) {", safe_name, op_str, bound);
+                            } else {
+                                codegen_writeln(ctx, "while (%d %s %s) {", bound, op_str, safe_name);
+                            }
+                        } else if (bound_expr) {
+                            // Dynamic bound - evaluate once before loop
+                            char *bound_val = codegen_expr(ctx, bound_expr);
+                            codegen_writeln(ctx, "int32_t _bound = hml_to_i32(%s);", bound_val);
+                            codegen_writeln(ctx, "hml_release_if_needed(&%s);", bound_val);
+                            if (counter_on_left) {
+                                codegen_writeln(ctx, "while (%s %s _bound) {", safe_name, op_str);
+                            } else {
+                                codegen_writeln(ctx, "while (_bound %s %s) {", op_str, safe_name);
+                            }
+                            free(bound_val);
+                        } else {
+                            // Fallback
+                            codegen_writeln(ctx, "while (1) {");
+                        }
+                    } else {
+                        codegen_writeln(ctx, "while (1) {");
+                    }
+                } else {
+                    codegen_writeln(ctx, "while (1) {");
+                }
+
+                codegen_indent_inc(ctx);
+
+                // Body - but we need to handle references to the counter specially
+                // The body expects an HmlValue, so we create a temporary when needed
+                codegen_stmt(ctx, stmt->as.for_loop.body);
+
+                // Continue label
+                codegen_writeln(ctx, "%s:;", continue_label);
+
+                // Optimized increment
+                Expr *inc = stmt->as.for_loop.increment;
+                if (inc) {
+                    if (inc->type == EXPR_POSTFIX_INC || inc->type == EXPR_PREFIX_INC) {
+                        codegen_writeln(ctx, "%s++;", safe_name);
+                    } else if (inc->type == EXPR_POSTFIX_DEC || inc->type == EXPR_PREFIX_DEC) {
+                        codegen_writeln(ctx, "%s--;", safe_name);
+                    } else if (inc->type == EXPR_ASSIGN &&
+                               strcmp(inc->as.assign.name, counter_name) == 0 &&
+                               inc->as.assign.value->type == EXPR_BINARY) {
+                        Expr *binop = inc->as.assign.value;
+                        if (binop->as.binary.left->type == EXPR_IDENT &&
+                            strcmp(binop->as.binary.left->as.ident.name, counter_name) == 0 &&
+                            binop->as.binary.right->type == EXPR_NUMBER &&
+                            !binop->as.binary.right->as.number.is_float) {
+                            int32_t step = (int32_t)binop->as.binary.right->as.number.int_value;
+                            if (binop->as.binary.op == OP_ADD) {
+                                codegen_writeln(ctx, "%s += %d;", safe_name, step);
+                            } else if (binop->as.binary.op == OP_SUB) {
+                                codegen_writeln(ctx, "%s -= %d;", safe_name, step);
+                            }
+                        }
+                    }
+                }
+
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_pop_for_continue(ctx);
+                free(continue_label);
+                free(safe_name);
+            } else {
+                // STANDARD: Generate loop with boxed HmlValue counter
+                codegen_writeln(ctx, "{");
+                codegen_indent_inc(ctx);
+                // Initializer
+                if (stmt->as.for_loop.initializer) {
+                    codegen_stmt(ctx, stmt->as.for_loop.initializer);
+                }
+                // Create continue label for this for loop (continue jumps here, before increment)
+                char *continue_label = codegen_label(ctx);
+                codegen_push_for_continue(ctx, continue_label);
+
+                codegen_writeln(ctx, "while (1) {");
+                codegen_indent_inc(ctx);
+                // Condition
+                if (stmt->as.for_loop.condition) {
+                    char *cond = codegen_expr(ctx, stmt->as.for_loop.condition);
+                    codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
+                    codegen_writeln(ctx, "hml_release(&%s);", cond);
+                    free(cond);
+                }
+                // Body
+                codegen_stmt(ctx, stmt->as.for_loop.body);
+                // Continue label - continue jumps here to execute increment
+                codegen_writeln(ctx, "%s:;", continue_label);
+                // Increment
+                if (stmt->as.for_loop.increment) {
+                    char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
+                    codegen_writeln(ctx, "hml_release(&%s);", inc);
+                    free(inc);
+                }
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_pop_for_continue(ctx);
+                free(continue_label);
             }
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "}");
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "}");
-            codegen_pop_for_continue(ctx);
-            free(continue_label);
             ctx->loop_depth--;
             break;
         }

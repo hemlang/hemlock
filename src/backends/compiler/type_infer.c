@@ -63,6 +63,10 @@ int infer_is_f64(InferredType t) {
     return t.kind == INFER_F64;
 }
 
+int infer_is_bool(InferredType t) {
+    return t.kind == INFER_BOOL;
+}
+
 int infer_is_integer(InferredType t) {
     return t.kind == INFER_I32 || t.kind == INFER_I64 || t.kind == INFER_INTEGER;
 }
@@ -184,6 +188,7 @@ TypeInferContext* type_infer_new(void) {
     ctx->current_env->parent = NULL;
     ctx->func_returns = NULL;
     ctx->changed = 0;
+    ctx->unboxable_vars = NULL;
     return ctx;
 }
 
@@ -211,6 +216,14 @@ void type_infer_free(TypeInferContext *ctx) {
         free(f->name);
         free(f);
         f = next;
+    }
+    // Free unboxable variables list
+    UnboxableVar *u = ctx->unboxable_vars;
+    while (u) {
+        UnboxableVar *next = u->next;
+        free(u->name);
+        free(u);
+        u = next;
     }
     free(ctx);
 }
@@ -528,6 +541,336 @@ void infer_function(TypeInferContext *ctx, Expr *func_expr) {
     }
     infer_stmt(ctx, func_expr->as.function.body);
     type_env_pop(ctx);
+}
+
+// ========== ESCAPE ANALYSIS & UNBOXING ==========
+
+void type_mark_unboxable(TypeInferContext *ctx, const char *name,
+                         InferredTypeKind native_type, int is_loop_counter, int is_accumulator) {
+    // Check if already marked
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            // Update if more specific
+            if (native_type != INFER_UNKNOWN) {
+                u->native_type = native_type;
+            }
+            u->is_loop_counter |= is_loop_counter;
+            u->is_accumulator |= is_accumulator;
+            return;
+        }
+    }
+    // Add new entry
+    UnboxableVar *u = malloc(sizeof(UnboxableVar));
+    u->name = strdup(name);
+    u->native_type = native_type;
+    u->is_loop_counter = is_loop_counter;
+    u->is_accumulator = is_accumulator;
+    u->next = ctx->unboxable_vars;
+    ctx->unboxable_vars = u;
+}
+
+InferredTypeKind type_get_unboxable(TypeInferContext *ctx, const char *name) {
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            return u->native_type;
+        }
+    }
+    return INFER_UNKNOWN;
+}
+
+int type_is_loop_counter(TypeInferContext *ctx, const char *name) {
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            return u->is_loop_counter;
+        }
+    }
+    return 0;
+}
+
+int type_is_accumulator(TypeInferContext *ctx, const char *name) {
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            return u->is_accumulator;
+        }
+    }
+    return 0;
+}
+
+// Check if an expression only uses the variable in simple arithmetic
+static int is_simple_increment(Expr *expr, const char *var_name) {
+    if (!expr) return 0;
+
+    // i = i + 1, i = i - 1, etc.
+    if (expr->type == EXPR_ASSIGN && strcmp(expr->as.assign.name, var_name) == 0) {
+        Expr *val = expr->as.assign.value;
+        if (val->type == EXPR_BINARY) {
+            // Check if left operand is the variable
+            if (val->as.binary.left->type == EXPR_IDENT &&
+                strcmp(val->as.binary.left->as.ident.name, var_name) == 0) {
+                // Right operand should be a constant
+                if (val->as.binary.right->type == EXPR_NUMBER &&
+                    !val->as.binary.right->as.number.is_float) {
+                    BinaryOp op = val->as.binary.op;
+                    return op == OP_ADD || op == OP_SUB;
+                }
+            }
+        }
+    }
+
+    // ++i, --i, i++, i--
+    if (expr->type == EXPR_PREFIX_INC || expr->type == EXPR_PREFIX_DEC) {
+        if (expr->as.prefix_inc.operand->type == EXPR_IDENT &&
+            strcmp(expr->as.prefix_inc.operand->as.ident.name, var_name) == 0) {
+            return 1;
+        }
+    }
+    if (expr->type == EXPR_POSTFIX_INC || expr->type == EXPR_POSTFIX_DEC) {
+        if (expr->as.postfix_inc.operand->type == EXPR_IDENT &&
+            strcmp(expr->as.postfix_inc.operand->as.ident.name, var_name) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+// Check if a condition uses only simple comparisons on the variable
+static int is_simple_comparison(Expr *expr, const char *var_name) {
+    if (!expr || expr->type != EXPR_BINARY) return 0;
+
+    BinaryOp op = expr->as.binary.op;
+    if (op != OP_LESS && op != OP_LESS_EQUAL &&
+        op != OP_GREATER && op != OP_GREATER_EQUAL &&
+        op != OP_EQUAL && op != OP_NOT_EQUAL) {
+        return 0;
+    }
+
+    // Check if one side is the variable and other is constant or known i32
+    Expr *left = expr->as.binary.left;
+    Expr *right = expr->as.binary.right;
+
+    int left_is_var = (left->type == EXPR_IDENT && strcmp(left->as.ident.name, var_name) == 0);
+    int right_is_var = (right->type == EXPR_IDENT && strcmp(right->as.ident.name, var_name) == 0);
+
+    if (left_is_var) {
+        // Right should be constant or another variable (length, etc.)
+        return right->type == EXPR_NUMBER ||
+               right->type == EXPR_IDENT ||
+               right->type == EXPR_GET_PROPERTY;  // e.g., arr.length
+    }
+    if (right_is_var) {
+        return left->type == EXPR_NUMBER ||
+               left->type == EXPR_IDENT ||
+               left->type == EXPR_GET_PROPERTY;
+    }
+
+    return 0;
+}
+
+// Check if the variable escapes (used in a way that requires HmlValue)
+static int variable_escapes_in_expr(Expr *expr, const char *var_name);
+static int variable_escapes_in_stmt(Stmt *stmt, const char *var_name);
+
+static int variable_escapes_in_expr(Expr *expr, const char *var_name) {
+    if (!expr) return 0;
+
+    switch (expr->type) {
+        case EXPR_IDENT:
+            // Variable usage itself doesn't escape - we're checking how it's used
+            return 0;
+
+        case EXPR_CALL:
+            // If variable is passed to a function, it escapes
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                Expr *arg = expr->as.call.args[i];
+                if (arg->type == EXPR_IDENT && strcmp(arg->as.ident.name, var_name) == 0) {
+                    return 1;  // Variable passed to function - escapes
+                }
+                if (variable_escapes_in_expr(arg, var_name)) return 1;
+            }
+            return variable_escapes_in_expr(expr->as.call.func, var_name);
+
+        case EXPR_BINARY:
+            // Binary operations on the variable are fine (for integer ops)
+            return variable_escapes_in_expr(expr->as.binary.left, var_name) ||
+                   variable_escapes_in_expr(expr->as.binary.right, var_name);
+
+        case EXPR_UNARY:
+            return variable_escapes_in_expr(expr->as.unary.operand, var_name);
+
+        case EXPR_ASSIGN:
+            // Assigning the variable is fine
+            return variable_escapes_in_expr(expr->as.assign.value, var_name);
+
+        case EXPR_INDEX:
+            // Using variable as array index is fine
+            // But if the array result contains the variable, it escapes
+            if (expr->as.index.object->type == EXPR_IDENT &&
+                strcmp(expr->as.index.object->as.ident.name, var_name) == 0) {
+                return 1;  // Using variable as array (not index) - escapes
+            }
+            return variable_escapes_in_expr(expr->as.index.index, var_name);
+
+        case EXPR_INDEX_ASSIGN:
+            // Storing variable in array - it escapes
+            if (expr->as.index_assign.value->type == EXPR_IDENT &&
+                strcmp(expr->as.index_assign.value->as.ident.name, var_name) == 0) {
+                return 1;
+            }
+            return variable_escapes_in_expr(expr->as.index_assign.object, var_name) ||
+                   variable_escapes_in_expr(expr->as.index_assign.index, var_name) ||
+                   variable_escapes_in_expr(expr->as.index_assign.value, var_name);
+
+        case EXPR_ARRAY_LITERAL:
+            // If variable is in array literal, it escapes
+            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
+                Expr *elem = expr->as.array_literal.elements[i];
+                if (elem->type == EXPR_IDENT && strcmp(elem->as.ident.name, var_name) == 0) {
+                    return 1;
+                }
+                if (variable_escapes_in_expr(elem, var_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_OBJECT_LITERAL:
+            // If variable is in object literal, it escapes
+            for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
+                Expr *val = expr->as.object_literal.field_values[i];
+                if (val->type == EXPR_IDENT && strcmp(val->as.ident.name, var_name) == 0) {
+                    return 1;
+                }
+                if (variable_escapes_in_expr(val, var_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_TERNARY:
+            return variable_escapes_in_expr(expr->as.ternary.condition, var_name) ||
+                   variable_escapes_in_expr(expr->as.ternary.true_expr, var_name) ||
+                   variable_escapes_in_expr(expr->as.ternary.false_expr, var_name);
+
+        case EXPR_PREFIX_INC:
+        case EXPR_PREFIX_DEC:
+            return variable_escapes_in_expr(expr->as.prefix_inc.operand, var_name);
+
+        case EXPR_POSTFIX_INC:
+        case EXPR_POSTFIX_DEC:
+            return variable_escapes_in_expr(expr->as.postfix_inc.operand, var_name);
+
+        case EXPR_FUNCTION:
+            // If variable is captured by closure, it escapes
+            // (Simplified: we'd need full closure analysis here)
+            return 1;  // Conservative: assume function captures variable
+
+        default:
+            return 0;
+    }
+}
+
+static int variable_escapes_in_stmt(Stmt *stmt, const char *var_name) {
+    if (!stmt) return 0;
+
+    switch (stmt->type) {
+        case STMT_EXPR:
+            return variable_escapes_in_expr(stmt->as.expr, var_name);
+
+        case STMT_LET:
+        case STMT_CONST:
+            if (stmt->as.let.value) {
+                // If variable is used as initializer, check if it escapes
+                return variable_escapes_in_expr(stmt->as.let.value, var_name);
+            }
+            return 0;
+
+        case STMT_RETURN:
+            // Returning the variable - it escapes
+            if (stmt->as.return_stmt.value) {
+                if (stmt->as.return_stmt.value->type == EXPR_IDENT &&
+                    strcmp(stmt->as.return_stmt.value->as.ident.name, var_name) == 0) {
+                    return 1;
+                }
+                return variable_escapes_in_expr(stmt->as.return_stmt.value, var_name);
+            }
+            return 0;
+
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (variable_escapes_in_stmt(stmt->as.block.statements[i], var_name)) {
+                    return 1;
+                }
+            }
+            return 0;
+
+        case STMT_IF:
+            return variable_escapes_in_expr(stmt->as.if_stmt.condition, var_name) ||
+                   variable_escapes_in_stmt(stmt->as.if_stmt.then_branch, var_name) ||
+                   (stmt->as.if_stmt.else_branch && variable_escapes_in_stmt(stmt->as.if_stmt.else_branch, var_name));
+
+        case STMT_WHILE:
+            return variable_escapes_in_expr(stmt->as.while_stmt.condition, var_name) ||
+                   variable_escapes_in_stmt(stmt->as.while_stmt.body, var_name);
+
+        case STMT_FOR:
+            return (stmt->as.for_loop.initializer && variable_escapes_in_stmt(stmt->as.for_loop.initializer, var_name)) ||
+                   (stmt->as.for_loop.condition && variable_escapes_in_expr(stmt->as.for_loop.condition, var_name)) ||
+                   (stmt->as.for_loop.increment && variable_escapes_in_expr(stmt->as.for_loop.increment, var_name)) ||
+                   variable_escapes_in_stmt(stmt->as.for_loop.body, var_name);
+
+        default:
+            return 0;
+    }
+}
+
+void type_analyze_for_loop(TypeInferContext *ctx, Stmt *stmt) {
+    if (!stmt || stmt->type != STMT_FOR) return;
+
+    // Check for classic for-loop pattern: for (let i = 0; i < N; i++)
+    Stmt *init = stmt->as.for_loop.initializer;
+    Expr *cond = stmt->as.for_loop.condition;
+    Expr *inc = stmt->as.for_loop.increment;
+    Stmt *body = stmt->as.for_loop.body;
+
+    if (!init || init->type != STMT_LET) return;
+
+    const char *var_name = init->as.let.name;
+    Expr *init_value = init->as.let.value;
+
+    // Check initializer is an integer literal
+    if (!init_value || init_value->type != EXPR_NUMBER || init_value->as.number.is_float) {
+        return;
+    }
+
+    // Check condition is a simple comparison
+    if (!is_simple_comparison(cond, var_name)) {
+        return;
+    }
+
+    // Check increment is a simple increment
+    if (!is_simple_increment(inc, var_name)) {
+        return;
+    }
+
+    // Check if variable escapes in the loop body
+    if (variable_escapes_in_stmt(body, var_name)) {
+        return;
+    }
+
+    // All checks passed - this loop counter can be unboxed!
+    InferredTypeKind native_type = INFER_I32;
+    if (init_value->as.number.int_value > 2147483647LL ||
+        init_value->as.number.int_value < -2147483648LL) {
+        native_type = INFER_I64;
+    }
+
+    type_mark_unboxable(ctx, var_name, native_type, 1, 0);
+}
+
+void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt) {
+    // TODO: Implement accumulator detection for while loops
+    // This would analyze patterns like:
+    //   let sum = 0;
+    //   while (cond) { sum = sum + value; }
+    (void)ctx;
+    (void)stmt;
 }
 
 // ========== DEBUG ==========

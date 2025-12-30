@@ -53,11 +53,21 @@ typedef struct FuncReturnType {
     struct FuncReturnType *next;
 } FuncReturnType;
 
+// Unboxable variable info (variables that can use native C types)
+typedef struct UnboxableVar {
+    char *name;
+    InferredTypeKind native_type;  // INFER_I32, INFER_I64, INFER_BOOL, INFER_F64
+    int is_loop_counter;           // Whether this is a loop counter
+    int is_accumulator;            // Whether this is used as an accumulator
+    struct UnboxableVar *next;
+} UnboxableVar;
+
 // Type inference context
 typedef struct {
     TypeEnv *current_env;
     FuncReturnType *func_returns;  // Registry of function return types
     int changed;  // Set to 1 if any type was refined this pass
+    UnboxableVar *unboxable_vars;  // Variables that can be unboxed
 } TypeInferContext;
 
 // ========== TYPE CONSTRUCTORS ==========
@@ -81,6 +91,7 @@ int infer_is_known(InferredType t);
 int infer_is_i32(InferredType t);
 int infer_is_i64(InferredType t);
 int infer_is_f64(InferredType t);
+int infer_is_bool(InferredType t);
 int infer_is_integer(InferredType t);  // i32, i64, or INTEGER
 int infer_is_numeric(InferredType t);  // any numeric type
 
@@ -125,6 +136,27 @@ void infer_stmt(TypeInferContext *ctx, Stmt *stmt);
 
 // Analyze a function and infer parameter/return types
 void infer_function(TypeInferContext *ctx, Expr *func_expr);
+
+// ========== ESCAPE ANALYSIS & UNBOXING ==========
+
+// Mark a variable as unboxable (can use native C type instead of HmlValue)
+void type_mark_unboxable(TypeInferContext *ctx, const char *name,
+                         InferredTypeKind native_type, int is_loop_counter, int is_accumulator);
+
+// Check if a variable is unboxable (returns native type, or INFER_UNKNOWN if not unboxable)
+InferredTypeKind type_get_unboxable(TypeInferContext *ctx, const char *name);
+
+// Check if variable is an unboxable loop counter
+int type_is_loop_counter(TypeInferContext *ctx, const char *name);
+
+// Check if variable is an unboxable accumulator
+int type_is_accumulator(TypeInferContext *ctx, const char *name);
+
+// Analyze a for-loop and detect unboxable loop counters
+void type_analyze_for_loop(TypeInferContext *ctx, Stmt *stmt);
+
+// Analyze a while-loop for unboxable accumulators
+void type_analyze_while_loop(TypeInferContext *ctx, Stmt *stmt);
 
 // ========== DEBUG ==========
 
