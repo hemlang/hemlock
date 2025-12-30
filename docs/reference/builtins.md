@@ -47,6 +47,147 @@ print("x =", 10, "y =", 20);
 
 ---
 
+### read_line
+
+Read a line of text from stdin (user input).
+
+**Signature:**
+```hemlock
+read_line(): string | null
+```
+
+**Parameters:** None
+
+**Returns:**
+- `string` - The line read from stdin (newline stripped)
+- `null` - On EOF (end of file/input)
+
+**Examples:**
+```hemlock
+// Simple prompt
+print("What is your name?");
+let name = read_line();
+print("Hello, " + name + "!");
+
+// Reading numbers (requires manual parsing)
+print("Enter a number:");
+let input = read_line();
+let num = parse_int(input);  // See below for parse_int
+print("Double:", num * 2);
+
+// Handle EOF
+let line = read_line();
+if (line == null) {
+    print("End of input");
+}
+
+// Read multiple lines
+print("Enter lines (Ctrl+D to stop):");
+while (true) {
+    let line = read_line();
+    if (line == null) {
+        break;
+    }
+    print("You said:", line);
+}
+```
+
+**Behavior:**
+- Blocks until user presses Enter
+- Strips trailing newline (`\n`) and carriage return (`\r`)
+- Returns `null` on EOF (Ctrl+D on Unix, Ctrl+Z on Windows)
+- Reads from stdin only (not from files)
+
+**Parsing User Input:**
+
+Since `read_line()` always returns a string, you need to parse numeric input manually:
+
+```hemlock
+// Simple integer parser
+fn parse_int(s: string): i32 {
+    let result: i32 = 0;
+    let negative = false;
+    let i = 0;
+
+    if (s.length > 0 && s.char_at(0) == '-') {
+        negative = true;
+        i = 1;
+    }
+
+    while (i < s.length) {
+        let c = s.char_at(i);
+        let code: i32 = c;
+        if (code >= 48 && code <= 57) {
+            result = result * 10 + (code - 48);
+        } else {
+            break;
+        }
+        i = i + 1;
+    }
+
+    if (negative) {
+        return -result;
+    }
+    return result;
+}
+
+// Usage
+print("Enter your age:");
+let age = parse_int(read_line());
+print("In 10 years you'll be", age + 10);
+```
+
+**See Also:** [File API](file-api.md) for reading from files
+
+---
+
+### eprint
+
+Print a value to stderr with newline.
+
+**Signature:**
+```hemlock
+eprint(value: any): null
+```
+
+**Parameters:**
+- `value` - Single value to print to stderr
+
+**Returns:** `null`
+
+**Examples:**
+```hemlock
+eprint("Error: file not found");
+eprint(404);
+eprint("Warning: " + message);
+
+// Typical error handling pattern
+fn load_config(path: string) {
+    if (!exists(path)) {
+        eprint("Error: config file not found: " + path);
+        return null;
+    }
+    // ...
+}
+```
+
+**Behavior:**
+- Prints to stderr (standard error stream)
+- Adds newline at end
+- Only accepts one argument (unlike `print`)
+- Useful for error messages that shouldn't mix with normal output
+
+**Difference from print:**
+- `print()` → stdout (normal output, can be redirected with `>`)
+- `eprint()` → stderr (error output, can be redirected with `2>`)
+
+```bash
+# Shell example: separate stdout and stderr
+./hemlock script.hml > output.txt 2> errors.txt
+```
+
+---
+
 ## Type Introspection
 
 ### typeof
@@ -427,6 +568,8 @@ See [Concurrency API](concurrency-api.md) for complete reference:
 | Function   | Category        | Returns      | Description                     |
 |------------|-----------------|--------------|----------------------------------|
 | `print`    | I/O             | `null`       | Print to stdout                  |
+| `read_line`| I/O             | `string?`    | Read line from stdin             |
+| `eprint`   | I/O             | `null`       | Print to stderr                  |
 | `typeof`   | Type            | `string`     | Get type name                    |
 | `exec`     | Command         | `object`     | Execute shell command            |
 | `panic`    | Error           | `never`      | Unrecoverable error (exits)      |
