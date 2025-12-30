@@ -133,6 +133,425 @@ static Value vm_builtin_seed(Value *args, int argc, void *ctx) {
     return stdlib_val_null();
 }
 
+// Integer math builtins - return i64 instead of f64
+static inline Value stdlib_val_i64(int64_t i) {
+    Value v; v.type = VAL_I64; v.as.as_i64 = i; return v;
+}
+
+static Value vm_builtin_floori(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    return stdlib_val_i64((int64_t)floor(vm_get_number(args[0])));
+}
+
+static Value vm_builtin_ceili(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    return stdlib_val_i64((int64_t)ceil(vm_get_number(args[0])));
+}
+
+static Value vm_builtin_roundi(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    return stdlib_val_i64((int64_t)round(vm_get_number(args[0])));
+}
+
+static Value vm_builtin_trunci(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    return stdlib_val_i64((int64_t)trunc(vm_get_number(args[0])));
+}
+
+static Value vm_builtin_div(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double a = vm_get_number(args[0]);
+    double b = vm_get_number(args[1]);
+    return stdlib_val_f64(floor(a / b));
+}
+
+static Value vm_builtin_divi(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    int64_t a = (int64_t)vm_get_number(args[0]);
+    int64_t b = (int64_t)vm_get_number(args[1]);
+    return stdlib_val_i64(a / b);
+}
+
+// Forward declarations for functions defined later
+static Value vm_make_string(const char *data, int len);
+static Value val_bool_vm(int b);
+
+// Environment builtins
+static Value vm_builtin_getenv(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+    const char *val = getenv(args[0].as.as_string->data);
+    if (!val) return stdlib_val_null();
+    return vm_make_string(val, strlen(val));
+}
+
+static Value vm_builtin_setenv(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string ||
+        args[1].type != VAL_STRING || !args[1].as.as_string) {
+        return stdlib_val_null();
+    }
+    setenv(args[0].as.as_string->data, args[1].as.as_string->data, 1);
+    return stdlib_val_null();
+}
+
+static Value vm_builtin_unsetenv(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+    unsetenv(args[0].as.as_string->data);
+    return stdlib_val_null();
+}
+
+// Time builtins
+#include <sys/time.h>
+#include <time.h>
+
+static Value vm_builtin_now(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_i64((int64_t)time(NULL));
+}
+
+static Value vm_builtin_time_ms(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return stdlib_val_i64((int64_t)(tv.tv_sec * 1000LL + tv.tv_usec / 1000LL));
+}
+
+static Value vm_builtin_sleep(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    double seconds = vm_get_number(args[0]);
+    if (seconds > 0) {
+        struct timespec ts;
+        ts.tv_sec = (time_t)seconds;
+        ts.tv_nsec = (long)((seconds - ts.tv_sec) * 1e9);
+        nanosleep(&ts, NULL);
+    }
+    return stdlib_val_null();
+}
+
+static Value vm_builtin_clock(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_f64((double)clock() / CLOCKS_PER_SEC);
+}
+
+// Platform builtins
+static Value vm_builtin_platform(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+#ifdef __linux__
+    return vm_make_string("linux", 5);
+#elif defined(__APPLE__)
+    return vm_make_string("darwin", 6);
+#elif defined(_WIN32)
+    return vm_make_string("windows", 7);
+#else
+    return vm_make_string("unknown", 7);
+#endif
+}
+
+static Value vm_builtin_arch(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+#if defined(__x86_64__) || defined(_M_X64)
+    return vm_make_string("x86_64", 6);
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return vm_make_string("arm64", 5);
+#elif defined(__i386__) || defined(_M_IX86)
+    return vm_make_string("x86", 3);
+#elif defined(__arm__)
+    return vm_make_string("arm", 3);
+#else
+    return vm_make_string("unknown", 7);
+#endif
+}
+
+// File system builtins
+#include <sys/stat.h>
+
+static Value vm_builtin_exists(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    struct stat st;
+    return val_bool_vm(stat(args[0].as.as_string->data, &st) == 0);
+}
+
+static Value vm_builtin_is_file(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    struct stat st;
+    if (stat(args[0].as.as_string->data, &st) != 0) return val_bool_vm(0);
+    return val_bool_vm(S_ISREG(st.st_mode));
+}
+
+static Value vm_builtin_is_dir(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    struct stat st;
+    if (stat(args[0].as.as_string->data, &st) != 0) return val_bool_vm(0);
+    return val_bool_vm(S_ISDIR(st.st_mode));
+}
+
+// Process builtins
+#include <unistd.h>
+
+static Value vm_builtin_get_pid(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_i64((int64_t)getpid());
+}
+
+static Value vm_builtin_getppid(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_i64((int64_t)getppid());
+}
+
+static Value vm_builtin_getuid(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_i64((int64_t)getuid());
+}
+
+static Value vm_builtin_geteuid(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    return stdlib_val_i64((int64_t)geteuid());
+}
+
+static Value vm_builtin_exit(Value *args, int argc, void *ctx) {
+    (void)ctx;
+    int code = 0;
+    if (argc >= 1) {
+        code = (int)vm_get_number(args[0]);
+    }
+    exit(code);
+    return stdlib_val_null();  // Never reached
+}
+
+// String builtins
+static Value vm_builtin_strlen(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_i64(0);
+    }
+    return stdlib_val_i64((int64_t)args[0].as.as_string->length);
+}
+
+// Hashing builtin
+#include <openssl/sha.h>
+#include <openssl/md5.h>
+
+static Value vm_builtin_sha256(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256((unsigned char*)args[0].as.as_string->data,
+           args[0].as.as_string->length, hash);
+
+    // Convert to hex string
+    char hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(hex + i * 2, "%02x", hash[i]);
+    }
+    return vm_make_string(hex, SHA256_DIGEST_LENGTH * 2);
+}
+
+static Value vm_builtin_sha512(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    SHA512((unsigned char*)args[0].as.as_string->data,
+           args[0].as.as_string->length, hash);
+
+    // Convert to hex string
+    char hex[SHA512_DIGEST_LENGTH * 2 + 1];
+    for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+        sprintf(hex + i * 2, "%02x", hash[i]);
+    }
+    return vm_make_string(hex, SHA512_DIGEST_LENGTH * 2);
+}
+
+static Value vm_builtin_md5(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+    unsigned char hash[MD5_DIGEST_LENGTH];
+    MD5((unsigned char*)args[0].as.as_string->data,
+        args[0].as.as_string->length, hash);
+
+    // Convert to hex string
+    char hex[MD5_DIGEST_LENGTH * 2 + 1];
+    for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
+        sprintf(hex + i * 2, "%02x", hash[i]);
+    }
+    return vm_make_string(hex, MD5_DIGEST_LENGTH * 2);
+}
+
+// File I/O builtins
+static Value vm_builtin_read_file(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+    FILE *f = fopen(args[0].as.as_string->data, "rb");
+    if (!f) return stdlib_val_null();
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+
+    char *buffer = malloc(size + 1);
+    if (!buffer) {
+        fclose(f);
+        return stdlib_val_null();
+    }
+
+    size_t read = fread(buffer, 1, size, f);
+    buffer[read] = '\0';
+    fclose(f);
+
+    Value result = vm_make_string(buffer, (int)read);
+    free(buffer);
+    return result;
+}
+
+static Value vm_builtin_write_file(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    if (args[1].type != VAL_STRING || !args[1].as.as_string) {
+        return val_bool_vm(0);
+    }
+
+    FILE *f = fopen(args[0].as.as_string->data, "wb");
+    if (!f) return val_bool_vm(0);
+
+    size_t written = fwrite(args[1].as.as_string->data, 1,
+                            args[1].as.as_string->length, f);
+    fclose(f);
+    return val_bool_vm(written == (size_t)args[1].as.as_string->length);
+}
+
+static Value vm_builtin_append_file(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    if (args[1].type != VAL_STRING || !args[1].as.as_string) {
+        return val_bool_vm(0);
+    }
+
+    FILE *f = fopen(args[0].as.as_string->data, "ab");
+    if (!f) return val_bool_vm(0);
+
+    size_t written = fwrite(args[1].as.as_string->data, 1,
+                            args[1].as.as_string->length, f);
+    fclose(f);
+    return val_bool_vm(written == (size_t)args[1].as.as_string->length);
+}
+
+static Value vm_builtin_remove_file(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    return val_bool_vm(remove(args[0].as.as_string->data) == 0);
+}
+
+static Value vm_builtin_cwd(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    char buf[4096];
+    if (getcwd(buf, sizeof(buf))) {
+        return vm_make_string(buf, strlen(buf));
+    }
+    return stdlib_val_null();
+}
+
+static Value vm_builtin_chdir(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    return val_bool_vm(chdir(args[0].as.as_string->data) == 0);
+}
+
+static Value vm_builtin_rename(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string ||
+        args[1].type != VAL_STRING || !args[1].as.as_string) {
+        return val_bool_vm(0);
+    }
+    return val_bool_vm(rename(args[0].as.as_string->data,
+                              args[1].as.as_string->data) == 0);
+}
+
+static Value vm_builtin_make_dir(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    return val_bool_vm(mkdir(args[0].as.as_string->data, 0755) == 0);
+}
+
+static Value vm_builtin_remove_dir(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return val_bool_vm(0);
+    }
+    return val_bool_vm(rmdir(args[0].as.as_string->data) == 0);
+}
+
+#include <dirent.h>
+
+static Value vm_builtin_list_dir(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+
+    DIR *dir = opendir(args[0].as.as_string->data);
+    if (!dir) return stdlib_val_null();
+
+    // Count entries first
+    int count = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            count++;
+        }
+    }
+    rewinddir(dir);
+
+    // Create array
+    Array *arr = malloc(sizeof(Array));
+    arr->elements = malloc(sizeof(Value) * (count > 0 ? count : 1));
+    arr->length = 0;
+    arr->capacity = count > 0 ? count : 1;
+    arr->element_type = NULL;
+    arr->ref_count = 1;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            arr->elements[arr->length++] = vm_make_string(entry->d_name, strlen(entry->d_name));
+        }
+    }
+    closedir(dir);
+
+    Value result = {.type = VAL_ARRAY, .as.as_array = arr};
+    return result;
+}
+
 static Value vm_val_builtin_fn(BuiltinFn fn) {
     Value v;
     v.type = VAL_BUILTIN_FN;
@@ -1056,6 +1475,71 @@ static void vm_init_stdlib(VM *vm) {
     vm_define_global(vm, "ceil", vm_val_builtin_fn((BuiltinFn)vm_builtin_ceil), true);
     vm_define_global(vm, "round", vm_val_builtin_fn((BuiltinFn)vm_builtin_round), true);
     vm_define_global(vm, "trunc", vm_val_builtin_fn((BuiltinFn)vm_builtin_trunc), true);
+
+    // Integer math builtins
+    vm_define_global(vm, "__floori", vm_val_builtin_fn((BuiltinFn)vm_builtin_floori), true);
+    vm_define_global(vm, "__ceili", vm_val_builtin_fn((BuiltinFn)vm_builtin_ceili), true);
+    vm_define_global(vm, "__roundi", vm_val_builtin_fn((BuiltinFn)vm_builtin_roundi), true);
+    vm_define_global(vm, "__trunci", vm_val_builtin_fn((BuiltinFn)vm_builtin_trunci), true);
+    vm_define_global(vm, "__div", vm_val_builtin_fn((BuiltinFn)vm_builtin_div), true);
+    vm_define_global(vm, "__divi", vm_val_builtin_fn((BuiltinFn)vm_builtin_divi), true);
+    vm_define_global(vm, "floori", vm_val_builtin_fn((BuiltinFn)vm_builtin_floori), true);
+    vm_define_global(vm, "ceili", vm_val_builtin_fn((BuiltinFn)vm_builtin_ceili), true);
+    vm_define_global(vm, "roundi", vm_val_builtin_fn((BuiltinFn)vm_builtin_roundi), true);
+    vm_define_global(vm, "trunci", vm_val_builtin_fn((BuiltinFn)vm_builtin_trunci), true);
+    vm_define_global(vm, "div", vm_val_builtin_fn((BuiltinFn)vm_builtin_div), true);
+    vm_define_global(vm, "divi", vm_val_builtin_fn((BuiltinFn)vm_builtin_divi), true);
+
+    // Environment builtins
+    vm_define_global(vm, "__getenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_getenv), true);
+    vm_define_global(vm, "__setenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_setenv), true);
+    vm_define_global(vm, "__unsetenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_unsetenv), true);
+    vm_define_global(vm, "getenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_getenv), true);
+    vm_define_global(vm, "setenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_setenv), true);
+    vm_define_global(vm, "unsetenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_unsetenv), true);
+
+    // Time builtins
+    vm_define_global(vm, "__now", vm_val_builtin_fn((BuiltinFn)vm_builtin_now), true);
+    vm_define_global(vm, "__time_ms", vm_val_builtin_fn((BuiltinFn)vm_builtin_time_ms), true);
+    vm_define_global(vm, "__sleep", vm_val_builtin_fn((BuiltinFn)vm_builtin_sleep), true);
+    vm_define_global(vm, "__clock", vm_val_builtin_fn((BuiltinFn)vm_builtin_clock), true);
+
+    // Platform builtins
+    vm_define_global(vm, "__platform", vm_val_builtin_fn((BuiltinFn)vm_builtin_platform), true);
+    vm_define_global(vm, "__arch", vm_val_builtin_fn((BuiltinFn)vm_builtin_arch), true);
+
+    // File system builtins
+    vm_define_global(vm, "__exists", vm_val_builtin_fn((BuiltinFn)vm_builtin_exists), true);
+    vm_define_global(vm, "__is_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_is_file), true);
+    vm_define_global(vm, "__is_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_is_dir), true);
+
+    // Process builtins
+    vm_define_global(vm, "__get_pid", vm_val_builtin_fn((BuiltinFn)vm_builtin_get_pid), true);
+    vm_define_global(vm, "__getppid", vm_val_builtin_fn((BuiltinFn)vm_builtin_getppid), true);
+    vm_define_global(vm, "__getuid", vm_val_builtin_fn((BuiltinFn)vm_builtin_getuid), true);
+    vm_define_global(vm, "__geteuid", vm_val_builtin_fn((BuiltinFn)vm_builtin_geteuid), true);
+    vm_define_global(vm, "__exit", vm_val_builtin_fn((BuiltinFn)vm_builtin_exit), true);
+    vm_define_global(vm, "get_pid", vm_val_builtin_fn((BuiltinFn)vm_builtin_get_pid), true);
+
+    // String builtins
+    vm_define_global(vm, "__strlen", vm_val_builtin_fn((BuiltinFn)vm_builtin_strlen), true);
+
+    // Hash builtins
+    vm_define_global(vm, "__sha256", vm_val_builtin_fn((BuiltinFn)vm_builtin_sha256), true);
+    vm_define_global(vm, "__sha512", vm_val_builtin_fn((BuiltinFn)vm_builtin_sha512), true);
+    vm_define_global(vm, "__md5", vm_val_builtin_fn((BuiltinFn)vm_builtin_md5), true);
+
+    // File I/O builtins
+    vm_define_global(vm, "__read_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_read_file), true);
+    vm_define_global(vm, "__write_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_write_file), true);
+    vm_define_global(vm, "__append_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_append_file), true);
+    vm_define_global(vm, "__remove_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_remove_file), true);
+    vm_define_global(vm, "__cwd", vm_val_builtin_fn((BuiltinFn)vm_builtin_cwd), true);
+    vm_define_global(vm, "__chdir", vm_val_builtin_fn((BuiltinFn)vm_builtin_chdir), true);
+    vm_define_global(vm, "__rename", vm_val_builtin_fn((BuiltinFn)vm_builtin_rename), true);
+    vm_define_global(vm, "__make_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_make_dir), true);
+    vm_define_global(vm, "__remove_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_remove_dir), true);
+    vm_define_global(vm, "__list_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_list_dir), true);
 }
 
 // ============================================

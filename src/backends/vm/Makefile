@@ -41,7 +41,7 @@ all: $(TARGET)
 
 # Build by compiling all sources directly
 $(TARGET): $(VM_SRCS) $(FRONTEND_SRCS) $(BUNDLER_SRCS) $(SHARED_SRCS)
-	$(CC) $(CFLAGS) -o $@ $^ -lpthread -lm -ldl -lz
+	$(CC) $(CFLAGS) -o $@ $^ -lpthread -lm -ldl -lz -lcrypto
 
 # Individual object compilation
 %.o: %.c
