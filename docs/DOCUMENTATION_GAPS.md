@@ -238,19 +238,35 @@ All 39 stdlib modules have documentation in `stdlib/docs/`:
 
 ### 2. Code Examples Using `typeof()` for String Conversion
 
+**Status: Partially fixed**
+
 Multiple documentation files incorrectly use `typeof()` for converting values to strings in concatenation:
 ```hemlock
-print("Count: " + typeof(42));  // Wrong - typeof returns "i32"
+print("Count: " + typeof(42));  // Wrong - typeof returns "i32", not "42"
 ```
 
-Should use direct concatenation which auto-converts:
+Should use template strings:
 ```hemlock
-print("Count:", 42);  // Correct
+print(`Count: ${42}`);  // Correct - template string interpolation
 ```
 
-Files affected:
-- `docs/language-guide/control-flow.md` (lines 156, 576, etc.)
-- `docs/language-guide/error-handling.md` (lines 715, 768, etc.)
+**Fixed in:**
+- `docs/getting-started/quick-start.md`
+- `docs/getting-started/tutorial.md`
+- `docs/language-guide/control-flow.md`
+
+**Still needs fixing:**
+- `docs/language-guide/error-handling.md`
+- `docs/advanced/command-execution.md`
+- `docs/advanced/command-line-args.md`
+- `docs/advanced/file-io.md`
+- `docs/advanced/signals.md`
+- `docs/reference/string-api.md`
+- `docs/reference/operators.md`
+- `docs/reference/builtins.md`
+- `docs/reference/concurrency-api.md`
+- `docs/language-guide/runes.md`
+- `docs/language-guide/objects.md`
 
 ### 3. Missing Cross-References
 

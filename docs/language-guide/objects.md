@@ -372,6 +372,53 @@ JSON serialization supports:
 - Pointers (error)
 - Buffers (error)
 
+### Error Handling
+
+Serialization and deserialization can throw errors:
+
+```hemlock
+// Invalid JSON throws an error
+try {
+    let bad = "not valid json".deserialize();
+} catch (e) {
+    print("Parse error:", e);
+}
+
+// Pointers cannot be serialized
+let obj = { ptr: alloc(10) };
+try {
+    obj.serialize();
+} catch (e) {
+    print("Serialize error:", e);
+}
+```
+
+### Round-Trip Example
+
+Complete example of serializing and deserializing:
+
+```hemlock
+define Config {
+    host: string,
+    port: i32,
+    debug: bool
+}
+
+// Create and serialize
+let config: Config = {
+    host: "localhost",
+    port: 8080,
+    debug: true
+};
+let json = config.serialize();
+print(json);  // {"host":"localhost","port":8080,"debug":true}
+
+// Deserialize back
+let restored = json.deserialize();
+print(restored.host);  // "localhost"
+print(restored.port);  // 8080
+```
+
 ## Built-in Functions
 
 ### `typeof(value)`

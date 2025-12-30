@@ -102,6 +102,55 @@ Line 3`;
 - Backtick strings support the same escape sequences as regular strings
 - Useful for building dynamic strings without concatenation
 
+### Escaping in Template Strings
+
+To include a literal `${` in a template string, escape the dollar sign:
+
+```hemlock
+let price = 100;
+let text = `Price: \${price} or ${price}`;
+// "Price: ${price} or 100"
+
+// Literal backtick
+let code = `Use \` for template strings`;
+// "Use ` for template strings"
+```
+
+### Complex Expressions
+
+Template strings can contain any valid expression:
+
+```hemlock
+// Ternary-like expressions
+let age = 25;
+let status = `Status: ${age >= 18 ? "adult" : "minor"}`;
+
+// Array access
+let items = ["apple", "banana", "cherry"];
+let first = `First item: ${items[0]}`;
+
+// Function calls with arguments
+fn format_price(p) { return "$" + p; }
+let msg = `Total: ${format_price(99.99)}`;  // "Total: $99.99"
+
+// Chained method calls
+let name = "alice";
+let formatted = `Hello, ${name.to_upper().slice(0, 1)}${name.slice(1)}!`;
+// "Hello, Alice!"
+```
+
+### Template Strings vs Concatenation
+
+Template strings are often cleaner than concatenation:
+
+```hemlock
+// Concatenation (harder to read)
+let msg1 = "Hello, " + name + "! You have " + count + " messages.";
+
+// Template string (easier to read)
+let msg2 = `Hello, ${name}! You have ${count} messages.`;
+```
+
 ## Indexing and Mutation
 
 ### Reading Characters
