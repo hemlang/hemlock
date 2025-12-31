@@ -438,6 +438,7 @@ i8 (lowest)
 1. Float always wins over integer
 2. Larger size wins within same category (int/uint/float)
 3. Both operands are promoted to result type
+4. **Precision preservation:** i64/u64 + f32 promotes to f64 (not f32)
 
 **Examples:**
 ```hemlock
@@ -447,10 +448,17 @@ i32 + i64   → i64    // Larger size wins
 u32 + u64   → u64    // Larger size wins
 
 // Float promotion
-i32 + f32   → f32    // Float always wins
+i32 + f32   → f32    // Float wins, f32 sufficient for i32
+i64 + f32   → f64    // Promotes to f64 to preserve i64 precision
 i64 + f64   → f64    // Float always wins
 i8 + f64    → f64    // Float + largest wins
 ```
+
+**Why i64 + f32 → f64?**
+
+f32 has only a 24-bit mantissa, which cannot precisely represent integers larger
+than 2^24 (16,777,216). Since i64 can hold values up to 2^63, mixing i64 with f32
+would cause severe precision loss. Hemlock promotes to f64 (53-bit mantissa) instead.
 
 ---
 
