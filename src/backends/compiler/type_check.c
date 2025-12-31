@@ -578,6 +578,25 @@ int type_is_assignable(CheckedType *to, CheckedType *from) {
         return 1;  // All numeric conversions allowed, runtime validates range
     }
 
+    // Rune to integer - rune is a Unicode codepoint (essentially an integer)
+    if (type_is_integer(to) && from->kind == CHECKED_RUNE) {
+        return 1;  // Rune codepoint to integer is valid
+    }
+
+    // Numeric/rune to bool - truthy conversion (0/0.0 = false, non-zero = true)
+    if (to->kind == CHECKED_BOOL && (type_is_numeric(from) || from->kind == CHECKED_RUNE)) {
+        return 1;  // Truthy conversion is valid
+    }
+
+    // Any value to string - Hemlock supports string coercion for all types
+    if (to->kind == CHECKED_STRING) {
+        // All basic types can be converted to string
+        if (type_is_numeric(from) || from->kind == CHECKED_BOOL ||
+            from->kind == CHECKED_RUNE || from->kind == CHECKED_NULL) {
+            return 1;  // Value to string coercion is valid
+        }
+    }
+
     // Array compatibility
     if (to->kind == CHECKED_ARRAY && from->kind == CHECKED_ARRAY) {
         // Untyped array accepts any array
@@ -1217,13 +1236,17 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                 case OP_ADD:
                     // Allow string + anything (concatenation)
                     // Allow numeric + numeric
+                    // Allow pointer + integer (pointer arithmetic)
                     if (left->kind != CHECKED_STRING && right->kind != CHECKED_STRING) {
-                        if (!type_is_numeric(left) || !type_is_numeric(right)) {
-                            if (left->kind != CHECKED_ANY && right->kind != CHECKED_ANY) {
-                                type_error(ctx, expr->line,
-                                    "cannot add '%s' and '%s'",
-                                    checked_type_name(left), checked_type_name(right));
-                            }
+                        // Pointer arithmetic: ptr + int or int + ptr
+                        int is_ptr_arith = (left->kind == CHECKED_PTR && type_is_integer(right)) ||
+                                           (type_is_integer(left) && right->kind == CHECKED_PTR);
+                        int is_numeric_op = type_is_numeric(left) && type_is_numeric(right);
+                        int is_any = left->kind == CHECKED_ANY || right->kind == CHECKED_ANY;
+                        if (!is_ptr_arith && !is_numeric_op && !is_any) {
+                            type_error(ctx, expr->line,
+                                "cannot add '%s' and '%s'",
+                                checked_type_name(left), checked_type_name(right));
                         }
                     }
                     break;
