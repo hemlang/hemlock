@@ -176,6 +176,139 @@ static Value vm_builtin_divi(Value *args, int argc, void *ctx) {
 static Value vm_make_string(const char *data, int len);
 static Value val_bool_vm(int b);
 
+// Type constructor builtins (parse strings or convert types)
+static Value vm_builtin_type_i8(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    int8_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (int8_t)strtoll(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (int8_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_I8}; r.as.as_i8 = result; return r;
+}
+
+static Value vm_builtin_type_i16(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    int16_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (int16_t)strtoll(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (int16_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_I16}; r.as.as_i16 = result; return r;
+}
+
+static Value vm_builtin_type_i32(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    int32_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (int32_t)strtoll(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (int32_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_I32}; r.as.as_i32 = result; return r;
+}
+
+static Value vm_builtin_type_i64(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    int64_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = strtoll(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (int64_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_I64}; r.as.as_i64 = result; return r;
+}
+
+static Value vm_builtin_type_u8(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    uint8_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (uint8_t)strtoull(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (uint8_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_U8}; r.as.as_u8 = result; return r;
+}
+
+static Value vm_builtin_type_u16(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    uint16_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (uint16_t)strtoull(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (uint16_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_U16}; r.as.as_u16 = result; return r;
+}
+
+static Value vm_builtin_type_u32(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    uint32_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (uint32_t)strtoull(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (uint32_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_U32}; r.as.as_u32 = result; return r;
+}
+
+static Value vm_builtin_type_u64(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    uint64_t result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = strtoull(v.as.as_string->data, NULL, 0);
+    } else {
+        result = (uint64_t)vm_get_number(v);
+    }
+    Value r = {.type = VAL_U64}; r.as.as_u64 = result; return r;
+}
+
+static Value vm_builtin_type_f32(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    float result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = (float)strtod(v.as.as_string->data, NULL);
+    } else {
+        result = (float)vm_get_number(v);
+    }
+    Value r = {.type = VAL_F32}; r.as.as_f32 = result; return r;
+}
+
+static Value vm_builtin_type_f64(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    double result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = strtod(v.as.as_string->data, NULL);
+    } else {
+        result = vm_get_number(v);
+    }
+    Value r = {.type = VAL_F64}; r.as.as_f64 = result; return r;
+}
+
+static Value vm_builtin_type_bool(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    Value v = args[0];
+    bool result;
+    if (v.type == VAL_STRING && v.as.as_string) {
+        result = strcmp(v.as.as_string->data, "true") == 0;
+    } else {
+        result = vm_get_number(v) != 0;
+    }
+    return val_bool_vm(result);
+}
+
 // Environment builtins
 static Value vm_builtin_getenv(Value *args, int argc, void *ctx) {
     (void)ctx; (void)argc;
@@ -943,6 +1076,7 @@ static int64_t value_to_i64(Value v) {
         case VAL_U64: return (int64_t)v.as.as_u64;
         case VAL_F32: return (int64_t)v.as.as_f32;
         case VAL_F64: return (int64_t)v.as.as_f64;
+        case VAL_RUNE: return (int64_t)v.as.as_rune;  // Rune to codepoint
         default: return 0;
     }
 }
@@ -1371,7 +1505,8 @@ static char* value_to_string_alloc(Value v) {
             if (d == (long)d) {
                 snprintf(buf, sizeof(buf), "%.0f", d);
             } else {
-                snprintf(buf, sizeof(buf), "%g", d);
+                // Use full precision for type conversions to string
+                snprintf(buf, sizeof(buf), "%.17g", d);
             }
             return strdup(buf);
         }
@@ -1489,6 +1624,23 @@ static void vm_init_stdlib(VM *vm) {
     vm_define_global(vm, "trunci", vm_val_builtin_fn((BuiltinFn)vm_builtin_trunci), true);
     vm_define_global(vm, "div", vm_val_builtin_fn((BuiltinFn)vm_builtin_div), true);
     vm_define_global(vm, "divi", vm_val_builtin_fn((BuiltinFn)vm_builtin_divi), true);
+
+    // Type constructor builtins
+    vm_define_global(vm, "i8", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_i8), true);
+    vm_define_global(vm, "i16", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_i16), true);
+    vm_define_global(vm, "i32", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_i32), true);
+    vm_define_global(vm, "i64", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_i64), true);
+    vm_define_global(vm, "u8", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_u8), true);
+    vm_define_global(vm, "u16", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_u16), true);
+    vm_define_global(vm, "u32", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_u32), true);
+    vm_define_global(vm, "u64", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_u64), true);
+    vm_define_global(vm, "f32", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_f32), true);
+    vm_define_global(vm, "f64", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_f64), true);
+    vm_define_global(vm, "bool", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_bool), true);
+    // Type aliases
+    vm_define_global(vm, "integer", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_i32), true);
+    vm_define_global(vm, "number", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_f64), true);
+    vm_define_global(vm, "byte", vm_val_builtin_fn((BuiltinFn)vm_builtin_type_u8), true);
 
     // Environment builtins
     vm_define_global(vm, "__getenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_getenv), true);
@@ -2121,6 +2273,9 @@ static Value binary_lt(VM *vm, Value a, Value b) {
     }
     if (a.type == VAL_STRING && b.type == VAL_STRING) {
         return val_bool_vm(strcmp(a.as.as_string->data, b.as.as_string->data) < 0);
+    }
+    if (a.type == VAL_RUNE && b.type == VAL_RUNE) {
+        return val_bool_vm(a.as.as_rune < b.as.as_rune);
     }
     SET_ERROR_FMT(vm, "Cannot compare %s and %s",
                   val_type_name(a.type), val_type_name(b.type));
@@ -5494,19 +5649,19 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         result.type = VAL_ARRAY;
                         result.as.as_array = arr;
                     } else if (strcmp(method, "to_bytes") == 0) {
-                        // to_bytes() - return array of byte values (u8)
-                        Array *arr = malloc(sizeof(Array));
-                        arr->elements = malloc(sizeof(Value) * (str->length > 0 ? str->length : 1));
-                        arr->length = str->length;
-                        arr->capacity = str->length > 0 ? str->length : 1;
-                        arr->element_type = NULL;
-                        arr->ref_count = 1;
+                        // to_bytes() - return buffer of byte values
+                        Buffer *buf = malloc(sizeof(Buffer));
+                        int size = str->length > 0 ? str->length : 1;
+                        buf->data = malloc((size_t)size);
+                        buf->length = str->length;
+                        buf->capacity = size;
+                        buf->ref_count = 1;
+                        atomic_store(&buf->freed, 0);
                         for (int i = 0; i < str->length; i++) {
-                            arr->elements[i].type = VAL_U8;
-                            arr->elements[i].as.as_u8 = (uint8_t)str->data[i];
+                            ((uint8_t*)buf->data)[i] = (uint8_t)str->data[i];
                         }
-                        result.type = VAL_ARRAY;
-                        result.as.as_array = arr;
+                        result.type = VAL_BUFFER;
+                        result.as.as_buffer = buf;
                     } else if (strcmp(method, "deserialize") == 0) {
                         // deserialize() - parse JSON string into object/array/value
                         result = vm_json_parse(str->data, str->length);
@@ -5875,47 +6030,107 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 switch (target_type) {
                     case TYPE_ID_I8:
                         result.type = VAL_I8;
-                        result.as.as_i8 = (int8_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_i8 = (int8_t)strtoll(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_i8 = (int8_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_I16:
                         result.type = VAL_I16;
-                        result.as.as_i16 = (int16_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_i16 = (int16_t)strtoll(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_i16 = (int16_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_I32:
                         result.type = VAL_I32;
-                        result.as.as_i32 = (int32_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_i32 = (int32_t)strtoll(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_i32 = (int32_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_I64:
                         result.type = VAL_I64;
-                        result.as.as_i64 = value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_i64 = strtoll(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_i64 = value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_U8:
                         result.type = VAL_U8;
-                        result.as.as_u8 = (uint8_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_u8 = (uint8_t)strtoull(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_u8 = (uint8_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_U16:
                         result.type = VAL_U16;
-                        result.as.as_u16 = (uint16_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_u16 = (uint16_t)strtoull(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_u16 = (uint16_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_U32:
                         result.type = VAL_U32;
-                        result.as.as_u32 = (uint32_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_u32 = (uint32_t)strtoull(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_u32 = (uint32_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_U64:
                         result.type = VAL_U64;
-                        result.as.as_u64 = (uint64_t)value_to_i64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_u64 = strtoull(v.as.as_string->data, NULL, 0);
+                        } else {
+                            result.as.as_u64 = (uint64_t)value_to_i64(v);
+                        }
                         break;
                     case TYPE_ID_F32:
                         result.type = VAL_F32;
-                        result.as.as_f32 = (float)value_to_f64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_f32 = (float)strtod(v.as.as_string->data, NULL);
+                        } else {
+                            result.as.as_f32 = (float)value_to_f64(v);
+                        }
                         break;
                     case TYPE_ID_F64:
                         result.type = VAL_F64;
-                        result.as.as_f64 = value_to_f64(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_f64 = strtod(v.as.as_string->data, NULL);
+                        } else {
+                            result.as.as_f64 = value_to_f64(v);
+                        }
                         break;
                     case TYPE_ID_BOOL:
                         result.type = VAL_BOOL;
-                        result.as.as_bool = value_is_truthy(v);
+                        if (v.type == VAL_STRING && v.as.as_string) {
+                            result.as.as_bool = strcmp(v.as.as_string->data, "true") == 0;
+                        } else {
+                            result.as.as_bool = value_is_truthy(v);
+                        }
+                        break;
+                    case TYPE_ID_STRING: {
+                        // Convert value to string
+                        char *str = value_to_string_alloc(v);
+                        result = vm_make_string(str, strlen(str));
+                        free(str);
+                        break;
+                    }
+                    case TYPE_ID_RUNE:
+                        result.type = VAL_RUNE;
+                        if (v.type == VAL_RUNE) {
+                            result.as.as_rune = v.as.as_rune;
+                        } else {
+                            // Convert integer to rune (Unicode codepoint)
+                            result.as.as_rune = (uint32_t)value_to_i64(v);
+                        }
                         break;
                     default:
                         // For other types, keep as-is
