@@ -251,6 +251,7 @@ Expr* primary(Parser *p) {
     char **param_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
     Type **param_types = malloc(sizeof(Type*) * MAX_FUNCTION_PARAMS);
     Expr **param_defaults = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
+    int *param_is_ref = malloc(sizeof(int) * MAX_FUNCTION_PARAMS);
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
     char *rest_param = NULL;
@@ -279,6 +280,10 @@ Expr* primary(Parser *p) {
                 break;
             }
 
+            // Check for ref keyword (pass-by-reference)
+            int is_ref = match(p, TOK_REF);
+            param_is_ref[num_params] = is_ref;
+
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
 
@@ -291,6 +296,9 @@ Expr* primary(Parser *p) {
 
             // Check for optional parameter (?) with default value
             if (match(p, TOK_QUESTION)) {
+                if (is_ref) {
+                    error_at(p, &p->current, "ref parameters cannot have default values");
+                }
                 consume(p, TOK_COLON, "Expect ':' after '?' for default value");
                 param_defaults[num_params] = expression(p);
                 seen_optional = 1;
@@ -318,7 +326,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, num_params, rest_param, rest_param_type, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
 
 not_fn_expr:
 

@@ -173,22 +173,46 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             return result;
         }
 
-        case EXPR_IDENT:
+        case EXPR_IDENT: {
             // Use fast resolved lookup if available, else fall back to hash lookup
+            Value val;
             if (expr->as.ident.resolved.is_resolved) {
-                return env_get_resolved(env, expr->as.ident.resolved.depth, expr->as.ident.resolved.slot);
+                val = env_get_resolved(env, expr->as.ident.resolved.depth, expr->as.ident.resolved.slot);
+            } else {
+                val = env_get(env, expr->as.ident.name, ctx);
             }
-            return env_get(env, expr->as.ident.name, ctx);
+            // Auto-dereference if this is a reference (from ref parameter)
+            if (val.type == VAL_REF) {
+                Value deref_val = ref_deref(val.as.as_ref, ctx);
+                VALUE_RELEASE(val);  // Release the reference itself
+                return deref_val;
+            }
+            return val;
+        }
 
         case EXPR_ASSIGN: {
-            Value value = eval_expr(expr->as.assign.value, env, ctx);
-            // Use fast resolved assignment if available, else fall back to hash lookup
+            Value new_value = eval_expr(expr->as.assign.value, env, ctx);
+            // Check if target is a reference (from ref parameter)
+            Value target;
             if (expr->as.assign.resolved.is_resolved) {
-                env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, value, ctx);
+                target = env_get_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot);
             } else {
-                env_set(env, expr->as.assign.name, value, ctx);
+                target = env_get(env, expr->as.assign.name, ctx);
             }
-            return value;
+            if (target.type == VAL_REF) {
+                // Write through the reference to the original location
+                ref_assign(target.as.as_ref, new_value, ctx);
+                VALUE_RELEASE(target);
+                return new_value;
+            }
+            VALUE_RELEASE(target);
+            // Regular assignment
+            if (expr->as.assign.resolved.is_resolved) {
+                env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, new_value, ctx);
+            } else {
+                env_set(env, expr->as.assign.name, new_value, ctx);
+            }
+            return new_value;
         }
 
         case EXPR_BINARY:
@@ -529,9 +553,66 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 for (int i = 0; i < fn->num_params; i++) {
                     Value arg_value = {0};
 
-                    // Use provided argument or evaluate default
-                    if (i < expr->as.call.num_args) {
-                        // Argument was provided
+                    // Check if this is a ref parameter
+                    int is_ref_param = fn->param_is_ref && fn->param_is_ref[i];
+
+                    if (is_ref_param && i < expr->as.call.num_args) {
+                        // For ref parameters, create a reference to the original location
+                        Expr *arg_expr = expr->as.call.args[i];
+                        Reference *ref = NULL;
+
+                        if (arg_expr->type == EXPR_IDENT) {
+                            // Reference to a variable
+                            ref = reference_new_variable(env, arg_expr->as.ident.name);
+                        } else if (arg_expr->type == EXPR_INDEX) {
+                            // Reference to an array element
+                            Value arr_val = eval_expr(arg_expr->as.index.object, env, ctx);
+                            Value idx_val = eval_expr(arg_expr->as.index.index, env, ctx);
+                            if (arr_val.type == VAL_ARRAY) {
+                                int64_t index = 0;
+                                switch (idx_val.type) {
+                                    case VAL_I8: index = idx_val.as.as_i8; break;
+                                    case VAL_I16: index = idx_val.as.as_i16; break;
+                                    case VAL_I32: index = idx_val.as.as_i32; break;
+                                    case VAL_I64: index = idx_val.as.as_i64; break;
+                                    case VAL_U8: index = idx_val.as.as_u8; break;
+                                    case VAL_U16: index = idx_val.as.as_u16; break;
+                                    case VAL_U32: index = idx_val.as.as_u32; break;
+                                    case VAL_U64: index = (int64_t)idx_val.as.as_u64; break;
+                                    default:
+                                        runtime_error_at(ctx, arg_expr->line, "Array index must be an integer");
+                                        break;
+                                }
+                                ref = reference_new_array_index(arr_val.as.as_array, (int)index);
+                            } else {
+                                runtime_error_at(ctx, arg_expr->line, "ref argument must be an array element");
+                            }
+                            VALUE_RELEASE(arr_val);
+                            VALUE_RELEASE(idx_val);
+                        } else if (arg_expr->type == EXPR_GET_PROPERTY) {
+                            // Reference to an object property
+                            Value obj_val = eval_expr(arg_expr->as.get_property.object, env, ctx);
+                            if (obj_val.type == VAL_OBJECT) {
+                                ref = reference_new_object_property(obj_val.as.as_object, arg_expr->as.get_property.property);
+                            } else {
+                                runtime_error_at(ctx, arg_expr->line, "ref argument must be an object property");
+                            }
+                            VALUE_RELEASE(obj_val);
+                        } else {
+                            runtime_error_at(ctx, arg_expr->line, "ref argument must be a variable, array element, or object property");
+                        }
+
+                        if (ref) {
+                            arg_value = val_ref(ref);
+                            // Release the eagerly evaluated value since we're using a ref
+                            VALUE_RELEASE(args[i]);
+                        } else {
+                            // Error already reported, use null
+                            arg_value = val_null();
+                            VALUE_RELEASE(args[i]);
+                        }
+                    } else if (i < expr->as.call.num_args) {
+                        // Regular parameter - use provided argument
                         arg_value = args[i];
                     } else {
                         // Argument missing - use default value
@@ -544,8 +625,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                     }
 
-                    // Type check if parameter has type annotation
-                    if (fn->param_types[i]) {
+                    // Type check if parameter has type annotation (skip for refs)
+                    if (!is_ref_param && fn->param_types[i]) {
                         arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
                     }
 
@@ -753,6 +834,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             bound_fn->param_names = orig_fn->param_names;
                             bound_fn->param_types = orig_fn->param_types;
                             bound_fn->param_defaults = orig_fn->param_defaults;
+                            bound_fn->param_is_ref = orig_fn->param_is_ref;  // Share ref flags
                             bound_fn->param_hashes = orig_fn->param_hashes;  // Share pre-computed hashes
                             bound_fn->num_params = orig_fn->num_params;
                             bound_fn->rest_param = orig_fn->rest_param;  // Share rest param name
@@ -1115,6 +1197,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
             } else {
                 fn->param_defaults = NULL;
+            }
+
+            // Copy param_is_ref flags
+            if (expr->as.function.param_is_ref) {
+                fn->param_is_ref = malloc(sizeof(int) * expr->as.function.num_params);
+                for (int i = 0; i < expr->as.function.num_params; i++) {
+                    fn->param_is_ref[i] = expr->as.function.param_is_ref[i];
+                }
+            } else {
+                fn->param_is_ref = NULL;
             }
 
             // Pre-compute parameter name hashes for fast binding at call time

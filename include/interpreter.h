@@ -35,6 +35,7 @@ typedef enum {
     VAL_FFI_FUNCTION,   // FFI function
     VAL_TASK,           // Async task handle
     VAL_CHANNEL,        // Communication channel
+    VAL_REF,            // Reference (for pass-by-reference parameters)
     VAL_NULL,
 } ValueType;
 
@@ -122,6 +123,7 @@ typedef struct {
     char **param_names;
     Type **param_types;
     Expr **param_defaults;  // Default value expressions (NULL for required params)
+    int *param_is_ref;      // 1 if parameter is pass-by-reference (ref keyword)
     uint32_t *param_hashes; // Pre-computed hashes of param names (optimization)
     int num_params;
     char *rest_param;       // Name of rest parameter (...args), NULL if none
@@ -178,6 +180,33 @@ typedef struct {
     void *rendezvous;           // pthread_cond_t for rendezvous completion
 } Channel;
 
+// Reference types for pass-by-reference
+typedef enum {
+    REF_VARIABLE,       // Reference to a variable in an environment
+    REF_ARRAY_INDEX,    // Reference to an array element
+    REF_OBJECT_PROPERTY // Reference to an object property
+} RefType;
+
+// Reference struct (for pass-by-reference parameters)
+typedef struct {
+    RefType ref_type;
+    union {
+        struct {
+            Environment *env;   // Environment where variable lives
+            char *name;         // Variable name
+        } variable;
+        struct {
+            Array *array;       // Array to index into
+            int index;          // Element index
+        } array_index;
+        struct {
+            Object *object;     // Object to access
+            char *property;     // Property name
+        } object_property;
+    } as;
+    int ref_count;              // Reference count for memory management
+} Reference;
+
 // Forward declare TypeKind from ast.h
 #include "ast.h"
 
@@ -211,6 +240,7 @@ typedef struct Value {
         void *as_ffi_function;  // FFIFunction* (opaque)
         Task *as_task;
         Channel *as_channel;
+        Reference *as_ref;      // Reference for pass-by-reference
     } as;
 } Value;
 
@@ -322,6 +352,15 @@ void task_release(Task *task);
 // Channel operations
 void channel_free(Channel *channel);
 Channel* channel_new(int capacity);
+
+// Reference operations (for pass-by-reference)
+void reference_free(Reference *ref);
+Reference* reference_new_variable(Environment *env, const char *name);
+Reference* reference_new_array_index(Array *array, int index);
+Reference* reference_new_object_property(Object *object, const char *property);
+Value ref_deref(Reference *ref, ExecutionContext *ctx);  // Read through reference
+void ref_assign(Reference *ref, Value value, ExecutionContext *ctx);  // Write through reference
+Value val_ref(Reference *ref);
 
 void register_builtins(Environment *env, int argc, char **argv, ExecutionContext *ctx);
 

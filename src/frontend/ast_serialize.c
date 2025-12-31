@@ -385,6 +385,7 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
                 write_string_id(ctx, expr->as.function.param_names[i]);
                 serialize_type(ctx, expr->as.function.param_types ? expr->as.function.param_types[i] : NULL);
                 serialize_expr(ctx, expr->as.function.param_defaults ? expr->as.function.param_defaults[i] : NULL);
+                write_u8(ctx, expr->as.function.param_is_ref ? expr->as.function.param_is_ref[i] : 0);
             }
             serialize_type(ctx, expr->as.function.return_type);
             serialize_stmt(ctx, expr->as.function.body);
@@ -572,15 +573,18 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
                 expr->as.function.param_names = malloc(expr->as.function.num_params * sizeof(char*));
                 expr->as.function.param_types = malloc(expr->as.function.num_params * sizeof(Type*));
                 expr->as.function.param_defaults = malloc(expr->as.function.num_params * sizeof(Expr*));
+                expr->as.function.param_is_ref = malloc(expr->as.function.num_params * sizeof(int));
                 for (int i = 0; i < expr->as.function.num_params; i++) {
                     expr->as.function.param_names[i] = read_string_id(ctx);
                     expr->as.function.param_types[i] = deserialize_type(ctx);
                     expr->as.function.param_defaults[i] = deserialize_expr(ctx);
+                    expr->as.function.param_is_ref[i] = read_u8(ctx);
                 }
             } else {
                 expr->as.function.param_names = NULL;
                 expr->as.function.param_types = NULL;
                 expr->as.function.param_defaults = NULL;
+                expr->as.function.param_is_ref = NULL;
             }
             expr->as.function.return_type = deserialize_type(ctx);
             expr->as.function.body = deserialize_stmt(ctx);

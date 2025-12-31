@@ -204,12 +204,21 @@ void value_free(Value val);
 void value_retain(Value val);
 void value_release(Value val);
 
+// Reference operations (for pass-by-reference parameters)
+Reference* reference_new_variable(Environment *env, const char *name);
+Reference* reference_new_array_index(Array *array, int index);
+Reference* reference_new_object_property(Object *object, const char *property);
+void reference_free(Reference *ref);
+Value ref_deref(Reference *ref, ExecutionContext *ctx);
+void ref_assign(Reference *ref, Value value, ExecutionContext *ctx);
+Value val_ref(Reference *ref);
+
 // Fast path macro: check if type needs refcounting before calling
-// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL
+// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL, REF
 #define VALUE_NEEDS_REFCOUNT(type) \
     ((type) == VAL_STRING || (type) == VAL_BUFFER || (type) == VAL_ARRAY || \
      (type) == VAL_OBJECT || (type) == VAL_FUNCTION || (type) == VAL_TASK || \
-     (type) == VAL_CHANNEL)
+     (type) == VAL_CHANNEL || (type) == VAL_REF)
 
 // Fast path macros - skip function call for primitives
 #define VALUE_RETAIN(val) do { if (VALUE_NEEDS_REFCOUNT((val).type)) value_retain(val); } while(0)

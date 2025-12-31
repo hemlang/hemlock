@@ -1,0 +1,76 @@
+// Test ref keyword for pass-by-reference parameters
+
+// Test 1: Basic ref parameter with variable
+fn increment(ref x: i32) {
+    x = x + 1;
+}
+
+let a = 10;
+print("Test 1: Basic ref with variable");
+print("Before: " + a);
+increment(a);
+print("After: " + a);
+
+// Test 2: Ref parameter with array element
+fn double_element(ref elem: i32) {
+    elem = elem * 2;
+}
+
+let arr = [1, 2, 3, 4, 5];
+print("Test 2: Ref with array element");
+print("Before: " + arr);
+double_element(arr[2]);
+print("After: " + arr);
+
+// Test 3: Ref parameter with object property
+fn set_name(ref n: string) {
+    n = "Modified";
+}
+
+let person = { name: "Original" };
+print("Test 3: Ref with object property");
+print("Before: " + person.name);
+set_name(person.name);
+print("After: " + person.name);
+
+// Test 4: Multiple ref parameters
+fn swap(ref x: i32, ref y: i32) {
+    let temp = x;
+    x = y;
+    y = temp;
+}
+
+let p = 1;
+let q = 2;
+print("Test 4: Multiple ref parameters (swap)");
+print("Before: p=" + p + ", q=" + q);
+swap(p, q);
+print("After: p=" + p + ", q=" + q);
+
+// Test 5: Mixed ref and regular parameters
+fn add_to_ref(ref x: i32, amount: i32) {
+    x = x + amount;
+}
+
+let value = 100;
+print("Test 5: Mixed ref and regular parameters");
+print("Before: " + value);
+add_to_ref(value, 50);
+print("After: " + value);
+
+// Test 6: Ref with closure
+fn make_incrementer() {
+    let count = 0;
+    return fn(ref x: i32) {
+        x = x + 1;
+    };
+}
+
+let inc = make_incrementer();
+let closure_val = 5;
+print("Test 6: Ref with closure");
+print("Before: " + closure_val);
+inc(closure_val);
+print("After: " + closure_val);
+
+print("All ref parameter tests passed!");

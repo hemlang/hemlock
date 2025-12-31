@@ -173,7 +173,7 @@ Expr* expr_index_assign(Expr *object, Expr *index, Expr *value) {
     return expr;
 }
 
-Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body) {
+Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_FUNCTION;
     expr->line = 0;
@@ -182,6 +182,7 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     expr->as.function.param_names = param_names;
     expr->as.function.param_types = param_types;
     expr->as.function.param_defaults = param_defaults;
+    expr->as.function.param_is_ref = param_is_ref;
     expr->as.function.num_params = num_params;
     expr->as.function.rest_param = rest_param;
     expr->as.function.rest_param_type = rest_param_type;
@@ -910,6 +911,9 @@ void expr_free(Expr *expr) {
             free(expr->as.function.param_types);
             if (expr->as.function.param_defaults) {
                 free(expr->as.function.param_defaults);
+            }
+            if (expr->as.function.param_is_ref) {
+                free(expr->as.function.param_is_ref);
             }
             // Free return type
             if (expr->as.function.return_type) {

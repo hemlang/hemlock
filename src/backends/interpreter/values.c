@@ -499,6 +499,11 @@ void function_free(Function *fn) {
             free(fn->param_defaults);
         }
 
+        // Free param_is_ref array
+        if (fn->param_is_ref) {
+            free(fn->param_is_ref);
+        }
+
         // Free pre-computed param hashes
         if (fn->param_hashes) {
             free(fn->param_hashes);
@@ -1089,6 +1094,9 @@ void print_value(Value val) {
                    val.as.as_channel->count,
                    val.as.as_channel->closed ? " closed" : "");
             break;
+        case VAL_REF:
+            printf("<ref>");
+            break;
         case VAL_NULL:
             printf("null");
             break;
@@ -1259,6 +1267,8 @@ char* value_to_string(Value val) {
                    val.as.as_channel->count,
                    val.as.as_channel->closed ? " closed" : "");
             return strdup(buffer);
+        case VAL_REF:
+            return strdup("<ref>");
         case VAL_NULL:
             return strdup("null");
     }
@@ -1448,6 +1458,11 @@ static void value_free_internal(Value val, VisitedSet *visited) {
                 channel_free(val.as.as_channel);
             }
             break;
+        case VAL_REF:
+            if (val.as.as_ref) {
+                reference_free(val.as.as_ref);
+            }
+            break;
         case VAL_PTR:
             // Raw pointers are user-managed - do not free
             break;
@@ -1520,6 +1535,11 @@ void value_retain(Value val) {
                 channel_retain(val.as.as_channel);
             }
             break;
+        case VAL_REF:
+            if (val.as.as_ref) {
+                val.as.as_ref->ref_count++;
+            }
+            break;
         // Other types don't need reference counting
         default:
             break;
@@ -1562,6 +1582,11 @@ void value_release(Value val) {
         case VAL_CHANNEL:
             if (val.as.as_channel) {
                 channel_release(val.as.as_channel);
+            }
+            break;
+        case VAL_REF:
+            if (val.as.as_ref) {
+                reference_free(val.as.as_ref);
             }
             break;
         // Other types don't need reference counting
@@ -1723,7 +1748,130 @@ Value value_deep_copy(Value val) {
                 channel_retain(val.as.as_channel);
             }
             return val;
+
+        case VAL_REF:
+            // References point to locations - need special handling
+            // For now, don't allow refs to be deep copied across threads
+            return val_null();
     }
 
     return result;
+}
+
+// Reference operations (for pass-by-reference parameters)
+
+Reference* reference_new_variable(Environment *env, const char *name) {
+    Reference *ref = malloc(sizeof(Reference));
+    ref->ref_type = REF_VARIABLE;
+    ref->as.variable.env = env;
+    ref->as.variable.name = strdup(name);
+    ref->ref_count = 1;
+    env_retain(env);
+    return ref;
+}
+
+Reference* reference_new_array_index(Array *array, int index) {
+    Reference *ref = malloc(sizeof(Reference));
+    ref->ref_type = REF_ARRAY_INDEX;
+    ref->as.array_index.array = array;
+    ref->as.array_index.index = index;
+    ref->ref_count = 1;
+    array->ref_count++;
+    return ref;
+}
+
+Reference* reference_new_object_property(Object *object, const char *property) {
+    Reference *ref = malloc(sizeof(Reference));
+    ref->ref_type = REF_OBJECT_PROPERTY;
+    ref->as.object_property.object = object;
+    ref->as.object_property.property = strdup(property);
+    ref->ref_count = 1;
+    object->ref_count++;
+    return ref;
+}
+
+void reference_free(Reference *ref) {
+    if (!ref) return;
+    ref->ref_count--;
+    if (ref->ref_count > 0) return;
+
+    switch (ref->ref_type) {
+        case REF_VARIABLE:
+            env_release(ref->as.variable.env);
+            free(ref->as.variable.name);
+            break;
+        case REF_ARRAY_INDEX:
+            ref->as.array_index.array->ref_count--;
+            if (ref->as.array_index.array->ref_count == 0) {
+                array_free(ref->as.array_index.array);
+            }
+            break;
+        case REF_OBJECT_PROPERTY:
+            ref->as.object_property.object->ref_count--;
+            if (ref->as.object_property.object->ref_count == 0) {
+                object_free(ref->as.object_property.object);
+            }
+            free(ref->as.object_property.property);
+            break;
+    }
+    free(ref);
+}
+
+Value ref_deref(Reference *ref, ExecutionContext *ctx) {
+    switch (ref->ref_type) {
+        case REF_VARIABLE: {
+            Value val = env_get(ref->as.variable.env, ref->as.variable.name, ctx);
+            VALUE_RETAIN(val);
+            return val;
+        }
+        case REF_ARRAY_INDEX: {
+            Value val = array_get(ref->as.array_index.array, ref->as.array_index.index, ctx);
+            VALUE_RETAIN(val);
+            return val;
+        }
+        case REF_OBJECT_PROPERTY: {
+            Object *obj = ref->as.object_property.object;
+            int idx = object_lookup_field(obj, ref->as.object_property.property);
+            if (idx < 0) {
+                runtime_error(ctx, "Object has no property '%s'", ref->as.object_property.property);
+                return val_null();
+            }
+            Value val = obj->field_values[idx];
+            VALUE_RETAIN(val);
+            return val;
+        }
+    }
+    return val_null();
+}
+
+void ref_assign(Reference *ref, Value value, ExecutionContext *ctx) {
+    switch (ref->ref_type) {
+        case REF_VARIABLE:
+            env_set(ref->as.variable.env, ref->as.variable.name, value, ctx);
+            break;
+        case REF_ARRAY_INDEX:
+            array_set(ref->as.array_index.array, ref->as.array_index.index, value, ctx);
+            break;
+        case REF_OBJECT_PROPERTY: {
+            Object *obj = ref->as.object_property.object;
+            int idx = object_lookup_field(obj, ref->as.object_property.property);
+            if (idx >= 0) {
+                VALUE_RELEASE(obj->field_values[idx]);
+                VALUE_RETAIN(value);
+                obj->field_values[idx] = value;
+            } else {
+                // Property doesn't exist - this shouldn't happen for refs
+                // since we created the ref from an existing property
+                runtime_error(ctx, "Object property '%s' no longer exists", ref->as.object_property.property);
+            }
+            break;
+        }
+    }
+}
+
+Value val_ref(Reference *ref) {
+    Value v = {0};
+    v.type = VAL_REF;
+    v.as.as_ref = ref;
+    return v;
 }
