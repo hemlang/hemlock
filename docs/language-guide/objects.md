@@ -445,7 +445,7 @@ print(typeof(p));    // "Person"
 - **Heap-allocated** - All objects are allocated on the heap
 - **Shallow copy** - Assignment copies the reference, not the object
 - **Dynamic fields** - Stored as dynamic arrays of name/value pairs
-- **No automatic cleanup** - Objects must be manually freed
+- **Refcounted** - Objects are automatically freed when scope exits
 
 ### Reference Semantics
 
@@ -608,17 +608,21 @@ let f = obj.method;
 print(f());  // ERROR: self is not defined
 ```
 
-### Pitfall: Memory Leaks
+### Pitfall: Raw Pointers in Objects
 
 ```hemlock
-// Objects must be manually freed
+// Objects are auto-freed, but raw pointers inside are NOT
 fn create_objects() {
-    let obj = { data: alloc(1000) };
-    // obj never freed - memory leak
-    // Should call: free(obj);
+    let obj = { data: alloc(1000) };  // raw ptr needs manual free
+    // obj is auto-freed when scope exits, but obj.data leaks!
 }
 
-create_objects();  // Leaks memory
+// Solution: Free raw pointers before scope exits
+fn safe_create() {
+    let obj = { data: alloc(1000) };
+    // ... use obj.data ...
+    free(obj.data);  // Free the raw pointer explicitly
+}  // obj itself is auto-freed
 ```
 
 ### Pitfall: Type Confusion
@@ -743,13 +747,14 @@ emitter.emit("message", "Hello!");
 
 Current limitations:
 
-- **No reference counting** - Objects never freed automatically
 - **No deep copy** - Must manually copy nested objects
 - **No pass-by-value** - Objects always passed by reference
 - **No object spread** - No `{...obj}` syntax
 - **No computed properties** - No `{[key]: value}` syntax
 - **`self` is read-only** - Cannot reassign `self` in methods
 - **No property deletion** - Cannot remove fields once added
+
+**Note:** Objects are refcounted and automatically freed when scope exits. See [Memory Management](memory.md#internal-reference-counting) for details.
 
 ## Related Topics
 

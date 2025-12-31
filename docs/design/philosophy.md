@@ -197,9 +197,6 @@ Understanding what **not** to add is as important as knowing what to add.
 let x = 5
 let y = 10
 
-// BAD: Automatic memory management
-let s = "hello"  // String auto-freed at end of scope? NO!
-
 // BAD: Implicit type conversions that lose precision
 let x: i32 = 3.14  // Should truncate or error?
 ```
@@ -212,11 +209,13 @@ let x: i32 = 3.14  // Should truncate or error?
 
 ```hemlock
 // BAD: Magic behind-the-scenes optimization
-let arr = [1, 2, 3]  // Is this stack or heap? User should know!
+let arr = [1, 2, 3]  // Is this stack or heap? User should know! (Heap, refcounted)
 
-// BAD: Automatic reference counting
-let p = create_thing()  // Does this increment a refcount? NO!
+// BAD: Raw pointer auto-freed
+let p = alloc(100)  // Does this auto-free? NO! Raw ptrs always need free()
 ```
+
+**Note on refcounting:** Hemlock uses internal refcounting for strings, arrays, objects, and buffers - these ARE auto-freed when scope exits. This is explicit and predictable (deterministic cleanup when ref hits 0, no GC pauses). Raw pointers (`ptr` from `alloc()`) are NOT refcounted and always require manual `free()`.
 
 **Why:** Hidden complexity makes it impossible to predict performance and debug issues.
 

@@ -4,16 +4,16 @@ Hemlock embraces **manual memory management** with explicit control over allocat
 
 ## Philosophy
 
-Hemlock follows the principle: "You allocated it, you free it." There is:
-- No garbage collection
-- No automatic resource cleanup at the language level
-- Full responsibility on the programmer to call `free()`
+Hemlock follows the principle of explicit memory management with sensible defaults:
+- No garbage collection (no unpredictable pauses)
+- Internal refcounting for common types (string, array, object, buffer)
+- Raw pointers (`ptr`) require manual `free()`
 
-This explicit approach gives you complete control but requires careful management to avoid memory leaks and dangling pointers.
+This hybrid approach gives you complete control when needed (raw pointers) while preventing common bugs for typical use cases (refcounted types auto-freed on scope exit).
 
 ## Internal Reference Counting
 
-While Hemlock requires manual memory management, the runtime uses **internal reference counting** to track object lifetimes through scopes. This is an implementation detail, not automatic cleanup.
+The runtime uses **internal reference counting** to manage object lifetimes. For most local variables of refcounted types, cleanup is automatic and deterministic.
 
 ### What Reference Counting Handles
 
@@ -475,8 +475,10 @@ free(pool);
 
 Current limitations to be aware of:
 
-- **No automatic deallocation** - You must call `free()` explicitly
+- **Raw pointers require manual free** - `alloc()` returns `ptr` with no refcounting
 - **No custom allocators** - Only system malloc/free
+
+**Note:** Refcounted types (string, array, object, buffer) ARE automatically freed when scope exits. Only raw `ptr` from `alloc()` requires explicit `free()`.
 
 ## Related Topics
 

@@ -490,23 +490,22 @@ print(is_valid_email("invalid"));            // false
 
 ## Memory Management
 
-Strings are heap-allocated and follow these rules:
+Strings are heap-allocated with internal reference counting:
 
 - **Creation**: Allocated on heap with capacity tracking
 - **Concatenation**: Creates new string (old strings unchanged)
 - **Methods**: Most methods return new strings
-- **Lifetime**: Strings are not automatically freed - manual cleanup required
+- **Lifetime**: Strings are refcounted and automatically freed when scope exits
 
-**Memory leak example:**
+**Automatic cleanup:**
 ```hemlock
 fn create_strings() {
     let s = "hello";
     let s2 = s + " world";  // New allocation
-    // s2 never freed - memory leak
-}
+}  // Both s and s2 are automatically freed when function returns
 ```
 
-**Note:** Hemlock uses manual memory management. Strings that are no longer needed should be explicitly freed if memory is a concern.
+**Note:** Local string variables are automatically cleaned up when they go out of scope. Use `free()` only for early cleanup before scope ends or for long-lived/global data. See [Memory Management](memory.md#internal-reference-counting) for details.
 
 ## Best Practices
 
