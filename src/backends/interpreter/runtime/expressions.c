@@ -641,9 +641,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     result = val_null();  // Unreachable, but satisfies analyzer
                 } else {
                     TypeKind target_kind = func.as.as_type;
-                    // Create a temporary Type struct for convert_to_type
+                    // Create a temporary Type struct for parse_string_to_type
                     Type temp_type = { .kind = target_kind, .nullable = 0, .type_name = NULL, .element_type = NULL };
-                    result = convert_to_type(args[0], &temp_type, env, ctx);
+                    // Use parse_string_to_type which allows string parsing (unlike convert_to_type)
+                    result = parse_string_to_type(args[0], &temp_type, env, ctx);
                 }
                 // Type constructors don't retain args via env_set, so we must release them
                 should_release_args = 1;

@@ -498,16 +498,20 @@ let promoted = f64(100);     // i32 to f64 (100.0)
 let narrowed = i8(127);      // i32 to i8
 ```
 
-**Type annotations also perform conversion:**
+**Type annotations perform numeric coercion (but NOT string parsing):**
 ```hemlock
-let n: i32 = "42";       // String to i32 via annotation
-let f: f64 = 100;        // i32 to f64 via annotation
-let s: string = 'A';     // Rune to string via annotation
+let f: f64 = 100;        // i32 to f64 via annotation (OK)
+let s: string = 'A';     // Rune to string via annotation (OK)
+let code: i32 = 'A';     // Rune to i32 via annotation (gets codepoint, OK)
+
+// String parsing requires explicit type constructors:
+let n = i32("42");       // Use type constructor for string parsing
+// let x: i32 = "42";    // ERROR - type annotations don't parse strings
 ```
 
 **Error handling:**
 ```hemlock
-// Invalid strings throw errors
+// Invalid strings throw errors when using type constructors
 let bad = i32("hello");  // Runtime error: cannot parse "hello" as i32
 let overflow = u8("256"); // Runtime error: 256 out of range for u8
 ```

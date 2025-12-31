@@ -81,6 +81,9 @@ int hml_values_equal(HmlValue left, HmlValue right);
 // Type conversion with range checking (used for typed variable declarations)
 HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type);
 
+// Type conversion that allows string parsing (for type constructors like i32("42"))
+HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type);
+
 // Assertions
 void hml_assert(HmlValue condition, HmlValue message);
 __attribute__((noreturn)) void hml_panic(HmlValue message);

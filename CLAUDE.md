@@ -101,9 +101,9 @@ let z = byte("200");     // Same as u8("200")
 let big = i64(42);       // i32 to i64
 let truncated = i32(3.99); // f64 to i32 (truncates to 3)
 
-// Type annotations also perform conversion
-let n: i32 = "42";       // String to i32 via annotation
-let f: f64 = 100;        // i32 to f64 via annotation
+// Type annotations validate types (but don't parse strings)
+let f: f64 = 100;        // i32 to f64 via annotation (numeric coercion OK)
+// let n: i32 = "42";    // ERROR - use i32("42") for string parsing
 ```
 
 ### Memory

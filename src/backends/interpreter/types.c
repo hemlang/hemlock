@@ -436,6 +436,49 @@ Value promote_value(Value val, ValueType target_type) {
 
 // ========== TYPE CONVERSION ==========
 
+// Helper to check if a TypeKind is a numeric type
+static int is_numeric_type(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8:
+        case TYPE_I16:
+        case TYPE_I32:
+        case TYPE_I64:
+        case TYPE_U8:
+        case TYPE_U16:
+        case TYPE_U32:
+        case TYPE_U64:
+        case TYPE_F32:
+        case TYPE_F64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// Helper to convert TypeKind to string name
+static const char* type_kind_to_string(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8: return "i8";
+        case TYPE_I16: return "i16";
+        case TYPE_I32: return "i32";
+        case TYPE_I64: return "i64";
+        case TYPE_U8: return "u8";
+        case TYPE_U16: return "u16";
+        case TYPE_U32: return "u32";
+        case TYPE_U64: return "u64";
+        case TYPE_F32: return "f32";
+        case TYPE_F64: return "f64";
+        case TYPE_BOOL: return "bool";
+        case TYPE_STRING: return "string";
+        case TYPE_RUNE: return "rune";
+        case TYPE_PTR: return "ptr";
+        case TYPE_BUFFER: return "buffer";
+        case TYPE_ARRAY: return "array";
+        case TYPE_NULL: return "null";
+        default: return "unknown";
+    }
+}
+
 // Helper to convert a value to a target type
 Value convert_to_type(Value value, Type *target_type, Environment *env, ExecutionContext *ctx) {
     if (!target_type) {
@@ -545,62 +588,17 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     } else if (value.type == VAL_STRING && target_kind == TYPE_STRING) {
         return value;  // String to string, ok
     } else if (value.type == VAL_STRING && target_kind == TYPE_BOOL) {
-        // String to bool: check for "true" or "false"
-        String *str = value.as.as_string;
-        if (str && str->length == 4 &&
-            str->data[0] == 't' && str->data[1] == 'r' &&
-            str->data[2] == 'u' && str->data[3] == 'e') {
-            return val_bool(1);
-        } else if (str && str->length == 5 &&
-            str->data[0] == 'f' && str->data[1] == 'a' &&
-            str->data[2] == 'l' && str->data[3] == 's' && str->data[4] == 'e') {
-            return val_bool(0);
-        }
-        fprintf(stderr, "Runtime error: Cannot parse string as bool (expected 'true' or 'false')\n");
+        // String to bool via type annotation is not allowed
+        // Use explicit conversion: bool("true") or bool("false")
+        fprintf(stderr, "Runtime error: Cannot convert string to bool via type annotation. Use bool(\"...\") instead.\n");
         exit(1);
-    } else if (value.type == VAL_STRING) {
-        // String to numeric conversion - parse the string
-        String *str = value.as.as_string;
-        if (str && str->length > 0) {
-            // Create null-terminated copy for parsing
-            char *cstr = malloc(str->length + 1);
-            memcpy(cstr, str->data, str->length);
-            cstr[str->length] = '\0';
-
-            // Try to parse as number
-            char *endptr;
-            errno = 0;
-
-            // Check for float (contains '.' or 'e'/'E')
-            int has_decimal = 0;
-            for (int i = 0; i < str->length; i++) {
-                if (cstr[i] == '.' || cstr[i] == 'e' || cstr[i] == 'E') {
-                    has_decimal = 1;
-                    break;
-                }
-            }
-
-            if (has_decimal) {
-                float_val = strtod(cstr, &endptr);
-                if (endptr == cstr || *endptr != '\0') {
-                    fprintf(stderr, "Runtime error: Cannot parse '%s' as number\n", cstr);
-                    free(cstr);
-                    exit(1);
-                }
-                is_source_float = 1;
-            } else {
-                int_val = strtoll(cstr, &endptr, 0);  // base 0 supports hex, octal
-                if (endptr == cstr || *endptr != '\0') {
-                    fprintf(stderr, "Runtime error: Cannot parse '%s' as integer\n", cstr);
-                    free(cstr);
-                    exit(1);
-                }
-            }
-            free(cstr);
-        } else {
-            fprintf(stderr, "Runtime error: Cannot convert empty string to number\n");
-            exit(1);
-        }
+    } else if (value.type == VAL_STRING && is_numeric_type(target_kind)) {
+        // String to numeric via type annotation is not allowed
+        // Use explicit conversion: i32("42"), f64("3.14"), etc.
+        const char *type_name = type_kind_to_string(target_kind);
+        fprintf(stderr, "Runtime error: Cannot convert string to %s via type annotation. Use %s(\"...\") instead.\n",
+                type_name, type_name);
+        exit(1);
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
     } else if (value.type == VAL_NULL && target_kind == TYPE_NULL) {
@@ -811,4 +809,161 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     fprintf(stderr, "Runtime error: Unknown type conversion\n");
     exit(1);
+}
+
+// Parse a value to a target type (for type constructors like i32("42"))
+// This function ALLOWS string parsing, unlike convert_to_type
+Value parse_string_to_type(Value value, Type *target_type, Environment *env, ExecutionContext *ctx) {
+    if (!target_type) {
+        return value;
+    }
+
+    TypeKind target_kind = target_type->kind;
+
+    // Handle string parsing for type constructors
+    if (value.type == VAL_STRING && target_kind == TYPE_BOOL) {
+        // String to bool: check for "true" or "false"
+        String *str = value.as.as_string;
+        if (str && str->length == 4 &&
+            str->data[0] == 't' && str->data[1] == 'r' &&
+            str->data[2] == 'u' && str->data[3] == 'e') {
+            return val_bool(1);
+        } else if (str && str->length == 5 &&
+            str->data[0] == 'f' && str->data[1] == 'a' &&
+            str->data[2] == 'l' && str->data[3] == 's' && str->data[4] == 'e') {
+            return val_bool(0);
+        }
+        fprintf(stderr, "Runtime error: Cannot parse string as bool (expected 'true' or 'false')\n");
+        exit(1);
+    } else if (value.type == VAL_STRING && is_numeric_type(target_kind)) {
+        // String to numeric conversion - parse the string
+        String *str = value.as.as_string;
+        int64_t int_val = 0;
+        double float_val = 0.0;
+        int is_float = 0;
+
+        if (str && str->length > 0) {
+            // Create null-terminated copy for parsing
+            char *cstr = malloc(str->length + 1);
+            memcpy(cstr, str->data, str->length);
+            cstr[str->length] = '\0';
+
+            // Try to parse as number
+            char *endptr;
+            errno = 0;
+
+            // Check for float (contains '.' or 'e'/'E')
+            int has_decimal = 0;
+            for (int i = 0; i < str->length; i++) {
+                if (cstr[i] == '.' || cstr[i] == 'e' || cstr[i] == 'E') {
+                    has_decimal = 1;
+                    break;
+                }
+            }
+
+            if (has_decimal) {
+                float_val = strtod(cstr, &endptr);
+                if (endptr == cstr || *endptr != '\0') {
+                    fprintf(stderr, "Runtime error: Cannot parse '%s' as number\n", cstr);
+                    free(cstr);
+                    exit(1);
+                }
+                is_float = 1;
+            } else {
+                int_val = strtoll(cstr, &endptr, 0);  // base 0 supports hex, octal
+                if (endptr == cstr || *endptr != '\0') {
+                    fprintf(stderr, "Runtime error: Cannot parse '%s' as integer\n", cstr);
+                    free(cstr);
+                    exit(1);
+                }
+            }
+            free(cstr);
+        } else {
+            fprintf(stderr, "Runtime error: Cannot convert empty string to number\n");
+            exit(1);
+        }
+
+        // Now convert to target type with range checking
+        switch (target_kind) {
+            case TYPE_I8:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < -128 || int_val > 127) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i8 [-128, 127]\n", int_val);
+                    exit(1);
+                }
+                return val_i8((int8_t)int_val);
+
+            case TYPE_I16:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < -32768 || int_val > 32767) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i16 [-32768, 32767]\n", int_val);
+                    exit(1);
+                }
+                return val_i16((int16_t)int_val);
+
+            case TYPE_I32:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < -2147483648LL || int_val > 2147483647LL) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i32\n", int_val);
+                    exit(1);
+                }
+                return val_i32((int32_t)int_val);
+
+            case TYPE_I64:
+                if (is_float) int_val = (int64_t)float_val;
+                return val_i64(int_val);
+
+            case TYPE_U8:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < 0 || int_val > 255) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, 255]\n", int_val);
+                    exit(1);
+                }
+                return val_u8((uint8_t)int_val);
+
+            case TYPE_U16:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < 0 || int_val > 65535) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, 65535]\n", int_val);
+                    exit(1);
+                }
+                return val_u16((uint16_t)int_val);
+
+            case TYPE_U32:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < 0 || int_val > 4294967295LL) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u32\n", int_val);
+                    exit(1);
+                }
+                return val_u32((uint32_t)int_val);
+
+            case TYPE_U64:
+                if (is_float) int_val = (int64_t)float_val;
+                if (int_val < 0) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u64\n", int_val);
+                    exit(1);
+                }
+                return val_u64((uint64_t)int_val);
+
+            case TYPE_F32:
+                if (is_float) {
+                    return val_f32((float)float_val);
+                } else {
+                    return val_f32((float)int_val);
+                }
+
+            case TYPE_F64:
+                if (is_float) {
+                    return val_f64(float_val);
+                } else {
+                    return val_f64((double)int_val);
+                }
+
+            default:
+                break;
+        }
+    }
+
+    // For non-string values, fall back to regular convert_to_type
+    return convert_to_type(value, target_type, env, ctx);
 }

@@ -1,40 +1,41 @@
-// Test string to/from other types using type annotations
+// Test string conversions using type constructors (explicit parsing)
+// Type annotations no longer parse strings - use i32("42") instead of let x: i32 = "42"
 
-// ============ STRING TO NUMBER ============
+// ============ STRING TO NUMBER (via type constructors) ============
 print("=== String to Number ===");
 
 // String to i32
 let s1 = "42";
-let n1: i32 = s1;
+let n1 = i32(s1);
 print(n1);
 print(typeof(n1));
 
 // String to i64
 let s2 = "9876543210";
-let n2: i64 = s2;
+let n2 = i64(s2);
 print(n2);
 
 // String to f64
 let s3 = "3.14159";
-let f1: f64 = s3;
+let f1 = f64(s3);
 print(f1);
 
 // Hex string
 let s4 = "0xFF";
-let n3: i32 = s4;
+let n3 = i32(s4);
 print(n3);
 
 // Negative string
 let s5 = "-42";
-let n4: i32 = s5;
+let n4 = i32(s5);
 print(n4);
 
 // Scientific notation
 let s6 = "1.5e10";
-let f2: f64 = s6;
+let f2 = f64(s6);
 print(f2);
 
-// ============ NUMBER TO STRING ============
+// ============ NUMBER TO STRING (via type annotation) ============
 print("=== Number to String ===");
 
 let num1 = 12345;
@@ -54,7 +55,7 @@ let flt1 = 2.718281828;
 let str4: string = flt1;
 print(str4);
 
-// ============ BOOL TO STRING ============
+// ============ BOOL TO STRING (via type annotation) ============
 print("=== Bool to String ===");
 
 let b1 = true;
@@ -65,18 +66,18 @@ let b2 = false;
 let bstr2: string = b2;
 print(bstr2);
 
-// ============ STRING TO BOOL ============
+// ============ STRING TO BOOL (via type constructor) ============
 print("=== String to Bool ===");
 
 let strue = "true";
-let btrue: bool = strue;
+let btrue = bool(strue);
 print(btrue);
 
 let sfalse = "false";
-let bfalse: bool = sfalse;
+let bfalse = bool(sfalse);
 print(bfalse);
 
-// ============ NUMBER TO BOOL ============
+// ============ NUMBER TO BOOL (via type annotation) ============
 print("=== Number to Bool ===");
 
 let zero = 0;

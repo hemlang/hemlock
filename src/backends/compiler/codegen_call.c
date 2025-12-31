@@ -76,7 +76,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
             if (target_type != (HmlValueType)-1) {
                 char *arg = codegen_expr(ctx, expr->as.call.args[0]);
-                codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %d);", result, arg, target_type);
+                // Use hml_parse_string_to_type which allows string parsing (for type constructors)
+                codegen_writeln(ctx, "HmlValue %s = hml_parse_string_to_type(%s, %d);", result, arg, target_type);
                 codegen_writeln(ctx, "hml_release(&%s);", arg);
                 free(arg);
                 return result;

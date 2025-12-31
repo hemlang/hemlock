@@ -241,6 +241,7 @@ int type_rank(ValueType type);
 ValueType promote_types(ValueType left, ValueType right);
 Value promote_value(Value val, ValueType target_type);
 Value convert_to_type(Value value, Type *target_type, Environment *env, ExecutionContext *ctx);
+Value parse_string_to_type(Value value, Type *target_type, Environment *env, ExecutionContext *ctx);
 
 // Object type registry
 void init_object_types(void);

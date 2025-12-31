@@ -1,4 +1,5 @@
-// Test that invalid string to bool conversion fails
-let s = "yes";
-let b: bool = s;  // Should error - only "true" or "false" work
+// Test that string to bool conversion via type annotation fails
+// This should error because type annotations don't parse strings
+let s = "true";
+let b: bool = s;  // Should error - use bool("true") instead
 print(b);
