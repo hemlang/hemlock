@@ -60,7 +60,7 @@ Other:    bool, string, rune, array, ptr, buffer, null, object, file, task, chan
 Aliases:  integer (i32), number (f64), byte (u8)
 ```
 
-**Type promotion:** i8 → i16 → i32 → i64 → f32 → f64 (floats always win)
+**Type promotion:** i8 → i16 → i32 → i64 → f32 → f64 (floats always win, but i64/u64 + f32 → f64 to preserve precision)
 
 ### Literals
 ```hemlock

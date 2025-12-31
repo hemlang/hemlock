@@ -414,12 +414,21 @@ let b: i64 = 200;
 let sum = a + b;     // sum is i64 (300)
 ```
 
+**Precision preservation:** When mixing 64-bit integers with f32, Hemlock promotes
+to f64 to avoid precision loss (f32 has only 24-bit mantissa, insufficient for i64/u64):
+```hemlock
+let big: i64 = 9007199254740993;
+let small: f32 = 1.0;
+let result = big + small;  // result is f64, not f32!
+```
+
 **Examples:**
 ```hemlock
 u8 + i32  → i32
 i32 + i64 → i64
 u32 + u64 → u64
-i32 + f32 → f32
+i32 + f32 → f32    // f32 sufficient for i32
+i64 + f32 → f64    // f64 needed to preserve i64 precision
 i64 + f64 → f64
 i8 + f64  → f64
 ```

@@ -217,7 +217,7 @@ The interpreter is split into focused modules for maintainability and scalabilit
 - `type_name()` - Get printable type name
 
 **Features:**
-- Type promotion hierarchy (i8 → i16 → i32 → i64 → f32 → f64)
+- Type promotion hierarchy (i8 → i16 → i32 → i64 → f32 → f64, with i64/u64 + f32 → f64)
 - Range checking for numeric types
 - Duck typing for object type definitions
 - Optional field defaults
@@ -450,14 +450,20 @@ let z: i32 = x + y;   // Runtime check + type promotion
 
 ### Type Promotion Implementation
 
-Type promotion follows a fixed hierarchy:
+Type promotion follows a fixed hierarchy with precision preservation:
 
 ```c
 // Simplified promotion logic
 ValueType promote_types(ValueType a, ValueType b) {
-    // Floats always win
+    // f64 always wins
     if (a == TYPE_F64 || b == TYPE_F64) return TYPE_F64;
-    if (a == TYPE_F32 || b == TYPE_F32) return TYPE_F32;
+
+    // f32 with i64/u64 promotes to f64 (precision preservation)
+    if (a == TYPE_F32 || b == TYPE_F32) {
+        ValueType other = (a == TYPE_F32) ? b : a;
+        if (other == TYPE_I64 || other == TYPE_U64) return TYPE_F64;
+        return TYPE_F32;
+    }
 
     // Larger integer types win
     int rank_a = get_type_rank(a);
