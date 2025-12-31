@@ -505,21 +505,19 @@ arr.contains(obj);  // true
 arr.contains({ x: 10 });  // false (different object)
 ```
 
-### Pitfall: Memory Leaks
+### Pitfall: Long-lived Arrays
 
 ```hemlock
-// Arrays must be manually freed
-fn create_large_array() {
-    let arr = [];
-    let i = 0;
-    while (i < 1000000) {
-        arr.push(i);
-        i = i + 1;
-    }
-    // Should call: free(arr);
+// Arrays in local scope are auto-freed, but global/long-lived arrays need attention
+let global_cache = [];  // Module-level, persists until program exit
+
+fn add_to_cache(item) {
+    global_cache.push(item);  // Grows indefinitely
 }
 
-create_large_array();  // Leaks memory without free()
+// For long-lived data, consider:
+// - Clearing the array periodically: global_cache.clear();
+// - Freeing early when done: free(global_cache);
 ```
 
 ## Examples
@@ -658,11 +656,12 @@ print(numbers);  // [1, 2, 5, 8, 9]
 
 Current limitations:
 
-- **No reference counting** - Arrays never freed automatically
 - **No bounds checking on indexing** - Direct access is unchecked
 - **Reference equality for objects** - `find()` and `contains()` use reference comparison
 - **No array destructuring** - No `let [a, b] = arr` syntax
 - **No spread operator** - No `[...arr1, ...arr2]` syntax
+
+**Note:** Arrays are refcounted and automatically freed when scope exits. See [Memory Management](memory.md#internal-reference-counting) for details.
 
 ## Related Topics
 

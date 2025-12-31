@@ -554,19 +554,19 @@ Buffer *create_buffer(size_t size) {
 - UTF-8 byte array on heap
 - Null-terminated for C interop
 - Mutable (can modify in place)
-- No refcounting (manual free required)
+- Refcounted (auto-freed when scope exits)
 
 **Objects:**
 - Dynamic field array
 - Field names and values on heap
-- No automatic cleanup
-- Circular references possible (user must avoid)
+- Refcounted (auto-freed when scope exits)
+- Circular references possible (handled with visited-set tracking)
 
 **Arrays:**
 - Dynamic capacity doubling growth
 - Elements are embedded Value structs
 - Automatic reallocation on growth
-- Manual free required
+- Refcounted (auto-freed when scope exits)
 
 **Closures:**
 - Captures environment by reference
