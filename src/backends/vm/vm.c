@@ -175,6 +175,7 @@ static Value vm_builtin_divi(Value *args, int argc, void *ctx) {
 // Forward declarations for functions defined later
 static Value vm_make_string(const char *data, int len);
 static Value val_bool_vm(int b);
+static Value val_i32_vm(int32_t i);
 
 // Type constructor builtins (parse strings or convert types)
 static Value vm_builtin_type_i8(Value *args, int argc, void *ctx) {
@@ -399,6 +400,107 @@ static Value vm_builtin_arch(Value *args, int argc, void *ctx) {
 #else
     return vm_make_string("unknown", 7);
 #endif
+}
+
+// OS info builtins
+#include <sys/utsname.h>
+#include <unistd.h>
+#include <pwd.h>
+
+static Value vm_builtin_os_name(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    struct utsname info;
+    if (uname(&info) == 0) {
+        return vm_make_string(info.sysname, strlen(info.sysname));
+    }
+    return vm_make_string("unknown", 7);
+}
+
+static Value vm_builtin_os_version(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    struct utsname info;
+    if (uname(&info) == 0) {
+        return vm_make_string(info.release, strlen(info.release));
+    }
+    return vm_make_string("unknown", 7);
+}
+
+static Value vm_builtin_hostname(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        return vm_make_string(hostname, strlen(hostname));
+    }
+    return vm_make_string("unknown", 7);
+}
+
+static Value vm_builtin_username(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    struct passwd *pw = getpwuid(getuid());
+    if (pw && pw->pw_name) {
+        return vm_make_string(pw->pw_name, strlen(pw->pw_name));
+    }
+    return vm_make_string("unknown", 7);
+}
+
+static Value vm_builtin_cpu_count(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    long count = sysconf(_SC_NPROCESSORS_ONLN);
+    if (count < 1) count = 1;
+    return val_i32_vm((int32_t)count);
+}
+
+static Value vm_builtin_total_memory(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (pages > 0 && page_size > 0) {
+        return stdlib_val_i64((int64_t)pages * page_size);
+    }
+    return stdlib_val_i64(0);
+}
+
+static Value vm_builtin_free_memory(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    long pages = sysconf(_SC_AVPHYS_PAGES);
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (pages > 0 && page_size > 0) {
+        return stdlib_val_i64((int64_t)pages * page_size);
+    }
+    return stdlib_val_i64(0);
+}
+
+static Value vm_builtin_homedir(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    const char *home = getenv("HOME");
+    if (home) {
+        return vm_make_string(home, strlen(home));
+    }
+    struct passwd *pw = getpwuid(getuid());
+    if (pw && pw->pw_dir) {
+        return vm_make_string(pw->pw_dir, strlen(pw->pw_dir));
+    }
+    return vm_make_string("/", 1);
+}
+
+static Value vm_builtin_tmpdir(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp) tmp = getenv("TMP");
+    if (!tmp) tmp = getenv("TEMP");
+    if (!tmp) tmp = "/tmp";
+    return vm_make_string(tmp, strlen(tmp));
+}
+
+#include <sys/sysinfo.h>
+
+static Value vm_builtin_uptime(Value *args, int argc, void *ctx) {
+    (void)args; (void)argc; (void)ctx;
+    struct sysinfo info;
+    if (sysinfo(&info) == 0) {
+        return stdlib_val_i64((int64_t)info.uptime);
+    }
+    return stdlib_val_i64(0);
 }
 
 // File system builtins
@@ -1659,6 +1761,18 @@ static void vm_init_stdlib(VM *vm) {
     // Platform builtins
     vm_define_global(vm, "__platform", vm_val_builtin_fn((BuiltinFn)vm_builtin_platform), true);
     vm_define_global(vm, "__arch", vm_val_builtin_fn((BuiltinFn)vm_builtin_arch), true);
+
+    // OS info builtins
+    vm_define_global(vm, "__os_name", vm_val_builtin_fn((BuiltinFn)vm_builtin_os_name), true);
+    vm_define_global(vm, "__os_version", vm_val_builtin_fn((BuiltinFn)vm_builtin_os_version), true);
+    vm_define_global(vm, "__hostname", vm_val_builtin_fn((BuiltinFn)vm_builtin_hostname), true);
+    vm_define_global(vm, "__username", vm_val_builtin_fn((BuiltinFn)vm_builtin_username), true);
+    vm_define_global(vm, "__cpu_count", vm_val_builtin_fn((BuiltinFn)vm_builtin_cpu_count), true);
+    vm_define_global(vm, "__total_memory", vm_val_builtin_fn((BuiltinFn)vm_builtin_total_memory), true);
+    vm_define_global(vm, "__free_memory", vm_val_builtin_fn((BuiltinFn)vm_builtin_free_memory), true);
+    vm_define_global(vm, "__homedir", vm_val_builtin_fn((BuiltinFn)vm_builtin_homedir), true);
+    vm_define_global(vm, "__tmpdir", vm_val_builtin_fn((BuiltinFn)vm_builtin_tmpdir), true);
+    vm_define_global(vm, "__uptime", vm_val_builtin_fn((BuiltinFn)vm_builtin_uptime), true);
 
     // File system builtins
     vm_define_global(vm, "__exists", vm_val_builtin_fn((BuiltinFn)vm_builtin_exists), true);

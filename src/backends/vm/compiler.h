@@ -23,6 +23,11 @@ typedef struct Compiler {
     // Error state
     bool had_error;
     bool panic_mode;
+
+    // Tracking defined globals (to allow shadowing builtins)
+    char **defined_globals;
+    int num_defined_globals;
+    int defined_globals_capacity;
 } Compiler;
 
 // Compile a program (list of statements) to bytecode

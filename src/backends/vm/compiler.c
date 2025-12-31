@@ -45,7 +45,61 @@ static Compiler* compiler_new(Compiler *enclosing) {
     compiler->current_line = 1;
     compiler->had_error = false;
     compiler->panic_mode = false;
+    // Inherit defined globals from enclosing compiler, or start fresh at root
+    if (enclosing) {
+        // Nested function: share parent's globals tracking
+        compiler->defined_globals = enclosing->defined_globals;
+        compiler->num_defined_globals = enclosing->num_defined_globals;
+        compiler->defined_globals_capacity = enclosing->defined_globals_capacity;
+    } else {
+        // Root compiler: initialize fresh
+        compiler->defined_globals = NULL;
+        compiler->num_defined_globals = 0;
+        compiler->defined_globals_capacity = 0;
+    }
     return compiler;
+}
+
+// Track a defined global name
+static void compiler_add_defined_global(Compiler *compiler, const char *name) {
+    // Find root compiler
+    Compiler *root = compiler;
+    while (root->enclosing) {
+        root = root->enclosing;
+    }
+
+    // Check if already defined
+    for (int i = 0; i < root->num_defined_globals; i++) {
+        if (strcmp(root->defined_globals[i], name) == 0) {
+            return;  // Already tracked
+        }
+    }
+
+    // Expand capacity if needed
+    if (root->num_defined_globals >= root->defined_globals_capacity) {
+        int new_capacity = root->defined_globals_capacity == 0 ? 16 : root->defined_globals_capacity * 2;
+        root->defined_globals = realloc(root->defined_globals, sizeof(char*) * new_capacity);
+        root->defined_globals_capacity = new_capacity;
+    }
+
+    // Add the name
+    root->defined_globals[root->num_defined_globals++] = strdup(name);
+}
+
+// Check if a name is a defined global
+static bool compiler_is_defined_global(Compiler *compiler, const char *name) {
+    // Find root compiler
+    Compiler *root = compiler;
+    while (root->enclosing) {
+        root = root->enclosing;
+    }
+
+    for (int i = 0; i < root->num_defined_globals; i++) {
+        if (strcmp(root->defined_globals[i], name) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void compiler_free(Compiler *compiler) {
@@ -53,6 +107,13 @@ static void compiler_free(Compiler *compiler) {
         chunk_builder_free(compiler->builder);
     }
     free(compiler->function_name);
+    // Only free defined_globals at root level
+    if (!compiler->enclosing && compiler->defined_globals) {
+        for (int i = 0; i < compiler->num_defined_globals; i++) {
+            free(compiler->defined_globals[i]);
+        }
+        free(compiler->defined_globals);
+    }
     free(compiler);
 }
 
@@ -366,30 +427,38 @@ static void compile_call(Compiler *compiler, Expr *expr) {
     Expr *func = expr->as.call.func;
     int argc = expr->as.call.num_args;
 
-    // Check for builtin calls
+    // Check for builtin calls - but only if there's no local/upvalue/global shadowing it
     if (func->type == EXPR_IDENT) {
         const char *name = func->as.ident.name;
 
-        // Check if it's a builtin
-        BuiltinId builtin = builtin_lookup(name);
-        if (builtin != (BuiltinId)-1) {
-            // Compile arguments
-            for (int i = 0; i < argc; i++) {
-                compile_expression(compiler, expr->as.call.args[i]);
-            }
+        // First check if it's a local or upvalue (which would shadow a builtin)
+        int local = builder_resolve_local(compiler->builder, name);
+        int upvalue = (local == -1) ? builder_resolve_upvalue(compiler->builder, name) : -1;
+        bool is_defined_global = compiler_is_defined_global(compiler, name);
 
-            // Special case for print (it has its own opcode)
-            if (builtin == BUILTIN_PRINT) {
-                emit_byte(compiler, BC_PRINT);
+        // Only treat as builtin if there's no local/upvalue/global with this name
+        if (local == -1 && upvalue == -1 && !is_defined_global) {
+            // Check if it's a builtin
+            BuiltinId builtin = builtin_lookup(name);
+            if (builtin != (BuiltinId)-1) {
+                // Compile arguments
+                for (int i = 0; i < argc; i++) {
+                    compile_expression(compiler, expr->as.call.args[i]);
+                }
+
+                // Special case for print (it has its own opcode)
+                if (builtin == BUILTIN_PRINT) {
+                    emit_byte(compiler, BC_PRINT);
+                    emit_byte(compiler, (uint8_t)argc);
+                    return;
+                }
+
+                // General builtin call
+                emit_byte(compiler, BC_CALL_BUILTIN);
+                emit_short(compiler, (uint16_t)builtin);
                 emit_byte(compiler, (uint8_t)argc);
                 return;
             }
-
-            // General builtin call
-            emit_byte(compiler, BC_CALL_BUILTIN);
-            emit_short(compiler, (uint16_t)builtin);
-            emit_byte(compiler, (uint8_t)argc);
-            return;
         }
     }
 
@@ -980,6 +1049,8 @@ static void compile_let(Compiler *compiler, Stmt *stmt, bool is_const) {
         int idx = chunk_add_identifier(compiler->builder->chunk, name);
         emit_byte(compiler, BC_DEFINE_GLOBAL);
         emit_short(compiler, idx);
+        // Track this global so it can shadow builtins
+        compiler_add_defined_global(compiler, name);
     }
 }
 
@@ -1487,6 +1558,8 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
             int name_idx = chunk_add_identifier(compiler->builder->chunk, stmt->as.enum_decl.name);
             emit_byte(compiler, BC_DEFINE_GLOBAL);
             emit_short(compiler, name_idx);
+            // Track this global so it can shadow builtins
+            compiler_add_defined_global(compiler, stmt->as.enum_decl.name);
             break;
         }
         default:
