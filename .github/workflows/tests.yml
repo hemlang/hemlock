@@ -62,6 +62,24 @@ jobs:
     - name: Run parity tests
       run: make parity
 
+  # Bytecode VM parity tests
+  vm-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make
+
+    - name: Build bytecode VM
+      run: make vm
+
+    - name: Run VM parity tests
+      run: make test-vm
+
   # Compile check - verify interpreter tests compile with hemlockc
   compile-check:
     runs-on: ubuntu-latest
