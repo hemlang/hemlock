@@ -16,6 +16,7 @@
 #include "../../include/ast.h"
 #include "../../include/version.h"
 #include "codegen.h"
+#include "type_check.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -118,6 +119,7 @@ typedef struct {
     int optimize;                // Optimization level (0, 1, 2, 3)
     const char *cc;              // C compiler to use
     const char *runtime_path;    // Path to runtime library
+    int type_check;              // Enable compile-time type checking
 } Options;
 
 static void print_usage(const char *progname) {
@@ -131,6 +133,7 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  -O<level>     Optimization level (0-3, default: 0)\n");
     fprintf(stderr, "  --cc <path>   C compiler to use (default: gcc)\n");
     fprintf(stderr, "  --runtime <p> Path to runtime library\n");
+    fprintf(stderr, "  --type-check  Enable compile-time type checking\n");
     fprintf(stderr, "  -v, --verbose Verbose output\n");
     fprintf(stderr, "  -h, --help    Show this help message\n");
     fprintf(stderr, "  --version     Show version\n");
@@ -146,7 +149,8 @@ static Options parse_args(int argc, char **argv) {
         .keep_c = 0,
         .optimize = 0,
         .cc = "gcc",
-        .runtime_path = NULL
+        .runtime_path = NULL,
+        .type_check = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -174,6 +178,8 @@ static Options parse_args(int argc, char **argv) {
             opts.runtime_path = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
             opts.verbose = 1;
+        } else if (strcmp(argv[i], "--type-check") == 0) {
+            opts.type_check = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -425,6 +431,33 @@ int main(int argc, char **argv) {
 
     if (opts.verbose) {
         printf("Parsed %d statements\n", stmt_count);
+    }
+
+    // Type check (if enabled)
+    if (opts.type_check) {
+        if (opts.verbose) {
+            printf("Type checking...\n");
+        }
+
+        TypeCheckContext *type_ctx = type_check_new(opts.input_file);
+        int type_errors = type_check_program(type_ctx, statements, stmt_count);
+
+        if (type_errors > 0) {
+            fprintf(stderr, "%d type error%s found\n",
+                    type_errors, type_errors > 1 ? "s" : "");
+            type_check_free(type_ctx);
+            for (int i = 0; i < stmt_count; i++) {
+                stmt_free(statements[i]);
+            }
+            free(statements);
+            free(source);
+            return 1;
+        }
+
+        if (opts.verbose) {
+            printf("Type checking passed\n");
+        }
+        type_check_free(type_ctx);
     }
 
     // Determine C output file

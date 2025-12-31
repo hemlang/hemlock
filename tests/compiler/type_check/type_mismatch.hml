@@ -1,0 +1,2 @@
+// Type mismatch test - should fail type checking
+let x: i32 = "hello";

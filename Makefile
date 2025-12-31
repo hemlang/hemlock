@@ -241,6 +241,7 @@ COMPILER_OBJS = $(BUILD_DIR)/backends/compiler/main.o \
                 $(BUILD_DIR)/backends/compiler/codegen_program.o \
                 $(BUILD_DIR)/backends/compiler/codegen_module.o \
                 $(BUILD_DIR)/backends/compiler/type_infer.o \
+                $(BUILD_DIR)/backends/compiler/type_check.o \
                 $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(FRONTEND_COMPILER_SRCS))
 
 COMPILER_TARGET = hemlockc
