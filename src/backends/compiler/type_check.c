@@ -563,36 +563,10 @@ int type_is_assignable(CheckedType *to, CheckedType *from) {
         if (type_equals(&temp, from)) return 1;
     }
 
-    // Numeric promotions
+    // Numeric conversions - Hemlock allows all numeric conversions at compile time
+    // and validates ranges at runtime. This is consistent with Hemlock's dynamic nature.
     if (type_is_numeric(to) && type_is_numeric(from)) {
-        // NUMERIC accepts any numeric
-        if (to->kind == CHECKED_NUMERIC) return 1;
-        // INTEGER accepts any integer
-        if (to->kind == CHECKED_INTEGER && type_is_integer(from)) return 1;
-
-        // Allow widening conversions
-        // i8 -> i16 -> i32 -> i64
-        // u8 -> u16 -> u32 -> u64
-        // integer -> float
-        if (type_is_float(to) && type_is_integer(from)) return 1;
-
-        // Same signedness widening
-        if (to->kind == CHECKED_I64 &&
-            (from->kind == CHECKED_I8 || from->kind == CHECKED_I16 ||
-             from->kind == CHECKED_I32)) return 1;
-        if (to->kind == CHECKED_I32 &&
-            (from->kind == CHECKED_I8 || from->kind == CHECKED_I16)) return 1;
-        if (to->kind == CHECKED_I16 && from->kind == CHECKED_I8) return 1;
-
-        if (to->kind == CHECKED_U64 &&
-            (from->kind == CHECKED_U8 || from->kind == CHECKED_U16 ||
-             from->kind == CHECKED_U32)) return 1;
-        if (to->kind == CHECKED_U32 &&
-            (from->kind == CHECKED_U8 || from->kind == CHECKED_U16)) return 1;
-        if (to->kind == CHECKED_U16 && from->kind == CHECKED_U8) return 1;
-
-        // f64 accepts f32
-        if (to->kind == CHECKED_F64 && from->kind == CHECKED_F32) return 1;
+        return 1;  // All numeric conversions allowed, runtime validates range
     }
 
     // Array compatibility
