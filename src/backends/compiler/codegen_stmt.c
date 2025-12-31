@@ -41,6 +41,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
+            // If we reach here, we're generating standard boxed code
+            // Clear any unboxable mark to avoid mismatch with codegen_expr_ident
+            if (ctx->type_ctx) {
+                type_check_clear_unboxable(ctx->type_ctx, stmt->as.let.name);
+            }
+
             // Standard boxed variable handling
             if (stmt->as.let.value) {
                 char *value = codegen_expr(ctx, stmt->as.let.value);
@@ -332,6 +338,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 free(safe_name);
             } else {
                 // STANDARD: Generate loop with boxed HmlValue counter
+                // Clear any unboxable mark since we're NOT unboxing this counter
+                if (ctx->type_ctx && counter_name) {
+                    type_check_clear_unboxable(ctx->type_ctx, counter_name);
+                }
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
                 // Initializer

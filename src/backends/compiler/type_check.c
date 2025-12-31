@@ -1995,6 +1995,22 @@ CheckedTypeKind type_check_get_unboxable(TypeCheckContext *ctx, const char *name
     return CHECKED_UNKNOWN;
 }
 
+void type_check_clear_unboxable(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return;
+
+    UnboxableVar **prev = &ctx->unboxable_vars;
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            // Remove from list
+            *prev = u->next;
+            free(u->name);
+            free(u);
+            return;
+        }
+        prev = &u->next;
+    }
+}
+
 int type_check_is_loop_counter(TypeCheckContext *ctx, const char *name) {
     if (!ctx) return 0;
 

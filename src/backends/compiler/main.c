@@ -548,8 +548,9 @@ int main(int argc, char **argv) {
 
     CodegenContext *ctx = codegen_new(output);
     codegen_set_module_cache(ctx, module_cache);
-    ctx->type_ctx = type_ctx;  // Pass type context for optimization hints
-    ctx->optimize = (type_ctx != NULL);  // Enable optimizations if type checking was done
+    ctx->type_ctx = type_ctx;  // Pass type context for unboxing hints
+    // Note: ctx->optimize is already set in codegen_new() based on optimization level
+    // Don't override it here - the type context is just for unboxing hints
     codegen_program(ctx, statements, stmt_count);
 
     // Check for compilation errors
