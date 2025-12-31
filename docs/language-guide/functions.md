@@ -300,7 +300,7 @@ print(ops.multiply(3));  // 15
 
 ### Lexical Scoping
 
-Functions can **read** (not write) outer scope variables:
+Functions can access outer scope variables through lexical scoping:
 
 ```hemlock
 let global = 10;
@@ -320,7 +320,7 @@ fn outer() {
 outer();
 ```
 
-**Current limitation:** Closures can only read outer scope variables, not write to them (except through captured references).
+Closures capture variables by reference, allowing both reading and mutation of outer scope variables (as shown in the `makeCounter` example above).
 
 ## Recursion
 
