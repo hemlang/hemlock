@@ -1069,9 +1069,18 @@ static int type_priority(HmlValueType type) {
 }
 
 static HmlValueType promote_types(HmlValueType a, HmlValueType b) {
-    // Float always wins
+    // If either is f64, result is f64
     if (a == HML_VAL_F64 || b == HML_VAL_F64) return HML_VAL_F64;
-    if (a == HML_VAL_F32 || b == HML_VAL_F32) return HML_VAL_F32;
+
+    // f32 with i64/u64 should promote to f64 to preserve precision
+    // (f32 has only 24-bit mantissa, i64/u64 need 53+ bits)
+    if (a == HML_VAL_F32 || b == HML_VAL_F32) {
+        HmlValueType other = (a == HML_VAL_F32) ? b : a;
+        if (other == HML_VAL_I64 || other == HML_VAL_U64) {
+            return HML_VAL_F64;
+        }
+        return HML_VAL_F32;
+    }
 
     // Runes promote to i32 when combined with other types
     if (a == HML_VAL_RUNE && b == HML_VAL_RUNE) return HML_VAL_I32;

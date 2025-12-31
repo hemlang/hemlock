@@ -355,18 +355,32 @@ ValueType promote_types(ValueType left, ValueType right) {
     // If types are the same, no promotion needed
     if (left == right) return left;
 
-    // Any float beats any int
-    if (is_float((Value){.type = left})) {
-        if (is_float((Value){.type = right})) {
-            // Both floats - take the larger
-            return (left == VAL_F64 || right == VAL_F64) ? VAL_F64 : VAL_F32;
-        }
-        // left is float, right is int
-        return left;
+    // Check if either operand is a float
+    int left_is_float = is_float((Value){.type = left});
+    int right_is_float = is_float((Value){.type = right});
+
+    if (left_is_float && right_is_float) {
+        // Both floats - take the larger
+        return (left == VAL_F64 || right == VAL_F64) ? VAL_F64 : VAL_F32;
     }
-    if (is_float((Value){.type = right})) {
-        // right is float, left is int
-        return right;
+
+    if (left_is_float || right_is_float) {
+        // Mixed float and integer
+        // To avoid precision loss, promote to f64 when mixing i64/u64 with f32
+        ValueType float_type = left_is_float ? left : right;
+        ValueType int_type = left_is_float ? right : left;
+
+        // If either operand is f64, result is f64
+        if (float_type == VAL_F64) return VAL_F64;
+
+        // f32 with i64/u64 should promote to f64 to preserve precision
+        // (f32 has only 24-bit mantissa, i64/u64 need 53+ bits)
+        if (int_type == VAL_I64 || int_type == VAL_U64) {
+            return VAL_F64;
+        }
+
+        // f32 with smaller integers is fine
+        return VAL_F32;
     }
 
     // Both are integers - promote to higher rank
@@ -410,17 +424,11 @@ Value promote_value(Value val, ValueType target_type) {
                 return val_u64((uint64_t)value_to_int(val));
             }
         case VAL_F32:
-            if (is_float(val)) {
-                return val_f32((float)value_to_float(val));
-            } else {
-                return val_f32((float)value_to_int(val));
-            }
+            // Use value_to_float to preserve precision for i64/u64 values
+            return val_f32((float)value_to_float(val));
         case VAL_F64:
-            if (is_float(val)) {
-                return val_f64(value_to_float(val));
-            } else {
-                return val_f64((double)value_to_int(val));
-            }
+            // Use value_to_float to preserve precision for i64/u64 values
+            return val_f64(value_to_float(val));
         case VAL_RUNE:
             // Rune is a Unicode codepoint (u32)
             if (val.type == VAL_RUNE) {

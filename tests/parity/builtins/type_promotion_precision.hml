@@ -1,0 +1,33 @@
+// Test type promotion precision - i64 + f32 should not lose precision
+// i64 has 63 bits of precision; f32 has only 24 bits of mantissa
+// When mixing i64 with f32, the result should be f64 to preserve precision
+
+// This value is exactly representable in i64 but NOT in f32
+let big: i64 = 9007199254740993;  // 2^53 + 1
+let small: f32 = 1.0;
+
+// With correct promotion (to f64), this should preserve precision
+let result = big + small;
+print(typeof(result));  // Should be f64
+
+// Check if precision was preserved
+// 9007199254740993 + 1.0 = 9007199254740994
+// If promoted to f32 first, we lose precision
+print(result);
+
+// Also test i64 with f32 multiplication
+let prod = big * small;
+print(typeof(prod));
+print(prod);
+
+// Test with negative values
+let neg: i64 = -9007199254740993;
+let result2 = neg + small;
+print(typeof(result2));
+print(result2);
+
+// Test u64 + f32 (should also promote to f64)
+let ubig: u64 = 9007199254740993;
+let result3 = ubig + small;
+print(typeof(result3));
+print(result3);
