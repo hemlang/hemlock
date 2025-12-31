@@ -308,9 +308,14 @@ parity-full: $(TARGET) compiler stdlib
 test-bundler: $(TARGET)
 	@bash tests/bundler/run_bundler_tests.sh
 
+# Run LSP test suite
+.PHONY: test-lsp
+test-lsp: $(TARGET)
+	@python3 tests/lsp/test_lsp.py
+
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-bundler
+test-all: test test-compiler parity test-bundler test-lsp
 
 # ========== RELEASE BUILD ==========
 

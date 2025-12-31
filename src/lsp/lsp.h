@@ -91,6 +91,7 @@ struct LSPServer {
     // State
     bool initialized;       // Received initialize request
     bool shutdown;          // Received shutdown request
+    bool exit_requested;    // Received exit notification (should terminate)
 
     // Client capabilities
     bool supports_diagnostics;

@@ -19,13 +19,21 @@
 // Symbol Table for Go-to-Definition and Find References
 // ============================================================================
 
+typedef enum {
+    SYM_VARIABLE,
+    SYM_CONSTANT,
+    SYM_FUNCTION,
+    SYM_STRUCT,
+    SYM_ENUM,
+    SYM_PARAM,
+} SymbolKind;
+
 typedef struct {
     char *name;
     int def_line;       // Definition line (1-based)
     int def_col;        // Definition column (0-based)
     int def_length;     // Length of the symbol name
-    int is_function;    // 1 if function, 0 otherwise
-    int is_param;       // 1 if function parameter
+    SymbolKind kind;    // Symbol kind (variable, function, struct, enum, etc.)
 } SymbolDef;
 
 typedef struct {
@@ -64,7 +72,7 @@ static void symbol_table_free(SymbolTable *st) {
     free(st->usages);
 }
 
-static void symbol_table_add_def(SymbolTable *st, const char *name, int line, int col, int length, int is_function, int is_param) {
+static void symbol_table_add_def(SymbolTable *st, const char *name, int line, int col, int length, SymbolKind kind) {
     if (st->def_count >= st->def_capacity) {
         st->def_capacity = st->def_capacity == 0 ? 16 : st->def_capacity * 2;
         st->defs = realloc(st->defs, st->def_capacity * sizeof(SymbolDef));
@@ -73,8 +81,7 @@ static void symbol_table_add_def(SymbolTable *st, const char *name, int line, in
     st->defs[st->def_count].def_line = line;
     st->defs[st->def_count].def_col = col;
     st->defs[st->def_count].def_length = length > 0 ? length : (int)strlen(name);
-    st->defs[st->def_count].is_function = is_function;
-    st->defs[st->def_count].is_param = is_param;
+    st->defs[st->def_count].kind = kind;
     st->def_count++;
 }
 
@@ -126,29 +133,35 @@ static void build_symbol_table_from_source(SymbolTable *st, const char *content)
         // Check for definition patterns
         if (token.type == TOK_IDENT) {
             // Check if previous token was a definition keyword
-            if (prev.type == TOK_LET || prev.type == TOK_CONST) {
-                // Variable/constant definition
+            if (prev.type == TOK_LET) {
+                // Variable definition
                 char *name = strndup(token.start, token.length);
                 int col = calc_token_col(content, &token);
-                symbol_table_add_def(st, name, token.line, col, token.length, 0, 0);
+                symbol_table_add_def(st, name, token.line, col, token.length, SYM_VARIABLE);
+                free(name);
+            } else if (prev.type == TOK_CONST) {
+                // Constant definition
+                char *name = strndup(token.start, token.length);
+                int col = calc_token_col(content, &token);
+                symbol_table_add_def(st, name, token.line, col, token.length, SYM_CONSTANT);
                 free(name);
             } else if (prev.type == TOK_FN) {
                 // Function definition
                 char *name = strndup(token.start, token.length);
                 int col = calc_token_col(content, &token);
-                symbol_table_add_def(st, name, token.line, col, token.length, 1, 0);
+                symbol_table_add_def(st, name, token.line, col, token.length, SYM_FUNCTION);
                 free(name);
             } else if (prev.type == TOK_DEFINE) {
                 // Struct/object type definition
                 char *name = strndup(token.start, token.length);
                 int col = calc_token_col(content, &token);
-                symbol_table_add_def(st, name, token.line, col, token.length, 0, 0);
+                symbol_table_add_def(st, name, token.line, col, token.length, SYM_STRUCT);
                 free(name);
             } else if (prev.type == TOK_ENUM) {
                 // Enum definition
                 char *name = strndup(token.start, token.length);
                 int col = calc_token_col(content, &token);
-                symbol_table_add_def(st, name, token.line, col, token.length, 0, 0);
+                symbol_table_add_def(st, name, token.line, col, token.length, SYM_ENUM);
                 free(name);
             } else {
                 // Check if this is a usage (not followed by =, which would be assignment not definition)
@@ -280,8 +293,8 @@ JSONValue *handle_shutdown(LSPServer *server, JSONValue *params) {
 
 void handle_exit(LSPServer *server, JSONValue *params) {
     (void)params;
-    fprintf(stderr, "LSP: Exit\n");
-    server->shutdown = true;
+    fprintf(stderr, "LSP: Exit notification received\n");
+    server->exit_requested = true;
 }
 
 // ============================================================================
@@ -722,105 +735,67 @@ JSONValue *handle_document_symbol(LSPServer *server, JSONValue *params) {
 
     const char *uri = json_object_get_string(text_doc, "uri");
     LSPDocument *doc = lsp_document_find(server, uri);
-    if (!doc || !doc->ast) return json_null();
+    if (!doc || !doc->content) return json_null();
+
+    // Use the symbol table approach which gives accurate line/column info from lexer
+    SymbolTable st;
+    symbol_table_init(&st);
+    build_symbol_table_from_source(&st, doc->content);
 
     JSONValue *symbols = json_array();
 
-    // Walk the AST and collect symbols
-    Stmt **statements = (Stmt **)doc->ast;
-    for (int i = 0; i < doc->ast_stmt_count; i++) {
-        Stmt *stmt = statements[i];
-        if (!stmt) continue;
+    // Add all definitions as document symbols
+    for (int i = 0; i < st.def_count; i++) {
+        SymbolDef *def = &st.defs[i];
 
-        JSONValue *symbol = NULL;
-
-        switch (stmt->type) {
-            case STMT_LET:
-            case STMT_CONST: {
-                // Check if this is a function declaration (fn name() {})
-                // Functions are stored as STMT_LET with EXPR_FUNCTION value
-                int is_function = 0;
-                if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
-                    is_function = 1;
-                }
-
-                symbol = json_object();
-                json_object_set(symbol, "name", json_string(stmt->as.let.name));
-
-                // Set kind based on whether it's a function, constant, or variable
-                int kind;
-                if (is_function) {
-                    kind = 12;  // Function
-                } else if (stmt->type == STMT_CONST) {
-                    kind = 14;  // Constant
-                } else {
-                    kind = 13;  // Variable
-                }
-                json_object_set(symbol, "kind", json_number(kind));
-
-                JSONValue *range = json_object();
-                JSONValue *start = json_object();
-                json_object_set(start, "line", json_number(stmt->line - 1));
-                json_object_set(start, "character", json_number(0));
-                JSONValue *end = json_object();
-                json_object_set(end, "line", json_number(stmt->line - 1));
-                json_object_set(end, "character", json_number(0));
-                json_object_set(range, "start", start);
-                json_object_set(range, "end", end);
-                json_object_set(symbol, "range", range);
-                json_object_set(symbol, "selectionRange", range);
-                break;
-            }
-
-            case STMT_DEFINE_OBJECT: {
-                // Type definition
-                symbol = json_object();
-                json_object_set(symbol, "name", json_string(stmt->as.define_object.name));
-                json_object_set(symbol, "kind", json_number(23));  // Struct
-
-                JSONValue *range = json_object();
-                JSONValue *start = json_object();
-                json_object_set(start, "line", json_number(stmt->line - 1));
-                json_object_set(start, "character", json_number(0));
-                JSONValue *end = json_object();
-                json_object_set(end, "line", json_number(stmt->line - 1));
-                json_object_set(end, "character", json_number(0));
-                json_object_set(range, "start", start);
-                json_object_set(range, "end", end);
-                json_object_set(symbol, "range", range);
-                json_object_set(symbol, "selectionRange", range);
-                break;
-            }
-
-            case STMT_ENUM: {
-                // Enum definition
-                symbol = json_object();
-                json_object_set(symbol, "name", json_string(stmt->as.enum_decl.name));
-                json_object_set(symbol, "kind", json_number(10));  // Enum
-
-                JSONValue *range = json_object();
-                JSONValue *start = json_object();
-                json_object_set(start, "line", json_number(stmt->line - 1));
-                json_object_set(start, "character", json_number(0));
-                JSONValue *end = json_object();
-                json_object_set(end, "line", json_number(stmt->line - 1));
-                json_object_set(end, "character", json_number(0));
-                json_object_set(range, "start", start);
-                json_object_set(range, "end", end);
-                json_object_set(symbol, "range", range);
-                json_object_set(symbol, "selectionRange", range);
-                break;
-            }
-
-            default:
-                break;
+        // Skip function parameters in document outline
+        if (def->kind == SYM_PARAM) {
+            continue;
         }
 
-        if (symbol) {
-            json_array_push(symbols, symbol);
+        JSONValue *symbol = json_object();
+        json_object_set(symbol, "name", json_string(def->name));
+
+        // Map SymbolKind to LSP SymbolKind values
+        int lsp_kind;
+        switch (def->kind) {
+            case SYM_FUNCTION:  lsp_kind = 12; break;  // Function
+            case SYM_VARIABLE:  lsp_kind = 13; break;  // Variable
+            case SYM_CONSTANT:  lsp_kind = 14; break;  // Constant
+            case SYM_STRUCT:    lsp_kind = 23; break;  // Struct
+            case SYM_ENUM:      lsp_kind = 10; break;  // Enum
+            default:            lsp_kind = 13; break;  // Variable (default)
         }
+        json_object_set(symbol, "kind", json_number(lsp_kind));
+
+        // Build range - convert from 1-based to 0-based for LSP
+        JSONValue *range = json_object();
+        JSONValue *start = json_object();
+        json_object_set(start, "line", json_number(def->def_line - 1));
+        json_object_set(start, "character", json_number(def->def_col));
+        JSONValue *end = json_object();
+        json_object_set(end, "line", json_number(def->def_line - 1));
+        json_object_set(end, "character", json_number(def->def_col + def->def_length));
+        json_object_set(range, "start", start);
+        json_object_set(range, "end", end);
+        json_object_set(symbol, "range", range);
+
+        // Create a separate selectionRange (same values but separate object to avoid double-free)
+        JSONValue *selection_range = json_object();
+        JSONValue *sel_start = json_object();
+        json_object_set(sel_start, "line", json_number(def->def_line - 1));
+        json_object_set(sel_start, "character", json_number(def->def_col));
+        JSONValue *sel_end = json_object();
+        json_object_set(sel_end, "line", json_number(def->def_line - 1));
+        json_object_set(sel_end, "character", json_number(def->def_col + def->def_length));
+        json_object_set(selection_range, "start", sel_start);
+        json_object_set(selection_range, "end", sel_end);
+        json_object_set(symbol, "selectionRange", selection_range);
+
+        json_array_push(symbols, symbol);
     }
 
+    symbol_table_free(&st);
     return symbols;
 }
 

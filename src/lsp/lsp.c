@@ -29,6 +29,7 @@ LSPServer *lsp_server_create(void) {
     server->output_fd = STDOUT_FILENO;
     server->initialized = false;
     server->shutdown = false;
+    server->exit_requested = false;
     server->documents = NULL;
     server->root_uri = NULL;
     server->root_path = NULL;
@@ -253,7 +254,7 @@ int lsp_server_run_stdio(LSPServer *server) {
     // Log to stderr for debugging
     fprintf(stderr, "Hemlock LSP server starting (stdio transport)\n");
 
-    while (!server->shutdown) {
+    while (!server->exit_requested) {
         // Read message
         LSPMessage *request = lsp_read_message(server->input_fd);
         if (!request) {
@@ -284,11 +285,13 @@ int lsp_server_run_stdio(LSPServer *server) {
 
         lsp_message_free(request);
 
-        // Check for exit after shutdown
-        if (server->shutdown) {
-            fprintf(stderr, "LSP: Shutdown complete\n");
+        // Check for shutdown (but don't exit until exit notification)
+        if (server->shutdown && !server->exit_requested) {
+            fprintf(stderr, "LSP: Shutdown complete, waiting for exit\n");
         }
     }
+
+    fprintf(stderr, "LSP: Exiting\n");
 
     return 0;
 }
@@ -346,7 +349,7 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
     server->output_fd = client_fd;
 
     // Run main loop
-    while (!server->shutdown) {
+    while (!server->exit_requested) {
         LSPMessage *request = lsp_read_message(server->input_fd);
         if (!request) {
             fprintf(stderr, "LSP: Connection closed\n");
@@ -374,6 +377,7 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
         lsp_message_free(request);
     }
 
+    fprintf(stderr, "LSP: Exiting (TCP)\n");
     close(client_fd);
     close(listen_fd);
     return 0;
