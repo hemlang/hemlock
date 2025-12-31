@@ -2577,6 +2577,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 obj->num_fields = count;
                 obj->capacity = count > 0 ? count : 1;
                 obj->ref_count = 1;
+                obj->type_name = NULL;  // Initialize to NULL for typeof check
                 // Pop key-value pairs (value first, then key, in reverse order)
                 for (int i = count - 1; i >= 0; i--) {
                     Value val = POP();
