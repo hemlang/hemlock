@@ -80,7 +80,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->for_continue_labels = NULL;
     ctx->for_continue_depth = 0;
     ctx->for_continue_capacity = 0;
-    ctx->type_ctx = type_infer_new();
+    ctx->type_ctx = NULL;  // Set by caller (main.c) if type checking enabled
     ctx->optimize = 1;  // Enable optimization by default
     ctx->has_defers = 0;  // Track if any defers exist in current function
     ctx->tail_call_func_name = NULL;  // Tail call optimization tracking
@@ -193,10 +193,7 @@ void codegen_free(CodegenContext *ctx) {
             free(ctx->for_continue_labels);
         }
 
-        // Free type inference context
-        if (ctx->type_ctx) {
-            type_infer_free(ctx->type_ctx);
-        }
+        // Note: type_ctx is NOT freed here - it's owned by the caller (main.c)
 
         free(ctx);
     }
@@ -918,7 +915,7 @@ void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
     // OPTIMIZATION: Analyze function body for unboxable typed variables
     // This identifies variables like "let x: i32 = 0" that can use native C types
     if (ctx->optimize && ctx->type_ctx) {
-        type_analyze_block_for_unboxing(ctx->type_ctx, func->as.function.body);
+        type_check_analyze_block_for_unboxing(ctx->type_ctx, func->as.function.body);
     }
 
     if (func->as.function.body->type == STMT_BLOCK) {
@@ -977,56 +974,56 @@ const char* type_kind_to_ffi_type(TypeKind kind) {
 
 // ========== UNBOXED TYPE HELPERS ==========
 
-const char* inferred_type_to_c_type(InferredTypeKind kind) {
+const char* checked_type_to_c_type(CheckedTypeKind kind) {
     switch (kind) {
-        case INFER_I8:   return "int8_t";
-        case INFER_I16:  return "int16_t";
-        case INFER_I32:  return "int32_t";
-        case INFER_I64:  return "int64_t";
-        case INFER_U8:   return "uint8_t";
-        case INFER_U16:  return "uint16_t";
-        case INFER_U32:  return "uint32_t";
-        case INFER_U64:  return "uint64_t";
-        case INFER_F32:  return "float";
-        case INFER_F64:  return "double";
-        case INFER_BOOL: return "int";  // C doesn't have native bool
-        default:         return NULL;
+        case CHECKED_I8:   return "int8_t";
+        case CHECKED_I16:  return "int16_t";
+        case CHECKED_I32:  return "int32_t";
+        case CHECKED_I64:  return "int64_t";
+        case CHECKED_U8:   return "uint8_t";
+        case CHECKED_U16:  return "uint16_t";
+        case CHECKED_U32:  return "uint32_t";
+        case CHECKED_U64:  return "uint64_t";
+        case CHECKED_F32:  return "float";
+        case CHECKED_F64:  return "double";
+        case CHECKED_BOOL: return "int";  // C doesn't have native bool
+        default:           return NULL;
     }
 }
 
-const char* inferred_type_to_box_func(InferredTypeKind kind) {
+const char* checked_type_to_box_func(CheckedTypeKind kind) {
     switch (kind) {
-        case INFER_I8:   return "hml_val_i8";
-        case INFER_I16:  return "hml_val_i16";
-        case INFER_I32:  return "hml_val_i32";
-        case INFER_I64:  return "hml_val_i64";
-        case INFER_U8:   return "hml_val_u8";
-        case INFER_U16:  return "hml_val_u16";
-        case INFER_U32:  return "hml_val_u32";
-        case INFER_U64:  return "hml_val_u64";
-        case INFER_F32:  return "hml_val_f32";
-        case INFER_F64:  return "hml_val_f64";
-        case INFER_BOOL: return "hml_val_bool";
-        default:         return NULL;
+        case CHECKED_I8:   return "hml_val_i8";
+        case CHECKED_I16:  return "hml_val_i16";
+        case CHECKED_I32:  return "hml_val_i32";
+        case CHECKED_I64:  return "hml_val_i64";
+        case CHECKED_U8:   return "hml_val_u8";
+        case CHECKED_U16:  return "hml_val_u16";
+        case CHECKED_U32:  return "hml_val_u32";
+        case CHECKED_U64:  return "hml_val_u64";
+        case CHECKED_F32:  return "hml_val_f32";
+        case CHECKED_F64:  return "hml_val_f64";
+        case CHECKED_BOOL: return "hml_val_bool";
+        default:           return NULL;
     }
 }
 
-const char* inferred_type_to_unbox_func(InferredTypeKind kind) {
+const char* checked_type_to_unbox_func(CheckedTypeKind kind) {
     // Note: runtime only has hml_to_i32, hml_to_i64, hml_to_f64, hml_to_bool
-    // Other types need casts, which are handled by inferred_type_to_unbox_cast
+    // Other types need casts, which are handled by checked_type_to_unbox_cast
     switch (kind) {
-        case INFER_I32:  return "hml_to_i32";
-        case INFER_I64:  return "hml_to_i64";
-        case INFER_F64:  return "hml_to_f64";
-        case INFER_BOOL: return "hml_to_bool";
-        // Types that need casts return NULL - caller should use inferred_type_to_unbox_cast
-        case INFER_I8:
-        case INFER_I16:
-        case INFER_U8:
-        case INFER_U16:
-        case INFER_U32:
-        case INFER_U64:
-        case INFER_F32:
+        case CHECKED_I32:  return "hml_to_i32";
+        case CHECKED_I64:  return "hml_to_i64";
+        case CHECKED_F64:  return "hml_to_f64";
+        case CHECKED_BOOL: return "hml_to_bool";
+        // Types that need casts return NULL - caller should use checked_type_to_unbox_cast
+        case CHECKED_I8:
+        case CHECKED_I16:
+        case CHECKED_U8:
+        case CHECKED_U16:
+        case CHECKED_U32:
+        case CHECKED_U64:
+        case CHECKED_F32:
             return NULL;
         default:
             return NULL;
@@ -1034,37 +1031,37 @@ const char* inferred_type_to_unbox_func(InferredTypeKind kind) {
 }
 
 // Get the cast wrapper for unboxing (e.g., "(int8_t)hml_to_i32" for i8)
-const char* inferred_type_to_unbox_cast(InferredTypeKind kind) {
+const char* checked_type_to_unbox_cast(CheckedTypeKind kind) {
     switch (kind) {
-        case INFER_I8:   return "(int8_t)hml_to_i32";
-        case INFER_I16:  return "(int16_t)hml_to_i32";
-        case INFER_U8:   return "(uint8_t)hml_to_i32";
-        case INFER_U16:  return "(uint16_t)hml_to_i32";
-        case INFER_U32:  return "(uint32_t)hml_to_i64";
-        case INFER_U64:  return "(uint64_t)hml_to_i64";
-        case INFER_F32:  return "(float)hml_to_f64";
+        case CHECKED_I8:   return "(int8_t)hml_to_i32";
+        case CHECKED_I16:  return "(int16_t)hml_to_i32";
+        case CHECKED_U8:   return "(uint8_t)hml_to_i32";
+        case CHECKED_U16:  return "(uint16_t)hml_to_i32";
+        case CHECKED_U32:  return "(uint32_t)hml_to_i64";
+        case CHECKED_U64:  return "(uint64_t)hml_to_i64";
+        case CHECKED_F32:  return "(float)hml_to_f64";
         // These have direct functions
-        case INFER_I32:  return "hml_to_i32";
-        case INFER_I64:  return "hml_to_i64";
-        case INFER_F64:  return "hml_to_f64";
-        case INFER_BOOL: return "hml_to_bool";
-        default:         return NULL;
+        case CHECKED_I32:  return "hml_to_i32";
+        case CHECKED_I64:  return "hml_to_i64";
+        case CHECKED_F64:  return "hml_to_f64";
+        case CHECKED_BOOL: return "hml_to_bool";
+        default:           return NULL;
     }
 }
 
-int inferred_type_is_numeric(InferredTypeKind kind) {
-    return kind == INFER_I8 || kind == INFER_I16 || kind == INFER_I32 || kind == INFER_I64 ||
-           kind == INFER_U8 || kind == INFER_U16 || kind == INFER_U32 || kind == INFER_U64 ||
-           kind == INFER_F32 || kind == INFER_F64;
+int checked_kind_is_numeric(CheckedTypeKind kind) {
+    return kind == CHECKED_I8 || kind == CHECKED_I16 || kind == CHECKED_I32 || kind == CHECKED_I64 ||
+           kind == CHECKED_U8 || kind == CHECKED_U16 || kind == CHECKED_U32 || kind == CHECKED_U64 ||
+           kind == CHECKED_F32 || kind == CHECKED_F64;
 }
 
-int inferred_type_is_integer(InferredTypeKind kind) {
-    return kind == INFER_I8 || kind == INFER_I16 || kind == INFER_I32 || kind == INFER_I64 ||
-           kind == INFER_U8 || kind == INFER_U16 || kind == INFER_U32 || kind == INFER_U64;
+int checked_kind_is_integer(CheckedTypeKind kind) {
+    return kind == CHECKED_I8 || kind == CHECKED_I16 || kind == CHECKED_I32 || kind == CHECKED_I64 ||
+           kind == CHECKED_U8 || kind == CHECKED_U16 || kind == CHECKED_U32 || kind == CHECKED_U64;
 }
 
-int inferred_type_is_float(InferredTypeKind kind) {
-    return kind == INFER_F32 || kind == INFER_F64;
+int checked_kind_is_float(CheckedTypeKind kind) {
+    return kind == CHECKED_F32 || kind == CHECKED_F64;
 }
 
 // ========== IN-MEMORY BUFFER SUPPORT ==========

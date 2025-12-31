@@ -109,6 +109,18 @@ typedef struct EnumDef {
     struct EnumDef *next;
 } EnumDef;
 
+// ========== UNBOXING OPTIMIZATION ==========
+
+// Unboxable variable info (variables that can use native C types)
+typedef struct UnboxableVar {
+    char *name;
+    CheckedTypeKind native_type;   // The native C type to use
+    int is_loop_counter;           // Whether this is a for-loop counter
+    int is_accumulator;            // Whether this is used as an accumulator
+    int is_typed_var;              // Whether this has a type annotation
+    struct UnboxableVar *next;
+} UnboxableVar;
+
 // ========== TYPE CHECK CONTEXT ==========
 
 typedef struct {
@@ -133,6 +145,9 @@ typedef struct {
     // Configuration
     int strict_mode;            // If true, require type annotations
     int warn_implicit_any;      // Warn when falling back to CHECKED_ANY
+
+    // Unboxing optimization
+    UnboxableVar *unboxable_vars;  // Variables that can use native C types
 } TypeCheckContext;
 
 // ========== CONTEXT MANAGEMENT ==========
@@ -265,6 +280,57 @@ void type_error(TypeCheckContext *ctx, int line, const char *fmt, ...);
 
 // Report a type warning
 void type_warning(TypeCheckContext *ctx, int line, const char *fmt, ...);
+
+// ========== UNBOXING OPTIMIZATION ==========
+
+// Mark a variable as unboxable (can use native C type instead of HmlValue)
+void type_check_mark_unboxable(TypeCheckContext *ctx, const char *name,
+                               CheckedTypeKind native_type, int is_loop_counter,
+                               int is_accumulator, int is_typed_var);
+
+// Check if a variable is unboxable (returns native type, or CHECKED_UNKNOWN if not)
+CheckedTypeKind type_check_get_unboxable(TypeCheckContext *ctx, const char *name);
+
+// Clear unboxable status for a variable (used when codegen doesn't take optimized path)
+void type_check_clear_unboxable(TypeCheckContext *ctx, const char *name);
+
+// Check if variable is an unboxable loop counter
+int type_check_is_loop_counter(TypeCheckContext *ctx, const char *name);
+
+// Check if variable is an unboxable accumulator
+int type_check_is_accumulator(TypeCheckContext *ctx, const char *name);
+
+// Check if variable is an unboxable typed variable
+int type_check_is_typed_var(TypeCheckContext *ctx, const char *name);
+
+// Analyze a for-loop and detect unboxable loop counters
+void type_check_analyze_for_loop(TypeCheckContext *ctx, Stmt *stmt);
+
+// Analyze a while-loop for unboxable accumulators
+void type_check_analyze_while_loop(TypeCheckContext *ctx, Stmt *stmt);
+
+// Analyze a typed variable declaration for unboxing potential
+void type_check_analyze_typed_let(TypeCheckContext *ctx, Stmt *stmt,
+                                  Stmt *containing_block, int stmt_index);
+
+// Analyze all statements in a block for unboxable variables
+void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block);
+
+// Check if a typed variable can be unboxed based on its type annotation
+// Returns the native type if unboxable, CHECKED_UNKNOWN otherwise
+CheckedTypeKind type_check_can_unbox_annotation(Type *type_annotation);
+
+// Check if a variable escapes (passed to functions, stored in arrays, etc.)
+int type_check_variable_escapes(const char *var_name, Stmt *stmt);
+int type_check_variable_escapes_in_expr(const char *var_name, Expr *expr);
+
+// ========== TAIL CALL OPTIMIZATION ==========
+
+// Check if a statement body is tail-recursive for the given function name
+int is_tail_recursive_function(Stmt *body, const char *func_name);
+
+// Check if an expression is a tail call to the given function
+int is_tail_call_expr(Expr *expr, const char *func_name);
 
 // ========== DEBUG ==========
 

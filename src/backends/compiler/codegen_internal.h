@@ -204,29 +204,29 @@ const char* type_kind_to_ffi_type(TypeKind kind);
 
 // ========== UNBOXED TYPE HELPERS ==========
 
-// Convert InferredTypeKind to C type string (e.g., INFER_I32 -> "int32_t")
+// Convert CheckedTypeKind to C type string (e.g., CHECKED_I32 -> "int32_t")
 // Returns NULL for types that can't be unboxed
-const char* inferred_type_to_c_type(InferredTypeKind kind);
+const char* checked_type_to_c_type(CheckedTypeKind kind);
 
-// Convert InferredTypeKind to hml_val_* constructor (e.g., INFER_I32 -> "hml_val_i32")
+// Convert CheckedTypeKind to hml_val_* constructor (e.g., CHECKED_I32 -> "hml_val_i32")
 // Returns NULL for types that can't be unboxed
-const char* inferred_type_to_box_func(InferredTypeKind kind);
+const char* checked_type_to_box_func(CheckedTypeKind kind);
 
-// Convert InferredTypeKind to hml_to_* extractor (e.g., INFER_I32 -> "hml_to_i32")
-// Returns NULL for types that need casts (use inferred_type_to_unbox_cast instead)
-const char* inferred_type_to_unbox_func(InferredTypeKind kind);
+// Convert CheckedTypeKind to hml_to_* extractor (e.g., CHECKED_I32 -> "hml_to_i32")
+// Returns NULL for types that need casts (use checked_type_to_unbox_cast instead)
+const char* checked_type_to_unbox_func(CheckedTypeKind kind);
 
-// Get the cast wrapper for unboxing (e.g., INFER_I8 -> "(int8_t)hml_to_i32")
+// Get the cast wrapper for unboxing (e.g., CHECKED_I8 -> "(int8_t)hml_to_i32")
 // This handles all types including those that need casts
-const char* inferred_type_to_unbox_cast(InferredTypeKind kind);
+const char* checked_type_to_unbox_cast(CheckedTypeKind kind);
 
-// Check if InferredTypeKind is a numeric type that can use direct C arithmetic
-int inferred_type_is_numeric(InferredTypeKind kind);
+// Check if CheckedTypeKind is a numeric type that can use direct C arithmetic
+int checked_kind_is_numeric(CheckedTypeKind kind);
 
-// Check if InferredTypeKind is an integer type
-int inferred_type_is_integer(InferredTypeKind kind);
+// Check if CheckedTypeKind is an integer type
+int checked_kind_is_integer(CheckedTypeKind kind);
 
-// Check if InferredTypeKind is a floating point type
-int inferred_type_is_float(InferredTypeKind kind);
+// Check if CheckedTypeKind is a floating point type
+int checked_kind_is_float(CheckedTypeKind kind);
 
 #endif // HEMLOCK_CODEGEN_INTERNAL_H

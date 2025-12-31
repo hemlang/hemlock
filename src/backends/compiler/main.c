@@ -119,26 +119,28 @@ typedef struct {
     int optimize;                // Optimization level (0, 1, 2, 3)
     const char *cc;              // C compiler to use
     const char *runtime_path;    // Path to runtime library
-    int type_check;              // Enable compile-time type checking
+    int type_check;              // Enable compile-time type checking (default: on)
     int strict_types;            // Enable strict type checking (warn on implicit any)
+    int check_only;              // Only type check, don't compile
 } Options;
 
 static void print_usage(const char *progname) {
     fprintf(stderr, "Hemlock Compiler v%s\n\n", HEMLOCK_VERSION);
     fprintf(stderr, "Usage: %s [options] <input.hml>\n\n", progname);
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -o <file>     Output executable name (default: a.out)\n");
-    fprintf(stderr, "  -c            Emit C code only (don't compile)\n");
-    fprintf(stderr, "  --emit-c <f>  Write generated C to file\n");
-    fprintf(stderr, "  -k, --keep-c  Keep generated C file after compilation\n");
-    fprintf(stderr, "  -O<level>     Optimization level (0-3, default: 0)\n");
-    fprintf(stderr, "  --cc <path>   C compiler to use (default: gcc)\n");
-    fprintf(stderr, "  --runtime <p> Path to runtime library\n");
-    fprintf(stderr, "  --type-check  Enable compile-time type checking\n");
-    fprintf(stderr, "  --strict-types Enable strict type checking (warn on implicit any)\n");
-    fprintf(stderr, "  -v, --verbose Verbose output\n");
-    fprintf(stderr, "  -h, --help    Show this help message\n");
-    fprintf(stderr, "  --version     Show version\n");
+    fprintf(stderr, "  -o <file>       Output executable name (default: a.out)\n");
+    fprintf(stderr, "  -c              Emit C code only (don't compile)\n");
+    fprintf(stderr, "  --emit-c <f>    Write generated C to file\n");
+    fprintf(stderr, "  -k, --keep-c    Keep generated C file after compilation\n");
+    fprintf(stderr, "  -O<level>       Optimization level (0-3, default: 0)\n");
+    fprintf(stderr, "  --cc <path>     C compiler to use (default: gcc)\n");
+    fprintf(stderr, "  --runtime <p>   Path to runtime library\n");
+    fprintf(stderr, "  --check         Type check only, don't compile\n");
+    fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
+    fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
+    fprintf(stderr, "  -v, --verbose   Verbose output\n");
+    fprintf(stderr, "  -h, --help      Show this help message\n");
+    fprintf(stderr, "  --version       Show version\n");
 }
 
 static Options parse_args(int argc, char **argv) {
@@ -152,7 +154,9 @@ static Options parse_args(int argc, char **argv) {
         .optimize = 0,
         .cc = "gcc",
         .runtime_path = NULL,
-        .type_check = 0
+        .type_check = 1,         // Type checking ON by default
+        .strict_types = 0,
+        .check_only = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -180,8 +184,11 @@ static Options parse_args(int argc, char **argv) {
             opts.runtime_path = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
             opts.verbose = 1;
-        } else if (strcmp(argv[i], "--type-check") == 0) {
-            opts.type_check = 1;
+        } else if (strcmp(argv[i], "--check") == 0) {
+            opts.check_only = 1;
+            opts.type_check = 1;  // --check implies type checking
+        } else if (strcmp(argv[i], "--no-type-check") == 0) {
+            opts.type_check = 0;
         } else if (strcmp(argv[i], "--strict-types") == 0) {
             opts.type_check = 1;  // Implies type checking
             opts.strict_types = 1;
@@ -438,13 +445,15 @@ int main(int argc, char **argv) {
         printf("Parsed %d statements\n", stmt_count);
     }
 
-    // Type check (if enabled)
+    // Type check (if enabled - on by default)
+    // type_ctx is kept for codegen optimization hints
+    TypeCheckContext *type_ctx = NULL;
     if (opts.type_check) {
         if (opts.verbose) {
             printf("Type checking...\n");
         }
 
-        TypeCheckContext *type_ctx = type_check_new(opts.input_file);
+        type_ctx = type_check_new(opts.input_file);
         type_ctx->warn_implicit_any = opts.strict_types;
         int type_errors = type_check_program(type_ctx, statements, stmt_count);
 
@@ -463,7 +472,21 @@ int main(int argc, char **argv) {
         if (opts.verbose) {
             printf("Type checking passed\n");
         }
-        type_check_free(type_ctx);
+
+        // If --check flag was used, exit after type checking
+        if (opts.check_only) {
+            if (!opts.verbose) {
+                printf("%s: no type errors\n", opts.input_file);
+            }
+            type_check_free(type_ctx);
+            for (int i = 0; i < stmt_count; i++) {
+                stmt_free(statements[i]);
+            }
+            free(statements);
+            free(source);
+            return 0;
+        }
+        // Note: type_ctx is kept alive for codegen optimization hints
     }
 
     // Determine C output file
@@ -525,6 +548,9 @@ int main(int argc, char **argv) {
 
     CodegenContext *ctx = codegen_new(output);
     codegen_set_module_cache(ctx, module_cache);
+    ctx->type_ctx = type_ctx;  // Pass type context for unboxing hints
+    // Note: ctx->optimize is already set in codegen_new() based on optimization level
+    // Don't override it here - the type context is just for unboxing hints
     codegen_program(ctx, statements, stmt_count);
 
     // Check for compilation errors
@@ -534,6 +560,7 @@ int main(int argc, char **argv) {
     }
 
     codegen_free(ctx);
+    if (type_ctx) type_check_free(type_ctx);
     module_cache_free(module_cache);
     fclose(output);
 

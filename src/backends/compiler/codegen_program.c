@@ -55,40 +55,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
 
-    // OPTIMIZATION: Push type inference scope and bind parameter types
-    if (ctx->type_ctx) {
-        // Register function return type (before processing body for recursive calls)
-        InferredType ret_type = infer_unknown();
-        if (func->as.function.return_type) {
-            switch (func->as.function.return_type->kind) {
-                case TYPE_I32: ret_type = infer_i32(); break;
-                case TYPE_I64: ret_type = infer_i64(); break;
-                case TYPE_F32:
-                case TYPE_F64: ret_type = infer_f64(); break;
-                case TYPE_BOOL: ret_type = infer_bool(); break;
-                case TYPE_STRING: ret_type = infer_string(); break;
-                default: break;
-            }
-        }
-        type_register_func_return(ctx->type_ctx, name, ret_type);
-
-        type_env_push(ctx->type_ctx);
-        for (int i = 0; i < func->as.function.num_params; i++) {
-            InferredType param_type = infer_unknown();
-            if (func->as.function.param_types && func->as.function.param_types[i]) {
-                switch (func->as.function.param_types[i]->kind) {
-                    case TYPE_I32: param_type = infer_i32(); break;
-                    case TYPE_I64: param_type = infer_i64(); break;
-                    case TYPE_F32:
-                    case TYPE_F64: param_type = infer_f64(); break;
-                    case TYPE_BOOL: param_type = infer_bool(); break;
-                    case TYPE_STRING: param_type = infer_string(); break;
-                    default: break;
-                }
-            }
-            type_env_bind(ctx->type_ctx, func->as.function.param_names[i], param_type);
-        }
-    }
+    // Note: Type inference scope management is disabled.
+    // Type checking is done in a separate pass before codegen.
+    (void)name;  // Suppress unused warning when optimization disabled
 
     // Add parameters as locals and apply defaults
     funcgen_add_params(ctx, func);
@@ -128,10 +97,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     codegen_indent_dec(ctx);
     codegen_write(ctx, "}\n\n");
 
-    // Pop type inference scope
-    if (ctx->type_ctx) {
-        type_env_pop(ctx->type_ctx);
-    }
+    // Note: Type inference scope pop is disabled (see above)
 
     // Restore state
     funcgen_restore_state(ctx, &saved_state);

@@ -555,11 +555,11 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else {
         // OPTIMIZATION: Check if this is an unboxed variable (loop counter, accumulator, or typed var)
         // If so, convert the native C type back to HmlValue
-        if (ctx->optimize) {
-            InferredTypeKind native_type = type_get_unboxable(ctx->type_ctx, expr->as.ident.name);
-            if (native_type != INFER_UNKNOWN) {
+        if (ctx->optimize && ctx->type_ctx) {
+            CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, expr->as.ident.name);
+            if (native_type != CHECKED_UNKNOWN) {
                 // Variable is unboxed - box it for use in HmlValue context
-                const char *box_func = inferred_type_to_box_func(native_type);
+                const char *box_func = checked_type_to_box_func(native_type);
                 if (box_func) {
                     char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
                     codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, safe_ident);

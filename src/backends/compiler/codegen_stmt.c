@@ -20,14 +20,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // OPTIMIZATION: Check if this typed variable can be unboxed
             // Unboxed variables use native C types for 5-10x faster arithmetic
-            if (ctx->optimize && stmt->as.let.type_annotation && stmt->as.let.value) {
-                InferredTypeKind native_type = type_can_unbox_annotation(stmt->as.let.type_annotation);
-                if (native_type != INFER_UNKNOWN) {
+            if (ctx->optimize && ctx->type_ctx && stmt->as.let.type_annotation && stmt->as.let.value) {
+                CheckedTypeKind native_type = type_check_can_unbox_annotation(stmt->as.let.type_annotation);
+                if (native_type != CHECKED_UNKNOWN) {
                     // Check if variable is marked as unboxable (escape analysis passed)
-                    if (type_is_unboxed_typed_var(ctx->type_ctx, stmt->as.let.name) ||
-                        type_get_unboxable(ctx->type_ctx, stmt->as.let.name) != INFER_UNKNOWN) {
-                        const char *c_type = inferred_type_to_c_type(native_type);
-                        const char *unbox_cast = inferred_type_to_unbox_cast(native_type);
+                    if (type_check_is_typed_var(ctx->type_ctx, stmt->as.let.name) ||
+                        type_check_get_unboxable(ctx->type_ctx, stmt->as.let.name) != CHECKED_UNKNOWN) {
+                        const char *c_type = checked_type_to_c_type(native_type);
+                        const char *unbox_cast = checked_type_to_unbox_cast(native_type);
                         if (c_type && unbox_cast) {
                             // Generate unboxed variable with native C type
                             char *value = codegen_expr(ctx, stmt->as.let.value);
@@ -39,6 +39,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         }
                     }
                 }
+            }
+
+            // If we reach here, we're generating standard boxed code
+            // Clear any unboxable mark to avoid mismatch with codegen_expr_ident
+            if (ctx->type_ctx) {
+                type_check_clear_unboxable(ctx->type_ctx, stmt->as.let.name);
             }
 
             // Standard boxed variable handling
@@ -198,19 +204,21 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             ctx->loop_depth++;
 
             // OPTIMIZATION: Analyze loop for unboxable counter
-            type_analyze_for_loop(ctx->type_ctx, stmt);
+            if (ctx->type_ctx) {
+                type_check_analyze_for_loop(ctx->type_ctx, stmt);
+            }
 
             // Check if we can generate an optimized loop with native counter
             const char *counter_name = NULL;
-            InferredTypeKind counter_type = INFER_UNKNOWN;
-            if (stmt->as.for_loop.initializer &&
+            CheckedTypeKind counter_type = CHECKED_UNKNOWN;
+            if (ctx->type_ctx && stmt->as.for_loop.initializer &&
                 stmt->as.for_loop.initializer->type == STMT_LET) {
                 counter_name = stmt->as.for_loop.initializer->as.let.name;
-                counter_type = type_get_unboxable(ctx->type_ctx, counter_name);
+                counter_type = type_check_get_unboxable(ctx->type_ctx, counter_name);
             }
 
-            if (ctx->optimize && counter_type == INFER_I32 &&
-                type_is_loop_counter(ctx->type_ctx, counter_name)) {
+            if (ctx->optimize && ctx->type_ctx && counter_type == CHECKED_I32 &&
+                type_check_is_loop_counter(ctx->type_ctx, counter_name)) {
                 // OPTIMIZED: Generate loop with native int32_t counter
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
@@ -330,6 +338,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 free(safe_name);
             } else {
                 // STANDARD: Generate loop with boxed HmlValue counter
+                // Clear any unboxable mark since we're NOT unboxing this counter
+                if (ctx->type_ctx && counter_name) {
+                    type_check_clear_unboxable(ctx->type_ctx, counter_name);
+                }
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
                 // Initializer

@@ -212,16 +212,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // OPTIMIZATION: Native C arithmetic for unboxed typed variables
             // When both operands are unboxed variables of the same numeric type,
             // use pure C arithmetic instead of HmlValue boxing/unboxing
-            if (ctx->optimize &&
+            if (ctx->optimize && ctx->type_ctx &&
                 expr->as.binary.left->type == EXPR_IDENT &&
                 expr->as.binary.right->type == EXPR_IDENT) {
-                InferredTypeKind left_native = type_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
-                InferredTypeKind right_native = type_get_unboxable(ctx->type_ctx, expr->as.binary.right->as.ident.name);
+                CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                CheckedTypeKind right_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.right->as.ident.name);
 
                 // Both operands must be unboxed and of the same numeric type
-                if (left_native != INFER_UNKNOWN && left_native == right_native &&
-                    inferred_type_is_numeric(left_native)) {
-                    const char *box_func = inferred_type_to_box_func(left_native);
+                if (left_native != CHECKED_UNKNOWN && left_native == right_native &&
+                    checked_kind_is_numeric(left_native)) {
+                    const char *box_func = checked_type_to_box_func(left_native);
                     char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
                     char *right_var = codegen_sanitize_ident(expr->as.binary.right->as.ident.name);
                     int handled = 1;
@@ -237,7 +237,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                             codegen_writeln(ctx, "HmlValue %s = %s(%s * %s);", result, box_func, left_var, right_var);
                             break;
                         case OP_MOD:
-                            if (inferred_type_is_integer(left_native)) {
+                            if (checked_kind_is_integer(left_native)) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s %% %s);", result, box_func, left_var, right_var);
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_f64(fmod(%s, %s));", result, left_var, right_var);
@@ -266,35 +266,35 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                             codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s != %s);", result, left_var, right_var);
                             break;
                         case OP_BIT_AND:
-                            if (inferred_type_is_integer(left_native)) {
+                            if (checked_kind_is_integer(left_native)) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s & %s);", result, box_func, left_var, right_var);
                             } else {
                                 handled = 0;
                             }
                             break;
                         case OP_BIT_OR:
-                            if (inferred_type_is_integer(left_native)) {
+                            if (checked_kind_is_integer(left_native)) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s | %s);", result, box_func, left_var, right_var);
                             } else {
                                 handled = 0;
                             }
                             break;
                         case OP_BIT_XOR:
-                            if (inferred_type_is_integer(left_native)) {
+                            if (checked_kind_is_integer(left_native)) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s ^ %s);", result, box_func, left_var, right_var);
                             } else {
                                 handled = 0;
                             }
                             break;
                         case OP_BIT_LSHIFT:
-                            if (inferred_type_is_integer(left_native)) {
+                            if (checked_kind_is_integer(left_native)) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s << %s);", result, box_func, left_var, right_var);
                             } else {
                                 handled = 0;
                             }
                             break;
                         case OP_BIT_RSHIFT:
-                            if (inferred_type_is_integer(left_native)) {
+                            if (checked_kind_is_integer(left_native)) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s >> %s);", result, box_func, left_var, right_var);
                             } else {
                                 handled = 0;
@@ -312,15 +312,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             // OPTIMIZATION: Native C arithmetic for one unboxed variable and one literal
-            if (ctx->optimize && expr->as.binary.left->type == EXPR_IDENT &&
+            if (ctx->optimize && ctx->type_ctx && expr->as.binary.left->type == EXPR_IDENT &&
                 expr->as.binary.right->type == EXPR_NUMBER) {
-                InferredTypeKind left_native = type_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
-                if (left_native != INFER_UNKNOWN && inferred_type_is_numeric(left_native)) {
-                    const char *box_func = inferred_type_to_box_func(left_native);
+                CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                if (left_native != CHECKED_UNKNOWN && checked_kind_is_numeric(left_native)) {
+                    const char *box_func = checked_type_to_box_func(left_native);
                     char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
                     int handled = 1;
                     int is_float = expr->as.binary.right->as.number.is_float;
-                    const char *literal_suffix = (left_native == INFER_I64 || left_native == INFER_U64) ? "LL" : "";
+                    const char *literal_suffix = (left_native == CHECKED_I64 || left_native == CHECKED_U64) ? "LL" : "";
 
                     switch (expr->as.binary.op) {
                         case OP_ADD:
@@ -596,17 +596,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         (power = get_power_of_2_exponent(const_val)) >= 0) {
                         // x * 2^n -> x << n
                         char *left_val = codegen_expr(ctx, expr->as.binary.left);
-                        InferredType left_type = infer_expr(ctx->type_ctx, expr->as.binary.left);
-                        if (infer_is_i32(left_type)) {
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s.as.as_i32 << %d);",
-                                          result, left_val, power);
-                        } else if (infer_is_i64(left_type)) {
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s.as.as_i64 << %d);",
-                                          result, left_val, power);
-                        } else {
-                            codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
-                                          result, left_val, power);
-                        }
+                        // Use runtime shift (type-agnostic)
+                        codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
+                                      result, left_val, power);
                         codegen_writeln(ctx, "hml_release_if_needed(&%s);", left_val);
                         free(left_val);
                         break;
@@ -615,17 +607,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         (power = get_power_of_2_exponent(const_val)) >= 0) {
                         // 2^n * x -> x << n
                         char *right_val = codegen_expr(ctx, expr->as.binary.right);
-                        InferredType right_type = infer_expr(ctx->type_ctx, expr->as.binary.right);
-                        if (infer_is_i32(right_type)) {
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s.as.as_i32 << %d);",
-                                          result, right_val, power);
-                        } else if (infer_is_i64(right_type)) {
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s.as.as_i64 << %d);",
-                                          result, right_val, power);
-                        } else {
-                            codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
-                                          result, right_val, power);
-                        }
+                        // Use runtime shift (type-agnostic)
+                        codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
+                                      result, right_val, power);
                         codegen_writeln(ctx, "hml_release_if_needed(&%s);", right_val);
                         free(right_val);
                         break;
@@ -640,17 +624,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     get_power_of_2_exponent(const_val) >= 0) {
                     int64_t mask = const_val - 1;
                     char *left_val = codegen_expr(ctx, expr->as.binary.left);
-                    InferredType left_type = infer_expr(ctx->type_ctx, expr->as.binary.left);
-                    if (infer_is_i32(left_type)) {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%s.as.as_i32 & %d);",
-                                      result, left_val, (int32_t)mask);
-                    } else if (infer_is_i64(left_type)) {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s.as.as_i64 & %ldL);",
-                                      result, left_val, mask);
-                    } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_i32_bit_and(%s, hml_val_i32(%d));",
-                                      result, left_val, (int32_t)mask);
-                    }
+                    // Use runtime bit-and (type-agnostic)
+                    codegen_writeln(ctx, "HmlValue %s = hml_i32_bit_and(%s, hml_val_i32(%d));",
+                                  result, left_val, (int32_t)mask);
                     codegen_writeln(ctx, "hml_release_if_needed(&%s);", left_val);
                     free(left_val);
                     break;
@@ -661,12 +637,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *left = codegen_expr(ctx, expr->as.binary.left);
             char *right = codegen_expr(ctx, expr->as.binary.right);
 
-            // OPTIMIZATION: Use type inference to generate direct operations
-            // When types are known at compile time, skip runtime type checks entirely
-            InferredType left_type = infer_expr(ctx->type_ctx, expr->as.binary.left);
-            InferredType right_type = infer_expr(ctx->type_ctx, expr->as.binary.right);
-            int both_i32 = ctx->optimize && infer_is_i32(left_type) && infer_is_i32(right_type);
-            int both_i64 = ctx->optimize && infer_is_i64(left_type) && infer_is_i64(right_type);
+            // Note: Compile-time type inference for binary ops is disabled.
+            // Runtime dispatch handles type-specific fast paths.
+            int both_i32 = 0;  // Disabled - use runtime dispatch
+            int both_i64 = 0;  // Disabled - use runtime dispatch
 
             // OPTIMIZATION: i32 and i64 fast paths for binary operations
             // This matches the interpreter's fast paths for common integer operations
@@ -786,48 +760,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
             char *operand = codegen_expr(ctx, expr->as.unary.operand);
 
-            // OPTIMIZATION: Use direct operations when type is known
-            InferredType operand_type = infer_expr(ctx->type_ctx, expr->as.unary.operand);
-            if (ctx->optimize && infer_is_i32(operand_type)) {
-                switch (expr->as.unary.op) {
-                    case UNARY_NEGATE:
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(-%s.as.as_i32);", result, operand);
-                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
-                        free(operand);
-                        break;
-                    case UNARY_BIT_NOT:
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(~%s.as.as_i32);", result, operand);
-                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
-                        free(operand);
-                        break;
-                    default:
-                        goto unary_generic;
-                }
-                break;
-            } else if (ctx->optimize && infer_is_i64(operand_type)) {
-                switch (expr->as.unary.op) {
-                    case UNARY_NEGATE:
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(-%s.as.as_i64);", result, operand);
-                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
-                        free(operand);
-                        break;
-                    case UNARY_BIT_NOT:
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(~%s.as.as_i64);", result, operand);
-                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
-                        free(operand);
-                        break;
-                    default:
-                        goto unary_generic;
-                }
-                break;
-            } else if (ctx->optimize && infer_is_bool(operand_type) && expr->as.unary.op == UNARY_NOT) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(!%s.as.as_bool);", result, operand);
-                codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
-                free(operand);
-                break;
-            }
-
-        unary_generic:
+            // Note: Type inference for unary ops is disabled.
+            // Use generic path with runtime dispatch.
             codegen_writeln(ctx, "HmlValue %s = hml_unary_op(%s, %s);",
                           result, codegen_hml_unary_op(expr->as.unary.op), operand);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", operand);
@@ -871,11 +805,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             // OPTIMIZATION: Check if assigning to an unboxed variable
-            if (ctx->optimize) {
-                InferredTypeKind native_type = type_get_unboxable(ctx->type_ctx, expr->as.assign.name);
-                if (native_type != INFER_UNKNOWN) {
-                    const char *unbox_cast = inferred_type_to_unbox_cast(native_type);
-                    const char *box_func = inferred_type_to_box_func(native_type);
+            if (ctx->optimize && ctx->type_ctx) {
+                CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, expr->as.assign.name);
+                if (native_type != CHECKED_UNKNOWN) {
+                    const char *unbox_cast = checked_type_to_unbox_cast(native_type);
+                    const char *box_func = checked_type_to_box_func(native_type);
                     if (unbox_cast && box_func) {
                         char *value = codegen_expr(ctx, expr->as.assign.value);
                         char *safe_var_name = codegen_sanitize_ident(expr->as.assign.name);
@@ -1108,11 +1042,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         }
 
         case EXPR_INDEX: {
-            // OPTIMIZATION: When index type is known at compile time, skip runtime checks
-            InferredType idx_type = infer_expr(ctx->type_ctx, expr->as.index.index);
-            InferredType obj_type = infer_expr(ctx->type_ctx, expr->as.index.object);
-            int idx_is_i32 = ctx->optimize && infer_is_i32(idx_type);
-            int obj_is_array = ctx->optimize && obj_type.kind == INFER_ARRAY;
+            // Note: Type inference for index expressions is disabled.
+            // We use runtime type checking for now.
+            int idx_is_i32 = 0;
+            int obj_is_array = 0;
 
             char *obj = codegen_expr(ctx, expr->as.index.object);
             char *idx = codegen_expr(ctx, expr->as.index.index);
@@ -1188,11 +1121,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         }
 
         case EXPR_INDEX_ASSIGN: {
-            // OPTIMIZATION: When index type is known at compile time, skip runtime checks
-            InferredType idx_type = infer_expr(ctx->type_ctx, expr->as.index_assign.index);
-            InferredType obj_type = infer_expr(ctx->type_ctx, expr->as.index_assign.object);
-            int idx_is_i32 = ctx->optimize && infer_is_i32(idx_type);
-            int obj_is_array = ctx->optimize && obj_type.kind == INFER_ARRAY;
+            // Note: Type inference for index assignment is disabled.
+            // We use runtime type checking for now.
+            int idx_is_i32 = 0;
+            int obj_is_array = 0;
 
             char *obj = codegen_expr(ctx, expr->as.index_assign.object);
             char *idx = codegen_expr(ctx, expr->as.index_assign.index);

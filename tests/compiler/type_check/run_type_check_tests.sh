@@ -9,7 +9,7 @@ FAILED=0
 
 # Test 1: Type mismatch should fail
 echo "Test 1: Type mismatch (i32 = string)"
-if $HEMLOCKC --type-check "$SCRIPT_DIR/type_mismatch.hml" 2>&1 | grep -q "cannot initialize"; then
+if $HEMLOCKC --check "$SCRIPT_DIR/type_mismatch.hml" 2>&1 | grep -q "cannot initialize"; then
     echo "  PASSED: Caught type mismatch"
     ((PASSED++))
 else
@@ -23,7 +23,7 @@ cat > /tmp/test_fn_arg.hml << 'EOF'
 let add = fn(a: i32, b: i32): i32 { return a + b; };
 let x = add("hello", 2);
 EOF
-if $HEMLOCKC --type-check /tmp/test_fn_arg.hml 2>&1 | grep -q "argument 1 to 'add'"; then
+if $HEMLOCKC --check /tmp/test_fn_arg.hml 2>&1 | grep -q "argument 1 to 'add'"; then
     echo "  PASSED: Caught function argument type mismatch"
     ((PASSED++))
 else
@@ -37,7 +37,7 @@ cat > /tmp/test_too_many.hml << 'EOF'
 let add = fn(a: i32, b: i32): i32 { return a + b; };
 let x = add(1, 2, 3);
 EOF
-if $HEMLOCKC --type-check /tmp/test_too_many.hml 2>&1 | grep -q "too many arguments"; then
+if $HEMLOCKC --check /tmp/test_too_many.hml 2>&1 | grep -q "too many arguments"; then
     echo "  PASSED: Caught too many arguments"
     ((PASSED++))
 else
@@ -50,7 +50,7 @@ echo "Test 4: Invalid operator usage (string - number)"
 cat > /tmp/test_operator.hml << 'EOF'
 let x = "hello" - 5;
 EOF
-if $HEMLOCKC --type-check /tmp/test_operator.hml 2>&1 | grep -q "cannot subtract"; then
+if $HEMLOCKC --check /tmp/test_operator.hml 2>&1 | grep -q "cannot subtract"; then
     echo "  PASSED: Caught invalid operator usage"
     ((PASSED++))
 else
@@ -64,7 +64,7 @@ cat > /tmp/test_const.hml << 'EOF'
 const PI = 3.14;
 PI = 4;
 EOF
-if $HEMLOCKC --type-check /tmp/test_const.hml 2>&1 | grep -q "cannot reassign const"; then
+if $HEMLOCKC --check /tmp/test_const.hml 2>&1 | grep -q "cannot reassign const"; then
     echo "  PASSED: Caught const reassignment"
     ((PASSED++))
 else
@@ -77,7 +77,7 @@ echo "Test 6: Return type mismatch"
 cat > /tmp/test_return.hml << 'EOF'
 let getNum = fn(): i32 { return "hello"; };
 EOF
-if $HEMLOCKC --type-check /tmp/test_return.hml 2>&1 | grep -q "return type mismatch"; then
+if $HEMLOCKC --check /tmp/test_return.hml 2>&1 | grep -q "return type mismatch"; then
     echo "  PASSED: Caught return type mismatch"
     ((PASSED++))
 else
@@ -90,7 +90,7 @@ echo "Test 7: Bitwise operator with non-integer"
 cat > /tmp/test_bitwise.hml << 'EOF'
 let x = 3.14 & 5;
 EOF
-if $HEMLOCKC --type-check /tmp/test_bitwise.hml 2>&1 | grep -q "bitwise operation requires integer"; then
+if $HEMLOCKC --check /tmp/test_bitwise.hml 2>&1 | grep -q "bitwise operation requires integer"; then
     echo "  PASSED: Caught bitwise with non-integer"
     ((PASSED++))
 else
@@ -107,12 +107,12 @@ let name: string = "hello";
 let add = fn(a: i32, b: i32): i32 { return a + b; };
 let result = add(x, y);
 EOF
-if $HEMLOCKC --type-check /tmp/test_valid.hml 2>&1 | grep -q "type error"; then
-    echo "  FAILED: Valid code reported as error"
-    ((FAILED++))
-else
+if $HEMLOCKC --check /tmp/test_valid.hml 2>&1 | grep -q "no type errors"; then
     echo "  PASSED: Valid code passed type checking"
     ((PASSED++))
+else
+    echo "  FAILED: Valid code reported as error"
+    ((FAILED++))
 fi
 
 # Test 9: Too few arguments
@@ -121,7 +121,7 @@ cat > /tmp/test_too_few.hml << 'EOF'
 let add = fn(a: i32, b: i32): i32 { return a + b; };
 let x = add(1);
 EOF
-if $HEMLOCKC --type-check /tmp/test_too_few.hml 2>&1 | grep -q "too few arguments"; then
+if $HEMLOCKC --check /tmp/test_too_few.hml 2>&1 | grep -q "too few arguments"; then
     echo "  PASSED: Caught too few arguments"
     ((PASSED++))
 else
@@ -135,7 +135,7 @@ cat > /tmp/test_optional.hml << 'EOF'
 let greet = fn(name: string, msg?: "Hello"): string { return msg + " " + name; };
 let x = greet("world");
 EOF
-if $HEMLOCKC --type-check /tmp/test_optional.hml 2>&1 | grep -q "too few arguments"; then
+if $HEMLOCKC --check /tmp/test_optional.hml 2>&1 | grep -q "too few arguments"; then
     echo "  FAILED: Optional param incorrectly flagged"
     ((FAILED++))
 else
@@ -149,7 +149,7 @@ cat > /tmp/test_array_push.hml << 'EOF'
 let nums: array<i32> = [1, 2, 3];
 nums.push("hello");
 EOF
-if $HEMLOCKC --type-check /tmp/test_array_push.hml 2>&1 | grep -q "cannot add"; then
+if $HEMLOCKC --check /tmp/test_array_push.hml 2>&1 | grep -q "cannot add"; then
     echo "  PASSED: Caught array.push() type mismatch"
     ((PASSED++))
 else
@@ -163,7 +163,7 @@ cat > /tmp/test_string_repeat.hml << 'EOF'
 let s = "hi";
 let r = s.repeat("3");
 EOF
-if $HEMLOCKC --type-check /tmp/test_string_repeat.hml 2>&1 | grep -q "count must be integer"; then
+if $HEMLOCKC --check /tmp/test_string_repeat.hml 2>&1 | grep -q "count must be integer"; then
     echo "  PASSED: Caught string.repeat() type mismatch"
     ((PASSED++))
 else
@@ -177,7 +177,7 @@ cat > /tmp/test_array_join.hml << 'EOF'
 let arr = [1, 2, 3];
 let s = arr.join(42);
 EOF
-if $HEMLOCKC --type-check /tmp/test_array_join.hml 2>&1 | grep -q "separator must be string"; then
+if $HEMLOCKC --check /tmp/test_array_join.hml 2>&1 | grep -q "separator must be string"; then
     echo "  PASSED: Caught array.join() type mismatch"
     ((PASSED++))
 else
@@ -192,7 +192,7 @@ define Person { name: string, age: i32 }
 let p: Person = { name: "Alice", age: 30 };
 p.age = "thirty";
 EOF
-if $HEMLOCKC --type-check /tmp/test_property.hml 2>&1 | grep -q "cannot assign"; then
+if $HEMLOCKC --check /tmp/test_property.hml 2>&1 | grep -q "cannot assign"; then
     echo "  PASSED: Caught property type mismatch"
     ((PASSED++))
 else
