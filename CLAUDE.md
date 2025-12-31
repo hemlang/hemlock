@@ -520,7 +520,7 @@ make parity
 
 ## Version
 
-**v1.4.1** - Current release with:
+**v1.5.0** - Current release with:
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
 - UTF-8 strings with 19 methods
 - Arrays with 18 methods including map/filter/reduce
