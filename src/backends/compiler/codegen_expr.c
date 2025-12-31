@@ -386,11 +386,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             {
                 int concat_count = 0;
                 if (is_string_concat_chain(expr, &concat_count)) {
-                    Expr *elements[6];
+                    Expr *elements[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
                     count_string_concat_chain(expr, elements, 6);
 
                     // Generate code for all elements
-                    char *temps[5];
+                    char *temps[5] = {NULL, NULL, NULL, NULL, NULL};
                     for (int i = 0; i < concat_count; i++) {
                         temps[i] = codegen_expr(ctx, elements[i]);
                     }
@@ -637,7 +637,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Example: x % 8 = x & 7 (keeps only the lower 3 bits)
                 if (expr->as.binary.op == OP_MOD &&
                     is_const_integer(expr->as.binary.right, &const_val) &&
-                    (power = get_power_of_2_exponent(const_val)) >= 0) {
+                    get_power_of_2_exponent(const_val) >= 0) {
                     int64_t mask = const_val - 1;
                     char *left_val = codegen_expr(ctx, expr->as.binary.left);
                     InferredType left_type = infer_expr(ctx->type_ctx, expr->as.binary.left);

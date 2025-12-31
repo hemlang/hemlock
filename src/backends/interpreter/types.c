@@ -529,7 +529,6 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     int64_t int_val = 0;
     double float_val = 0.0;
     int is_source_float = 0;
-    int is_source_string = 0;
 
     // Extract source value (use int64 to preserve full range)
     if (is_integer(value)) {
@@ -561,7 +560,6 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         exit(1);
     } else if (value.type == VAL_STRING) {
         // String to numeric conversion - parse the string
-        is_source_string = 1;
         String *str = value.as.as_string;
         if (str && str->length > 0) {
             // Create null-terminated copy for parsing

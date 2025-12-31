@@ -580,12 +580,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
                     // Evaluate new argument values first (before releasing old ones)
                     char **new_arg_vals = malloc(num_params * sizeof(char*));
-                    for (int i = 0; i < num_params && i < call_expr->as.call.num_args; i++) {
-                        new_arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
-                    }
-                    // Fill in defaults for missing args
-                    for (int i = call_expr->as.call.num_args; i < num_params; i++) {
-                        new_arg_vals[i] = strdup("hml_val_null()");
+                    // Initialize all elements to avoid uninitialized access warnings
+                    for (int i = 0; i < num_params; i++) {
+                        if (i < call_expr->as.call.num_args) {
+                            new_arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
+                        } else {
+                            // Fill in defaults for missing args
+                            new_arg_vals[i] = strdup("hml_val_null()");
+                        }
                     }
 
                     // Release old parameter values and assign new ones
