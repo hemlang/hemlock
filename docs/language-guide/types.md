@@ -456,6 +456,69 @@ let b: u8 = 65;
 let r: rune = b;      // u8 → rune ('A')
 ```
 
+### Type Constructor Functions
+
+Type names can be used as functions to convert or parse values:
+
+**Parsing strings to numbers:**
+```hemlock
+let n = i32("42");       // Parse string to i32: 42
+let f = f64("3.14159");  // Parse string to f64: 3.14159
+let b = bool("true");    // Parse string to bool: true
+
+// All numeric types supported
+let a = i8("-128");      // Parse to i8
+let c = u8("255");       // Parse to u8
+let d = i16("1000");     // Parse to i16
+let e = u16("50000");    // Parse to u16
+let g = i64("9000000000000"); // Parse to i64
+let h = u64("18000000000000"); // Parse to u64
+let j = f32("1.5");      // Parse to f32
+```
+
+**Hex and negative numbers:**
+```hemlock
+let hex = i32("0xFF");   // 255
+let neg = i32("-42");    // -42
+let bin = i32("0b1010"); // 10 (binary)
+```
+
+**Type aliases work too:**
+```hemlock
+let x = integer("100");  // Same as i32("100")
+let y = number("1.5");   // Same as f64("1.5")
+let z = byte("200");     // Same as u8("200")
+```
+
+**Converting between numeric types:**
+```hemlock
+let big = i64(42);           // i32 to i64
+let truncated = i32(3.99);   // f64 to i32 (truncates to 3)
+let promoted = f64(100);     // i32 to f64 (100.0)
+let narrowed = i8(127);      // i32 to i8
+```
+
+**Type annotations also perform conversion:**
+```hemlock
+let n: i32 = "42";       // String to i32 via annotation
+let f: f64 = 100;        // i32 to f64 via annotation
+let s: string = 'A';     // Rune to string via annotation
+```
+
+**Error handling:**
+```hemlock
+// Invalid strings throw errors
+let bad = i32("hello");  // Runtime error: cannot parse "hello" as i32
+let overflow = u8("256"); // Runtime error: 256 out of range for u8
+```
+
+**Boolean parsing:**
+```hemlock
+let t = bool("true");    // true
+let f = bool("false");   // false
+let bad = bool("yes");   // Runtime error: must be "true" or "false"
+```
+
 ## Range Checking
 
 Type annotations enforce range checks at assignment:

@@ -465,31 +465,7 @@ fn sort_strings(arr): array {
 
 // Parse integer from string
 fn parse_int_str(s): i32 {
-    let result = 0;
-    let negative = false;
-    let i = 0;
-
-    let str: string = s;
-    if (str.length > 0 && str.char_at(0) == '-') {
-        negative = true;
-        i = 1;
-    }
-
-    while (i < str.length) {
-        let c = str.char_at(i);
-        let code: i32 = c;
-        if (code >= 48 && code <= 57) {
-            result = result * 10 + (code - 48);
-        } else {
-            break;
-        }
-        i = i + 1;
-    }
-
-    if (negative) {
-        return -result;
-    }
-    return result;
+    return i32(s);
 }
 
 // Check if a process is alive

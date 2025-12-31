@@ -56,6 +56,33 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // Handle type constructor calls: i32("42"), f64("3.14"), bool("true"), etc.
+        if (expr->as.call.num_args == 1) {
+            HmlValueType target_type = -1;
+            if (strcmp(fn_name, "i8") == 0) target_type = HML_VAL_I8;
+            else if (strcmp(fn_name, "i16") == 0) target_type = HML_VAL_I16;
+            else if (strcmp(fn_name, "i32") == 0) target_type = HML_VAL_I32;
+            else if (strcmp(fn_name, "i64") == 0) target_type = HML_VAL_I64;
+            else if (strcmp(fn_name, "u8") == 0) target_type = HML_VAL_U8;
+            else if (strcmp(fn_name, "u16") == 0) target_type = HML_VAL_U16;
+            else if (strcmp(fn_name, "u32") == 0) target_type = HML_VAL_U32;
+            else if (strcmp(fn_name, "u64") == 0) target_type = HML_VAL_U64;
+            else if (strcmp(fn_name, "f32") == 0) target_type = HML_VAL_F32;
+            else if (strcmp(fn_name, "f64") == 0) target_type = HML_VAL_F64;
+            else if (strcmp(fn_name, "bool") == 0) target_type = HML_VAL_BOOL;
+            else if (strcmp(fn_name, "integer") == 0) target_type = HML_VAL_I32;  // alias
+            else if (strcmp(fn_name, "number") == 0) target_type = HML_VAL_F64;   // alias
+            else if (strcmp(fn_name, "byte") == 0) target_type = HML_VAL_U8;      // alias
+
+            if (target_type != (HmlValueType)-1) {
+                char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+                codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %d);", result, arg, target_type);
+                codegen_writeln(ctx, "hml_release(&%s);", arg);
+                free(arg);
+                return result;
+            }
+        }
+
         // Handle assert builtin
         if (strcmp(fn_name, "assert") == 0 && expr->as.call.num_args >= 1) {
             char *cond = codegen_expr(ctx, expr->as.call.args[0]);

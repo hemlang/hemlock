@@ -1,0 +1,78 @@
+// Test type constructor functions: i32("42"), f64("3.14"), bool("true"), etc.
+
+// String to integer types
+print(i8("42"));
+print(typeof(i8("42")));
+
+print(i16("-1000"));
+print(typeof(i16("-1000")));
+
+print(i32("123456"));
+print(typeof(i32("123456")));
+
+print(i64("9876543210"));
+print(typeof(i64("9876543210")));
+
+// String to unsigned types
+print(u8("255"));
+print(typeof(u8("255")));
+
+print(u16("65535"));
+print(typeof(u16("65535")));
+
+print(u32("4000000000"));
+print(typeof(u32("4000000000")));
+
+print(u64("9223372036854775807"));
+print(typeof(u64("9223372036854775807")));
+
+// String to float types
+print(f32("3.14"));
+print(typeof(f32("3.14")));
+
+print(f64("2.718281828"));
+print(typeof(f64("2.718281828")));
+
+// String to bool
+print(bool("true"));
+print(typeof(bool("true")));
+
+print(bool("false"));
+print(typeof(bool("false")));
+
+// Hex parsing
+print(i32("0xFF"));
+print(i32("0xDEAD"));
+
+// Negative numbers
+print(i32("-42"));
+print(i64("-9876543210"));
+
+// Type aliases
+print(integer("100"));
+print(typeof(integer("100")));
+
+print(number("1.5"));
+print(typeof(number("1.5")));
+
+print(byte("200"));
+print(typeof(byte("200")));
+
+// Converting from number types (not just strings)
+let x = 42;
+print(i64(x));
+print(typeof(i64(x)));
+
+let y = 3.14;
+print(i32(y));
+print(typeof(i32(y)));
+
+// Float to int truncation
+print(i32(9.99));
+print(i32(-9.99));
+
+// Scientific notation
+print(f64("1.5e10"));
+print(f64("2.5E-3"));
+
+print("done");

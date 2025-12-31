@@ -214,12 +214,12 @@ Access program arguments via the `args` array:
 
 ```hemlock
 // script.hml
-print("Script: " + args[0]);
-print("Arguments: " + typeof(args.length - 1));
+print("Script:", args[0]);
+print(`Arguments: ${args.length - 1}`);
 
 let i = 1;
 while (i < args.length) {
-    print("  arg " + typeof(i) + ": " + args[i]);
+    print(`  arg ${i}: ${args[i]}`);
     i = i + 1;
 }
 ```

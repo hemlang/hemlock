@@ -439,7 +439,10 @@ HmlValue hml_hash_md5(HmlValue input) {
     size_t len = input.as.as_string->length;
 
     unsigned char hash[MD5_DIGEST_LENGTH];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     MD5((const unsigned char *)data, len, hash);
+#pragma GCC diagnostic pop
 
     return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
 }

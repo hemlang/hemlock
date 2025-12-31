@@ -63,7 +63,7 @@ free(ptr);  // You allocated it, you free it
 - No garbage collection
 - Manual memory management (alloc/free)
 - Type annotations are optional but checked at runtime
-- No automatic resource cleanup (no RAII, no defer yet)
+- No automatic resource cleanup (no RAII), but `defer` provides explicit cleanup
 
 ### 2. Dynamic by Default, Typed by Choice
 
@@ -252,17 +252,7 @@ let p = create_thing()  // Does this increment a refcount? NO!
 
 These features align with Hemlock's philosophy but need careful design:
 
-**1. `defer` for cleanup**
-```hemlock
-let f = open("file.txt");
-defer f.close();  // Explicit, not automatic
-// ... use file
-```
-- Explicit resource cleanup without RAII
-- User controls when/where cleanup happens
-- Still requires manual thought
-
-**2. Pattern matching**
+**1. Pattern matching**
 ```hemlock
 match (value) {
     case i32: print("integer");
@@ -274,7 +264,7 @@ match (value) {
 - No hidden costs
 - Compile-time exhaustiveness checking possible
 
-**3. Error types (`Result<T, E>`)**
+**2. Error types (`Result<T, E>`)**
 ```hemlock
 fn divide(a: i32, b: i32): Result<i32, string> {
     if (b == 0) {
@@ -287,12 +277,12 @@ fn divide(a: i32, b: i32): Result<i32, string> {
 - Forces users to think about errors
 - Alternative to exceptions
 
-**4. Array/slice types**
+**3. Array/slice types**
 - Already have dynamic arrays
 - Could add fixed-size arrays for stack allocation
 - Would need to be explicit about stack vs. heap
 
-**5. Improved memory safety tools**
+**4. Improved memory safety tools**
 - Optional bounds checking flag
 - Memory leak detection in debug builds
 - Sanitizer integration

@@ -1,0 +1,4 @@
+// Test that invalid string to bool conversion fails
+let s = "yes";
+let b: bool = s;  // Should error - only "true" or "false" work
+print(b);

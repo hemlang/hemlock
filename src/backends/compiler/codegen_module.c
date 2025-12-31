@@ -283,8 +283,8 @@ Stmt** parse_module_file(const char *path, int *stmt_count) {
     fseek(file, 0, SEEK_SET);
 
     char *source = malloc(file_size + 1);
-    fread(source, 1, file_size, file);
-    source[file_size] = '\0';
+    size_t bytes_read = fread(source, 1, file_size, file);
+    source[bytes_read] = '\0';
     fclose(file);
 
     // Parse

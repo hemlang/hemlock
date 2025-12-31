@@ -363,8 +363,11 @@ static int compile_c(const Options *opts, const char *c_file) {
     char include_path[PATH_MAX];
     char dev_include[PATH_MAX];
     char install_include[PATH_MAX];
-    snprintf(dev_include, sizeof(dev_include), "%s/runtime/include", runtime_path);
-    snprintf(install_include, sizeof(install_include), "%s/include", runtime_path);
+    int n1 = snprintf(dev_include, sizeof(dev_include), "%s/runtime/include", runtime_path);
+    int n2 = snprintf(install_include, sizeof(install_include), "%s/include", runtime_path);
+    if (n1 >= (int)sizeof(dev_include) || n2 >= (int)sizeof(install_include)) {
+        fprintf(stderr, "Warning: runtime path too long, may be truncated\n");
+    }
 
     if (access(dev_include, R_OK) == 0) {
         strncpy(include_path, dev_include, sizeof(include_path) - 1);
@@ -373,10 +376,15 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
     include_path[sizeof(include_path) - 1] = '\0';
 
-    snprintf(cmd, sizeof(cmd),
+    int n = snprintf(cmd, sizeof(cmd),
         "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
         opts->cc, opt_flag, opts->output_file, c_file,
         include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+
+    if (n >= (int)sizeof(cmd)) {
+        fprintf(stderr, "Error: Compiler command too long (truncated)\n");
+        return 1;
+    }
 
     if (opts->verbose) {
         printf("Running: %s\n", cmd);

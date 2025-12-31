@@ -250,6 +250,79 @@ ch.close();
 - Allows pending `recv()` operations to complete
 - Once empty, `recv()` returns `null`
 
+### Multiplexing with select()
+
+The `select()` function allows waiting on multiple channels simultaneously, returning when any channel has data available.
+
+**Signature:**
+```hemlock
+select(channels: array, timeout_ms?: i32): object | null
+```
+
+**Parameters:**
+- `channels` - Array of channel values
+- `timeout_ms` (optional) - Timeout in milliseconds (-1 or omit for infinite wait)
+
+**Returns:**
+- `{ channel, value }` - Object with the channel that had data and the received value
+- `null` - On timeout (if timeout was specified)
+
+**Example:**
+```hemlock
+let ch1 = channel(1);
+let ch2 = channel(1);
+
+// Producer tasks
+spawn(fn() {
+    sleep(100);
+    ch1.send("from channel 1");
+});
+
+spawn(fn() {
+    sleep(50);
+    ch2.send("from channel 2");
+});
+
+// Wait for first result (ch2 should be faster)
+let result = select([ch1, ch2]);
+print(result.value);  // "from channel 2"
+
+// Wait for second result
+let result2 = select([ch1, ch2]);
+print(result2.value);  // "from channel 1"
+```
+
+**With timeout:**
+```hemlock
+let ch = channel(1);
+
+// No sender, will timeout
+let result = select([ch], 100);  // 100ms timeout
+if (result == null) {
+    print("Timed out!");
+}
+```
+
+**Use cases:**
+- Waiting for the fastest of multiple data sources
+- Implementing timeouts on channel operations
+- Event loop patterns with multiple event sources
+- Fan-in: merging multiple channels into one
+
+**Fan-in pattern:**
+```hemlock
+fn fan_in(channels: array, output: channel) {
+    while (true) {
+        let result = select(channels);
+        if (result == null) {
+            break;  // All channels closed
+        }
+        output.send(result.value);
+    }
+    output.close();
+}
+```
+
 ### Complete Producer-Consumer Example
 
 ```hemlock
@@ -648,27 +721,7 @@ If you need to return data from a task, use the return value or channels.
 
 ## Current Limitations
 
-### 1. No select() for Multiplexing
-
-Cannot wait on multiple channels simultaneously (planned):
-
-```hemlock
-// NOT YET SUPPORTED:
-// let (value, ch_id) = select(ch1, ch2, ch3);
-```
-
-**Workaround:** Use separate tasks per channel:
-
-```hemlock
-async fn monitor_ch1(ch1, result_ch) {
-    let val = ch1.recv();
-    result_ch.send({ channel: 1, value: val });
-}
-
-// Similar for ch2, ch3...
-```
-
-### 2. No Work-Stealing Scheduler
+### 1. No Work-Stealing Scheduler
 
 Uses 1 thread per task, which can be inefficient for many short tasks.
 

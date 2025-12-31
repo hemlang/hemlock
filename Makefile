@@ -295,12 +295,12 @@ compile-check: compiler
 
 # Run parity test suite (tests that must pass on both interpreter and compiler)
 .PHONY: parity
-parity: $(TARGET) compiler
+parity: $(TARGET) compiler stdlib
 	@bash tests/parity/run_parity_tests.sh
 
 # Run full parity test (all interpreter tests through compiler)
 .PHONY: parity-full
-parity-full: $(TARGET) compiler
+parity-full: $(TARGET) compiler stdlib
 	@bash tests/run_full_parity.sh
 
 # ========== BYTECODE VM ==========

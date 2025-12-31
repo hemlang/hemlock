@@ -13,6 +13,7 @@
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
 #include "hemlock_limits.h"
+#include "../../../runtime/include/hemlock_value.h"  // For HmlValueType enum
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

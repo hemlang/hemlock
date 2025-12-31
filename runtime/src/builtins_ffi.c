@@ -8,10 +8,12 @@
 
 // ========== FFI HELPERS ==========
 
-// Helper to check if a file exists
+// Helper to check if a file exists (used on macOS for library path translation)
+#ifdef __APPLE__
 static int ffi_file_exists(const char *path) {
     return access(path, F_OK) == 0;
 }
+#endif
 
 // Translate Linux library names to macOS equivalents (on macOS only)
 static const char* translate_library_path(const char *path) {

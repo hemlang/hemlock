@@ -293,11 +293,14 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "i8", val_type(TYPE_I8), ctx);
     env_set(env, "i16", val_type(TYPE_I16), ctx);
     env_set(env, "i32", val_type(TYPE_I32), ctx);
+    env_set(env, "i64", val_type(TYPE_I64), ctx);
     env_set(env, "u8", val_type(TYPE_U8), ctx);
     env_set(env, "u16", val_type(TYPE_U16), ctx);
     env_set(env, "u32", val_type(TYPE_U32), ctx);
+    env_set(env, "u64", val_type(TYPE_U64), ctx);
     env_set(env, "f32", val_type(TYPE_F32), ctx);
     env_set(env, "f64", val_type(TYPE_F64), ctx);
+    env_set(env, "bool", val_type(TYPE_BOOL), ctx);
     env_set(env, "ptr", val_type(TYPE_PTR), ctx);
 
     // Type aliases
