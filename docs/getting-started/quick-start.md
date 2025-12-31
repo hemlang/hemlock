@@ -10,16 +10,34 @@ Create a file called `hello.hml`:
 print("Hello, Hemlock!");
 ```
 
-Run it:
+Run with the interpreter:
 
 ```bash
 ./hemlock hello.hml
+```
+
+Or compile to a native executable:
+
+```bash
+./hemlockc hello.hml -o hello
+./hello
 ```
 
 Output:
 ```
 Hello, Hemlock!
 ```
+
+### Interpreter vs Compiler
+
+Hemlock provides two ways to run programs:
+
+| Tool | Use Case | Type Checking |
+|------|----------|---------------|
+| `hemlock` | Quick scripts, REPL, development | Runtime only |
+| `hemlockc` | Production binaries, better performance | Compile-time (default) |
+
+The compiler (`hemlockc`) type-checks your code before generating an executable, catching errors early.
 
 ## Basic Syntax
 

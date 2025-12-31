@@ -9,11 +9,80 @@ Complete reference for Hemlock's type system, including all primitive and compos
 Hemlock uses a **dynamic type system** with runtime type tags and optional type annotations. Every value has a runtime type, and type conversions follow explicit promotion rules.
 
 **Key Features:**
-- Runtime type checking
+- Runtime type checking (interpreter)
+- Compile-time type checking (hemlockc - enabled by default)
 - Optional type annotations
 - Automatic type inference for literals
 - Explicit type promotion rules
 - No implicit conversions that lose precision
+
+---
+
+## Compile-Time Type Checking (hemlockc)
+
+The Hemlock compiler (`hemlockc`) includes a compile-time type checker that validates your code before generating executables. This catches type errors early without needing to run the program.
+
+### Default Behavior
+
+Type checking is **enabled by default** in hemlockc:
+
+```bash
+# Type checking happens automatically
+hemlockc program.hml -o program
+
+# Errors are reported before compilation
+hemlockc bad_types.hml
+# Output: 1 type error found
+```
+
+### Compiler Flags
+
+| Flag | Description |
+|------|-------------|
+| `--check` | Check types only, don't compile (exit after validation) |
+| `--no-type-check` | Disable type checking (not recommended) |
+| `--strict-types` | Enable stricter type warnings |
+
+**Examples:**
+
+```bash
+# Just validate types without compiling
+hemlockc --check program.hml
+# Output: program.hml: no type errors
+
+# Disable type checking (use with caution)
+hemlockc --no-type-check dynamic_code.hml -o program
+
+# Enable strict warnings for implicit any types
+hemlockc --strict-types program.hml -o program
+```
+
+### What the Type Checker Validates
+
+1. **Type annotations** - Ensures assigned values match declared types
+2. **Function calls** - Validates argument types against parameter types
+3. **Return types** - Checks return statements match declared return type
+4. **Operator usage** - Verifies operands are compatible
+5. **Property access** - Validates object field types for typed objects
+
+### Permissive Numeric Conversions
+
+The type checker allows numeric type conversions at compile time, with range validation happening at runtime:
+
+```hemlock
+let x: i8 = 100;      // OK - 100 fits in i8 (validated at runtime)
+let y: u8 = 255;      // OK - within u8 range
+let z: f64 = 42;      // OK - i32 to f64 is safe
+```
+
+### Dynamic Code Support
+
+Code without type annotations is treated as dynamic (`any` type) and always passes the type checker:
+
+```hemlock
+let x = get_value();  // Dynamic - no annotation
+process(x);           // OK - dynamic values accepted anywhere
+```
 
 ---
 

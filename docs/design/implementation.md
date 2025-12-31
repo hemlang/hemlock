@@ -22,43 +22,36 @@ This document describes the technical implementation of the Hemlock language, in
 
 ```
 hemlock/
-├── include/              # Public headers
-│   ├── ast.h            # AST node definitions
-│   ├── lexer.h          # Tokenization API
-│   ├── parser.h         # Parsing API
-│   └── interpreter.h    # Interpreter public API
-├── src/                  # Implementation
-│   ├── ast.c             # AST node constructors and cleanup
-│   ├── lexer.c           # Tokenization implementation
-│   ├── parser.c          # Parsing (tokens → AST)
-│   ├── main.c            # CLI entry point, REPL
-│   └── interpreter/      # Interpreter subsystem (modular)
-│       ├── internal.h        # Internal API shared between modules
-│       ├── environment.c     # Variable scoping (121 lines)
-│       ├── values.c          # Value constructors, data structures (394 lines)
-│       ├── types.c           # Type system, conversions, duck typing (440 lines)
-│       ├── builtins.c        # Builtin functions, registration (955 lines)
-│       ├── io.c              # File I/O, serialization (449 lines)
-│       ├── ffi.c             # Foreign function interface (libffi)
-│       └── runtime.c         # eval_expr, eval_stmt, control flow (865 lines)
-├── tests/                # Test suite
-│   ├── primitives/       # Type system tests
-│   ├── conversions/      # Type conversion tests
-│   ├── memory/           # Pointer/buffer tests
-│   ├── strings/          # String operation tests
-│   ├── control/          # Control flow tests
-│   ├── functions/        # Function and closure tests
-│   ├── objects/          # Object, method, serialization tests
-│   ├── arrays/           # Array operations tests
-│   ├── loops/            # For, while, break, continue tests
-│   ├── exceptions/       # Try/catch/finally/throw tests
-│   ├── io/               # File I/O tests
-│   ├── async/            # Async/concurrency tests
-│   ├── ffi/              # FFI tests
-│   ├── args/             # Command-line argument tests
-│   └── run_tests.sh      # Test runner
-├── examples/             # Example programs
-└── docs/                 # Documentation
+├── src/
+│   ├── frontend/              # Shared: lexer, parser, AST
+│   │   ├── lexer.c            # Tokenization
+│   │   ├── parser/            # Recursive descent parser
+│   │   ├── ast.c              # AST node management
+│   │   └── module.c           # Module resolution
+│   ├── backends/
+│   │   ├── interpreter/       # hemlock: tree-walking interpreter
+│   │   │   ├── main.c         # CLI entry point
+│   │   │   ├── runtime.c      # Expression/statement evaluation
+│   │   │   ├── builtins.c     # Built-in functions
+│   │   │   └── ...
+│   │   └── compiler/          # hemlockc: C code generator
+│   │       ├── main.c         # CLI, orchestration
+│   │       ├── type_check.c   # Compile-time type checking
+│   │       ├── codegen.c      # Code generation context
+│   │       ├── codegen_expr.c # Expression codegen
+│   │       ├── codegen_stmt.c # Statement codegen
+│   │       └── ...
+│   ├── lsp/                   # Language Server Protocol
+│   └── bundler/               # Bundle/package tools
+├── runtime/                   # libhemlock_runtime.a (for compiled programs)
+├── stdlib/                    # Standard library (39 modules)
+│   └── docs/                  # Module documentation
+├── tests/
+│   ├── parity/                # Tests that must pass both backends
+│   ├── interpreter/           # Interpreter-specific tests
+│   └── compiler/              # Compiler-specific tests
+├── examples/                  # Example programs
+└── docs/                      # Documentation
 ```
 
 ### Directory Organization
@@ -145,11 +138,11 @@ AST: LetStmt {
 12. Unary: `!`, `-`, `~`
 13. Call/Index/Member: `()`, `[]`, `.`
 
-### Phase 3: Interpretation (Tree-Walking)
+### Phase 3a: Interpretation (Tree-Walking)
 
 **Input:** AST
 **Output:** Program execution
-**Implementation:** `src/interpreter/runtime.c`
+**Implementation:** `src/backends/interpreter/runtime.c`
 
 ```
 AST: LetStmt { ... }
@@ -163,7 +156,125 @@ Result: Variable x created with value 42
 - Direct AST traversal (tree-walking interpreter)
 - Dynamic type checking at runtime
 - Environment-based variable storage
-- No optimization passes (yet)
+
+### Phase 3b: Compilation (hemlockc)
+
+**Input:** AST
+**Output:** Native executable via C code generation
+**Implementation:** `src/backends/compiler/`
+
+```
+AST: LetStmt { ... }
+   ↓
+Type Check: Validate types at compile time
+   ↓
+C Codegen: Generate equivalent C code
+   ↓
+GCC: Compile C to native binary
+   ↓
+Result: Standalone executable
+```
+
+**Key features:**
+- Compile-time type checking (enabled by default)
+- C code generation for portability
+- Links against `libhemlock_runtime.a`
+- Significantly faster execution than interpreter
+
+---
+
+## Compiler Backend (hemlockc)
+
+The Hemlock compiler generates C code from the AST, which is then compiled to a native executable using GCC.
+
+### Compiler Architecture
+
+```
+src/backends/compiler/
+├── main.c              # CLI, argument parsing, orchestration
+├── codegen.c           # Core code generation context
+├── codegen_expr.c      # Expression code generation
+├── codegen_stmt.c      # Statement code generation
+├── codegen_call.c      # Function call generation
+├── codegen_closure.c   # Closure implementation
+├── codegen_program.c   # Top-level program generation
+├── codegen_module.c    # Module/import handling
+├── type_check.c        # Compile-time type checking
+└── type_check.h        # Type checker API
+```
+
+### Type Checking
+
+The compiler includes a unified type checking system that:
+
+1. **Validates types at compile time** - Catches type errors before execution
+2. **Supports dynamic code** - Untyped code treated as `any` (always valid)
+3. **Provides optimization hints** - Identifies variables that can be unboxed
+
+**Type Checking Flags:**
+
+| Flag | Description |
+|------|-------------|
+| (default) | Type checking enabled |
+| `--check` | Type check only, don't compile |
+| `--no-type-check` | Disable type checking |
+| `--strict-types` | Warn on implicit `any` types |
+
+**Type Checker Implementation:**
+
+```c
+// type_check.h - Key structures
+typedef struct TypeCheckContext {
+    const char *filename;
+    int error_count;
+    int warning_count;
+    UnboxableVar *unboxable_vars;  // Optimization hints
+    // ... type environment, definitions, etc.
+} TypeCheckContext;
+
+// Main entry point
+int type_check_program(TypeCheckContext *ctx, Stmt **stmts, int count);
+```
+
+### Code Generation
+
+The codegen phase translates AST nodes to C code:
+
+**Expression Mapping:**
+```
+Hemlock                 →  Generated C
+----------------------------------------
+let x = 42;            →  HmlValue x = hml_val_i32(42);
+x + y                  →  hml_add(x, y)
+arr[i]                 →  hml_array_get(arr, i)
+obj.field              →  hml_object_get_field(obj, "field")
+fn(a, b) { ... }       →  Closure with environment capture
+```
+
+**Runtime Integration:**
+
+Generated C code links against `libhemlock_runtime.a` which provides:
+- `HmlValue` tagged union type
+- Memory management (reference counting)
+- Built-in functions (print, typeof, etc.)
+- Concurrency primitives (tasks, channels)
+- FFI support
+
+### Unboxing Optimization
+
+The type checker identifies variables that can use native C types instead of boxed `HmlValue`:
+
+**Unboxable Patterns:**
+- Loop counters with known integer type
+- Accumulator variables in loops
+- Variables with explicit type annotations (i32, i64, f64, bool)
+
+```hemlock
+// Loop counter 'i' can be unboxed to native int32_t
+for (let i: i32 = 0; i < 1000000; i = i + 1) {
+    sum = sum + i;
+}
+```
 
 ---
 
@@ -661,44 +772,39 @@ typedef struct Channel {
 
 ## Future Plans
 
-### v0.2 - Compiler Backend
+### Completed: Compiler Backend ✓
 
-**Goal:** Compile Hemlock to C code for better performance
+The compiler backend (`hemlockc`) has been implemented with:
+- C code generation from AST
+- Compile-time type checking (enabled by default)
+- Runtime library (`libhemlock_runtime.a`)
+- Full parity with interpreter (98% test pass rate)
+- Unboxing optimization framework
 
-**Planned architecture:**
-```
-Hemlock Source → Lexer → Parser → AST → C Code Generator → C Compiler → Binary
-```
+### Current Focus: Type System Enhancements
 
-**Benefits:**
-- Significant performance improvement
-- Better optimization (leverage C compiler)
-- Static analysis opportunities
-- Still keep runtime library for dynamic features
+**Recent improvements:**
+- Unified type checking and type inference systems
+- Compile-time type checking enabled by default
+- `--check` flag for type-only validation
+- Type context passed to codegen for optimization hints
 
-**Challenges:**
-- Dynamic typing requires runtime support
-- Closure capture needs careful codegen
-- Exception handling in C (setjmp/longjmp)
-- FFI integration with generated code
-
-### v0.3 - Advanced Features
+### Future Enhancements
 
 **Potential additions:**
 - Generics/templates
 - Pattern matching
-- More comprehensive standard library
-- Module system
-- Package manager integration
+- LSP integration for type-aware IDE support
+- More aggressive unboxing optimizations
+- Escape analysis for stack allocation
 
 ### Long-term Optimizations
 
 **Possible improvements:**
-- Reference counting for automatic memory management (opt-in)
-- Escape analysis for stack allocation
 - Inline caching for method calls
 - JIT compilation for hot code paths
 - Work-stealing scheduler for better concurrency
+- Profile-guided optimization
 
 ---
 

@@ -411,10 +411,28 @@ Source (.hml)
 │ INTERPRETER│    │  COMPILER  │
 │ (hemlock)  │    │ (hemlockc) │
 │            │    │            │
-│ Tree-walk  │    │ AST → C    │
-│ evaluation │    │ gcc link   │
+│ Tree-walk  │    │ Type check │
+│ evaluation │    │ AST → C    │
+│            │    │ gcc link   │
 └────────────┘    └────────────┘
 ```
+
+### Compiler Type Checking
+
+The compiler (`hemlockc`) includes compile-time type checking, **enabled by default**:
+
+```bash
+hemlockc program.hml -o program    # Type checks, then compiles
+hemlockc --check program.hml       # Type check only, don't compile
+hemlockc --no-type-check prog.hml  # Disable type checking
+hemlockc --strict-types prog.hml   # Warn on implicit 'any' types
+```
+
+The type checker:
+- Validates type annotations at compile time
+- Treats untyped code as dynamic (`any` type) - always valid
+- Provides optimization hints for unboxing
+- Uses permissive numeric conversions (range validated at runtime)
 
 ### Directory Structure
 
