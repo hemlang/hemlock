@@ -574,6 +574,9 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         ImportBinding *import_binding = NULL;
         if (ctx->current_module) {
             import_binding = module_find_import(ctx->current_module, expr->as.ident.name);
+        } else {
+            // In main file - check main imports
+            import_binding = codegen_find_main_import(ctx, expr->as.ident.name);
         }
 
         if (import_binding) {
