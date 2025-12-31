@@ -1,0 +1,68 @@
+# Changelog
+
+All notable changes to Hemlock will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.6.0] - 2025-12-31
+
+### Added
+
+- **Compile-time type checking** in hemlockc compiler (enabled by default)
+  - `--check` flag for type checking only without compilation
+  - `--no-type-check` flag to disable type checking
+  - `--strict-types` flag to warn on implicit `any` types
+- **LSP integration** with hemlockc's type checking for real-time diagnostics
+- **Compound bitwise assignment operators**: `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`
+- **Color constants** support
+- Unboxing optimization hints from type checker for better performance
+- Comprehensive LSP test suite
+
+### Changed
+
+- **Breaking**: Type annotations no longer parse strings implicitly
+  - Old: `let n: i32 = "42";` (no longer works)
+  - New: `let n = i32("42");` (use type constructor)
+- **Type precision improvement**: i64/u64 + f32 now promotes to f64 to preserve precision
+- Unified type system (merged type_infer into type_check)
+- Type checker now allows valid runtime conversions
+
+### Fixed
+
+- Function parameters incorrectly treated as unboxable
+- Unboxing optimization mismatch causing GCC errors
+- Imported module-level variables in main file
+- Closure upvalue handling
+- Various LSP bugs and diagnostics
+- Memory management documentation inconsistencies
+- Closure mutation documentation
+
+### Internal
+
+- Cleaned up code duplication and removed dead code
+- Added comprehensive test infrastructure improvements
+
+## [1.5.0] - 2024-12-01
+
+### Added
+
+- Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
+- UTF-8 strings with 19 methods
+- Arrays with 18 methods including map/filter/reduce
+- Manual memory management with `talloc()` and `sizeof()`
+- Async/await with true pthread parallelism
+- Atomic operations for lock-free concurrent programming
+- 39 stdlib modules
+- FFI for C interop with `export extern fn`
+- FFI struct support in compiler
+- FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)
+- defer, try/catch/finally/throw, panic
+- File I/O, signal handling, command execution
+- hpm package manager with GitHub-based registry
+- Compiler backend (C code generation) with 100% interpreter parity
+- LSP server with go-to-definition and find-references
+- AST optimization pass and variable resolution for O(1) lookup
+- apply() builtin for dynamic function calls
+- Unbuffered channels and many-params support
+- 99 parity tests (100% pass rate)

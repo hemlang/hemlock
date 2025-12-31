@@ -538,7 +538,12 @@ make parity
 
 ## Version
 
-**v1.5.0** - Current release with:
+**v1.6.0** - Current release with:
+- **Compile-time type checking** in hemlockc (enabled by default)
+- **LSP integration** with type checking for real-time diagnostics
+- **Compound bitwise operators** (`&=`, `|=`, `^=`, `<<=`, `>>=`, `%=`)
+- **Type precision fix**: i64/u64 + f32 → f64 to preserve precision
+- Unified type system with unboxing optimization hints
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
 - UTF-8 strings with 19 methods
 - Arrays with 18 methods including map/filter/reduce
