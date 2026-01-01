@@ -391,7 +391,7 @@ release-clean:
 
 # ========== STATIC RELEASE BUILD ==========
 # Build binaries with third-party libs statically linked for portability
-# On Linux: static libffi/libz/libcrypto, dynamic glibc (for dlopen/FFI support)
+# On Linux: static libffi/libz/libssl/libcrypto, dynamic glibc (for dlopen/FFI support)
 # On macOS: static third-party libs, dynamic system frameworks
 
 STATIC_BUILD_DIR = build-static
@@ -406,10 +406,11 @@ ifeq ($(shell uname),Darwin)
     else
         STATIC_LDFLAGS += -lffi
     endif
+    # libssl must come before libcrypto (ssl depends on crypto)
     ifneq ($(BREW_OPENSSL),)
-        STATIC_LDFLAGS += $(BREW_OPENSSL)/lib/libcrypto.a
+        STATIC_LDFLAGS += $(BREW_OPENSSL)/lib/libssl.a $(BREW_OPENSSL)/lib/libcrypto.a
     else
-        STATIC_LDFLAGS += -lcrypto
+        STATIC_LDFLAGS += -lssl -lcrypto
     endif
     STATIC_LDFLAGS += -lm -lpthread -lz
     ifeq ($(HAS_LIBWEBSOCKETS),1)
@@ -421,12 +422,17 @@ ifeq ($(shell uname),Darwin)
     endif
 else
     # Linux: Hybrid static/dynamic linking
-    # - Static: libffi, libz, libcrypto (no user install needed)
+    # - Static: libffi, libz, libssl, libcrypto, libwebsockets (no user install needed)
     # - Dynamic: glibc (libc, libm, libpthread, libdl) for dlopen/FFI support
-    # Requires: libffi-dev, zlib1g-dev, libssl-dev (for static .a files)
-    STATIC_LDFLAGS = -Wl,-Bstatic -lffi -lz -lcrypto -Wl,-Bdynamic -lm -lpthread -ldl
+    # Requires: libffi-dev, zlib1g-dev, libssl-dev, libwebsockets-dev,
+    #           libcap-dev, libuv1-dev, libev-dev (for static .a files)
+    # Note: libssl must come before libcrypto, and libwebsockets deps come after it
+    STATIC_LDFLAGS = -Wl,-Bstatic -lffi -lz -Wl,-Bdynamic -lm -lpthread -ldl
     ifeq ($(HAS_LIBWEBSOCKETS),1)
-        STATIC_LDFLAGS += -Wl,-Bstatic -lwebsockets -Wl,-Bdynamic
+        # libwebsockets requires: libssl, libcrypto, libcap, libuv, libev
+        STATIC_LDFLAGS += -Wl,-Bstatic -lwebsockets -lssl -lcrypto -lcap -luv -lev -Wl,-Bdynamic
+    else
+        STATIC_LDFLAGS += -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic
     endif
 endif
 
