@@ -29,6 +29,7 @@ jobs:
           zlib-static \
           openssl-dev \
           openssl-libs-static \
+          libwebsockets-dev \
           linux-headers
 
     - name: Build runtime library
@@ -73,13 +74,13 @@ jobs:
         path: hemlock-linux-x86_64.tar.gz
 
   build-macos-intel:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
-        brew install coreutils libffi openssl@3
+        brew install coreutils libffi openssl@3 libwebsockets
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
     - name: Build runtime library
@@ -118,7 +119,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install coreutils libffi openssl@3
+        brew install coreutils libffi openssl@3 libwebsockets
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
     - name: Build runtime library
