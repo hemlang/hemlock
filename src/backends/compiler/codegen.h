@@ -199,6 +199,12 @@ typedef struct {
     // Error tracking
     int error_count;              // Number of compilation errors
     int warning_count;            // Number of compilation warnings
+
+    // FFI library tracking for compile-time linking
+    char **ffi_libraries;         // List of FFI library paths (e.g., "libc.so.6")
+    int num_ffi_libraries;        // Count of FFI libraries
+    int ffi_libraries_capacity;   // Capacity of ffi_libraries array
+    int static_ffi;               // Use static FFI linking (direct extern instead of dlopen)
 } CodegenContext;
 
 // Initialize code generation context

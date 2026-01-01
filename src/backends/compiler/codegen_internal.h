@@ -234,4 +234,22 @@ int checked_kind_is_integer(CheckedTypeKind kind);
 // Check if CheckedTypeKind is a floating point type
 int checked_kind_is_float(CheckedTypeKind kind);
 
+// ========== FFI LIBRARY TRACKING ==========
+
+// Add an FFI library to the collection (avoids duplicates)
+void codegen_add_ffi_library(CodegenContext *ctx, const char *library_path);
+
+// Get linker flag for a library path (e.g., "libcrypto.so.3" -> "-lcrypto")
+// Returns NULL if no linker flag is needed (e.g., libc is always linked)
+// Caller must free the returned string
+char* ffi_library_to_linker_flag(const char *library_path);
+
+// Get all collected linker flags as a single string
+// Returns a space-separated list of -l flags (e.g., "-lcrypto -lm")
+// Caller must free the returned string
+char* codegen_get_ffi_linker_flags(CodegenContext *ctx);
+
+// Set static FFI mode (for --static builds)
+void codegen_set_static_ffi(CodegenContext *ctx, int enable);
+
 #endif // HEMLOCK_CODEGEN_INTERNAL_H
