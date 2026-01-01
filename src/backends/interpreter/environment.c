@@ -108,7 +108,7 @@ static void env_pool_free(Environment *env) {
 
 // DJB2 hash function - fast and good distribution for variable names
 uint32_t hash_string(const char *str) {
-    uint32_t hash = 5381;
+    uint32_t hash = HML_DJB2_HASH_SEED;
     int c;
     while ((c = *str++)) {
         hash = ((hash << 5) + hash) + c;  // hash * 33 + c

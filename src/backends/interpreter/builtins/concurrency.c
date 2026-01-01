@@ -386,10 +386,10 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
     if (timeout_ms >= 0) {
         clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += timeout_ms / 1000;
-        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
-        if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_nsec += (timeout_ms % HML_MILLISECONDS_PER_SECOND) * HML_NANOSECONDS_PER_MS;
+        if (deadline.tv_nsec >= HML_NANOSECONDS_PER_SECOND) {
             deadline.tv_sec++;
-            deadline.tv_nsec -= 1000000000;
+            deadline.tv_nsec -= HML_NANOSECONDS_PER_SECOND;
         }
         deadline_ptr = &deadline;
     }
@@ -460,7 +460,7 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         // Brief sleep before retrying (1ms)
-        struct timespec sleep_time = { 0, 1000000 };  // 1ms
+        struct timespec sleep_time = { 0, HML_POLL_SLEEP_NS };
         nanosleep(&sleep_time, NULL);
     }
 }

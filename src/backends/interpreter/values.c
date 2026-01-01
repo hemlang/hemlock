@@ -257,7 +257,7 @@ Array* array_new(void) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
-    arr->capacity = 8;
+    arr->capacity = HML_INITIAL_ARRAY_CAPACITY;
     arr->length = 0;
     arr->ref_count = 1;  // Start with 1 - caller owns the first reference
     arr->element_type = NULL;  // Untyped array
@@ -539,7 +539,7 @@ void function_release(Function *fn) {
 
 // DJB2 hash function for strings (fast and good distribution)
 static uint32_t djb2_hash(const char *str) {
-    uint32_t hash = 5381;
+    uint32_t hash = HML_DJB2_HASH_SEED;
     int c;
     while ((c = *str++)) {
         hash = ((hash << 5) + hash) + c;  // hash * 33 + c
@@ -1007,7 +1007,7 @@ void print_value(Value val) {
         case VAL_RUNE: {
             // Print rune as character if printable, otherwise as U+XXXX
             uint32_t r = val.as.as_rune;
-            if (r >= 32 && r < 127) {
+            if (r >= HML_ASCII_PRINTABLE_START && r < HML_ASCII_PRINTABLE_END) {
                 printf("'%c'", (char)r);
             } else {
                 printf("U+%04X", r);
@@ -1285,7 +1285,7 @@ char* value_to_string(Value val) {
 VisitedSet* visited_set_new(void) {
     VisitedSet *set = malloc(sizeof(VisitedSet));
     if (!set) return NULL;
-    set->capacity = 16;
+    set->capacity = HML_INITIAL_VISITED_SET_CAPACITY;
     set->count = 0;
     set->pointers = malloc(sizeof(void*) * set->capacity);
     if (!set->pointers) {

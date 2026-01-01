@@ -365,12 +365,36 @@ hemlock/
 
 ---
 
+## Code Style Guidelines
+
+### Constants and Magic Numbers
+
+When adding numeric constants to the C codebase, follow these guidelines:
+
+1. **Define constants in `include/hemlock_limits.h`** - This file is the central location for all compile-time and runtime limits, capacities, and named constants.
+
+2. **Use descriptive names with `HML_` prefix** - All constants should be prefixed with `HML_` for namespace clarity.
+
+3. **Avoid magic numbers** - Replace hard-coded numeric values with named constants. Examples:
+   - Type range limits: `HML_I8_MIN`, `HML_I8_MAX`, `HML_U32_MAX`
+   - Buffer capacities: `HML_INITIAL_ARRAY_CAPACITY`, `HML_INITIAL_LEXER_BUFFER_CAPACITY`
+   - Time conversions: `HML_NANOSECONDS_PER_SECOND`, `HML_MILLISECONDS_PER_SECOND`
+   - Hash seeds: `HML_DJB2_HASH_SEED`
+   - ASCII values: `HML_ASCII_CASE_OFFSET`, `HML_ASCII_PRINTABLE_START`
+
+4. **Include `hemlock_limits.h`** - Source files should include this header (often via `internal.h`) to access constants.
+
+5. **Document the purpose** - Add a comment explaining what each constant represents.
+
+---
+
 ## What NOT to Do
 
 ❌ Add implicit behavior (ASI, GC, auto-cleanup)
 ❌ Hide complexity (magic optimizations, hidden refcounts)
 ❌ Break existing semantics (semicolons, manual memory, mutable strings)
 ❌ Lose precision in implicit conversions
+❌ Use magic numbers - define named constants in `hemlock_limits.h` instead
 
 ---
 

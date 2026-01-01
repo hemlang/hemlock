@@ -1,4 +1,5 @@
 #include "lexer.h"
+#include "hemlock_limits.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -198,11 +199,11 @@ static Token number(Lexer *lex) {
 
 static Token string(Lexer *lex) {
     // Build string with escape sequence processing
-    char *buffer = malloc(256);
+    char *buffer = malloc(HML_INITIAL_LEXER_BUFFER_CAPACITY);
     if (!buffer) {
         return error_token(lex, "Failed to allocate string buffer");
     }
-    int capacity = 256;
+    int capacity = HML_INITIAL_LEXER_BUFFER_CAPACITY;
     int length = 0;
 
     while (peek(lex) != '"' && !is_at_end(lex)) {
@@ -276,11 +277,11 @@ static Token string(Lexer *lex) {
 
 static Token template_string(Lexer *lex) {
     // Build template string with ${...} preserved for parser
-    char *buffer = malloc(256);
+    char *buffer = malloc(HML_INITIAL_LEXER_BUFFER_CAPACITY);
     if (!buffer) {
         return error_token(lex, "Failed to allocate template string buffer");
     }
-    int capacity = 256;
+    int capacity = HML_INITIAL_LEXER_BUFFER_CAPACITY;
     int length = 0;
 
     while (peek(lex) != '`' && !is_at_end(lex)) {

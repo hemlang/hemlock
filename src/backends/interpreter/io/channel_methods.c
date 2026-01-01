@@ -167,10 +167,10 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         struct timespec deadline;
         clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += timeout_ms / 1000;
-        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
-        if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_nsec += (timeout_ms % HML_MILLISECONDS_PER_SECOND) * HML_NANOSECONDS_PER_MS;
+        if (deadline.tv_nsec >= HML_NANOSECONDS_PER_SECOND) {
             deadline.tv_sec++;
-            deadline.tv_nsec -= 1000000000;
+            deadline.tv_nsec -= HML_NANOSECONDS_PER_SECOND;
         }
 
         pthread_mutex_lock(mutex);
@@ -251,10 +251,10 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         struct timespec deadline;
         clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += timeout_ms / 1000;
-        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
-        if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_nsec += (timeout_ms % HML_MILLISECONDS_PER_SECOND) * HML_NANOSECONDS_PER_MS;
+        if (deadline.tv_nsec >= HML_NANOSECONDS_PER_SECOND) {
             deadline.tv_sec++;
-            deadline.tv_nsec -= 1000000000;
+            deadline.tv_nsec -= HML_NANOSECONDS_PER_SECOND;
         }
 
         pthread_mutex_lock(mutex);

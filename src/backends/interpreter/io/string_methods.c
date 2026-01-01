@@ -571,7 +571,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             for (int i = 0; i < str->length; i++) {
                 char c = str->data[i];
                 if (c >= 'a' && c <= 'z') {
-                    upper[i] = c - 32;  // Convert to uppercase
+                    upper[i] = c - HML_ASCII_CASE_OFFSET;  // Convert to uppercase
                 } else {
                     upper[i] = c;
                 }
@@ -593,7 +593,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             for (int i = 0; i < str->length; i++) {
                 char c = str->data[i];
                 if (c >= 'A' && c <= 'Z') {
-                    lower[i] = c + 32;  // Convert to lowercase
+                    lower[i] = c + HML_ASCII_CASE_OFFSET;  // Convert to lowercase
                 } else {
                     lower[i] = c;
                 }

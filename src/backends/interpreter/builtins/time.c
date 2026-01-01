@@ -47,7 +47,7 @@ Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
     // Use nanosleep for more precise sleep
     struct timespec req;
     req.tv_sec = (time_t)seconds;
-    req.tv_nsec = (long)((seconds - req.tv_sec) * 1000000000);
+    req.tv_nsec = (long)((seconds - req.tv_sec) * HML_NANOSECONDS_PER_SECOND);
     nanosleep(&req, NULL);
     return val_null();
 }

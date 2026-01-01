@@ -623,8 +623,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_source_float) {
                 int_val = (int64_t)float_val;
             }
-            if (int_val < -128 || int_val > 127) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i8 [-128, 127]\n", int_val);
+            if (int_val < HML_I8_MIN || int_val > HML_I8_MAX) {
+                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i8 [%d, %d]\n", int_val, HML_I8_MIN, HML_I8_MAX);
                 exit(1);
             }
             return val_i8((int8_t)int_val);
@@ -633,8 +633,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_source_float) {
                 int_val = (int64_t)float_val;
             }
-            if (int_val < -32768 || int_val > 32767) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i16 [-32768, 32767]\n", int_val);
+            if (int_val < HML_I16_MIN || int_val > HML_I16_MAX) {
+                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i16 [%d, %d]\n", int_val, HML_I16_MIN, HML_I16_MAX);
                 exit(1);
             }
             return val_i16((int16_t)int_val);
@@ -643,8 +643,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_source_float) {
                 int_val = (int64_t)float_val;
             }
-            if (int_val < -2147483648LL || int_val > 2147483647LL) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i32 [-2147483648, 2147483647]\n", int_val);
+            if (int_val < HML_I32_MIN || int_val > HML_I32_MAX) {
+                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i32 [%lld, %lld]\n", int_val, (long long)HML_I32_MIN, (long long)HML_I32_MAX);
                 exit(1);
             }
             return val_i32((int32_t)int_val);
@@ -661,8 +661,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_source_float) {
                 int_val = (int64_t)float_val;
             }
-            if (int_val < 0 || int_val > 255) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, 255]\n", int_val);
+            if (int_val < 0 || int_val > HML_U8_MAX) {
+                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, %d]\n", int_val, HML_U8_MAX);
                 exit(1);
             }
             return val_u8((uint8_t)int_val);
@@ -671,8 +671,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_source_float) {
                 int_val = (int64_t)float_val;
             }
-            if (int_val < 0 || int_val > 65535) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, 65535]\n", int_val);
+            if (int_val < 0 || int_val > HML_U16_MAX) {
+                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, %d]\n", int_val, HML_U16_MAX);
                 exit(1);
             }
             return val_u16((uint16_t)int_val);
@@ -681,8 +681,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_source_float) {
                 int_val = (int64_t)float_val;
             }
-            if (int_val < 0 || int_val > 4294967295LL) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u32 [0, 4294967295]\n", int_val);
+            if (int_val < 0 || int_val > HML_U32_MAX) {
+                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u32 [0, %lld]\n", int_val, (long long)HML_U32_MAX);
                 exit(1);
             }
             return val_u32((uint32_t)int_val);
@@ -911,7 +911,7 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
 
             case TYPE_I32:
                 if (is_float) int_val = (int64_t)float_val;
-                if (int_val < -2147483648LL || int_val > 2147483647LL) {
+                if (int_val < HML_I32_MIN || int_val > HML_I32_MAX) {
                     fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i32\n", int_val);
                     exit(1);
                 }
@@ -923,23 +923,23 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
 
             case TYPE_U8:
                 if (is_float) int_val = (int64_t)float_val;
-                if (int_val < 0 || int_val > 255) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, 255]\n", int_val);
+                if (int_val < 0 || int_val > HML_U8_MAX) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, %d]\n", int_val, HML_U8_MAX);
                     exit(1);
                 }
                 return val_u8((uint8_t)int_val);
 
             case TYPE_U16:
                 if (is_float) int_val = (int64_t)float_val;
-                if (int_val < 0 || int_val > 65535) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, 65535]\n", int_val);
+                if (int_val < 0 || int_val > HML_U16_MAX) {
+                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, %d]\n", int_val, HML_U16_MAX);
                     exit(1);
                 }
                 return val_u16((uint16_t)int_val);
 
             case TYPE_U32:
                 if (is_float) int_val = (int64_t)float_val;
-                if (int_val < 0 || int_val > 4294967295LL) {
+                if (int_val < 0 || int_val > HML_U32_MAX) {
                     fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u32\n", int_val);
                     exit(1);
                 }
