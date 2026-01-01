@@ -452,24 +452,49 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Build the linker command
     int n;
     if (opts->static_link) {
-        // Static linking: use -static flag and link all libraries statically
-        // This creates a fully standalone binary with no runtime dependencies
-        // Requires static versions of libraries: libffi.a, libz.a, libcrypto.a, etc.
+        // Hybrid static/dynamic linking:
+        // - Static: libffi, libz, libssl, libcrypto, libwebsockets
+        // - Dynamic: glibc, libcap, libuv, libev (no static libs available on Ubuntu)
         //
-        // Note: -ldl is omitted because dynamic loading (dlopen) is not available
-        // with static linking. Runtime FFI (ffi_open/ffi_bind) won't work, but
-        // compile-time FFI (extern fn) still works via libffi.
+        // This matches how hemlock/hemlockc themselves are built for release.
+        // We use -Wl,-Bstatic and -Wl,-Bdynamic to selectively link libraries.
         //
-        // On glibc systems, some features like DNS resolution may have issues.
-        // For fully portable static binaries, consider using musl libc.
+        // Note: -ldl is omitted because runtime FFI (ffi_open/ffi_bind) is not
+        // expected to work reliably with static linking. Compile-time FFI
+        // (extern fn) still works via libffi.
         if (opts->verbose) {
-            printf("Static linking enabled - creating standalone binary\n");
+            printf("Static linking enabled - hybrid static/dynamic binary\n");
             printf("Note: Runtime FFI (ffi_open/ffi_bind) disabled in static builds\n");
         }
+#ifdef __APPLE__
+        // macOS: Can't use -static, use .a files directly or fall back to dynamic
+        // System frameworks are always dynamic on macOS
         n = snprintf(cmd, sizeof(cmd),
-            "%s %s -static -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
+            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
             opts->cc, opt_flag, opts->output_file, c_file,
             include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+#else
+        // Linux: Hybrid static/dynamic linking
+        // Static: libffi, libz; Dynamic: glibc libs (lm, lpthread)
+        // If websockets available, add it statically with its dynamic dependencies
+        if (websockets_flag[0]) {
+            // libwebsockets requires: libssl, libcrypto (static), libcap, libuv, libev (dynamic)
+            n = snprintf(cmd, sizeof(cmd),
+                "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s "
+                "-Wl,-Bstatic -lffi%s -lwebsockets -lssl -lcrypto "
+                "-Wl,-Bdynamic -lcap -luv -lev -lm -lpthread",
+                opts->cc, opt_flag, opts->output_file, c_file,
+                include_path, runtime_path, extra_lib_paths, zlib_flag);
+        } else {
+            // No websockets, just static link libffi, libz, libssl, libcrypto
+            n = snprintf(cmd, sizeof(cmd),
+                "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s "
+                "-Wl,-Bstatic -lffi%s -lssl -lcrypto "
+                "-Wl,-Bdynamic -lm -lpthread",
+                opts->cc, opt_flag, opts->output_file, c_file,
+                include_path, runtime_path, extra_lib_paths, zlib_flag);
+        }
+#endif
     } else {
         // Dynamic linking (default): link against shared libraries
         n = snprintf(cmd, sizeof(cmd),
