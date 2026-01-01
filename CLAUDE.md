@@ -538,7 +538,7 @@ make parity
 
 ## Version
 
-**v1.6.0** - Current release with:
+**v1.6.1** - Current release with:
 - **Compile-time type checking** in hemlockc (enabled by default)
 - **LSP integration** with type checking for real-time diagnostics
 - **Compound bitwise operators** (`&=`, `|=`, `^=`, `<<=`, `>>=`, `%=`)
