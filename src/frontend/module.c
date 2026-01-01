@@ -14,6 +14,113 @@
 #include <mach-o/dyld.h>
 #endif
 
+// ========== HASH TABLE HELPERS ==========
+
+// djb2 hash function for module paths
+static unsigned long module_path_hash(const char *str) {
+    unsigned long hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+    return hash;
+}
+
+// Initialize hash table
+static void module_hash_init(ModuleCache *cache) {
+    cache->hash_size = MODULE_HASH_SIZE;
+    cache->hash_count = 0;
+    cache->hash_table = malloc(sizeof(ModuleCacheEntry) * cache->hash_size);
+    for (int i = 0; i < cache->hash_size; i++) {
+        cache->hash_table[i].path = NULL;
+        cache->hash_table[i].module_index = -1;
+    }
+}
+
+// Resize hash table when load factor exceeds 0.7
+static void module_hash_resize(ModuleCache *cache) {
+    int old_size = cache->hash_size;
+    ModuleCacheEntry *old_table = cache->hash_table;
+
+    // Double the size
+    cache->hash_size *= 2;
+    cache->hash_table = malloc(sizeof(ModuleCacheEntry) * cache->hash_size);
+    cache->hash_count = 0;
+
+    // Initialize new table
+    for (int i = 0; i < cache->hash_size; i++) {
+        cache->hash_table[i].path = NULL;
+        cache->hash_table[i].module_index = -1;
+    }
+
+    // Rehash all entries
+    for (int i = 0; i < old_size; i++) {
+        if (old_table[i].path != NULL) {
+            unsigned long hash = module_path_hash(old_table[i].path);
+            int index = hash % cache->hash_size;
+
+            // Linear probing
+            while (cache->hash_table[index].path != NULL) {
+                index = (index + 1) % cache->hash_size;
+            }
+
+            cache->hash_table[index].path = old_table[i].path;
+            cache->hash_table[index].module_index = old_table[i].module_index;
+            cache->hash_count++;
+        }
+    }
+
+    free(old_table);
+}
+
+// Insert into hash table
+static void module_hash_insert(ModuleCache *cache, const char *path, int module_index) {
+    // Resize if load factor > 0.7
+    if (cache->hash_count * 10 > cache->hash_size * 7) {
+        module_hash_resize(cache);
+    }
+
+    unsigned long hash = module_path_hash(path);
+    int index = hash % cache->hash_size;
+
+    // Linear probing to find empty slot
+    while (cache->hash_table[index].path != NULL) {
+        index = (index + 1) % cache->hash_size;
+    }
+
+    cache->hash_table[index].path = strdup(path);
+    cache->hash_table[index].module_index = module_index;
+    cache->hash_count++;
+}
+
+// Lookup in hash table - returns module index or -1 if not found
+static int module_hash_lookup(ModuleCache *cache, const char *path) {
+    unsigned long hash = module_path_hash(path);
+    int index = hash % cache->hash_size;
+    int start = index;
+
+    // Linear probing
+    while (cache->hash_table[index].path != NULL) {
+        if (strcmp(cache->hash_table[index].path, path) == 0) {
+            return cache->hash_table[index].module_index;
+        }
+        index = (index + 1) % cache->hash_size;
+        if (index == start) break;  // Full circle, not found
+    }
+
+    return -1;
+}
+
+// Free hash table
+static void module_hash_free(ModuleCache *cache) {
+    for (int i = 0; i < cache->hash_size; i++) {
+        if (cache->hash_table[i].path != NULL) {
+            free(cache->hash_table[i].path);
+        }
+    }
+    free(cache->hash_table);
+}
+
 // ========== PATH SECURITY ==========
 
 // Check if a path component contains directory traversal attempts
@@ -177,6 +284,9 @@ ModuleCache* module_cache_new(const char *initial_dir) {
     cache->current_dir = strdup(initial_dir);
     cache->stdlib_path = find_stdlib_path();
 
+    // Initialize hash table for O(1) module lookup
+    module_hash_init(cache);
+
     if (!cache->stdlib_path) {
         fprintf(stderr, "Warning: Could not locate stdlib directory. @stdlib imports will not work.\n");
     }
@@ -216,6 +326,10 @@ void module_cache_free(ModuleCache *cache) {
     if (cache->stdlib_path) {
         free(cache->stdlib_path);
     }
+
+    // Free hash table
+    module_hash_free(cache);
+
     free(cache);
 }
 
@@ -514,10 +628,10 @@ char* resolve_module_path(ModuleCache *cache, const char *importer_path, const c
 // ========== MODULE LOADING ==========
 
 Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
-    for (int i = 0; i < cache->count; i++) {
-        if (strcmp(cache->modules[i]->absolute_path, absolute_path) == 0) {
-            return cache->modules[i];
-        }
+    // O(1) hash table lookup instead of O(n) linear search
+    int index = module_hash_lookup(cache, absolute_path);
+    if (index >= 0 && index < cache->count) {
+        return cache->modules[index];
     }
     return NULL;
 }
@@ -620,7 +734,11 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
         cache->capacity *= 2;
         cache->modules = realloc(cache->modules, sizeof(Module*) * cache->capacity);
     }
+
+    // Add to array and hash table for O(1) lookup
+    int module_index = cache->count;
     cache->modules[cache->count++] = module;
+    module_hash_insert(cache, absolute_path, module_index);
 
     // Parse the module file
     module->statements = parse_module_file(absolute_path, &module->num_statements, ctx);

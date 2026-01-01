@@ -28,12 +28,25 @@ typedef struct Module {
 } Module;
 
 // Module cache structure
+// Uses a hash table for O(1) module lookup by path
+#define MODULE_HASH_SIZE 64  // Initial hash table size, grows as needed
+
+typedef struct ModuleCacheEntry {
+    char *path;              // Absolute path (key)
+    int module_index;        // Index into modules array (-1 if empty)
+} ModuleCacheEntry;
+
 typedef struct ModuleCache {
     Module **modules;            // Array of modules
     int count;
     int capacity;
     char *current_dir;           // Current working directory for relative imports
     char *stdlib_path;           // Path to standard library directory
+
+    // Hash table for O(1) lookup
+    ModuleCacheEntry *hash_table;
+    int hash_size;               // Current hash table size
+    int hash_count;              // Number of entries in hash table
 } ModuleCache;
 
 // Public interface
