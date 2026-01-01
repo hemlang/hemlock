@@ -465,10 +465,12 @@ Stmt* export_statement(Parser *p) {
     // Parse function (same as in statement())
     consume(p, TOK_LPAREN, "Expect '(' after function name");
 
-    char **param_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
-    Type **param_types = malloc(sizeof(Type*) * MAX_FUNCTION_PARAMS);
-    Expr **param_defaults = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
-    int *param_is_ref = malloc(sizeof(int) * MAX_FUNCTION_PARAMS);
+    // Start with small capacity and grow as needed
+    int param_capacity = 8;
+    char **param_names = malloc(sizeof(char*) * param_capacity);
+    Type **param_types = malloc(sizeof(Type*) * param_capacity);
+    Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
+    int *param_is_ref = malloc(sizeof(int) * param_capacity);
     int num_params = 0;
     int seen_optional = 0;
     char *rest_param = NULL;
@@ -493,6 +495,15 @@ Stmt* export_statement(Parser *p) {
             if (num_params >= MAX_FUNCTION_PARAMS) {
                 error_at(p, &p->current, "functions cannot have more than 64 parameters");
                 break;
+            }
+
+            // Grow arrays if needed
+            if (num_params >= param_capacity) {
+                param_capacity *= 2;
+                param_names = realloc(param_names, sizeof(char*) * param_capacity);
+                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
+                param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
             }
 
             // Check for ref keyword (pass-by-reference)
@@ -758,11 +769,12 @@ Stmt* statement(Parser *p) {
         // Now parse as function expression
         consume(p, TOK_LPAREN, "Expect '(' after function name");
 
-        // Parse parameters
-        char **param_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
-        Type **param_types = malloc(sizeof(Type*) * MAX_FUNCTION_PARAMS);
-        Expr **param_defaults = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
-        int *param_is_ref = malloc(sizeof(int) * MAX_FUNCTION_PARAMS);
+        // Parse parameters - start with small capacity and grow as needed
+        int param_capacity = 8;
+        char **param_names = malloc(sizeof(char*) * param_capacity);
+        Type **param_types = malloc(sizeof(Type*) * param_capacity);
+        Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
+        int *param_is_ref = malloc(sizeof(int) * param_capacity);
         int num_params = 0;
         int seen_optional = 0;
         char *rest_param = NULL;
@@ -787,6 +799,15 @@ Stmt* statement(Parser *p) {
                 if (num_params >= MAX_FUNCTION_PARAMS) {
                     error_at(p, &p->current, "functions cannot have more than 64 parameters");
                     break;
+                }
+
+                // Grow arrays if needed
+                if (num_params >= param_capacity) {
+                    param_capacity *= 2;
+                    param_names = realloc(param_names, sizeof(char*) * param_capacity);
+                    param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                    param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
+                    param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
                 }
 
                 // Check for ref keyword (pass-by-reference)

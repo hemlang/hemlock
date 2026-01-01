@@ -100,10 +100,9 @@ static Token number(Lexer *lex) {
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
 
-            char *text = token_text(&token);
+            // Parse directly from source - strtoll stops at first non-hex char
             char *endptr;
-            token.int_value = strtoll(text + 2, &endptr, 16);  // Skip "0x" prefix
-            free(text);
+            token.int_value = strtoll(lex->start + 2, &endptr, 16);  // Skip "0x" prefix
             return token;
         }
 
@@ -123,10 +122,9 @@ static Token number(Lexer *lex) {
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
 
-            char *text = token_text(&token);
+            // Parse directly from source - strtoll stops at first non-binary char
             char *endptr;
-            token.int_value = strtoll(text + 2, &endptr, 2);  // Skip "0b" prefix
-            free(text);
+            token.int_value = strtoll(lex->start + 2, &endptr, 2);  // Skip "0b" prefix
             return token;
         }
     }
@@ -181,18 +179,16 @@ static Token number(Lexer *lex) {
     Token token = make_token(lex, TOK_NUMBER);
     token.is_float = is_float;
 
-    char *text = token_text(&token);
-
+    // Parse directly from source - strtoll/strtod stop at first invalid char
+    char *endptr;
     if (is_float) {
-        token.float_value = atof(text);
+        token.float_value = strtod(lex->start, &endptr);
     } else {
         // Use strtoll to parse 64-bit integers
-        char *endptr;
-        token.int_value = strtoll(text, &endptr, 10);
+        token.int_value = strtoll(lex->start, &endptr, 10);
         // Note: strtoll will handle negative numbers correctly
     }
 
-    free(text);
     return token;
 }
 

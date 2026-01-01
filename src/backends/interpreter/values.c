@@ -1537,7 +1537,7 @@ void value_retain(Value val) {
             break;
         case VAL_REF:
             if (val.as.as_ref) {
-                val.as.as_ref->ref_count++;
+                __atomic_add_fetch(&val.as.as_ref->ref_count, 1, __ATOMIC_SEQ_CST);
             }
             break;
         // Other types don't need reference counting
@@ -1776,7 +1776,7 @@ Reference* reference_new_array_index(Array *array, int index) {
     ref->as.array_index.array = array;
     ref->as.array_index.index = index;
     ref->ref_count = 1;
-    array->ref_count++;
+    array_retain(array);  // Use atomic retain
     return ref;
 }
 
@@ -1786,14 +1786,14 @@ Reference* reference_new_object_property(Object *object, const char *property) {
     ref->as.object_property.object = object;
     ref->as.object_property.property = strdup(property);
     ref->ref_count = 1;
-    object->ref_count++;
+    object_retain(object);  // Use atomic retain
     return ref;
 }
 
 void reference_free(Reference *ref) {
     if (!ref) return;
-    ref->ref_count--;
-    if (ref->ref_count > 0) return;
+    int old_count = __atomic_sub_fetch(&ref->ref_count, 1, __ATOMIC_SEQ_CST);
+    if (old_count > 0) return;
 
     switch (ref->ref_type) {
         case REF_VARIABLE:
@@ -1801,16 +1801,10 @@ void reference_free(Reference *ref) {
             free(ref->as.variable.name);
             break;
         case REF_ARRAY_INDEX:
-            ref->as.array_index.array->ref_count--;
-            if (ref->as.array_index.array->ref_count == 0) {
-                array_free(ref->as.array_index.array);
-            }
+            array_release(ref->as.array_index.array);  // Use atomic release
             break;
         case REF_OBJECT_PROPERTY:
-            ref->as.object_property.object->ref_count--;
-            if (ref->as.object_property.object->ref_count == 0) {
-                object_free(ref->as.object_property.object);
-            }
+            object_release(ref->as.object_property.object);  // Use atomic release
             free(ref->as.object_property.property);
             break;
     }

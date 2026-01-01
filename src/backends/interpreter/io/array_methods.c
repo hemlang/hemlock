@@ -209,9 +209,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 return val_null();
             }
             Value first = arr->elements[0];
-            // Shift all elements left
-            for (int i = 1; i < arr->length; i++) {
-                arr->elements[i - 1] = arr->elements[i];
+            // Shift all elements left using memmove for efficiency
+            if (arr->length > 1) {
+                memmove(&arr->elements[0], &arr->elements[1],
+                        (size_t)(arr->length - 1) * sizeof(Value));
             }
             arr->length--;
             return first;
@@ -267,9 +268,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 arr->capacity = new_capacity;
                 arr->elements = new_elements;
             }
-            // Shift all elements right
-            for (int i = arr->length; i > 0; i--) {
-                arr->elements[i] = arr->elements[i - 1];
+            // Shift all elements right using memmove for efficiency
+            if (arr->length > 0) {
+                memmove(&arr->elements[1], &arr->elements[0],
+                        (size_t)arr->length * sizeof(Value));
             }
             value_retain(args[0]);
             arr->elements[0] = args[0];
@@ -313,9 +315,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 arr->capacity = new_capacity;
                 arr->elements = new_elements;
             }
-            // Shift elements right from index
-            for (int i = arr->length; i > index; i--) {
-                arr->elements[i] = arr->elements[i - 1];
+            // Shift elements right from index using memmove for efficiency
+            int num_to_move = arr->length - index;
+            if (num_to_move > 0) {
+                memmove(&arr->elements[index + 1], &arr->elements[index],
+                        (size_t)num_to_move * sizeof(Value));
             }
             value_retain(args[1]);
             arr->elements[index] = args[1];
@@ -340,9 +344,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 return throw_runtime_error(ctx, error_msg);
             }
             Value removed = arr->elements[index];
-            // Shift elements left from index
-            for (int i = index; i < arr->length - 1; i++) {
-                arr->elements[i] = arr->elements[i + 1];
+            // Shift elements left from index using memmove for efficiency
+            int num_to_move = arr->length - index - 1;
+            if (num_to_move > 0) {
+                memmove(&arr->elements[index], &arr->elements[index + 1],
+                        (size_t)num_to_move * sizeof(Value));
             }
             arr->length--;
             return removed;
