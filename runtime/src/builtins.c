@@ -2035,7 +2035,7 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
         }
     }
 
-    hml_runtime_error("Object has no field '%s'", field);
+    hml_runtime_error("Object has no field '%s' (use ?. for optional access)", field);
     return hml_val_null();  // Unreachable but needed for compiler
 }
 
