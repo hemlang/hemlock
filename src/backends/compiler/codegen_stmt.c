@@ -1187,8 +1187,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_IMPORT_FFI:
-            // Load the FFI library - assigns to global _ffi_lib
-            codegen_writeln(ctx, "_ffi_lib = hml_ffi_load(\"%s\");", stmt->as.import_ffi.library_path);
+            // Track the FFI library for compile-time linking
+            codegen_add_ffi_library(ctx, stmt->as.import_ffi.library_path);
+
+            if (ctx->static_ffi) {
+                // Static FFI mode: library is linked at compile time, no runtime load needed
+                codegen_writeln(ctx, "// FFI library \"%s\" linked at compile time", stmt->as.import_ffi.library_path);
+            } else {
+                // Dynamic FFI mode: load the library at runtime
+                codegen_writeln(ctx, "_ffi_lib = hml_ffi_load(\"%s\");", stmt->as.import_ffi.library_path);
+            }
             break;
 
         case STMT_EXTERN_FN:

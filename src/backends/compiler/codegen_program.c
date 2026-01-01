@@ -950,13 +950,75 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         has_ffi = 1;
     }
     if (has_ffi) {
-        codegen_write(ctx, "// FFI globals\n");
-        codegen_write(ctx, "static HmlValue _ffi_lib = {0};\n");
-        for (int i = 0; i < all_extern_fns.count; i++) {
-            codegen_write(ctx, "static void *_ffi_ptr_%s = NULL;\n",
-                        all_extern_fns.stmts[i]->as.extern_fn.function_name);
+        if (ctx->static_ffi) {
+            // Static FFI mode: generate C extern declarations for direct linking
+            codegen_write(ctx, "// FFI extern declarations (static linking)\n");
+            for (int i = 0; i < all_extern_fns.count; i++) {
+                Stmt *stmt = all_extern_fns.stmts[i];
+                const char *fn_name = stmt->as.extern_fn.function_name;
+                Type *return_type = stmt->as.extern_fn.return_type;
+                int num_params = stmt->as.extern_fn.num_params;
+
+                // Generate C extern declaration
+                // Return type
+                const char *ret_c_type = "void";
+                if (return_type) {
+                    switch (return_type->kind) {
+                        case TYPE_I8:  ret_c_type = "int8_t"; break;
+                        case TYPE_I16: ret_c_type = "int16_t"; break;
+                        case TYPE_I32: ret_c_type = "int32_t"; break;
+                        case TYPE_I64: ret_c_type = "int64_t"; break;
+                        case TYPE_U8:  ret_c_type = "uint8_t"; break;
+                        case TYPE_U16: ret_c_type = "uint16_t"; break;
+                        case TYPE_U32: ret_c_type = "uint32_t"; break;
+                        case TYPE_U64: ret_c_type = "uint64_t"; break;
+                        case TYPE_F32: ret_c_type = "float"; break;
+                        case TYPE_F64: ret_c_type = "double"; break;
+                        case TYPE_PTR: ret_c_type = "void*"; break;
+                        case TYPE_STRING: ret_c_type = "char*"; break;
+                        case TYPE_VOID: ret_c_type = "void"; break;
+                        default: ret_c_type = "int"; break;
+                    }
+                }
+
+                codegen_write(ctx, "extern %s %s(", ret_c_type, fn_name);
+                for (int j = 0; j < num_params; j++) {
+                    if (j > 0) codegen_write(ctx, ", ");
+                    Type *ptype = stmt->as.extern_fn.param_types[j];
+                    const char *param_c_type = "int";
+                    if (ptype) {
+                        switch (ptype->kind) {
+                            case TYPE_I8:  param_c_type = "int8_t"; break;
+                            case TYPE_I16: param_c_type = "int16_t"; break;
+                            case TYPE_I32: param_c_type = "int32_t"; break;
+                            case TYPE_I64: param_c_type = "int64_t"; break;
+                            case TYPE_U8:  param_c_type = "uint8_t"; break;
+                            case TYPE_U16: param_c_type = "uint16_t"; break;
+                            case TYPE_U32: param_c_type = "uint32_t"; break;
+                            case TYPE_U64: param_c_type = "uint64_t"; break;
+                            case TYPE_F32: param_c_type = "float"; break;
+                            case TYPE_F64: param_c_type = "double"; break;
+                            case TYPE_PTR: param_c_type = "void*"; break;
+                            case TYPE_STRING: param_c_type = "const char*"; break;
+                            default: param_c_type = "int"; break;
+                        }
+                    }
+                    codegen_write(ctx, "%s", param_c_type);
+                }
+                if (num_params == 0) codegen_write(ctx, "void");
+                codegen_write(ctx, ");\n");
+            }
+            codegen_write(ctx, "\n");
+        } else {
+            // Dynamic FFI mode: use dlopen/dlsym
+            codegen_write(ctx, "// FFI globals\n");
+            codegen_write(ctx, "static HmlValue _ffi_lib = {0};\n");
+            for (int i = 0; i < all_extern_fns.count; i++) {
+                codegen_write(ctx, "static void *_ffi_ptr_%s = NULL;\n",
+                            all_extern_fns.stmts[i]->as.extern_fn.function_name);
+            }
+            codegen_write(ctx, "\n");
         }
-        codegen_write(ctx, "\n");
     }
 
     // Track declared static globals to avoid C redefinition errors
@@ -1279,12 +1341,20 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
         codegen_write(ctx, ") {\n");
         codegen_write(ctx, "    (void)_env;\n");
-        codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
-        codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
-        codegen_write(ctx, "        if (!_ffi_ptr_%s) {\n", fn_name);
-        codegen_write(ctx, "            hml_runtime_error(\"FFI function '%%s' not found in library\", \"%s\");\n", fn_name);
-        codegen_write(ctx, "        }\n");
-        codegen_write(ctx, "    }\n");
+
+        if (ctx->static_ffi) {
+            // Static FFI mode: use the extern function directly (linked at compile time)
+            codegen_write(ctx, "    // Static FFI: function linked at compile time\n");
+        } else {
+            // Dynamic FFI mode: use dlsym for lazy resolution
+            codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
+            codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
+            codegen_write(ctx, "        if (!_ffi_ptr_%s) {\n", fn_name);
+            codegen_write(ctx, "            hml_runtime_error(\"FFI function '%%s' not found in library\", \"%s\");\n", fn_name);
+            codegen_write(ctx, "        }\n");
+            codegen_write(ctx, "    }\n");
+        }
+
         codegen_write(ctx, "    HmlFFIType _types[%d];\n", num_params + 1);
 
         // Return type
@@ -1319,21 +1389,24 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_write(ctx, "\n    };\n");
         }
 
+        // Determine the function pointer to use
+        const char *ffi_ptr_expr = ctx->static_ffi ? "(void*)&" : "_ffi_ptr_";
+
         if (num_params > 0) {
             codegen_write(ctx, "    HmlValue _args[%d];\n", num_params);
             for (int j = 0; j < num_params; j++) {
                 codegen_write(ctx, "    _args[%d] = _arg%d;\n", j, j);
             }
             if (uses_structs) {
-                codegen_write(ctx, "    return hml_ffi_call_with_structs(_ffi_ptr_%s, _args, %d, _types, _struct_names);\n", fn_name, num_params);
+                codegen_write(ctx, "    return hml_ffi_call_with_structs(%s%s, _args, %d, _types, _struct_names);\n", ffi_ptr_expr, fn_name, num_params);
             } else {
-                codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, _args, %d, _types);\n", fn_name, num_params);
+                codegen_write(ctx, "    return hml_ffi_call(%s%s, _args, %d, _types);\n", ffi_ptr_expr, fn_name, num_params);
             }
         } else {
             if (uses_structs) {
-                codegen_write(ctx, "    return hml_ffi_call_with_structs(_ffi_ptr_%s, NULL, 0, _types, _struct_names);\n", fn_name);
+                codegen_write(ctx, "    return hml_ffi_call_with_structs(%s%s, NULL, 0, _types, _struct_names);\n", ffi_ptr_expr, fn_name);
             } else {
-                codegen_write(ctx, "    return hml_ffi_call(_ffi_ptr_%s, NULL, 0, _types);\n", fn_name);
+                codegen_write(ctx, "    return hml_ffi_call(%s%s, NULL, 0, _types);\n", ffi_ptr_expr, fn_name);
             }
         }
         codegen_write(ctx, "}\n\n");

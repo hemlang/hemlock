@@ -90,6 +90,10 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->tail_call_func_expr = NULL;
     ctx->error_count = 0;
     ctx->warning_count = 0;
+    ctx->ffi_libraries = NULL;
+    ctx->num_ffi_libraries = 0;
+    ctx->ffi_libraries_capacity = 0;
+    ctx->static_ffi = 0;
     return ctx;
 }
 
@@ -204,6 +208,14 @@ void codegen_free(CodegenContext *ctx) {
         }
 
         // Note: type_ctx is NOT freed here - it's owned by the caller (main.c)
+
+        // Free FFI library tracking
+        if (ctx->ffi_libraries) {
+            for (int i = 0; i < ctx->num_ffi_libraries; i++) {
+                free(ctx->ffi_libraries[i]);
+            }
+            free(ctx->ffi_libraries);
+        }
 
         free(ctx);
     }
@@ -1159,5 +1171,152 @@ void membuf_free(MemBuffer *buf) {
         buf->data = NULL;
     }
     free(buf);
+}
+
+// ========== FFI LIBRARY TRACKING ==========
+
+// Add an FFI library to the collection (avoids duplicates)
+void codegen_add_ffi_library(CodegenContext *ctx, const char *library_path) {
+    if (!library_path) return;
+
+    // Check for duplicates
+    for (int i = 0; i < ctx->num_ffi_libraries; i++) {
+        if (strcmp(ctx->ffi_libraries[i], library_path) == 0) {
+            return;  // Already added
+        }
+    }
+
+    // Expand capacity if needed
+    if (ctx->num_ffi_libraries >= ctx->ffi_libraries_capacity) {
+        int new_cap = (ctx->ffi_libraries_capacity == 0) ? 8 : ctx->ffi_libraries_capacity * 2;
+        ctx->ffi_libraries = realloc(ctx->ffi_libraries, new_cap * sizeof(char*));
+        ctx->ffi_libraries_capacity = new_cap;
+    }
+
+    ctx->ffi_libraries[ctx->num_ffi_libraries++] = strdup(library_path);
+}
+
+// Get linker flag for a library path (e.g., "libcrypto.so.3" -> "-lcrypto")
+// Returns NULL if no linker flag is needed (e.g., libc is always linked)
+// Caller must free the returned string
+char* ffi_library_to_linker_flag(const char *library_path) {
+    if (!library_path) return NULL;
+
+    // Libraries that are always linked or don't need explicit flags
+    // libc.so.6 - always linked by default
+    if (strcmp(library_path, "libc.so.6") == 0 ||
+        strcmp(library_path, "libc.so") == 0 ||
+        strstr(library_path, "libSystem") != NULL) {  // macOS system library
+        return NULL;
+    }
+
+    // libm.so.6 - already linked by default with Hemlock runtime (-lm)
+    if (strcmp(library_path, "libm.so.6") == 0 ||
+        strcmp(library_path, "libm.so") == 0) {
+        return NULL;
+    }
+
+    // libpthread - already linked by default with Hemlock runtime (-lpthread)
+    if (strstr(library_path, "libpthread") != NULL) {
+        return NULL;
+    }
+
+    // libdl - already linked by default (-ldl)
+    if (strstr(library_path, "libdl") != NULL) {
+        return NULL;
+    }
+
+    // Extract library name from path
+    // Handle: libfoo.so, libfoo.so.6, /path/to/libfoo.so
+    const char *basename = strrchr(library_path, '/');
+    if (basename) {
+        basename++;  // Skip the '/'
+    } else {
+        basename = library_path;
+    }
+
+    // Must start with "lib"
+    if (strncmp(basename, "lib", 3) != 0) {
+        return NULL;  // Not a standard library name
+    }
+
+    // Find where the library name ends (.so, .so.N, .dylib)
+    const char *name_start = basename + 3;  // Skip "lib"
+    const char *name_end = strstr(name_start, ".so");
+    if (!name_end) {
+        name_end = strstr(name_start, ".dylib");
+    }
+    if (!name_end) {
+        name_end = name_start + strlen(name_start);
+    }
+
+    // Calculate library name length
+    size_t name_len = name_end - name_start;
+    if (name_len == 0) {
+        return NULL;
+    }
+
+    // Build linker flag: -lfoo
+    char *flag = malloc(name_len + 3);  // "-l" + name + null
+    snprintf(flag, name_len + 3, "-l%.*s", (int)name_len, name_start);
+
+    return flag;
+}
+
+// Get all collected linker flags as a single string
+// Returns a space-separated list of -l flags (e.g., "-lcrypto -lssl")
+// Caller must free the returned string
+char* codegen_get_ffi_linker_flags(CodegenContext *ctx) {
+    if (ctx->num_ffi_libraries == 0) {
+        return strdup("");
+    }
+
+    // First pass: calculate total length and collect unique flags
+    char **flags = malloc(ctx->num_ffi_libraries * sizeof(char*));
+    int num_flags = 0;
+    size_t total_len = 0;
+
+    for (int i = 0; i < ctx->num_ffi_libraries; i++) {
+        char *flag = ffi_library_to_linker_flag(ctx->ffi_libraries[i]);
+        if (flag) {
+            // Check for duplicates
+            int is_dup = 0;
+            for (int j = 0; j < num_flags; j++) {
+                if (strcmp(flags[j], flag) == 0) {
+                    is_dup = 1;
+                    break;
+                }
+            }
+            if (!is_dup) {
+                flags[num_flags++] = flag;
+                total_len += strlen(flag) + 1;  // +1 for space
+            } else {
+                free(flag);
+            }
+        }
+    }
+
+    if (num_flags == 0) {
+        free(flags);
+        return strdup("");
+    }
+
+    // Build the result string
+    char *result = malloc(total_len + 1);
+    result[0] = '\0';
+
+    for (int i = 0; i < num_flags; i++) {
+        if (i > 0) strcat(result, " ");
+        strcat(result, flags[i]);
+        free(flags[i]);
+    }
+    free(flags);
+
+    return result;
+}
+
+// Set static FFI mode (for --static builds)
+void codegen_set_static_ffi(CodegenContext *ctx, int enable) {
+    ctx->static_ffi = enable;
 }
 

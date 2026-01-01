@@ -16,6 +16,7 @@
 #include "../../include/ast.h"
 #include "../../include/version.h"
 #include "codegen.h"
+#include "codegen_internal.h"
 #include "type_check.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
@@ -123,6 +124,7 @@ typedef struct {
     int strict_types;            // Enable strict type checking (warn on implicit any)
     int check_only;              // Only type check, don't compile
     int static_link;             // Static link all libraries for standalone binary
+    char *ffi_linker_flags;      // FFI library linker flags (detected at compile time)
 } Options;
 
 static void print_usage(const char *progname) {
@@ -159,7 +161,8 @@ static Options parse_args(int argc, char **argv) {
         .type_check = 1,         // Type checking ON by default
         .strict_types = 0,
         .check_only = 0,
-        .static_link = 0
+        .static_link = 0,
+        .ffi_linker_flags = NULL
     };
 
     for (int i = 1; i < argc; i++) {
@@ -401,31 +404,50 @@ static int compile_c(const Options *opts, const char *c_file) {
 
     // Build the linker command
     int n;
+
+    // FFI library linker flags (detected at compile time from import statements)
+    const char *ffi_flags = (opts->ffi_linker_flags && strlen(opts->ffi_linker_flags) > 0)
+                            ? opts->ffi_linker_flags : "";
+    // Add leading space if we have FFI flags
+    char ffi_with_space[PATH_MAX] = "";
+    if (ffi_flags[0] != '\0') {
+        snprintf(ffi_with_space, sizeof(ffi_with_space), " %s", ffi_flags);
+    }
+
     if (opts->static_link) {
         // Static linking: use -static flag and link all libraries statically
         // This creates a fully standalone binary with no runtime dependencies
         // Requires static versions of libraries: libffi.a, libz.a, libcrypto.a, etc.
         //
+        // FFI libraries are linked statically using extern declarations generated
+        // during codegen. The compiler detects import "libfoo.so" statements and
+        // converts them to -lfoo linker flags.
+        //
         // Note: -ldl is omitted because dynamic loading (dlopen) is not available
         // with static linking. Runtime FFI (ffi_open/ffi_bind) won't work, but
-        // compile-time FFI (extern fn) still works via libffi.
+        // compile-time FFI (extern fn) still works via direct linking.
         //
         // On glibc systems, some features like DNS resolution may have issues.
         // For fully portable static binaries, consider using musl libc.
         if (opts->verbose) {
             printf("Static linking enabled - creating standalone binary\n");
             printf("Note: Runtime FFI (ffi_open/ffi_bind) disabled in static builds\n");
+            if (ffi_with_space[0] != '\0') {
+                printf("FFI libraries linked:%s\n", ffi_with_space);
+            }
         }
         n = snprintf(cmd, sizeof(cmd),
-            "%s %s -static -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
+            "%s %s -static -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s%s",
             opts->cc, opt_flag, opts->output_file, c_file,
-            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag, ffi_with_space);
     } else {
         // Dynamic linking (default): link against shared libraries
+        // FFI libraries detected at compile time are also linked here for better
+        // load-time error messages (vs runtime errors from dlopen)
         n = snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
+            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s%s",
             opts->cc, opt_flag, opts->output_file, c_file,
-            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag, ffi_with_space);
     }
 
     if (n >= (int)sizeof(cmd)) {
@@ -580,12 +602,24 @@ int main(int argc, char **argv) {
     ctx->type_ctx = type_ctx;  // Pass type context for unboxing hints
     // Note: ctx->optimize is already set in codegen_new() based on optimization level
     // Don't override it here - the type context is just for unboxing hints
+
+    // Enable static FFI mode when --static is used
+    if (opts.static_link) {
+        codegen_set_static_ffi(ctx, 1);
+    }
+
     codegen_program(ctx, statements, stmt_count);
 
     // Check for compilation errors
     int had_errors = ctx->error_count > 0;
     if (had_errors) {
         fprintf(stderr, "%d error%s generated\n", ctx->error_count, ctx->error_count > 1 ? "s" : "");
+    }
+
+    // Get FFI linker flags before freeing the context
+    opts.ffi_linker_flags = codegen_get_ffi_linker_flags(ctx);
+    if (opts.verbose && opts.ffi_linker_flags && strlen(opts.ffi_linker_flags) > 0) {
+        printf("FFI libraries detected: %s\n", opts.ffi_linker_flags);
     }
 
     codegen_free(ctx);
@@ -604,6 +638,7 @@ int main(int argc, char **argv) {
             unlink(c_file);
         }
         if (c_file_allocated) free(c_file);
+        if (opts.ffi_linker_flags) free(opts.ffi_linker_flags);
         return 1;
     }
 
@@ -619,6 +654,7 @@ int main(int argc, char **argv) {
             printf("C code written to %s\n", c_file);
         }
         if (c_file_allocated) free(c_file);
+        if (opts.ffi_linker_flags) free(opts.ffi_linker_flags);
         return 0;
     }
 
@@ -645,6 +681,11 @@ int main(int argc, char **argv) {
         }
     } else {
         fprintf(stderr, "C compilation failed with status %d\n", result);
+    }
+
+    // Free FFI linker flags
+    if (opts.ffi_linker_flags) {
+        free(opts.ffi_linker_flags);
     }
 
     return result;
