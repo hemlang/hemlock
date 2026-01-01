@@ -1,0 +1,10 @@
+Test 1: Basic ref with variable
+Before: 10
+After: 11
+Test 2: Multiple ref parameters (swap)
+Before: p=1, q=2
+After: p=2, q=1
+Test 3: Mixed ref and regular parameters
+Before: 100
+After: 150
+All ref parameter tests passed!

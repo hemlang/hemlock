@@ -13,6 +13,41 @@
 char* codegen_expr(CodegenContext *ctx, Expr *expr);
 
 /*
+ * Generate a pointer expression for ref parameter passing.
+ * For EXPR_IDENT: returns "&_main_varname" or "&varname"
+ * For other expressions: evaluates to temp and returns "&temp"
+ * Returns allocated string that must be freed.
+ */
+static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
+    if (arg->type == EXPR_IDENT) {
+        // Simple variable - return address of the actual variable
+        const char *var_name = arg->as.ident.name;
+        char *result = malloc(CODEGEN_MANGLED_NAME_SIZE);
+
+        if (codegen_is_main_var(ctx, var_name)) {
+            snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&_main_%s", var_name);
+        } else if (ctx->current_module && !codegen_is_local(ctx, var_name)) {
+            snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&%s%s",
+                    ctx->current_module->module_prefix, var_name);
+        } else {
+            char *safe_ident = codegen_sanitize_ident(var_name);
+            snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&%s", safe_ident);
+            free(safe_ident);
+        }
+        return result;
+    } else {
+        // Complex expression - evaluate to temp and take address
+        // This won't work for true pass-by-ref semantics (changes won't persist)
+        // but it's the best we can do for non-lvalue expressions
+        char *temp = codegen_expr(ctx, arg);
+        char *result = malloc(strlen(temp) + 2);
+        sprintf(result, "&%s", temp);
+        free(temp);
+        return result;
+    }
+}
+
+/*
  * Handle EXPR_CALL - generates code for call expressions.
  * This includes:
  * - Builtin function calls (print, typeof, alloc, etc.)
@@ -2317,11 +2352,22 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             // This is safe because we know the function signature at compile time
             int expected_params = codegen_get_main_func_params(ctx, fn_name);
             int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
+            int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, fn_name);
             char **arg_temps = expr->as.call.num_args > 0
                 ? malloc(expr->as.call.num_args * sizeof(char*))
                 : NULL;
+            int *arg_is_ref = expr->as.call.num_args > 0
+                ? calloc(expr->as.call.num_args, sizeof(int))
+                : NULL;
             for (int i = 0; i < expr->as.call.num_args; i++) {
-                arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                // For ref params, use codegen_ref_arg to get address of actual variable
+                if (param_is_ref && i < expected_params && param_is_ref[i]) {
+                    arg_temps[i] = codegen_ref_arg(ctx, expr->as.call.args[i]);
+                    arg_is_ref[i] = 1;
+                } else {
+                    arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                    arg_is_ref[i] = 0;
+                }
             }
 
             // For rest params, we need to collect extra args into an array
@@ -2341,6 +2387,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             // Pass regular args (up to expected_params)
             int regular_args = has_rest ? (expr->as.call.num_args < expected_params ? expr->as.call.num_args : expected_params) : expr->as.call.num_args;
             for (int i = 0; i < regular_args && arg_temps; i++) {
+                // Ref args already have & in their string, regular args are passed directly
                 fprintf(ctx->output, ", %s", arg_temps[i]);
             }
             // Fill in hml_val_null() for missing optional parameters
@@ -2358,7 +2405,10 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             fprintf(ctx->output, ");\n");
 
             for (int i = 0; i < expr->as.call.num_args; i++) {
-                codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                // Only release non-ref args (ref args are just addresses, nothing to release)
+                if (!arg_is_ref[i]) {
+                    codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                }
                 free(arg_temps[i]);
             }
             if (rest_array_temp) {
@@ -2366,6 +2416,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 free(rest_array_temp);
             }
             free(arg_temps);
+            free(arg_is_ref);
             return result;
         } else if (codegen_is_main_var(ctx, fn_name) && !import_binding) {
             // Main file variable that's NOT a function definition (e.g., assigned closure)
@@ -2376,11 +2427,22 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             if (codegen_is_main_func(ctx, fn_name) && !ctx->current_module) {
                 int expected_params = codegen_get_main_func_params(ctx, fn_name);
                 int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
+                int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, fn_name);
                 char **arg_temps = expr->as.call.num_args > 0
                     ? malloc(expr->as.call.num_args * sizeof(char*))
                     : NULL;
+                int *arg_is_ref = expr->as.call.num_args > 0
+                    ? calloc(expr->as.call.num_args, sizeof(int))
+                    : NULL;
                 for (int i = 0; i < expr->as.call.num_args; i++) {
-                    arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                    // For ref params, use codegen_ref_arg to get address of actual variable
+                    if (param_is_ref && i < expected_params && param_is_ref[i]) {
+                        arg_temps[i] = codegen_ref_arg(ctx, expr->as.call.args[i]);
+                        arg_is_ref[i] = 1;
+                    } else {
+                        arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                        arg_is_ref[i] = 0;
+                    }
                 }
 
                 // For rest params, we need to collect extra args into an array
@@ -2400,6 +2462,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 // Pass regular args (up to expected_params)
                 int regular_args = has_rest ? (expr->as.call.num_args < expected_params ? expr->as.call.num_args : expected_params) : expr->as.call.num_args;
                 for (int i = 0; i < regular_args && arg_temps; i++) {
+                    // Ref args already have & in their string, regular args are passed directly
                     fprintf(ctx->output, ", %s", arg_temps[i]);
                 }
                 // Fill in hml_val_null() for missing optional parameters
@@ -2417,7 +2480,10 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 fprintf(ctx->output, ");\n");
 
                 for (int i = 0; i < expr->as.call.num_args; i++) {
-                    codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                    // Only release non-ref args (ref args are just addresses, nothing to release)
+                    if (!arg_is_ref[i]) {
+                        codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                    }
                     free(arg_temps[i]);
                 }
                 if (rest_array_temp) {
@@ -2425,6 +2491,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     free(rest_array_temp);
                 }
                 free(arg_temps);
+                free(arg_is_ref);
                 return result;
             }
             // It's a true local function variable (not a main func) - call through hml_call_function

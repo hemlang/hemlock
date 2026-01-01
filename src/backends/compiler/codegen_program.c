@@ -39,7 +39,12 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
     for (int i = 0; i < func->as.function.num_params; i++) {
         char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
-        codegen_write(ctx, ", HmlValue %s", safe_param);
+        int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[i];
+        if (is_ref) {
+            codegen_write(ctx, ", HmlValue *%s", safe_param);
+        } else {
+            codegen_write(ctx, ", HmlValue %s", safe_param);
+        }
         free(safe_param);
     }
     if (func->as.function.rest_param) {
@@ -111,7 +116,12 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", closure->func_name);
     for (int i = 0; i < func->as.function.num_params; i++) {
         char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
-        codegen_write(ctx, ", HmlValue %s", safe_param);
+        int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[i];
+        if (is_ref) {
+            codegen_write(ctx, ", HmlValue *%s", safe_param);
+        } else {
+            codegen_write(ctx, ", HmlValue %s", safe_param);
+        }
         free(safe_param);
     }
     if (func->as.function.rest_param) {
@@ -387,7 +397,12 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
-                codegen_write(ctx, ", HmlValue %s", safe_param);
+                int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[j];
+                if (is_ref) {
+                    codegen_write(ctx, ", HmlValue *%s", safe_param);
+                } else {
+                    codegen_write(ctx, ", HmlValue %s", safe_param);
+                }
                 free(safe_param);
             }
             codegen_write(ctx, ");\n");
@@ -397,7 +412,12 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
-                codegen_write(ctx, ", HmlValue %s", safe_param);
+                int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[j];
+                if (is_ref) {
+                    codegen_write(ctx, ", HmlValue *%s", safe_param);
+                } else {
+                    codegen_write(ctx, ", HmlValue %s", safe_param);
+                }
                 free(safe_param);
             }
             codegen_write(ctx, ") {\n");
@@ -617,7 +637,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         Expr *func;
         if (is_function_def(stmt, &name, &func)) {
             codegen_add_main_var(ctx, name);
-            codegen_add_main_func(ctx, name, func->as.function.num_params, func->as.function.rest_param != NULL);  // Also track as function definition with param count and rest param
+            codegen_add_main_func(ctx, name, func->as.function.num_params, func->as.function.rest_param != NULL, func->as.function.param_is_ref);  // Also track as function definition with param count, rest param, and ref params
         } else if (stmt->type == STMT_CONST) {
             codegen_add_main_var(ctx, stmt->as.const_stmt.name);
             codegen_add_const(ctx, stmt->as.const_stmt.name);
@@ -1123,7 +1143,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", c->func_name);
             for (int i = 0; i < func->as.function.num_params; i++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
-                codegen_write(ctx, ", HmlValue %s", safe_param);
+                int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[i];
+                if (is_ref) {
+                    codegen_write(ctx, ", HmlValue *%s", safe_param);
+                } else {
+                    codegen_write(ctx, ", HmlValue %s", safe_param);
+                }
                 free(safe_param);
             }
             // Add rest param to forward declaration
@@ -1203,7 +1228,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
             for (int j = 0; j < func->as.function.num_params; j++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
-                codegen_write(ctx, ", HmlValue %s", safe_param);
+                int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[j];
+                if (is_ref) {
+                    codegen_write(ctx, ", HmlValue *%s", safe_param);
+                } else {
+                    codegen_write(ctx, ", HmlValue %s", safe_param);
+                }
                 free(safe_param);
             }
             // Add rest param to forward declaration

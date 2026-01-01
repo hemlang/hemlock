@@ -1,0 +1,39 @@
+// Test ref keyword for pass-by-reference parameters
+
+// Test 1: Basic ref parameter with variable
+fn increment(ref x: i32) {
+    x = x + 1;
+}
+
+let a = 10;
+print("Test 1: Basic ref with variable");
+print("Before: " + a);
+increment(a);
+print("After: " + a);
+
+// Test 2: Multiple ref parameters
+fn swap(ref x: i32, ref y: i32) {
+    let temp = x;
+    x = y;
+    y = temp;
+}
+
+let p = 1;
+let q = 2;
+print("Test 2: Multiple ref parameters (swap)");
+print("Before: p=" + p + ", q=" + q);
+swap(p, q);
+print("After: p=" + p + ", q=" + q);
+
+// Test 3: Mixed ref and regular parameters
+fn add_to_ref(ref x: i32, amount: i32) {
+    x = x + amount;
+}
+
+let value = 100;
+print("Test 3: Mixed ref and regular parameters");
+print("Before: " + value);
+add_to_ref(value, 50);
+print("After: " + value);
+
+print("All ref parameter tests passed!");

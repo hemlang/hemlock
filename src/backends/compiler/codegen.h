@@ -112,6 +112,7 @@ typedef struct {
     ClosureInfo *closures;  // List of closures to generate
     char **func_params;     // Current function parameters
     int num_func_params;    // Number of current function parameters
+    int *func_param_is_ref; // Which params are ref (pass-by-reference)
 
     // Defer support
     DeferEntry *defer_stack;  // Stack of deferred expressions (LIFO)
@@ -144,6 +145,7 @@ typedef struct {
     char **main_funcs;          // List of top-level function names in main file
     int *main_func_params;      // Number of parameters for each main file function
     int *main_func_has_rest;    // Whether each function has rest param (...args)
+    int **main_func_param_is_ref;  // Array of param_is_ref arrays for each main file function
     int num_main_funcs;         // Count of main file functions
     int main_funcs_capacity;    // Capacity of main_funcs array
 

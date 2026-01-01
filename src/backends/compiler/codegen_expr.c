@@ -906,9 +906,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", expr->as.assign.name);
                 var_name = prefixed_name;
             }
-            codegen_writeln(ctx, "hml_release(&%s);", var_name);
-            codegen_writeln(ctx, "%s = %s;", var_name, value);
-            codegen_writeln(ctx, "hml_retain(&%s);", var_name);
+            // Check if this is a ref parameter - if so, dereference for assignment
+            if (codegen_is_ref_param(ctx, expr->as.assign.name)) {
+                codegen_writeln(ctx, "hml_release(%s);", var_name);  // Already a pointer
+                codegen_writeln(ctx, "*%s = %s;", var_name, value);
+                codegen_writeln(ctx, "hml_retain(%s);", var_name);  // Already a pointer
+            } else {
+                codegen_writeln(ctx, "hml_release(&%s);", var_name);
+                codegen_writeln(ctx, "%s = %s;", var_name, value);
+                codegen_writeln(ctx, "hml_retain(&%s);", var_name);
+            }
 
             // If we're inside a closure and this is a captured variable,
             // update the closure environment so the change is visible to other closures
@@ -924,7 +931,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
             }
 
-            codegen_writeln(ctx, "HmlValue %s = %s;", result, var_name);
+            // Use dereferenced value for result if ref param
+            if (codegen_is_ref_param(ctx, expr->as.assign.name)) {
+                codegen_writeln(ctx, "HmlValue %s = *%s;", result, var_name);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = %s;", result, var_name);
+            }
             codegen_writeln(ctx, "hml_retain(&%s);", result);
             free(value);
             if (safe_var_name) free(safe_var_name);

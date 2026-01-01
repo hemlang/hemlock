@@ -39,6 +39,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->closures = NULL;
     ctx->func_params = NULL;
     ctx->num_func_params = 0;
+    ctx->func_param_is_ref = NULL;
     ctx->defer_stack = NULL;
     ctx->defer_scope_depth = 0;
     ctx->current_closure = NULL;
@@ -57,6 +58,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->main_funcs = NULL;
     ctx->main_func_params = NULL;
     ctx->main_func_has_rest = NULL;
+    ctx->main_func_param_is_ref = NULL;
     ctx->num_main_funcs = 0;
     ctx->main_funcs_capacity = 0;
     ctx->main_imports = NULL;
@@ -147,6 +149,14 @@ void codegen_free(CodegenContext *ctx) {
         }
         if (ctx->main_func_has_rest) {
             free(ctx->main_func_has_rest);
+        }
+        if (ctx->main_func_param_is_ref) {
+            for (int i = 0; i < ctx->num_main_funcs; i++) {
+                if (ctx->main_func_param_is_ref[i]) {
+                    free(ctx->main_func_param_is_ref[i]);
+                }
+            }
+            free(ctx->main_func_param_is_ref);
         }
 
         // Free shadow variables tracking
@@ -491,17 +501,27 @@ int codegen_is_main_var(CodegenContext *ctx, const char *name) {
 }
 
 // Main file function definitions (subset of main_vars that are actual function defs)
-void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params, int has_rest) {
+void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params, int has_rest, int *param_is_ref) {
     if (ctx->num_main_funcs >= ctx->main_funcs_capacity) {
         int new_cap = (ctx->main_funcs_capacity == 0) ? 16 : ctx->main_funcs_capacity * 2;
         ctx->main_funcs = realloc(ctx->main_funcs, new_cap * sizeof(char*));
         ctx->main_func_params = realloc(ctx->main_func_params, new_cap * sizeof(int));
         ctx->main_func_has_rest = realloc(ctx->main_func_has_rest, new_cap * sizeof(int));
+        ctx->main_func_param_is_ref = realloc(ctx->main_func_param_is_ref, new_cap * sizeof(int*));
         ctx->main_funcs_capacity = new_cap;
     }
     ctx->main_funcs[ctx->num_main_funcs] = strdup(name);
     ctx->main_func_params[ctx->num_main_funcs] = num_params;
     ctx->main_func_has_rest[ctx->num_main_funcs] = has_rest;
+    // Copy param_is_ref array
+    if (param_is_ref && num_params > 0) {
+        ctx->main_func_param_is_ref[ctx->num_main_funcs] = malloc(num_params * sizeof(int));
+        for (int i = 0; i < num_params; i++) {
+            ctx->main_func_param_is_ref[ctx->num_main_funcs][i] = param_is_ref[i];
+        }
+    } else {
+        ctx->main_func_param_is_ref[ctx->num_main_funcs] = NULL;
+    }
     ctx->num_main_funcs++;
 }
 
@@ -530,6 +550,15 @@ int codegen_get_main_func_has_rest(CodegenContext *ctx, const char *name) {
         }
     }
     return 0;  // Not found, assume no rest param
+}
+
+int* codegen_get_main_func_param_is_ref(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_main_funcs; i++) {
+        if (strcmp(ctx->main_funcs[i], name) == 0) {
+            return ctx->main_func_param_is_ref[i];
+        }
+    }
+    return NULL;  // Not found
 }
 
 // Main file import tracking (for function call resolution)
@@ -855,6 +884,7 @@ void funcgen_add_params(CodegenContext *ctx, Expr *func) {
     // These are always HmlValue and cannot be unboxed
     ctx->func_params = func->as.function.param_names;
     ctx->num_func_params = func->as.function.num_params;
+    ctx->func_param_is_ref = func->as.function.param_is_ref;
 
     for (int i = 0; i < func->as.function.num_params; i++) {
         codegen_add_local(ctx, func->as.function.param_names[i]);
@@ -869,6 +899,17 @@ int codegen_is_func_param(CodegenContext *ctx, const char *name) {
     for (int i = 0; i < ctx->num_func_params; i++) {
         if (strcmp(ctx->func_params[i], name) == 0) {
             return 1;
+        }
+    }
+    return 0;
+}
+
+// Check if a variable name is a ref parameter (pass-by-reference)
+int codegen_is_ref_param(CodegenContext *ctx, const char *name) {
+    if (!ctx->func_param_is_ref) return 0;
+    for (int i = 0; i < ctx->num_func_params; i++) {
+        if (strcmp(ctx->func_params[i], name) == 0) {
+            return ctx->func_param_is_ref[i];
         }
     }
     return 0;

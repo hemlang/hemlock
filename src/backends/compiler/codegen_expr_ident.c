@@ -602,7 +602,12 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
                 // Inside a function - locals (params, loop vars) ALWAYS shadow module exports
                 // This must be checked BEFORE module export lookup
                 char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
-                codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                // Check if this is a ref parameter - if so, dereference it
+                if (codegen_is_ref_param(ctx, expr->as.ident.name)) {
+                    codegen_writeln(ctx, "HmlValue %s = *%s;", result, safe_ident);
+                } else {
+                    codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
+                }
                 free(safe_ident);
             } else if (ctx->current_module) {
                 // At module level (not in function) - check if it's a module export (self-reference)
