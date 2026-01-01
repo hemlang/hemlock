@@ -130,12 +130,18 @@ download() {
     fi
 }
 
-# Note: Hemlock binaries are now statically linked
-# No runtime dependencies are required for the interpreter or compiler
+# Check runtime dependencies
+# Linux: Interpreter requires glibc (standard on all major distros)
+# macOS: No additional dependencies needed
 check_runtime_deps() {
-    # Static binaries - no runtime dependencies needed!
-    # This function is kept for backwards compatibility but does nothing.
-    :
+    local os="$1"
+    if [[ "$os" == "linux" ]]; then
+        # Check for glibc - virtually all Linux distros have this
+        if ! ldd --version &>/dev/null; then
+            warn "glibc not detected. The interpreter requires glibc (standard C library)."
+            warn "Alpine Linux and other musl-based distros are not supported."
+        fi
+    fi
 }
 
 # Main installation
@@ -207,14 +213,12 @@ main() {
         cp -r "$tmpdir/${artifact_name}/include"/* "$PREFIX/lib/hemlock/include/"
     fi
 
-    # Check runtime dependencies (no-op for static binaries)
+    # Check runtime dependencies
     check_runtime_deps "$os"
 
     # Success message
     echo ""
     success "Hemlock $VERSION installed successfully!"
-    echo ""
-    echo -e "${GREEN}Statically linked binaries - no runtime dependencies required!${NC}"
     echo ""
     echo "  Interpreter: $PREFIX/bin/hemlock"
     if [[ -f "$PREFIX/bin/hemlockc" ]]; then

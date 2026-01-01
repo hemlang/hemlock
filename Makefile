@@ -390,13 +390,13 @@ release-clean:
 	rm -rf $(RELEASE_BUILD_DIR)
 
 # ========== STATIC RELEASE BUILD ==========
-# Build fully static binaries for portable distribution
-# On Linux: requires musl-dev and static library packages
-# On macOS: links third-party libs statically (system libs remain dynamic)
+# Build binaries with third-party libs statically linked for portability
+# On Linux: static libffi/libz/libcrypto, dynamic glibc (for dlopen/FFI support)
+# On macOS: static third-party libs, dynamic system frameworks
 
 STATIC_BUILD_DIR = build-static
 
-# Static library flags - prefer .a files over .so
+# Static library flags - prefer .a files over .so for third-party libs
 ifeq ($(shell uname),Darwin)
     # macOS: Can't fully static link, but we can statically link third-party libs
     # System frameworks (libSystem) are always dynamic on macOS
@@ -420,13 +420,22 @@ ifeq ($(shell uname),Darwin)
         endif
     endif
 else
-    # Linux: Full static linking with musl
-    # Requires: musl-dev, libffi-dev (static), zlib-static, openssl-libs-static
-    STATIC_LDFLAGS = -static
-    STATIC_LDFLAGS += -lffi -lcrypto -lz -lm -lpthread -ldl
+    # Linux: Hybrid static/dynamic linking
+    # - Static: libffi, libz, libcrypto (no user install needed)
+    # - Dynamic: glibc (libc, libm, libpthread, libdl) for dlopen/FFI support
+    # Requires: libffi-dev, zlib1g-dev, libssl-dev (for static .a files)
+    STATIC_LDFLAGS = -Wl,-Bstatic -lffi -lz -lcrypto -Wl,-Bdynamic -lm -lpthread -ldl
     ifeq ($(HAS_LIBWEBSOCKETS),1)
-        STATIC_LDFLAGS += -lwebsockets
+        STATIC_LDFLAGS += -Wl,-Bstatic -lwebsockets -Wl,-Bdynamic
     endif
+endif
+
+# Compiler-only static flags (full static OK since no dlopen needed)
+ifeq ($(shell uname),Darwin)
+    STATIC_COMPILER_LDFLAGS = $(STATIC_LDFLAGS)
+else
+    # Linux: Compiler can be fully static (no FFI/dlopen needed)
+    STATIC_COMPILER_LDFLAGS = -static -lm
 endif
 
 STATIC_OBJS = $(patsubst $(SRC_DIR)/%.c,$(STATIC_BUILD_DIR)/%.o,$(SRCS))
