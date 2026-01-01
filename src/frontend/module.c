@@ -207,7 +207,7 @@ static void ensure_export_capacity(Module *module) {
 }
 
 // Find the stdlib directory path
-static char* find_stdlib_path() {
+static char* find_stdlib_path(void) {
     char exe_path[PATH_MAX];
     char resolved[PATH_MAX];
     int found_exe = 0;

@@ -187,7 +187,7 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  -c              Emit C code only (don't compile)\n");
     fprintf(stderr, "  --emit-c <f>    Write generated C to file\n");
     fprintf(stderr, "  -k, --keep-c    Keep generated C file after compilation\n");
-    fprintf(stderr, "  -O<level>       Optimization level (0-3, default: 2)\n");
+    fprintf(stderr, "  -O<level>       Optimization level (0-3, default: 3)\n");
 #ifdef __APPLE__
     fprintf(stderr, "  --cc <path>     C compiler to use (default: clang)\n");
 #else
@@ -212,7 +212,7 @@ static Options parse_args(int argc, char **argv) {
         .emit_c_only = 0,
         .verbose = 0,
         .keep_c = 0,
-        .optimize = 2,           // Default to -O2 for better performance
+        .optimize = 3,           // Default to -O3 for best performance
 #ifdef __APPLE__
         .cc = "clang",           // Use clang on macOS (better ARM64 optimization)
 #else
