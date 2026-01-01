@@ -54,6 +54,95 @@ static int is_const_integer(Expr *expr, int64_t *value) {
     return 0;
 }
 
+// Type inference result for compile-time optimization
+typedef enum {
+    INFER_UNKNOWN = 0,
+    INFER_I32,
+    INFER_I64,
+    INFER_F64,
+    INFER_BOOL
+} InferredNumericType;
+
+// OPTIMIZATION: Infer the numeric type of an expression at compile time
+// Returns INFER_UNKNOWN if type cannot be determined
+static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
+    if (!expr) return INFER_UNKNOWN;
+
+    switch (expr->type) {
+        case EXPR_NUMBER:
+            if (expr->as.number.is_float) {
+                return INFER_F64;
+            }
+            // Check if it fits in i32
+            if (expr->as.number.int_value >= INT32_MIN &&
+                expr->as.number.int_value <= INT32_MAX) {
+                return INFER_I32;
+            }
+            return INFER_I64;
+
+        case EXPR_BOOL:
+            return INFER_BOOL;
+
+        case EXPR_IDENT:
+            // Check if this is an unboxable typed variable
+            if (ctx->optimize && ctx->type_ctx &&
+                !codegen_is_func_param(ctx, expr->as.ident.name)) {
+                CheckedTypeKind native_type = type_check_get_unboxable(
+                    ctx->type_ctx, expr->as.ident.name);
+                switch (native_type) {
+                    case CHECKED_I8:
+                    case CHECKED_I16:
+                    case CHECKED_I32:
+                    case CHECKED_U8:
+                    case CHECKED_U16:
+                    case CHECKED_U32:
+                        return INFER_I32;
+                    case CHECKED_I64:
+                    case CHECKED_U64:
+                        return INFER_I64;
+                    case CHECKED_F32:
+                    case CHECKED_F64:
+                        return INFER_F64;
+                    default:
+                        break;
+                }
+            }
+            return INFER_UNKNOWN;
+
+        case EXPR_BINARY:
+            // For arithmetic/bitwise ops, infer from operands
+            if (expr->as.binary.op >= OP_ADD && expr->as.binary.op <= OP_BIT_RSHIFT) {
+                InferredNumericType left = infer_numeric_type(ctx, expr->as.binary.left);
+                InferredNumericType right = infer_numeric_type(ctx, expr->as.binary.right);
+
+                // If both are known and compatible, return the promoted type
+                if (left != INFER_UNKNOWN && right != INFER_UNKNOWN) {
+                    // Float always wins
+                    if (left == INFER_F64 || right == INFER_F64) return INFER_F64;
+                    // i64 promotes i32
+                    if (left == INFER_I64 || right == INFER_I64) return INFER_I64;
+                    // Both i32
+                    if (left == INFER_I32 && right == INFER_I32) return INFER_I32;
+                }
+            }
+            // Comparison ops return bool
+            if (expr->as.binary.op >= OP_LESS && expr->as.binary.op <= OP_NOT_EQUAL) {
+                return INFER_BOOL;
+            }
+            return INFER_UNKNOWN;
+
+        case EXPR_UNARY:
+            if (expr->as.unary.op == UNARY_NOT) {
+                return INFER_BOOL;
+            }
+            // Negation and bit-not preserve type
+            return infer_numeric_type(ctx, expr->as.unary.operand);
+
+        default:
+            return INFER_UNKNOWN;
+    }
+}
+
 // OPTIMIZATION: Check if expression is a double negation (!!x or --x)
 // Returns the inner expression if it's a double negation, NULL otherwise
 static Expr* get_double_negation_inner(Expr *expr) {
@@ -642,10 +731,22 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *left = codegen_expr(ctx, expr->as.binary.left);
             char *right = codegen_expr(ctx, expr->as.binary.right);
 
-            // Note: Compile-time type inference for binary ops is disabled.
-            // Runtime dispatch handles type-specific fast paths.
-            int both_i32 = 0;  // Disabled - use runtime dispatch
-            int both_i64 = 0;  // Disabled - use runtime dispatch
+            // OPTIMIZATION: Compile-time type inference for binary operations
+            // When we can determine the types at compile time, skip runtime type checks
+            int both_i32 = 0;
+            int both_i64 = 0;
+            if (ctx->optimize) {
+                InferredNumericType left_type = infer_numeric_type(ctx, expr->as.binary.left);
+                InferredNumericType right_type = infer_numeric_type(ctx, expr->as.binary.right);
+                if (left_type == INFER_I32 && right_type == INFER_I32) {
+                    both_i32 = 1;
+                } else if ((left_type == INFER_I64 || left_type == INFER_I32) &&
+                           (right_type == INFER_I64 || right_type == INFER_I32) &&
+                           (left_type == INFER_I64 || right_type == INFER_I64)) {
+                    // One or both are i64, neither is unknown or float
+                    both_i64 = 1;
+                }
+            }
 
             // OPTIMIZATION: i32 and i64 fast paths for binary operations
             // This matches the interpreter's fast paths for common integer operations
