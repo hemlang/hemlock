@@ -20,6 +20,8 @@ hemlock.exe
 
 # Build directories
 build/
+build-release/
+build-static/
 bin/
 obj/
 out/
