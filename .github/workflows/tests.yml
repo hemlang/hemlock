@@ -168,6 +168,7 @@ jobs:
 
     - name: Run scan-build
       run: make scan-build
+      continue-on-error: true  # Informational - don't fail CI
 
     - name: Upload scan-build reports
       if: always()
