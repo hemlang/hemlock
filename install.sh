@@ -130,11 +130,10 @@ download() {
     fi
 }
 
-# Note: Hemlock binaries are now statically linked
-# No runtime dependencies are required for the interpreter or compiler
-check_runtime_deps() {
-    # Static binaries - no runtime dependencies needed!
-    # This function is kept for backwards compatibility but does nothing.
+# Check if building from source is needed (for development)
+check_build_deps() {
+    # For pre-built binaries, no dependencies are needed - they're statically linked!
+    # This function is kept for backwards compatibility.
     :
 }
 
@@ -207,14 +206,14 @@ main() {
         cp -r "$tmpdir/${artifact_name}/include"/* "$PREFIX/lib/hemlock/include/"
     fi
 
-    # Check runtime dependencies (no-op for static binaries)
-    check_runtime_deps "$os"
-
     # Success message
     echo ""
     success "Hemlock $VERSION installed successfully!"
     echo ""
-    echo -e "${GREEN}Statically linked binaries - no runtime dependencies required!${NC}"
+    echo -e "${GREEN}Binaries are statically linked - no dependencies required!${NC}"
+    echo ""
+    echo -e "${YELLOW}Note:${NC} Runtime FFI (ffi_open/ffi_bind) is not available in static builds."
+    echo "      Compile-time FFI (extern fn) works normally."
     echo ""
     echo "  Interpreter: $PREFIX/bin/hemlock"
     if [[ -f "$PREFIX/bin/hemlockc" ]]; then
