@@ -172,6 +172,14 @@ static BuiltinInfo builtins[] = {
     {"__ecdsa_free_key", builtin_ecdsa_free_key},
     {"__ecdsa_sign", builtin_ecdsa_sign},
     {"__ecdsa_verify", builtin_ecdsa_verify},
+    // Regex builtins (use stdlib/regex.hml module for public API)
+    {"__regex_compile", builtin_regex_compile},
+    {"__regex_test", builtin_regex_test},
+    {"__regex_match", builtin_regex_match},
+    {"__regex_free", builtin_regex_free},
+    {"__regex_error", builtin_regex_error},
+    {"__regex_replace", builtin_regex_replace},
+    {"__regex_replace_all", builtin_regex_replace_all},
     // OS information builtins (use stdlib/os.hml module for public API)
     {"__platform", builtin_platform},
     {"__arch", builtin_arch},

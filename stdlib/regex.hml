@@ -1,23 +1,6 @@
 // Hemlock Standard Library: Regular Expressions
-// This module provides regex pattern matching using POSIX regex via FFI
-
-// Import libc for POSIX regex functions
-import "libc.so.6";
-
-// ========== FFI DECLARATIONS ==========
-
-// POSIX regex functions
-// int regcomp(regex_t *preg, const char *regex, int cflags)
-extern fn regcomp(preg: ptr, pattern: string, cflags: i32): i32;
-
-// int regexec(const regex_t *preg, const char *string, size_t nmatch, regmatch_t pmatch[], int eflags)
-extern fn regexec(preg: ptr, text: string, nmatch: i32, pmatch: ptr, eflags: i32): i32;
-
-// void regfree(regex_t *preg)
-extern fn regfree(preg: ptr): void;
-
-// size_t regerror(int errcode, const regex_t *preg, char *errbuf, size_t errbuf_size)
-extern fn regerror(errcode: i32, preg: ptr, errbuf: ptr, errbuf_size: i32): i32;
+// This module provides regex pattern matching using POSIX regex via builtins
+// Works with both interpreter and compiler, including static builds
 
 // ========== CONSTANTS ==========
 
@@ -56,19 +39,11 @@ export fn compile(pattern: string, flags): object {
         flags = REG_EXTENDED;
     }
 
-    // Allocate regex_t struct (typical size is 56-64 bytes, use 128 to be safe)
-    let preg = alloc(128);
-    memset(preg, 0, 128);
-
-    // Compile the pattern
-    let result = regcomp(preg, pattern, flags);
+    // Compile the pattern using builtin
+    let preg = __regex_compile(pattern, flags);
 
     // Check for compilation errors
-    if (result != 0) {
-        // Clean up (note: do NOT call regfree on failed regcomp!)
-        free(preg);
-
-        // Throw error (we can't easily extract the regerror message from the buffer)
+    if (preg == null) {
         throw "Regex compilation failed";
     }
 
@@ -88,8 +63,7 @@ export fn compile(pattern: string, flags): object {
             if (self._freed) {
                 throw "Regex has been freed";
             }
-            let result = regexec(self._preg, text, 0, null, 0);
-            return result == 0;
+            return __regex_test(self._preg, text, null);
         },
 
         // Match string and return true/false
@@ -102,15 +76,38 @@ export fn compile(pattern: string, flags): object {
             if (self._freed) {
                 throw "Regex has been freed";
             }
-            let result = regexec(self._preg, text, 0, null, 0);
-            return result == 0;
+            return __regex_test(self._preg, text, null);
+        },
+
+        // Find all matches and return array of match objects
+        // Each match object has: { start: i32, end: i32, text: string }
+        match: fn(text: string, max_matches): array {
+            if (self._freed) {
+                throw "Regex has been freed";
+            }
+            return __regex_match(self._preg, text, max_matches);
+        },
+
+        // Replace first match with replacement string
+        replace: fn(text: string, replacement: string): string {
+            if (self._freed) {
+                throw "Regex has been freed";
+            }
+            return __regex_replace(self._preg, text, replacement);
+        },
+
+        // Replace all matches with replacement string
+        replace_all: fn(text: string, replacement: string): string {
+            if (self._freed) {
+                throw "Regex has been freed";
+            }
+            return __regex_replace_all(self._preg, text, replacement);
         },
 
         // Free the compiled regex (must be called manually)
         free: fn() {
             if (!self._freed) {
-                regfree(self._preg);
-                free(self._preg);
+                __regex_free(self._preg);
                 self._freed = true;
             }
             return null;
@@ -141,4 +138,27 @@ export fn matches(pattern: string, text: string, flags): bool {
 // flags: compilation flags (pass null for default REG_EXTENDED)
 export fn find(pattern: string, text: string, flags): bool {
     return test(pattern, text, flags);
+}
+
+// Replace first match in text (one-shot)
+// flags: compilation flags (pass null for default REG_EXTENDED)
+export fn replace(pattern: string, text: string, replacement: string, flags): string {
+    let regex = compile(pattern, flags);
+    let result = regex.replace(text, replacement);
+    regex.free();
+    return result;
+}
+
+// Replace all matches in text (one-shot)
+// flags: compilation flags (pass null for default REG_EXTENDED)
+export fn replace_all(pattern: string, text: string, replacement: string, flags): string {
+    let regex = compile(pattern, flags);
+    let result = regex.replace_all(text, replacement);
+    regex.free();
+    return result;
+}
+
+// Get error message for a regex error code
+export fn error_message(errcode: i32): string {
+    return __regex_error(errcode, null);
 }

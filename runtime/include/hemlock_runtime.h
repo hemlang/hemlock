@@ -861,6 +861,26 @@ HmlValue hml_builtin_ecdsa_free_key(HmlClosureEnv *env, HmlValue keypair);
 HmlValue hml_builtin_ecdsa_sign(HmlClosureEnv *env, HmlValue data, HmlValue keypair);
 HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue sig, HmlValue keypair);
 
+// ========== REGEX OPERATIONS ==========
+
+// Core regex functions
+HmlValue hml_regex_compile(HmlValue pattern, HmlValue flags);
+HmlValue hml_regex_test(HmlValue preg, HmlValue text, HmlValue eflags);
+HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches);
+HmlValue hml_regex_free(HmlValue preg);
+HmlValue hml_regex_error(HmlValue errcode, HmlValue preg);
+HmlValue hml_regex_replace(HmlValue preg, HmlValue text, HmlValue replacement);
+HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacement);
+
+// Regex builtin wrappers
+HmlValue hml_builtin_regex_compile(HmlClosureEnv *env, HmlValue pattern, HmlValue flags);
+HmlValue hml_builtin_regex_test(HmlClosureEnv *env, HmlValue preg, HmlValue text, HmlValue eflags);
+HmlValue hml_builtin_regex_match(HmlClosureEnv *env, HmlValue preg, HmlValue text, HmlValue max_matches);
+HmlValue hml_builtin_regex_free(HmlClosureEnv *env, HmlValue preg);
+HmlValue hml_builtin_regex_error(HmlClosureEnv *env, HmlValue errcode, HmlValue preg);
+HmlValue hml_builtin_regex_replace(HmlClosureEnv *env, HmlValue preg, HmlValue text, HmlValue replacement);
+HmlValue hml_builtin_regex_replace_all(HmlClosureEnv *env, HmlValue preg, HmlValue text, HmlValue replacement);
+
 // ========== CALL STACK TRACKING ==========
 
 // Default maximum call stack depth (matches interpreter's limit)

@@ -305,4 +305,13 @@ Value builtin_atomic_exchange_i64(Value *args, int num_args, ExecutionContext *c
 // Memory fence
 Value builtin_atomic_fence(Value *args, int num_args, ExecutionContext *ctx);
 
+// Regex builtins (regex.c)
+Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_regex_free(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_regex_error(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H

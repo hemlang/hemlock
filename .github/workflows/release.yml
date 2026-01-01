@@ -35,29 +35,32 @@ jobs:
     - name: Build runtime library
       run: make runtime
 
-    - name: Build static binaries
-      run: make release-static
+    - name: Build interpreter (dynamic for full FFI support)
+      run: make interpreter
+
+    - name: Build compiler (static for portability)
+      run: make release-static-compiler
 
     - name: Run basic tests
       run: |
-        # Test the static binary works
-        echo 'print("Hello from static Hemlock!");' > /tmp/test.hml
-        ./build-static/hemlock /tmp/test.hml
+        # Test the interpreter works
+        echo 'print("Hello from Hemlock!");' > /tmp/test.hml
+        ./hemlock /tmp/test.hml
 
-    - name: Verify static linking
+    - name: Verify builds
       run: |
         echo "=== Binary info ==="
-        file build-static/hemlock
+        file hemlock
         file build-static/hemlockc
         echo ""
-        echo "=== Checking for dynamic dependencies ==="
-        ldd build-static/hemlock 2>&1 || echo "✓ hemlock is statically linked"
+        echo "=== Checking dependencies ==="
+        ldd hemlock || echo "(static or no ldd)"
         ldd build-static/hemlockc 2>&1 || echo "✓ hemlockc is statically linked"
 
     - name: Package
       run: |
         mkdir -p hemlock-linux-x86_64
-        cp build-static/hemlock hemlock-linux-x86_64/
+        cp hemlock hemlock-linux-x86_64/
         cp build-static/hemlockc hemlock-linux-x86_64/
         cp libhemlock_runtime.a hemlock-linux-x86_64/
         cp -r stdlib hemlock-linux-x86_64/
@@ -86,18 +89,21 @@ jobs:
     - name: Build runtime library
       run: make runtime
 
-    - name: Build static binaries
-      run: make release-static
+    - name: Build interpreter (dynamic for full FFI support)
+      run: make interpreter
+
+    - name: Build compiler (static libs where possible)
+      run: make release-static-compiler
 
     - name: Run basic tests
       run: |
         echo 'print("Hello from Hemlock!");' > /tmp/test.hml
-        ./build-static/hemlock /tmp/test.hml
+        ./hemlock /tmp/test.hml
 
     - name: Package
       run: |
         mkdir -p hemlock-macos-x86_64
-        cp build-static/hemlock hemlock-macos-x86_64/
+        cp hemlock hemlock-macos-x86_64/
         cp build-static/hemlockc hemlock-macos-x86_64/
         cp libhemlock_runtime.a hemlock-macos-x86_64/
         cp -r stdlib hemlock-macos-x86_64/
@@ -125,18 +131,21 @@ jobs:
     - name: Build runtime library
       run: make runtime
 
-    - name: Build static binaries
-      run: make release-static
+    - name: Build interpreter (dynamic for full FFI support)
+      run: make interpreter
+
+    - name: Build compiler (static libs where possible)
+      run: make release-static-compiler
 
     - name: Run basic tests
       run: |
         echo 'print("Hello from Hemlock!");' > /tmp/test.hml
-        ./build-static/hemlock /tmp/test.hml
+        ./hemlock /tmp/test.hml
 
     - name: Package
       run: |
         mkdir -p hemlock-macos-arm64
-        cp build-static/hemlock hemlock-macos-arm64/
+        cp hemlock hemlock-macos-arm64/
         cp build-static/hemlockc hemlock-macos-arm64/
         cp libhemlock_runtime.a hemlock-macos-arm64/
         cp -r stdlib hemlock-macos-arm64/
@@ -167,13 +176,13 @@ jobs:
       with:
         generate_release_notes: true
         body: |
-          ## Static Binaries
+          ## Release Binaries
 
-          All binaries are statically linked for maximum portability:
-          - **Linux x86_64**: Fully static (musl libc) - no runtime dependencies
-          - **macOS x86_64/arm64**: Third-party libs statically linked
+          - **hemlock** (interpreter): Dynamically linked for full FFI support
+          - **hemlockc** (compiler): Statically linked for portability
 
-          Just download, extract, and run - no need to install libffi, openssl, etc.
+          The interpreter supports all features including runtime FFI (`ffi_open`, `ffi_bind`).
+          The compiler is a portable code generator that produces native binaries.
 
           ### Quick Start
           ```bash
@@ -187,6 +196,10 @@ jobs:
           # Compile to native binary
           ./hemlockc your_script.hml -o your_program
           ```
+
+          ### Platform Notes
+          - **Linux x86_64**: Interpreter requires libffi, compiler is fully static
+          - **macOS x86_64/arm64**: Both binaries work out of the box
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz

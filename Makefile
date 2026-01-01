@@ -443,7 +443,7 @@ STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
                     $(STATIC_BUILD_DIR)/lsp \
                     $(STATIC_BUILD_DIR)/bundler
 
-.PHONY: release-static release-static-clean
+.PHONY: release-static release-static-compiler release-static-clean
 
 # Build static, optimized, stripped binary for portable distribution
 release-static: $(STATIC_BUILD_DIRS) $(STATIC_BUILD_DIR)/hemlock $(STATIC_BUILD_DIR)/hemlockc
@@ -455,6 +455,18 @@ ifeq ($(shell uname),Linux)
 	@echo "Verifying static linking..."
 	@file $(STATIC_BUILD_DIR)/hemlock
 	@ldd $(STATIC_BUILD_DIR)/hemlock 2>&1 || echo "  (statically linked - no dynamic dependencies)"
+endif
+
+# Build only the static compiler (for release builds with dynamic interpreter)
+release-static-compiler: $(STATIC_BUILD_DIRS) $(STATIC_BUILD_DIR)/hemlockc
+	@echo ""
+	@echo "✓ Static compiler build complete:"
+	@ls -lh $(STATIC_BUILD_DIR)/hemlockc
+ifeq ($(shell uname),Linux)
+	@echo ""
+	@echo "Verifying static linking..."
+	@file $(STATIC_BUILD_DIR)/hemlockc
+	@ldd $(STATIC_BUILD_DIR)/hemlockc 2>&1 || echo "  (statically linked - no dynamic dependencies)"
 endif
 
 $(STATIC_BUILD_DIRS):
