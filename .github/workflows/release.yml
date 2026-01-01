@@ -22,7 +22,10 @@ jobs:
           libffi-dev \
           zlib1g-dev \
           libssl-dev \
-          libwebsockets-dev
+          libwebsockets-dev \
+          libcap-dev \
+          libuv1-dev \
+          libev-dev
 
     - name: Build runtime library
       run: make runtime
