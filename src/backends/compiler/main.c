@@ -123,6 +123,7 @@ typedef struct {
     int strict_types;            // Enable strict type checking (warn on implicit any)
     int check_only;              // Only type check, don't compile
     int static_link;             // Static link all libraries for standalone binary
+    int portable_link;           // Partial static: static third-party libs, dynamic libc
 } Options;
 
 static void print_usage(const char *progname) {
@@ -140,6 +141,7 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
     fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
+    fprintf(stderr, "  --portable      Partial static: bake in libffi/crypto/z, keep libc dynamic\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  -h, --help      Show this help message\n");
     fprintf(stderr, "  --version       Show version\n");
@@ -159,7 +161,8 @@ static Options parse_args(int argc, char **argv) {
         .type_check = 1,         // Type checking ON by default
         .strict_types = 0,
         .check_only = 0,
-        .static_link = 0
+        .static_link = 0,
+        .portable_link = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -197,6 +200,8 @@ static Options parse_args(int argc, char **argv) {
             opts.strict_types = 1;
         } else if (strcmp(argv[i], "--static") == 0) {
             opts.static_link = 1;
+        } else if (strcmp(argv[i], "--portable") == 0) {
+            opts.portable_link = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -420,6 +425,19 @@ static int compile_c(const Options *opts, const char *c_file) {
             "%s %s -static -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
             opts->cc, opt_flag, opts->output_file, c_file,
             include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+    } else if (opts->portable_link) {
+        // Portable linking: statically link third-party libs, dynamically link libc
+        // This creates a binary that only needs libc at runtime (everyone has it)
+        // but doesn't require users to install libffi, libcrypto, libz, etc.
+        if (opts->verbose) {
+            printf("Portable linking enabled - static third-party libs, dynamic libc\n");
+        }
+        n = snprintf(cmd, sizeof(cmd),
+            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s "
+            "-Wl,-Bstatic -lffi%s%s "
+            "-Wl,-Bdynamic -ldl -lpthread -lm",
+            opts->cc, opt_flag, opts->output_file, c_file,
+            include_path, runtime_path, extra_lib_paths, zlib_flag, crypto_flag);
     } else {
         // Dynamic linking (default): link against shared libraries
         n = snprintf(cmd, sizeof(cmd),
