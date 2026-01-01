@@ -1,0 +1,32 @@
+// Test that accessing a missing field returns null instead of throwing an error
+
+let obj = { name: "Alice", age: 30 };
+
+// Existing fields work
+print(obj.name);
+print(obj.age);
+
+// Missing field returns null
+let missing = obj.nonexistent;
+print(missing);
+print(typeof(missing));
+
+// Can check for null
+if (missing == null) {
+    print("missing field is null");
+}
+
+// Deeply nested with missing intermediate - with optional chaining
+let data = { user: { profile: { name: "Bob" } } };
+print(data.user.profile.name);
+
+// Missing field on nested object
+let noEmail = data.user.profile.email;
+print(noEmail);
+
+// Dynamic field that doesn't exist
+let fieldName = "unknown";
+let dynamic = obj[fieldName];
+print(dynamic);
+
+print("done");

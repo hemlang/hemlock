@@ -2019,7 +2019,7 @@ HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     return hml_val_null();  // Field not found
 }
 
-// Get field from object - throws error if field not found (for strict property access)
+// Get field from object - returns null if field not found
 HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
         hml_runtime_error("Property access requires object (trying to get '%s' from type %s)",
@@ -2035,8 +2035,8 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
         }
     }
 
-    hml_runtime_error("Object has no field '%s'", field);
-    return hml_val_null();  // Unreachable but needed for compiler
+    // Field not found - return null
+    return hml_val_null();
 }
 
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {

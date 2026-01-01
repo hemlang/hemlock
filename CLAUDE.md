@@ -139,6 +139,10 @@ let p: Person = { name: "Alice", age: 30 };
 let json = p.serialize();
 let restored = json.deserialize();
 
+// Accessing missing fields returns null (not an error)
+let missing = p.nonexistent;  // null
+if (p.email == null) { print("No email"); }
+
 enum Color { RED, GREEN, BLUE }
 enum Status { OK = 0, ERROR = 1 }
 ```

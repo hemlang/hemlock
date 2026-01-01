@@ -856,7 +856,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     return result;
                 }
-                runtime_error(ctx, "Object has no field '%s'", property);
+                // Field not found - return null
+                VALUE_RELEASE(object);
+                return val_null();
             } else {
                 runtime_error(ctx, "Only strings, buffers, arrays, and objects have properties");
             }

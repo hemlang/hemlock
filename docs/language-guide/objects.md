@@ -97,6 +97,37 @@ person.age = 31;
 print(person.age);           // 31
 ```
 
+### Missing Field Access
+
+Accessing a field that doesn't exist returns `null`:
+
+```hemlock
+let person = { name: "Alice", age: 30 };
+
+// Existing field
+print(person.name);  // "Alice"
+
+// Missing field returns null
+let missing = person.email;
+print(missing);         // null
+print(typeof(missing)); // null
+
+// Check for missing fields
+if (person.city == null) {
+    print("No city set");
+}
+```
+
+This allows safe field access without try/catch:
+
+```hemlock
+let config = { host: "localhost" };
+let port = config.port;  // null (not an error)
+if (port == null) {
+    port = 8080;  // Use default
+}
+```
+
 ### Dynamic Field Addition
 
 Add new fields at runtime:
