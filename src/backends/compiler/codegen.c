@@ -1202,6 +1202,18 @@ void codegen_add_ffi_library(CodegenContext *ctx, const char *library_path) {
 char* ffi_library_to_linker_flag(const char *library_path) {
     if (!library_path) return NULL;
 
+    // Skip relative paths - these are local/project libraries, not system libraries
+    // They use dlopen at runtime and don't need linker flags
+    if (library_path[0] != '/') {
+        // Check if it looks like a relative path (contains '/' but doesn't start with one)
+        // e.g., "stdlib/c/libfoo.so" or "./libfoo.so"
+        if (strchr(library_path, '/') != NULL) {
+            return NULL;
+        }
+        // Also skip simple names without a path that are in the current directory
+        // If it's just "libfoo.so" without a system path, assume it's local
+    }
+
     // Libraries that are always linked or don't need explicit flags
     // libc.so.6 - always linked by default
     if (strcmp(library_path, "libc.so.6") == 0 ||
