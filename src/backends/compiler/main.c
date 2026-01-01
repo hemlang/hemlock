@@ -122,6 +122,7 @@ typedef struct {
     int type_check;              // Enable compile-time type checking (default: on)
     int strict_types;            // Enable strict type checking (warn on implicit any)
     int check_only;              // Only type check, don't compile
+    int static_link;             // Static link all libraries for standalone binary
 } Options;
 
 static void print_usage(const char *progname) {
@@ -138,6 +139,7 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --check         Type check only, don't compile\n");
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
+    fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  -h, --help      Show this help message\n");
     fprintf(stderr, "  --version       Show version\n");
@@ -156,7 +158,8 @@ static Options parse_args(int argc, char **argv) {
         .runtime_path = NULL,
         .type_check = 1,         // Type checking ON by default
         .strict_types = 0,
-        .check_only = 0
+        .check_only = 0,
+        .static_link = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -192,6 +195,8 @@ static Options parse_args(int argc, char **argv) {
         } else if (strcmp(argv[i], "--strict-types") == 0) {
             opts.type_check = 1;  // Implies type checking
             opts.strict_types = 1;
+        } else if (strcmp(argv[i], "--static") == 0) {
+            opts.static_link = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -394,10 +399,34 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
     include_path[sizeof(include_path) - 1] = '\0';
 
-    int n = snprintf(cmd, sizeof(cmd),
-        "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
-        opts->cc, opt_flag, opts->output_file, c_file,
-        include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+    // Build the linker command
+    int n;
+    if (opts->static_link) {
+        // Static linking: use -static flag and link all libraries statically
+        // This creates a fully standalone binary with no runtime dependencies
+        // Requires static versions of libraries: libffi.a, libz.a, libcrypto.a, etc.
+        //
+        // Note: -ldl is omitted because dynamic loading (dlopen) is not available
+        // with static linking. Runtime FFI (ffi_open/ffi_bind) won't work, but
+        // compile-time FFI (extern fn) still works via libffi.
+        //
+        // On glibc systems, some features like DNS resolution may have issues.
+        // For fully portable static binaries, consider using musl libc.
+        if (opts->verbose) {
+            printf("Static linking enabled - creating standalone binary\n");
+            printf("Note: Runtime FFI (ffi_open/ffi_bind) disabled in static builds\n");
+        }
+        n = snprintf(cmd, sizeof(cmd),
+            "%s %s -static -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
+            opts->cc, opt_flag, opts->output_file, c_file,
+            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+    } else {
+        // Dynamic linking (default): link against shared libraries
+        n = snprintf(cmd, sizeof(cmd),
+            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
+            opts->cc, opt_flag, opts->output_file, c_file,
+            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+    }
 
     if (n >= (int)sizeof(cmd)) {
         fprintf(stderr, "Error: Compiler command too long (truncated)\n");
