@@ -68,8 +68,10 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     funcgen_add_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
 
-    // Track call depth for stack overflow detection
-    codegen_writeln(ctx, "HML_CALL_ENTER();");
+    // Track call depth for stack overflow detection (can be disabled for performance)
+    if (ctx->stack_check) {
+        codegen_writeln(ctx, "HML_CALL_ENTER();");
+    }
 
     // OPTIMIZATION: Tail call elimination
     // Check if function is tail recursive and set up for tail call optimization
@@ -96,7 +98,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
     }
 
     // Decrement call depth and return
-    codegen_writeln(ctx, "HML_CALL_EXIT();");
+    if (ctx->stack_check) {
+        codegen_writeln(ctx, "HML_CALL_EXIT();");
+    }
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
@@ -192,7 +196,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Apply defaults and track call depth
     funcgen_apply_defaults(ctx, func);
-    codegen_writeln(ctx, "HML_CALL_ENTER();");
+    if (ctx->stack_check) {
+        codegen_writeln(ctx, "HML_CALL_ENTER();");
+    }
 
     // Set up shared environment for nested closures
     funcgen_setup_shared_env(ctx, func, closure);
@@ -212,7 +218,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     }
 
     // Decrement call depth and return
-    codegen_writeln(ctx, "HML_CALL_EXIT();");
+    if (ctx->stack_check) {
+        codegen_writeln(ctx, "HML_CALL_EXIT();");
+    }
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);

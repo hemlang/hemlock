@@ -576,7 +576,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (ctx->has_defers) {
                     codegen_writeln(ctx, "hml_defer_execute_all();");
                 }
-                codegen_writeln(ctx, "HML_CALL_EXIT();");
+                if (ctx->stack_check) {
+                    codegen_writeln(ctx, "HML_CALL_EXIT();");
+                }
                 codegen_writeln(ctx, "return %s;", ret_val);
                 free(ret_val);
             } else {
@@ -621,7 +623,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
-                    codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    if (ctx->stack_check) {
+                        codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    }
                     codegen_writeln(ctx, "return %s;", value);
                     free(value);
                 } else {
@@ -629,7 +633,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
-                    codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    if (ctx->stack_check) {
+                        codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    }
                     codegen_writeln(ctx, "return hml_val_null();");
                 }
             }
@@ -762,7 +768,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
-                    codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    if (ctx->stack_check) {
+                        codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    }
                     codegen_writeln(ctx, "return %s;", return_value_var);
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");

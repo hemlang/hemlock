@@ -176,6 +176,7 @@ typedef struct {
     int strict_types;            // Enable strict type checking (warn on implicit any)
     int check_only;              // Only type check, don't compile
     int static_link;             // Static link all libraries for standalone binary
+    int stack_check;             // Enable stack overflow checking (default: on)
 } Options;
 
 static void print_usage(const char *progname) {
@@ -186,12 +187,17 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  -c              Emit C code only (don't compile)\n");
     fprintf(stderr, "  --emit-c <f>    Write generated C to file\n");
     fprintf(stderr, "  -k, --keep-c    Keep generated C file after compilation\n");
-    fprintf(stderr, "  -O<level>       Optimization level (0-3, default: 0)\n");
+    fprintf(stderr, "  -O<level>       Optimization level (0-3, default: 2)\n");
+#ifdef __APPLE__
+    fprintf(stderr, "  --cc <path>     C compiler to use (default: clang)\n");
+#else
     fprintf(stderr, "  --cc <path>     C compiler to use (default: gcc)\n");
+#endif
     fprintf(stderr, "  --runtime <p>   Path to runtime library\n");
     fprintf(stderr, "  --check         Type check only, don't compile\n");
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
+    fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
     fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  -h, --help      Show this help message\n");
@@ -206,13 +212,18 @@ static Options parse_args(int argc, char **argv) {
         .emit_c_only = 0,
         .verbose = 0,
         .keep_c = 0,
-        .optimize = 0,
+        .optimize = 2,           // Default to -O2 for better performance
+#ifdef __APPLE__
+        .cc = "clang",           // Use clang on macOS (better ARM64 optimization)
+#else
         .cc = "gcc",
+#endif
         .runtime_path = NULL,
         .type_check = 1,         // Type checking ON by default
         .strict_types = 0,
         .check_only = 0,
-        .static_link = 0
+        .static_link = 0,
+        .stack_check = 1         // Stack overflow checking ON by default
     };
 
     for (int i = 1; i < argc; i++) {
@@ -250,6 +261,8 @@ static Options parse_args(int argc, char **argv) {
             opts.strict_types = 1;
         } else if (strcmp(argv[i], "--static") == 0) {
             opts.static_link = 1;
+        } else if (strcmp(argv[i], "--no-stack-check") == 0) {
+            opts.stack_check = 0;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -615,6 +628,7 @@ int main(int argc, char **argv) {
     CodegenContext *ctx = codegen_new(output);
     codegen_set_module_cache(ctx, module_cache);
     ctx->type_ctx = type_ctx;  // Pass type context for unboxing hints
+    ctx->stack_check = opts.stack_check;  // Pass stack check setting
     // Note: ctx->optimize is already set in codegen_new() based on optimization level
     // Don't override it here - the type context is just for unboxing hints
     codegen_program(ctx, statements, stmt_count);

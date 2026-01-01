@@ -187,6 +187,7 @@ typedef struct {
     // Type checking context (for optimized code generation)
     TypeCheckContext *type_ctx;   // Type check context (NULL if --no-type-check)
     int optimize;                 // Optimization level (0 = none, 1+ = optimize)
+    int stack_check;              // Enable stack overflow checking (1 = on, 0 = off)
 
     // Defer optimization tracking
     int has_defers;               // Whether any defer statements exist in current function
