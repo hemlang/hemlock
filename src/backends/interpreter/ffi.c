@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <pthread.h>
 
+// Stack allocation threshold for FFI calls
+#define FFI_MAX_STACK_ARGS 8
+
 // ========== FFI DATA STRUCTURES ==========
 
 // Loaded library structure
@@ -630,7 +633,66 @@ ffi_type* hemlock_type_to_ffi_type(Type *type) {
 
 // ========== VALUE CONVERSION ==========
 
+// Fast path: write primitive value to caller-provided 8-byte storage
+// Returns 1 if handled (primitive), 0 if struct (needs heap allocation)
+static int hemlock_to_c_value_fast(Value val, Type *type, void *storage) {
+    switch (type->kind) {
+        case TYPE_I8:
+            *(int8_t*)storage = val.as.as_i8;
+            return 1;
+        case TYPE_I16:
+            *(int16_t*)storage = val.as.as_i16;
+            return 1;
+        case TYPE_I32:
+            *(int32_t*)storage = val.as.as_i32;
+            return 1;
+        case TYPE_I64:
+            if (val.type == VAL_PTR) {
+                *(int64_t*)storage = (int64_t)(intptr_t)val.as.as_ptr;
+            } else {
+                *(int64_t*)storage = val.as.as_i64;
+            }
+            return 1;
+        case TYPE_U8:
+            *(uint8_t*)storage = val.as.as_u8;
+            return 1;
+        case TYPE_U16:
+            *(uint16_t*)storage = val.as.as_u16;
+            return 1;
+        case TYPE_U32:
+            *(uint32_t*)storage = val.as.as_u32;
+            return 1;
+        case TYPE_U64:
+            if (val.type == VAL_PTR) {
+                *(uint64_t*)storage = (uint64_t)(uintptr_t)val.as.as_ptr;
+            } else {
+                *(uint64_t*)storage = val.as.as_u64;
+            }
+            return 1;
+        case TYPE_F32:
+            *(float*)storage = val.as.as_f32;
+            return 1;
+        case TYPE_F64:
+            *(double*)storage = val.as.as_f64;
+            return 1;
+        case TYPE_PTR:
+            *(void**)storage = val.as.as_ptr;
+            return 1;
+        case TYPE_STRING:
+            *(char**)storage = val.as.as_string ? val.as.as_string->data : NULL;
+            return 1;
+        case TYPE_BOOL:
+            *(int*)storage = val.as.as_bool ? 1 : 0;
+            return 1;
+        case TYPE_CUSTOM_OBJECT:
+            return 0;  // Struct - needs heap allocation
+        default:
+            return 0;
+    }
+}
+
 // Thread-safe: context is now passed directly instead of using a global
+// NOTE: This allocates memory that must be freed by caller
 void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
     size_t size = 0;
     ffi_type *ffi_t = hemlock_type_to_ffi_type(type);
@@ -661,62 +723,7 @@ void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
     }
 
     void *storage = malloc(size);
-
-    switch (type->kind) {
-        case TYPE_I8:
-            *(int8_t*)storage = val.as.as_i8;
-            break;
-        case TYPE_I16:
-            *(int16_t*)storage = val.as.as_i16;
-            break;
-        case TYPE_I32:
-            *(int32_t*)storage = val.as.as_i32;
-            break;
-        case TYPE_I64:
-            // Allow ptr values to be passed as i64 (useful for variadic C functions)
-            if (val.type == VAL_PTR) {
-                *(int64_t*)storage = (int64_t)(intptr_t)val.as.as_ptr;
-            } else {
-                *(int64_t*)storage = val.as.as_i64;
-            }
-            break;
-        case TYPE_U8:
-            *(uint8_t*)storage = val.as.as_u8;
-            break;
-        case TYPE_U16:
-            *(uint16_t*)storage = val.as.as_u16;
-            break;
-        case TYPE_U32:
-            *(uint32_t*)storage = val.as.as_u32;
-            break;
-        case TYPE_U64:
-            // Allow ptr values to be passed as u64 (useful for variadic C functions)
-            if (val.type == VAL_PTR) {
-                *(uint64_t*)storage = (uint64_t)(uintptr_t)val.as.as_ptr;
-            } else {
-                *(uint64_t*)storage = val.as.as_u64;
-            }
-            break;
-        case TYPE_F32:
-            *(float*)storage = val.as.as_f32;
-            break;
-        case TYPE_F64:
-            *(double*)storage = val.as.as_f64;
-            break;
-        case TYPE_PTR:
-            *(void**)storage = val.as.as_ptr;
-            break;
-        case TYPE_STRING:
-            *(char**)storage = val.as.as_string->data;
-            break;
-        case TYPE_BOOL:
-            *(int*)storage = val.as.as_bool ? 1 : 0;
-            break;
-        default:
-            fprintf(stderr, "Error: Cannot convert Hemlock type to C: %d\n", type->kind);
-            exit(1);
-    }
-
+    hemlock_to_c_value_fast(val, type, storage);
     return storage;
 }
 
@@ -870,41 +877,86 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
         return val_null();
     }
 
-    // Convert Hemlock values to C values
-    void **arg_values = malloc(sizeof(void*) * num_args);
-    void **arg_storage = malloc(sizeof(void*) * num_args);
+    // Stack-based allocation for common case (<=8 args)
+    // bulk_storage: 8 bytes per arg, enough for any primitive type
+    void *stack_arg_values[FFI_MAX_STACK_ARGS];
+    uint64_t stack_bulk_storage[FFI_MAX_STACK_ARGS];
+    void *stack_struct_storage[FFI_MAX_STACK_ARGS];  // Track heap-allocated structs
+    int use_stack = (num_args <= FFI_MAX_STACK_ARGS);
 
-    for (int i = 0; i < num_args; i++) {
-        arg_storage[i] = hemlock_to_c_value(args[i], func->hemlock_params[i], ctx);
-        if (ctx->exception_state.is_throwing) {
-            // Struct conversion failed
-            for (int j = 0; j < i; j++) {
-                free(arg_storage[j]);
-            }
-            free(arg_values);
-            free(arg_storage);
-            return val_null();
+    void **arg_values;
+    uint64_t *bulk_storage;
+    void **struct_storage;
+    int num_structs = 0;
+
+    if (num_args > 0) {
+        if (use_stack) {
+            arg_values = stack_arg_values;
+            bulk_storage = stack_bulk_storage;
+            struct_storage = stack_struct_storage;
+        } else {
+            arg_values = malloc(sizeof(void*) * num_args);
+            bulk_storage = malloc(sizeof(uint64_t) * num_args);
+            struct_storage = malloc(sizeof(void*) * num_args);
         }
-        arg_values[i] = arg_storage[i];
+
+        for (int i = 0; i < num_args; i++) {
+            Type *param_type = func->hemlock_params[i];
+
+            // Fast path: primitives use bulk storage (no malloc)
+            if (hemlock_to_c_value_fast(args[i], param_type, &bulk_storage[i])) {
+                arg_values[i] = &bulk_storage[i];
+                struct_storage[i] = NULL;
+            } else {
+                // Slow path: struct needs heap allocation
+                void *heap_storage = hemlock_to_c_value(args[i], param_type, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    // Cleanup already-allocated structs
+                    for (int j = 0; j < i; j++) {
+                        if (struct_storage[j]) free(struct_storage[j]);
+                    }
+                    if (!use_stack) {
+                        free(arg_values);
+                        free(bulk_storage);
+                        free(struct_storage);
+                    }
+                    return val_null();
+                }
+                arg_values[i] = heap_storage;
+                struct_storage[i] = heap_storage;
+                num_structs++;
+            }
+        }
+    } else {
+        arg_values = NULL;
+        bulk_storage = NULL;
+        struct_storage = NULL;
     }
 
-    // Prepare return value storage
+    // Stack-based return value storage for non-struct returns
+    union {
+        int8_t i8; int16_t i16; int32_t i32; int64_t i64;
+        uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
+        float f32; double f64;
+        void *ptr;
+    } stack_return;
+
     void *return_storage = NULL;
-    if (func->hemlock_return != NULL && func->hemlock_return->kind != TYPE_VOID) {
-        // Allocate enough space for the return value
-        size_t return_size = 8;  // Default to pointer size
-        ffi_type *ret_type = (ffi_type*)func->return_type;
-        if (ret_type == &ffi_type_sint8 || ret_type == &ffi_type_uint8) return_size = 1;
-        else if (ret_type == &ffi_type_sint16 || ret_type == &ffi_type_uint16) return_size = 2;
-        else if (ret_type == &ffi_type_sint32 || ret_type == &ffi_type_uint32) return_size = 4;
-        else if (ret_type == &ffi_type_float) return_size = sizeof(float);
-        else if (ret_type == &ffi_type_double) return_size = sizeof(double);
-        else if (ret_type->type == FFI_TYPE_STRUCT) return_size = ret_type->size;
+    int free_return = 0;
 
-        return_storage = malloc(return_size);
+    if (func->hemlock_return != NULL && func->hemlock_return->kind != TYPE_VOID) {
+        ffi_type *ret_type = (ffi_type*)func->return_type;
+        if (ret_type->type == FFI_TYPE_STRUCT) {
+            // Struct returns need heap allocation (variable size)
+            return_storage = malloc(ret_type->size);
+            free_return = 1;
+        } else {
+            // Primitive returns use stack
+            return_storage = &stack_return;
+        }
     }
 
-    // Call via libffi
+    // Call via libffi (CIF already cached at declaration time)
     ffi_cif *cif = (ffi_cif*)func->cif;
     ffi_call(cif, FFI_FN(func->func_ptr), return_storage, arg_values);
 
@@ -916,13 +968,18 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
         result = c_to_hemlock_value(return_storage, func->hemlock_return);
     }
 
-    // Cleanup
-    for (int i = 0; i < num_args; i++) {
-        free(arg_storage[i]);
+    // Cleanup - only free heap-allocated struct storage
+    if (num_structs > 0) {
+        for (int i = 0; i < num_args; i++) {
+            if (struct_storage[i]) free(struct_storage[i]);
+        }
     }
-    free(arg_values);
-    free(arg_storage);
-    if (return_storage != NULL) {
+    if (!use_stack && num_args > 0) {
+        free(arg_values);
+        free(bulk_storage);
+        free(struct_storage);
+    }
+    if (free_return) {
         free(return_storage);
     }
 

@@ -5,6 +5,104 @@
  */
 
 #include "builtins_internal.h"
+#include <pthread.h>
+
+// ========== CIF CACHE FOR FFI OPTIMIZATION ==========
+//
+// The CIF (Call Interface) cache avoids calling ffi_prep_cif() on every
+// FFI invocation. Since CIF depends only on the function signature (return
+// type + arg types), we can cache and reuse it for repeated calls.
+
+#define CIF_CACHE_SIZE 64       // Power of 2 for fast modulo
+#define FFI_MAX_STACK_ARGS 8    // Use stack allocation for <= this many args
+
+typedef struct CifCacheEntry {
+    uint32_t hash;              // Signature hash for quick comparison
+    int num_args;               // Number of arguments
+    HmlFFIType return_type;     // Return type
+    HmlFFIType *arg_types;      // Argument types (heap allocated, owned)
+    ffi_cif cif;                // Cached CIF
+    ffi_type **ffi_arg_types;   // ffi_type array (heap allocated, owned)
+    struct CifCacheEntry *next; // Collision chain
+} CifCacheEntry;
+
+static CifCacheEntry *g_cif_cache[CIF_CACHE_SIZE];
+static pthread_mutex_t g_cif_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Forward declaration for type conversion (used by CIF cache)
+static ffi_type* hml_ffi_type_to_ffi(HmlFFIType type);
+
+// FNV-1a hash for signature
+static uint32_t cif_hash_signature(HmlFFIType return_type, int num_args, HmlFFIType *types) {
+    uint32_t hash = 2166136261u;  // FNV offset basis
+    hash ^= (uint32_t)return_type;
+    hash *= 16777619u;
+    hash ^= (uint32_t)num_args;
+    hash *= 16777619u;
+    for (int i = 0; i < num_args; i++) {
+        hash ^= (uint32_t)types[i + 1];  // types[0] is return type
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+// Lookup or create cached CIF
+static ffi_cif* cif_cache_get(HmlFFIType return_type, int num_args, HmlFFIType *types) {
+    uint32_t hash = cif_hash_signature(return_type, num_args, types);
+    uint32_t bucket = hash & (CIF_CACHE_SIZE - 1);
+
+    pthread_mutex_lock(&g_cif_cache_mutex);
+
+    // Search existing entries
+    CifCacheEntry *entry = g_cif_cache[bucket];
+    while (entry) {
+        if (entry->hash == hash && entry->num_args == num_args &&
+            entry->return_type == return_type) {
+            // Verify full match
+            int match = 1;
+            for (int i = 0; i < num_args && match; i++) {
+                if (entry->arg_types[i] != types[i + 1]) match = 0;
+            }
+            if (match) {
+                pthread_mutex_unlock(&g_cif_cache_mutex);
+                return &entry->cif;
+            }
+        }
+        entry = entry->next;
+    }
+
+    // Create new entry
+    entry = malloc(sizeof(CifCacheEntry));
+    entry->hash = hash;
+    entry->num_args = num_args;
+    entry->return_type = return_type;
+    entry->arg_types = num_args > 0 ? malloc(num_args * sizeof(HmlFFIType)) : NULL;
+    entry->ffi_arg_types = num_args > 0 ? malloc(num_args * sizeof(ffi_type*)) : NULL;
+
+    for (int i = 0; i < num_args; i++) {
+        entry->arg_types[i] = types[i + 1];
+        entry->ffi_arg_types[i] = hml_ffi_type_to_ffi(types[i + 1]);
+    }
+
+    ffi_type *ret_type = hml_ffi_type_to_ffi(return_type);
+    ffi_status status = ffi_prep_cif(&entry->cif, FFI_DEFAULT_ABI, num_args,
+                                      ret_type, entry->ffi_arg_types);
+
+    if (status != FFI_OK) {
+        free(entry->arg_types);
+        free(entry->ffi_arg_types);
+        free(entry);
+        pthread_mutex_unlock(&g_cif_cache_mutex);
+        return NULL;
+    }
+
+    // Insert at head of chain
+    entry->next = g_cif_cache[bucket];
+    g_cif_cache[bucket] = entry;
+
+    pthread_mutex_unlock(&g_cif_cache_mutex);
+    return &entry->cif;
+}
 
 // ========== FFI HELPERS ==========
 
@@ -149,26 +247,6 @@ static ffi_type* hml_ffi_type_to_ffi(HmlFFIType type) {
     }
 }
 
-// Get the size of an FFI type for proper argument storage allocation
-// This is critical for ARM64 where floats must use 4-byte storage
-static size_t hml_ffi_type_size(HmlFFIType type) {
-    switch (type) {
-        case HML_FFI_I8:     return sizeof(int8_t);
-        case HML_FFI_I16:    return sizeof(int16_t);
-        case HML_FFI_I32:    return sizeof(int32_t);
-        case HML_FFI_I64:    return sizeof(int64_t);
-        case HML_FFI_U8:     return sizeof(uint8_t);
-        case HML_FFI_U16:    return sizeof(uint16_t);
-        case HML_FFI_U32:    return sizeof(uint32_t);
-        case HML_FFI_U64:    return sizeof(uint64_t);
-        case HML_FFI_F32:    return sizeof(float);
-        case HML_FFI_F64:    return sizeof(double);
-        case HML_FFI_PTR:    return sizeof(void*);
-        case HML_FFI_STRING: return sizeof(char*);
-        default:             return sizeof(void*);
-    }
-}
-
 // Convert HmlValue to C value for FFI call
 static void hml_value_to_ffi(HmlValue val, HmlFFIType type, void *out) {
     switch (type) {
@@ -233,33 +311,42 @@ HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *
     // types[0] is return type, types[1..] are arg types
     HmlFFIType return_type = types[0];
 
-    // Prepare libffi call interface
-    ffi_cif cif;
-    ffi_type **arg_types = NULL;
-    void **arg_values = NULL;
-    void **arg_storage = NULL;
+    // Get cached CIF (avoids ffi_prep_cif on every call)
+    ffi_cif *cif = cif_cache_get(return_type, num_args, types);
+    if (!cif) {
+        hml_runtime_error("Failed to prepare FFI call interface");
+    }
+
+    // Stack-based allocation for common case (<=8 args)
+    // This avoids malloc/free overhead for the majority of FFI calls
+    void *stack_values[FFI_MAX_STACK_ARGS];
+    uint64_t stack_storage[FFI_MAX_STACK_ARGS];  // 8 bytes each, enough for any type
+
+    void **arg_values;
+    uint64_t *bulk_storage;
+    int use_stack = (num_args <= FFI_MAX_STACK_ARGS);
 
     if (num_args > 0) {
-        arg_types = malloc(num_args * sizeof(ffi_type*));
-        arg_values = malloc(num_args * sizeof(void*));
-        arg_storage = malloc(num_args * sizeof(void*));
-
-        for (int i = 0; i < num_args; i++) {
-            arg_types[i] = hml_ffi_type_to_ffi(types[i + 1]);
-            arg_storage[i] = malloc(hml_ffi_type_size(types[i + 1]));
-            hml_value_to_ffi(args[i], types[i + 1], arg_storage[i]);
-            arg_values[i] = arg_storage[i];
+        if (use_stack) {
+            arg_values = stack_values;
+            bulk_storage = stack_storage;
+        } else {
+            // Heap allocation for large arg counts (rare case)
+            arg_values = malloc(num_args * sizeof(void*));
+            bulk_storage = malloc(num_args * sizeof(uint64_t));
         }
+
+        // Convert all arguments into bulk storage
+        for (int i = 0; i < num_args; i++) {
+            hml_value_to_ffi(args[i], types[i + 1], &bulk_storage[i]);
+            arg_values[i] = &bulk_storage[i];
+        }
+    } else {
+        arg_values = NULL;
+        bulk_storage = NULL;
     }
 
-    ffi_type *ret_type = hml_ffi_type_to_ffi(return_type);
-    ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, num_args, ret_type, arg_types);
-
-    if (status != FFI_OK) {
-        hml_runtime_error("Failed to prepare FFI call");
-    }
-
-    // Call the function
+    // Call the function using cached CIF
     union {
         int8_t i8; int16_t i16; int32_t i32; int64_t i64;
         uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
@@ -267,19 +354,15 @@ HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *
         void *ptr;
     } result;
 
-    ffi_call(&cif, func_ptr, &result, arg_values);
+    ffi_call(cif, func_ptr, &result, arg_values);
 
     // Convert result
     HmlValue ret = hml_ffi_to_value(&result, return_type);
 
-    // Cleanup
-    if (num_args > 0) {
-        for (int i = 0; i < num_args; i++) {
-            free(arg_storage[i]);
-        }
-        free(arg_types);
+    // Cleanup (only needed for heap allocation)
+    if (num_args > 0 && !use_stack) {
         free(arg_values);
-        free(arg_storage);
+        free(bulk_storage);
     }
 
     return ret;
@@ -586,25 +669,42 @@ HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
         }
     }
 
-    // Prepare libffi call interface
-    ffi_cif cif;
-    ffi_type **arg_types = NULL;
-    void **arg_values = NULL;
-    void **arg_storage = NULL;
-    HmlFFIStructType **arg_structs = NULL;
+    // Stack-based allocation for pointer arrays (small arg counts)
+    ffi_type *stack_arg_types[FFI_MAX_STACK_ARGS];
+    void *stack_arg_values[FFI_MAX_STACK_ARGS];
+    void *stack_arg_storage[FFI_MAX_STACK_ARGS];
+    HmlFFIStructType *stack_arg_structs[FFI_MAX_STACK_ARGS];
+    uint64_t stack_scalar_storage[FFI_MAX_STACK_ARGS];  // For non-struct args
+
+    int use_stack = (num_args <= FFI_MAX_STACK_ARGS);
+
+    ffi_type **arg_types;
+    void **arg_values;
+    void **arg_storage;
+    HmlFFIStructType **arg_structs;
+    uint64_t *scalar_storage;
 
     if (num_args > 0) {
-        arg_types = malloc(num_args * sizeof(ffi_type*));
-        arg_values = malloc(num_args * sizeof(void*));
-        arg_storage = malloc(num_args * sizeof(void*));
-        arg_structs = malloc(num_args * sizeof(HmlFFIStructType*));
+        if (use_stack) {
+            arg_types = stack_arg_types;
+            arg_values = stack_arg_values;
+            arg_storage = stack_arg_storage;
+            arg_structs = stack_arg_structs;
+            scalar_storage = stack_scalar_storage;
+        } else {
+            arg_types = malloc(num_args * sizeof(ffi_type*));
+            arg_values = malloc(num_args * sizeof(void*));
+            arg_storage = malloc(num_args * sizeof(void*));
+            arg_structs = malloc(num_args * sizeof(HmlFFIStructType*));
+            scalar_storage = malloc(num_args * sizeof(uint64_t));
+        }
 
         for (int i = 0; i < num_args; i++) {
             HmlFFIType arg_type = types[i + 1];
             arg_structs[i] = NULL;
 
             if (arg_type == HML_FFI_STRUCT && struct_names && struct_names[i + 1]) {
-                // Struct argument
+                // Struct argument (heap allocated - variable size)
                 arg_structs[i] = hml_ffi_lookup_struct(struct_names[i + 1]);
                 if (!arg_structs[i]) {
                     hml_runtime_error("FFI struct type '%s' not registered", struct_names[i + 1]);
@@ -613,13 +713,19 @@ HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
                 arg_storage[i] = hml_ffi_object_to_struct(args[i], arg_structs[i]);
                 arg_values[i] = arg_storage[i];
             } else {
-                // Non-struct argument
+                // Non-struct argument - use bulk scalar storage
                 arg_types[i] = hml_ffi_type_to_ffi(arg_type);
-                arg_storage[i] = malloc(hml_ffi_type_size(arg_type));
-                hml_value_to_ffi(args[i], arg_type, arg_storage[i]);
-                arg_values[i] = arg_storage[i];
+                hml_value_to_ffi(args[i], arg_type, &scalar_storage[i]);
+                arg_storage[i] = NULL;  // Mark as using scalar_storage
+                arg_values[i] = &scalar_storage[i];
             }
         }
+    } else {
+        arg_types = NULL;
+        arg_values = NULL;
+        arg_storage = NULL;
+        arg_structs = NULL;
+        scalar_storage = NULL;
     }
 
     ffi_type *ret_type;
@@ -629,18 +735,30 @@ HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
         ret_type = hml_ffi_type_to_ffi(return_type);
     }
 
+    // Prepare CIF (struct calls still use dynamic prep - CIF caching would require
+    // hashing struct type pointers which adds complexity for rare cases)
+    ffi_cif cif;
     ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, num_args, ret_type, arg_types);
 
     if (status != FFI_OK) {
         hml_runtime_error("Failed to prepare FFI call");
     }
 
-    // Allocate space for return value
+    // Stack-based return storage for non-struct returns
+    union {
+        int8_t i8; int16_t i16; int32_t i32; int64_t i64;
+        uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
+        float f32; double f64;
+        void *ptr;
+    } stack_result;
+
     void *result_ptr;
+    int free_result = 0;
     if (return_struct) {
         result_ptr = calloc(1, return_struct->size);
+        free_result = 1;
     } else {
-        result_ptr = malloc(sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
+        result_ptr = &stack_result;
     }
 
     ffi_call(&cif, func_ptr, result_ptr, arg_values);
@@ -654,15 +772,23 @@ HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
     }
 
     // Cleanup
-    free(result_ptr);
+    if (free_result) {
+        free(result_ptr);
+    }
     if (num_args > 0) {
+        // Only free struct storage (non-struct uses scalar_storage)
         for (int i = 0; i < num_args; i++) {
-            free(arg_storage[i]);
+            if (arg_storage[i]) {
+                free(arg_storage[i]);
+            }
         }
-        free(arg_types);
-        free(arg_values);
-        free(arg_storage);
-        free(arg_structs);
+        if (!use_stack) {
+            free(arg_types);
+            free(arg_values);
+            free(arg_storage);
+            free(arg_structs);
+            free(scalar_storage);
+        }
     }
 
     return ret;
