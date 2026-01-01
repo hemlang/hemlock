@@ -54,6 +54,9 @@ jobs:
         ldd build-static/hemlock 2>&1 || echo "✓ hemlock is statically linked"
         ldd build-static/hemlockc 2>&1 || echo "✓ hemlockc is statically linked"
 
+    - name: Build dynamic interpreter (for runtime FFI support)
+      run: make interpreter
+
     - name: Package
       run: |
         mkdir -p hemlock-linux-x86_64
@@ -65,6 +68,8 @@ jobs:
         mkdir -p hemlock-linux-x86_64/include
         cp -r runtime/include/* hemlock-linux-x86_64/include/ 2>/dev/null || true
         cp README.md LICENSE hemlock-linux-x86_64/ 2>/dev/null || cp README.md hemlock-linux-x86_64/
+        # Include dynamic interpreter for users who need ffi_open/ffi_bind
+        cp hemlock hemlock-linux-x86_64/hemlock-dynamic
         tar -czvf hemlock-linux-x86_64.tar.gz hemlock-linux-x86_64
 
     - name: Upload artifact
@@ -188,10 +193,14 @@ jobs:
           ./hemlockc your_script.hml -o your_program --static
           ```
 
-          ### Notes
-          - All binaries are statically linked - no dependencies needed
-          - Runtime FFI (`ffi_open`/`ffi_bind`) is not available in static builds
-          - Compile-time FFI (`extern fn`) works everywhere
+          ### Included Binaries
+          | Binary | Type | Runtime FFI | Dependencies |
+          |--------|------|-------------|--------------|
+          | `hemlock` | static | `extern fn` only | None |
+          | `hemlock-dynamic` | dynamic | Full (`ffi_open`) | libffi, libcrypto |
+          | `hemlockc` | static | N/A | None |
+
+          Use `hemlock-dynamic` if you need `ffi_open()`/`ffi_bind()` for runtime library loading.
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz

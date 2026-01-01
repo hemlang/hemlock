@@ -189,6 +189,12 @@ main() {
         chmod +x "$PREFIX/bin/hemlockc"
     fi
 
+    # Copy dynamic interpreter (if present) - for users who need ffi_open/ffi_bind
+    if [[ -f "$tmpdir/${artifact_name}/hemlock-dynamic" ]]; then
+        cp "$tmpdir/${artifact_name}/hemlock-dynamic" "$PREFIX/bin/hemlock-dynamic"
+        chmod +x "$PREFIX/bin/hemlock-dynamic"
+    fi
+
     # Copy stdlib
     if [[ -d "$tmpdir/${artifact_name}/stdlib" ]]; then
         rm -rf "$PREFIX/lib/hemlock/stdlib"
@@ -212,8 +218,8 @@ main() {
     echo ""
     echo -e "${GREEN}Binaries are statically linked - no dependencies required!${NC}"
     echo ""
-    echo -e "${YELLOW}Note:${NC} Runtime FFI (ffi_open/ffi_bind) is not available in static builds."
-    echo "      Compile-time FFI (extern fn) works normally."
+    echo -e "${YELLOW}Note:${NC} The default interpreter is statically linked."
+    echo "      Use 'hemlock-dynamic' if you need ffi_open()/ffi_bind()."
     echo ""
     echo "  Interpreter: $PREFIX/bin/hemlock"
     if [[ -f "$PREFIX/bin/hemlockc" ]]; then
