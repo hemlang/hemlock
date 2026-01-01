@@ -281,8 +281,8 @@ runtime-clean:
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
 
-# Full clean including compiler, runtime, and release
-fullclean: clean compiler-clean runtime-clean release-clean
+# Full clean including compiler, runtime, release, and static builds
+fullclean: clean compiler-clean runtime-clean release-clean release-static-clean
 
 # Run compiler test suite
 .PHONY: test-compiler
@@ -388,6 +388,115 @@ $(RELEASE_BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 
 release-clean:
 	rm -rf $(RELEASE_BUILD_DIR)
+
+# ========== STATIC RELEASE BUILD ==========
+# Build fully static binaries for portable distribution
+# On Linux: requires musl-dev and static library packages
+# On macOS: links third-party libs statically (system libs remain dynamic)
+
+STATIC_BUILD_DIR = build-static
+
+# Static library flags - prefer .a files over .so
+ifeq ($(shell uname),Darwin)
+    # macOS: Can't fully static link, but we can statically link third-party libs
+    # System frameworks (libSystem) are always dynamic on macOS
+    STATIC_LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL)
+    ifneq ($(BREW_LIBFFI),)
+        STATIC_LDFLAGS += $(BREW_LIBFFI)/lib/libffi.a
+    else
+        STATIC_LDFLAGS += -lffi
+    endif
+    ifneq ($(BREW_OPENSSL),)
+        STATIC_LDFLAGS += $(BREW_OPENSSL)/lib/libcrypto.a
+    else
+        STATIC_LDFLAGS += -lcrypto
+    endif
+    STATIC_LDFLAGS += -lm -lpthread -lz
+    ifeq ($(HAS_LIBWEBSOCKETS),1)
+        ifneq ($(BREW_LIBWEBSOCKETS),)
+            STATIC_LDFLAGS += $(BREW_LIBWEBSOCKETS)/lib/libwebsockets.a
+        else
+            STATIC_LDFLAGS += -lwebsockets
+        endif
+    endif
+else
+    # Linux: Full static linking with musl
+    # Requires: musl-dev, libffi-dev (static), zlib-static, openssl-libs-static
+    STATIC_LDFLAGS = -static
+    STATIC_LDFLAGS += -lffi -lcrypto -lz -lm -lpthread -ldl
+    ifeq ($(HAS_LIBWEBSOCKETS),1)
+        STATIC_LDFLAGS += -lwebsockets
+    endif
+endif
+
+STATIC_OBJS = $(patsubst $(SRC_DIR)/%.c,$(STATIC_BUILD_DIR)/%.o,$(SRCS))
+
+# Static build directories
+STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
+                    $(STATIC_BUILD_DIR)/frontend \
+                    $(STATIC_BUILD_DIR)/frontend/parser \
+                    $(STATIC_BUILD_DIR)/backends/interpreter \
+                    $(STATIC_BUILD_DIR)/backends/interpreter/builtins \
+                    $(STATIC_BUILD_DIR)/backends/interpreter/io \
+                    $(STATIC_BUILD_DIR)/backends/interpreter/runtime \
+                    $(STATIC_BUILD_DIR)/backends/compiler \
+                    $(STATIC_BUILD_DIR)/lsp \
+                    $(STATIC_BUILD_DIR)/bundler
+
+.PHONY: release-static release-static-clean
+
+# Build static, optimized, stripped binary for portable distribution
+release-static: $(STATIC_BUILD_DIRS) $(STATIC_BUILD_DIR)/hemlock $(STATIC_BUILD_DIR)/hemlockc
+	@echo ""
+	@echo "✓ Static release build complete:"
+	@ls -lh $(STATIC_BUILD_DIR)/hemlock $(STATIC_BUILD_DIR)/hemlockc
+ifeq ($(shell uname),Linux)
+	@echo ""
+	@echo "Verifying static linking..."
+	@file $(STATIC_BUILD_DIR)/hemlock
+	@ldd $(STATIC_BUILD_DIR)/hemlock 2>&1 || echo "  (statically linked - no dynamic dependencies)"
+endif
+
+$(STATIC_BUILD_DIRS):
+	mkdir -p $@
+
+# Static interpreter build
+$(STATIC_BUILD_DIR)/hemlock: $(STATIC_OBJS)
+	$(CC) $(STATIC_OBJS) -o $@ $(STATIC_LDFLAGS)
+	strip $@
+
+# Static compiler build (needs runtime library first)
+STATIC_COMPILER_OBJS = $(STATIC_BUILD_DIR)/backends/compiler/main.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_expr.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_expr_ident.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_call.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_stmt.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_closure.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_program.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_module.o \
+                       $(STATIC_BUILD_DIR)/backends/compiler/type_check.o \
+                       $(patsubst $(SRC_DIR)/%.c,$(STATIC_BUILD_DIR)/%.o,$(FRONTEND_COMPILER_SRCS))
+
+$(STATIC_BUILD_DIR)/hemlockc: $(STATIC_COMPILER_OBJS) $(RUNTIME_LIB)
+ifeq ($(shell uname),Darwin)
+	$(CC) $(STATIC_COMPILER_OBJS) -o $@ -lm
+else
+	$(CC) -static $(STATIC_COMPILER_OBJS) -o $@ -lm
+endif
+	strip $@
+
+# Special rule for static build - ffi.c needs O0 to avoid optimizer bugs
+$(STATIC_BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c
+	@mkdir -p $(dir $@)
+	$(CC) $(subst -O3,-O0,$(RELEASE_CFLAGS)) -c $< -o $@
+
+$(STATIC_BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(RELEASE_CFLAGS) -c $< -o $@
+
+release-static-clean:
+	rm -rf $(STATIC_BUILD_DIR)
 
 # ========== INSTALLATION ==========
 

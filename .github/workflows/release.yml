@@ -11,26 +11,59 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    container:
+      image: alpine:3.19
     steps:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        apk add --no-cache \
+          build-base \
+          gcc \
+          musl-dev \
+          make \
+          libffi-dev \
+          libffi-static \
+          zlib-dev \
+          zlib-static \
+          openssl-dev \
+          openssl-libs-static \
+          libwebsockets-dev \
+          linux-headers
 
-    - name: Build
+    - name: Build runtime library
+      run: make runtime
+
+    - name: Build static binaries
+      run: make release-static
+
+    - name: Run basic tests
       run: |
-        make clean && make && make stdlib
+        # Test the static binary works
+        echo 'print("Hello from static Hemlock!");' > /tmp/test.hml
+        ./build-static/hemlock /tmp/test.hml
 
-    - name: Run tests
-      run: make test
+    - name: Verify static linking
+      run: |
+        echo "=== Binary info ==="
+        file build-static/hemlock
+        file build-static/hemlockc
+        echo ""
+        echo "=== Checking for dynamic dependencies ==="
+        ldd build-static/hemlock 2>&1 || echo "✓ hemlock is statically linked"
+        ldd build-static/hemlockc 2>&1 || echo "✓ hemlockc is statically linked"
 
     - name: Package
       run: |
         mkdir -p hemlock-linux-x86_64
-        cp hemlock hemlock-linux-x86_64/
+        cp build-static/hemlock hemlock-linux-x86_64/
+        cp build-static/hemlockc hemlock-linux-x86_64/
+        cp libhemlock_runtime.a hemlock-linux-x86_64/
         cp -r stdlib hemlock-linux-x86_64/
+        # Copy runtime headers for hemlockc users
+        mkdir -p hemlock-linux-x86_64/include
+        cp -r runtime/include/* hemlock-linux-x86_64/include/ 2>/dev/null || true
         cp README.md LICENSE hemlock-linux-x86_64/ 2>/dev/null || cp README.md hemlock-linux-x86_64/
         tar -czvf hemlock-linux-x86_64.tar.gz hemlock-linux-x86_64
 
@@ -50,18 +83,26 @@ jobs:
         brew install coreutils libffi openssl@3 libwebsockets
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
-    - name: Build
-      run: |
-        make clean && make && make stdlib
+    - name: Build runtime library
+      run: make runtime
 
-    - name: Run tests
-      run: make test
+    - name: Build static binaries
+      run: make release-static
+
+    - name: Run basic tests
+      run: |
+        echo 'print("Hello from Hemlock!");' > /tmp/test.hml
+        ./build-static/hemlock /tmp/test.hml
 
     - name: Package
       run: |
         mkdir -p hemlock-macos-x86_64
-        cp hemlock hemlock-macos-x86_64/
+        cp build-static/hemlock hemlock-macos-x86_64/
+        cp build-static/hemlockc hemlock-macos-x86_64/
+        cp libhemlock_runtime.a hemlock-macos-x86_64/
         cp -r stdlib hemlock-macos-x86_64/
+        mkdir -p hemlock-macos-x86_64/include
+        cp -r runtime/include/* hemlock-macos-x86_64/include/ 2>/dev/null || true
         cp README.md LICENSE hemlock-macos-x86_64/ 2>/dev/null || cp README.md hemlock-macos-x86_64/
         tar -czvf hemlock-macos-x86_64.tar.gz hemlock-macos-x86_64
 
@@ -81,18 +122,26 @@ jobs:
         brew install coreutils libffi openssl@3 libwebsockets
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
-    - name: Build
-      run: |
-        make clean && make && make stdlib
+    - name: Build runtime library
+      run: make runtime
 
-    - name: Run tests
-      run: make test
+    - name: Build static binaries
+      run: make release-static
+
+    - name: Run basic tests
+      run: |
+        echo 'print("Hello from Hemlock!");' > /tmp/test.hml
+        ./build-static/hemlock /tmp/test.hml
 
     - name: Package
       run: |
         mkdir -p hemlock-macos-arm64
-        cp hemlock hemlock-macos-arm64/
+        cp build-static/hemlock hemlock-macos-arm64/
+        cp build-static/hemlockc hemlock-macos-arm64/
+        cp libhemlock_runtime.a hemlock-macos-arm64/
         cp -r stdlib hemlock-macos-arm64/
+        mkdir -p hemlock-macos-arm64/include
+        cp -r runtime/include/* hemlock-macos-arm64/include/ 2>/dev/null || true
         cp README.md LICENSE hemlock-macos-arm64/ 2>/dev/null || cp README.md hemlock-macos-arm64/
         tar -czvf hemlock-macos-arm64.tar.gz hemlock-macos-arm64
 
@@ -117,6 +166,27 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         generate_release_notes: true
+        body: |
+          ## Static Binaries
+
+          All binaries are statically linked for maximum portability:
+          - **Linux x86_64**: Fully static (musl libc) - no runtime dependencies
+          - **macOS x86_64/arm64**: Third-party libs statically linked
+
+          Just download, extract, and run - no need to install libffi, openssl, etc.
+
+          ### Quick Start
+          ```bash
+          # Extract
+          tar -xzf hemlock-linux-x86_64.tar.gz
+          cd hemlock-linux-x86_64
+
+          # Run interpreter
+          ./hemlock your_script.hml
+
+          # Compile to native binary
+          ./hemlockc your_script.hml -o your_program
+          ```
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz

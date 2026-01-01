@@ -130,31 +130,12 @@ download() {
     fi
 }
 
-# Check for required runtime dependencies
+# Note: Hemlock binaries are now statically linked
+# No runtime dependencies are required for the interpreter or compiler
 check_runtime_deps() {
-    local os="$1"
-    local missing_deps=()
-
-    # Check for libffi
-    if [[ "$os" == "linux" ]]; then
-        if ! ldconfig -p 2>/dev/null | grep -q libffi; then
-            if ! [ -f /usr/lib/x86_64-linux-gnu/libffi.so ] && ! [ -f /usr/lib/libffi.so ]; then
-                missing_deps+=("libffi")
-            fi
-        fi
-    fi
-
-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        warn "Some runtime dependencies may be missing: ${missing_deps[*]}"
-        echo ""
-        if [[ "$os" == "linux" ]]; then
-            echo "Install them with:"
-            echo "  Ubuntu/Debian: sudo apt-get install libffi-dev libssl-dev libwebsockets-dev"
-            echo "  Fedora/RHEL:   sudo dnf install libffi openssl libwebsockets"
-            echo "  Arch Linux:    sudo pacman -S libffi openssl libwebsockets"
-        fi
-        echo ""
-    fi
+    # Static binaries - no runtime dependencies needed!
+    # This function is kept for backwards compatibility but does nothing.
+    :
 }
 
 # Main installation
@@ -199,9 +180,15 @@ main() {
     mkdir -p "$PREFIX/bin"
     mkdir -p "$PREFIX/lib/hemlock"
 
-    # Copy binary
+    # Copy interpreter binary
     cp "$tmpdir/${artifact_name}/hemlock" "$PREFIX/bin/hemlock"
     chmod +x "$PREFIX/bin/hemlock"
+
+    # Copy compiler binary (if present)
+    if [[ -f "$tmpdir/${artifact_name}/hemlockc" ]]; then
+        cp "$tmpdir/${artifact_name}/hemlockc" "$PREFIX/bin/hemlockc"
+        chmod +x "$PREFIX/bin/hemlockc"
+    fi
 
     # Copy stdlib
     if [[ -d "$tmpdir/${artifact_name}/stdlib" ]]; then
@@ -209,15 +196,34 @@ main() {
         cp -r "$tmpdir/${artifact_name}/stdlib" "$PREFIX/lib/hemlock/stdlib"
     fi
 
-    # Check runtime dependencies
+    # Copy runtime library (for hemlockc to compile programs)
+    if [[ -f "$tmpdir/${artifact_name}/libhemlock_runtime.a" ]]; then
+        cp "$tmpdir/${artifact_name}/libhemlock_runtime.a" "$PREFIX/lib/hemlock/"
+    fi
+
+    # Copy runtime headers (if present)
+    if [[ -d "$tmpdir/${artifact_name}/include" ]]; then
+        mkdir -p "$PREFIX/lib/hemlock/include"
+        cp -r "$tmpdir/${artifact_name}/include"/* "$PREFIX/lib/hemlock/include/"
+    fi
+
+    # Check runtime dependencies (no-op for static binaries)
     check_runtime_deps "$os"
 
     # Success message
     echo ""
     success "Hemlock $VERSION installed successfully!"
     echo ""
-    echo "  Binary: $PREFIX/bin/hemlock"
-    echo "  Stdlib: $PREFIX/lib/hemlock/stdlib/"
+    echo -e "${GREEN}Statically linked binaries - no runtime dependencies required!${NC}"
+    echo ""
+    echo "  Interpreter: $PREFIX/bin/hemlock"
+    if [[ -f "$PREFIX/bin/hemlockc" ]]; then
+        echo "  Compiler:    $PREFIX/bin/hemlockc"
+    fi
+    echo "  Stdlib:      $PREFIX/lib/hemlock/stdlib/"
+    if [[ -f "$PREFIX/lib/hemlock/libhemlock_runtime.a" ]]; then
+        echo "  Runtime:     $PREFIX/lib/hemlock/libhemlock_runtime.a"
+    fi
     echo ""
 
     # PATH instructions
@@ -256,6 +262,9 @@ main() {
         echo "Get started:"
         echo "  $PREFIX/bin/hemlock              # Start REPL"
         echo "  $PREFIX/bin/hemlock program.hml  # Run a program"
+        if [[ -x "$PREFIX/bin/hemlockc" ]]; then
+            echo "  $PREFIX/bin/hemlockc program.hml -o program  # Compile to native binary"
+        fi
     fi
 }
 
