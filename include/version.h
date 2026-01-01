@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 6
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_PATCH 2
 
-#define HEMLOCK_VERSION "1.6.1"
+#define HEMLOCK_VERSION "1.6.2"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.6.2 - Patch release
  *   1.6.1 - Patch release
  *   1.6.0 - Compile-time type checking, LSP integration, bitwise operators
  *   1.5.0 - Full type system, async/await, atomics, 39 stdlib modules

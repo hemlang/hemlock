@@ -157,7 +157,7 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.6.1 is released with:
+Hemlock v1.6.2 is released with:
 
 - **Compile-time type checking** in hemlockc (enabled by default)
 - **LSP integration** with real-time type diagnostics
