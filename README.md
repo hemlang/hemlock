@@ -107,6 +107,12 @@ make test   # Run all tests
 
 ### Install
 
+**Quick Install (recommended):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash
+```
+
+**From source:**
 ```bash
 sudo make install              # Install to /usr/local
 make install PREFIX=~/.local   # Install to custom prefix

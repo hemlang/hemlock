@@ -2,6 +2,41 @@
 
 This guide will help you build and install Hemlock on your system.
 
+## Quick Install (Recommended)
+
+The easiest way to install Hemlock is using the one-line install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash
+```
+
+This downloads and installs the latest pre-built binary for your platform (Linux or macOS, x86_64 or arm64).
+
+### Install Options
+
+```bash
+# Install to a custom prefix (default: ~/.local)
+curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash -s -- --prefix /usr/local
+
+# Install a specific version
+curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash -s -- --version v1.6.0
+
+# Install and automatically update shell PATH
+curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash -s -- --update-path
+```
+
+After installation, verify it works:
+
+```bash
+hemlock --version
+```
+
+---
+
+## Building from Source
+
+If you prefer to build from source or the pre-built binaries don't work for your system, follow the instructions below.
+
 ## Prerequisites
 
 ### Required Dependencies
