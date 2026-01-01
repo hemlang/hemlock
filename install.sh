@@ -130,30 +130,169 @@ download() {
     fi
 }
 
-# Check for required runtime dependencies
-check_runtime_deps() {
-    local os="$1"
-    local missing_deps=()
+# Check for missing shared libraries using ldd (Linux) or otool (macOS)
+check_binary_deps() {
+    local binary="$1"
+    local os="$2"
+    local missing_libs=()
 
-    # Check for libffi
     if [[ "$os" == "linux" ]]; then
-        if ! ldconfig -p 2>/dev/null | grep -q libffi; then
-            if ! [ -f /usr/lib/x86_64-linux-gnu/libffi.so ] && ! [ -f /usr/lib/libffi.so ]; then
-                missing_deps+=("libffi")
+        # Use ldd to find missing shared libraries
+        local ldd_output
+        ldd_output=$(ldd "$binary" 2>&1)
+
+        # Check for "not found" libraries
+        while IFS= read -r line; do
+            if [[ "$line" == *"not found"* ]]; then
+                local lib_name
+                lib_name=$(echo "$line" | awk '{print $1}')
+                missing_libs+=("$lib_name")
             fi
+        done <<< "$ldd_output"
+    elif [[ "$os" == "macos" ]]; then
+        # Use otool on macOS
+        local otool_output
+        otool_output=$(otool -L "$binary" 2>&1)
+
+        while IFS= read -r line; do
+            local lib_path
+            lib_path=$(echo "$line" | awk '{print $1}')
+            if [[ "$lib_path" == /* ]] && [[ ! -f "$lib_path" ]]; then
+                missing_libs+=("$(basename "$lib_path")")
+            fi
+        done <<< "$otool_output"
+    fi
+
+    if [[ ${#missing_libs[@]} -gt 0 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Print installation instructions for missing dependencies
+print_dep_instructions() {
+    local os="$1"
+    shift
+    local missing_libs=("$@")
+
+    echo ""
+    error_no_exit "Missing required shared libraries: ${missing_libs[*]}"
+    echo ""
+    echo "Install the missing dependencies:"
+    echo ""
+
+    if [[ "$os" == "linux" ]]; then
+        # Map library names to package names
+        local apt_pkgs=()
+        local dnf_pkgs=()
+        local pacman_pkgs=()
+
+        for lib in "${missing_libs[@]}"; do
+            case "$lib" in
+                libwebsockets*)
+                    apt_pkgs+=("libwebsockets-dev")
+                    dnf_pkgs+=("libwebsockets")
+                    pacman_pkgs+=("libwebsockets")
+                    ;;
+                libffi*)
+                    apt_pkgs+=("libffi-dev")
+                    dnf_pkgs+=("libffi")
+                    pacman_pkgs+=("libffi")
+                    ;;
+                libssl*|libcrypto*)
+                    apt_pkgs+=("libssl-dev")
+                    dnf_pkgs+=("openssl")
+                    pacman_pkgs+=("openssl")
+                    ;;
+                libz*)
+                    apt_pkgs+=("zlib1g-dev")
+                    dnf_pkgs+=("zlib")
+                    pacman_pkgs+=("zlib")
+                    ;;
+                *)
+                    apt_pkgs+=("$lib")
+                    dnf_pkgs+=("$lib")
+                    pacman_pkgs+=("$lib")
+                    ;;
+            esac
+        done
+
+        # Remove duplicates
+        apt_pkgs=($(echo "${apt_pkgs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+        dnf_pkgs=($(echo "${dnf_pkgs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+        pacman_pkgs=($(echo "${pacman_pkgs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+
+        echo "  Ubuntu/Debian: sudo apt-get install ${apt_pkgs[*]}"
+        echo "  Fedora/RHEL:   sudo dnf install ${dnf_pkgs[*]}"
+        echo "  Arch Linux:    sudo pacman -S ${pacman_pkgs[*]}"
+    elif [[ "$os" == "macos" ]]; then
+        local brew_pkgs=()
+
+        for lib in "${missing_libs[@]}"; do
+            case "$lib" in
+                libwebsockets*) brew_pkgs+=("libwebsockets") ;;
+                libffi*) brew_pkgs+=("libffi") ;;
+                libssl*|libcrypto*) brew_pkgs+=("openssl@3") ;;
+                *) brew_pkgs+=("$lib") ;;
+            esac
+        done
+
+        brew_pkgs=($(echo "${brew_pkgs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+        echo "  brew install ${brew_pkgs[*]}"
+    fi
+
+    echo ""
+    echo "After installing dependencies, run hemlock again:"
+    echo "  $PREFIX/bin/hemlock --version"
+}
+
+# Error without exit (for warnings that need follow-up)
+error_no_exit() { echo -e "${RED}error:${NC} $1" >&2; }
+
+# Verify the installed binary actually works
+verify_installation() {
+    local binary="$1"
+    local os="$2"
+
+    # First, check for missing shared libraries
+    if [[ "$os" == "linux" ]] && command -v ldd &> /dev/null; then
+        local ldd_output
+        ldd_output=$(ldd "$binary" 2>&1)
+
+        local missing_libs=()
+        while IFS= read -r line; do
+            if [[ "$line" == *"not found"* ]]; then
+                local lib_name
+                lib_name=$(echo "$line" | awk '{print $1}')
+                missing_libs+=("$lib_name")
+            fi
+        done <<< "$ldd_output"
+
+        if [[ ${#missing_libs[@]} -gt 0 ]]; then
+            print_dep_instructions "$os" "${missing_libs[@]}"
+            return 1
         fi
     fi
 
-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        warn "Some runtime dependencies may be missing: ${missing_deps[*]}"
-        echo ""
-        if [[ "$os" == "linux" ]]; then
-            echo "Install them with:"
-            echo "  Ubuntu/Debian: sudo apt-get install libffi-dev libssl-dev libwebsockets-dev"
-            echo "  Fedora/RHEL:   sudo dnf install libffi openssl libwebsockets"
-            echo "  Arch Linux:    sudo pacman -S libffi openssl libwebsockets"
+    # Try to run the binary
+    local version_output
+    if version_output=$("$binary" --version 2>&1); then
+        return 0
+    else
+        # Binary failed to run - check if it's a library issue
+        if [[ "$version_output" == *"error while loading shared libraries"* ]]; then
+            local missing_lib
+            # Extract library name: "shared libraries: libfoo.so.X: cannot open..."
+            missing_lib=$(echo "$version_output" | sed -n 's/.*shared libraries: \([^:]*\):.*/\1/p' | head -1)
+            if [[ -n "$missing_lib" ]]; then
+                print_dep_instructions "$os" "$missing_lib"
+                return 1
+            fi
         fi
-        echo ""
+
+        # Unknown error
+        error_no_exit "Binary verification failed: $version_output"
+        return 1
     fi
 }
 
@@ -209,8 +348,18 @@ main() {
         cp -r "$tmpdir/${artifact_name}/stdlib" "$PREFIX/lib/hemlock/stdlib"
     fi
 
-    # Check runtime dependencies
-    check_runtime_deps "$os"
+    # Verify the binary actually works (check for missing shared libraries)
+    info "Verifying installation..."
+    if ! verify_installation "$PREFIX/bin/hemlock" "$os"; then
+        echo ""
+        warn "Hemlock was installed but cannot run due to missing dependencies."
+        echo ""
+        echo "  Binary: $PREFIX/bin/hemlock"
+        echo "  Stdlib: $PREFIX/lib/hemlock/stdlib/"
+        echo ""
+        echo "After installing the required dependencies, hemlock will work."
+        exit 1
+    fi
 
     # Success message
     echo ""
@@ -248,15 +397,13 @@ main() {
         echo ""
     fi
 
-    # Verify installation
-    if [[ -x "$PREFIX/bin/hemlock" ]]; then
-        echo "Verify installation:"
-        echo "  $PREFIX/bin/hemlock --version"
-        echo ""
-        echo "Get started:"
-        echo "  $PREFIX/bin/hemlock              # Start REPL"
-        echo "  $PREFIX/bin/hemlock program.hml  # Run a program"
-    fi
+    # Show version and getting started info
+    echo "Verify installation:"
+    echo "  $PREFIX/bin/hemlock --version"
+    echo ""
+    echo "Get started:"
+    echo "  $PREFIX/bin/hemlock              # Start REPL"
+    echo "  $PREFIX/bin/hemlock program.hml  # Run a program"
 }
 
 main "$@"
