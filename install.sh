@@ -5,6 +5,8 @@
 # Options:
 #   --prefix DIR     Install to DIR (default: ~/.local)
 #   --version VER    Install specific version (default: latest)
+#   --update-path    Automatically add to shell PATH (bashrc/zshrc)
+#   --no-modify-path Skip PATH modification prompt
 #   --help           Show this help message
 
 set -e
@@ -20,6 +22,7 @@ NC='\033[0m' # No Color
 PREFIX="$HOME/.local"
 VERSION=""
 GITHUB_REPO="hemlang/hemlock"
+UPDATE_PATH=""      # empty = prompt, "yes" = auto-update, "no" = skip
 
 # Print helpers
 info() { echo -e "${BLUE}==>${NC} $1"; }
@@ -46,6 +49,14 @@ while [[ $# -gt 0 ]]; do
             VERSION="${1#*=}"
             shift
             ;;
+        --update-path)
+            UPDATE_PATH="yes"
+            shift
+            ;;
+        --no-modify-path)
+            UPDATE_PATH="no"
+            shift
+            ;;
         --help|-h)
             echo "Hemlock Install Script"
             echo ""
@@ -55,6 +66,8 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --prefix DIR     Install to DIR (default: ~/.local)"
             echo "  --version VER    Install specific version (default: latest)"
+            echo "  --update-path    Automatically add to shell PATH (bashrc/zshrc)"
+            echo "  --no-modify-path Skip PATH modification prompt"
             echo "  --help           Show this help message"
             echo ""
             echo "Examples:"
@@ -66,6 +79,9 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "  # Install specific version"
             echo "  curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash -s -- --version v1.6.0"
+            echo ""
+            echo "  # Install and automatically update shell PATH"
+            echo "  curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash -s -- --update-path"
             exit 0
             ;;
         *)
@@ -230,32 +246,76 @@ main() {
     fi
     echo ""
 
-    # PATH instructions
+    # PATH setup
     if [[ ":$PATH:" != *":$PREFIX/bin:"* ]]; then
         echo -e "${YELLOW}Note:${NC} $PREFIX/bin is not in your PATH."
         echo ""
-        echo "Add it to your shell configuration:"
-        echo ""
 
-        local shell_name
+        local shell_name shell_config export_line
         shell_name=$(basename "$SHELL")
+        export_line="export PATH=\"$PREFIX/bin:\$PATH\""
+
         case "$shell_name" in
-            bash)
-                echo "  echo 'export PATH=\"$PREFIX/bin:\$PATH\"' >> ~/.bashrc"
-                echo "  source ~/.bashrc"
-                ;;
-            zsh)
-                echo "  echo 'export PATH=\"$PREFIX/bin:\$PATH\"' >> ~/.zshrc"
-                echo "  source ~/.zshrc"
-                ;;
-            fish)
-                echo "  fish_add_path $PREFIX/bin"
-                ;;
-            *)
-                echo "  export PATH=\"$PREFIX/bin:\$PATH\""
-                ;;
+            bash)  shell_config="$HOME/.bashrc" ;;
+            zsh)   shell_config="$HOME/.zshrc" ;;
+            fish)  shell_config="$HOME/.config/fish/config.fish" ;;
+            *)     shell_config="" ;;
         esac
-        echo ""
+
+        # Determine if we should update PATH
+        local do_update="no"
+        if [[ "$UPDATE_PATH" == "yes" ]]; then
+            do_update="yes"
+        elif [[ "$UPDATE_PATH" == "no" ]]; then
+            do_update="no"
+        elif [[ -t 0 && -n "$shell_config" ]]; then
+            # Interactive terminal and known shell - ask user
+            echo -n "Would you like to add it to $shell_config? [Y/n] "
+            read -r response
+            case "$response" in
+                [nN]|[nN][oO]) do_update="no" ;;
+                *) do_update="yes" ;;
+            esac
+        fi
+
+        if [[ "$do_update" == "yes" && -n "$shell_config" ]]; then
+            # Add PATH to shell config
+            if [[ "$shell_name" == "fish" ]]; then
+                mkdir -p "$(dirname "$shell_config")"
+                echo "fish_add_path $PREFIX/bin" >> "$shell_config"
+            else
+                echo "" >> "$shell_config"
+                echo "# Hemlock" >> "$shell_config"
+                echo "$export_line" >> "$shell_config"
+            fi
+            success "Added to $shell_config"
+            echo ""
+            echo "To use hemlock now, either restart your shell or run:"
+            case "$shell_name" in
+                fish) echo "  source $shell_config" ;;
+                *)    echo "  $export_line" ;;
+            esac
+            echo ""
+        else
+            # Show manual instructions
+            echo "To add hemlock to your PATH, either:"
+            echo ""
+            echo "  1. Run this in your current session:"
+            echo "     $export_line"
+            echo ""
+            if [[ -n "$shell_config" ]]; then
+                echo "  2. Add permanently to $shell_config:"
+                if [[ "$shell_name" == "fish" ]]; then
+                    echo "     fish_add_path $PREFIX/bin"
+                else
+                    echo "     echo '$export_line' >> $shell_config"
+                fi
+                echo ""
+            fi
+            echo "  3. Or reinstall to /usr/local (system-wide):"
+            echo "     curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | sudo bash -s -- --prefix /usr/local"
+            echo ""
+        fi
     fi
 
     # Verify installation
