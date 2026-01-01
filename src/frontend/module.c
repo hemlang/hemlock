@@ -198,11 +198,12 @@ static void ensure_export_capacity(Module *module) {
             exit(1);
         }
         module->export_capacity *= 2;
-        module->export_names = realloc(module->export_names, sizeof(char*) * module->export_capacity);
-        if (!module->export_names) {
+        char **new_names = realloc(module->export_names, sizeof(char*) * module->export_capacity);
+        if (!new_names) {
             fprintf(stderr, "Runtime error: Memory allocation failed for module exports\n");
             exit(1);
         }
+        module->export_names = new_names;
     }
 }
 
@@ -732,7 +733,15 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
             return NULL;
         }
         cache->capacity *= 2;
-        cache->modules = realloc(cache->modules, sizeof(Module*) * cache->capacity);
+        Module **new_modules = realloc(cache->modules, sizeof(Module*) * cache->capacity);
+        if (!new_modules) {
+            fprintf(stderr, "Runtime error: Memory allocation failed for module cache\n");
+            free(module->export_names);
+            free(absolute_path);
+            free(module);
+            return NULL;
+        }
+        cache->modules = new_modules;
     }
 
     // Add to array and hash table for O(1) lookup

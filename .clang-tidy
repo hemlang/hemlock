@@ -1,0 +1,95 @@
+# Clang-Tidy configuration for Hemlock
+# A systems scripting language with manual memory management
+
+---
+# Enable a focused set of checks appropriate for C11 systems code
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-narrowing-conversions,
+  -bugprone-switch-missing-default-case,
+  -bugprone-suspicious-realloc-usage,
+  -bugprone-branch-clone,
+  -bugprone-signed-char-misuse,
+  -bugprone-unsafe-functions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-macro-parentheses,
+  cert-*,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err34-c,
+  -cert-str34-c,
+  -cert-msc24-c,
+  -cert-msc30-c,
+  -cert-msc33-c,
+  -cert-msc50-cpp,
+  -cert-msc32-c,
+  -cert-msc51-cpp,
+  -cert-env33-c,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-security.insecureAPI.strcpy,
+  -clang-analyzer-optin.portability.UnixAPI,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-unix.Malloc,
+  misc-redundant-expression,
+  misc-unused-parameters,
+  performance-*,
+  -performance-no-int-to-ptr,
+  readability-duplicate-include,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  -readability-redundant-declaration,
+
+# Treat warnings as warnings (not errors) by default
+WarningsAsErrors: ''
+
+# Header filter - only analyze project headers, not system headers
+HeaderFilterRegex: '(include|src|runtime)/.*\.h$'
+
+# Format style for any automatic fixes
+FormatStyle: none
+
+CheckOptions:
+  # bugprone-argument-comment: require exact parameter names
+  - key: bugprone-argument-comment.StrictMode
+    value: 'false'
+
+  # bugprone-assert-side-effect: functions considered side-effect free
+  - key: bugprone-assert-side-effect.AssertMacros
+    value: 'assert'
+
+  # bugprone-sizeof-expression: allow sizeof on pointer types (common in systems code)
+  - key: bugprone-sizeof-expression.WarnOnSizeOfPointerToAggregate
+    value: 'false'
+
+  # bugprone-suspicious-string-compare: warn on implicit conversions
+  - key: bugprone-suspicious-string-compare.WarnOnImplicitComparison
+    value: 'true'
+
+  # bugprone-signed-char-misuse: treat char as signed (default on most platforms)
+  - key: bugprone-signed-char-misuse.CharTypdefsToIgnore
+    value: ''
+
+  # cert-err33-c: functions that should have return value checked
+  - key: cert-err33-c.CheckedFunctions
+    value: ''
+
+  # misc-unused-parameters: don't require removing unused params (APIs may need them)
+  - key: misc-unused-parameters.StrictMode
+    value: 'false'
+
+  # performance-unnecessary-value-param: threshold for pass-by-value warnings
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: ''
+
+# Diagnostic options
+ExtraArgs:
+  - '-std=c11'
+  - '-D_POSIX_C_SOURCE=200809L'
+...

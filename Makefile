@@ -224,6 +224,107 @@ valgrind-clean:
 
 .PHONY: all clean run test
 
+# ========== CLANG STATIC ANALYSIS ==========
+
+# Check if clang-tidy and scan-build are installed
+CLANG_TIDY := $(shell command -v clang-tidy 2> /dev/null)
+SCAN_BUILD := $(shell command -v scan-build 2> /dev/null)
+
+# Source files to analyze (exclude runtime - it has its own build system)
+ANALYZE_SRCS = $(FRONTEND_SRCS) $(INTERP_SRCS) $(OTHER_SRCS) \
+               $(wildcard $(SRC_DIR)/backends/compiler/*.c)
+
+# clang-tidy: Run clang-tidy linter on all source files
+.PHONY: clang-tidy
+clang-tidy:
+ifndef CLANG_TIDY
+	@echo "⚠ clang-tidy not found. Install with: sudo apt-get install clang-tidy"
+	@exit 1
+endif
+	@echo "Running clang-tidy on Hemlock source files..."
+	@echo "Configuration: .clang-tidy"
+	@echo ""
+	@failed=0; \
+	for file in $(ANALYZE_SRCS); do \
+		if [ -f "$$file" ]; then \
+			echo "Analyzing: $$file"; \
+			clang-tidy $$file -- $(CFLAGS) 2>/dev/null || failed=1; \
+		fi; \
+	done; \
+	if [ $$failed -eq 0 ]; then \
+		echo ""; \
+		echo "✓ clang-tidy analysis complete - no issues found"; \
+	else \
+		echo ""; \
+		echo "⚠ clang-tidy found issues (see above)"; \
+	fi
+
+# clang-tidy-fix: Run clang-tidy with automatic fixes
+.PHONY: clang-tidy-fix
+clang-tidy-fix:
+ifndef CLANG_TIDY
+	@echo "⚠ clang-tidy not found. Install with: sudo apt-get install clang-tidy"
+	@exit 1
+endif
+	@echo "Running clang-tidy with automatic fixes..."
+	@echo "WARNING: This will modify source files in place"
+	@echo ""
+	@for file in $(ANALYZE_SRCS); do \
+		if [ -f "$$file" ]; then \
+			echo "Fixing: $$file"; \
+			clang-tidy -fix $$file -- $(CFLAGS) 2>/dev/null || true; \
+		fi; \
+	done
+	@echo ""
+	@echo "✓ clang-tidy fixes applied"
+
+# scan-build: Run clang static analyzer
+.PHONY: scan-build
+scan-build: clean
+ifndef SCAN_BUILD
+	@echo "⚠ scan-build not found. Install with: sudo apt-get install clang-tools"
+	@exit 1
+endif
+	@echo "Running clang static analyzer via scan-build..."
+	@echo "This performs a full build with analysis enabled"
+	@echo ""
+	scan-build --status-bugs -o scan-build-reports make all
+	@echo ""
+	@echo "✓ scan-build analysis complete"
+	@echo "  Reports (if any): scan-build-reports/"
+
+# scan-build-view: Open scan-build HTML reports
+.PHONY: scan-build-view
+scan-build-view:
+	@if [ -d scan-build-reports ]; then \
+		latest=$$(ls -td scan-build-reports/*/ 2>/dev/null | head -1); \
+		if [ -n "$$latest" ]; then \
+			echo "Opening: $$latest/index.html"; \
+			xdg-open "$$latest/index.html" 2>/dev/null || open "$$latest/index.html" 2>/dev/null || echo "Open $$latest/index.html in your browser"; \
+		else \
+			echo "No reports found in scan-build-reports/"; \
+		fi; \
+	else \
+		echo "No scan-build-reports directory. Run 'make scan-build' first."; \
+	fi
+
+# analyze: Run all static analysis tools
+.PHONY: analyze
+analyze: clang-tidy scan-build
+	@echo ""
+	@echo "✓ All static analysis complete"
+
+# analyze-quick: Run only clang-tidy (faster, no rebuild required)
+.PHONY: analyze-quick
+analyze-quick: clang-tidy
+
+# Clean analysis artifacts
+.PHONY: analyze-clean
+analyze-clean:
+	@echo "Removing static analysis reports..."
+	@rm -rf scan-build-reports
+	@echo "Done."
+
 # ========== COMPILER AND RUNTIME ==========
 
 # Compiler source files (reuse frontend from interpreter, but not module.c)
@@ -282,7 +383,7 @@ compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
 
 # Full clean including compiler, runtime, release, and static builds
-fullclean: clean compiler-clean runtime-clean release-clean release-static-clean
+fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean
 
 # Run compiler test suite
 .PHONY: test-compiler

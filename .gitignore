@@ -59,6 +59,9 @@ Thumbs.db
 vgcore.*
 *.log
 
+# Static analysis reports
+scan-build-reports/
+
 # Test output
 test_results/
 *.test

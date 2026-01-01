@@ -678,8 +678,8 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             expr->as.string_interpolation.num_parts = (int)read_u32(ctx);
             int n = expr->as.string_interpolation.num_parts;
             expr->as.string_interpolation.string_parts = malloc((n + 1) * sizeof(char*));
-            expr->as.string_interpolation.expr_parts = malloc(n * sizeof(Expr*));
-            if (!expr->as.string_interpolation.string_parts || !expr->as.string_interpolation.expr_parts) {
+            expr->as.string_interpolation.expr_parts = (n > 0) ? malloc(n * sizeof(Expr*)) : NULL;
+            if (!expr->as.string_interpolation.string_parts || (n > 0 && !expr->as.string_interpolation.expr_parts)) {
                 free(expr->as.string_interpolation.string_parts);
                 free(expr->as.string_interpolation.expr_parts);
                 free(expr);
@@ -1246,7 +1246,7 @@ Stmt** ast_deserialize(const uint8_t *data, size_t data_size, int *out_count) {
 
     // Read string table
     if (ctx.string_count > 0) {
-        ctx.strings = malloc(ctx.string_count * sizeof(char*));
+        ctx.strings = calloc(ctx.string_count, sizeof(char*));
         if (!ctx.strings) {
             fprintf(stderr, "Error: Memory allocation failed for string table\n");
             return NULL;

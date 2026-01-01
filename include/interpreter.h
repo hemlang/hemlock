@@ -207,10 +207,7 @@ typedef struct {
     int ref_count;              // Reference count for memory management
 } Reference;
 
-// Forward declare TypeKind from ast.h
-#include "ast.h"
-
-// Runtime value
+// Runtime value (TypeKind is from ast.h included at top)
 typedef struct Value {
     ValueType type;
     union {

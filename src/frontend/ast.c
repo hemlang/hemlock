@@ -796,9 +796,12 @@ Expr* expr_clone(const Expr *expr) {
             }
 
             // Clone expr parts
-            Expr **new_expr_parts = malloc(sizeof(Expr*) * n);
-            for (int i = 0; i < n; i++) {
-                new_expr_parts[i] = expr_clone(expr->as.string_interpolation.expr_parts[i]);
+            Expr **new_expr_parts = NULL;
+            if (n > 0) {
+                new_expr_parts = malloc(sizeof(Expr*) * n);
+                for (int i = 0; i < n; i++) {
+                    new_expr_parts[i] = expr_clone(expr->as.string_interpolation.expr_parts[i]);
+                }
             }
 
             return expr_string_interpolation(new_string_parts, new_expr_parts, n);

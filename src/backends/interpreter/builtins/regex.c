@@ -114,6 +114,7 @@ Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
     regmatch_t *pmatch = (regmatch_t *)malloc(nmatch * sizeof(regmatch_t));
     if (!pmatch) {
         runtime_error(ctx, "regex_match: failed to allocate memory");
+        return val_null();
     }
 
     Array *result = array_new();
@@ -251,6 +252,7 @@ Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx) {
     char *new_str = (char *)malloc(prefix_len + repl_len + suffix_len + 1);
     if (!new_str) {
         runtime_error(ctx, "regex_replace: failed to allocate memory");
+        return val_null();
     }
 
     memcpy(new_str, text_data, prefix_len);
@@ -322,6 +324,7 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     char *result = (char *)malloc(result_size + 1);
     if (!result) {
         runtime_error(ctx, "regex_replace_all: failed to allocate memory");
+        return val_null();
     }
 
     char *dst = result;
