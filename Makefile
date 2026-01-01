@@ -443,7 +443,7 @@ STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
                     $(STATIC_BUILD_DIR)/lsp \
                     $(STATIC_BUILD_DIR)/bundler
 
-.PHONY: release-static release-static-compiler release-static-clean
+.PHONY: release-static release-static-compiler release-static-clean release-portable
 
 # Build static, optimized, stripped binary for portable distribution
 release-static: $(STATIC_BUILD_DIRS) $(STATIC_BUILD_DIR)/hemlock $(STATIC_BUILD_DIR)/hemlockc
@@ -456,6 +456,22 @@ ifeq ($(shell uname),Linux)
 	@file $(STATIC_BUILD_DIR)/hemlock
 	@ldd $(STATIC_BUILD_DIR)/hemlock 2>&1 || echo "  (statically linked - no dynamic dependencies)"
 endif
+
+# Build portable binary - statically link third-party libs, dynamically link libc
+# This only requires libc at runtime (which everyone has) - no libffi/libcrypto/zlib needed
+release-portable: $(BUILD_DIRS) $(OBJS) runtime hemlockc
+	@echo ""
+	@echo "Building portable interpreter (partial static linking)..."
+	$(CC) $(OBJS) -o hemlock-portable \
+		-Wl,-Bstatic -lffi -lcrypto -lz \
+		-Wl,-Bdynamic -ldl -lpthread -lm
+	strip hemlock-portable
+	@echo ""
+	@echo "✓ Portable build complete:"
+	@ls -lh hemlock-portable
+	@echo ""
+	@echo "Runtime dependencies (libc only):"
+	@ldd hemlock-portable | grep -E "libc|libm" || true
 
 # Build only the static compiler (for release builds with dynamic interpreter)
 release-static-compiler: $(STATIC_BUILD_DIRS) $(STATIC_BUILD_DIR)/hemlockc
