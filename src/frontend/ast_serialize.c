@@ -99,7 +99,12 @@ static void ctx_init(SerializeContext *ctx, uint16_t flags) {
 static void ctx_ensure_capacity(SerializeContext *ctx, size_t additional) {
     while (ctx->buffer_size + additional > ctx->buffer_capacity) {
         ctx->buffer_capacity *= 2;
-        ctx->buffer = realloc(ctx->buffer, ctx->buffer_capacity);
+        uint8_t *new_buffer = realloc(ctx->buffer, ctx->buffer_capacity);
+        if (!new_buffer) {
+            fprintf(stderr, "Error: Failed to grow serialization buffer\n");
+            exit(1);
+        }
+        ctx->buffer = new_buffer;
     }
 }
 
@@ -265,6 +270,10 @@ static Type* deserialize_type(DeserializeContext *ctx) {
     if (kind_byte == NULL_MARKER) return NULL;
 
     Type *type = malloc(sizeof(Type));
+    if (!type) {
+        fprintf(stderr, "Error: Memory allocation failed in deserialize_type\n");
+        return NULL;
+    }
     type->kind = (TypeKind)kind_byte;
     type->type_name = NULL;
     type->element_type = NULL;
@@ -466,6 +475,10 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
     if (type_byte == NULL_MARKER) return NULL;
 
     Expr *expr = malloc(sizeof(Expr));
+    if (!expr) {
+        fprintf(stderr, "Error: Memory allocation failed in deserialize_expr\n");
+        return NULL;
+    }
     memset(expr, 0, sizeof(Expr));
     expr->type = (ExprType)type_byte;
 
@@ -531,6 +544,10 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             expr->as.call.num_args = (int)read_u32(ctx);
             if (expr->as.call.num_args > 0) {
                 expr->as.call.args = malloc(expr->as.call.num_args * sizeof(Expr*));
+                if (!expr->as.call.args) {
+                    free(expr);
+                    return NULL;
+                }
                 for (int i = 0; i < expr->as.call.num_args; i++) {
                     expr->as.call.args[i] = deserialize_expr(ctx);
                 }
@@ -574,6 +591,15 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
                 expr->as.function.param_types = malloc(expr->as.function.num_params * sizeof(Type*));
                 expr->as.function.param_defaults = malloc(expr->as.function.num_params * sizeof(Expr*));
                 expr->as.function.param_is_ref = malloc(expr->as.function.num_params * sizeof(int));
+                if (!expr->as.function.param_names || !expr->as.function.param_types ||
+                    !expr->as.function.param_defaults || !expr->as.function.param_is_ref) {
+                    free(expr->as.function.param_names);
+                    free(expr->as.function.param_types);
+                    free(expr->as.function.param_defaults);
+                    free(expr->as.function.param_is_ref);
+                    free(expr);
+                    return NULL;
+                }
                 for (int i = 0; i < expr->as.function.num_params; i++) {
                     expr->as.function.param_names[i] = read_string_id(ctx);
                     expr->as.function.param_types[i] = deserialize_type(ctx);
@@ -595,6 +621,10 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             expr->as.array_literal.num_elements = (int)read_u32(ctx);
             if (expr->as.array_literal.num_elements > 0) {
                 expr->as.array_literal.elements = malloc(expr->as.array_literal.num_elements * sizeof(Expr*));
+                if (!expr->as.array_literal.elements) {
+                    free(expr);
+                    return NULL;
+                }
                 for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
                     expr->as.array_literal.elements[i] = deserialize_expr(ctx);
                 }
@@ -608,6 +638,12 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             if (expr->as.object_literal.num_fields > 0) {
                 expr->as.object_literal.field_names = malloc(expr->as.object_literal.num_fields * sizeof(char*));
                 expr->as.object_literal.field_values = malloc(expr->as.object_literal.num_fields * sizeof(Expr*));
+                if (!expr->as.object_literal.field_names || !expr->as.object_literal.field_values) {
+                    free(expr->as.object_literal.field_names);
+                    free(expr->as.object_literal.field_values);
+                    free(expr);
+                    return NULL;
+                }
                 for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
                     expr->as.object_literal.field_names[i] = read_string_id(ctx);
                     expr->as.object_literal.field_values[i] = deserialize_expr(ctx);
@@ -643,6 +679,12 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             int n = expr->as.string_interpolation.num_parts;
             expr->as.string_interpolation.string_parts = malloc((n + 1) * sizeof(char*));
             expr->as.string_interpolation.expr_parts = malloc(n * sizeof(Expr*));
+            if (!expr->as.string_interpolation.string_parts || !expr->as.string_interpolation.expr_parts) {
+                free(expr->as.string_interpolation.string_parts);
+                free(expr->as.string_interpolation.expr_parts);
+                free(expr);
+                return NULL;
+            }
             for (int i = 0; i <= n; i++) {
                 expr->as.string_interpolation.string_parts[i] = read_string_id(ctx);
             }
@@ -667,6 +709,10 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
                 expr->as.optional_chain.num_args = (int)read_u32(ctx);
                 if (expr->as.optional_chain.num_args > 0) {
                     expr->as.optional_chain.args = malloc(expr->as.optional_chain.num_args * sizeof(Expr*));
+                    if (!expr->as.optional_chain.args) {
+                        free(expr);
+                        return NULL;
+                    }
                     for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
                         expr->as.optional_chain.args[i] = deserialize_expr(ctx);
                     }
@@ -851,6 +897,10 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
     if (type_byte == NULL_MARKER) return NULL;
 
     Stmt *stmt = malloc(sizeof(Stmt));
+    if (!stmt) {
+        fprintf(stderr, "Error: Memory allocation failed in deserialize_stmt\n");
+        return NULL;
+    }
     memset(stmt, 0, sizeof(Stmt));
     stmt->type = (StmtType)type_byte;
 
@@ -912,6 +962,10 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             stmt->as.block.count = (int)read_u32(ctx);
             if (stmt->as.block.count > 0) {
                 stmt->as.block.statements = malloc(stmt->as.block.count * sizeof(Stmt*));
+                if (!stmt->as.block.statements) {
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < stmt->as.block.count; i++) {
                     stmt->as.block.statements[i] = deserialize_stmt(ctx);
                 }
@@ -933,6 +987,15 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
                 stmt->as.define_object.field_types = malloc(n * sizeof(Type*));
                 stmt->as.define_object.field_optional = malloc(n * sizeof(int));
                 stmt->as.define_object.field_defaults = malloc(n * sizeof(Expr*));
+                if (!stmt->as.define_object.field_names || !stmt->as.define_object.field_types ||
+                    !stmt->as.define_object.field_optional || !stmt->as.define_object.field_defaults) {
+                    free(stmt->as.define_object.field_names);
+                    free(stmt->as.define_object.field_types);
+                    free(stmt->as.define_object.field_optional);
+                    free(stmt->as.define_object.field_defaults);
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < n; i++) {
                     stmt->as.define_object.field_names[i] = read_string_id(ctx);
                     stmt->as.define_object.field_types[i] = deserialize_type(ctx);
@@ -955,6 +1018,12 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             if (n > 0) {
                 stmt->as.enum_decl.variant_names = malloc(n * sizeof(char*));
                 stmt->as.enum_decl.variant_values = malloc(n * sizeof(Expr*));
+                if (!stmt->as.enum_decl.variant_names || !stmt->as.enum_decl.variant_values) {
+                    free(stmt->as.enum_decl.variant_names);
+                    free(stmt->as.enum_decl.variant_values);
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < n; i++) {
                     stmt->as.enum_decl.variant_names[i] = read_string_id(ctx);
                     stmt->as.enum_decl.variant_values[i] = deserialize_expr(ctx);
@@ -984,6 +1053,12 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             if (n > 0) {
                 stmt->as.switch_stmt.case_values = malloc(n * sizeof(Expr*));
                 stmt->as.switch_stmt.case_bodies = malloc(n * sizeof(Stmt*));
+                if (!stmt->as.switch_stmt.case_values || !stmt->as.switch_stmt.case_bodies) {
+                    free(stmt->as.switch_stmt.case_values);
+                    free(stmt->as.switch_stmt.case_bodies);
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < n; i++) {
                     stmt->as.switch_stmt.case_values[i] = deserialize_expr(ctx);
                     stmt->as.switch_stmt.case_bodies[i] = deserialize_stmt(ctx);
@@ -1008,6 +1083,12 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             if (n > 0) {
                 stmt->as.import_stmt.import_names = malloc(n * sizeof(char*));
                 stmt->as.import_stmt.import_aliases = malloc(n * sizeof(char*));
+                if (!stmt->as.import_stmt.import_names || !stmt->as.import_stmt.import_aliases) {
+                    free(stmt->as.import_stmt.import_names);
+                    free(stmt->as.import_stmt.import_aliases);
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < n; i++) {
                     stmt->as.import_stmt.import_names[i] = read_string_id(ctx);
                     stmt->as.import_stmt.import_aliases[i] = read_string_id(ctx);
@@ -1029,6 +1110,12 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             if (n > 0) {
                 stmt->as.export_stmt.export_names = malloc(n * sizeof(char*));
                 stmt->as.export_stmt.export_aliases = malloc(n * sizeof(char*));
+                if (!stmt->as.export_stmt.export_names || !stmt->as.export_stmt.export_aliases) {
+                    free(stmt->as.export_stmt.export_names);
+                    free(stmt->as.export_stmt.export_aliases);
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < n; i++) {
                     stmt->as.export_stmt.export_names[i] = read_string_id(ctx);
                     stmt->as.export_stmt.export_aliases[i] = read_string_id(ctx);
@@ -1050,6 +1137,10 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             int n = stmt->as.extern_fn.num_params;
             if (n > 0) {
                 stmt->as.extern_fn.param_types = malloc(n * sizeof(Type*));
+                if (!stmt->as.extern_fn.param_types) {
+                    free(stmt);
+                    return NULL;
+                }
                 for (int i = 0; i < n; i++) {
                     stmt->as.extern_fn.param_types[i] = deserialize_type(ctx);
                 }
@@ -1154,10 +1245,21 @@ Stmt** ast_deserialize(const uint8_t *data, size_t data_size, int *out_count) {
     }
 
     // Read string table
-    ctx.strings = malloc(ctx.string_count * sizeof(char*));
+    if (ctx.string_count > 0) {
+        ctx.strings = malloc(ctx.string_count * sizeof(char*));
+        if (!ctx.strings) {
+            fprintf(stderr, "Error: Memory allocation failed for string table\n");
+            return NULL;
+        }
+    }
     for (uint32_t i = 0; i < ctx.string_count; i++) {
         uint32_t len = read_u32(&ctx);
         char *str = malloc(len + 1);
+        if (!str) {
+            fprintf(stderr, "Error: Memory allocation failed for string\n");
+            dctx_free(&ctx);
+            return NULL;
+        }
         if (dctx_has_bytes(&ctx, len)) {
             memcpy(str, ctx.data + ctx.offset, len);
             ctx.offset += len;
@@ -1168,6 +1270,11 @@ Stmt** ast_deserialize(const uint8_t *data, size_t data_size, int *out_count) {
 
     // Deserialize statements
     Stmt **statements = malloc(stmt_count * sizeof(Stmt*));
+    if (!statements) {
+        fprintf(stderr, "Error: Memory allocation failed for statements\n");
+        dctx_free(&ctx);
+        return NULL;
+    }
     for (uint32_t i = 0; i < stmt_count; i++) {
         statements[i] = deserialize_stmt(&ctx);
     }
@@ -1225,6 +1332,11 @@ Stmt** ast_deserialize_from_file(const char *filename, int *out_count) {
 
     // Read entire file
     uint8_t *data = malloc(file_size);
+    if (!data) {
+        fprintf(stderr, "Error: Cannot allocate memory to read '%s'\n", filename);
+        fclose(f);
+        return NULL;
+    }
     size_t bytes_read = fread(data, 1, file_size, f);
     fclose(f);
 

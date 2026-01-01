@@ -28,6 +28,10 @@ Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Build parameter types
     Type **param_types = malloc(sizeof(Type*) * num_params);
+    if (!param_types) {
+        runtime_error(ctx, "callback(): memory allocation failed");
+        return val_null();
+    }
     for (int i = 0; i < num_params; i++) {
         Value type_val = param_arr->elements[i];
         if (type_val.type != VAL_STRING) {
