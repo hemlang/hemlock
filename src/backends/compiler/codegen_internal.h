@@ -22,6 +22,10 @@
 #include <libgen.h>
 #include <limits.h>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 // ========== BUFFER SIZE CONSTANTS ==========
 
 // Buffer size for mangled names (module prefix + symbol name)
