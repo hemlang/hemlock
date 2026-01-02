@@ -1,0 +1,28 @@
+// Test for-in loops without 'let' keyword
+
+// Array iteration without let
+let arr = [10, 20, 30];
+for (x in arr) {
+    print(x);
+}
+
+// Object iteration without let (value only, like with let)
+let obj = { a: 1, b: 2 };
+for (v in obj) {
+    print(v);
+}
+
+// Object iteration without let (key, value)
+for (k, v in obj) {
+    print(k + "=" + v);
+}
+
+// Nested for-in without let
+let matrix = [[1, 2], [3, 4]];
+for (row in matrix) {
+    for (val in row) {
+        print(val);
+    }
+}
+
+print("done");

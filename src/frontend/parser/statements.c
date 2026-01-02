@@ -247,6 +247,57 @@ Stmt* for_statement(Parser *p) {
         return stmt_for(initializer, condition, increment, body);
     }
 
+    // Check for for-in loop without let (e.g., for (item in array))
+    if (check(p, TOK_IDENT)) {
+        // Save state for potential backtracking
+        Token saved_current = p->current;
+        Token saved_previous = p->previous;
+        const char *saved_lexer_start = p->lexer->start;
+        const char *saved_lexer_current = p->lexer->current;
+        const char *saved_lexer_line_start = p->lexer->line_start;
+        int saved_lexer_line = p->lexer->line;
+
+        // Look ahead: if we have "identifier in" or "identifier, identifier in", it's a for-in loop
+        advance(p);  // consume identifier
+
+        if (check(p, TOK_COMMA)) {
+            // for (key, value in ...) - two variable form without let
+            char *first_var = token_text(&saved_current);
+            advance(p);  // consume comma
+            consume(p, TOK_IDENT, "Expect second variable name");
+            char *second_var = token_text(&p->previous);
+            consume(p, TOK_IN, "Expect 'in' in for-in loop");
+
+            Expr *iterable = expression(p);
+            consume(p, TOK_RPAREN, "Expect ')' after for-in");
+            consume(p, TOK_LBRACE, "Expect '{' after for-in");
+            Stmt *body = block_statement(p);
+
+            // stmt_for_in takes ownership of the strings, don't free them
+            return stmt_for_in(first_var, second_var, iterable, body);
+        } else if (check(p, TOK_IN)) {
+            // for (item in ...) - single variable form without let
+            char *var_name = token_text(&saved_current);
+            advance(p);  // consume 'in'
+
+            Expr *iterable = expression(p);
+            consume(p, TOK_RPAREN, "Expect ')' after for-in");
+            consume(p, TOK_LBRACE, "Expect '{' after for-in");
+            Stmt *body = block_statement(p);
+
+            // stmt_for_in takes ownership of the string, don't free it
+            return stmt_for_in(NULL, var_name, iterable, body);
+        } else {
+            // Not a for-in loop, restore state and fall through to C-style
+            p->current = saved_current;
+            p->previous = saved_previous;
+            p->lexer->start = saved_lexer_start;
+            p->lexer->current = saved_lexer_current;
+            p->lexer->line_start = saved_lexer_line_start;
+            p->lexer->line = saved_lexer_line;
+        }
+    }
+
     // C-style for loop without let (e.g., for (; i < 10; i = i + 1))
     Stmt *initializer = NULL;
     if (!check(p, TOK_SEMICOLON)) {
