@@ -12,26 +12,49 @@
 static char* find_stdlib_path(void) {
     char exe_path[PATH_MAX];
     char resolved[PATH_MAX];
+    int found_exe = 0;
 
-    // Try to get the executable path
+#ifdef __APPLE__
+    // macOS: use _NSGetExecutablePath
+    uint32_t size = sizeof(exe_path);
+    if (_NSGetExecutablePath(exe_path, &size) == 0) {
+        // Resolve any symlinks
+        char *real = realpath(exe_path, NULL);
+        if (real) {
+            strncpy(exe_path, real, PATH_MAX - 1);
+            exe_path[PATH_MAX - 1] = '\0';
+            free(real);
+            found_exe = 1;
+        }
+    }
+#else
+    // Linux: use /proc/self/exe
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
     if (len != -1) {
         exe_path[len] = '\0';
+        found_exe = 1;
+    }
+#endif
 
-        // Get directory of executable
-        char *dir = dirname(exe_path);
+    if (found_exe) {
+        // Make a copy because dirname may modify the string
+        char *exe_copy = strdup(exe_path);
+        char *dir = dirname(exe_copy);
 
         // Try: executable_dir/stdlib
         snprintf(resolved, PATH_MAX, "%s/stdlib", dir);
         if (access(resolved, F_OK) == 0) {
+            free(exe_copy);
             return realpath(resolved, NULL);
         }
 
         // Try: executable_dir/../stdlib (for build directory structure)
         snprintf(resolved, PATH_MAX, "%s/../stdlib", dir);
         if (access(resolved, F_OK) == 0) {
+            free(exe_copy);
             return realpath(resolved, NULL);
         }
+        free(exe_copy);
     }
 
     // Fallback: try current working directory + stdlib
