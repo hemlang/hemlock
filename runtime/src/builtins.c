@@ -2351,16 +2351,17 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
         int has_rest_param = func->has_rest_param;
 
         // Arity check (error cases are rare)
+        const char *fn_name = func->name ? func->name : "<anonymous>";
         if (__builtin_expect(num_args < num_required, 0)) {
             if (has_rest_param) {
-                hml_runtime_error("Function expects at least %d arguments, got %d", num_required, num_args);
+                hml_runtime_error("Function '%s' expects at least %d arguments, got %d", fn_name, num_required, num_args);
             } else {
-                hml_runtime_error("Function expects %d arguments, got %d", num_required, num_args);
+                hml_runtime_error("Function '%s' expects %d arguments, got %d", fn_name, num_required, num_args);
             }
         }
         // Only check max args if no rest param
         if (__builtin_expect(!has_rest_param && num_args > num_params, 0)) {
-            hml_runtime_error("Function expects %d arguments, got %d", num_params, num_args);
+            hml_runtime_error("Function '%s' expects %d arguments, got %d", fn_name, num_params, num_args);
         }
 
         HmlClosureEnv *env = (HmlClosureEnv*)func->closure_env;

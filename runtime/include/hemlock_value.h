@@ -135,6 +135,7 @@ struct HmlObject {
 struct HmlFunction {
     void *fn_ptr;           // C function pointer
     void *closure_env;      // Closure environment (NULL if not a closure)
+    char *name;             // Function name for error reporting (NULL for anonymous)
     int num_params;         // Total number of parameters
     int num_required;       // Number of required parameters (for arity checking)
     int is_async;
@@ -237,6 +238,16 @@ HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is
 HmlValue hml_val_function_rest(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param);
 HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int num_required, int is_async);
 HmlValue hml_val_function_with_env_rest(void *fn_ptr, void *env, int num_params, int num_required, int is_async, int has_rest_param);
+
+// Named function constructors (for better error reporting)
+HmlValue hml_val_function_named(void *fn_ptr, int num_params, int num_required, int is_async, const char *name);
+HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param, const char *name);
+HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params, int num_required, int is_async, const char *name);
+HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_params, int num_required, int is_async, int has_rest_param, const char *name);
+
+// Set function name (for late binding when name is known after creation)
+void hml_function_set_name(HmlValue fn, const char *name);
+
 HmlValue hml_val_builtin_fn(HmlBuiltinFn fn);
 HmlValue hml_val_socket(HmlSocket *sock);
 

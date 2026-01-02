@@ -340,9 +340,9 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
             int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
             int has_rest = func->as.function.rest_param ? 1 : 0;
-            codegen_writeln(ctx, "%s = hml_val_function_rest((void*)%sfn_%s, %d, %d, %d, %d);",
+            codegen_writeln(ctx, "%s = hml_val_function_rest_named((void*)%sfn_%s, %d, %d, %d, %d, \"%s\");",
                           mangled, module->module_prefix, name,
-                          func->as.function.num_params, num_required, func->as.function.is_async, has_rest);
+                          func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name);
         } else if (stmt->type == STMT_LET && stmt->as.let.value) {
             // Non-function let statement - assign to module global
             char mangled[CODEGEN_MANGLED_NAME_SIZE];

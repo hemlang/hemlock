@@ -79,6 +79,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
                 free(value);
 
+                // If the value was a function expression, set its name for better error reporting
+                if (stmt->as.let.value->type == EXPR_FUNCTION) {
+                    codegen_writeln(ctx, "hml_function_set_name(%s, \"%s\");", safe_name, stmt->as.let.name);
+                }
+
                 // Check if this was a self-referential function (e.g., let factorial = fn(n) { ... factorial(n-1) ... })
                 // If so, update the closure environment to point to the now-initialized variable
                 if (ctx->last_closure_env_id >= 0 && ctx->last_closure_captured) {
