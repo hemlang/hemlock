@@ -2521,6 +2521,9 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         if (strcmp(method, "byte_at") == 0 && num_args == 1) {
             return hml_string_byte_at(obj, args[0]);
         }
+        if (strcmp(method, "deserialize") == 0 && num_args == 0) {
+            return hml_deserialize(obj);
+        }
         hml_runtime_error("String has no method '%s'", method);
     }
 
@@ -2615,6 +2618,76 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
             return hml_val_null();
         }
         hml_runtime_error("File has no method '%s'", method);
+    }
+
+    // Handle channel methods
+    if (obj.type == HML_VAL_CHANNEL) {
+        if (strcmp(method, "send") == 0 && num_args == 1) {
+            hml_channel_send(obj, args[0]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "recv") == 0 && num_args == 0) {
+            return hml_channel_recv(obj);
+        }
+        if (strcmp(method, "recv_timeout") == 0 && num_args == 1) {
+            return hml_channel_recv_timeout(obj, args[0]);
+        }
+        if (strcmp(method, "send_timeout") == 0 && num_args == 2) {
+            return hml_channel_send_timeout(obj, args[0], args[1]);
+        }
+        if (strcmp(method, "close") == 0 && num_args == 0) {
+            hml_channel_close(obj);
+            return hml_val_null();
+        }
+        hml_runtime_error("Channel has no method '%s'", method);
+    }
+
+    // Handle socket methods
+    if (obj.type == HML_VAL_SOCKET) {
+        if (strcmp(method, "bind") == 0 && num_args == 2) {
+            hml_socket_bind(obj, args[0], args[1]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "listen") == 0 && num_args == 1) {
+            hml_socket_listen(obj, args[0]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "accept") == 0 && num_args == 0) {
+            return hml_socket_accept(obj);
+        }
+        if (strcmp(method, "connect") == 0 && num_args == 2) {
+            hml_socket_connect(obj, args[0], args[1]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "send") == 0 && num_args == 1) {
+            return hml_socket_send(obj, args[0]);
+        }
+        if (strcmp(method, "recv") == 0 && num_args == 1) {
+            return hml_socket_recv(obj, args[0]);
+        }
+        if (strcmp(method, "sendto") == 0 && num_args == 3) {
+            return hml_socket_sendto(obj, args[0], args[1], args[2]);
+        }
+        if (strcmp(method, "recvfrom") == 0 && num_args == 1) {
+            return hml_socket_recvfrom(obj, args[0]);
+        }
+        if (strcmp(method, "setsockopt") == 0 && num_args == 3) {
+            hml_socket_setsockopt(obj, args[0], args[1], args[2]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "set_timeout") == 0 && num_args == 1) {
+            hml_socket_set_timeout(obj, args[0]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "set_nonblocking") == 0 && num_args == 1) {
+            hml_socket_set_nonblocking(obj, args[0]);
+            return hml_val_null();
+        }
+        if (strcmp(method, "close") == 0 && num_args == 0) {
+            hml_socket_close(obj);
+            return hml_val_null();
+        }
+        hml_runtime_error("Socket has no method '%s'", method);
     }
 
     // Handle object methods
