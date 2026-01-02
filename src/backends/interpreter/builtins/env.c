@@ -241,43 +241,107 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         for (int i = 0; i <= arr->length; i++) free(argv[i]);
         free(argv);
 
-        // Read output from child
+        // Read output from child (both stdout and stderr using poll to avoid deadlock)
         char *output_buffer = NULL;
         size_t output_size = 0;
         size_t output_capacity = 4096;
         output_buffer = malloc(output_capacity);
-        if (!output_buffer) {
+
+        char *stderr_buffer = NULL;
+        size_t stderr_size = 0;
+        size_t stderr_capacity = 4096;
+        stderr_buffer = malloc(stderr_capacity);
+
+        if (!output_buffer || !stderr_buffer) {
             fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            free(output_buffer);
+            free(stderr_buffer);
             close(stdout_pipe[0]);
             close(stderr_pipe[0]);
             exit(1);
         }
 
+        struct pollfd fds[2];
+        fds[0].fd = stdout_pipe[0];
+        fds[0].events = POLLIN;
+        fds[1].fd = stderr_pipe[0];
+        fds[1].events = POLLIN;
+
+        int open_fds = 2;
         char chunk[4096];
-        ssize_t bytes_read;
-        while ((bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk))) > 0) {
-            // Check for overflow before doubling capacity
-            while (output_size + (size_t)bytes_read > output_capacity) {
-                if (output_capacity > SIZE_MAX / 2) {
-                    fprintf(stderr, "Runtime error: exec() output too large\n");
-                    free(output_buffer);
-                    close(stdout_pipe[0]);
-                    close(stderr_pipe[0]);
-                    exit(1);
-                }
-                output_capacity *= 2;
-                char *new_buffer = realloc(output_buffer, output_capacity);
-                if (!new_buffer) {
-                    fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-                    free(output_buffer);
-                    close(stdout_pipe[0]);
-                    close(stderr_pipe[0]);
-                    exit(1);
-                }
-                output_buffer = new_buffer;
+
+        while (open_fds > 0) {
+            int ret = poll(fds, 2, -1);
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                break;
             }
-            memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
-            output_size += (size_t)bytes_read;
+
+            // Read from stdout if available
+            if (fds[0].revents & (POLLIN | POLLHUP)) {
+                ssize_t bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk));
+                if (bytes_read > 0) {
+                    while (output_size + (size_t)bytes_read > output_capacity) {
+                        if (output_capacity > SIZE_MAX / 2) {
+                            fprintf(stderr, "Runtime error: exec() output too large\n");
+                            free(output_buffer);
+                            free(stderr_buffer);
+                            close(stdout_pipe[0]);
+                            close(stderr_pipe[0]);
+                            exit(1);
+                        }
+                        output_capacity *= 2;
+                        char *new_buffer = realloc(output_buffer, output_capacity);
+                        if (!new_buffer) {
+                            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                            free(output_buffer);
+                            free(stderr_buffer);
+                            close(stdout_pipe[0]);
+                            close(stderr_pipe[0]);
+                            exit(1);
+                        }
+                        output_buffer = new_buffer;
+                    }
+                    memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
+                    output_size += (size_t)bytes_read;
+                } else if (bytes_read == 0 || (bytes_read < 0 && errno != EINTR)) {
+                    fds[0].fd = -1;  // Stop polling this fd
+                    open_fds--;
+                }
+            }
+
+            // Read from stderr if available
+            if (fds[1].revents & (POLLIN | POLLHUP)) {
+                ssize_t bytes_read = read(stderr_pipe[0], chunk, sizeof(chunk));
+                if (bytes_read > 0) {
+                    while (stderr_size + (size_t)bytes_read > stderr_capacity) {
+                        if (stderr_capacity > SIZE_MAX / 2) {
+                            fprintf(stderr, "Runtime error: exec() stderr too large\n");
+                            free(output_buffer);
+                            free(stderr_buffer);
+                            close(stdout_pipe[0]);
+                            close(stderr_pipe[0]);
+                            exit(1);
+                        }
+                        stderr_capacity *= 2;
+                        char *new_buffer = realloc(stderr_buffer, stderr_capacity);
+                        if (!new_buffer) {
+                            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                            free(output_buffer);
+                            free(stderr_buffer);
+                            close(stdout_pipe[0]);
+                            close(stderr_pipe[0]);
+                            exit(1);
+                        }
+                        stderr_buffer = new_buffer;
+                    }
+                    memcpy(stderr_buffer + stderr_size, chunk, (size_t)bytes_read);
+                    stderr_size += (size_t)bytes_read;
+                } else if (bytes_read == 0 || (bytes_read < 0 && errno != EINTR)) {
+                    fds[1].fd = -1;  // Stop polling this fd
+                    open_fds--;
+                }
+            }
         }
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);
@@ -287,12 +351,13 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         waitpid(pid, &status, 0);
         int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
-        // Ensure null termination
+        // Ensure null termination for stdout
         if (output_size >= output_capacity) {
             char *new_buffer = realloc(output_buffer, output_size + 1);
             if (!new_buffer) {
                 fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                 free(output_buffer);
+                free(stderr_buffer);
                 exit(1);
             }
             output_buffer = new_buffer;
@@ -300,14 +365,32 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         }
         output_buffer[output_size] = '\0';
 
+        // Ensure null termination for stderr
+        if (stderr_size >= stderr_capacity) {
+            char *new_buffer = realloc(stderr_buffer, stderr_size + 1);
+            if (!new_buffer) {
+                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                free(output_buffer);
+                free(stderr_buffer);
+                exit(1);
+            }
+            stderr_buffer = new_buffer;
+            stderr_capacity = stderr_size + 1;
+        }
+        stderr_buffer[stderr_size] = '\0';
+
         // Create result object
-        Object *result = object_new(NULL, 2);
+        Object *result = object_new(NULL, 3);
         result->field_names[0] = strdup("output");
         result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
         result->num_fields++;
 
-        result->field_names[1] = strdup("exit_code");
-        result->field_values[1] = val_i32(exit_code);
+        result->field_names[1] = strdup("stderr");
+        result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
+        result->num_fields++;
+
+        result->field_names[2] = strdup("exit_code");
+        result->field_values[2] = val_i32(exit_code);
         result->num_fields++;
 
         return val_object(result);
@@ -407,14 +490,19 @@ done_warning:
     }
     output_buffer[output_size] = '\0';
 
-    // Create result object with output and exit_code
-    Object *result = object_new(NULL, 2);
+    // Create result object with output, stderr, and exit_code
+    // Note: popen() can't capture stderr separately, so we return empty string for it
+    Object *result = object_new(NULL, 3);
     result->field_names[0] = strdup("output");
     result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
 
-    result->field_names[1] = strdup("exit_code");
-    result->field_values[1] = val_i32(exit_code);
+    result->field_names[1] = strdup("stderr");
+    result->field_values[1] = val_string("");
+    result->num_fields++;
+
+    result->field_names[2] = strdup("exit_code");
+    result->field_values[2] = val_i32(exit_code);
     result->num_fields++;
 
     return val_object(result);
@@ -522,43 +610,107 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     for (int i = 0; i < arr->length; i++) free(argv[i]);
     free(argv);
 
-    // Read output from child
+    // Read output from child (both stdout and stderr using poll to avoid deadlock)
     char *output_buffer = NULL;
     size_t output_size = 0;
     size_t output_capacity = 4096;
     output_buffer = malloc(output_capacity);
-    if (!output_buffer) {
+
+    char *stderr_buffer = NULL;
+    size_t stderr_size = 0;
+    size_t stderr_capacity = 4096;
+    stderr_buffer = malloc(stderr_capacity);
+
+    if (!output_buffer || !stderr_buffer) {
         fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        free(output_buffer);
+        free(stderr_buffer);
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);
         exit(1);
     }
 
+    struct pollfd fds[2];
+    fds[0].fd = stdout_pipe[0];
+    fds[0].events = POLLIN;
+    fds[1].fd = stderr_pipe[0];
+    fds[1].events = POLLIN;
+
+    int open_fds = 2;
     char chunk[4096];
-    ssize_t bytes_read;
-    while ((bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk))) > 0) {
-        // Check for overflow before doubling capacity
-        while (output_size + (size_t)bytes_read > output_capacity) {
-            if (output_capacity > SIZE_MAX / 2) {
-                fprintf(stderr, "Runtime error: exec_argv() output too large\n");
-                free(output_buffer);
-                close(stdout_pipe[0]);
-                close(stderr_pipe[0]);
-                exit(1);
-            }
-            output_capacity *= 2;
-            char *new_buffer = realloc(output_buffer, output_capacity);
-            if (!new_buffer) {
-                fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
-                free(output_buffer);
-                close(stdout_pipe[0]);
-                close(stderr_pipe[0]);
-                exit(1);
-            }
-            output_buffer = new_buffer;
+
+    while (open_fds > 0) {
+        int ret = poll(fds, 2, -1);
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            break;
         }
-        memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
-        output_size += (size_t)bytes_read;
+
+        // Read from stdout if available
+        if (fds[0].revents & (POLLIN | POLLHUP)) {
+            ssize_t bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk));
+            if (bytes_read > 0) {
+                while (output_size + (size_t)bytes_read > output_capacity) {
+                    if (output_capacity > SIZE_MAX / 2) {
+                        fprintf(stderr, "Runtime error: exec_argv() output too large\n");
+                        free(output_buffer);
+                        free(stderr_buffer);
+                        close(stdout_pipe[0]);
+                        close(stderr_pipe[0]);
+                        exit(1);
+                    }
+                    output_capacity *= 2;
+                    char *new_buffer = realloc(output_buffer, output_capacity);
+                    if (!new_buffer) {
+                        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+                        free(output_buffer);
+                        free(stderr_buffer);
+                        close(stdout_pipe[0]);
+                        close(stderr_pipe[0]);
+                        exit(1);
+                    }
+                    output_buffer = new_buffer;
+                }
+                memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
+                output_size += (size_t)bytes_read;
+            } else if (bytes_read == 0 || (bytes_read < 0 && errno != EINTR)) {
+                fds[0].fd = -1;  // Stop polling this fd
+                open_fds--;
+            }
+        }
+
+        // Read from stderr if available
+        if (fds[1].revents & (POLLIN | POLLHUP)) {
+            ssize_t bytes_read = read(stderr_pipe[0], chunk, sizeof(chunk));
+            if (bytes_read > 0) {
+                while (stderr_size + (size_t)bytes_read > stderr_capacity) {
+                    if (stderr_capacity > SIZE_MAX / 2) {
+                        fprintf(stderr, "Runtime error: exec_argv() stderr too large\n");
+                        free(output_buffer);
+                        free(stderr_buffer);
+                        close(stdout_pipe[0]);
+                        close(stderr_pipe[0]);
+                        exit(1);
+                    }
+                    stderr_capacity *= 2;
+                    char *new_buffer = realloc(stderr_buffer, stderr_capacity);
+                    if (!new_buffer) {
+                        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+                        free(output_buffer);
+                        free(stderr_buffer);
+                        close(stdout_pipe[0]);
+                        close(stderr_pipe[0]);
+                        exit(1);
+                    }
+                    stderr_buffer = new_buffer;
+                }
+                memcpy(stderr_buffer + stderr_size, chunk, (size_t)bytes_read);
+                stderr_size += (size_t)bytes_read;
+            } else if (bytes_read == 0 || (bytes_read < 0 && errno != EINTR)) {
+                fds[1].fd = -1;  // Stop polling this fd
+                open_fds--;
+            }
+        }
     }
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
@@ -568,12 +720,13 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     waitpid(pid, &status, 0);
     int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
-    // Ensure null termination
+    // Ensure null termination for stdout
     if (output_size >= output_capacity) {
         char *new_buffer = realloc(output_buffer, output_size + 1);
         if (!new_buffer) {
             fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
             free(output_buffer);
+            free(stderr_buffer);
             exit(1);
         }
         output_buffer = new_buffer;
@@ -581,14 +734,32 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     }
     output_buffer[output_size] = '\0';
 
+    // Ensure null termination for stderr
+    if (stderr_size >= stderr_capacity) {
+        char *new_buffer = realloc(stderr_buffer, stderr_size + 1);
+        if (!new_buffer) {
+            fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+            free(output_buffer);
+            free(stderr_buffer);
+            exit(1);
+        }
+        stderr_buffer = new_buffer;
+        stderr_capacity = stderr_size + 1;
+    }
+    stderr_buffer[stderr_size] = '\0';
+
     // Create result object
-    Object *result = object_new(NULL, 2);
+    Object *result = object_new(NULL, 3);
     result->field_names[0] = strdup("output");
     result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
 
-    result->field_names[1] = strdup("exit_code");
-    result->field_values[1] = val_i32(exit_code);
+    result->field_names[1] = strdup("stderr");
+    result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
+    result->num_fields++;
+
+    result->field_names[2] = strdup("exit_code");
+    result->field_values[2] = val_i32(exit_code);
     result->num_fields++;
 
     return val_object(result);

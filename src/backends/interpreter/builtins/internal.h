@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+#include <poll.h>   // For poll() in exec functions
 
 // Define math constants if not available
 #ifndef M_PI
