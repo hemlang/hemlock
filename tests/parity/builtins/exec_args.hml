@@ -1,0 +1,24 @@
+// Test exec() with args array (safe mode, no shell)
+
+// Simple echo with args array
+let r = exec("echo", ["hello", "world"]);
+print(r.output);
+print(r.exit_code);
+
+// Command with exit code
+let r2 = exec("true", []);
+print(r2.exit_code);
+
+let r3 = exec("false", []);
+print(r3.exit_code);
+
+// Echo with multiple args
+let r4 = exec("echo", ["-n", "no newline"]);
+print(r4.output);
+print(r4.exit_code);
+
+// Test that shell metacharacters are NOT interpreted (safe mode)
+let r5 = exec("echo", ["hello; echo malicious"]);
+print(r5.output);
+
+print("done");
