@@ -5,6 +5,19 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-01-02
+
+### Fixed
+
+- Runtime method dispatch for `HML_VAL_FILE` type (read, write, seek, tell, close, read_bytes, write_bytes)
+- Runtime method dispatch for `HML_VAL_CHANNEL` type (send, recv, recv_timeout, send_timeout, close)
+- Runtime method dispatch for `HML_VAL_SOCKET` type (bind, listen, accept, connect, send, recv, sendto, recvfrom, setsockopt, set_timeout, set_nonblocking, close)
+- Missing `deserialize` method dispatch for strings
+
+### Added
+
+- `hml_file_read_bytes()` and `hml_file_write_bytes()` runtime functions for binary file I/O
+
 ## [1.6.2] - 2026-01-01
 
 ### Changed

@@ -30,9 +30,9 @@ The version is defined in `include/version.h`:
 ```c
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 6
-#define HEMLOCK_VERSION_PATCH 2
+#define HEMLOCK_VERSION_PATCH 3
 
-#define HEMLOCK_VERSION "1.6.2"
+#define HEMLOCK_VERSION "1.6.3"
 ```
 
 ### Checking Versions
@@ -93,6 +93,7 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **1.6.3** | 2026 | Fix runtime method dispatch for file, channel, socket types |
 | **1.6.2** | 2026 | Patch release |
 | **1.6.1** | 2026 | Patch release |
 | **1.6.0** | 2025 | Compile-time type checking in hemlockc, LSP integration, compound bitwise operators (`&=`, `\|=`, `^=`, `<<=`, `>>=`, `%=`) |
