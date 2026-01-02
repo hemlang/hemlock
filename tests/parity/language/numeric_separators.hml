@@ -1,0 +1,35 @@
+// Test numeric separators (underscores in numbers)
+
+// Decimal integers
+print(1_000);
+print(1_000_000);
+print(123_456_789);
+
+// Hexadecimal
+print(0xFF_FF);      // 65535
+print(0xDEAD_BEEF);  // 3735928559
+
+// Binary
+print(0b1111_0000);  // 240
+print(0b1010_1010);  // 170
+
+// Octal
+print(0o77_77);      // 4095
+print(0o12_34);      // 668
+
+// Floating point
+print(3.14_159);
+print(1_234.567_89);
+
+// Scientific notation
+print(1_0e1_0);      // 10 * 10^10 = 100000000000
+
+// Multiple consecutive underscores (should work)
+print(1__000);
+
+// Mixed with expressions
+let a = 1_000;
+let b = 2_000;
+print(a + b);
+
+print("done");

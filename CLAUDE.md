@@ -43,6 +43,7 @@ Hemlock is a **systems scripting language** with manual memory management and ex
 
 ### 5. C-like Syntax
 - `{}` blocks always required
+- Comments: `// line` and `/* block */`
 - Operators match C: `+`, `-`, `*`, `%`, `&&`, `||`, `!`, `&`, `|`, `^`, `<<`, `>>`
 - `/` always returns float (use `div()` or `divi()` for floor division)
 - Type syntax: `let x: type = value;`
@@ -68,9 +69,12 @@ let x = 42;              // i32
 let big = 5000000000;    // i64 (> i32 max)
 let hex = 0xDEADBEEF;    // hex literal
 let bin = 0b1010;        // binary literal
+let oct = 0o777;         // octal literal
+let sep = 1_000_000;     // numeric separators allowed
 let pi = 3.14;           // f64
 let half = .5;           // f64 (no leading zero)
 let s = "hello";         // string
+let esc = "\x41\u{1F600}"; // hex and unicode escapes
 let ch = 'A';            // rune
 let emoji = '🚀';        // rune (Unicode)
 let arr = [1, 2, 3];     // array
@@ -563,7 +567,12 @@ make parity
 
 ## Version
 
-**v1.6.6** - Current release with:
+**v1.6.7** - Current release with:
+- **Octal literals** (`0o777`, `0O123`)
+- **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
+- **Block comments** (`/* ... */`)
+- **Hex escape sequences** in strings/runes (`\x41` = 'A')
+- **Unicode escape sequences** in strings (`\u{1F600}` = 😀)
 - **Float literals without leading zero** (`.5`, `.123`, `.5e2`)
 - **Compile-time type checking** in hemlockc (enabled by default)
 - **LSP integration** with type checking for real-time diagnostics
@@ -588,7 +597,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 114 parity tests (100% pass rate)
+- 121 parity tests (100% pass rate)
 
 ---
 

@@ -1,0 +1,29 @@
+// Test block comments
+
+/* Single line block comment */
+print(1);
+
+/*
+Multi-line
+block
+comment
+*/
+print(2);
+
+let x = /* inline comment */ 42;
+print(x);
+
+/* Nested asterisks *** are fine */
+print(3);
+
+/*
+ * Documentation style
+ * comment block
+ */
+print(4);
+
+// Mix of comment styles
+/* block */ // line
+print(5);
+
+print("done");

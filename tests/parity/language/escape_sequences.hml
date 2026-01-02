@@ -1,0 +1,33 @@
+// Test hex and unicode escape sequences in strings and runes
+
+// Hex escapes in strings
+print("\x48\x65\x6c\x6c\x6f");  // Hello
+print("\x41\x42\x43");          // ABC
+print("a\x20b");                // "a b" (space = 0x20)
+
+// Unicode escapes in strings
+print("\u{48}");                // H
+print("\u{1F600}");             // 😀
+print("\u{2764}");              // ❤
+print("Hello \u{1F30D}!");      // Hello 🌍!
+
+// Hex escapes in runes
+let r1 = '\x41';
+print(r1);                      // A
+let r2 = '\x7A';
+print(r2);                      // z
+
+// Unicode escapes in runes
+let r3 = '\u{1F44B}';
+print(r3);                      // 👋
+
+// Template strings with escapes
+let t1 = `\x48ello`;
+print(t1);                      // Hello
+let t2 = `Hi \u{1F600}`;
+print(t2);                      // Hi 😀
+
+// Combined escapes
+print("\x48i \u{1F44B} World\x21");  // Hi 👋 World!
+
+print("done");
