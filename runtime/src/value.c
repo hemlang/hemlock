@@ -231,12 +231,17 @@ HmlValue hml_val_null(void) {
 }
 
 HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is_async) {
+    return hml_val_function_named(fn_ptr, num_params, num_required, is_async, NULL);
+}
+
+HmlValue hml_val_function_named(void *fn_ptr, int num_params, int num_required, int is_async, const char *name) {
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
+    f->name = name ? strdup(name) : NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -248,12 +253,17 @@ HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is
 }
 
 HmlValue hml_val_function_rest(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param) {
+    return hml_val_function_rest_named(fn_ptr, num_params, num_required, is_async, has_rest_param, NULL);
+}
+
+HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param, const char *name) {
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
+    f->name = name ? strdup(name) : NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -265,12 +275,17 @@ HmlValue hml_val_function_rest(void *fn_ptr, int num_params, int num_required, i
 }
 
 HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int num_required, int is_async) {
+    return hml_val_function_with_env_named(fn_ptr, env, num_params, num_required, is_async, NULL);
+}
+
+HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params, int num_required, int is_async, const char *name) {
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
+    f->name = name ? strdup(name) : NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -282,12 +297,17 @@ HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int 
 }
 
 HmlValue hml_val_function_with_env_rest(void *fn_ptr, void *env, int num_params, int num_required, int is_async, int has_rest_param) {
+    return hml_val_function_with_env_rest_named(fn_ptr, env, num_params, num_required, is_async, has_rest_param, NULL);
+}
+
+HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_params, int num_required, int is_async, int has_rest_param, const char *name) {
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
+    f->name = name ? strdup(name) : NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -296,6 +316,15 @@ HmlValue hml_val_function_with_env_rest(void *fn_ptr, void *env, int num_params,
 
     v.as.as_function = f;
     return v;
+}
+
+void hml_function_set_name(HmlValue fn, const char *name) {
+    if (fn.type == HML_VAL_FUNCTION && fn.as.as_function != NULL) {
+        HmlFunction *f = fn.as.as_function;
+        // Free existing name if any
+        free(f->name);
+        f->name = name ? strdup(name) : NULL;
+    }
 }
 
 HmlValue hml_val_builtin_fn(HmlBuiltinFn fn) {
@@ -385,6 +414,8 @@ static void object_free(HmlObject *obj) {
 
 static void function_free(HmlFunction *fn) {
     if (fn) {
+        // Free the function name if set
+        free(fn->name);
         // Note: closure_env is not freed here - it may be shared
         free(fn);
     }

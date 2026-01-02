@@ -126,7 +126,7 @@ Value builtin_get_pid(Value *args, int num_args, ExecutionContext *ctx) {
 
 // SECURITY WARNING: exec() uses popen() which passes commands through a shell.
 // This is vulnerable to command injection if the command string contains untrusted input.
-// For safe command execution, use exec_argv() instead which bypasses the shell.
+// For safe command execution, use exec_argv() or exec(cmd, args) instead which bypasses the shell.
 Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if process spawning is allowed
     if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_PROCESS)) {
@@ -134,16 +134,186 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (num_args != 1) {
-        fprintf(stderr, "Runtime error: exec() expects 1 argument (command string)\n");
+    if (num_args < 1 || num_args > 2) {
+        fprintf(stderr, "Runtime error: exec() expects 1-2 arguments (command string, [args array])\n");
         exit(1);
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: exec() argument must be a string\n");
+        fprintf(stderr, "Runtime error: exec() first argument must be a string\n");
         exit(1);
     }
 
+    // If second argument is provided, use fork/execvp (safe, no shell)
+    if (num_args == 2) {
+        if (args[1].type != VAL_ARRAY) {
+            fprintf(stderr, "Runtime error: exec() second argument must be an array of strings\n");
+            exit(1);
+        }
+
+        String *command = args[0].as.as_string;
+        Array *arr = args[1].as.as_array;
+
+        // Build argv array: [command, ...args, NULL]
+        char **argv = malloc((arr->length + 2) * sizeof(char*));
+        if (!argv) {
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            exit(1);
+        }
+
+        // First element is the command
+        argv[0] = malloc(command->length + 1);
+        if (!argv[0]) {
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            free(argv);
+            exit(1);
+        }
+        memcpy(argv[0], command->data, command->length);
+        argv[0][command->length] = '\0';
+
+        // Copy args from array
+        for (int i = 0; i < arr->length; i++) {
+            if (arr->elements[i].type != VAL_STRING) {
+                fprintf(stderr, "Runtime error: exec() args array elements must be strings\n");
+                for (int j = 0; j <= i; j++) free(argv[j]);
+                free(argv);
+                exit(1);
+            }
+            String *s = arr->elements[i].as.as_string;
+            argv[i + 1] = malloc(s->length + 1);
+            if (!argv[i + 1]) {
+                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                for (int j = 0; j <= i; j++) free(argv[j]);
+                free(argv);
+                exit(1);
+            }
+            memcpy(argv[i + 1], s->data, s->length);
+            argv[i + 1][s->length] = '\0';
+        }
+        argv[arr->length + 1] = NULL;
+
+        // Create pipes for stdout and stderr
+        int stdout_pipe[2];
+        int stderr_pipe[2];
+        if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "exec() pipe creation failed: %s", strerror(errno));
+            for (int i = 0; i <= arr->length; i++) free(argv[i]);
+            free(argv);
+            ctx->exception_state.exception_value = val_string(error_msg);
+            ctx->exception_state.is_throwing = 1;
+            return val_null();
+        }
+
+        pid_t pid = fork();
+        if (pid < 0) {
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "exec() fork failed: %s", strerror(errno));
+            for (int i = 0; i <= arr->length; i++) free(argv[i]);
+            free(argv);
+            close(stdout_pipe[0]); close(stdout_pipe[1]);
+            close(stderr_pipe[0]); close(stderr_pipe[1]);
+            ctx->exception_state.exception_value = val_string(error_msg);
+            ctx->exception_state.is_throwing = 1;
+            return val_null();
+        }
+
+        if (pid == 0) {
+            // Child process
+            close(stdout_pipe[0]);  // Close read end
+            close(stderr_pipe[0]);
+            dup2(stdout_pipe[1], STDOUT_FILENO);
+            dup2(stderr_pipe[1], STDERR_FILENO);
+            close(stdout_pipe[1]);
+            close(stderr_pipe[1]);
+
+            execvp(argv[0], argv);
+            // If execvp returns, it failed
+            fprintf(stderr, "exec() failed to execute '%s': %s\n", argv[0], strerror(errno));
+            _exit(127);
+        }
+
+        // Parent process
+        close(stdout_pipe[1]);  // Close write end
+        close(stderr_pipe[1]);
+
+        // Free argv in parent (child has its own copy after fork)
+        for (int i = 0; i <= arr->length; i++) free(argv[i]);
+        free(argv);
+
+        // Read output from child
+        char *output_buffer = NULL;
+        size_t output_size = 0;
+        size_t output_capacity = 4096;
+        output_buffer = malloc(output_capacity);
+        if (!output_buffer) {
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            close(stdout_pipe[0]);
+            close(stderr_pipe[0]);
+            exit(1);
+        }
+
+        char chunk[4096];
+        ssize_t bytes_read;
+        while ((bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk))) > 0) {
+            // Check for overflow before doubling capacity
+            while (output_size + (size_t)bytes_read > output_capacity) {
+                if (output_capacity > SIZE_MAX / 2) {
+                    fprintf(stderr, "Runtime error: exec() output too large\n");
+                    free(output_buffer);
+                    close(stdout_pipe[0]);
+                    close(stderr_pipe[0]);
+                    exit(1);
+                }
+                output_capacity *= 2;
+                char *new_buffer = realloc(output_buffer, output_capacity);
+                if (!new_buffer) {
+                    fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                    free(output_buffer);
+                    close(stdout_pipe[0]);
+                    close(stderr_pipe[0]);
+                    exit(1);
+                }
+                output_buffer = new_buffer;
+            }
+            memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
+            output_size += (size_t)bytes_read;
+        }
+        close(stdout_pipe[0]);
+        close(stderr_pipe[0]);
+
+        // Wait for child
+        int status;
+        waitpid(pid, &status, 0);
+        int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+
+        // Ensure null termination
+        if (output_size >= output_capacity) {
+            char *new_buffer = realloc(output_buffer, output_size + 1);
+            if (!new_buffer) {
+                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+                free(output_buffer);
+                exit(1);
+            }
+            output_buffer = new_buffer;
+            output_capacity = output_size + 1;
+        }
+        output_buffer[output_size] = '\0';
+
+        // Create result object
+        Object *result = object_new(NULL, 2);
+        result->field_names[0] = strdup("output");
+        result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
+        result->num_fields++;
+
+        result->field_names[1] = strdup("exit_code");
+        result->field_values[1] = val_i32(exit_code);
+        result->num_fields++;
+
+        return val_object(result);
+    }
+
+    // Single argument: use popen (shell mode)
     String *command = args[0].as.as_string;
 
     // SECURITY: Warn about potentially dangerous shell metacharacters
