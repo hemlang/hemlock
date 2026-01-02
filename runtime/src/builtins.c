@@ -933,6 +933,150 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     return result;
 }
 
+// exec_with_args() - Safe command execution with separate command and args
+// Takes command string and array of string arguments
+// Uses fork/execvp directly, preventing shell injection attacks
+HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
+    if (command.type != HML_VAL_STRING || !command.as.as_string) {
+        hml_runtime_error("exec() first argument must be a string");
+    }
+    if (args_array.type != HML_VAL_ARRAY || !args_array.as.as_array) {
+        hml_runtime_error("exec() second argument must be an array of strings");
+    }
+
+    HmlString *cmd_str = command.as.as_string;
+    HmlArray *arr = args_array.as.as_array;
+
+    // Build argv array: [command, ...args, NULL]
+    char **argv = malloc((arr->length + 2) * sizeof(char*));
+    if (!argv) {
+        hml_runtime_error("exec() memory allocation failed");
+    }
+
+    // First element is the command
+    argv[0] = malloc(cmd_str->length + 1);
+    if (!argv[0]) {
+        free(argv);
+        hml_runtime_error("exec() memory allocation failed");
+    }
+    memcpy(argv[0], cmd_str->data, cmd_str->length);
+    argv[0][cmd_str->length] = '\0';
+
+    // Copy args from array
+    for (int64_t i = 0; i < arr->length; i++) {
+        HmlValue elem = arr->elements[i];
+        if (elem.type != HML_VAL_STRING || !elem.as.as_string) {
+            for (int64_t j = 0; j <= i; j++) free(argv[j]);
+            free(argv);
+            hml_runtime_error("exec() args array elements must be strings");
+        }
+        HmlString *s = elem.as.as_string;
+        argv[i + 1] = malloc(s->length + 1);
+        if (!argv[i + 1]) {
+            for (int64_t j = 0; j <= i; j++) free(argv[j]);
+            free(argv);
+            hml_runtime_error("exec() memory allocation failed");
+        }
+        memcpy(argv[i + 1], s->data, s->length);
+        argv[i + 1][s->length] = '\0';
+    }
+    argv[arr->length + 1] = NULL;
+
+    // Create pipes for stdout and stderr
+    int stdout_pipe[2];
+    if (pipe(stdout_pipe) != 0) {
+        for (int64_t i = 0; i <= arr->length; i++) free(argv[i]);
+        free(argv);
+        hml_runtime_error("exec() pipe creation failed: %s", strerror(errno));
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        for (int64_t i = 0; i <= arr->length; i++) free(argv[i]);
+        free(argv);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        hml_runtime_error("exec() fork failed: %s", strerror(errno));
+    }
+
+    if (pid == 0) {
+        // Child process
+        close(stdout_pipe[0]);  // Close read end
+        dup2(stdout_pipe[1], STDOUT_FILENO);
+        dup2(stdout_pipe[1], STDERR_FILENO);
+        close(stdout_pipe[1]);
+
+        execvp(argv[0], argv);
+        // If execvp returns, it failed
+        fprintf(stderr, "exec() failed to execute '%s': %s\n", argv[0], strerror(errno));
+        _exit(127);
+    }
+
+    // Parent process
+    close(stdout_pipe[1]);  // Close write end
+
+    // Free argv in parent (child has its own copy after fork)
+    for (int64_t i = 0; i <= arr->length; i++) free(argv[i]);
+    free(argv);
+
+    // Read output from child
+    char *output_buffer = NULL;
+    size_t output_size = 0;
+    size_t output_capacity = 4096;
+    output_buffer = malloc(output_capacity);
+    if (!output_buffer) {
+        close(stdout_pipe[0]);
+        hml_runtime_error("exec() memory allocation failed");
+    }
+
+    char chunk[4096];
+    ssize_t bytes_read;
+    while ((bytes_read = read(stdout_pipe[0], chunk, sizeof(chunk))) > 0) {
+        // Check for overflow before doubling capacity
+        while (output_size + (size_t)bytes_read > output_capacity) {
+            if (output_capacity > SIZE_MAX / 2) {
+                free(output_buffer);
+                close(stdout_pipe[0]);
+                hml_runtime_error("exec() output too large");
+            }
+            output_capacity *= 2;
+            char *new_buffer = realloc(output_buffer, output_capacity);
+            if (!new_buffer) {
+                free(output_buffer);
+                close(stdout_pipe[0]);
+                hml_runtime_error("exec() memory allocation failed");
+            }
+            output_buffer = new_buffer;
+        }
+        memcpy(output_buffer + output_size, chunk, (size_t)bytes_read);
+        output_size += (size_t)bytes_read;
+    }
+    close(stdout_pipe[0]);
+
+    // Wait for child
+    int status;
+    waitpid(pid, &status, 0);
+    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+
+    // Ensure null termination
+    if (output_size >= output_capacity) {
+        char *new_buffer = realloc(output_buffer, output_size + 1);
+        if (!new_buffer) {
+            free(output_buffer);
+            hml_runtime_error("exec() memory allocation failed");
+        }
+        output_buffer = new_buffer;
+    }
+    output_buffer[output_size] = '\0';
+
+    // Create result object
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
+    free(output_buffer);
+
+    return result;
+}
+
 // Math operations moved to builtins_math.c
 
 // Time builtin wrappers moved to builtins_time.c
@@ -963,6 +1107,11 @@ HmlValue hml_builtin_get_pid(HmlClosureEnv *env) {
 HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command) {
     (void)env;
     return hml_exec(command);
+}
+
+HmlValue hml_builtin_exec_with_args(HmlClosureEnv *env, HmlValue command, HmlValue args_array) {
+    (void)env;
+    return hml_exec_with_args(command, args_array);
 }
 
 HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array) {

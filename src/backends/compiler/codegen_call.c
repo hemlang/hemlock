@@ -164,12 +164,24 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // Handle exec builtin for command execution
+        // Handle exec builtin for command execution (1 arg: shell mode, 2 args: safe mode)
         if ((strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 1) {
             char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_exec(%s);", result, cmd);
             codegen_writeln(ctx, "hml_release(&%s);", cmd);
             free(cmd);
+            return result;
+        }
+
+        // Handle exec builtin with args array (safe mode, no shell)
+        if ((strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 2) {
+            char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *args = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_exec_with_args(%s, %s);", result, cmd, args);
+            codegen_writeln(ctx, "hml_release(&%s);", cmd);
+            codegen_writeln(ctx, "hml_release(&%s);", args);
+            free(cmd);
+            free(args);
             return result;
         }
 
