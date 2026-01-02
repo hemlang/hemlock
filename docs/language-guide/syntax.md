@@ -541,6 +541,24 @@ extern fn strlen(s: string): i32;
 let decimal = 42;
 let negative = -100;
 let large = 5000000000;  // Auto i64
+
+// Hexadecimal (0x prefix)
+let hex = 0xDEADBEEF;
+let hex2 = 0xFF;
+
+// Binary (0b prefix)
+let bin = 0b1010;
+let bin2 = 0b11110000;
+
+// Octal (0o prefix)
+let oct = 0o777;
+let oct2 = 0O123;
+
+// Numeric separators for readability
+let million = 1_000_000;
+let hex_sep = 0xFF_FF_FF;
+let bin_sep = 0b1111_0000_1010_0101;
+let oct_sep = 0o77_77;
 ```
 
 ### Float Literals
@@ -548,7 +566,10 @@ let large = 5000000000;  // Auto i64
 ```hemlock
 let f = 3.14;
 let e = 2.71828;
-let sci = 1.5e-10;  // Not yet supported
+let sci = 1.5e-10;       // Scientific notation
+let sci2 = 2.5E+3;       // Uppercase E also works
+let no_lead = .5;        // No leading zero (0.5)
+let sep = 3.14_159_265;  // Numeric separators
 ```
 
 ### String Literals
@@ -557,7 +578,26 @@ let sci = 1.5e-10;  // Not yet supported
 let s = "hello";
 let escaped = "line1\nline2\ttabbed";
 let quote = "She said \"hello\"";
+
+// Hex escape sequences
+let hex_esc = "\x48\x65\x6c\x6c\x6f";  // "Hello"
+
+// Unicode escape sequences
+let emoji = "\u{1F600}";               // 😀
+let heart = "\u{2764}";                // ❤
+let mixed = "Hello \u{1F30D}!";        // Hello 🌍!
 ```
+
+**Escape sequences:**
+- `\n` - newline
+- `\t` - tab
+- `\r` - carriage return
+- `\\` - backslash
+- `\"` - double quote
+- `\'` - single quote
+- `\0` - null character
+- `\xNN` - hex escape (2 digits)
+- `\u{XXXX}` - unicode escape (1-6 digits)
 
 ### Rune Literals
 
@@ -566,6 +606,7 @@ let ch = 'A';
 let emoji = '🚀';
 let escaped = '\n';
 let unicode = '\u{1F680}';
+let hex_rune = '\x41';      // 'A'
 ```
 
 ### Boolean Literals

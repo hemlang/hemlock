@@ -1,0 +1,23 @@
+// Test octal literals (0o prefix)
+
+// Basic octal literals
+print(0o0);
+print(0o7);
+print(0o10);     // 8 in decimal
+print(0o77);     // 63 in decimal
+print(0o777);    // 511 in decimal
+
+// Uppercase O
+print(0O123);    // 83 in decimal
+
+// Use in expressions
+let a = 0o10;
+let b = 0o20;
+print(a + b);    // 8 + 16 = 24
+
+// Octal in conditions
+if (0o10 == 8) {
+    print("octal equals decimal");
+}
+
+print("done");

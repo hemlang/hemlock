@@ -157,8 +157,12 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.6.6 is released with:
+Hemlock v1.6.7 is released with:
 
+- **Octal literals** (`0o777`, `0O123`)
+- **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
+- **Block comments** (`/* ... */`)
+- **Hex/Unicode escape sequences** (`\x41`, `\u{1F600}`)
 - **Compile-time type checking** in hemlockc (enabled by default)
 - **LSP integration** with real-time type diagnostics
 - **Compound bitwise operators** (`&=`, `|=`, `^=`, `<<=`, `>>=`, `%=`)
@@ -171,7 +175,7 @@ Hemlock v1.6.6 is released with:
 - Compiler backend (C code generation) with 100% interpreter parity
 - LSP server with go-to-definition and find-references
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- 690+ tests with 114 parity tests (100% pass rate)
+- 690+ tests with 121 parity tests (100% pass rate)
 
 ## Philosophy
 

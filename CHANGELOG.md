@@ -5,6 +5,17 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.7] - 2026-01-02
+
+### Added
+
+- Octal literals with `0o` prefix (e.g., `0o777`, `0O123`)
+- Block comments (`/* ... */`) for multi-line comments
+- Hex escape sequences in strings, template strings, and runes (`\xNN`)
+- Unicode escape sequences in strings and template strings (`\u{XXXX}`)
+- Numeric separators (underscores) for improved readability (e.g., `1_000_000`, `0xFF_FF`)
+- 4 new parity tests for lexer enhancements
+
 ## [1.6.6] - 2026-01-02
 
 ### Added

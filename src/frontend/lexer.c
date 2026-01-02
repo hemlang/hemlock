@@ -7,6 +7,45 @@
 
 // ========== PRIVATE HELPERS ==========
 
+// Encode a Unicode codepoint to UTF-8 and append to buffer
+// Returns the number of bytes written (1-4), or 0 on error
+static int encode_utf8(uint32_t codepoint, char *buffer, int *length, int capacity) {
+    int bytes_needed;
+    if (codepoint <= 0x7F) {
+        bytes_needed = 1;
+    } else if (codepoint <= 0x7FF) {
+        bytes_needed = 2;
+    } else if (codepoint <= 0xFFFF) {
+        bytes_needed = 3;
+    } else if (codepoint <= 0x10FFFF) {
+        bytes_needed = 4;
+    } else {
+        return 0;  // Invalid codepoint
+    }
+
+    if (*length + bytes_needed >= capacity) {
+        return 0;  // Not enough space
+    }
+
+    if (codepoint <= 0x7F) {
+        buffer[(*length)++] = (char)codepoint;
+    } else if (codepoint <= 0x7FF) {
+        buffer[(*length)++] = (char)(0xC0 | (codepoint >> 6));
+        buffer[(*length)++] = (char)(0x80 | (codepoint & 0x3F));
+    } else if (codepoint <= 0xFFFF) {
+        buffer[(*length)++] = (char)(0xE0 | (codepoint >> 12));
+        buffer[(*length)++] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        buffer[(*length)++] = (char)(0x80 | (codepoint & 0x3F));
+    } else {
+        buffer[(*length)++] = (char)(0xF0 | (codepoint >> 18));
+        buffer[(*length)++] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+        buffer[(*length)++] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        buffer[(*length)++] = (char)(0x80 | (codepoint & 0x3F));
+    }
+
+    return bytes_needed;
+}
+
 static int is_at_end(Lexer *lex) {
     return *lex->current == '\0';
 }
@@ -40,10 +79,28 @@ static void skip_whitespace(Lexer *lex) {
                 lex->line_start = lex->current;  // Track start of new line
                 break;
             case '/':
-                // Comment support: // until end of line
+                // Single-line comment: // until end of line
                 if (peek_next(lex) == '/') {
                     while (peek(lex) != '\n' && !is_at_end(lex)) {
                         advance(lex);
+                    }
+                }
+                // Block comment: /* ... */
+                else if (peek_next(lex) == '*') {
+                    advance(lex);  // consume '/'
+                    advance(lex);  // consume '*'
+                    while (!is_at_end(lex)) {
+                        if (peek(lex) == '\n') {
+                            lex->line++;
+                            advance(lex);
+                            lex->line_start = lex->current;
+                        } else if (peek(lex) == '*' && peek_next(lex) == '/') {
+                            advance(lex);  // consume '*'
+                            advance(lex);  // consume '/'
+                            break;
+                        } else {
+                            advance(lex);
+                        }
                     }
                 } else {
                     return;
@@ -77,6 +134,22 @@ static Token error_token(Lexer *lex, const char *message) {
     return token;
 }
 
+// Strip underscores from a number string for parsing
+// Returns a newly allocated string (caller must free)
+static char* strip_underscores(const char *start, int length) {
+    char *clean = malloc(length + 1);
+    if (!clean) return NULL;
+
+    int j = 0;
+    for (int i = 0; i < length; i++) {
+        if (start[i] != '_') {
+            clean[j++] = start[i];
+        }
+    }
+    clean[j] = '\0';
+    return clean;
+}
+
 static Token number(Lexer *lex) {
     // Check for hex (0x) or binary (0b) prefix
     // At this point, we've already consumed the first digit via advance() in lexer_next
@@ -94,16 +167,21 @@ static Token number(Lexer *lex) {
                 return error_token(lex, "Expected hex digit after '0x'");
             }
 
-            while (isxdigit(peek(lex))) {
+            while (isxdigit(peek(lex)) || peek(lex) == '_') {
                 advance(lex);
             }
 
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
 
-            // Parse directly from source - strtoll stops at first non-hex char
+            // Strip underscores and parse
+            char *clean = strip_underscores(lex->start + 2, (int)(lex->current - lex->start - 2));
+            if (!clean) {
+                return error_token(lex, "Failed to allocate number buffer");
+            }
             char *endptr;
-            token.int_value = strtoll(lex->start + 2, &endptr, 16);  // Skip "0x" prefix
+            token.int_value = strtoll(clean, &endptr, 16);
+            free(clean);
             return token;
         }
 
@@ -116,22 +194,54 @@ static Token number(Lexer *lex) {
                 return error_token(lex, "Expected binary digit after '0b'");
             }
 
-            while (peek(lex) == '0' || peek(lex) == '1') {
+            while (peek(lex) == '0' || peek(lex) == '1' || peek(lex) == '_') {
                 advance(lex);
             }
 
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
 
-            // Parse directly from source - strtoll stops at first non-binary char
+            // Strip underscores and parse
+            char *clean = strip_underscores(lex->start + 2, (int)(lex->current - lex->start - 2));
+            if (!clean) {
+                return error_token(lex, "Failed to allocate number buffer");
+            }
             char *endptr;
-            token.int_value = strtoll(lex->start + 2, &endptr, 2);  // Skip "0b" prefix
+            token.int_value = strtoll(clean, &endptr, 2);
+            free(clean);
+            return token;
+        }
+
+        // Octal literal: 0o or 0O
+        if (next == 'o' || next == 'O') {
+            advance(lex);  // consume 'o' or 'O'
+
+            // Need at least one octal digit
+            if (peek(lex) < '0' || peek(lex) > '7') {
+                return error_token(lex, "Expected octal digit after '0o'");
+            }
+
+            while ((peek(lex) >= '0' && peek(lex) <= '7') || peek(lex) == '_') {
+                advance(lex);
+            }
+
+            Token token = make_token(lex, TOK_NUMBER);
+            token.is_float = 0;
+
+            // Strip underscores and parse
+            char *clean = strip_underscores(lex->start + 2, (int)(lex->current - lex->start - 2));
+            if (!clean) {
+                return error_token(lex, "Failed to allocate number buffer");
+            }
+            char *endptr;
+            token.int_value = strtoll(clean, &endptr, 8);
+            free(clean);
             return token;
         }
     }
 
-    // Regular decimal number
-    while (isdigit(peek(lex))) {
+    // Regular decimal number (allow underscores as separators)
+    while (isdigit(peek(lex)) || peek(lex) == '_') {
         advance(lex);
     }
 
@@ -141,7 +251,7 @@ static Token number(Lexer *lex) {
         is_float = 1;
         advance(lex);  // consume '.'
 
-        while (isdigit(peek(lex))) {
+        while (isdigit(peek(lex)) || peek(lex) == '_') {
             advance(lex);
         }
     }
@@ -170,8 +280,8 @@ static Token number(Lexer *lex) {
                 advance(lex);
             }
 
-            // Consume exponent digits
-            while (isdigit(peek(lex))) {
+            // Consume exponent digits (allow underscores)
+            while (isdigit(peek(lex)) || peek(lex) == '_') {
                 advance(lex);
             }
         }
@@ -180,15 +290,20 @@ static Token number(Lexer *lex) {
     Token token = make_token(lex, TOK_NUMBER);
     token.is_float = is_float;
 
-    // Parse directly from source - strtoll/strtod stop at first invalid char
+    // Strip underscores and parse
+    char *clean = strip_underscores(lex->start, (int)(lex->current - lex->start));
+    if (!clean) {
+        return error_token(lex, "Failed to allocate number buffer");
+    }
     char *endptr;
     if (is_float) {
-        token.float_value = strtod(lex->start, &endptr);
+        token.float_value = strtod(clean, &endptr);
     } else {
         // Use strtoll to parse 64-bit integers
-        token.int_value = strtoll(lex->start, &endptr, 10);
+        token.int_value = strtoll(clean, &endptr, 10);
         // Note: strtoll will handle negative numbers correctly
     }
+    free(clean);
 
     return token;
 }
@@ -226,6 +341,18 @@ static Token string(Lexer *lex) {
             c = peek(lex);
             advance(lex);
 
+            // Grow buffer if needed (reserve space for multi-byte escapes)
+            if (length >= capacity - 5) {
+                int new_capacity = capacity * 2;
+                char *new_buffer = realloc(buffer, new_capacity);
+                if (!new_buffer) {
+                    free(buffer);
+                    return error_token(lex, "Failed to grow string buffer");
+                }
+                buffer = new_buffer;
+                capacity = new_capacity;
+            }
+
             switch (c) {
                 case 'n':  c = '\n'; break;
                 case 't':  c = '\t'; break;
@@ -234,6 +361,77 @@ static Token string(Lexer *lex) {
                 case '\'': c = '\''; break;
                 case '"':  c = '"'; break;
                 case '0':  c = '\0'; break;
+                case 'x': {
+                    // Hex escape: \xNN (exactly 2 hex digits)
+                    if (!isxdigit(peek(lex))) {
+                        free(buffer);
+                        return error_token(lex, "Expected hex digit after '\\x'");
+                    }
+                    char h1 = peek(lex);
+                    advance(lex);
+                    if (!isxdigit(peek(lex))) {
+                        free(buffer);
+                        return error_token(lex, "Expected two hex digits after '\\x'");
+                    }
+                    char h2 = peek(lex);
+                    advance(lex);
+
+                    int d1 = (h1 >= 'a') ? (h1 - 'a' + 10) : (h1 >= 'A') ? (h1 - 'A' + 10) : (h1 - '0');
+                    int d2 = (h2 >= 'a') ? (h2 - 'a' + 10) : (h2 >= 'A') ? (h2 - 'A' + 10) : (h2 - '0');
+                    buffer[length++] = (char)((d1 << 4) | d2);
+                    continue;  // Skip normal append
+                }
+                case 'u': {
+                    // Unicode escape: \u{XXXX} (1-6 hex digits)
+                    if (peek(lex) != '{') {
+                        free(buffer);
+                        return error_token(lex, "Expected '{' after '\\u'");
+                    }
+                    advance(lex);  // consume '{'
+
+                    uint32_t codepoint = 0;
+                    int digit_count = 0;
+                    while (peek(lex) != '}' && !is_at_end(lex) && digit_count < 6) {
+                        char h = peek(lex);
+                        int digit;
+                        if (h >= '0' && h <= '9') {
+                            digit = h - '0';
+                        } else if (h >= 'a' && h <= 'f') {
+                            digit = 10 + (h - 'a');
+                        } else if (h >= 'A' && h <= 'F') {
+                            digit = 10 + (h - 'A');
+                        } else {
+                            free(buffer);
+                            return error_token(lex, "Invalid hex digit in Unicode escape");
+                        }
+                        codepoint = (codepoint << 4) | digit;
+                        advance(lex);
+                        digit_count++;
+                    }
+
+                    if (digit_count == 0) {
+                        free(buffer);
+                        return error_token(lex, "Empty Unicode escape");
+                    }
+
+                    if (peek(lex) != '}') {
+                        free(buffer);
+                        return error_token(lex, "Unterminated Unicode escape");
+                    }
+                    advance(lex);  // consume '}'
+
+                    if (codepoint > 0x10FFFF) {
+                        free(buffer);
+                        return error_token(lex, "Unicode codepoint out of range");
+                    }
+
+                    // Encode UTF-8 directly into buffer
+                    if (!encode_utf8(codepoint, buffer, &length, capacity)) {
+                        free(buffer);
+                        return error_token(lex, "Failed to encode Unicode escape");
+                    }
+                    continue;  // Skip normal append
+                }
                 default:
                     free(buffer);
                     return error_token(lex, "Unknown escape sequence in string");
@@ -304,6 +502,18 @@ static Token template_string(Lexer *lex) {
             c = peek(lex);
             advance(lex);
 
+            // Grow buffer if needed (reserve space for multi-byte escapes)
+            if (length >= capacity - 5) {
+                int new_capacity = capacity * 2;
+                char *new_buffer = realloc(buffer, new_capacity);
+                if (!new_buffer) {
+                    free(buffer);
+                    return error_token(lex, "Failed to grow template string buffer");
+                }
+                buffer = new_buffer;
+                capacity = new_capacity;
+            }
+
             switch (c) {
                 case 'n':  c = '\n'; break;
                 case 't':  c = '\t'; break;
@@ -311,6 +521,77 @@ static Token template_string(Lexer *lex) {
                 case '\\': c = '\\'; break;
                 case '`':  c = '`'; break;
                 case '$':  c = '$'; break;  // Escaped $ (literal dollar sign)
+                case 'x': {
+                    // Hex escape: \xNN (exactly 2 hex digits)
+                    if (!isxdigit(peek(lex))) {
+                        free(buffer);
+                        return error_token(lex, "Expected hex digit after '\\x'");
+                    }
+                    char h1 = peek(lex);
+                    advance(lex);
+                    if (!isxdigit(peek(lex))) {
+                        free(buffer);
+                        return error_token(lex, "Expected two hex digits after '\\x'");
+                    }
+                    char h2 = peek(lex);
+                    advance(lex);
+
+                    int d1 = (h1 >= 'a') ? (h1 - 'a' + 10) : (h1 >= 'A') ? (h1 - 'A' + 10) : (h1 - '0');
+                    int d2 = (h2 >= 'a') ? (h2 - 'a' + 10) : (h2 >= 'A') ? (h2 - 'A' + 10) : (h2 - '0');
+                    buffer[length++] = (char)((d1 << 4) | d2);
+                    continue;  // Skip normal append
+                }
+                case 'u': {
+                    // Unicode escape: \u{XXXX} (1-6 hex digits)
+                    if (peek(lex) != '{') {
+                        free(buffer);
+                        return error_token(lex, "Expected '{' after '\\u'");
+                    }
+                    advance(lex);  // consume '{'
+
+                    uint32_t codepoint = 0;
+                    int digit_count = 0;
+                    while (peek(lex) != '}' && !is_at_end(lex) && digit_count < 6) {
+                        char h = peek(lex);
+                        int digit;
+                        if (h >= '0' && h <= '9') {
+                            digit = h - '0';
+                        } else if (h >= 'a' && h <= 'f') {
+                            digit = 10 + (h - 'a');
+                        } else if (h >= 'A' && h <= 'F') {
+                            digit = 10 + (h - 'A');
+                        } else {
+                            free(buffer);
+                            return error_token(lex, "Invalid hex digit in Unicode escape");
+                        }
+                        codepoint = (codepoint << 4) | digit;
+                        advance(lex);
+                        digit_count++;
+                    }
+
+                    if (digit_count == 0) {
+                        free(buffer);
+                        return error_token(lex, "Empty Unicode escape");
+                    }
+
+                    if (peek(lex) != '}') {
+                        free(buffer);
+                        return error_token(lex, "Unterminated Unicode escape");
+                    }
+                    advance(lex);  // consume '}'
+
+                    if (codepoint > 0x10FFFF) {
+                        free(buffer);
+                        return error_token(lex, "Unicode codepoint out of range");
+                    }
+
+                    // Encode UTF-8 directly into buffer
+                    if (!encode_utf8(codepoint, buffer, &length, capacity)) {
+                        free(buffer);
+                        return error_token(lex, "Failed to encode Unicode escape");
+                    }
+                    continue;  // Skip normal append
+                }
                 default:
                     free(buffer);
                     return error_token(lex, "Unknown escape sequence in template string");
@@ -374,6 +655,24 @@ static Token rune_literal(Lexer *lex) {
             case '\'': codepoint = '\''; break;
             case '"':  codepoint = '"'; break;
             case '0':  codepoint = '\0'; break;
+            case 'x': {
+                // Hex escape: \xNN (exactly 2 hex digits)
+                if (!isxdigit(peek(lex))) {
+                    return error_token(lex, "Expected hex digit after '\\x'");
+                }
+                char h1 = peek(lex);
+                advance(lex);
+                if (!isxdigit(peek(lex))) {
+                    return error_token(lex, "Expected two hex digits after '\\x'");
+                }
+                char h2 = peek(lex);
+                advance(lex);
+
+                int d1 = (h1 >= 'a') ? (h1 - 'a' + 10) : (h1 >= 'A') ? (h1 - 'A' + 10) : (h1 - '0');
+                int d2 = (h2 >= 'a') ? (h2 - 'a' + 10) : (h2 >= 'A') ? (h2 - 'A' + 10) : (h2 - '0');
+                codepoint = (d1 << 4) | d2;
+                break;
+            }
             case 'u': {
                 // Unicode escape: \u{XXXX}
                 if (peek(lex) != '{') {
