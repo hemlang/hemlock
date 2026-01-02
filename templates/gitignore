@@ -1,0 +1,140 @@
+# Hemlock Project .gitignore Template
+# Copy this file to your project root as .gitignore
+
+# =============================================================================
+# Hemlock Package Manager (hpm)
+# =============================================================================
+
+# Dependencies - installed by 'hpm install'
+hem_modules/
+
+# Lock file - uncomment if you want reproducible builds
+# package-lock.json
+
+# =============================================================================
+# Hemlock Build Artifacts
+# =============================================================================
+
+# Compiled bytecode
+*.hmlc
+
+# Bundle files
+*.hmlb
+
+# Package files
+*.hmlp
+
+# Compiled binaries (from hemlockc)
+# Add your specific binary names here, e.g.:
+# /myapp
+# /myapp.exe
+
+# Generated C code from hemlockc
+*.hemlock.c
+
+# Object files from C compilation
+*.o
+*.obj
+
+# =============================================================================
+# Build Directories
+# =============================================================================
+
+build/
+dist/
+out/
+bin/
+
+# =============================================================================
+# Editor and IDE
+# =============================================================================
+
+# VS Code
+.vscode/
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim/Neovim
+*.swp
+*.swo
+*~
+.nvim/
+
+# Emacs
+*~
+\#*\#
+.#*
+
+# =============================================================================
+# Operating System
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# =============================================================================
+# Debug and Logs
+# =============================================================================
+
+# Debug symbols
+*.dSYM/
+*.pdb
+
+# Core dumps
+core
+core.*
+*.core
+
+# Log files
+*.log
+logs/
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Test output
+test_results/
+coverage/
+.nyc_output/
+
+# Temporary test files
+tests/temp/*
+!tests/temp/.gitkeep
+
+# =============================================================================
+# Miscellaneous
+# =============================================================================
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
