@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 6
-#define HEMLOCK_VERSION_PATCH 4
+#define HEMLOCK_VERSION_PATCH 5
 
-#define HEMLOCK_VERSION "1.6.4"
+#define HEMLOCK_VERSION "1.6.5"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.6.5 - Fix for-in loop syntax without 'let' keyword
  *   1.6.4 - Hotfix release
  *   1.6.3 - Fix runtime method dispatch for file, channel, socket types
  *   1.6.2 - Patch release
