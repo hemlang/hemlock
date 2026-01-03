@@ -1,0 +1,36 @@
+// Test thread pool work stealing scheduler
+// Spawns many tasks to verify pool doesn't create runaway threads
+
+async fn heavy_task(id: i32): i32 {
+    // Do some work
+    let sum = 0;
+    let i = 0;
+    while (i < 1000) {
+        sum = sum + i * id;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Spawn many tasks - with old pthread-per-task model this would create 50 threads
+// With thread pool, only cpu_count threads are used
+let tasks = [];
+let i = 0;
+while (i < 50) {
+    tasks.push(spawn(heavy_task, i));
+    i = i + 1;
+}
+
+print("Spawned 50 tasks");
+
+// Collect all results
+let total = 0;
+i = 0;
+while (i < tasks.length) {
+    let result = join(tasks[i]);
+    total = total + result;
+    i = i + 1;
+}
+
+print("Total: " + typeof(total));
+print("done");

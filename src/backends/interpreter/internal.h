@@ -4,6 +4,7 @@
 #include "interpreter.h"
 #include "ast.h"
 #include "hemlock_limits.h"
+#include "thread_pool.h"
 #include <stdint.h>
 
 // ========== CONTROL FLOW STATE ==========

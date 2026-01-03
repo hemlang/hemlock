@@ -704,7 +704,10 @@ void task_free(Task *task) {
         if (task->ctx) {
             exec_context_free(task->ctx);
         }
+        // task->thread now holds a pthread_cond_t for join() synchronization
+        // (with thread pool, we use condition variable instead of pthread_t)
         if (task->thread) {
+            pthread_cond_destroy((pthread_cond_t*)task->thread);
             free(task->thread);
         }
         if (task->task_mutex) {
