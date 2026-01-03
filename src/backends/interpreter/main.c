@@ -15,6 +15,7 @@
 #include "lsp/lsp.h"
 #include "ast_serialize.h"
 #include "bundler/bundler.h"
+#include "formatter.h"
 #include "version.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
@@ -924,11 +925,14 @@ static void print_help(const char *program) {
     printf("    %s --compile FILE [-o OUTPUT] [--debug]\n", program);
     printf("    %s --bundle FILE [-o OUTPUT] [--compress] [--tree-shake] [--verbose]\n", program);
     printf("    %s --package FILE [-o OUTPUT] [--no-compress] [--tree-shake] [--verbose]\n", program);
+    printf("    %s format FILE [--check]\n", program);
     printf("    %s lsp [--stdio | --tcp PORT]\n\n", program);
     printf("ARGUMENTS:\n");
     printf("    <FILE>       Hemlock script file to execute (.hml or .hmlc)\n");
     printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
     printf("SUBCOMMANDS:\n");
+    printf("    format       Format Hemlock source code\n");
+    printf("        --check      Check if file is formatted (exit 1 if not)\n");
     printf("    lsp          Start Language Server Protocol server\n");
     printf("        --stdio      Use stdio transport (default)\n");
     printf("        --tcp PORT   Use TCP transport on specified port\n\n");
@@ -1015,6 +1019,66 @@ static int run_lsp(int argc, char **argv) {
     return result;
 }
 
+// Run formatter subcommand
+static int run_format(int argc, char **argv) {
+    int check_mode = 0;
+    const char *file_to_format = NULL;
+
+    // Parse format-specific options
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--check") == 0) {
+            check_mode = 1;
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Hemlock Code Formatter\n\n");
+            printf("USAGE:\n");
+            printf("    hemlock format [OPTIONS] <FILE>\n\n");
+            printf("ARGUMENTS:\n");
+            printf("    <FILE>       Hemlock source file to format (.hml)\n\n");
+            printf("OPTIONS:\n");
+            printf("    --check      Check if file is formatted (exit 1 if not)\n");
+            printf("    -h, --help   Display this help message\n\n");
+            printf("STYLE:\n");
+            printf("    - Tab indentation\n");
+            printf("    - K&R brace style\n");
+            printf("    - Max line width: 100 characters\n");
+            printf("    - No trailing commas\n");
+            printf("    - Single blank line maximum\n");
+            return 0;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "Try 'hemlock format --help' for more information.\n");
+            return 1;
+        } else {
+            file_to_format = argv[i];
+        }
+    }
+
+    if (file_to_format == NULL) {
+        fprintf(stderr, "Error: No input file specified\n");
+        fprintf(stderr, "Try 'hemlock format --help' for more information.\n");
+        return 1;
+    }
+
+    if (check_mode) {
+        int result = format_check(file_to_format);
+        if (result == 0) {
+            printf("%s: formatted\n", file_to_format);
+            return 0;
+        } else if (result == 1) {
+            printf("%s: not formatted\n", file_to_format);
+            return 1;
+        } else {
+            return 1;  // Error already printed
+        }
+    } else {
+        int result = format_file(file_to_format);
+        if (result == 0) {
+            printf("Formatted %s\n", file_to_format);
+        }
+        return result;
+    }
+}
+
 int main(int argc, char **argv) {
     // Check for embedded payload FIRST (before any argument parsing)
     // This allows packaged executables to run their embedded code
@@ -1052,6 +1116,11 @@ int main(int argc, char **argv) {
     // Check for LSP subcommand first
     if (argc >= 2 && strcmp(argv[1], "lsp") == 0) {
         return run_lsp(argc, argv);
+    }
+
+    // Check for format subcommand
+    if (argc >= 2 && strcmp(argv[1], "format") == 0) {
+        return run_format(argc, argv);
     }
 
     // Parse command-line flags
