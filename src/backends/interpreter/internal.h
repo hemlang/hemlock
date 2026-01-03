@@ -69,6 +69,8 @@ struct ExecutionContext {
 
 typedef struct {
     char *name;
+    char **type_params;       // Type parameters (e.g., ["T", "U"] for define Pair<T, U>)
+    int num_type_params;      // Number of type parameters (0 for non-generic types)
     char **field_names;
     Type **field_types;
     int *field_optional;

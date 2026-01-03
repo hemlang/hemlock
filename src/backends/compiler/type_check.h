@@ -44,12 +44,13 @@ typedef enum {
     CHECKED_ANY,        // Any type (escape hatch for dynamic code)
     CHECKED_NUMERIC,    // Any numeric type (for mixed arithmetic)
     CHECKED_INTEGER,    // Any integer type (i8-i64, u8-u64)
+    CHECKED_PARAM,      // Type parameter (e.g., T in define Stack<T>)
 } CheckedTypeKind;
 
 // Full type information for compile-time checking
 typedef struct CheckedType {
     CheckedTypeKind kind;
-    char *type_name;                // For CHECKED_CUSTOM (e.g., "Person")
+    char *type_name;                // For CHECKED_CUSTOM (e.g., "Person") or CHECKED_PARAM (e.g., "T")
     struct CheckedType *element_type;  // For CHECKED_ARRAY
     int nullable;                   // If true, type allows null
 
@@ -58,6 +59,10 @@ typedef struct CheckedType {
     int num_params;
     struct CheckedType *return_type;
     int has_rest_param;             // Has ...args rest parameter
+
+    // For generic types (e.g., Stack<i32>)
+    struct CheckedType **type_args;  // Type arguments
+    int num_type_args;              // Number of type arguments
 } CheckedType;
 
 // ========== TYPE ENVIRONMENT ==========
@@ -95,6 +100,8 @@ typedef struct FunctionSig {
 // Object type definition (from 'define' statements)
 typedef struct ObjectDef {
     char *name;
+    char **type_params;       // Type parameters (e.g., ["T", "U"] for define Pair<T, U>)
+    int num_type_params;      // Number of type parameters (0 for non-generic types)
     char **field_names;
     CheckedType **field_types;
     int *field_optional;
@@ -212,6 +219,7 @@ FunctionSig* type_check_lookup_function(TypeCheckContext *ctx, const char *name)
 
 // Register an object type definition
 void type_check_register_object(TypeCheckContext *ctx, const char *name,
+                                char **type_params, int num_type_params,
                                 char **field_names, CheckedType **field_types,
                                 int *field_optional, int num_fields);
 
