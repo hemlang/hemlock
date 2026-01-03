@@ -73,7 +73,8 @@ FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/ast.c \
 INTERP_SRCS = $(wildcard $(SRC_DIR)/backends/interpreter/*.c) \
               $(wildcard $(SRC_DIR)/backends/interpreter/builtins/*.c) \
               $(wildcard $(SRC_DIR)/backends/interpreter/io/*.c) \
-              $(wildcard $(SRC_DIR)/backends/interpreter/runtime/*.c)
+              $(wildcard $(SRC_DIR)/backends/interpreter/runtime/*.c) \
+              $(wildcard $(SRC_DIR)/backends/interpreter/profiler/*.c)
 
 # Other components (LSP, bundler, and type checker for LSP integration)
 OTHER_SRCS = $(wildcard $(SRC_DIR)/lsp/*.c) $(wildcard $(SRC_DIR)/bundler/*.c) \
@@ -92,6 +93,7 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/backends/interpreter/builtins \
              $(BUILD_DIR)/backends/interpreter/io \
              $(BUILD_DIR)/backends/interpreter/runtime \
+             $(BUILD_DIR)/backends/interpreter/profiler \
              $(BUILD_DIR)/backends/compiler \
              $(BUILD_DIR)/lsp \
              $(BUILD_DIR)/bundler
@@ -462,6 +464,7 @@ RELEASE_BUILD_DIRS = $(RELEASE_BUILD_DIR) \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/builtins \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/io \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/runtime \
+                     $(RELEASE_BUILD_DIR)/backends/interpreter/profiler \
                      $(RELEASE_BUILD_DIR)/lsp \
                      $(RELEASE_BUILD_DIR)/bundler
 
@@ -555,6 +558,7 @@ STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
                     $(STATIC_BUILD_DIR)/backends/interpreter/builtins \
                     $(STATIC_BUILD_DIR)/backends/interpreter/io \
                     $(STATIC_BUILD_DIR)/backends/interpreter/runtime \
+                    $(STATIC_BUILD_DIR)/backends/interpreter/profiler \
                     $(STATIC_BUILD_DIR)/backends/compiler \
                     $(STATIC_BUILD_DIR)/lsp \
                     $(STATIC_BUILD_DIR)/bundler
