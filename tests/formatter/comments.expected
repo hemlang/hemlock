@@ -1,0 +1,6 @@
+// Header comment
+/* Block comment */
+// trailing
+fn test() {
+	return 1;
+}

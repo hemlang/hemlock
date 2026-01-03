@@ -126,6 +126,9 @@ run: $(TARGET)
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
 
+test-formatter: $(TARGET)
+	@bash tests/formatter/run_tests.sh
+
 # ========== STDLIB C MODULES ==========
 
 # Build stdlib C modules (lws_wrapper.so for HTTP/WebSocket, ffi_struct_test for tests)

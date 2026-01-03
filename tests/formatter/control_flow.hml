@@ -1,0 +1,13 @@
+if (x > 0) {
+	print("positive");
+} else if (x < 0) {
+	print("negative");
+} else {
+	print("zero");
+}
+for (let i = 0; i < 10; i = i + 1) {
+	print(i);
+}
+while (true) {
+	break;
+}
