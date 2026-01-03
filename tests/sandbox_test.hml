@@ -1,5 +1,6 @@
 // Sandbox functionality test
 // This test exercises each restricted operation
+// Run with: hemlock --sandbox tests/sandbox_test.hml
 
 print("Testing sandbox restrictions...\n");
 
@@ -45,6 +46,44 @@ try {
     } else {
         print("  -> FAILED to create\n");
     }
+} catch (e) {
+    print("  -> BLOCKED: " + e + "\n");
+}
+
+// Test 5: Signal handler registration
+print("Test 5: Signal handler");
+try {
+    signal(2, fn(sig) { print("Got signal"); });
+    print("  -> ALLOWED\n");
+} catch (e) {
+    print("  -> BLOCKED: " + e + "\n");
+}
+
+// Test 6: Raise signal
+print("Test 6: Raise signal");
+try {
+    raise(0);  // Signal 0 is a no-op but tests the restriction
+    print("  -> ALLOWED\n");
+} catch (e) {
+    print("  -> BLOCKED: " + e + "\n");
+}
+
+// Test 7: Kill (send signal to process)
+print("Test 7: Kill signal");
+try {
+    __kill(get_pid(), 0);  // Signal 0 just checks if process exists
+    print("  -> ALLOWED\n");
+} catch (e) {
+    print("  -> BLOCKED: " + e + "\n");
+}
+
+// Test 8: Abort (we can't actually test this without terminating)
+print("Test 8: Abort");
+try {
+    // We check if the function exists and is restricted
+    // by catching the sandbox error
+    __abort();
+    print("  -> ALLOWED (would have aborted)\n");
 } catch (e) {
     print("  -> BLOCKED: " + e + "\n");
 }

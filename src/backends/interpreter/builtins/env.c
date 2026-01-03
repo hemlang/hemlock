@@ -816,6 +816,12 @@ Value builtin_getegid(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx) {
+    // SANDBOX: Check if signal operations are allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_SIGNALS)) {
+        sandbox_error(ctx, "kill() signal operation");
+        return val_null();
+    }
+
     if (num_args != 2) {
         fprintf(stderr, "Runtime error: kill() expects 2 arguments (pid, signal)\n");
         exit(1);
@@ -937,7 +943,13 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
+
+    // SANDBOX: Check if signal operations are allowed (abort sends SIGABRT)
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_SIGNALS)) {
+        sandbox_error(ctx, "abort() operation");
+        return val_null();
+    }
+
     if (num_args != 0) {
         fprintf(stderr, "Runtime error: abort() expects no arguments\n");
         exit(1);

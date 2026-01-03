@@ -35,7 +35,12 @@ static void hemlock_signal_handler(int signum) {
 }
 
 Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
+    // SANDBOX: Check if signal operations are allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_SIGNALS)) {
+        sandbox_error(ctx, "signal handler registration");
+        return val_null();
+    }
+
     if (num_args != 2) {
         fprintf(stderr, "Runtime error: signal() expects 2 arguments (signum, handler)\n");
         exit(1);
@@ -108,7 +113,12 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
+    // SANDBOX: Check if signal operations are allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_SIGNALS)) {
+        sandbox_error(ctx, "raise() signal operation");
+        return val_null();
+    }
+
     if (num_args != 1) {
         fprintf(stderr, "Runtime error: raise() expects 1 argument (signum)\n");
         exit(1);
