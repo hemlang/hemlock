@@ -148,6 +148,37 @@ enum Color { RED, GREEN, BLUE }
 enum Status { OK = 0, ERROR = 1 }
 ```
 
+### Compound Types (Intersection/Duck Types)
+```hemlock
+// Define structural types
+define HasName { name: string }
+define HasAge { age: i32 }
+define HasEmail { email: string }
+
+// Compound type: object must satisfy ALL types
+let person: HasName & HasAge = { name: "Alice", age: 30 };
+
+// Function parameters with compound types
+fn greet(p: HasName & HasAge) {
+    print(p.name + " is " + p.age);
+}
+
+// Three or more types
+fn describe(p: HasName & HasAge & HasEmail) {
+    print(p.name + " <" + p.email + ">");
+}
+
+// Extra fields allowed (duck typing)
+let employee: HasName & HasAge = {
+    name: "Bob",
+    age: 25,
+    department: "Engineering"  // OK - extra fields ignored
+};
+```
+
+Compound types provide interface-like behavior without a separate `interface` keyword,
+building on the existing `define` and duck typing paradigms.
+
 ### Error Handling
 ```hemlock
 try { throw "error"; } catch (e) { print(e); } finally { cleanup(); }
@@ -567,7 +598,8 @@ make parity
 
 ## Version
 
-**v1.6.7** - Current release with:
+**v1.6.8** - Current release with:
+- **Compound duck types** (`A & B & C`) - intersection types for structural typing
 - **Octal literals** (`0o777`, `0O123`)
 - **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
 - **Block comments** (`/* ... */`)
@@ -597,7 +629,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 121 parity tests (100% pass rate)
+- 122 parity tests (100% pass rate)
 
 ---
 
