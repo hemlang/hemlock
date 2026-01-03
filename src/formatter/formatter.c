@@ -72,22 +72,105 @@ static void buf_printf(StrBuf *buf, const char *fmt, ...) {
 typedef struct {
     StrBuf buf;
     int indent;
+    int column;          // Current column position (for line width tracking)
 } FmtCtx;
+
+// Update column position after the buffer changes
+static void update_column(FmtCtx *ctx) {
+    // Find last newline in buffer and count from there
+    ctx->column = 0;
+    for (size_t i = ctx->buf.len; i > 0; i--) {
+        if (ctx->buf.data[i - 1] == '\n') {
+            // Count from after the newline
+            for (size_t j = i; j < ctx->buf.len; j++) {
+                if (ctx->buf.data[j] == '\t') {
+                    ctx->column = ((ctx->column / 4) + 1) * 4;
+                } else {
+                    ctx->column++;
+                }
+            }
+            return;
+        }
+    }
+    // No newline found - count from beginning
+    for (size_t j = 0; j < ctx->buf.len; j++) {
+        if (ctx->buf.data[j] == '\t') {
+            ctx->column = ((ctx->column / 4) + 1) * 4;
+        } else {
+            ctx->column++;
+        }
+    }
+}
 
 static void fmt_indent(FmtCtx *ctx) {
     for (int i = 0; i < ctx->indent; i++) {
         buf_append_char(&ctx->buf, '\t');
     }
+    update_column(ctx);
 }
 
 static void fmt_newline(FmtCtx *ctx) {
     buf_append_char(&ctx->buf, '\n');
+    ctx->column = 0;
 }
 
 // Forward declarations
 static void fmt_expr(FmtCtx *ctx, Expr *expr);
 static void fmt_stmt(FmtCtx *ctx, Stmt *stmt);
 static void fmt_type(FmtCtx *ctx, Type *type);
+static int estimate_expr_len(Expr *expr);
+
+// Estimate the length of an expression (for line-breaking decisions)
+static int estimate_expr_len(Expr *expr) {
+    if (!expr) return 0;
+
+    switch (expr->type) {
+        case EXPR_NUMBER:
+            return expr->as.number.is_float ? 10 : 6;  // Rough estimate
+        case EXPR_BOOL:
+            return expr->as.boolean ? 4 : 5;
+        case EXPR_STRING:
+            return expr->as.string ? (int)strlen(expr->as.string) + 2 : 2;
+        case EXPR_RUNE:
+            return 3;
+        case EXPR_IDENT:
+            return expr->as.ident.name ? (int)strlen(expr->as.ident.name) : 0;
+        case EXPR_NULL:
+            return 4;
+        case EXPR_BINARY:
+            return estimate_expr_len(expr->as.binary.left) + 3 +
+                   estimate_expr_len(expr->as.binary.right);
+        case EXPR_UNARY:
+            return 1 + estimate_expr_len(expr->as.unary.operand);
+        case EXPR_CALL: {
+            int len = estimate_expr_len(expr->as.call.func) + 2;
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                if (i > 0) len += 2;
+                len += estimate_expr_len(expr->as.call.args[i]);
+            }
+            return len;
+        }
+        case EXPR_ARRAY_LITERAL: {
+            int len = 2;
+            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
+                if (i > 0) len += 2;
+                len += estimate_expr_len(expr->as.array_literal.elements[i]);
+            }
+            return len;
+        }
+        case EXPR_OBJECT_LITERAL: {
+            int len = 4;  // "{ " and " }"
+            for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
+                if (i > 0) len += 2;
+                len += strlen(expr->as.object_literal.field_names[i]) + 2;
+                len += estimate_expr_len(expr->as.object_literal.field_values[i]);
+            }
+            return len;
+        }
+        default:
+            return 10;  // Default estimate for complex expressions
+    }
+}
 
 // ========== TYPE FORMATTING ==========
 
@@ -341,15 +424,39 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             fmt_expr(ctx, expr->as.ternary.false_expr);
             break;
 
-        case EXPR_CALL:
+        case EXPR_CALL: {
             fmt_expr(ctx, expr->as.call.func);
-            buf_append_char(&ctx->buf, '(');
-            for (int i = 0; i < expr->as.call.num_args; i++) {
-                if (i > 0) buf_append(&ctx->buf, ", ");
-                fmt_expr(ctx, expr->as.call.args[i]);
+            update_column(ctx);
+            int total_len = estimate_expr_len(expr);
+            int should_break = (ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
+                               (expr->as.call.num_args > 1);
+
+            buf_append(&ctx->buf, "(");
+            if (should_break) {
+                fmt_newline(ctx);
+                ctx->indent++;
             }
-            buf_append_char(&ctx->buf, ')');
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                if (should_break) {
+                    fmt_indent(ctx);
+                } else if (i > 0) {
+                    buf_append(&ctx->buf, ", ");
+                }
+                fmt_expr(ctx, expr->as.call.args[i]);
+                if (should_break) {
+                    if (i < expr->as.call.num_args - 1) {
+                        buf_append(&ctx->buf, ",");
+                    }
+                    fmt_newline(ctx);
+                }
+            }
+            if (should_break) {
+                ctx->indent--;
+                fmt_indent(ctx);
+            }
+            buf_append(&ctx->buf, ")");
             break;
+        }
 
         case EXPR_ASSIGN:
             buf_append(&ctx->buf, expr->as.assign.name);
@@ -431,25 +538,77 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             break;
         }
 
-        case EXPR_ARRAY_LITERAL:
-            buf_append_char(&ctx->buf, '[');
-            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
-                if (i > 0) buf_append(&ctx->buf, ", ");
-                fmt_expr(ctx, expr->as.array_literal.elements[i]);
-            }
-            buf_append_char(&ctx->buf, ']');
-            break;
+        case EXPR_ARRAY_LITERAL: {
+            update_column(ctx);
+            int total_len = estimate_expr_len(expr);
+            int should_break = (ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
+                               (expr->as.array_literal.num_elements > 1);
 
-        case EXPR_OBJECT_LITERAL:
-            buf_append(&ctx->buf, "{ ");
+            buf_append(&ctx->buf, "[");
+            if (should_break) {
+                fmt_newline(ctx);
+                ctx->indent++;
+            }
+            for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
+                if (should_break) {
+                    fmt_indent(ctx);
+                } else if (i > 0) {
+                    buf_append(&ctx->buf, ", ");
+                }
+                fmt_expr(ctx, expr->as.array_literal.elements[i]);
+                if (should_break) {
+                    if (i < expr->as.array_literal.num_elements - 1) {
+                        buf_append(&ctx->buf, ",");
+                    }
+                    fmt_newline(ctx);
+                }
+            }
+            if (should_break) {
+                ctx->indent--;
+                fmt_indent(ctx);
+            }
+            buf_append(&ctx->buf, "]");
+            break;
+        }
+
+        case EXPR_OBJECT_LITERAL: {
+            update_column(ctx);
+            int total_len = estimate_expr_len(expr);
+            int should_break = (ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
+                               (expr->as.object_literal.num_fields > 1);
+
+            buf_append(&ctx->buf, "{");
+            if (should_break) {
+                fmt_newline(ctx);
+                ctx->indent++;
+            } else {
+                buf_append(&ctx->buf, " ");
+            }
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                if (i > 0) buf_append(&ctx->buf, ", ");
+                if (should_break) {
+                    fmt_indent(ctx);
+                } else if (i > 0) {
+                    buf_append(&ctx->buf, ", ");
+                }
                 buf_append(&ctx->buf, expr->as.object_literal.field_names[i]);
                 buf_append(&ctx->buf, ": ");
                 fmt_expr(ctx, expr->as.object_literal.field_values[i]);
+                if (should_break) {
+                    if (i < expr->as.object_literal.num_fields - 1) {
+                        buf_append(&ctx->buf, ",");
+                    }
+                    fmt_newline(ctx);
+                }
             }
-            buf_append(&ctx->buf, " }");
+            if (should_break) {
+                ctx->indent--;
+                fmt_indent(ctx);
+            } else {
+                buf_append(&ctx->buf, " ");
+            }
+            buf_append(&ctx->buf, "}");
             break;
+        }
 
         case EXPR_PREFIX_INC:
             buf_append(&ctx->buf, "++");
@@ -1111,6 +1270,7 @@ char *format_source(const char *source) {
     FmtCtx ctx;
     buf_init(&ctx.buf);
     ctx.indent = 0;
+    ctx.column = 0;
 
     for (int i = 0; i < stmt_count; i++) {
         fmt_stmt(&ctx, statements[i]);
