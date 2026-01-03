@@ -7,6 +7,7 @@ Stmt* extern_fn_statement(Parser *p);
 Stmt* define_statement(Parser *p);
 
 Stmt* let_statement(Parser *p) {
+    int line = p->lexer->line;
     consume(p, TOK_IDENT, "Expect variable name");
     char *name = token_text(&p->previous);
 
@@ -24,11 +25,13 @@ Stmt* let_statement(Parser *p) {
     consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
 
     Stmt *stmt = stmt_let_typed(name, type_annotation, value);
+    stmt->line = line;
     free(name);
     return stmt;
 }
 
 Stmt* const_statement(Parser *p) {
+    int line = p->lexer->line;
     consume(p, TOK_IDENT, "Expect variable name");
     char *name = token_text(&p->previous);
 
@@ -46,11 +49,13 @@ Stmt* const_statement(Parser *p) {
     consume(p, TOK_SEMICOLON, "Expect ';' after variable declaration");
 
     Stmt *stmt = stmt_const_typed(name, type_annotation, value);
+    stmt->line = line;
     free(name);
     return stmt;
 }
 
 Stmt* block_statement(Parser *p) {
+    int line = p->lexer->line;
     int capacity = 256;
     Stmt **statements = malloc(sizeof(Stmt*) * capacity);
     int count = 0;
@@ -66,17 +71,20 @@ Stmt* block_statement(Parser *p) {
 
     consume(p, TOK_RBRACE, "Expect '}' after block");
 
-    return stmt_block(statements, count);
+    Stmt *stmt = stmt_block(statements, count);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* if_statement(Parser *p) {
+    int line = p->lexer->line;
     consume(p, TOK_LPAREN, "Expect '(' after 'if'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
-    
+
     consume(p, TOK_LBRACE, "Expect '{' after if condition");
     Stmt *then_branch = block_statement(p);
-    
+
     Stmt *else_branch = NULL;
     if (match(p, TOK_ELSE)) {
         if (check(p, TOK_IF)) {
@@ -89,11 +97,14 @@ Stmt* if_statement(Parser *p) {
             else_branch = block_statement(p);
         }
     }
-    
-    return stmt_if(condition, then_branch, else_branch);
+
+    Stmt *stmt = stmt_if(condition, then_branch, else_branch);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* while_statement(Parser *p) {
+    int line = p->lexer->line;
     consume(p, TOK_LPAREN, "Expect '(' after 'while'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -101,10 +112,13 @@ Stmt* while_statement(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' after while condition");
     Stmt *body = block_statement(p);
 
-    return stmt_while(condition, body);
+    Stmt *stmt = stmt_while(condition, body);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* switch_statement(Parser *p) {
+    int line = p->lexer->line;
     consume(p, TOK_LPAREN, "Expect '(' after 'switch'");
     Expr *expr = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after switch expression");
@@ -172,10 +186,13 @@ Stmt* switch_statement(Parser *p) {
     }
 
     consume(p, TOK_RBRACE, "Expect '}' after switch body");
-    return stmt_switch(expr, case_values, case_bodies, num_cases);
+    Stmt *stmt = stmt_switch(expr, case_values, case_bodies, num_cases);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* for_statement(Parser *p) {
+    int line = p->lexer->line;
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
     // Check if this is a for-in loop by looking ahead
@@ -205,13 +222,16 @@ Stmt* for_statement(Parser *p) {
             consume(p, TOK_LBRACE, "Expect '{' after for-in");
             Stmt *body = block_statement(p);
 
+            Stmt *stmt;
             if (second_var) {
                 // Two variables: for (let key, value in ...)
-                return stmt_for_in(first_var, second_var, iterable, body);
+                stmt = stmt_for_in(first_var, second_var, iterable, body);
             } else {
                 // One variable: for (let value in ...)
-                return stmt_for_in(NULL, first_var, iterable, body);
+                stmt = stmt_for_in(NULL, first_var, iterable, body);
             }
+            stmt->line = line;
+            return stmt;
         }
 
         // Not for-in, continue parsing as C-style for loop
@@ -244,7 +264,9 @@ Stmt* for_statement(Parser *p) {
         consume(p, TOK_LBRACE, "Expect '{' after for");
         Stmt *body = block_statement(p);
 
-        return stmt_for(initializer, condition, increment, body);
+        Stmt *stmt = stmt_for(initializer, condition, increment, body);
+        stmt->line = line;
+        return stmt;
     }
 
     // Check for for-in loop without let (e.g., for (item in array))
@@ -274,7 +296,9 @@ Stmt* for_statement(Parser *p) {
             Stmt *body = block_statement(p);
 
             // stmt_for_in takes ownership of the strings, don't free them
-            return stmt_for_in(first_var, second_var, iterable, body);
+            Stmt *stmt = stmt_for_in(first_var, second_var, iterable, body);
+            stmt->line = line;
+            return stmt;
         } else if (check(p, TOK_IN)) {
             // for (item in ...) - single variable form without let
             char *var_name = token_text(&saved_current);
@@ -286,7 +310,9 @@ Stmt* for_statement(Parser *p) {
             Stmt *body = block_statement(p);
 
             // stmt_for_in takes ownership of the string, don't free it
-            return stmt_for_in(NULL, var_name, iterable, body);
+            Stmt *stmt = stmt_for_in(NULL, var_name, iterable, body);
+            stmt->line = line;
+            return stmt;
         } else {
             // Not a for-in loop, restore state and fall through to C-style
             p->current = saved_current;
@@ -321,16 +347,22 @@ Stmt* for_statement(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' after for");
     Stmt *body = block_statement(p);
 
-    return stmt_for(initializer, condition, increment, body);
+    Stmt *stmt = stmt_for(initializer, condition, increment, body);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* expression_statement(Parser *p) {
+    int line = p->lexer->line;
     Expr *expr = expression(p);
     consume(p, TOK_SEMICOLON, "Expect ';' after expression");
-    return stmt_expr(expr);
+    Stmt *stmt = stmt_expr(expr);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* return_statement(Parser *p) {
+    int line = p->lexer->line;
     Expr *value = NULL;
 
     // Check if there's a return value
@@ -339,10 +371,14 @@ Stmt* return_statement(Parser *p) {
     }
 
     consume(p, TOK_SEMICOLON, "Expect ';' after return statement");
-    return stmt_return(value);
+    Stmt *stmt = stmt_return(value);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* import_statement(Parser *p) {
+    int line = p->lexer->line;
+
     // Check for FFI import: import "library.so"
     if (check(p, TOK_STRING)) {
         advance(p);
@@ -350,6 +386,7 @@ Stmt* import_statement(Parser *p) {
         consume(p, TOK_SEMICOLON, "Expect ';' after FFI import");
 
         Stmt *stmt = stmt_import_ffi(library_path);
+        stmt->line = line;
         free(library_path);
         return stmt;
     }
@@ -369,6 +406,7 @@ Stmt* import_statement(Parser *p) {
             consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
             Stmt *stmt = stmt_import_namespace(namespace_name, module_path);
+            stmt->line = line;
             free(namespace_name);
             free(module_path);
             return stmt;
@@ -381,6 +419,7 @@ Stmt* import_statement(Parser *p) {
             consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
             Stmt *stmt = stmt_import_star(module_path);
+            stmt->line = line;
             free(module_path);
             return stmt;
         }
@@ -423,11 +462,13 @@ Stmt* import_statement(Parser *p) {
     consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
     Stmt *stmt = stmt_import_named(import_names, import_aliases, num_imports, module_path);
+    stmt->line = line;
     free(module_path);
     return stmt;
 }
 
 Stmt* export_statement(Parser *p) {
+    int line = p->lexer->line;
     // Check for re-export: export { name1, name2 } from "module"
     if (match(p, TOK_LBRACE)) {
         int export_capacity = 32;
@@ -465,36 +506,47 @@ Stmt* export_statement(Parser *p) {
             consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
 
             Stmt *stmt = stmt_export_reexport(export_names, export_aliases, num_exports, module_path);
+            stmt->line = line;
             free(module_path);
             return stmt;
         } else {
             // Regular export list
             consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
-            return stmt_export_list(export_names, export_aliases, num_exports);
+            Stmt *stmt = stmt_export_list(export_names, export_aliases, num_exports);
+            stmt->line = line;
+            return stmt;
         }
     }
 
     // Export declaration: export fn/const/let
     if (match(p, TOK_CONST)) {
         Stmt *decl = const_statement(p);
-        return stmt_export_declaration(decl);
+        Stmt *stmt = stmt_export_declaration(decl);
+        stmt->line = line;
+        return stmt;
     }
 
     if (match(p, TOK_LET)) {
         Stmt *decl = let_statement(p);
-        return stmt_export_declaration(decl);
+        Stmt *stmt = stmt_export_declaration(decl);
+        stmt->line = line;
+        return stmt;
     }
 
     // Export extern function: export extern fn name(...)
     if (match(p, TOK_EXTERN)) {
         Stmt *extern_stmt = extern_fn_statement(p);
-        return stmt_export_declaration(extern_stmt);
+        Stmt *stmt = stmt_export_declaration(extern_stmt);
+        stmt->line = line;
+        return stmt;
     }
 
     // Export define: export define TypeName { ... }
     if (match(p, TOK_DEFINE)) {
         Stmt *define_stmt = define_statement(p);
-        return stmt_export_declaration(define_stmt);
+        Stmt *stmt = stmt_export_declaration(define_stmt);
+        stmt->line = line;
+        return stmt;
     }
 
     // Named function: export fn name(...) or export async fn name(...)
@@ -608,10 +660,13 @@ Stmt* export_statement(Parser *p) {
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
     free(name);
 
-    return stmt_export_declaration(decl);
+    Stmt *stmt = stmt_export_declaration(decl);
+    stmt->line = line;
+    return stmt;
 }
 
 Stmt* extern_fn_statement(Parser *p) {
+    int line = p->lexer->line;
     // extern fn name(param1: type1, param2: type2): return_type;
     consume(p, TOK_FN, "Expect 'fn' after 'extern'");
     consume(p, TOK_IDENT, "Expect function name");
@@ -650,11 +705,13 @@ Stmt* extern_fn_statement(Parser *p) {
     consume(p, TOK_SEMICOLON, "Expect ';' after extern declaration");
 
     Stmt *stmt = stmt_extern_fn(function_name, param_types, num_params, return_type);
+    stmt->line = line;
     free(function_name);
     return stmt;
 }
 
 Stmt* define_statement(Parser *p) {
+    int line = p->lexer->line;
     // Object type definition: define TypeName { ... }
     consume(p, TOK_IDENT, "Expect object type name");
     char *name = token_text(&p->previous);
@@ -739,6 +796,7 @@ Stmt* define_statement(Parser *p) {
 
     Stmt *stmt = stmt_define_object(name, field_names, field_types,
                                    field_optional, field_defaults, num_fields);
+    stmt->line = line;
     free(name);
     return stmt;
 }
@@ -759,6 +817,7 @@ Stmt* statement(Parser *p) {
 
     // Enum definition: enum EnumName { ... }
     if (match(p, TOK_ENUM)) {
+        int enum_line = p->lexer->line;
         consume(p, TOK_IDENT, "Expect enum type name");
         char *name = token_text(&p->previous);
 
@@ -795,12 +854,14 @@ Stmt* statement(Parser *p) {
         consume(p, TOK_RBRACE, "Expect '}' after enum variants");
 
         Stmt *stmt = stmt_enum(name, variant_names, variant_values, num_variants);
+        stmt->line = enum_line;
         free(name);
         return stmt;
     }
 
     // Named function: fn name(...) { ... } or async fn name(...) { ... }
     // Desugar to: let name = fn(...) { ... }; or let name = async fn(...) { ... };
+    int fn_line = p->lexer->line;
     int is_async = 0;
     if (match(p, TOK_ASYNC)) {
         is_async = 1;
@@ -910,6 +971,7 @@ Stmt* statement(Parser *p) {
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);
+        stmt->line = fn_line;
         free(name);
         return stmt;
     } else {
@@ -933,13 +995,19 @@ not_function:
     }
 
     if (match(p, TOK_BREAK)) {
+        int break_line = p->lexer->line;
         consume(p, TOK_SEMICOLON, "Expect ';' after 'break'");
-        return stmt_break();
+        Stmt *stmt = stmt_break();
+        stmt->line = break_line;
+        return stmt;
     }
 
     if (match(p, TOK_CONTINUE)) {
+        int continue_line = p->lexer->line;
         consume(p, TOK_SEMICOLON, "Expect ';' after 'continue'");
-        return stmt_continue();
+        Stmt *stmt = stmt_continue();
+        stmt->line = continue_line;
+        return stmt;
     }
 
     if (match(p, TOK_RETURN)) {
@@ -947,6 +1015,7 @@ not_function:
     }
 
     if (match(p, TOK_TRY)) {
+        int try_line = p->lexer->line;
         // Parse try block
         consume(p, TOK_LBRACE, "Expect '{' after 'try'");
         Stmt *try_block = block_statement(p);
@@ -975,7 +1044,9 @@ not_function:
             error(p, "Try statement must have either 'catch' or 'finally' block");
         }
 
-        return stmt_try(try_block, catch_param, catch_block, finally_block);
+        Stmt *stmt = stmt_try(try_block, catch_param, catch_block, finally_block);
+        stmt->line = try_line;
+        return stmt;
     }
 
     if (match(p, TOK_THROW)) {
@@ -990,9 +1061,12 @@ not_function:
     }
 
     if (match(p, TOK_DEFER)) {
+        int defer_line = p->lexer->line;
         Expr *call = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after defer statement");
-        return stmt_defer(call);
+        Stmt *stmt = stmt_defer(call);
+        stmt->line = defer_line;
+        return stmt;
     }
 
     if (match(p, TOK_SWITCH)) {

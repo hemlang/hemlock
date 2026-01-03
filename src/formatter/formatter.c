@@ -298,6 +298,11 @@ static void fmt_leading_comments(FmtCtx *ctx, int source_line) {
         // 2. Not trailing comments (those go after code)
         if (c->line > source_line) break;
         if (c->is_trailing) {
+            if (c->line == source_line) {
+                // Trailing comment for this statement - let fmt_trailing_comment handle it
+                break;
+            }
+            // Trailing comment from an earlier line - skip it
             ctx->comments->next_idx++;
             continue;
         }
@@ -1196,7 +1201,14 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
             fmt_newline(ctx);
             ctx->indent++;
             for (int i = 0; i < stmt->as.block.count; i++) {
-                fmt_stmt(ctx, stmt->as.block.statements[i]);
+                Stmt *inner = stmt->as.block.statements[i];
+                if (inner->line > 0) {
+                    fmt_leading_comments(ctx, inner->line);
+                }
+                fmt_stmt(ctx, inner);
+                if (inner->line > 0) {
+                    fmt_trailing_comment(ctx, inner->line);
+                }
             }
             ctx->indent--;
             fmt_indent(ctx);
