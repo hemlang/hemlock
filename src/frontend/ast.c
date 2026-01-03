@@ -331,6 +331,19 @@ Type* type_new(TypeKind kind) {
     type->type_name = NULL;
     type->element_type = NULL;
     type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
+    return type;
+}
+
+Type* type_compound(Type **types, int num_types) {
+    Type *type = malloc(sizeof(Type));
+    type->kind = TYPE_COMPOUND;
+    type->type_name = NULL;
+    type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = types;
+    type->num_compound_types = num_types;
     return type;
 }
 
@@ -341,6 +354,13 @@ void type_free(Type *type) {
         }
         if (type->element_type) {
             type_free(type->element_type);
+        }
+        // Free compound types
+        if (type->compound_types) {
+            for (int i = 0; i < type->num_compound_types; i++) {
+                type_free(type->compound_types[i]);
+            }
+            free(type->compound_types);
         }
         free(type);
     }

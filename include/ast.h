@@ -217,6 +217,7 @@ typedef enum {
     TYPE_GENERIC_OBJECT, // Generic 'object' keyword
     TYPE_ENUM,           // Enum type (Color, Status, etc.)
     TYPE_VOID,           // Void type (for FFI functions with no return)
+    TYPE_COMPOUND,       // Compound type (A & B & C) - intersection/duck typing
 } TypeKind;
 
 struct Type {
@@ -224,6 +225,10 @@ struct Type {
     char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
     int nullable;         // If true, type allows null (e.g., string?)
+
+    // For TYPE_COMPOUND (intersection types like A & B & C)
+    struct Type **compound_types;  // Array of constituent types
+    int num_compound_types;        // Number of types in compound
 };
 
 // ========== STATEMENT TYPES ==========
@@ -423,6 +428,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
 Stmt* stmt_import_ffi(const char *library_path);
 Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_params, Type *return_type);
 Type* type_new(TypeKind kind);
+Type* type_compound(Type **types, int num_types);  // Create compound type (A & B & C)
 void type_free(Type *type);
 
 // Cloning

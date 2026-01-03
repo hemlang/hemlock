@@ -44,6 +44,7 @@ typedef enum {
     CHECKED_ANY,        // Any type (escape hatch for dynamic code)
     CHECKED_NUMERIC,    // Any numeric type (for mixed arithmetic)
     CHECKED_INTEGER,    // Any integer type (i8-i64, u8-u64)
+    CHECKED_COMPOUND,   // Compound type (A & B & C) - intersection/duck typing
 } CheckedTypeKind;
 
 // Full type information for compile-time checking
@@ -58,6 +59,10 @@ typedef struct CheckedType {
     int num_params;
     struct CheckedType *return_type;
     int has_rest_param;             // Has ...args rest parameter
+
+    // For CHECKED_COMPOUND (intersection types like A & B & C)
+    struct CheckedType **compound_types;  // Array of constituent types
+    int num_compound_types;               // Number of types in compound
 } CheckedType;
 
 // ========== TYPE ENVIRONMENT ==========

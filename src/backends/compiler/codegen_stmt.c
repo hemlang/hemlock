@@ -57,6 +57,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
                                   safe_name, value, stmt->as.let.type_annotation->type_name);
                 } else if (stmt->as.let.type_annotation &&
+                           stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
+                    // Compound type: validate against each constituent type
+                    Type *compound = stmt->as.let.type_annotation;
+                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
+                    for (int i = 0; i < compound->num_compound_types; i++) {
+                        Type *constituent = compound->compound_types[i];
+                        if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
+                            codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                          safe_name, safe_name, constituent->type_name);
+                        }
+                    }
+                } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                     // Typed array: let arr: array<type> = [...]
                     Type *elem_type = stmt->as.let.type_annotation->element_type;
