@@ -182,6 +182,8 @@ Object* object_new(char *type_name, int initial_capacity);
 void object_free(Object *obj);
 Value val_object(Object *obj);
 int object_lookup_field(Object *obj, const char *name);  // O(1) field lookup using hash table
+int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash);  // With pre-computed hash
+int object_validate_ic(Object *obj, int cached_idx, const char *name);  // Validate IC cache entry
 
 // Function operations
 void function_free(Function *fn);

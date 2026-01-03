@@ -608,6 +608,46 @@ int object_lookup_field(Object *obj, const char *name) {
     return -1;  // Not found
 }
 
+// Look up field index by name with pre-computed hash (for inline cache)
+// Returns field index or -1 if not found
+int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash) {
+    // Lazy hash table creation: if no hash table and we have fields, build it
+    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
+        object_hash_rebuild(obj);
+    }
+
+    if (!obj->hash_table || obj->hash_capacity == 0) {
+        // Still no hash table (empty object) - return not found
+        return -1;
+    }
+
+    int slot = hash % obj->hash_capacity;
+    int start_slot = slot;
+
+    // Linear probing
+    while (obj->hash_table[slot] != -1) {
+        int idx = obj->hash_table[slot];
+        if (strcmp(obj->field_names[idx], name) == 0) {
+            return idx;  // Found
+        }
+        slot = (slot + 1) % obj->hash_capacity;
+        if (slot == start_slot) {
+            break;  // Full circle, not found
+        }
+    }
+    return -1;  // Not found
+}
+
+// Validate that a cached field index is still valid for the given object and property
+// Returns 1 if valid, 0 if cache is stale
+int object_validate_ic(Object *obj, int cached_idx, const char *name) {
+    // Check if index is in bounds and name matches
+    if (cached_idx >= 0 && cached_idx < obj->num_fields) {
+        return strcmp(obj->field_names[cached_idx], name) == 0;
+    }
+    return 0;
+}
+
 Object* object_new(char *type_name, int initial_capacity) {
     Object *obj = malloc(sizeof(Object));
     if (!obj) {

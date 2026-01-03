@@ -75,6 +75,23 @@ typedef struct {
     int slot;         // Index within that environment's values array
 } ResolvedVar;
 
+// Inline cache for property access - speeds up repeated property lookups
+// Stores the result of the last successful lookup for monomorphic call sites
+typedef struct {
+    void *cached_object;     // Pointer to the last object accessed (for identity check)
+    int cached_field_index;  // Cached field index (-1 if not cached)
+    uint32_t cached_hash;    // Pre-computed hash of property name
+    int ic_state;            // HML_IC_STATE_UNINITIALIZED, MONOMORPHIC, or MEGAMORPHIC
+    int miss_count;          // Number of cache misses (for transitioning to megamorphic)
+} PropertyIC;
+
+// Inline cache for method dispatch - speeds up method calls on known receiver types
+typedef struct {
+    int cached_receiver_type;  // Last receiver's ValueType (0 if not cached)
+    int ic_state;              // HML_IC_STATE_UNINITIALIZED, MONOMORPHIC, or MEGAMORPHIC
+    int miss_count;            // Number of cache misses
+} MethodIC;
+
 // Expression node
 struct Expr {
     ExprType type;
@@ -111,6 +128,7 @@ struct Expr {
             Expr *func;  // Changed from char *name to support method calls
             Expr **args;
             int num_args;
+            MethodIC ic;  // Inline cache for method dispatch
         } call;
         struct {
             char *name;
@@ -120,6 +138,7 @@ struct Expr {
         struct {
             Expr *object;
             char *property;
+            PropertyIC ic;  // Inline cache for property access
         } get_property;
         struct {
             Expr *object;

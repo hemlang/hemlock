@@ -227,6 +227,32 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
 
+                // METHOD DISPATCH INLINE CACHE:
+                // Cache the receiver type to skip the if-chain on subsequent calls
+                MethodIC *mic = &expr->as.call.ic;
+
+                // Fast path: if monomorphic, check cached type first
+                if (mic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    mic->cached_receiver_type == (int)method_self.type) {
+                    // Cache hit - type matches, continue to type-specific handler below
+                    // The switch below will handle it efficiently
+                } else if (mic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                    // Update cache: first time or different type
+                    if (mic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                        mic->cached_receiver_type = (int)method_self.type;
+                        mic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                        mic->miss_count = 0;
+                    } else if (mic->cached_receiver_type != (int)method_self.type) {
+                        // Different type - this call site is polymorphic
+                        mic->miss_count++;
+                        if (mic->miss_count >= HML_IC_MAX_MISSES) {
+                            mic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                        } else {
+                            mic->cached_receiver_type = (int)method_self.type;
+                        }
+                    }
+                }
+
                 // Special handling for file methods
                 if (method_self.type == VAL_FILE) {
                     const char *method = expr->as.call.func->as.get_property.property;
@@ -811,9 +837,58 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     runtime_error(ctx, "Array has no property '%s'", property);
                 }
             } else if (object.type == VAL_OBJECT) {
-                // Look up field in object using hash table
+                // Look up field in object using inline cache or hash table
                 Object *obj = object.as.as_object;
-                int idx = object_lookup_field(obj, property);
+                PropertyIC *ic = &expr->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH:
+                // If we're accessing the same object and the cache is valid, use cached index
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    // Validate the cached index still points to the correct field
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;  // Cache hit!
+                    } else {
+                        // Cache is stale (object was modified), invalidate
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
+                    }
+                }
+
+                // CACHE MISS: Do full lookup and update cache
+                if (idx < 0) {
+                    // Compute hash if not cached
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+
+                    // Update inline cache if not megamorphic
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            // First access - initialize cache
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            // Different object - this is polymorphic
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                // Too many different objects, go megamorphic
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                // Update cache to new object
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
                 if (idx >= 0) {
                     result = obj->field_values[idx];
                     // Retain the field value so it survives object release

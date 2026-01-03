@@ -115,6 +115,10 @@ Expr* expr_call(Expr *func, Expr **args, int num_args) {
     expr->as.call.func = func;
     expr->as.call.args = args;
     expr->as.call.num_args = num_args;
+    // Initialize inline cache for method dispatch
+    expr->as.call.ic.cached_receiver_type = 0;
+    expr->as.call.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.call.ic.miss_count = 0;
     return expr;
 }
 
@@ -138,6 +142,12 @@ Expr* expr_get_property(Expr *object, const char *property) {
     expr->column = 0;
     expr->as.get_property.object = object;
     expr->as.get_property.property = strdup(property);
+    // Initialize inline cache for property access
+    expr->as.get_property.ic.cached_object = NULL;
+    expr->as.get_property.ic.cached_field_index = -1;
+    expr->as.get_property.ic.cached_hash = 0;
+    expr->as.get_property.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.get_property.ic.miss_count = 0;
     return expr;
 }
 
