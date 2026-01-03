@@ -8,7 +8,7 @@ Hemlock is a systems scripting language that combines the power of C with the er
 
 ## Documentation
 
-For the complete language manual and documentation, visit **[hem-doc](https://github.com/hemlang/hem-doc)**.
+For the complete language manual and documentation, visit **[hemlang.dev](https://hemlang.dev)**.
 
 ## Design Philosophy
 
@@ -107,9 +107,9 @@ make test   # Run all tests
 
 ### Install
 
-**Quick Install (recommended):**
+**One-Line Install (recommended):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hemlang/hemlock/main/install.sh | bash
+curl -fsSL https://hemlang.dev/install.sh | bash
 ```
 
 **From source:**
@@ -121,11 +121,28 @@ sudo make uninstall            # Remove installation
 
 ## Running Programs
 
+Hemlock provides two backends: an interpreter (`hemlock`) for rapid development and a compiler (`hemlockc`) for production deployment.
+
+### Interpreter
+
 ```bash
 ./hemlock program.hml              # Run a program
 ./hemlock program.hml arg1 arg2    # With arguments
 ./hemlock                          # Start REPL
 ```
+
+### Compiler
+
+The compiler generates optimized C code and produces native executables:
+
+```bash
+./hemlockc program.hml -o program  # Compile to native executable
+./hemlockc --check program.hml     # Type check only
+./hemlockc --strict-types prog.hml # Warn on implicit 'any' types
+./program                          # Run compiled binary
+```
+
+The compiler includes **compile-time type checking** (enabled by default) and produces binaries with identical behavior to the interpreter.
 
 ## Bundling & Packaging
 
@@ -154,6 +171,19 @@ Create a standalone executable that includes the interpreter:
 The packaged executable runs anywhere without needing Hemlock installed.
 
 See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
+
+## Package Manager
+
+[**hpm**](https://github.com/hemlang/hpm) is Hemlock's package manager with a GitHub-based registry:
+
+```bash
+hpm init                    # Initialize a new project
+hpm add username/package    # Add a dependency
+hpm install                 # Install all dependencies
+hpm publish                 # Publish to the registry
+```
+
+Packages are hosted directly on GitHub, making it easy to share and discover Hemlock libraries.
 
 ## Project Status
 
