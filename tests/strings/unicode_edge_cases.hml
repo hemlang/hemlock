@@ -1,0 +1,68 @@
+// Test Unicode edge cases
+
+// Different script systems
+let latin = "Hello";
+let greek = "Ελληνικά";
+let cyrillic = "Русский";
+let hebrew = "עברית";
+let arabic = "العربية";
+let chinese = "中文";
+let japanese = "日本語";
+let korean = "한국어";
+let thai = "ไทย";
+
+print("Latin: " + latin);
+print("Greek: " + greek);
+print("Cyrillic: " + cyrillic);
+print("Hebrew: " + hebrew);
+print("Arabic: " + arabic);
+print("Chinese: " + chinese);
+print("Japanese: " + japanese);
+print("Korean: " + korean);
+print("Thai: " + thai);
+
+// Length of multi-byte characters
+print("Chinese '中文' length: " + chinese.length);  // 2 characters
+print("Japanese '日本語' length: " + japanese.length);  // 3 characters
+
+// Emoji
+let emoji_simple = "😀";
+let emoji_sequence = "👨‍👩‍👧‍👦";  // Family emoji (ZWJ sequence)
+let emoji_flag = "🇺🇸";  // Flag emoji
+let emoji_skin = "👋🏽";  // Emoji with skin tone
+
+print("Simple emoji: " + emoji_simple);
+print("Family emoji: " + emoji_sequence);
+print("Flag emoji: " + emoji_flag);
+print("Skin tone emoji: " + emoji_skin);
+
+// Mixed scripts
+let mixed = "Hello 世界 🌍";
+print("Mixed: " + mixed);
+print("Mixed length: " + mixed.length);
+
+// Runes for different scripts
+let rune_latin: rune = 'A';
+let rune_greek: rune = 'λ';
+let rune_chinese: rune = '中';
+let rune_emoji: rune = '🚀';
+
+print("Latin rune: " + rune_latin);
+print("Greek rune: " + rune_greek);
+print("Chinese rune: " + rune_chinese);
+print("Emoji rune: " + rune_emoji);
+
+// char_at with Unicode
+print("char_at '中文'[0]: " + chinese.char_at(0));
+print("char_at '中文'[1]: " + chinese.char_at(1));
+
+// slice with Unicode
+print("slice '日本語'[0:2]: " + japanese.slice(0, 2));
+
+// Iteration over Unicode
+print("Iterating over '世界':");
+for (ch in "世界".chars()) {
+    print("  char: " + ch);
+}
+
+print("All Unicode edge case tests passed");

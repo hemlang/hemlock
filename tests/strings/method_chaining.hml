@@ -1,0 +1,53 @@
+// Test method chaining on strings
+
+let s = "  Hello, World!  ";
+
+// Multiple chained operations
+print("trim+upper: " + s.trim().to_upper());
+print("trim+lower: " + s.trim().to_lower());
+print("trim+slice: " + s.trim().slice(0, 5));
+print("trim+split+join: " + s.trim().split(", ").join(" - "));
+
+// Long chains
+let complex = "  HELLO world  "
+    .trim()
+    .to_lower()
+    .replace("hello", "hi")
+    .replace("world", "there")
+    .to_upper();
+print("Long chain: " + complex);
+
+// Chains with find/contains
+let text = "The quick brown fox";
+print("Contains after replace: " + text.replace("fox", "dog").contains("dog"));
+print("Find after lower: " + text.to_lower().find("quick"));
+
+// Chains with substr/slice
+print("substr+upper: " + "hello world".substr(0, 5).to_upper());
+print("slice+repeat: " + "abc".slice(0, 2).repeat(3));
+
+// Split and map-like operations
+let words = "one,two,three".split(",");
+print("Split result[0]: " + words[0]);
+print("Split result[1]: " + words[1]);
+print("Split result[2]: " + words[2]);
+
+// Join after manipulation
+let parts = ["  a  ", "  b  ", "  c  "];
+let i = 0;
+while (i < parts.length) {
+    parts[i] = parts[i].trim();
+    i = i + 1;
+}
+print("Trimmed parts joined: " + parts.join("-"));
+
+// Empty string chains
+print("Empty trim: '" + "".trim() + "'");
+print("Empty upper: '" + "".to_upper() + "'");
+print("Empty split length: " + "".split(",").length);
+
+// Chains returning different types
+print("Length of upper: " + "hello".to_upper().length);
+print("Find returns: " + typeof("hello".find("ll")));
+
+print("All method chaining tests passed");

@@ -1,0 +1,63 @@
+// Extended bitwise operations for parity
+
+// Basic bitwise ops
+print(0xFF & 0x0F);     // 15
+print(0x0F | 0xF0);     // 255
+print(0xFF ^ 0x0F);     // 240
+
+// Shifts
+print(1 << 4);          // 16
+print(16 >> 2);         // 4
+
+// NOT (complement)
+let x: i32 = 0;
+print(~x);              // -1
+
+// Compound bitwise assignment
+let a = 0xFF;
+a &= 0x0F;
+print(a);               // 15
+
+let b = 0x0F;
+b |= 0xF0;
+print(b);               // 255
+
+let c = 0xFF;
+c ^= 0x0F;
+print(c);               // 240
+
+let d = 1;
+d <<= 4;
+print(d);               // 16
+
+let e = 16;
+e >>= 2;
+print(e);               // 4
+
+// Combining with arithmetic
+print((5 << 2) + 3);    // 23
+print((15 & 7) * 2);    // 14
+
+// Precedence test
+print(1 | 2 & 3);       // 1 | (2 & 3) = 1 | 2 = 3
+
+// Chained operations
+let chain = 0xFF;
+chain = chain & 0x0F | 0xF0;
+print(chain);           // 255
+
+// Binary literals
+print(0b1010 & 0b1100); // 8
+print(0b1010 | 0b1100); // 14
+print(0b1010 ^ 0b1100); // 6
+
+// Hex literals
+print(0xAB & 0x0F);     // 11
+print(0xAB | 0xF0);     // 251
+print(0xAB ^ 0xFF);     // 84
+
+// Large values
+let big: i64 = 1;
+print(big << 32);       // 4294967296
+
+print("done");

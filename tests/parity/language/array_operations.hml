@@ -1,0 +1,85 @@
+// Test array operations for parity
+
+// Empty array
+let empty = [];
+print(empty.length);
+
+// Basic array
+let arr = [1, 2, 3, 4, 5];
+print(arr.length);
+print(arr[0]);
+print(arr[4]);
+
+// Push and pop
+arr.push(6);
+print(arr.length);
+print(arr.pop());
+print(arr.length);
+
+// Shift and unshift
+let front = arr.shift();
+print(front);
+print(arr.length);
+arr.unshift(0);
+print(arr[0]);
+print(arr.length);
+
+// Slice
+let sliced = [1, 2, 3, 4, 5].slice(1, 3);
+print(sliced.length);
+print(sliced[0]);
+print(sliced[1]);
+
+// Concat
+let a = [1, 2];
+let b = [3, 4];
+let c = a.concat(b);
+print(c.length);
+print(c.join(","));
+
+// Join
+let words = ["hello", "world"];
+print(words.join(" "));
+print(words.join(""));
+print(words.join("-"));
+
+// Reverse (mutates in place)
+let rev = [1, 2, 3];
+rev.reverse();
+print(rev.join(","));
+
+// First and last
+let nums = [10, 20, 30];
+print(nums.first());
+print(nums.last());
+
+// Contains and find
+print([1, 2, 3].contains(2));
+print([1, 2, 3].contains(5));
+print([1, 2, 3].find(2));
+print([1, 2, 3].find(5));
+
+// Insert and remove
+let ins = [1, 3];
+ins.insert(1, 2);
+print(ins.join(","));
+let removed = ins.remove(1);
+print(removed);
+print(ins.join(","));
+
+// Clear
+let to_clear = [1, 2, 3];
+to_clear.clear();
+print(to_clear.length);
+
+// Map, filter, reduce
+let mapped = [1, 2, 3].map(fn(x) { return x * 2; });
+print(mapped.join(","));
+
+let filtered = [1, 2, 3, 4, 5].filter(fn(x) { return x % 2 == 0; });
+print(filtered.join(","));
+
+let sum = [1, 2, 3, 4, 5].reduce(fn(acc, x) { return acc + x; }, 0);
+print(sum);
+
+print("done");

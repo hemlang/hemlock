@@ -1,0 +1,39 @@
+// Test float to integer truncation behavior
+// Floats are truncated (not rounded) when converted to integers
+
+let pi = 3.14159;
+let neg_pi = -3.14159;
+let almost_five = 4.9999;
+let neg_almost_five = -4.9999;
+
+// Truncation towards zero
+print("i32(3.14159) = " + i32(pi));         // 3
+print("i32(-3.14159) = " + i32(neg_pi));    // -3
+print("i32(4.9999) = " + i32(almost_five)); // 4
+print("i32(-4.9999) = " + i32(neg_almost_five)); // -4
+
+// Very small floats
+print("i32(0.1) = " + i32(0.1));    // 0
+print("i32(-0.1) = " + i32(-0.1));  // 0
+print("i32(0.99) = " + i32(0.99));  // 0
+print("i32(-0.99) = " + i32(-0.99)); // 0
+
+// Exact integers as floats
+print("i32(5.0) = " + i32(5.0));    // 5
+print("i32(-5.0) = " + i32(-5.0));  // -5
+
+// Scientific notation
+print("i32(1.5e2) = " + i32(1.5e2)); // 150
+print("i32(1.5e-1) = " + i32(1.5e-1)); // 0
+
+// Different integer sizes
+print("i8(127.9) = " + i8(127.9));   // 127
+print("i16(255.5) = " + i16(255.5)); // 255
+print("i64(3.14) = " + i64(3.14));   // 3
+
+// Unsigned conversions
+print("u8(255.9) = " + u8(255.9));   // 255
+print("u16(1000.5) = " + u16(1000.5)); // 1000
+print("u32(3.7) = " + u32(3.7));     // 3
+
+print("All float truncation tests passed");

@@ -1,0 +1,55 @@
+// Test type widening (smaller to larger types)
+// Widening should preserve the exact value
+
+// i8 widening
+let tiny: i8 = 127;
+let neg_tiny: i8 = -128;
+print("i8 127 -> i16: " + i16(tiny));     // 127
+print("i8 127 -> i32: " + i32(tiny));     // 127
+print("i8 127 -> i64: " + i64(tiny));     // 127
+print("i8 -128 -> i16: " + i16(neg_tiny)); // -128
+print("i8 -128 -> i32: " + i32(neg_tiny)); // -128
+print("i8 -128 -> i64: " + i64(neg_tiny)); // -128
+
+// i16 widening
+let small: i16 = 32767;
+let neg_small: i16 = -32768;
+print("i16 32767 -> i32: " + i32(small));   // 32767
+print("i16 32767 -> i64: " + i64(small));   // 32767
+print("i16 -32768 -> i32: " + i32(neg_small)); // -32768
+print("i16 -32768 -> i64: " + i64(neg_small)); // -32768
+
+// i32 widening
+let medium: i32 = 2147483647;
+let neg_medium: i32 = -2147483648;
+print("i32 max -> i64: " + i64(medium));     // 2147483647
+print("i32 min -> i64: " + i64(neg_medium)); // -2147483648
+
+// u8 widening
+let ubyte: u8 = 255;
+print("u8 255 -> u16: " + u16(ubyte));  // 255
+print("u8 255 -> u32: " + u32(ubyte));  // 255
+print("u8 255 -> u64: " + u64(ubyte));  // 255
+print("u8 255 -> i16: " + i16(ubyte));  // 255
+print("u8 255 -> i32: " + i32(ubyte));  // 255
+
+// u16 widening
+let ushort: u16 = 65535;
+print("u16 65535 -> u32: " + u32(ushort)); // 65535
+print("u16 65535 -> u64: " + u64(ushort)); // 65535
+print("u16 65535 -> i32: " + i32(ushort)); // 65535
+
+// u32 widening
+let uint: u32 = 4294967295;
+print("u32 max -> u64: " + u64(uint));     // 4294967295
+
+// Integer to float (should preserve value for reasonable integers)
+print("i32 1000 -> f32: " + f32(1000));     // 1000
+print("i32 1000 -> f64: " + f64(1000));     // 1000
+print("i64 1000000 -> f64: " + f64(1000000)); // 1000000
+
+// f32 to f64 widening
+let float32: f32 = 3.14;
+print("f32 -> f64: " + f64(float32)); // approximately 3.14
+
+print("All type widening tests passed");

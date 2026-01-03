@@ -1,0 +1,45 @@
+// Test truthiness edge cases
+
+// Empty vs non-empty
+print("Empty string truthy: " + (!""));
+print("Non-empty string truthy: " + (!!"hello"));
+print("Space string truthy: " + (!!" "));
+
+// Zero values
+print("0 is falsy: " + (!0));
+print("0.0 is falsy: " + (!0.0));
+print("-0 is falsy: " + (!(-0)));
+
+// Non-zero values
+print("1 is truthy: " + (!!1));
+print("-1 is truthy: " + (!!(-1)));
+print("0.001 is truthy: " + (!!0.001));
+print("-0.001 is truthy: " + (!!(-0.001)));
+
+// null
+print("null is falsy: " + (!null));
+
+// Arrays
+print("[] is truthy: " + (!!([])));
+print("[0] is truthy: " + (!!([0])));
+print("[false] is truthy: " + (!!([false])));
+
+// Objects
+print("{} is truthy: " + (!!{}));
+print("{x:0} is truthy: " + (!!{x:0}));
+
+// Booleans
+print("true is truthy: " + (!!true));
+print("false is falsy: " + (!false));
+
+// Double negation
+print("!!true == true: " + (!!true == true));
+print("!!false == false: " + (!!false == false));
+print("!!!!true == true: " + (!!!!true == true));
+
+// Comparison with booleans
+print("1 == true: " + (1 == true));
+print("0 == false: " + (0 == false));
+print("'' == false: " + ("" == false));
+
+print("All truthiness edge case tests passed");

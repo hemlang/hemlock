@@ -1,0 +1,86 @@
+// Test nested arrays (multidimensional)
+
+// 2D array creation
+let matrix = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9]
+];
+
+print("=== 2D Array Access ===");
+print("matrix[0][0]: " + matrix[0][0]);
+print("matrix[1][1]: " + matrix[1][1]);
+print("matrix[2][2]: " + matrix[2][2]);
+print("matrix[0]: " + matrix[0].join(","));
+print("matrix[1]: " + matrix[1].join(","));
+print("matrix[2]: " + matrix[2].join(","));
+
+// 2D array modification
+print("=== 2D Array Modification ===");
+matrix[1][1] = 99;
+print("After matrix[1][1] = 99: " + matrix[1][1]);
+
+// Row manipulation
+matrix[0].push(4);
+print("After push to row 0: " + matrix[0].join(","));
+
+// 3D array
+let cube = [
+    [[1, 2], [3, 4]],
+    [[5, 6], [7, 8]]
+];
+
+print("=== 3D Array Access ===");
+print("cube[0][0][0]: " + cube[0][0][0]);
+print("cube[1][1][1]: " + cube[1][1][1]);
+
+// Jagged arrays
+let jagged = [
+    [1],
+    [1, 2],
+    [1, 2, 3],
+    [1, 2, 3, 4]
+];
+
+print("=== Jagged Array ===");
+print("Row lengths: ");
+let i = 0;
+while (i < jagged.length) {
+    print("  Row " + i + " length: " + jagged[i].length);
+    i = i + 1;
+}
+
+// Empty nested arrays
+let empty_nested = [[], [], []];
+print("=== Empty Nested Arrays ===");
+print("Outer length: " + empty_nested.length);
+print("Inner[0] length: " + empty_nested[0].length);
+empty_nested[0].push(1);
+print("After push, Inner[0]: " + empty_nested[0].join(","));
+
+// Mixed type nested arrays
+let mixed = [
+    [1, "two", 3.0],
+    [true, false, null],
+    [[1, 2], [3, 4]]
+];
+
+print("=== Mixed Type Nested ===");
+print("mixed[0][1]: " + mixed[0][1]);
+print("mixed[1][0]: " + mixed[1][0]);
+print("mixed[2][0][0]: " + mixed[2][0][0]);
+
+// Flatten manually
+let flat = [];
+i = 0;
+while (i < matrix.length) {
+    let j = 0;
+    while (j < matrix[i].length) {
+        flat.push(matrix[i][j]);
+        j = j + 1;
+    }
+    i = i + 1;
+}
+print("Flattened matrix: " + flat.join(","));
+
+print("All nested array tests passed");

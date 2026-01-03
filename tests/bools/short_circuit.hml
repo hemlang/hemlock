@@ -1,0 +1,59 @@
+// Test short-circuit evaluation of && and ||
+
+let called_count = 0;
+
+fn track_true() {
+    called_count = called_count + 1;
+    return true;
+}
+
+fn track_false() {
+    called_count = called_count + 1;
+    return false;
+}
+
+// && short-circuits on false
+called_count = 0;
+let result1 = false && track_true();
+print("false && track_true(): " + result1);
+print("track_true called: " + called_count);  // Should be 0
+
+called_count = 0;
+let result2 = true && track_false();
+print("true && track_false(): " + result2);
+print("track_false called: " + called_count);  // Should be 1
+
+// || short-circuits on true
+called_count = 0;
+let result3 = true || track_false();
+print("true || track_false(): " + result3);
+print("track_false called: " + called_count);  // Should be 0
+
+called_count = 0;
+let result4 = false || track_true();
+print("false || track_true(): " + result4);
+print("track_true called: " + called_count);  // Should be 1
+
+// Chained operations
+called_count = 0;
+let result5 = false && track_true() && track_false();
+print("false && t() && f(): " + result5);
+print("calls: " + called_count);  // Should be 0
+
+called_count = 0;
+let result6 = true || track_true() || track_false();
+print("true || t() || f(): " + result6);
+print("calls: " + called_count);  // Should be 0
+
+// Complex chaining
+called_count = 0;
+let result7 = true && false && track_true();
+print("true && false && t(): " + result7);
+print("calls: " + called_count);  // Should be 0
+
+called_count = 0;
+let result8 = false || true || track_true();
+print("false || true || t(): " + result8);
+print("calls: " + called_count);  // Should be 0
+
+print("All short-circuit tests passed");

@@ -1,0 +1,68 @@
+// Test bitwise logic operation edge cases
+
+// AND operations
+print("=== Bitwise AND ===");
+print("0xFF & 0x0F: " + (0xFF & 0x0F));    // 15
+print("0xFF & 0x00: " + (0xFF & 0x00));    // 0
+print("0xFF & 0xFF: " + (0xFF & 0xFF));    // 255
+print("0b1010 & 0b0101: " + (0b1010 & 0b0101));  // 0
+print("0b1010 & 0b1111: " + (0b1010 & 0b1111));  // 10
+
+// OR operations
+print("=== Bitwise OR ===");
+print("0x0F | 0xF0: " + (0x0F | 0xF0));    // 255
+print("0x00 | 0x00: " + (0x00 | 0x00));    // 0
+print("0xFF | 0x00: " + (0xFF | 0x00));    // 255
+print("0b1010 | 0b0101: " + (0b1010 | 0b0101));  // 15
+print("0b1010 | 0b1010: " + (0b1010 | 0b1010));  // 10
+
+// XOR operations
+print("=== Bitwise XOR ===");
+print("0xFF ^ 0xFF: " + (0xFF ^ 0xFF));    // 0
+print("0xFF ^ 0x00: " + (0xFF ^ 0x00));    // 255
+print("0b1010 ^ 0b0101: " + (0b1010 ^ 0b0101));  // 15
+print("0b1010 ^ 0b1010: " + (0b1010 ^ 0b1010));  // 0
+print("0b1111 ^ 0b0011: " + (0b1111 ^ 0b0011));  // 12
+
+// NOT operations (bitwise complement)
+print("=== Bitwise NOT ===");
+let x: i32 = 0;
+print("~0: " + (~x));  // -1 (all bits set)
+let y: i32 = 1;
+print("~1: " + (~y));  // -2
+let z: i32 = -1;
+print("~(-1): " + (~z));  // 0
+
+// Masking patterns
+print("=== Masking ===");
+let val = 0xABCD;
+print("Low byte: " + (val & 0xFF));       // 0xCD = 205
+print("High byte: " + ((val >> 8) & 0xFF));  // 0xAB = 171
+
+// Setting bits
+print("=== Setting Bits ===");
+let bits = 0;
+bits = bits | 0x01;  // set bit 0
+print("After |= 0x01: " + bits);  // 1
+bits = bits | 0x04;  // set bit 2
+print("After |= 0x04: " + bits);  // 5
+bits = bits | 0x10;  // set bit 4
+print("After |= 0x10: " + bits);  // 21
+
+// Clearing bits
+print("=== Clearing Bits ===");
+let allset = 0xFF;
+allset = allset & (~0x01);  // clear bit 0
+print("After clear bit 0: " + allset);  // 254
+allset = allset & (~0x80);  // clear bit 7
+print("After clear bit 7: " + allset);  // 126
+
+// Toggling bits
+print("=== Toggling Bits ===");
+let toggle = 0b1010;
+toggle = toggle ^ 0b0011;  // toggle bits 0 and 1
+print("After toggle 0,1: " + toggle);  // 0b1001 = 9
+toggle = toggle ^ 0b0011;  // toggle back
+print("After toggle again: " + toggle);  // 0b1010 = 10
+
+print("All bitwise logic edge case tests passed");

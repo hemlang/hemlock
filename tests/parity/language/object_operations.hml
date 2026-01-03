@@ -1,0 +1,83 @@
+// Test object operations for parity
+
+// Empty object
+let empty = {};
+print(typeof(empty));
+
+// Object with properties
+let obj = { x: 10, y: 20, name: "point" };
+print(obj.x);
+print(obj.y);
+print(obj.name);
+
+// Property access
+print(obj["x"]);
+print(obj["name"]);
+
+// Property assignment
+obj.z = 30;
+print(obj.z);
+obj["w"] = 40;
+print(obj.w);
+
+// Nested objects
+let nested = {
+    outer: {
+        inner: {
+            value: 42
+        }
+    }
+};
+print(nested.outer.inner.value);
+
+// Object with array
+let with_arr = { nums: [1, 2, 3] };
+print(with_arr.nums.length);
+print(with_arr.nums[1]);
+
+// Object with function
+let with_fn = {
+    greet: fn(name) { return "Hello, " + name; }
+};
+print(with_fn.greet("World"));
+
+// Object with mixed types
+let mixed = {
+    num: 42,
+    str: "hello",
+    bool: true,
+    arr: [1, 2],
+    obj: { a: 1 }
+};
+print(mixed.num);
+print(mixed.str);
+print(mixed.bool);
+print(mixed.arr[0]);
+print(mixed.obj.a);
+
+// Overwrite property
+let over = { x: 1 };
+over.x = 2;
+print(over.x);
+
+// Check property existence
+let check = { a: 1, b: null };
+print(check.a != null);
+print(check.b == null);
+print(check?.c == null);  // undefined is null (use optional chaining)
+
+// Object as function argument
+fn process(o) {
+    return o.x + o.y;
+}
+print(process({ x: 10, y: 20 }));
+
+// Object mutation in function
+fn mutate(o) {
+    o.mutated = true;
+}
+let target = { original: true };
+mutate(target);
+print(target.mutated);
+
+print("done");

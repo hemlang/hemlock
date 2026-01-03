@@ -1,0 +1,91 @@
+// Test array mutation edge cases
+
+// Push and pop patterns
+let stack = [];
+print("=== Stack operations ===");
+stack.push(1);
+stack.push(2);
+stack.push(3);
+print("After 3 pushes: " + stack.join(","));
+print("Pop: " + stack.pop());
+print("Pop: " + stack.pop());
+print("After 2 pops: " + stack.join(","));
+stack.push(10);
+print("After another push: " + stack.join(","));
+
+// Shift and unshift patterns
+let queue = [];
+print("=== Queue operations ===");
+queue.push(1);
+queue.push(2);
+queue.push(3);
+print("After 3 pushes: " + queue.join(","));
+print("Shift: " + queue.shift());
+print("Shift: " + queue.shift());
+print("After 2 shifts: " + queue.join(","));
+queue.unshift(0);
+print("After unshift(0): " + queue.join(","));
+
+// Insert at various positions
+let arr = [1, 2, 3, 4, 5];
+print("=== Insert operations ===");
+print("Original: " + arr.join(","));
+arr.insert(0, 0);
+print("After insert(0, 0): " + arr.join(","));
+arr.insert(arr.length, 6);
+print("After insert(len, 6): " + arr.join(","));
+arr.insert(3, 2.5);
+print("After insert(3, 2.5): " + arr.join(","));
+
+// Remove at various positions
+print("=== Remove operations ===");
+let removed = arr.remove(0);
+print("Removed from 0: " + removed);
+print("After remove(0): " + arr.join(","));
+removed = arr.remove(arr.length - 1);
+print("Removed from end: " + removed);
+print("After remove(end): " + arr.join(","));
+
+// Clear
+print("=== Clear operation ===");
+let to_clear = [1, 2, 3, 4, 5];
+print("Before clear: " + to_clear.length);
+to_clear.clear();
+print("After clear: " + to_clear.length);
+print("Is empty: " + (to_clear.length == 0));
+
+// Reverse
+print("=== Reverse operation ===");
+let to_reverse = [1, 2, 3, 4, 5];
+to_reverse.reverse();
+print("Reversed: " + to_reverse.join(","));
+
+// Reverse empty and single
+let empty_rev = [];
+empty_rev.reverse();
+print("Empty reversed: " + empty_rev.length);
+
+let single_rev = [42];
+single_rev.reverse();
+print("Single reversed: " + single_rev[0]);
+
+// Concat
+print("=== Concat operation ===");
+let a = [1, 2, 3];
+let b = [4, 5, 6];
+let c = a.concat(b);
+print("Concat result: " + c.join(","));
+print("Original a unchanged: " + a.join(","));
+
+// Slice (non-mutating)
+print("=== Slice operation ===");
+let sliced = [1, 2, 3, 4, 5].slice(1, 4);
+print("slice(1, 4): " + sliced.join(","));
+
+let slice_full = [1, 2, 3, 4, 5].slice(0, 5);
+print("slice(0, 5): " + slice_full.join(","));
+
+let slice_end = [1, 2, 3, 4, 5].slice(3, 5);
+print("slice(3, 5): " + slice_end.join(","));
+
+print("All array mutation edge case tests passed");

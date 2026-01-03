@@ -1,0 +1,69 @@
+// Test typed arrays and conversions
+
+// Create typed arrays
+print("=== Typed Array Creation ===");
+let i32_arr: array<i32> = [1, 2, 3, 4, 5];
+print("i32 array: " + i32_arr.join(","));
+
+let f64_arr: array<f64> = [1.1, 2.2, 3.3];
+print("f64 array: " + f64_arr.join(","));
+
+let str_arr: array<string> = ["hello", "world"];
+print("string array: " + str_arr.join(","));
+
+let bool_arr: array<bool> = [true, false, true];
+print("bool array: " + bool_arr.join(","));
+
+// Operations on typed arrays
+print("=== Typed Array Operations ===");
+i32_arr.push(6);
+print("After push: " + i32_arr.join(","));
+
+let sum: i32 = 0;
+for (n in i32_arr) {
+    sum = sum + n;
+}
+print("Sum: " + sum);
+
+// Mixed in typed array context
+print("=== Type Coercion in Arrays ===");
+let nums: array<f64> = [1, 2, 3];  // integers coerced to f64
+print("Coerced f64 array: " + nums.join(","));
+
+// Empty typed arrays
+print("=== Empty Typed Arrays ===");
+let empty_i32: array<i32> = [];
+print("Empty i32 array length: " + empty_i32.length);
+empty_i32.push(42);
+print("After push: " + empty_i32[0]);
+
+// Nested arrays (untyped since nested typed syntax not supported)
+print("=== Nested Arrays ===");
+let matrix = [[1, 2], [3, 4], [5, 6]];
+print("Matrix[0]: " + matrix[0].join(","));
+print("Matrix[1][1]: " + matrix[1][1]);
+
+// map/filter/reduce on typed arrays
+print("=== Map/Filter/Reduce on Typed ===");
+let doubled = i32_arr.map(fn(x) { return x * 2; });
+print("Doubled: " + doubled.join(","));
+
+let evens = i32_arr.filter(fn(x) { return x % 2 == 0; });
+print("Evens: " + evens.join(","));
+
+let total = i32_arr.reduce(fn(acc, x) { return acc + x; }, 0);
+print("Total: " + total);
+
+// First and last
+print("=== First/Last ===");
+print("First: " + i32_arr.first());
+print("Last: " + i32_arr.last());
+
+// Contains and find
+print("=== Contains/Find ===");
+print("Contains 3: " + i32_arr.contains(3));
+print("Contains 100: " + i32_arr.contains(100));
+print("Find 3: " + i32_arr.find(3));
+print("Find 100: " + i32_arr.find(100));
+
+print("All typed array tests passed");

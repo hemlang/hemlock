@@ -1,0 +1,75 @@
+// Test string edge cases for parity
+
+// Empty string operations
+let empty = "";
+print(empty.length);
+print(empty.to_upper());
+print(empty.trim());
+print(empty.split(",").length);
+
+// Single character
+let single = "x";
+print(single.length);
+print(single.to_upper());
+print(single.repeat(5));
+
+// Whitespace handling
+let spaces = "   ";
+print(spaces.length);
+print(spaces.trim().length);
+
+let mixed = "  hello  ";
+print(mixed.trim());
+print(mixed.trim().length);
+
+// Substring edge cases
+let text = "hello";
+print(text.substr(0, 0));  // empty
+print(text.substr(0, 5));  // hello
+print(text.substr(5, 0));  // empty
+
+// Slice edge cases
+print(text.slice(0, 0));   // empty
+print(text.slice(0, 10));  // hello (clamped)
+print(text.slice(3, 5));   // lo
+
+// Find edge cases
+print(text.find(""));      // 0
+print(text.find("hello")); // 0
+print(text.find("xyz"));   // -1
+print(text.find("l"));     // 2
+
+// Contains edge cases
+print(text.contains(""));     // true
+print(text.contains("hello"));// true
+print(text.contains("xyz"));  // false
+
+// Split edge cases
+let csv = "a,b,c";
+let parts = csv.split(",");
+print(parts.length);
+print(parts[0]);
+print(parts[1]);
+print(parts[2]);
+
+let no_delim = "abc";
+let no_parts = no_delim.split(",");
+print(no_parts.length);
+print(no_parts[0]);
+
+// Replace edge cases
+print("aaa".replace("a", "b"));      // baa (first only)
+print("aaa".replace_all("a", "b"));  // bbb
+print("abc".replace("x", "y"));      // abc (no match)
+
+// Case conversion
+print("HeLLo".to_lower());
+print("HeLLo".to_upper());
+
+// Concatenation
+print("" + "");
+print("a" + "");
+print("" + "b");
+print("a" + "b" + "c");
+
+print("done");

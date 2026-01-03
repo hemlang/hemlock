@@ -1,0 +1,33 @@
+// Test @stdlib/env module
+
+import { getenv, setenv, unsetenv, get_pid } from "@stdlib/env";
+
+// Test getenv for PATH (should exist on all systems)
+let path = getenv("PATH");
+print(typeof(path));  // string
+
+// Test getenv for non-existent variable
+let nonexistent = getenv("HEMLOCK_PARITY_TEST_NONEXISTENT");
+print(typeof(nonexistent));  // null
+
+// Test setenv/getenv
+setenv("HEMLOCK_PARITY_TEST", "test_value");
+let value = getenv("HEMLOCK_PARITY_TEST");
+print(value);  // test_value
+
+// Test overwrite
+setenv("HEMLOCK_PARITY_TEST", "new_value");
+let new_value = getenv("HEMLOCK_PARITY_TEST");
+print(new_value);  // new_value
+
+// Test unsetenv
+unsetenv("HEMLOCK_PARITY_TEST");
+let after_unset = getenv("HEMLOCK_PARITY_TEST");
+print(typeof(after_unset));  // null
+
+// Test get_pid (just verify it returns a number)
+let pid = get_pid();
+print(typeof(pid));  // i32
+print(pid > 0);  // true
+
+print("done");

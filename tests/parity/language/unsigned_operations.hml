@@ -1,0 +1,59 @@
+// Test unsigned integer operations
+
+// u8 range
+let u8_max: u8 = 255;
+let u8_zero: u8 = 0;
+print(u8_max);
+print(u8_zero);
+
+// u16 range
+let u16_max: u16 = 65535;
+print(u16_max);
+
+// u32 range
+let u32_max: u32 = 4294967295;
+print(u32_max);
+
+// u64 range
+let u64_large: u64 = 18446744073709551615;
+print(u64_large);
+
+// Unsigned arithmetic
+let a: u8 = 200;
+let b: u8 = 50;
+print(a + b);  // 250
+print(a - b);  // 150
+
+// Mixed unsigned/signed
+let u: u32 = 1000;
+let s: i32 = 500;
+print(u + s);  // 1500
+print(u - s);  // 500
+
+// Unsigned division (always positive)
+let x: u32 = 100;
+let y: u32 = 3;
+print(div(x, y));  // 33
+
+// Unsigned modulo
+print(x % y);  // 1
+
+// Bitwise on unsigned
+let mask: u8 = 0xFF;
+print(mask & 0x0F);  // 15
+print(mask | 0x00);  // 255
+print(mask ^ 0xFF);  // 0
+
+// Shift on unsigned
+let shift: u8 = 1;
+print(shift << 4);  // 16
+print(128 >> 2);    // 32
+
+// Comparison of unsigned
+let p: u32 = 10;
+let q: u32 = 20;
+print(p < q);   // true
+print(p > q);   // false
+print(p == 10); // true
+
+print("done");
