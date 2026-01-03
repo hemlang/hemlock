@@ -1,0 +1,65 @@
+// Test tuples
+
+// Basic tuple creation
+let pair = (42, "answer");
+print(pair.0);
+print(pair.1);
+print(pair.length);
+
+// Typed tuple
+let typed: (i32, string) = (100, "hello");
+print(typed.0);
+print(typed.1);
+
+// Tuple with more elements
+let triple = (1, 2, 3);
+print(triple.0);
+print(triple.1);
+print(triple.2);
+print(triple.length);
+
+// Mixed types
+let mixed = (true, 3.14, "text", null);
+print(mixed.0);
+print(mixed.1);
+print(mixed.2);
+print(mixed.3);
+
+// Bracket indexing
+let indexed = (10, 20, 30);
+print(indexed[0]);
+print(indexed[1]);
+print(indexed[2]);
+
+// Nested tuples
+let nested = ((1, 2), (3, 4));
+print(nested.0.0);
+print(nested.0.1);
+print(nested.1.0);
+print(nested.1.1);
+
+// Tuple in function
+fn get_pair(): (i32, string) {
+    return (999, "result");
+}
+
+let result = get_pair();
+print(result.0);
+print(result.1);
+
+// Tuple as function parameter
+fn sum_pair(p: (i32, i32)): i32 {
+    return p.0 + p.1;
+}
+
+print(sum_pair((5, 7)));
+
+// Tuple with array
+let with_array = ([1, 2, 3], "arr");
+print(with_array.0[1]);
+print(with_array.1);
+
+// typeof tuple
+print(typeof((1, 2)));
+
+print("done");

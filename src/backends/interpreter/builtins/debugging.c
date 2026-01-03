@@ -57,6 +57,9 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
         case VAL_ARRAY:
             type_name = "array";
             break;
+        case VAL_TUPLE:
+            type_name = "tuple";
+            break;
         case VAL_FILE:
             type_name = "file";
             break;

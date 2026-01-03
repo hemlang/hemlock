@@ -176,9 +176,37 @@ Expr* primary(Parser *p) {
     }
 
     if (match(p, TOK_LPAREN)) {
-        Expr *expr = expression(p);
+        // Could be a grouped expression (expr) or a tuple literal (expr1, expr2, ...)
+        Expr *first = expression(p);
+
+        // Check for comma - if present, this is a tuple
+        if (match(p, TOK_COMMA)) {
+            // It's a tuple literal
+            int capacity = 8;
+            Expr **elements = malloc(sizeof(Expr*) * capacity);
+            elements[0] = first;
+            int num_elements = 1;
+
+            do {
+                if (num_elements >= capacity) {
+                    capacity *= 2;
+                    elements = realloc(elements, sizeof(Expr*) * capacity);
+                }
+                elements[num_elements++] = expression(p);
+            } while (match(p, TOK_COMMA));
+
+            consume(p, TOK_RPAREN, "Expect ')' after tuple elements");
+
+            // Must have at least 2 elements (we already have at least 2 because we saw a comma)
+            Expr *tuple = expr_tuple_literal(elements, num_elements);
+            tuple->line = p->previous.line;
+            tuple->column = p->previous.column;
+            return tuple;
+        }
+
+        // Just a grouped expression
         consume(p, TOK_RPAREN, "Expect ')' after expression");
-        return expr;
+        return first;
     }
 
     // Object literal: { field: value, ... }
@@ -444,6 +472,28 @@ Expr* postfix(Parser *p) {
         } else if (match(p, TOK_MINUS_MINUS)) {
             // Postfix decrement: x--
             expr = expr_postfix_dec(expr);
+        } else if (p->current.type == TOK_NUMBER && p->current.is_float &&
+                   p->current.start[0] == '.') {
+            // Tuple index access: tuple.0, tuple.1, etc.
+            // The lexer tokenizes ".0" as a float, so we need to handle it here
+            advance(p);  // consume the .N token
+
+            // Extract the integer index from the source text (skip the leading '.')
+            // The float value may have precision issues, so parse from source
+            char idx_str[32];
+            int idx_len = 0;
+            const char *src = p->previous.start + 1;  // skip the '.'
+            while (idx_len < 31 && src < p->previous.start + p->previous.length) {
+                if (*src >= '0' && *src <= '9') {
+                    idx_str[idx_len++] = *src;
+                }
+                src++;
+            }
+            idx_str[idx_len] = '\0';
+
+            char *property = strdup(idx_str);
+            expr = expr_get_property(expr, property);
+            free(property);
         } else {
             break;
         }
@@ -840,6 +890,51 @@ Expr* expression(Parser *p) {
 Type* parse_type(Parser *p) {
     TypeKind kind;
     Type *type = NULL;
+
+    // Check for tuple type syntax: (type1, type2, ...)
+    if (p->current.type == TOK_LPAREN) {
+        advance(p);  // consume '('
+
+        // Parse element types
+        int capacity = 8;
+        Type **element_types = malloc(sizeof(Type*) * capacity);
+        int num_elements = 0;
+
+        if (!check(p, TOK_RPAREN)) {
+            do {
+                if (num_elements >= capacity) {
+                    capacity *= 2;
+                    element_types = realloc(element_types, sizeof(Type*) * capacity);
+                }
+                element_types[num_elements++] = parse_type(p);
+            } while (match(p, TOK_COMMA));
+        }
+
+        consume(p, TOK_RPAREN, "Expect ')' after tuple type elements");
+
+        // Must have at least 2 elements to be a tuple type
+        if (num_elements < 2) {
+            error(p, "Tuple type must have at least 2 elements");
+            // Clean up and return infer type
+            for (int i = 0; i < num_elements; i++) {
+                type_free(element_types[i]);
+            }
+            free(element_types);
+            return type_new(TYPE_INFER);
+        }
+
+        type = type_new(TYPE_TUPLE);
+        type->element_types = element_types;
+        type->num_element_types = num_elements;
+
+        // Check for nullable type syntax: (type1, type2)?
+        if (p->current.type == TOK_QUESTION) {
+            advance(p);
+            type->nullable = 1;
+        }
+
+        return type;
+    }
 
     // Check for 'array' or 'array<type>' syntax
     if (p->current.type == TOK_TYPE_ARRAY) {

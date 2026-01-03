@@ -15,6 +15,7 @@
 // Forward declarations for heap-allocated types
 typedef struct HmlString HmlString;
 typedef struct HmlArray HmlArray;
+typedef struct HmlTuple HmlTuple;
 typedef struct HmlObject HmlObject;
 typedef struct HmlBuffer HmlBuffer;
 typedef struct HmlFunction HmlFunction;
@@ -48,6 +49,7 @@ typedef enum {
     HML_VAL_PTR,
     HML_VAL_BUFFER,
     HML_VAL_ARRAY,
+    HML_VAL_TUPLE,
     HML_VAL_OBJECT,
     HML_VAL_FILE,
     HML_VAL_FUNCTION,
@@ -82,6 +84,7 @@ typedef struct HmlValue {
         void *as_ptr;
         HmlBuffer *as_buffer;
         HmlArray *as_array;
+        HmlTuple *as_tuple;
         HmlObject *as_object;
         HmlFileHandle *as_file;
         HmlFunction *as_function;
@@ -118,6 +121,13 @@ struct HmlArray {
     int ref_count;
     HmlValueType element_type;  // HML_VAL_NULL for untyped
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
+};
+
+// Tuple struct (fixed-size heterogeneous container)
+struct HmlTuple {
+    HmlValue *elements;
+    int length;          // Fixed at creation
+    int ref_count;
 };
 
 // Object struct (JavaScript-style)
@@ -232,6 +242,8 @@ HmlValue hml_val_rune(uint32_t codepoint);
 HmlValue hml_val_ptr(void *ptr);
 HmlValue hml_val_buffer(int size);
 HmlValue hml_val_array(void);
+HmlValue hml_val_tuple(int length);
+HmlValue hml_tuple_get(HmlValue tuple, int index);
 HmlValue hml_val_object(void);
 HmlValue hml_val_null(void);
 HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is_async);
@@ -459,9 +471,9 @@ static inline HmlValue hml_i64_rshift(HmlValue left, HmlValue right) {
 // Defined early so it can be used by array_get_i32_fast
 static inline int hml_needs_refcount(HmlValue val) {
     return val.type == HML_VAL_STRING || val.type == HML_VAL_BUFFER ||
-           val.type == HML_VAL_ARRAY || val.type == HML_VAL_OBJECT ||
-           val.type == HML_VAL_FUNCTION || val.type == HML_VAL_TASK ||
-           val.type == HML_VAL_CHANNEL;
+           val.type == HML_VAL_ARRAY || val.type == HML_VAL_TUPLE ||
+           val.type == HML_VAL_OBJECT || val.type == HML_VAL_FUNCTION ||
+           val.type == HML_VAL_TASK || val.type == HML_VAL_CHANNEL;
 }
 
 // Fast path: array[i32] access (bounds checked, skip retain for primitives)

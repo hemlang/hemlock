@@ -212,6 +212,16 @@ Expr* expr_object_literal(char **field_names, Expr **field_values, int num_field
     return expr;
 }
 
+Expr* expr_tuple_literal(Expr **elements, int num_elements) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_TUPLE_LITERAL;
+    expr->line = 0;
+    expr->column = 0;
+    expr->as.tuple_literal.elements = elements;
+    expr->as.tuple_literal.num_elements = num_elements;
+    return expr;
+}
+
 Expr* expr_prefix_inc(Expr *operand) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_PREFIX_INC;
@@ -330,6 +340,8 @@ Type* type_new(TypeKind kind) {
     type->kind = kind;
     type->type_name = NULL;
     type->element_type = NULL;
+    type->element_types = NULL;
+    type->num_element_types = 0;
     type->nullable = 0;
     return type;
 }
@@ -341,6 +353,15 @@ void type_free(Type *type) {
         }
         if (type->element_type) {
             type_free(type->element_type);
+        }
+        // Free tuple element types
+        if (type->element_types) {
+            for (int i = 0; i < type->num_element_types; i++) {
+                if (type->element_types[i]) {
+                    type_free(type->element_types[i]);
+                }
+            }
+            free(type->element_types);
         }
         free(type);
     }
@@ -772,6 +793,17 @@ Expr* expr_clone(const Expr *expr) {
             );
         }
 
+        case EXPR_TUPLE_LITERAL: {
+            Expr **elements_copy = malloc(sizeof(Expr*) * expr->as.tuple_literal.num_elements);
+            for (int i = 0; i < expr->as.tuple_literal.num_elements; i++) {
+                elements_copy[i] = expr_clone(expr->as.tuple_literal.elements[i]);
+            }
+            return expr_tuple_literal(
+                elements_copy,
+                expr->as.tuple_literal.num_elements
+            );
+        }
+
         case EXPR_PREFIX_INC:
             return expr_prefix_inc(expr_clone(expr->as.prefix_inc.operand));
 
@@ -931,6 +963,13 @@ void expr_free(Expr *expr) {
                 expr_free(expr->as.array_literal.elements[i]);
             }
             free(expr->as.array_literal.elements);
+            break;
+        case EXPR_TUPLE_LITERAL:
+            // Free tuple elements
+            for (int i = 0; i < expr->as.tuple_literal.num_elements; i++) {
+                expr_free(expr->as.tuple_literal.elements[i]);
+            }
+            free(expr->as.tuple_literal.elements);
             break;
         case EXPR_OBJECT_LITERAL:
             // Free field names and values

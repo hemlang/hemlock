@@ -332,6 +332,12 @@ static void collect_expr_deps(Expr *expr, Symbol *sym) {
             }
             break;
 
+        case EXPR_TUPLE_LITERAL:
+            for (int i = 0; i < expr->as.tuple_literal.num_elements; i++) {
+                collect_expr_deps(expr->as.tuple_literal.elements[i], sym);
+            }
+            break;
+
         case EXPR_PREFIX_INC:
         case EXPR_PREFIX_DEC:
             collect_expr_deps(expr->as.prefix_inc.operand, sym);
