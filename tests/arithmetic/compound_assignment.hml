@@ -1,0 +1,80 @@
+// Test compound assignment operators
+
+let x = 10;
+
+// Basic compound assignments
+print("=== Basic Compound Assignment ===");
+print("Initial x: " + x);
+
+x += 5;
+print("After x += 5: " + x);    // 15
+
+x -= 3;
+print("After x -= 3: " + x);    // 12
+
+x *= 2;
+print("After x *= 2: " + x);    // 24
+
+x /= 4;
+print("After x /= 4: " + x);    // 6
+
+x %= 4;
+print("After x %= 4: " + x);    // 2
+
+// Bitwise compound assignments
+print("=== Bitwise Compound Assignment ===");
+let bits = 0b1111;
+print("Initial bits: " + bits);
+
+bits &= 0b1010;
+print("After &= 0b1010: " + bits);  // 0b1010 = 10
+
+bits |= 0b0101;
+print("After |= 0b0101: " + bits);  // 0b1111 = 15
+
+bits ^= 0b1100;
+print("After ^= 0b1100: " + bits);  // 0b0011 = 3
+
+bits <<= 2;
+print("After <<= 2: " + bits);      // 0b1100 = 12
+
+bits >>= 1;
+print("After >>= 1: " + bits);      // 0b0110 = 6
+
+// Compound with expressions
+print("=== Compound With Expressions ===");
+let arr = [1, 2, 3];
+arr[0] += 10;
+print("arr[0] after += 10: " + arr[0]);  // 11
+
+let obj = { value: 100 };
+obj.value -= 25;
+print("obj.value after -= 25: " + obj.value);  // 75
+
+// Chained compound
+print("=== Chained Operations ===");
+let y = 5;
+y += 3;
+y *= 2;
+y -= 4;
+print("y after +=3, *=2, -=4: " + y);  // ((5+3)*2)-4 = 12
+
+// With different types
+print("=== Type Mixing ===");
+let f = 10.0;
+f += 2;      // int added to float
+print("f after += 2: " + f);
+
+f *= 1.5;
+print("f after *= 1.5: " + f);
+
+// Negative values
+print("=== Negative Values ===");
+let n = -10;
+n += 5;
+print("-10 += 5: " + n);
+
+n *= -2;
+print("result *= -2: " + n);
+
+print("All compound assignment tests passed");

@@ -1,0 +1,61 @@
+// Test @stdlib/fmt module
+
+import { format, sprintf, pad_left, pad_right, center, truncate, thousands, ordinal } from "@stdlib/fmt";
+
+// Basic format with strings
+print(format("Hello, %s!", ["World"]));
+print(format("Name: %s, Age: %s", ["Alice", 30]));
+
+// Format with integers
+print(format("Count: %d", [42]));
+print(format("Negative: %d", [-17]));
+
+// Format with floats
+print(format("Pi: %.2f", [3.14159]));
+print(format("Zero decimals: %.0f", [3.14159]));
+
+// Format with hex/octal/binary
+print(format("Hex: %x", [255]));
+print(format("Hex upper: %X", [255]));
+print(format("Octal: %o", [64]));
+print(format("Binary: %b", [10]));
+
+// Width and padding
+print(format("[%10s]", ["hello"]));
+print(format("[%-10s]", ["hello"]));
+print(format("[%05d]", [42]));
+
+// Escape %%
+print(format("100%% done", []));
+
+// sprintf alias
+print(sprintf("Same: %d", [123]));
+
+// pad_left
+print("[" + pad_left("hi", 5) + "]");
+print("[" + pad_left("hi", 5, ".") + "]");
+
+// pad_right
+print("[" + pad_right("hi", 5) + "]");
+print("[" + pad_right("hi", 5, "-") + "]");
+
+// center
+print("[" + center("hi", 6) + "]");
+
+// truncate
+print(truncate("Hello, World!", 8));
+print(truncate("Hello, World!", 8, ".."));
+print(truncate("Short", 10));
+
+// thousands
+print(thousands(1234567));
+print(thousands(1000));
+
+// ordinal
+print(ordinal(1));
+print(ordinal(2));
+print(ordinal(3));
+print(ordinal(11));
+print(ordinal(21));
+
+print("done");

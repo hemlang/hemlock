@@ -1,0 +1,76 @@
+// Test map, filter, reduce edge cases
+
+// Empty array operations
+let empty = [];
+print("=== Empty array operations ===");
+let mapped_empty = empty.map(fn(x) { return x * 2; });
+print("map on empty: " + mapped_empty.length);
+
+let filtered_empty = empty.filter(fn(x) { return x > 0; });
+print("filter on empty: " + filtered_empty.length);
+
+// reduce on empty with initial value
+let reduced_empty = empty.reduce(fn(acc, x) { return acc + x; }, 0);
+print("reduce on empty with init 0: " + reduced_empty);
+
+// Single element arrays
+print("=== Single element arrays ===");
+let single = [42];
+let mapped_single = single.map(fn(x) { return x * 2; });
+print("map on single: " + mapped_single[0]);
+
+let filtered_single = single.filter(fn(x) { return x > 10; });
+print("filter on single (keep): " + filtered_single.length);
+
+let filtered_out = single.filter(fn(x) { return x > 100; });
+print("filter on single (remove): " + filtered_out.length);
+
+let reduced_single = single.reduce(fn(acc, x) { return acc + x; }, 0);
+print("reduce on single: " + reduced_single);
+
+// Map basic
+print("=== Map basic ===");
+let nums = [10, 20, 30];
+let doubled_nums = nums.map(fn(x) { return x * 2; });
+print("map doubled: " + doubled_nums.join(","));
+
+// Filter all vs filter none
+print("=== Filter all vs none ===");
+let all = [1, 2, 3, 4, 5];
+let keep_all = all.filter(fn(x) { return x > 0; });
+print("filter keep all: " + keep_all.length);
+
+let keep_none = all.filter(fn(x) { return x > 100; });
+print("filter keep none: " + keep_none.length);
+
+// Reduce building different types
+print("=== Reduce building types ===");
+let words = ["hello", "world"];
+let concat = words.reduce(fn(acc, w) { return acc + " " + w; }, "");
+print("reduce to string: '" + concat.trim() + "'");
+
+// Reduce to find max
+let values = [3, 1, 4, 1, 5, 9, 2, 6];
+let max = values.reduce(fn(acc, x) {
+    if (x > acc) { return x; }
+    return acc;
+}, values[0]);
+print("reduce to find max: " + max);
+
+// Reduce to count
+let mixed = [true, false, true, true, false];
+let count_true = mixed.reduce(fn(acc, x) {
+    if (x) { return acc + 1; }
+    return acc;
+}, 0);
+print("reduce to count true: " + count_true);
+
+// Chained operations
+print("=== Chained operations ===");
+let chain = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    .filter(fn(x) { return x % 2 == 0; })  // even
+    .map(fn(x) { return x * x; })          // squared
+    .reduce(fn(acc, x) { return acc + x; }, 0);  // sum
+print("chained (sum of squares of evens): " + chain);  // 4+16+36+64+100 = 220
+
+print("All map/filter/reduce edge case tests passed");

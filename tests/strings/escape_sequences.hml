@@ -1,0 +1,43 @@
+// Test escape sequences in strings
+
+// Basic escape sequences
+print("Tab:\tEnd");
+print("Newline:\nEnd");
+print("Carriage return:\rEnd");
+print("Backslash:\\End");
+print("Quote:\"End");
+print("Single quote:'End");
+
+// Hex escape sequences
+print("Hex A: \x41");
+print("Hex lowercase: \x61");
+print("Hex 00: [\x00]");
+print("Hex FF: [\xFF]");
+print("Multiple hex: \x48\x65\x6C\x6C\x6F");  // "Hello"
+
+// Unicode escape sequences
+print("Unicode smiley: \u{1F600}");
+print("Unicode heart: \u{2764}");
+print("Unicode lambda: \u{03BB}");
+print("Unicode simple: \u{41}");  // Same as A
+
+// Length checks with escapes
+let with_tab = "a\tb";
+print("Length of 'a\\tb': " + with_tab.length);
+
+let with_hex = "\x41\x42\x43";
+print("Length of hex ABC: " + with_hex.length);
+
+let with_unicode = "\u{1F600}";
+print("Length of emoji: " + with_unicode.length);
+
+// Combined escapes
+let complex = "Start\t\x41\nEnd";
+print("Complex: " + complex);
+
+// Escape in template strings
+let name = "World";
+let template = `Hello\t${name}\nGoodbye`;
+print("Template with escapes: " + template);
+
+print("All escape sequence tests passed");

@@ -1,0 +1,54 @@
+// Test division edge cases
+
+// Float division (always returns float)
+print("=== Float Division ===");
+print("10 / 3 = " + (10 / 3));
+print("1 / 2 = " + (1 / 2));
+print("-10 / 3 = " + (-10 / 3));
+print("10 / -3 = " + (10 / -3));
+print("-10 / -3 = " + (-10 / -3));
+
+// Integer division with div()
+print("=== Integer Division ===");
+print("div(10, 3) = " + div(10, 3));
+print("div(1, 2) = " + div(1, 2));
+print("div(-10, 3) = " + div(-10, 3));
+print("div(10, -3) = " + div(10, -3));
+print("div(-10, -3) = " + div(-10, -3));
+
+// Modulo with negatives
+print("=== Modulo ===");
+print("10 % 3 = " + (10 % 3));
+print("-10 % 3 = " + (-10 % 3));
+print("10 % -3 = " + (10 % -3));
+print("-10 % -3 = " + (-10 % -3));
+
+// Division with floats
+print("=== Float Operands ===");
+print("10.0 / 3.0 = " + (10.0 / 3.0));
+print("1.5 / 0.5 = " + (1.5 / 0.5));
+
+// Very small divisors
+print("=== Small Divisors ===");
+print("1 / 0.001 = " + (1 / 0.001));
+print("1 / 0.0001 = " + (1 / 0.0001));
+
+// Division returning integer-like float
+print("=== Clean Division ===");
+print("10 / 2 = " + (10 / 2));
+print("100 / 25 = " + (100 / 25));
+
+// Zero numerator
+print("=== Zero Numerator ===");
+print("0 / 5 = " + (0 / 5));
+print("0.0 / 5 = " + (0.0 / 5));
+print("div(0, 5) = " + div(0, 5));
+print("0 % 5 = " + (0 % 5));
+
+// Large number division
+print("=== Large Numbers ===");
+let big: i64 = 9223372036854775807;
+print("i64_max / 2 = " + (big / 2));
+print("i64_max % 10 = " + (big % 10));
+
+print("All division edge case tests passed");

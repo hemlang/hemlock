@@ -1,0 +1,50 @@
+// Test string to type parsing with various formats
+
+// Basic integer parsing
+print("i32('42') = " + i32("42"));
+print("i32('-17') = " + i32("-17"));
+print("i32('0') = " + i32("0"));
+print("i32('+100') = " + i32("+100"));
+
+// Hex parsing
+print("i32('0xFF') = " + i32("0xFF"));
+print("i32('0x10') = " + i32("0x10"));
+print("i32('0xDEAD') = " + i32("0xDEAD"));
+
+// Binary and octal literals (direct, not string parsing)
+print("Binary 0b1010 = " + 0b1010);
+print("Binary 0b11111111 = " + 0b11111111);
+print("Octal 0o777 = " + 0o777);
+print("Octal 0o10 = " + 0o10);
+
+// Float parsing
+print("f64('3.14159') = " + f64("3.14159"));
+print("f64('-2.5') = " + f64("-2.5"));
+print("f64('.5') = " + f64(".5"));
+print("f64('1e10') = " + f64("1e10"));
+print("f64('1.5e-3') = " + f64("1.5e-3"));
+
+// Boolean parsing
+print("bool('true') = " + bool("true"));
+print("bool('false') = " + bool("false"));
+
+// Different integer types from strings
+print("i8('127') = " + i8("127"));
+print("i8('-128') = " + i8("-128"));
+print("i16('32767') = " + i16("32767"));
+print("i64('9223372036854775807') = " + i64("9223372036854775807"));
+
+// Unsigned types from strings
+print("u8('255') = " + u8("255"));
+print("u16('65535') = " + u16("65535"));
+print("u32('4294967295') = " + u32("4294967295"));
+
+// Trimmed values (whitespace must be handled by caller)
+print("i32('42') trimmed = " + i32("42".trim()));
+print("f64('3.14') trimmed = " + f64("3.14".trim()));
+
+// Numeric separators (direct literals)
+print("Separator 1_000_000 = " + 1_000_000);
+print("Separator 0xFF_FF = " + 0xFF_FF);
+
+print("All string parsing tests passed");

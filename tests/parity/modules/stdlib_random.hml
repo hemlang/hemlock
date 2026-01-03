@@ -1,0 +1,66 @@
+// Test @stdlib/random module
+
+import { set_seed, randint, randf, choice, shuffle, sample, coin_flip, dice, random_bool, random_string, uuid4 } from "@stdlib/random";
+
+// Set seed for reproducibility
+set_seed(12345);
+
+// randint(min, max) returns int in [min, max]
+let ri = randint(10, 20);
+print(typeof(ri));
+print(ri >= 10 && ri <= 20);
+
+// randf(min, max) returns float in [min, max)
+let rf = randf(0.0, 10.0);
+print(typeof(rf));
+print(rf >= 0.0 && rf < 10.0);
+
+// choice picks random element from array
+let arr = ["a", "b", "c", "d", "e"];
+let picked = choice(arr);
+print(typeof(picked));
+print(arr.contains(picked));
+
+// shuffle shuffles array in place
+let original = [1, 2, 3, 4, 5];
+shuffle(original);
+print(original.length);
+
+// sample picks k unique elements
+let sampled = sample(["a", "b", "c", "d", "e"], 3);
+print(sampled.length);
+
+// coin_flip returns bool
+let flip = coin_flip();
+print(typeof(flip));
+
+// dice returns 1-6 by default
+let roll = dice();
+print(typeof(roll));
+print(roll >= 1 && roll <= 6);
+
+// dice with custom sides
+let d20 = dice(20);
+print(d20 >= 1 && d20 <= 20);
+
+// random_bool with probability
+let mostly_true = random_bool(0.9);
+print(typeof(mostly_true));
+
+// random_string
+let str = random_string(8);
+print(str.length);
+
+// uuid4 generates valid uuid
+let uuid = uuid4();
+print(uuid.length);  // 36 (8-4-4-4-12)
+print(uuid.contains("-"));
+
+// Re-seed for determinism test
+set_seed(42);
+let det1 = randint(0, 1000);
+set_seed(42);
+let det2 = randint(0, 1000);
+print(det1 == det2);  // Same seed should give same result
+
+print("done");

@@ -1,0 +1,62 @@
+// Test @stdlib/datetime module
+
+import { DateTime, now, from_date, parse_iso } from "@stdlib/datetime";
+
+// Create a specific date for testing
+let dt = from_date(2023, 6, 15, 14, 30, 0);
+print(dt.year);
+print(dt.month);
+print(dt.day);
+print(dt.hour);
+print(dt.minute);
+print(dt.second);
+
+// Format methods
+print(dt.to_date_string());
+print(dt.to_time_string());
+
+// Date arithmetic
+let next_day = dt.add_days(1);
+print(next_day.day);  // 16
+
+let prev_day = dt.add_days(-1);
+print(prev_day.day);  // 14
+
+let later = dt.add_hours(3);
+print(later.hour);  // 17
+
+let earlier = dt.add_hours(-2);
+print(earlier.hour);  // 12
+
+// Difference calculations
+let dt1 = from_date(2023, 1, 1, 0, 0, 0);
+let dt2 = from_date(2023, 1, 10, 0, 0, 0);
+print(dt2.diff_days(dt1));  // 9
+
+let dt3 = from_date(2023, 1, 1, 0, 0, 0);
+let dt4 = from_date(2023, 1, 1, 1, 0, 0);
+print(dt4.diff_hours(dt3));  // 1
+print(dt4.diff_seconds(dt3));  // 3600
+
+// Comparison methods
+print(dt2.is_after(dt1));  // true
+print(dt1.is_before(dt2));  // true
+print(dt1.is_equal(dt1));  // true
+print(dt1.is_equal(dt2));  // false
+
+// Weekday and month names
+let sample = from_date(2023, 12, 25, 0, 0, 0);  // Monday
+print(sample.month_name());  // December
+
+// Parse ISO format
+let parsed = parse_iso("2023-03-15");
+print(parsed.year);
+print(parsed.month);
+print(parsed.day);
+
+let parsed_time = parse_iso("2023-03-15T10:30:45");
+print(parsed_time.hour);
+print(parsed_time.minute);
+print(parsed_time.second);
+
+print("done");
