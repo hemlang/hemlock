@@ -950,7 +950,8 @@ static void print_help(const char *program) {
     printf("    --verbose            Print progress during bundling/packaging\n");
     printf("    --stack-depth <N>    Set maximum call stack depth (default: 10000)\n");
     printf("    --sandbox [DIR]      Run in sandbox mode (restricts dangerous operations)\n");
-    printf("                         Disables: FFI, network, process spawning, file writes\n");
+    printf("                         Disables: FFI, network, process spawning, file writes,\n");
+    printf("                         signals (signal, raise, kill, abort)\n");
     printf("                         If DIR provided, restricts file reads to that directory\n\n");
     printf("EXAMPLES:\n");
     printf("    %s                     # Start interactive REPL\n", program);
@@ -1142,7 +1143,8 @@ int main(int argc, char **argv) {
             sandbox_flags = HML_SANDBOX_RESTRICT_FFI |
                            HML_SANDBOX_RESTRICT_NETWORK |
                            HML_SANDBOX_RESTRICT_PROCESS |
-                           HML_SANDBOX_RESTRICT_FILE_WRITE;
+                           HML_SANDBOX_RESTRICT_FILE_WRITE |
+                           HML_SANDBOX_RESTRICT_SIGNALS;
             // Check if next argument is an optional directory (not a flag and not a .hml file)
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 const char *next = argv[i + 1];

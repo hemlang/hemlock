@@ -132,9 +132,10 @@
 #define HML_SANDBOX_RESTRICT_PROCESS     0x0004  // Disable process spawning (exec, fork, spawn)
 #define HML_SANDBOX_RESTRICT_FILE_WRITE  0x0008  // Disable file write operations
 #define HML_SANDBOX_RESTRICT_FILE_READ   0x0010  // Disable file read operations (outside sandbox root)
+#define HML_SANDBOX_RESTRICT_SIGNALS     0x0020  // Disable signal operations (signal, raise, kill, abort)
 
 // Default sandbox restrictions (everything restricted)
-#define HML_SANDBOX_RESTRICT_ALL         0x001F
+#define HML_SANDBOX_RESTRICT_ALL         0x003F
 #define HML_SANDBOX_RESTRICT_NONE        0x0000
 
 // Maximum path length for sandbox root directory
