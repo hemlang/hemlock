@@ -67,13 +67,291 @@ static void buf_printf(StrBuf *buf, const char *fmt, ...) {
     va_end(args);
 }
 
-// ========== FORMATTER CONTEXT ==========
+// Forward declarations
+typedef struct FmtCtx FmtCtx;
+static void fmt_indent(FmtCtx *ctx);
+static void fmt_newline(FmtCtx *ctx);
+
+// ========== COMMENT EXTRACTION ==========
+
+typedef enum {
+    COMMENT_LINE,    // // comment
+    COMMENT_BLOCK,   // /* comment */
+} CommentType;
 
 typedef struct {
+    CommentType type;
+    int line;           // 1-based line number
+    int column;         // 1-based column number
+    char *text;         // Comment text (without // or /* */)
+    int is_trailing;    // True if comment follows code on same line
+} Comment;
+
+typedef struct {
+    Comment *comments;
+    int count;
+    int capacity;
+    int next_idx;       // For iteration during formatting
+} CommentList;
+
+static void comment_list_init(CommentList *list) {
+    list->capacity = 16;
+    list->comments = malloc(sizeof(Comment) * list->capacity);
+    list->count = 0;
+    list->next_idx = 0;
+}
+
+static void comment_list_free(CommentList *list) {
+    for (int i = 0; i < list->count; i++) {
+        free(list->comments[i].text);
+    }
+    free(list->comments);
+    list->comments = NULL;
+    list->count = list->capacity = 0;
+}
+
+static void comment_list_add(CommentList *list, CommentType type, int line, int column,
+                             const char *text, int len, int is_trailing) {
+    if (list->count >= list->capacity) {
+        list->capacity *= 2;
+        list->comments = realloc(list->comments, sizeof(Comment) * list->capacity);
+    }
+    Comment *c = &list->comments[list->count++];
+    c->type = type;
+    c->line = line;
+    c->column = column;
+    c->text = malloc(len + 1);
+    memcpy(c->text, text, len);
+    c->text[len] = '\0';
+    c->is_trailing = is_trailing;
+}
+
+// Extract all comments from source (separate from lexing)
+static void extract_comments(const char *source, CommentList *list) {
+    const char *p = source;
+    int line = 1;
+    int column = 1;
+    int line_has_code = 0;  // Track if current line has non-whitespace before comment
+
+    while (*p) {
+        // Track if we've seen code on this line
+        if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' &&
+            !(*p == '/' && (p[1] == '/' || p[1] == '*'))) {
+            line_has_code = 1;
+        }
+
+        if (*p == '/' && p[1] == '/') {
+            // Line comment
+            int comment_col = column;
+            int is_trailing = line_has_code;
+            p += 2;
+            column += 2;
+
+            const char *start = p;
+            while (*p && *p != '\n') {
+                p++;
+                column++;
+            }
+
+            // Trim leading space from comment text
+            while (start < p && *start == ' ') start++;
+
+            comment_list_add(list, COMMENT_LINE, line, comment_col, start, p - start, is_trailing);
+
+            if (*p == '\n') {
+                p++;
+                line++;
+                column = 1;
+                line_has_code = 0;
+            }
+        } else if (*p == '/' && p[1] == '*') {
+            // Block comment
+            int comment_col = column;
+            int comment_line = line;
+            int is_trailing = line_has_code;
+            p += 2;
+            column += 2;
+
+            const char *start = p;
+            while (*p && !(*p == '*' && p[1] == '/')) {
+                if (*p == '\n') {
+                    line++;
+                    column = 1;
+                } else {
+                    column++;
+                }
+                p++;
+            }
+
+            // Trim leading/trailing whitespace from comment text
+            const char *end = p;
+            while (start < end && (*start == ' ' || *start == '\t')) start++;
+            while (end > start && (end[-1] == ' ' || end[-1] == '\t')) end--;
+
+            comment_list_add(list, COMMENT_BLOCK, comment_line, comment_col,
+                           start, end - start, is_trailing);
+
+            if (*p == '*') {
+                p += 2;
+                column += 2;
+            }
+        } else if (*p == '\n') {
+            p++;
+            line++;
+            column = 1;
+            line_has_code = 0;
+        } else if (*p == '"') {
+            // Skip string literals
+            p++;
+            column++;
+            while (*p && *p != '"') {
+                if (*p == '\\' && p[1]) {
+                    p += 2;
+                    column += 2;
+                } else if (*p == '\n') {
+                    p++;
+                    line++;
+                    column = 1;
+                } else {
+                    p++;
+                    column++;
+                }
+            }
+            if (*p == '"') {
+                p++;
+                column++;
+            }
+        } else if (*p == '\'') {
+            // Skip rune literals
+            p++;
+            column++;
+            if (*p == '\\' && p[1]) {
+                p += 2;
+                column += 2;
+            } else if (*p) {
+                // Handle UTF-8 runes
+                if ((*p & 0x80) == 0) {
+                    p++;
+                    column++;
+                } else if ((*p & 0xE0) == 0xC0) {
+                    p += 2;
+                    column++;
+                } else if ((*p & 0xF0) == 0xE0) {
+                    p += 3;
+                    column++;
+                } else if ((*p & 0xF8) == 0xF0) {
+                    p += 4;
+                    column++;
+                } else {
+                    p++;
+                    column++;
+                }
+            }
+            if (*p == '\'') {
+                p++;
+                column++;
+            }
+        } else if (*p == '`') {
+            // Skip template strings
+            p++;
+            column++;
+            while (*p && *p != '`') {
+                if (*p == '\n') {
+                    line++;
+                    column = 1;
+                    p++;
+                } else {
+                    p++;
+                    column++;
+                }
+            }
+            if (*p == '`') {
+                p++;
+                column++;
+            }
+        } else {
+            p++;
+            column++;
+        }
+    }
+}
+
+// ========== FORMATTER CONTEXT ==========
+
+struct FmtCtx {
     StrBuf buf;
     int indent;
     int column;          // Current column position (for line width tracking)
-} FmtCtx;
+    CommentList *comments;  // Extracted comments
+    int output_line;     // Current output line (1-based)
+};
+
+// Output any leading comments for a given source line
+static void fmt_leading_comments(FmtCtx *ctx, int source_line) {
+    if (!ctx->comments) return;
+
+    while (ctx->comments->next_idx < ctx->comments->count) {
+        Comment *c = &ctx->comments->comments[ctx->comments->next_idx];
+
+        // Only output comments that are:
+        // 1. Before or on this line
+        // 2. Not trailing comments (those go after code)
+        if (c->line > source_line) break;
+        if (c->is_trailing) {
+            ctx->comments->next_idx++;
+            continue;
+        }
+
+        fmt_indent(ctx);
+        if (c->type == COMMENT_LINE) {
+            buf_append(&ctx->buf, "// ");
+            buf_append(&ctx->buf, c->text);
+        } else {
+            buf_append(&ctx->buf, "/* ");
+            buf_append(&ctx->buf, c->text);
+            buf_append(&ctx->buf, " */");
+        }
+        fmt_newline(ctx);
+        ctx->output_line++;
+        ctx->comments->next_idx++;
+    }
+}
+
+// Output trailing comment for a given source line (if any)
+static void fmt_trailing_comment(FmtCtx *ctx, int source_line) {
+    if (!ctx->comments) return;
+
+    // Look for trailing comment on this line
+    for (int i = ctx->comments->next_idx; i < ctx->comments->count; i++) {
+        Comment *c = &ctx->comments->comments[i];
+
+        if (c->line > source_line) break;
+        if (c->line == source_line && c->is_trailing) {
+            // Remove the newline we just added
+            if (ctx->buf.len > 0 && ctx->buf.data[ctx->buf.len - 1] == '\n') {
+                ctx->buf.len--;
+                ctx->buf.data[ctx->buf.len] = '\0';
+            }
+
+            buf_append(&ctx->buf, "  ");
+            if (c->type == COMMENT_LINE) {
+                buf_append(&ctx->buf, "// ");
+                buf_append(&ctx->buf, c->text);
+            } else {
+                buf_append(&ctx->buf, "/* ");
+                buf_append(&ctx->buf, c->text);
+                buf_append(&ctx->buf, " */");
+            }
+            fmt_newline(ctx);
+
+            // Mark as consumed by moving next_idx past it
+            if (i == ctx->comments->next_idx) {
+                ctx->comments->next_idx++;
+            }
+            return;
+        }
+    }
+}
 
 // Update column position after the buffer changes
 static void update_column(FmtCtx *ctx) {
@@ -1251,6 +1529,11 @@ static int write_file(const char *path, const char *content) {
 }
 
 char *format_source(const char *source) {
+    // Extract comments before parsing (lexer discards them)
+    CommentList comments;
+    comment_list_init(&comments);
+    extract_comments(source, &comments);
+
     // Parse
     Lexer lexer;
     lexer_init(&lexer, source);
@@ -1263,6 +1546,7 @@ char *format_source(const char *source) {
 
     if (parser.had_error) {
         fprintf(stderr, "Format failed: parse errors\n");
+        comment_list_free(&comments);
         return NULL;
     }
 
@@ -1271,9 +1555,63 @@ char *format_source(const char *source) {
     buf_init(&ctx.buf);
     ctx.indent = 0;
     ctx.column = 0;
+    ctx.comments = &comments;
+    ctx.output_line = 1;
+
+    // Check if we have statement line numbers (parser may set them to 0)
+    int have_line_info = 0;
+    for (int i = 0; i < stmt_count; i++) {
+        if (statements[i]->line > 0) {
+            have_line_info = 1;
+            break;
+        }
+    }
+
+    // If no line info, output all comments at the start (for idempotency)
+    if (!have_line_info) {
+        for (int i = 0; i < comments.count; i++) {
+            Comment *c = &comments.comments[i];
+            fmt_indent(&ctx);
+            if (c->type == COMMENT_LINE) {
+                buf_append(&ctx.buf, "// ");
+                buf_append(&ctx.buf, c->text);
+            } else {
+                buf_append(&ctx.buf, "/* ");
+                buf_append(&ctx.buf, c->text);
+                buf_append(&ctx.buf, " */");
+            }
+            fmt_newline(&ctx);
+            ctx.output_line++;
+        }
+        comments.next_idx = comments.count;  // Mark all as consumed
+    }
 
     for (int i = 0; i < stmt_count; i++) {
+        // Output leading comments before this statement
+        if (have_line_info && statements[i]->line > 0) {
+            fmt_leading_comments(&ctx, statements[i]->line);
+        }
         fmt_stmt(&ctx, statements[i]);
+        // Output trailing comments after this statement
+        if (have_line_info && statements[i]->line > 0) {
+            fmt_trailing_comment(&ctx, statements[i]->line);
+        }
+    }
+
+    // Output any remaining comments at end of file
+    while (comments.next_idx < comments.count) {
+        Comment *c = &comments.comments[comments.next_idx];
+        comments.next_idx++;
+        fmt_indent(&ctx);
+        if (c->type == COMMENT_LINE) {
+            buf_append(&ctx.buf, "// ");
+            buf_append(&ctx.buf, c->text);
+        } else {
+            buf_append(&ctx.buf, "/* ");
+            buf_append(&ctx.buf, c->text);
+            buf_append(&ctx.buf, " */");
+        }
+        fmt_newline(&ctx);
     }
 
     // Cleanup AST
@@ -1281,6 +1619,9 @@ char *format_source(const char *source) {
         stmt_free(statements[i]);
     }
     free(statements);
+
+    // Cleanup comments
+    comment_list_free(&comments);
 
     // Transfer ownership of buffer
     char *result = ctx.buf.data;
