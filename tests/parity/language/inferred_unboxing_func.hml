@@ -1,0 +1,43 @@
+// Test aggressive type unboxing inside functions
+// Local variables initialized with literals should be unboxed
+
+fn compute(): i32 {
+    // These should all be unboxed to native C types
+    let x = 42;
+    let y = 10;
+    let sum = x + y;
+
+    let a = 5;
+    let b = 3;
+    let c = a * b + 2;
+
+    // Chain of operations
+    let result = (a + b) * (c - 2);
+
+    return result;
+}
+
+let r = compute();
+print(r);
+
+fn compute_float(): f64 {
+    let pi = 3.14159;
+    let radius = 10.0;
+    let area = pi * radius * radius;
+    return area;
+}
+
+let area = compute_float();
+print(area);
+
+fn compute_bool() {
+    let a = 10;
+    let b = 20;
+    let less = a < b;
+    print(less);
+
+    let flag = true;
+    print(flag);
+}
+
+compute_bool();

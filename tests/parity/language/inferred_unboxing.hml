@@ -1,0 +1,43 @@
+// Test aggressive type unboxing for inferred types
+// Variables initialized with literals should be unboxed
+
+// Simple integer literal - should be unboxed as i32
+let x = 42;
+print(x);
+
+// Arithmetic on unboxed values
+let y = 10;
+let sum = x + y;
+print(sum);
+
+// Float literal - should be unboxed as f64
+let pi = 3.14159;
+print(pi);
+
+// Bool literal - should be unboxed as bool
+let flag = true;
+print(flag);
+
+// Chain of arithmetic operations
+let a = 5;
+let b = 3;
+let c = a * b + 2;
+print(c);
+
+// Large integer (still fits in i32)
+let big = 1000000;
+print(big);
+
+// Comparison result
+let d = 10;
+let e = 20;
+let less = d < e;
+print(less);
+
+// Negation
+let neg = -42;
+print(neg);
+
+// Multiple operations
+let result = (a + b) * (c - 2);
+print(result);

@@ -2505,6 +2505,145 @@ void type_check_analyze_while_loop(TypeCheckContext *ctx, Stmt *stmt) {
 
 // ========== TYPED VARIABLE UNBOXING ==========
 
+// Forward declaration for infer_expr_native_type
+static CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr);
+
+// Helper: Infer the native type of an expression for unboxing
+// Returns CHECKED_UNKNOWN if the type cannot be determined or is not unboxable
+static CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr) {
+    if (!expr) return CHECKED_UNKNOWN;
+
+    switch (expr->type) {
+        case EXPR_NUMBER:
+            if (expr->as.number.is_float) {
+                return CHECKED_F64;
+            }
+            // Determine integer type based on value range
+            if (expr->as.number.int_value >= -128 && expr->as.number.int_value <= 127) {
+                return CHECKED_I32;  // Promote small integers to i32 for performance
+            }
+            if (expr->as.number.int_value >= -2147483648LL && expr->as.number.int_value <= 2147483647LL) {
+                return CHECKED_I32;
+            }
+            return CHECKED_I64;
+
+        case EXPR_BOOL:
+            return CHECKED_BOOL;
+
+        case EXPR_RUNE:
+            return CHECKED_I32;  // Runes are stored as i32 codepoints
+
+        case EXPR_IDENT: {
+            // Check if this variable is already marked as unboxable
+            if (ctx) {
+                CheckedTypeKind kind = type_check_get_unboxable(ctx, expr->as.ident.name);
+                if (kind != CHECKED_UNKNOWN) {
+                    return kind;
+                }
+                // Also check the type environment for typed variables
+                CheckedType *var_type = type_check_lookup(ctx, expr->as.ident.name);
+                if (var_type) {
+                    switch (var_type->kind) {
+                        case CHECKED_I8: return CHECKED_I8;
+                        case CHECKED_I16: return CHECKED_I16;
+                        case CHECKED_I32: return CHECKED_I32;
+                        case CHECKED_I64: return CHECKED_I64;
+                        case CHECKED_U8: return CHECKED_U8;
+                        case CHECKED_U16: return CHECKED_U16;
+                        case CHECKED_U32: return CHECKED_U32;
+                        case CHECKED_U64: return CHECKED_U64;
+                        case CHECKED_F32: return CHECKED_F32;
+                        case CHECKED_F64: return CHECKED_F64;
+                        case CHECKED_BOOL: return CHECKED_BOOL;
+                        default: break;
+                    }
+                }
+            }
+            return CHECKED_UNKNOWN;
+        }
+
+        case EXPR_BINARY: {
+            // Division always returns f64
+            if (expr->as.binary.op == OP_DIV) {
+                return CHECKED_F64;
+            }
+
+            CheckedTypeKind left = infer_expr_native_type(ctx, expr->as.binary.left);
+            CheckedTypeKind right = infer_expr_native_type(ctx, expr->as.binary.right);
+
+            if (left == CHECKED_UNKNOWN || right == CHECKED_UNKNOWN) {
+                return CHECKED_UNKNOWN;
+            }
+
+            // Comparison operators return bool
+            if (expr->as.binary.op >= OP_LESS && expr->as.binary.op <= OP_NOT_EQUAL) {
+                return CHECKED_BOOL;
+            }
+
+            // Logical operators return bool
+            if (expr->as.binary.op == OP_AND || expr->as.binary.op == OP_OR) {
+                return CHECKED_BOOL;
+            }
+
+            // Type promotion for arithmetic/bitwise operators
+            // Float always wins
+            if (left == CHECKED_F64 || right == CHECKED_F64) return CHECKED_F64;
+            if (left == CHECKED_F32 || right == CHECKED_F32) {
+                // i64/u64 + f32 → f64 to preserve precision
+                if (left == CHECKED_I64 || left == CHECKED_U64 ||
+                    right == CHECKED_I64 || right == CHECKED_U64) {
+                    return CHECKED_F64;
+                }
+                return CHECKED_F32;
+            }
+
+            // Integer promotion: i64 > i32 > smaller types
+            if (left == CHECKED_I64 || right == CHECKED_I64) return CHECKED_I64;
+            if (left == CHECKED_U64 || right == CHECKED_U64) return CHECKED_U64;
+            if (left == CHECKED_I32 || right == CHECKED_I32) return CHECKED_I32;
+            if (left == CHECKED_U32 || right == CHECKED_U32) return CHECKED_U32;
+
+            // For smaller integers, promote to i32
+            return CHECKED_I32;
+        }
+
+        case EXPR_UNARY:
+            if (expr->as.unary.op == UNARY_NOT) {
+                return CHECKED_BOOL;
+            }
+            // Negation and bit-not preserve type
+            return infer_expr_native_type(ctx, expr->as.unary.operand);
+
+        case EXPR_PREFIX_INC:
+        case EXPR_PREFIX_DEC:
+            return infer_expr_native_type(ctx, expr->as.prefix_inc.operand);
+
+        case EXPR_POSTFIX_INC:
+        case EXPR_POSTFIX_DEC:
+            return infer_expr_native_type(ctx, expr->as.postfix_inc.operand);
+
+        case EXPR_TERNARY: {
+            // Both branches must have compatible types
+            CheckedTypeKind true_type = infer_expr_native_type(ctx, expr->as.ternary.true_expr);
+            CheckedTypeKind false_type = infer_expr_native_type(ctx, expr->as.ternary.false_expr);
+            if (true_type == CHECKED_UNKNOWN || false_type == CHECKED_UNKNOWN) {
+                return CHECKED_UNKNOWN;
+            }
+            if (true_type == false_type) {
+                return true_type;
+            }
+            // Use the same promotion rules as binary operators
+            if (true_type == CHECKED_F64 || false_type == CHECKED_F64) return CHECKED_F64;
+            if (true_type == CHECKED_I64 || false_type == CHECKED_I64) return CHECKED_I64;
+            if (true_type == CHECKED_I32 || false_type == CHECKED_I32) return CHECKED_I32;
+            return CHECKED_UNKNOWN;
+        }
+
+        default:
+            return CHECKED_UNKNOWN;
+    }
+}
+
 // Helper: Check if expression is unboxable (primitive literal, arithmetic, etc.)
 static int is_unboxable_expr(Expr *expr) {
     if (!expr) return 0;
@@ -2659,6 +2798,53 @@ void type_check_analyze_typed_let(TypeCheckContext *ctx, Stmt *stmt,
     type_check_mark_unboxable(ctx, var_name, native_type, 0, 0, 1);
 }
 
+// Analyze an untyped let statement for inferred type unboxing
+// This enables unboxing for patterns like: let x = 42; let sum = a + b;
+static void type_check_analyze_inferred_let(TypeCheckContext *ctx, Stmt *stmt,
+                                             Stmt *containing_block, int stmt_index) {
+    if (!ctx || !stmt || stmt->type != STMT_LET) return;
+
+    // Skip if already has explicit type annotation (handled by type_check_analyze_typed_let)
+    if (stmt->as.let.type_annotation) return;
+
+    // Must have an initializer to infer type from
+    if (!stmt->as.let.value) return;
+
+    const char *var_name = stmt->as.let.name;
+
+    // Infer the type from the initializer expression
+    CheckedTypeKind native_type = infer_expr_native_type(ctx, stmt->as.let.value);
+    if (native_type == CHECKED_UNKNOWN) return;
+
+    // Only unbox numeric types (i32, i64, f64) and bool for now
+    // Skip i8/i16/u8/u16 etc. unless the expression explicitly produces them
+    if (native_type != CHECKED_I32 && native_type != CHECKED_I64 &&
+        native_type != CHECKED_F64 && native_type != CHECKED_BOOL) {
+        return;
+    }
+
+    // Check if the initializer expression is structurally unboxable
+    if (!is_unboxable_expr(stmt->as.let.value)) {
+        return;
+    }
+
+    // Check if variable escapes or has incompatible assignments in subsequent statements
+    if (containing_block && containing_block->type == STMT_BLOCK) {
+        for (int i = stmt_index + 1; i < containing_block->as.block.count; i++) {
+            if (variable_escapes_in_stmt_internal(containing_block->as.block.statements[i], var_name)) {
+                return;
+            }
+            if (has_incompatible_assignment_stmt(containing_block->as.block.statements[i], var_name)) {
+                return;
+            }
+        }
+    }
+
+    // Variable can be unboxed with inferred type!
+    // Mark as typed_var since it behaves like a typed variable for codegen purposes
+    type_check_mark_unboxable(ctx, var_name, native_type, 0, 0, 1);
+}
+
 void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block) {
     if (!ctx || !block) return;
 
@@ -2669,6 +2855,10 @@ void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block) {
             // Analyze typed let statements
             if (stmt->type == STMT_LET && stmt->as.let.type_annotation) {
                 type_check_analyze_typed_let(ctx, stmt, block, i);
+            }
+            // Analyze untyped let statements for inferred type unboxing
+            else if (stmt->type == STMT_LET && !stmt->as.let.type_annotation && stmt->as.let.value) {
+                type_check_analyze_inferred_let(ctx, stmt, block, i);
             }
 
             // Analyze for loops for loop counters
@@ -2705,8 +2895,13 @@ void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block) {
                 }
             }
         }
-    } else if (block->type == STMT_LET && block->as.let.type_annotation) {
-        type_check_analyze_typed_let(ctx, block, NULL, 0);
+    } else if (block->type == STMT_LET) {
+        // Handle single-statement let (both typed and untyped)
+        if (block->as.let.type_annotation) {
+            type_check_analyze_typed_let(ctx, block, NULL, 0);
+        } else if (block->as.let.value) {
+            type_check_analyze_inferred_let(ctx, block, NULL, 0);
+        }
     }
 }
 
