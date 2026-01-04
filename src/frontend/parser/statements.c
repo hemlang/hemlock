@@ -103,8 +103,13 @@ Stmt* while_statement_with_label(Parser *p, const char *label) {
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
 
-    consume(p, TOK_LBRACE, "Expect '{' after while condition");
-    Stmt *body = block_statement(p);
+    // Parse body - braces optional for single statements
+    Stmt *body;
+    if (match(p, TOK_LBRACE)) {
+        body = block_statement(p);
+    } else {
+        body = statement(p);
+    }
 
     return stmt_while_labeled(label, condition, body);
 }
@@ -220,8 +225,14 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
             // Parse for-in loop
             Expr *iterable = expression(p);
             consume(p, TOK_RPAREN, "Expect ')' after for-in");
-            consume(p, TOK_LBRACE, "Expect '{' after for-in");
-            Stmt *body = block_statement(p);
+
+            // Parse body - braces optional for single statements
+            Stmt *body;
+            if (match(p, TOK_LBRACE)) {
+                body = block_statement(p);
+            } else {
+                body = statement(p);
+            }
 
             if (second_var) {
                 // Two variables: for (let key, value in ...)
@@ -259,8 +270,13 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
         }
         consume(p, TOK_RPAREN, "Expect ')' after for clauses");
 
-        consume(p, TOK_LBRACE, "Expect '{' after for");
-        Stmt *body = block_statement(p);
+        // Parse body - braces optional for single statements
+        Stmt *body;
+        if (match(p, TOK_LBRACE)) {
+            body = block_statement(p);
+        } else {
+            body = statement(p);
+        }
 
         return stmt_for_labeled(label, initializer, condition, increment, body);
     }
@@ -288,8 +304,14 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
 
             Expr *iterable = expression(p);
             consume(p, TOK_RPAREN, "Expect ')' after for-in");
-            consume(p, TOK_LBRACE, "Expect '{' after for-in");
-            Stmt *body = block_statement(p);
+
+            // Parse body - braces optional for single statements
+            Stmt *body;
+            if (match(p, TOK_LBRACE)) {
+                body = block_statement(p);
+            } else {
+                body = statement(p);
+            }
 
             // stmt_for_in takes ownership of the strings, don't free them
             return stmt_for_in_labeled(label, for_first_var, for_second_var, iterable, body);
@@ -300,8 +322,14 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
 
             Expr *iterable = expression(p);
             consume(p, TOK_RPAREN, "Expect ')' after for-in");
-            consume(p, TOK_LBRACE, "Expect '{' after for-in");
-            Stmt *body = block_statement(p);
+
+            // Parse body - braces optional for single statements
+            Stmt *body;
+            if (match(p, TOK_LBRACE)) {
+                body = block_statement(p);
+            } else {
+                body = statement(p);
+            }
 
             // stmt_for_in takes ownership of the string, don't free it
             return stmt_for_in_labeled(label, NULL, var_name, iterable, body);
@@ -336,8 +364,13 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
     }
     consume(p, TOK_RPAREN, "Expect ')' after for clauses");
 
-    consume(p, TOK_LBRACE, "Expect '{' after for");
-    Stmt *body = block_statement(p);
+    // Parse body - braces optional for single statements
+    Stmt *body;
+    if (match(p, TOK_LBRACE)) {
+        body = block_statement(p);
+    } else {
+        body = statement(p);
+    }
 
     return stmt_for_labeled(label, initializer, condition, increment, body);
 }
