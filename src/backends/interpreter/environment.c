@@ -19,6 +19,7 @@ typedef struct {
     Value values_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
     int is_const_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY];
     int hash_table_storage[ENV_POOL_SIZE][ENV_DEFAULT_CAPACITY * 2];
+    pthread_mutex_t env_mutexes[ENV_POOL_SIZE];  // Per-environment mutexes for thread safety
     int free_list[ENV_POOL_SIZE];  // Stack of free indices
     int free_count;                 // Number of free slots
     pthread_mutex_t mutex;          // Protects pool operations for thread safety
@@ -38,6 +39,9 @@ static void env_pool_init_internal(void) {
         env_pool.envs[i].hash_table = env_pool.hash_table_storage[i];
         env_pool.envs[i].capacity = ENV_DEFAULT_CAPACITY;
         env_pool.envs[i].hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        // Initialize per-environment mutex for thread-safe access
+        pthread_mutex_init(&env_pool.env_mutexes[i], NULL);
+        env_pool.envs[i].mutex = &env_pool.env_mutexes[i];
         // Add to free list (in reverse order so 0 is popped first)
         env_pool.free_list[i] = ENV_POOL_SIZE - 1 - i;
     }
@@ -127,6 +131,7 @@ Environment* env_new(Environment *parent) {
         env->borrowed_flags = 0;  // Clear borrowed flags
         // Clear hash table using memset (faster than loop)
         memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
+        // mutex is already set to pooled mutex in env_pool_alloc
         env->parent = parent;
         if (parent) {
             env_retain(parent);
@@ -178,6 +183,18 @@ Environment* env_new(Environment *parent) {
     // Initialize all slots to -1 (empty) using memset (faster than loop)
     memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
     env->borrowed_flags = 0;  // Initialize borrowed flags
+    // Allocate and initialize mutex for thread-safe access
+    env->mutex = malloc(sizeof(pthread_mutex_t));
+    if (!env->mutex) {
+        free(env->hash_table);
+        free(env->is_const);
+        free(env->values);
+        free(env->names);
+        free(env);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+    pthread_mutex_init((pthread_mutex_t*)env->mutex, NULL);
     env->parent = parent;
     // Retain parent environment if it exists
     if (parent) {
@@ -305,6 +322,11 @@ void env_free(Environment *env) {
     if (env_is_pooled(env)) {
         env_pool_free(env);
     } else {
+        // Destroy mutex for non-pooled environments
+        if (env->mutex) {
+            pthread_mutex_destroy((pthread_mutex_t*)env->mutex);
+            free(env->mutex);
+        }
         free(env->names);
         free(env->values);
         free(env->is_const);
@@ -487,9 +509,14 @@ static void env_hash_insert_with_hash(Environment *env, uint32_t hash, int index
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx) {
     uint32_t hash = hash_string(name);
 
+    // Lock environment for thread-safe access
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
     // Check if variable already exists in current scope using hash table
     int existing = env_lookup(env, name, hash);
     if (existing >= 0) {
+        if (mutex) pthread_mutex_unlock(mutex);
         // Throw exception instead of exiting
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
@@ -512,6 +539,8 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 
     // Insert into hash table
     env_hash_insert(env, name, index);
+
+    if (mutex) pthread_mutex_unlock(mutex);
 }
 
 // Fast variant that borrows the name string without strdup
@@ -519,9 +548,14 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 void env_define_borrowed(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx) {
     uint32_t hash = hash_string(name);
 
+    // Lock environment for thread-safe access
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
     // Check if variable already exists in current scope using hash table
     int existing = env_lookup(env, name, hash);
     if (existing >= 0) {
+        if (mutex) pthread_mutex_unlock(mutex);
         // Throw exception instead of exiting
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
@@ -548,11 +582,19 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
 
     // Insert into hash table
     env_hash_insert(env, name, index);
+
+    if (mutex) pthread_mutex_unlock(mutex);
 }
 
 // Fastest variant for function parameters - uses pre-computed hash, skips "already defined" check
 // This is safe because we know params are unique (enforced by parser) and env is freshly created
+// Note: This is typically called on newly created environments that aren't shared yet,
+// but we still lock for consistency if the env happens to be shared.
 void env_define_param(Environment *env, const char *name, uint32_t hash, Value value) {
+    // Lock environment for thread-safe access
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
     // Grow if needed (unlikely for params, but be safe)
     if (env->count >= env->capacity) {
         env_grow(env);
@@ -570,10 +612,18 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
 
     // Insert with pre-computed hash
     env_hash_insert_with_hash(env, hash, index);
+
+    if (mutex) pthread_mutex_unlock(mutex);
 }
 
 // Set a variable (for reassignment or implicit definition in loops/functions)
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx) {
+    uint32_t hash = hash_string(name);
+
+    // Lock current environment for thread-safe access
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
     // Fast path: check first variable (common for loop counters and function params)
     if (env->count > 0 && env->names[0][0] == name[0] &&
         (env->names[0] == name || strcmp(env->names[0], name) == 0)) {
@@ -581,17 +631,17 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
             VALUE_RELEASE(env->values[0]);
             VALUE_RETAIN(value);
             env->values[0] = value;
+            if (mutex) pthread_mutex_unlock(mutex);
             return;
         }
     }
-
-    uint32_t hash = hash_string(name);
 
     // Check current scope using hash table
     int idx = env_lookup(env, name, hash);
     if (idx >= 0) {
         // Check if variable is const
         if (env->is_const[idx]) {
+            if (mutex) pthread_mutex_unlock(mutex);
             // Throw exception instead of exiting
             char error_msg[256];
             snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
@@ -603,16 +653,24 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
         VALUE_RELEASE(env->values[idx]);
         VALUE_RETAIN(value);
         env->values[idx] = value;
+        if (mutex) pthread_mutex_unlock(mutex);
         return;
     }
+
+    // Unlock current env before checking parents (to prevent deadlock)
+    if (mutex) pthread_mutex_unlock(mutex);
 
     // Check parent scopes using hash table
     Environment *search_env = env->parent;
     while (search_env != NULL) {
+        pthread_mutex_t *parent_mutex = (pthread_mutex_t*)search_env->mutex;
+        if (parent_mutex) pthread_mutex_lock(parent_mutex);
+
         int pidx = env_lookup(search_env, name, hash);
         if (pidx >= 0) {
             // Found in parent scope - check if const
             if (search_env->is_const[pidx]) {
+                if (parent_mutex) pthread_mutex_unlock(parent_mutex);
                 // Throw exception instead of exiting
                 char error_msg[256];
                 snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
@@ -625,13 +683,20 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
             VALUE_RETAIN(value);
             // Update parent scope variable
             search_env->values[pidx] = value;
+            if (parent_mutex) pthread_mutex_unlock(parent_mutex);
             return;
         }
-        search_env = search_env->parent;
+
+        Environment *next_parent = search_env->parent;
+        if (parent_mutex) pthread_mutex_unlock(parent_mutex);
+        search_env = next_parent;
     }
 
     // Variable not found anywhere - create new mutable variable in current scope
     // This handles implicit variable creation in loops and function calls
+    // Re-lock current env for modification
+    if (mutex) pthread_mutex_lock(mutex);
+
     if (env->count >= env->capacity) {
         env_grow(env);
     }
@@ -645,30 +710,42 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
 
     // Insert into hash table
     env_hash_insert(env, name, index);
+
+    if (mutex) pthread_mutex_unlock(mutex);
 }
 
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
-    // Fast path: check if first variable in current scope matches
-    // This is common for function parameters (e.g., fn fib(n) - looking up 'n')
-    if (env->count > 0 && env->names[0][0] == name[0] &&
-        (env->names[0] == name || strcmp(env->names[0], name) == 0)) {
-        Value val = env->values[0];
-        VALUE_RETAIN(val);
-        return val;
-    }
-
     uint32_t hash = hash_string(name);
 
     // Search current and parent scopes using hash table
+    // Each environment is locked individually to prevent deadlock
     Environment *search_env = env;
     while (search_env != NULL) {
+        // Lock this environment for thread-safe access
+        pthread_mutex_t *mutex = (pthread_mutex_t*)search_env->mutex;
+        if (mutex) pthread_mutex_lock(mutex);
+
+        // Fast path: check if first variable in current scope matches
+        if (search_env == env && search_env->count > 0 &&
+            search_env->names[0][0] == name[0] &&
+            (search_env->names[0] == name || strcmp(search_env->names[0], name) == 0)) {
+            Value val = search_env->values[0];
+            VALUE_RETAIN(val);
+            if (mutex) pthread_mutex_unlock(mutex);
+            return val;
+        }
+
         int idx = env_lookup(search_env, name, hash);
         if (idx >= 0) {
             Value val = search_env->values[idx];
             VALUE_RETAIN(val);  // Retain for the caller (caller now owns a reference)
+            if (mutex) pthread_mutex_unlock(mutex);
             return val;
         }
-        search_env = search_env->parent;
+
+        Environment *parent = search_env->parent;
+        if (mutex) pthread_mutex_unlock(mutex);
+        search_env = parent;
     }
 
     // Variable not found - throw exception instead of exiting
@@ -702,13 +779,19 @@ Value env_get_resolved(Environment *env, int depth, int slot) {
         }
     }
 
+    // Lock target environment for thread-safe access
+    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
     // Direct indexed access - O(1) instead of hash lookup
     if (slot >= 0 && slot < target->count) {
         Value val = target->values[slot];
         VALUE_RETAIN(val);
+        if (mutex) pthread_mutex_unlock(mutex);
         return val;
     }
 
+    if (mutex) pthread_mutex_unlock(mutex);
     // Invalid slot (should not happen if resolver is correct)
     return val_null();
 }
@@ -737,8 +820,13 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
         }
     }
 
+    // Lock target environment for thread-safe access
+    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
     // Check bounds
     if (slot < 0 || slot >= target->count) {
+        if (mutex) pthread_mutex_unlock(mutex);
         runtime_error(ctx, "Invalid resolved variable slot");
         return 0;
     }
@@ -748,6 +836,7 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "Cannot assign to constant '%s'",
                  target->names[slot]);
+        if (mutex) pthread_mutex_unlock(mutex);
         runtime_error(ctx, error_msg);
         return 0;
     }
@@ -756,5 +845,7 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
     VALUE_RELEASE(target->values[slot]);
     VALUE_RETAIN(value);
     target->values[slot] = value;
+
+    if (mutex) pthread_mutex_unlock(mutex);
     return 1;
 }

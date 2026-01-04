@@ -1,0 +1,64 @@
+// Stress test for concurrent environment access
+// Spawns many tasks that all read/write to shared closure variables
+
+let shared_counter = 0;
+let results = [];
+
+// Task that increments counter (writes to closure env)
+async fn incrementer(): i32 {
+    let local = shared_counter;
+    return local + 1;
+}
+
+// Spawn 10 incrementer tasks
+let tasks = [];
+for (let i = 0; i < 10; i++) {
+    tasks.push(spawn(incrementer));
+}
+
+// Join all tasks
+let sum = 0;
+for (task in tasks) {
+    sum = sum + join(task);
+}
+
+// Each task reads 0 and returns 1, so sum should be 10
+print(sum);
+
+// Test concurrent reads of array from closure
+let shared_arr = [1, 2, 3, 4, 5];
+
+async fn array_reader(): i32 {
+    let total = 0;
+    for (item in shared_arr) {
+        total = total + item;
+    }
+    return total;
+}
+
+let arr_tasks = [];
+for (let i = 0; i < 5; i++) {
+    arr_tasks.push(spawn(array_reader));
+}
+
+for (t in arr_tasks) {
+    print(join(t));
+}
+
+// Test concurrent reads of object from closure
+let shared_obj = { x: 10, y: 20, z: 30 };
+
+async fn object_reader(): i32 {
+    return shared_obj.x + shared_obj.y + shared_obj.z;
+}
+
+let obj_tasks = [];
+for (let i = 0; i < 5; i++) {
+    obj_tasks.push(spawn(object_reader));
+}
+
+for (t in obj_tasks) {
+    print(join(t));
+}
+
+print("done");

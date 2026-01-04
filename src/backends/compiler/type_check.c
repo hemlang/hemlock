@@ -874,6 +874,12 @@ CheckedType* type_common(CheckedType *a, CheckedType *b) {
             if (a->kind == CHECKED_F64 || b->kind == CHECKED_F64) {
                 return checked_type_primitive(CHECKED_F64);
             }
+            // f32 with i64/u64 should promote to f64 to preserve precision
+            // (f32 has only 24-bit mantissa, i64/u64 need 53+ bits)
+            if (a->kind == CHECKED_I64 || a->kind == CHECKED_U64 ||
+                b->kind == CHECKED_I64 || b->kind == CHECKED_U64) {
+                return checked_type_primitive(CHECKED_F64);
+            }
             return checked_type_primitive(CHECKED_F32);
         }
 
