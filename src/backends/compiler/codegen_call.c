@@ -1090,7 +1090,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // div(a, b) - floor division returning float
+        // div(a, b) - float division (alias for /)
         if ((strcmp(fn_name, "div") == 0 || strcmp(fn_name, "__div") == 0) && expr->as.call.num_args == 2) {
             char *a = codegen_expr(ctx, expr->as.call.args[0]);
             char *b = codegen_expr(ctx, expr->as.call.args[1]);
@@ -2435,7 +2435,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             }
         }
 
-        if (codegen_is_main_func(ctx, fn_name) && !import_binding && !ctx->current_module) {
+        if (codegen_is_main_func(ctx, fn_name) && !import_binding && !ctx->current_module &&
+            expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // OPTIMIZATION: Main file function definition - call directly
             // This is safe because we know the function signature at compile time
             int expected_params = codegen_get_main_func_params(ctx, fn_name);
@@ -2506,11 +2507,13 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             free(arg_temps);
             free(arg_is_ref);
             return result;
-        } else if (codegen_is_main_var(ctx, fn_name) && !import_binding) {
+        } else if (codegen_is_main_var(ctx, fn_name) && !import_binding &&
+                   expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // Main file variable that's NOT a function definition (e.g., assigned closure)
             // Use generic call path to properly handle closures
             // Fall through to generic handling
-        } else if (codegen_is_local(ctx, fn_name) && !import_binding) {
+        } else if (codegen_is_local(ctx, fn_name) && !import_binding &&
+                   expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // Check if this local is actually a captured main file function - use direct call
             if (codegen_is_main_func(ctx, fn_name) && !ctx->current_module) {
                 int expected_params = codegen_get_main_func_params(ctx, fn_name);
@@ -2587,6 +2590,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         } else if (import_binding && !import_binding->is_function) {
             // Imported variable that holds a function value (e.g., export let sleep = __sleep)
             // Fall through to generic call path - will use hml_call_function on the variable
+        } else if (expr->as.call.arg_names != NULL) {
+            // Named arguments used - fall through to generic call path for runtime reordering
         } else {
             // Direct call path for imported functions and module functions
             // import_binding was already set above
@@ -2985,18 +2990,47 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
     }
 
+    // Check if we have named arguments
+    int has_named_args = (expr->as.call.arg_names != NULL);
+
     // Build args array
     if (expr->as.call.num_args > 0) {
         codegen_writeln(ctx, "HmlValue _args%d[%d];", args_counter, expr->as.call.num_args);
         for (int i = 0; i < expr->as.call.num_args; i++) {
             codegen_writeln(ctx, "_args%d[%d] = %s;", args_counter, i, arg_temps[i]);
         }
-        if (is_optional_chain_call) {
-            codegen_writeln(ctx, "%s = hml_call_function(%s, _args%d, %d);",
-                          result, func_val, args_counter, expr->as.call.num_args);
+
+        if (has_named_args) {
+            // Generate argument names array for named argument call
+            int names_counter = ctx->temp_counter++;
+            codegen_writeln(ctx, "const char *_arg_names%d[%d] = {", names_counter, expr->as.call.num_args);
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                if (expr->as.call.arg_names[i]) {
+                    codegen_write(ctx, "\"%s\"", expr->as.call.arg_names[i]);
+                } else {
+                    codegen_write(ctx, "NULL");
+                }
+                if (i < expr->as.call.num_args - 1) {
+                    codegen_write(ctx, ", ");
+                }
+            }
+            codegen_writeln(ctx, "};");
+
+            if (is_optional_chain_call) {
+                codegen_writeln(ctx, "%s = hml_call_function_named(%s, _args%d, _arg_names%d, %d);",
+                              result, func_val, args_counter, names_counter, expr->as.call.num_args);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_call_function_named(%s, _args%d, _arg_names%d, %d);",
+                              result, func_val, args_counter, names_counter, expr->as.call.num_args);
+            }
         } else {
-            codegen_writeln(ctx, "HmlValue %s = hml_call_function(%s, _args%d, %d);",
-                          result, func_val, args_counter, expr->as.call.num_args);
+            if (is_optional_chain_call) {
+                codegen_writeln(ctx, "%s = hml_call_function(%s, _args%d, %d);",
+                              result, func_val, args_counter, expr->as.call.num_args);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_call_function(%s, _args%d, %d);",
+                              result, func_val, args_counter, expr->as.call.num_args);
+            }
         }
     } else {
         if (is_optional_chain_call) {

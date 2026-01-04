@@ -1336,6 +1336,11 @@ Type* type_from_string(const char *name) {
     Type *type = malloc(sizeof(Type));
     type->type_name = NULL;
     type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
+    type->type_args = NULL;
+    type->num_type_args = 0;
 
     if (strcmp(name, "i8") == 0) {
         type->kind = TYPE_I8;

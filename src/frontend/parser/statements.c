@@ -93,7 +93,7 @@ Stmt* if_statement(Parser *p) {
     return stmt_if(condition, then_branch, else_branch);
 }
 
-Stmt* while_statement(Parser *p) {
+Stmt* while_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LPAREN, "Expect '(' after 'while'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -101,7 +101,22 @@ Stmt* while_statement(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' after while condition");
     Stmt *body = block_statement(p);
 
-    return stmt_while(condition, body);
+    return stmt_while_labeled(label, condition, body);
+}
+
+Stmt* while_statement(Parser *p) {
+    return while_statement_with_label(p, NULL);
+}
+
+Stmt* loop_statement_with_label(Parser *p, const char *label) {
+    consume(p, TOK_LBRACE, "Expect '{' after 'loop'");
+    Stmt *body = block_statement(p);
+
+    return stmt_loop_labeled(label, body);
+}
+
+Stmt* loop_statement(Parser *p) {
+    return loop_statement_with_label(p, NULL);
 }
 
 Stmt* switch_statement(Parser *p) {
@@ -175,7 +190,7 @@ Stmt* switch_statement(Parser *p) {
     return stmt_switch(expr, case_values, case_bodies, num_cases);
 }
 
-Stmt* for_statement(Parser *p) {
+Stmt* for_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
     // Check if this is a for-in loop by looking ahead
@@ -207,10 +222,10 @@ Stmt* for_statement(Parser *p) {
 
             if (second_var) {
                 // Two variables: for (let key, value in ...)
-                return stmt_for_in(first_var, second_var, iterable, body);
+                return stmt_for_in_labeled(label, first_var, second_var, iterable, body);
             } else {
                 // One variable: for (let value in ...)
-                return stmt_for_in(NULL, first_var, iterable, body);
+                return stmt_for_in_labeled(label, NULL, first_var, iterable, body);
             }
         }
 
@@ -244,7 +259,7 @@ Stmt* for_statement(Parser *p) {
         consume(p, TOK_LBRACE, "Expect '{' after for");
         Stmt *body = block_statement(p);
 
-        return stmt_for(initializer, condition, increment, body);
+        return stmt_for_labeled(label, initializer, condition, increment, body);
     }
 
     // Check for for-in loop without let (e.g., for (item in array))
@@ -274,7 +289,7 @@ Stmt* for_statement(Parser *p) {
             Stmt *body = block_statement(p);
 
             // stmt_for_in takes ownership of the strings, don't free them
-            return stmt_for_in(first_var, second_var, iterable, body);
+            return stmt_for_in_labeled(label, first_var, second_var, iterable, body);
         } else if (check(p, TOK_IN)) {
             // for (item in ...) - single variable form without let
             char *var_name = token_text(&saved_current);
@@ -286,7 +301,7 @@ Stmt* for_statement(Parser *p) {
             Stmt *body = block_statement(p);
 
             // stmt_for_in takes ownership of the string, don't free it
-            return stmt_for_in(NULL, var_name, iterable, body);
+            return stmt_for_in_labeled(label, NULL, var_name, iterable, body);
         } else {
             // Not a for-in loop, restore state and fall through to C-style
             p->current = saved_current;
@@ -321,7 +336,11 @@ Stmt* for_statement(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' after for");
     Stmt *body = block_statement(p);
 
-    return stmt_for(initializer, condition, increment, body);
+    return stmt_for_labeled(label, initializer, condition, increment, body);
+}
+
+Stmt* for_statement(Parser *p) {
+    return for_statement_with_label(p, NULL);
 }
 
 Stmt* expression_statement(Parser *p) {
@@ -655,9 +674,35 @@ Stmt* extern_fn_statement(Parser *p) {
 }
 
 Stmt* define_statement(Parser *p) {
-    // Object type definition: define TypeName { ... }
+    // Object type definition: define TypeName { ... } or define TypeName<T, U> { ... }
     consume(p, TOK_IDENT, "Expect object type name");
     char *name = token_text(&p->previous);
+
+    // Parse optional type parameters: <T, U, ...>
+    char **type_params = NULL;
+    int num_type_params = 0;
+    int type_param_capacity = 4;
+
+    if (match(p, TOK_LESS)) {
+        type_params = malloc(sizeof(char*) * type_param_capacity);
+
+        do {
+            consume(p, TOK_IDENT, "Expect type parameter name");
+            if (num_type_params >= type_param_capacity) {
+                type_param_capacity *= 2;
+                type_params = realloc(type_params, sizeof(char*) * type_param_capacity);
+            }
+            type_params[num_type_params++] = token_text(&p->previous);
+        } while (match(p, TOK_COMMA));
+
+        consume(p, TOK_GREATER, "Expect '>' after type parameters");
+    }
+
+    // Set type parameters in parser scope for field type parsing
+    char **old_type_params = p->type_params;
+    int old_num_type_params = p->num_type_params;
+    p->type_params = type_params;
+    p->num_type_params = num_type_params;
 
     consume(p, TOK_LBRACE, "Expect '{' after type name");
 
@@ -737,7 +782,12 @@ Stmt* define_statement(Parser *p) {
 
     consume(p, TOK_RBRACE, "Expect '}' after fields");
 
-    Stmt *stmt = stmt_define_object(name, field_names, field_types,
+    // Restore old type parameters scope
+    p->type_params = old_type_params;
+    p->num_type_params = old_num_type_params;
+
+    Stmt *stmt = stmt_define_object(name, type_params, num_type_params,
+                                   field_names, field_types,
                                    field_optional, field_defaults, num_fields);
     free(name);
     return stmt;
@@ -924,8 +974,55 @@ not_function:
         return if_statement(p);
     }
 
+    // Check for labeled loop: identifier: while/for
+    if (check(p, TOK_IDENT)) {
+        // Look ahead to see if this is a labeled loop
+        Token saved_current = p->current;
+        Token saved_previous = p->previous;
+        Token saved_next = p->next;
+        const char *saved_lexer_start = p->lexer->start;
+        const char *saved_lexer_current = p->lexer->current;
+        const char *saved_lexer_line_start = p->lexer->line_start;
+        int saved_lexer_line = p->lexer->line;
+
+        advance(p);  // consume identifier
+        if (check(p, TOK_COLON)) {
+            advance(p);  // consume colon
+            if (check(p, TOK_WHILE) || check(p, TOK_LOOP) || check(p, TOK_FOR)) {
+                // This is a labeled loop
+                char *label = token_text(&saved_current);
+                if (match(p, TOK_WHILE)) {
+                    Stmt *stmt = while_statement_with_label(p, label);
+                    free(label);
+                    return stmt;
+                } else if (match(p, TOK_LOOP)) {
+                    Stmt *stmt = loop_statement_with_label(p, label);
+                    free(label);
+                    return stmt;
+                } else if (match(p, TOK_FOR)) {
+                    Stmt *stmt = for_statement_with_label(p, label);
+                    free(label);
+                    return stmt;
+                }
+                free(label);
+            }
+        }
+        // Not a labeled loop, restore state
+        p->current = saved_current;
+        p->previous = saved_previous;
+        p->next = saved_next;
+        p->lexer->start = saved_lexer_start;
+        p->lexer->current = saved_lexer_current;
+        p->lexer->line_start = saved_lexer_line_start;
+        p->lexer->line = saved_lexer_line;
+    }
+
     if (match(p, TOK_WHILE)) {
         return while_statement(p);
+    }
+
+    if (match(p, TOK_LOOP)) {
+        return loop_statement(p);
     }
 
     if (match(p, TOK_FOR)) {
@@ -933,11 +1030,29 @@ not_function:
     }
 
     if (match(p, TOK_BREAK)) {
+        // Check for optional label
+        if (check(p, TOK_IDENT)) {
+            advance(p);
+            char *label = token_text(&p->previous);
+            consume(p, TOK_SEMICOLON, "Expect ';' after 'break'");
+            Stmt *stmt = stmt_break_labeled(label);
+            free(label);
+            return stmt;
+        }
         consume(p, TOK_SEMICOLON, "Expect ';' after 'break'");
         return stmt_break();
     }
 
     if (match(p, TOK_CONTINUE)) {
+        // Check for optional label
+        if (check(p, TOK_IDENT)) {
+            advance(p);
+            char *label = token_text(&p->previous);
+            consume(p, TOK_SEMICOLON, "Expect ';' after 'continue'");
+            Stmt *stmt = stmt_continue_labeled(label);
+            free(label);
+            return stmt;
+        }
         consume(p, TOK_SEMICOLON, "Expect ';' after 'continue'");
         return stmt_continue();
     }

@@ -1,0 +1,81 @@
+// Test null coalescing assignment operator (??=)
+
+// Basic variable assignment - null case
+let a = null;
+a ??= "default";
+print(a);
+
+// Variable assignment - non-null case (should NOT change)
+let b = "original";
+b ??= "default";
+print(b);
+
+// With numbers - null case
+let c = null;
+c ??= 42;
+print(c);
+
+// With numbers - non-null case
+let d = 100;
+d ??= 42;
+print(d);
+
+// Zero is not null - should NOT change
+let zero = 0;
+zero ??= 999;
+print(zero);
+
+// False is not null - should NOT change
+let falsy = false;
+falsy ??= true;
+print(falsy);
+
+// Empty string is not null - should NOT change
+let empty = "";
+empty ??= "default";
+print(empty);
+print(empty == "");
+
+// Object property assignment - null case
+let obj = { name: null };
+obj.name ??= "Anonymous";
+print(obj.name);
+
+// Object property assignment - non-null case
+let obj2 = { name: "Alice" };
+obj2.name ??= "Anonymous";
+print(obj2.name);
+
+// Array index assignment - null case
+let arr = [null, "second"];
+arr[0] ??= "first";
+print(arr[0]);
+
+// Array index assignment - non-null case
+let arr2 = ["original", "second"];
+arr2[0] ??= "first";
+print(arr2[0]);
+
+// Chained property assignment
+let config = { settings: { timeout: null } };
+config.settings.timeout ??= 30;
+print(config.settings.timeout);
+
+// Multiple assignments in sequence
+let x = null;
+let y = null;
+x ??= y ??= 100;
+print(x);
+print(y);
+
+// Assignment with expression on right side
+let val = null;
+val ??= 10 + 20;
+print(val);
+
+// Non-null assignment with expression (should NOT evaluate RHS)
+let val2 = 5;
+val2 ??= 10 + 20;
+print(val2);
+
+print("done");

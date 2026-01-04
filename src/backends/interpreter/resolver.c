@@ -378,6 +378,15 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             break;
         }
 
+        case STMT_LOOP: {
+            // Loop statement creates ONE scope at runtime (iter_env for body).
+            // Enter scope for body (matches iter_env at runtime)
+            resolver_enter_scope(ctx);
+            resolve_stmt_internal(ctx, stmt->as.loop_stmt.body);
+            resolver_exit_scope(ctx);
+            break;
+        }
+
         case STMT_FOR: {
             // For loop creates TWO scopes at runtime:
             // 1. loop_env: holds the loop variable (e.g., i)

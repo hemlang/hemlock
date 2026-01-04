@@ -1,0 +1,7 @@
+1. Variable compound type: Alice, 30
+2. Param compound type: Hello Bob, age 25
+3. Three types: Carol (carol@test.com) is 35
+4. Extra fields allowed: Dave
+5. Nested function: Eve <eve@test.com>
+6. Anonymous fn: Frank is 45 years old
+All compound duck type tests passed!

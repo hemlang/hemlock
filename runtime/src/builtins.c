@@ -2423,6 +2423,73 @@ HmlValue hml_builtin_talloc(HmlClosureEnv *env, HmlValue type_name, HmlValue cou
 
 // ========== OBJECT OPERATIONS ==========
 
+// DJB2 hash function - fast and good distribution for field names
+static uint32_t djb2_hash(const char *str) {
+    uint32_t hash = 5381;  // HML_DJB2_HASH_SEED
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+    return hash;
+}
+
+// Rebuild hash table for object (called after adding fields or on first lookup)
+static void object_hash_rebuild(HmlObject *obj) {
+    // Free existing hash table
+    free(obj->hash_table);
+
+    // Create hash table with 2x capacity for good load factor
+    int new_capacity = obj->num_fields < 4 ? 8 : obj->num_fields * 2;
+    obj->hash_table = malloc(sizeof(int) * new_capacity);
+    obj->hash_capacity = new_capacity;
+
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < new_capacity; i++) {
+        obj->hash_table[i] = -1;
+    }
+
+    // Rehash all existing fields
+    for (int i = 0; i < obj->num_fields; i++) {
+        uint32_t hash = djb2_hash(obj->field_names[i]);
+        int slot = hash % new_capacity;
+
+        // Linear probing to find empty slot
+        while (obj->hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        obj->hash_table[slot] = i;
+    }
+}
+
+// Look up field index by name using hash table, returns -1 if not found
+static int object_lookup_field(HmlObject *obj, const char *name) {
+    // Lazy hash table creation: if no hash table and we have fields, build it
+    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
+        object_hash_rebuild(obj);
+    }
+
+    if (!obj->hash_table || obj->hash_capacity == 0) {
+        return -1;  // Empty object
+    }
+
+    uint32_t hash = djb2_hash(name);
+    int slot = hash % obj->hash_capacity;
+    int start_slot = slot;
+
+    // Linear probing
+    while (obj->hash_table[slot] != -1) {
+        int idx = obj->hash_table[slot];
+        if (strcmp(obj->field_names[idx], name) == 0) {
+            return idx;  // Found
+        }
+        slot = (slot + 1) % obj->hash_capacity;
+        if (slot == start_slot) {
+            break;  // Full circle, not found
+        }
+    }
+    return -1;  // Not found
+}
+
 HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
         hml_runtime_error("Property access requires object (trying to get '%s' from type %s)",
@@ -2430,12 +2497,11 @@ HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            HmlValue result = o->field_values[i];
-            hml_retain(&result);
-            return result;
-        }
+    int idx = object_lookup_field(o, field);
+    if (idx >= 0) {
+        HmlValue result = o->field_values[idx];
+        hml_retain(&result);
+        return result;
     }
 
     return hml_val_null();  // Field not found
@@ -2449,12 +2515,11 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            HmlValue result = o->field_values[i];
-            hml_retain(&result);
-            return result;
-        }
+    int idx = object_lookup_field(o, field);
+    if (idx >= 0) {
+        HmlValue result = o->field_values[idx];
+        hml_retain(&result);
+        return result;
     }
 
     hml_runtime_error("Object has no field '%s' (use ?. for optional access)", field);
@@ -2468,14 +2533,13 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
 
     HmlObject *o = obj.as.as_object;
 
-    // Check if field exists
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            hml_release(&o->field_values[i]);
-            o->field_values[i] = val;
-            hml_retain(&o->field_values[i]);
-            return;
-        }
+    // Check if field exists using hash lookup
+    int idx = object_lookup_field(o, field);
+    if (idx >= 0) {
+        hml_release(&o->field_values[idx]);
+        o->field_values[idx] = val;
+        hml_retain(&o->field_values[idx]);
+        return;
     }
 
     // Add new field
@@ -2490,6 +2554,11 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
     o->field_values[o->num_fields] = val;
     hml_retain(&o->field_values[o->num_fields]);
     o->num_fields++;
+
+    // Invalidate hash table - will be rebuilt on next lookup
+    free(o->hash_table);
+    o->hash_table = NULL;
+    o->hash_capacity = 0;
 }
 
 int hml_object_has_field(HmlValue obj, const char *field) {
@@ -2498,12 +2567,7 @@ int hml_object_has_field(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            return 1;
-        }
-    }
-    return 0;
+    return object_lookup_field(o, field) >= 0;
 }
 
 // Delete a field from object, returns 1 if deleted, 0 if not found
@@ -2513,15 +2577,7 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    int found_index = -1;
-
-    // Find the field
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            found_index = i;
-            break;
-        }
-    }
+    int found_index = object_lookup_field(o, field);
 
     if (found_index == -1) {
         return 0;  // Not found
@@ -2538,6 +2594,12 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
     }
 
     o->num_fields--;
+
+    // Invalidate hash table - will be rebuilt on next lookup
+    free(o->hash_table);
+    o->hash_table = NULL;
+    o->hash_capacity = 0;
+
     return 1;  // Deleted
 }
 
@@ -2882,6 +2944,85 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
     }
 
     hml_runtime_error("Cannot call non-function value (type: %s)", hml_typeof_str(fn));
+}
+
+// Call a function with named arguments - reorders args to match parameter names
+HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_names, int num_args) {
+    // If no named arguments or not a function, fall back to regular call
+    if (arg_names == NULL || fn.type != HML_VAL_FUNCTION) {
+        return hml_call_function(fn, args, num_args);
+    }
+
+    HmlFunction *func = fn.as.as_function;
+
+    // Check if function has parameter names
+    if (func->param_names == NULL) {
+        hml_runtime_error("Cannot use named arguments with function '%s' (no parameter info)",
+                         func->name ? func->name : "<anonymous>");
+    }
+
+    // Allocate reordered args array
+    HmlValue reordered[8];  // Stack allocation for up to 8 params
+    HmlValue *reordered_args = (func->num_params <= 8) ? reordered : malloc(sizeof(HmlValue) * func->num_params);
+
+    // Initialize to null
+    for (int i = 0; i < func->num_params; i++) {
+        reordered_args[i] = HML_NULL_VAL;
+    }
+
+    // Track which args have been used
+    int used[8] = {0};  // Assumes max 8 args for simplicity
+    int *arg_used = (num_args <= 8) ? used : calloc(num_args, sizeof(int));
+
+    // First pass: place named arguments
+    for (int i = 0; i < num_args; i++) {
+        if (arg_names[i] != NULL) {
+            // Find the parameter with this name
+            int found = 0;
+            for (int j = 0; j < func->num_params; j++) {
+                if (func->param_names[j] && strcmp(func->param_names[j], arg_names[i]) == 0) {
+                    if (reordered_args[j].type != HML_VAL_NULL) {
+                        if (reordered_args != reordered) free(reordered_args);
+                        if (arg_used != used) free(arg_used);
+                        hml_runtime_error("Duplicate argument for parameter '%s'", func->param_names[j]);
+                    }
+                    reordered_args[j] = args[i];
+                    arg_used[i] = 1;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                if (reordered_args != reordered) free(reordered_args);
+                if (arg_used != used) free(arg_used);
+                hml_runtime_error("Unknown parameter name '%s'", arg_names[i]);
+            }
+        }
+    }
+
+    // Second pass: place positional arguments in remaining slots
+    int next_slot = 0;
+    for (int i = 0; i < num_args; i++) {
+        if (!arg_used[i]) {
+            // Find next unfilled slot
+            while (next_slot < func->num_params && reordered_args[next_slot].type != HML_VAL_NULL) {
+                next_slot++;
+            }
+            if (next_slot < func->num_params) {
+                reordered_args[next_slot] = args[i];
+                next_slot++;
+            }
+        }
+    }
+
+    if (arg_used != used) free(arg_used);
+
+    // Call with reordered args
+    HmlValue result = hml_call_function(fn, reordered_args, func->num_params);
+
+    if (reordered_args != reordered) free(reordered_args);
+
+    return result;
 }
 
 // Thread-local self for method calls

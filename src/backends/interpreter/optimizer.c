@@ -719,6 +719,10 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
             optimize_stmt_internal(stmt->as.while_stmt.body, stats);
             break;
 
+        case STMT_LOOP:
+            optimize_stmt_internal(stmt->as.loop_stmt.body, stats);
+            break;
+
         case STMT_FOR:
             if (stmt->as.for_loop.initializer) {
                 optimize_stmt_internal(stmt->as.for_loop.initializer, stats);

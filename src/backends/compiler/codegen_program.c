@@ -340,9 +340,26 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
             int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
             int has_rest = func->as.function.rest_param ? 1 : 0;
-            codegen_writeln(ctx, "%s = hml_val_function_rest_named((void*)%sfn_%s, %d, %d, %d, %d, \"%s\");",
-                          mangled, module->module_prefix, name,
-                          func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name);
+
+            // Generate parameter names array for named argument support
+            if (func->as.function.num_params > 0) {
+                int param_names_counter = ctx->temp_counter++;
+                codegen_writeln(ctx, "const char *_param_names%d[%d] = {", param_names_counter, func->as.function.num_params);
+                for (int i = 0; i < func->as.function.num_params; i++) {
+                    codegen_write(ctx, "\"%s\"", func->as.function.param_names[i]);
+                    if (i < func->as.function.num_params - 1) {
+                        codegen_write(ctx, ", ");
+                    }
+                }
+                codegen_writeln(ctx, "};");
+                codegen_writeln(ctx, "%s = hml_val_function_with_params((void*)%sfn_%s, %d, %d, %d, %d, \"%s\", _param_names%d);",
+                              mangled, module->module_prefix, name,
+                              func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name, param_names_counter);
+            } else {
+                codegen_writeln(ctx, "%s = hml_val_function_rest_named((void*)%sfn_%s, %d, %d, %d, %d, \"%s\");",
+                              mangled, module->module_prefix, name,
+                              func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name);
+            }
         } else if (stmt->type == STMT_LET && stmt->as.let.value) {
             // Non-function let statement - assign to module global
             char mangled[CODEGEN_MANGLED_NAME_SIZE];
@@ -862,6 +879,18 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     stmt->as.let.type_annotation->type_name) {
                     codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
                                   stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                } else if (stmt->as.let.type_annotation &&
+                           stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
+                    // Compound type: validate against each constituent type
+                    Type *compound = stmt->as.let.type_annotation;
+                    codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
+                    for (int i = 0; i < compound->num_compound_types; i++) {
+                        Type *constituent = compound->compound_types[i];
+                        if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
+                            codegen_writeln(ctx, "_main_%s = hml_validate_object_type(_main_%s, \"%s\");",
+                                          stmt->as.let.name, stmt->as.let.name, constituent->type_name);
+                        }
+                    }
                 } else if (stmt->as.let.type_annotation) {
                     // Handle type annotations
                     if (stmt->as.let.type_annotation->kind == TYPE_ARRAY) {

@@ -1,0 +1,71 @@
+// Test the loop keyword (infinite loop)
+
+// Basic loop with break
+print("Test 1: basic loop");
+let i = 0;
+loop {
+    if (i >= 3) { break; }
+    print(i);
+    i = i + 1;
+}
+print("after");
+
+// Loop with continue
+print("Test 2: continue");
+let j = 0;
+loop {
+    j = j + 1;
+    if (j > 5) { break; }
+    if (j == 3) { continue; }
+    print(j);
+}
+print("after");
+
+// Nested loops
+print("Test 3: nested");
+let a = 0;
+loop {
+    if (a >= 2) { break; }
+    let b = 0;
+    loop {
+        if (b >= 3) { break; }
+        print(a * 10 + b);
+        b = b + 1;
+    }
+    a = a + 1;
+}
+print("after");
+
+// Labeled loop with break
+print("Test 4: labeled break");
+let x = 0;
+outer: loop {
+    let y = 0;
+    loop {
+        if (x == 1 && y == 1) { break outer; }
+        print(x * 10 + y);
+        y = y + 1;
+        if (y >= 3) { break; }
+    }
+    x = x + 1;
+    if (x >= 3) { break; }
+}
+print("after");
+
+// Labeled loop with continue
+print("Test 5: labeled continue");
+let m = 0;
+outer: loop {
+    m = m + 1;
+    if (m > 3) { break; }
+    let n = 0;
+    loop {
+        n = n + 1;
+        if (n > 3) { break; }
+        if (m == 2 && n == 1) { continue outer; }
+        print(m * 10 + n);
+    }
+}
+print("after");
+
+print("done");

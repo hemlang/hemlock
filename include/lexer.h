@@ -21,6 +21,7 @@ typedef enum {
     TOK_IF,
     TOK_ELSE,
     TOK_WHILE,
+    TOK_LOOP,
     TOK_FOR,
     TOK_IN,
     TOK_BREAK,
@@ -107,6 +108,7 @@ typedef enum {
     TOK_GREATER_GREATER,
     TOK_QUESTION_DOT,        // ?.
     TOK_QUESTION_QUESTION,   // ??
+    TOK_QUESTION_QUESTION_EQUAL, // ??=
 
     // Punctuation
     TOK_SEMICOLON,

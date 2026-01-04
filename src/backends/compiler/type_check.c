@@ -78,6 +78,23 @@ CheckedType* checked_type_clone(const CheckedType *type) {
             clone->param_types[i] = checked_type_clone(type->param_types[i]);
         }
     }
+    // Clone type arguments (for generic types like Stack<i32>)
+    clone->num_type_args = type->num_type_args;
+    if (type->num_type_args > 0 && type->type_args) {
+        clone->type_args = calloc(type->num_type_args, sizeof(CheckedType*));
+        for (int i = 0; i < type->num_type_args; i++) {
+            clone->type_args[i] = checked_type_clone(type->type_args[i]);
+        }
+    }
+
+    // Clone compound types
+    clone->num_compound_types = type->num_compound_types;
+    if (type->num_compound_types > 0 && type->compound_types) {
+        clone->compound_types = calloc(type->num_compound_types, sizeof(CheckedType*));
+        for (int i = 0; i < type->num_compound_types; i++) {
+            clone->compound_types[i] = checked_type_clone(type->compound_types[i]);
+        }
+    }
 
     return clone;
 }
@@ -92,6 +109,20 @@ void checked_type_free(CheckedType *type) {
             checked_type_free(type->param_types[i]);
         }
         free(type->param_types);
+    }
+    // Free compound types
+    if (type->compound_types) {
+        for (int i = 0; i < type->num_compound_types; i++) {
+            checked_type_free(type->compound_types[i]);
+        }
+        free(type->compound_types);
+    }
+    // Free type arguments (for generic types)
+    if (type->type_args) {
+        for (int i = 0; i < type->num_type_args; i++) {
+            checked_type_free(type->type_args[i]);
+        }
+        free(type->type_args);
     }
     free(type);
 }
@@ -131,12 +162,36 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
             if (ast_type->type_name) {
                 type->type_name = strdup(ast_type->type_name);
             }
+            // Handle type arguments for generic types (e.g., Stack<i32>)
+            if (ast_type->num_type_args > 0) {
+                type->num_type_args = ast_type->num_type_args;
+                type->type_args = calloc(ast_type->num_type_args, sizeof(CheckedType*));
+                for (int i = 0; i < ast_type->num_type_args; i++) {
+                    type->type_args[i] = checked_type_from_ast(ast_type->type_args[i]);
+                }
+            }
             break;
         case TYPE_GENERIC_OBJECT:
             type->kind = CHECKED_OBJECT;
             break;
         case TYPE_ENUM:
             type->kind = CHECKED_ENUM;
+            if (ast_type->type_name) {
+                type->type_name = strdup(ast_type->type_name);
+            }
+            break;
+        case TYPE_COMPOUND:
+            type->kind = CHECKED_COMPOUND;
+            type->num_compound_types = ast_type->num_compound_types;
+            if (ast_type->num_compound_types > 0 && ast_type->compound_types) {
+                type->compound_types = calloc(ast_type->num_compound_types, sizeof(CheckedType*));
+                for (int i = 0; i < ast_type->num_compound_types; i++) {
+                    type->compound_types[i] = checked_type_from_ast(ast_type->compound_types[i]);
+                }
+            }
+            break;
+        case TYPE_PARAM:
+            type->kind = CHECKED_PARAM;
             if (ast_type->type_name) {
                 type->type_name = strdup(ast_type->type_name);
             }
@@ -183,6 +238,8 @@ const char* checked_type_kind_name(CheckedTypeKind kind) {
         case CHECKED_ANY:     return "any";
         case CHECKED_NUMERIC: return "numeric";
         case CHECKED_INTEGER: return "integer";
+        case CHECKED_COMPOUND: return "compound";
+        case CHECKED_PARAM:   return "type parameter";
         default:              return "unknown";
     }
 }
@@ -221,6 +278,28 @@ const char* checked_type_name(CheckedType *type) {
     if (type->kind == CHECKED_ENUM && type->type_name) {
         snprintf(buffer, TYPE_NAME_BUFSIZE, "%s%s",
                  type->type_name, type->nullable ? "?" : "");
+        return buffer;
+    }
+
+    if (type->kind == CHECKED_COMPOUND && type->compound_types && type->num_compound_types > 0) {
+        // Build "A & B & C" format
+        char *pos = buffer;
+        int remaining = TYPE_NAME_BUFSIZE;
+        for (int i = 0; i < type->num_compound_types; i++) {
+            const char *name = checked_type_name(type->compound_types[i]);
+            int written;
+            if (i == 0) {
+                written = snprintf(pos, remaining, "%s", name);
+            } else {
+                written = snprintf(pos, remaining, " & %s", name);
+            }
+            if (written >= remaining) break;
+            pos += written;
+            remaining -= written;
+        }
+        if (type->nullable && remaining > 1) {
+            snprintf(pos, remaining, "?");
+        }
         return buffer;
     }
 
@@ -445,11 +524,23 @@ FunctionSig* type_check_lookup_function(TypeCheckContext *ctx, const char *name)
 // ========== OBJECT DEFINITION REGISTRATION ==========
 
 void type_check_register_object(TypeCheckContext *ctx, const char *name,
+                                char **type_params, int num_type_params,
                                 char **field_names, CheckedType **field_types,
                                 int *field_optional, int num_fields) {
     ObjectDef *def = calloc(1, sizeof(ObjectDef));
     def->name = strdup(name);
     def->num_fields = num_fields;
+
+    // Copy type parameters (for generic types)
+    def->num_type_params = num_type_params;
+    if (num_type_params > 0) {
+        def->type_params = calloc(num_type_params, sizeof(char*));
+        for (int i = 0; i < num_type_params; i++) {
+            def->type_params[i] = strdup(type_params[i]);
+        }
+    } else {
+        def->type_params = NULL;
+    }
 
     if (num_fields > 0) {
         def->field_names = calloc(num_fields, sizeof(char*));
@@ -619,6 +710,29 @@ int type_is_assignable(CheckedType *to, CheckedType *from) {
         if (to->type_name && from->type_name) {
             return strcmp(to->type_name, from->type_name) == 0;
         }
+    }
+
+    // Compound type handling (A & B & C)
+    // For a value to be assigned to a compound type, it must satisfy ALL constituent types
+    if (to->kind == CHECKED_COMPOUND) {
+        // Check that 'from' is assignable to each constituent type
+        for (int i = 0; i < to->num_compound_types; i++) {
+            if (!type_is_assignable(to->compound_types[i], from)) {
+                return 0;  // Must satisfy all types
+            }
+        }
+        return 1;
+    }
+
+    // A compound source can be assigned to a single target if any constituent matches
+    if (from->kind == CHECKED_COMPOUND) {
+        // Check if any constituent type can be assigned to 'to'
+        for (int i = 0; i < from->num_compound_types; i++) {
+            if (type_is_assignable(to, from->compound_types[i])) {
+                return 1;  // At least one constituent satisfies target
+            }
+        }
+        return 0;
     }
 
     return 0;
@@ -1487,7 +1601,9 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
 
             // Check type compatibility
             CheckedType *var_type = type_check_lookup(ctx, expr->as.assign.name);
-            if (var_type && var_type->kind != CHECKED_ANY) {
+            // Variables initialized with null (and no type annotation) are dynamically typed
+            // and can accept any value on reassignment - this supports ??= patterns
+            if (var_type && var_type->kind != CHECKED_ANY && var_type->kind != CHECKED_NULL) {
                 CheckedType *val_type = type_check_infer_expr(ctx, expr->as.assign.value);
                 if (!type_is_assignable(var_type, val_type)) {
                     type_error(ctx, expr->line,
@@ -1776,6 +1892,10 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             type_check_stmt(ctx, stmt->as.while_stmt.body);
             break;
 
+        case STMT_LOOP:
+            type_check_stmt(ctx, stmt->as.loop_stmt.body);
+            break;
+
         case STMT_FOR:
             type_check_push_scope(ctx);
             if (stmt->as.for_loop.initializer) {
@@ -1864,6 +1984,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 }
             }
             type_check_register_object(ctx, stmt->as.define_object.name,
+                stmt->as.define_object.type_params, stmt->as.define_object.num_type_params,
                 stmt->as.define_object.field_names, field_types,
                 stmt->as.define_object.field_optional,
                 stmt->as.define_object.num_fields);
@@ -2032,6 +2153,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                 }
             }
             type_check_register_object(ctx, stmt->as.define_object.name,
+                stmt->as.define_object.type_params, stmt->as.define_object.num_type_params,
                 stmt->as.define_object.field_names, field_types,
                 stmt->as.define_object.field_optional,
                 stmt->as.define_object.num_fields);
@@ -2331,6 +2453,9 @@ static int variable_escapes_in_stmt_internal(Stmt *stmt, const char *var_name) {
         case STMT_WHILE:
             return variable_escapes_in_expr_internal(stmt->as.while_stmt.condition, var_name) ||
                    variable_escapes_in_stmt_internal(stmt->as.while_stmt.body, var_name);
+
+        case STMT_LOOP:
+            return variable_escapes_in_stmt_internal(stmt->as.loop_stmt.body, var_name);
 
         case STMT_FOR:
             return (stmt->as.for_loop.initializer && variable_escapes_in_stmt_internal(stmt->as.for_loop.initializer, var_name)) ||
@@ -2769,6 +2894,9 @@ static int has_incompatible_assignment_stmt(Stmt *stmt, const char *var_name) {
             return has_incompatible_assignment_expr(stmt->as.while_stmt.condition, var_name) ||
                    has_incompatible_assignment_stmt(stmt->as.while_stmt.body, var_name);
 
+        case STMT_LOOP:
+            return has_incompatible_assignment_stmt(stmt->as.loop_stmt.body, var_name);
+
         case STMT_FOR:
             return (stmt->as.for_loop.initializer && has_incompatible_assignment_stmt(stmt->as.for_loop.initializer, var_name)) ||
                    (stmt->as.for_loop.condition && has_incompatible_assignment_expr(stmt->as.for_loop.condition, var_name)) ||
@@ -3034,6 +3162,7 @@ static int stmt_is_tail_recursive(Stmt *stmt, const char *func_name) {
             return 1;
 
         case STMT_WHILE:
+        case STMT_LOOP:
         case STMT_FOR:
         case STMT_FOR_IN:
             // Loops are not compatible with tail call optimization

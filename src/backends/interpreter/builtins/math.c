@@ -289,7 +289,7 @@ Value builtin_div(Value *args, int num_args, ExecutionContext *ctx) {
         fprintf(stderr, "Runtime error: Division by zero\n");
         exit(1);
     }
-    return val_f64(floor(a / b));
+    return val_f64(a / b);
 }
 
 Value builtin_divi(Value *args, int num_args, ExecutionContext *ctx) {

@@ -45,7 +45,9 @@ Hemlock is a **systems scripting language** with manual memory management and ex
 - `{}` blocks always required
 - Comments: `// line` and `/* block */`
 - Operators match C: `+`, `-`, `*`, `%`, `&&`, `||`, `!`, `&`, `|`, `^`, `<<`, `>>`
-- `/` always returns float (use `div()` or `divi()` for floor division)
+- Increment/decrement: `++x`, `x++`, `--x`, `x--` (prefix and postfix)
+- Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`
+- `/` always returns float (use `divi()` for integer division)
 - Type syntax: `let x: type = value;`
 
 ---
@@ -111,6 +113,16 @@ let f: f64 = 100;        // i32 to f64 via annotation (numeric coercion OK)
 // let n: i32 = "42";    // ERROR - use i32("42") for string parsing
 ```
 
+### Introspection
+```hemlock
+typeof(42);              // "i32"
+typeof("hello");         // "string"
+typeof([1, 2, 3]);       // "array"
+typeof(null);            // "null"
+len("hello");            // 5 (string length in bytes)
+len([1, 2, 3]);          // 3 (array length)
+```
+
 ### Memory
 ```hemlock
 let p = alloc(64);       // raw pointer
@@ -124,10 +136,31 @@ free(p);                 // manual cleanup required
 ```hemlock
 if (x > 0) { } else if (x < 0) { } else { }
 while (cond) { break; continue; }
-for (let i = 0; i < 10; i = i + 1) { }
+for (let i = 0; i < 10; i++) { }
 for (item in array) { }
-switch (x) { case 1: break; default: break; }
+switch (x) { case 1: break; default: break; }  // C-style fall-through
 defer cleanup();         // runs when function returns
+```
+
+### Null Coalescing Operators
+```hemlock
+// Null coalescing (??) - returns left if non-null, else right
+let name = user.name ?? "Anonymous";
+let first = a ?? b ?? c ?? "fallback";
+
+// Null coalescing assignment (??=) - assigns only if null
+let config = null;
+config ??= { timeout: 30 };    // config is now { timeout: 30 }
+config ??= { timeout: 60 };    // config unchanged (not null)
+
+// Works with properties and indices
+obj.field ??= "default";
+arr[0] ??= "first";
+
+// Safe navigation (?.) - returns null if object is null
+let city = user?.address?.city;  // null if any part is null
+let upper = name?.to_upper();    // safe method call
+let item = arr?.[0];             // safe indexing
 ```
 
 ### Functions
@@ -136,6 +169,35 @@ fn add(a: i32, b: i32): i32 { return a + b; }
 fn greet(name: string, msg?: "Hello") { print(msg + " " + name); }
 let f = fn(x) { return x * 2; };  // anonymous/closure
 ```
+
+### Named Arguments
+```hemlock
+// Functions can be called with named arguments
+fn create_user(name: string, age?: 18, active?: true) {
+    print(name + " is " + age + " years old");
+}
+
+// Positional arguments (traditional)
+create_user("Alice", 25, false);
+
+// Named arguments - can be in any order
+create_user(name: "Bob", age: 30);
+create_user(age: 25, name: "Charlie", active: false);
+
+// Skip optional parameters by naming what you need
+create_user("David", active: false);  // Uses default age=18
+
+// Named arguments must come after positional arguments
+create_user("Eve", age: 21);          // OK: positional then named
+// create_user(name: "Bad", 25);      // ERROR: positional after named
+```
+
+**Rules:**
+- Named arguments use `name: value` syntax
+- Can appear in any order after positional arguments
+- Positional arguments cannot follow named arguments
+- Works with default/optional parameters
+- Unknown parameter names cause runtime errors
 
 ### Objects & Enums
 ```hemlock
@@ -147,6 +209,37 @@ let restored = json.deserialize();
 enum Color { RED, GREEN, BLUE }
 enum Status { OK = 0, ERROR = 1 }
 ```
+
+### Compound Types (Intersection/Duck Types)
+```hemlock
+// Define structural types
+define HasName { name: string }
+define HasAge { age: i32 }
+define HasEmail { email: string }
+
+// Compound type: object must satisfy ALL types
+let person: HasName & HasAge = { name: "Alice", age: 30 };
+
+// Function parameters with compound types
+fn greet(p: HasName & HasAge) {
+    print(p.name + " is " + p.age);
+}
+
+// Three or more types
+fn describe(p: HasName & HasAge & HasEmail) {
+    print(p.name + " <" + p.email + ">");
+}
+
+// Extra fields allowed (duck typing)
+let employee: HasName & HasAge = {
+    name: "Bob",
+    age: 25,
+    department: "Engineering"  // OK - extra fields ignored
+};
+```
+
+Compound types provide interface-like behavior without a separate `interface` keyword,
+building on the existing `define` and duck typing paradigms.
 
 ### Error Handling
 ```hemlock
@@ -166,6 +259,8 @@ ch.send(value);
 let val = ch.recv();
 ch.close();
 ```
+
+**Memory ownership:** Tasks receive copies of primitive values but share pointers. If you pass a `ptr` to a spawned task, you must ensure the memory remains valid until the task completes. Use `join()` before `free()`, or use channels to signal completion.
 
 ### User Input
 ```hemlock
@@ -205,6 +300,8 @@ raise(SIGUSR1);
 `byte_at`, `chars`, `bytes`, `to_bytes`, `deserialize`
 
 Template strings: `` `Hello ${name}!` ``
+
+**String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings without modifying the original. This allows in-place mutation when needed while keeping method chaining functional.
 
 ## Array Methods (18)
 
@@ -567,7 +664,10 @@ make parity
 
 ## Version
 
-**v1.6.7** - Current release with:
+**v1.6.8** - Current release with:
+- **Compound duck types** (`A & B & C`) - intersection types for structural typing
+- **Named arguments** for function calls (`foo(name: "value", age: 30)`)
+- **Null coalescing operators** (`??`, `??=`, `?.`) for safe null handling
 - **Octal literals** (`0o777`, `0O123`)
 - **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
 - **Block comments** (`/* ... */`)
@@ -576,7 +676,8 @@ make parity
 - **Float literals without leading zero** (`.5`, `.123`, `.5e2`)
 - **Compile-time type checking** in hemlockc (enabled by default)
 - **LSP integration** with type checking for real-time diagnostics
-- **Compound bitwise operators** (`&=`, `|=`, `^=`, `<<=`, `>>=`, `%=`)
+- **Compound assignment operators** (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
+- **Increment/decrement operators** (`++x`, `x++`, `--x`, `x--`)
 - **Type precision fix**: i64/u64 + f32 → f64 to preserve precision
 - Unified type system with unboxing optimization hints
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
@@ -597,7 +698,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 121 parity tests (100% pass rate)
+- 131 parity tests (100% pass rate)
 
 ---
 

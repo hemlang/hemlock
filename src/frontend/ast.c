@@ -107,14 +107,19 @@ Expr* expr_ternary(Expr *condition, Expr *true_expr, Expr *false_expr) {
     return expr;
 }
 
-Expr* expr_call(Expr *func, Expr **args, int num_args) {
+Expr* expr_call(Expr *func, Expr **args, char **arg_names, int num_args) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_CALL;
     expr->line = 0;
     expr->column = 0;
     expr->as.call.func = func;
     expr->as.call.args = args;
+    expr->as.call.arg_names = arg_names;
     expr->as.call.num_args = num_args;
+    // Initialize inline cache for method dispatch
+    expr->as.call.ic.cached_receiver_type = 0;
+    expr->as.call.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.call.ic.miss_count = 0;
     return expr;
 }
 
@@ -138,6 +143,12 @@ Expr* expr_get_property(Expr *object, const char *property) {
     expr->column = 0;
     expr->as.get_property.object = object;
     expr->as.get_property.property = strdup(property);
+    // Initialize inline cache for property access
+    expr->as.get_property.ic.cached_object = NULL;
+    expr->as.get_property.ic.cached_field_index = -1;
+    expr->as.get_property.ic.cached_hash = 0;
+    expr->as.get_property.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.get_property.ic.miss_count = 0;
     return expr;
 }
 
@@ -277,6 +288,7 @@ Expr* expr_optional_chain_property(Expr *object, const char *property) {
     expr->as.optional_chain.property = strdup(property);
     expr->as.optional_chain.index = NULL;
     expr->as.optional_chain.args = NULL;
+    expr->as.optional_chain.arg_names = NULL;
     expr->as.optional_chain.num_args = 0;
     expr->as.optional_chain.is_property = 1;
     expr->as.optional_chain.is_call = 0;
@@ -292,13 +304,14 @@ Expr* expr_optional_chain_index(Expr *object, Expr *index) {
     expr->as.optional_chain.property = NULL;
     expr->as.optional_chain.index = index;
     expr->as.optional_chain.args = NULL;
+    expr->as.optional_chain.arg_names = NULL;
     expr->as.optional_chain.num_args = 0;
     expr->as.optional_chain.is_property = 0;
     expr->as.optional_chain.is_call = 0;
     return expr;
 }
 
-Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args) {
+Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int num_args) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OPTIONAL_CHAIN;
     expr->line = 0;
@@ -307,6 +320,7 @@ Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args) {
     expr->as.optional_chain.property = NULL;
     expr->as.optional_chain.index = NULL;
     expr->as.optional_chain.args = args;
+    expr->as.optional_chain.arg_names = arg_names;
     expr->as.optional_chain.num_args = num_args;
     expr->as.optional_chain.is_property = 0;
     expr->as.optional_chain.is_call = 1;
@@ -331,6 +345,23 @@ Type* type_new(TypeKind kind) {
     type->type_name = NULL;
     type->element_type = NULL;
     type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
+    type->type_args = NULL;
+    type->num_type_args = 0;
+    return type;
+}
+
+Type* type_compound(Type **types, int num_types) {
+    Type *type = malloc(sizeof(Type));
+    type->kind = TYPE_COMPOUND;
+    type->type_name = NULL;
+    type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = types;
+    type->num_compound_types = num_types;
+    type->type_args = NULL;
+    type->num_type_args = 0;
     return type;
 }
 
@@ -341,6 +372,20 @@ void type_free(Type *type) {
         }
         if (type->element_type) {
             type_free(type->element_type);
+        }
+        // Free compound types
+        if (type->compound_types) {
+            for (int i = 0; i < type->num_compound_types; i++) {
+                type_free(type->compound_types[i]);
+            }
+            free(type->compound_types);
+        }
+        // Free type arguments (for generic types like Stack<i32>)
+        if (type->type_args) {
+            for (int i = 0; i < type->num_type_args; i++) {
+                type_free(type->type_args[i]);
+            }
+            free(type->type_args);
         }
         free(type);
     }
@@ -390,20 +435,44 @@ Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
 }
 
 Stmt* stmt_while(Expr *condition, Stmt *body) {
+    return stmt_while_labeled(NULL, condition, body);
+}
+
+Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_WHILE;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.while_stmt.label = label ? strdup(label) : NULL;
     stmt->as.while_stmt.condition = condition;
     stmt->as.while_stmt.body = body;
     return stmt;
 }
 
+Stmt* stmt_loop(Stmt *body) {
+    return stmt_loop_labeled(NULL, body);
+}
+
+Stmt* stmt_loop_labeled(const char *label, Stmt *body) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_LOOP;
+    stmt->line = 0;
+    stmt->column = 0;
+    stmt->as.loop_stmt.label = label ? strdup(label) : NULL;
+    stmt->as.loop_stmt.body = body;
+    return stmt;
+}
+
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) {
+    return stmt_for_labeled(NULL, initializer, condition, increment, body);
+}
+
+Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_FOR;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.for_loop.label = label ? strdup(label) : NULL;
     stmt->as.for_loop.initializer = initializer;
     stmt->as.for_loop.condition = condition;
     stmt->as.for_loop.increment = increment;
@@ -412,10 +481,15 @@ Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) 
 }
 
 Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body) {
+    return stmt_for_in_labeled(NULL, key_var, value_var, iterable, body);
+}
+
+Stmt* stmt_for_in_labeled(const char *label, char *key_var, char *value_var, Expr *iterable, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_FOR_IN;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.for_in.label = label ? strdup(label) : NULL;
     stmt->as.for_in.key_var = key_var;
     stmt->as.for_in.value_var = value_var;
     stmt->as.for_in.iterable = iterable;
@@ -424,18 +498,28 @@ Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body) {
 }
 
 Stmt* stmt_break(void) {
+    return stmt_break_labeled(NULL);
+}
+
+Stmt* stmt_break_labeled(const char *label) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_BREAK;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.break_stmt.label = label ? strdup(label) : NULL;
     return stmt;
 }
 
 Stmt* stmt_continue(void) {
+    return stmt_continue_labeled(NULL);
+}
+
+Stmt* stmt_continue_labeled(const char *label) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_CONTINUE;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.continue_stmt.label = label ? strdup(label) : NULL;
     return stmt;
 }
 
@@ -467,13 +551,16 @@ Stmt* stmt_return(Expr *value) {
     return stmt;
 }
 
-Stmt* stmt_define_object(const char *name, char **field_names, Type **field_types,
+Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
+                         char **field_names, Type **field_types,
                          int *field_optional, Expr **field_defaults, int num_fields) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFINE_OBJECT;
     stmt->line = 0;
     stmt->column = 0;
     stmt->as.define_object.name = strdup(name);
+    stmt->as.define_object.type_params = type_params;
+    stmt->as.define_object.num_type_params = num_type_params;
     stmt->as.define_object.field_names = field_names;
     stmt->as.define_object.field_types = field_types;
     stmt->as.define_object.field_optional = field_optional;
@@ -697,12 +784,20 @@ Expr* expr_clone(const Expr *expr) {
 
         case EXPR_CALL: {
             Expr **args_copy = malloc(sizeof(Expr*) * expr->as.call.num_args);
+            char **names_copy = NULL;
             for (int i = 0; i < expr->as.call.num_args; i++) {
                 args_copy[i] = expr_clone(expr->as.call.args[i]);
+            }
+            if (expr->as.call.arg_names) {
+                names_copy = malloc(sizeof(char*) * expr->as.call.num_args);
+                for (int i = 0; i < expr->as.call.num_args; i++) {
+                    names_copy[i] = expr->as.call.arg_names[i] ? strdup(expr->as.call.arg_names[i]) : NULL;
+                }
             }
             return expr_call(
                 expr_clone(expr->as.call.func),
                 args_copy,
+                names_copy,
                 expr->as.call.num_args
             );
         }
@@ -762,7 +857,10 @@ Expr* expr_clone(const Expr *expr) {
             char **field_names_copy = malloc(sizeof(char*) * expr->as.object_literal.num_fields);
             Expr **field_values_copy = malloc(sizeof(Expr*) * expr->as.object_literal.num_fields);
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                field_names_copy[i] = strdup(expr->as.object_literal.field_names[i]);
+                // NULL field_name indicates spread operator
+                field_names_copy[i] = expr->as.object_literal.field_names[i]
+                    ? strdup(expr->as.object_literal.field_names[i])
+                    : NULL;
                 field_values_copy[i] = expr_clone(expr->as.object_literal.field_values[i]);
             }
             return expr_object_literal(
@@ -815,15 +913,23 @@ Expr* expr_clone(const Expr *expr) {
                 );
             } else if (expr->as.optional_chain.is_call) {
                 Expr **args_copy = NULL;
+                char **names_copy = NULL;
                 if (expr->as.optional_chain.num_args > 0) {
                     args_copy = malloc(sizeof(Expr*) * expr->as.optional_chain.num_args);
                     for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
                         args_copy[i] = expr_clone(expr->as.optional_chain.args[i]);
                     }
+                    if (expr->as.optional_chain.arg_names) {
+                        names_copy = malloc(sizeof(char*) * expr->as.optional_chain.num_args);
+                        for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                            names_copy[i] = expr->as.optional_chain.arg_names[i] ? strdup(expr->as.optional_chain.arg_names[i]) : NULL;
+                        }
+                    }
                 }
                 return expr_optional_chain_call(
                     expr_clone(expr->as.optional_chain.object),
                     args_copy,
+                    names_copy,
                     expr->as.optional_chain.num_args
                 );
             } else {
@@ -876,6 +982,12 @@ void expr_free(Expr *expr) {
                 expr_free(expr->as.call.args[i]);
             }
             free(expr->as.call.args);
+            if (expr->as.call.arg_names) {
+                for (int i = 0; i < expr->as.call.num_args; i++) {
+                    free(expr->as.call.arg_names[i]);
+                }
+                free(expr->as.call.arg_names);
+            }
             break;
         case EXPR_ASSIGN:
             free(expr->as.assign.name);
@@ -985,6 +1097,12 @@ void expr_free(Expr *expr) {
                 }
                 free(expr->as.optional_chain.args);
             }
+            if (expr->as.optional_chain.arg_names) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    free(expr->as.optional_chain.arg_names[i]);
+                }
+                free(expr->as.optional_chain.arg_names);
+            }
             break;
         case EXPR_NULL_COALESCE:
             expr_free(expr->as.null_coalesce.left);
@@ -1023,24 +1141,33 @@ void stmt_free(Stmt *stmt) {
             stmt_free(stmt->as.if_stmt.else_branch);
             break;
         case STMT_WHILE:
+            free(stmt->as.while_stmt.label);
             expr_free(stmt->as.while_stmt.condition);
             stmt_free(stmt->as.while_stmt.body);
             break;
+        case STMT_LOOP:
+            free(stmt->as.loop_stmt.label);
+            stmt_free(stmt->as.loop_stmt.body);
+            break;
         case STMT_FOR:
+            free(stmt->as.for_loop.label);
             stmt_free(stmt->as.for_loop.initializer);
             expr_free(stmt->as.for_loop.condition);
             expr_free(stmt->as.for_loop.increment);
             stmt_free(stmt->as.for_loop.body);
             break;
         case STMT_FOR_IN:
+            free(stmt->as.for_in.label);
             free(stmt->as.for_in.key_var);
             free(stmt->as.for_in.value_var);
             expr_free(stmt->as.for_in.iterable);
             stmt_free(stmt->as.for_in.body);
             break;
         case STMT_BREAK:
+            free(stmt->as.break_stmt.label);
+            break;
         case STMT_CONTINUE:
-            // No fields to free
+            free(stmt->as.continue_stmt.label);
             break;
         case STMT_BLOCK:
             for (int i = 0; i < stmt->as.block.count; i++) {
@@ -1053,6 +1180,13 @@ void stmt_free(Stmt *stmt) {
             break;
         case STMT_DEFINE_OBJECT:
             free(stmt->as.define_object.name);
+            // Free type parameters (for generic types like define Stack<T>)
+            if (stmt->as.define_object.type_params) {
+                for (int i = 0; i < stmt->as.define_object.num_type_params; i++) {
+                    free(stmt->as.define_object.type_params[i]);
+                }
+                free(stmt->as.define_object.type_params);
+            }
             for (int i = 0; i < stmt->as.define_object.num_fields; i++) {
                 free(stmt->as.define_object.field_names[i]);
                 if (stmt->as.define_object.field_types[i]) {

@@ -76,6 +76,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
                                   safe_name, value, stmt->as.let.type_annotation->type_name);
                 } else if (stmt->as.let.type_annotation &&
+                           stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
+                    // Compound type: validate against each constituent type
+                    Type *compound = stmt->as.let.type_annotation;
+                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
+                    for (int i = 0; i < compound->num_compound_types; i++) {
+                        Type *constituent = compound->compound_types[i];
+                        if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
+                            codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                          safe_name, safe_name, constituent->type_name);
+                        }
+                    }
+                } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                     // Typed array: let arr: array<type> = [...]
                     Type *elem_type = stmt->as.let.type_annotation->element_type;
@@ -211,21 +223,87 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
         case STMT_WHILE: {
             ctx->loop_depth++;
+            const char *loop_label = stmt->as.while_stmt.label;
+            char *break_label = NULL;
+            char *continue_label = NULL;
+
+            if (loop_label) {
+                break_label = codegen_label(ctx);
+                continue_label = codegen_label(ctx);
+                codegen_push_loop_label(ctx, loop_label, break_label, continue_label);
+            }
+
             codegen_writeln(ctx, "while (1) {");
             codegen_indent_inc(ctx);
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", continue_label);
+            }
+
             char *cond = codegen_expr(ctx, stmt->as.while_stmt.condition);
             codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
             codegen_writeln(ctx, "hml_release(&%s);", cond);
             codegen_stmt(ctx, stmt->as.while_stmt.body);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", break_label);
+                codegen_pop_loop_label(ctx);
+                free(break_label);
+                free(continue_label);
+            }
+
             ctx->loop_depth--;
             free(cond);
             break;
         }
 
+        case STMT_LOOP: {
+            ctx->loop_depth++;
+            const char *loop_label = stmt->as.loop_stmt.label;
+            char *break_label = NULL;
+            char *continue_label = NULL;
+
+            if (loop_label) {
+                break_label = codegen_label(ctx);
+                continue_label = codegen_label(ctx);
+                codegen_push_loop_label(ctx, loop_label, break_label, continue_label);
+            }
+
+            codegen_writeln(ctx, "while (1) {");
+            codegen_indent_inc(ctx);
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", continue_label);
+            }
+
+            codegen_stmt(ctx, stmt->as.loop_stmt.body);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", break_label);
+                codegen_pop_loop_label(ctx);
+                free(break_label);
+                free(continue_label);
+            }
+
+            ctx->loop_depth--;
+            break;
+        }
+
         case STMT_FOR: {
             ctx->loop_depth++;
+            const char *loop_label = stmt->as.for_loop.label;
+            char *loop_break_label = NULL;
+            char *loop_continue_label = NULL;
+
+            if (loop_label) {
+                loop_break_label = codegen_label(ctx);
+                loop_continue_label = codegen_label(ctx);
+                codegen_push_loop_label(ctx, loop_label, loop_break_label, loop_continue_label);
+            }
 
             // OPTIMIZATION: Analyze loop for unboxable counter
             if (ctx->type_ctx) {
@@ -256,8 +334,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "int32_t %s = %d;", safe_name, init_val);
                 codegen_add_local(ctx, counter_name);
 
-                // Create continue label
-                char *continue_label = codegen_label(ctx);
+                // Create continue label (use loop_continue_label if this is a labeled loop)
+                char *continue_label;
+                if (loop_label) {
+                    continue_label = strdup(loop_continue_label);
+                } else {
+                    continue_label = codegen_label(ctx);
+                }
                 codegen_push_for_continue(ctx, continue_label);
 
                 // Generate optimized condition
@@ -373,7 +456,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_stmt(ctx, stmt->as.for_loop.initializer);
                 }
                 // Create continue label for this for loop (continue jumps here, before increment)
-                char *continue_label = codegen_label(ctx);
+                // Use loop_continue_label if this is a labeled loop
+                char *continue_label;
+                if (loop_label) {
+                    continue_label = strdup(loop_continue_label);
+                } else {
+                    continue_label = codegen_label(ctx);
+                }
                 codegen_push_for_continue(ctx, continue_label);
 
                 codegen_writeln(ctx, "while (1) {");
@@ -402,6 +491,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_pop_for_continue(ctx);
                 free(continue_label);
             }
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", loop_break_label);
+                codegen_pop_loop_label(ctx);
+                free(loop_break_label);
+                free(loop_continue_label);
+            }
+
             ctx->loop_depth--;
             break;
         }
@@ -410,11 +507,27 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // Generate for-in loop for arrays, objects, or strings
             // for (let val in iterable) or for (let key, val in iterable)
             ctx->loop_depth++;
+            const char *loop_label = stmt->as.for_in.label;
+            char *loop_break_label = NULL;
+            char *loop_continue_label = NULL;
+
+            if (loop_label) {
+                loop_break_label = codegen_label(ctx);
+                loop_continue_label = codegen_label(ctx);
+                codegen_push_loop_label(ctx, loop_label, loop_break_label, loop_continue_label);
+            }
+
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
 
             // Create continue label for this for-in loop (continue jumps here, before increment)
-            char *continue_label = codegen_label(ctx);
+            // Use loop_continue_label if this is a labeled loop
+            char *continue_label;
+            if (loop_label) {
+                continue_label = strdup(loop_continue_label);
+            } else {
+                continue_label = codegen_label(ctx);
+            }
             codegen_push_for_continue(ctx, continue_label);
 
             // Evaluate the iterable
@@ -528,6 +641,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "}");
             codegen_pop_for_continue(ctx);
             free(continue_label);
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", loop_break_label);
+                codegen_pop_loop_label(ctx);
+                free(loop_break_label);
+                free(loop_continue_label);
+            }
+
             ctx->loop_depth--;
 
             free(iter_val);
@@ -667,23 +788,45 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_BREAK: {
-            // If inside a switch, use goto to exit (so continue still works for loops)
-            const char *switch_end = codegen_get_switch_end_label(ctx);
-            if (switch_end) {
-                codegen_writeln(ctx, "goto %s;", switch_end);
+            // Check for labeled break first
+            const char *label = stmt->as.break_stmt.label;
+            if (label) {
+                const char *target = codegen_get_labeled_break(ctx, label);
+                if (target) {
+                    codegen_writeln(ctx, "goto %s;", target);
+                } else {
+                    codegen_error(ctx, stmt->line, "Unknown loop label '%s'", label);
+                }
             } else {
-                codegen_writeln(ctx, "break;");
+                // Unlabeled break: If inside a switch, use goto to exit (so continue still works for loops)
+                const char *switch_end = codegen_get_switch_end_label(ctx);
+                if (switch_end) {
+                    codegen_writeln(ctx, "goto %s;", switch_end);
+                } else {
+                    codegen_writeln(ctx, "break;");
+                }
             }
             break;
         }
 
         case STMT_CONTINUE: {
-            // If inside a for loop, use goto to jump to before the increment
-            const char *for_continue = codegen_get_for_continue_label(ctx);
-            if (for_continue) {
-                codegen_writeln(ctx, "goto %s;", for_continue);
+            // Check for labeled continue first
+            const char *label = stmt->as.continue_stmt.label;
+            if (label) {
+                const char *target = codegen_get_labeled_continue(ctx, label);
+                if (target) {
+                    codegen_writeln(ctx, "goto %s;", target);
+                } else {
+                    codegen_error(ctx, stmt->line, "Unknown loop label '%s'", label);
+                }
             } else {
-                codegen_writeln(ctx, "continue;");
+                // Unlabeled continue: If inside a for loop, use goto to jump to before the increment
+                const char *for_continue = codegen_get_for_continue_label(ctx);
+                if (for_continue) {
+                    codegen_writeln(ctx, "goto %s;", for_continue);
+                } else {
+                    codegen_writeln(ctx, "continue;");
+                }
             }
             break;
         }

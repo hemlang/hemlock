@@ -77,6 +77,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         case STMT_WHILE: {
             // Create iteration environment once, reuse each iteration
             Environment *iter_env = env_new(env);
+            const char *loop_label = stmt->as.while_stmt.label;
             for (;;) {
                 Value condition = eval_expr(stmt->as.while_stmt.condition, env, ctx);
                 // Check for exception after evaluating condition
@@ -98,12 +99,82 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
-                    ctx->loop_state.is_breaking = 0;
+                    // Check if this break targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Break targets this loop
+                        ctx->loop_state.is_breaking = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        break;
+                    }
+                    // Break targets an outer loop, propagate
                     break;
                 }
                 if (ctx->loop_state.is_continuing) {
-                    ctx->loop_state.is_continuing = 0;
-                    continue;
+                    // Check if this continue targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Continue targets this loop
+                        ctx->loop_state.is_continuing = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        continue;
+                    }
+                    // Continue targets an outer loop, propagate
+                    break;
+                }
+                if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
+                    break;
+                }
+            }
+            env_release(iter_env);
+            break;
+        }
+
+        case STMT_LOOP: {
+            // Create iteration environment once, reuse each iteration
+            Environment *iter_env = env_new(env);
+            const char *loop_label = stmt->as.loop_stmt.label;
+            for (;;) {
+                // Clear and reuse iteration environment
+                env_clear(iter_env);
+                eval_stmt(stmt->as.loop_stmt.body, iter_env, ctx);
+
+                // Check for break/continue/return/exception
+                if (ctx->loop_state.is_breaking) {
+                    // Check if this break targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Break targets this loop
+                        ctx->loop_state.is_breaking = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        break;
+                    }
+                    // Break targets an outer loop, propagate
+                    break;
+                }
+                if (ctx->loop_state.is_continuing) {
+                    // Check if this continue targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Continue targets this loop
+                        ctx->loop_state.is_continuing = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        continue;
+                    }
+                    // Continue targets an outer loop, propagate
+                    break;
                 }
                 if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
                     break;
@@ -116,6 +187,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         case STMT_FOR: {
             // Create new environment for loop scope
             Environment *loop_env = env_new(env);
+            const char *loop_label = stmt->as.for_loop.label;
 
             // Execute initializer
             if (stmt->as.for_loop.initializer) {
@@ -153,12 +225,35 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
-                    ctx->loop_state.is_breaking = 0;
+                    // Check if this break targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Break targets this loop
+                        ctx->loop_state.is_breaking = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        break;
+                    }
+                    // Break targets an outer loop, propagate
                     break;
                 }
                 if (ctx->loop_state.is_continuing) {
-                    ctx->loop_state.is_continuing = 0;
-                    // Fall through to increment
+                    // Check if this continue targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Continue targets this loop
+                        ctx->loop_state.is_continuing = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        // Fall through to increment
+                    } else {
+                        // Continue targets an outer loop, propagate
+                        break;
+                    }
                 }
                 if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
                     break;
@@ -182,6 +277,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_FOR_IN: {
             Value iterable = eval_expr(stmt->as.for_in.iterable, env, ctx);
+            const char *loop_label = stmt->as.for_in.label;
 
             // Check for exception after evaluating iterable
             if (ctx->exception_state.is_throwing) {
@@ -227,12 +323,30 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
-                        ctx->loop_state.is_breaking = 0;
-                        break;
+                        // Check if this break targets us
+                        if (ctx->loop_state.target_label == NULL ||
+                            (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                            ctx->loop_state.is_breaking = 0;
+                            if (ctx->loop_state.target_label) {
+                                free(ctx->loop_state.target_label);
+                                ctx->loop_state.target_label = NULL;
+                            }
+                            break;
+                        }
+                        break;  // Propagate to outer loop
                     }
                     if (ctx->loop_state.is_continuing) {
-                        ctx->loop_state.is_continuing = 0;
-                        continue;
+                        // Check if this continue targets us
+                        if (ctx->loop_state.target_label == NULL ||
+                            (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                            ctx->loop_state.is_continuing = 0;
+                            if (ctx->loop_state.target_label) {
+                                free(ctx->loop_state.target_label);
+                                ctx->loop_state.target_label = NULL;
+                            }
+                            continue;
+                        }
+                        break;  // Propagate to outer loop
                     }
                     if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
                         break;
@@ -264,12 +378,30 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
-                        ctx->loop_state.is_breaking = 0;
-                        break;
+                        // Check if this break targets us
+                        if (ctx->loop_state.target_label == NULL ||
+                            (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                            ctx->loop_state.is_breaking = 0;
+                            if (ctx->loop_state.target_label) {
+                                free(ctx->loop_state.target_label);
+                                ctx->loop_state.target_label = NULL;
+                            }
+                            break;
+                        }
+                        break;  // Propagate to outer loop
                     }
                     if (ctx->loop_state.is_continuing) {
-                        ctx->loop_state.is_continuing = 0;
-                        continue;
+                        // Check if this continue targets us
+                        if (ctx->loop_state.target_label == NULL ||
+                            (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                            ctx->loop_state.is_continuing = 0;
+                            if (ctx->loop_state.target_label) {
+                                free(ctx->loop_state.target_label);
+                                ctx->loop_state.target_label = NULL;
+                            }
+                            continue;
+                        }
+                        break;  // Propagate to outer loop
                     }
                     if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
                         break;
@@ -311,12 +443,30 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
-                        ctx->loop_state.is_breaking = 0;
-                        break;
+                        // Check if this break targets us
+                        if (ctx->loop_state.target_label == NULL ||
+                            (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                            ctx->loop_state.is_breaking = 0;
+                            if (ctx->loop_state.target_label) {
+                                free(ctx->loop_state.target_label);
+                                ctx->loop_state.target_label = NULL;
+                            }
+                            break;
+                        }
+                        break;  // Propagate to outer loop
                     }
                     if (ctx->loop_state.is_continuing) {
-                        ctx->loop_state.is_continuing = 0;
-                        continue;
+                        // Check if this continue targets us
+                        if (ctx->loop_state.target_label == NULL ||
+                            (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                            ctx->loop_state.is_continuing = 0;
+                            if (ctx->loop_state.target_label) {
+                                free(ctx->loop_state.target_label);
+                                ctx->loop_state.target_label = NULL;
+                            }
+                            continue;
+                        }
+                        break;  // Propagate to outer loop
                     }
                     if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
                         break;
@@ -332,10 +482,22 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_BREAK:
             ctx->loop_state.is_breaking = 1;
+            // Store target label if present
+            if (stmt->as.break_stmt.label) {
+                ctx->loop_state.target_label = strdup(stmt->as.break_stmt.label);
+            } else {
+                ctx->loop_state.target_label = NULL;
+            }
             break;
 
         case STMT_CONTINUE:
             ctx->loop_state.is_continuing = 1;
+            // Store target label if present
+            if (stmt->as.continue_stmt.label) {
+                ctx->loop_state.target_label = strdup(stmt->as.continue_stmt.label);
+            } else {
+                ctx->loop_state.target_label = NULL;
+            }
             break;
 
         case STMT_BLOCK: {
@@ -378,6 +540,17 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             type->name = strdup(stmt->as.define_object.name);
             type->num_fields = stmt->as.define_object.num_fields;
 
+            // Copy type parameters (for generic types like define Stack<T>)
+            type->num_type_params = stmt->as.define_object.num_type_params;
+            if (type->num_type_params > 0) {
+                type->type_params = malloc(sizeof(char*) * type->num_type_params);
+                for (int i = 0; i < type->num_type_params; i++) {
+                    type->type_params[i] = strdup(stmt->as.define_object.type_params[i]);
+                }
+            } else {
+                type->type_params = NULL;
+            }
+
             // Copy field information
             type->field_names = malloc(sizeof(char*) * type->num_fields);
             type->field_types = malloc(sizeof(Type*) * type->num_fields);
@@ -395,16 +568,23 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             register_object_type(type);
 
             // Also register for FFI if all fields have type annotations
+            // and it's not a generic type (generic types can't be used for FFI directly)
             // (FFI struct registration is lazy/best-effort - it only fails
             // when the struct is actually used in an FFI function)
             int has_all_types = 1;
+            int has_type_params = (type->num_type_params > 0);
             for (int i = 0; i < type->num_fields; i++) {
                 if (type->field_types[i] == NULL) {
                     has_all_types = 0;
                     break;
                 }
+                // Also check if any field type is a type parameter
+                if (type->field_types[i]->kind == TYPE_PARAM) {
+                    has_type_params = 1;
+                    break;
+                }
             }
-            if (has_all_types && type->num_fields > 0) {
+            if (has_all_types && type->num_fields > 0 && !has_type_params) {
                 ffi_register_struct(type->name, type->field_names,
                                     type->field_types, type->num_fields);
             }

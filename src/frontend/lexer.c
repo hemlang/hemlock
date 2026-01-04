@@ -849,6 +849,7 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 'l':
             if (len == 3) return check_keyword(lex->start, 3, "let", TOK_LET);
+            if (len == 4) return check_keyword(lex->start, 4, "loop", TOK_LOOP);
             break;
         case 'n':
             if (len == 4) return check_keyword(lex->start, 4, "null", TOK_NULL);
@@ -1041,13 +1042,17 @@ Token lexer_next(Lexer *lex) {
         case ']': return make_token(lex, TOK_RBRACKET);
 
         case '?':
-            // Check for ?. (optional chaining) or ?? (null coalescing)
+            // Check for ?. (optional chaining) or ?? (null coalescing) or ??= (null coalescing assignment)
             if (peek(lex) == '.') {
                 advance(lex);
                 return make_token(lex, TOK_QUESTION_DOT);
             }
             if (peek(lex) == '?') {
                 advance(lex);
+                if (peek(lex) == '=') {
+                    advance(lex);
+                    return make_token(lex, TOK_QUESTION_QUESTION_EQUAL);
+                }
                 return make_token(lex, TOK_QUESTION_QUESTION);
             }
             return make_token(lex, TOK_QUESTION);
