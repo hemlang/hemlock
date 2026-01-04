@@ -1705,6 +1705,9 @@ Value value_deep_copy(Value val) {
                     dst->element_type->kind = src->element_type->kind;
                     dst->element_type->type_name = src->element_type->type_name ? strdup(src->element_type->type_name) : NULL;
                     dst->element_type->element_type = NULL;  // Don't support nested typed arrays
+                    dst->element_type->nullable = 0;
+                    dst->element_type->compound_types = NULL;
+                    dst->element_type->num_compound_types = 0;
                     dst->element_type->type_args = NULL;
                     dst->element_type->num_type_args = 0;
                 }

@@ -995,7 +995,8 @@ Expr* expression(Parser *p) {
     return assignment(p);
 }
 
-Type* parse_type(Parser *p) {
+// Parse a single base type (not compound)
+static Type* parse_single_type(Parser *p) {
     TypeKind kind;
     Type *type = NULL;
 
@@ -1007,7 +1008,7 @@ Type* parse_type(Parser *p) {
         // Optional: <type> syntax for typed arrays
         if (p->current.type == TOK_LESS) {
             advance(p);  // consume '<'
-            element_type = parse_type(p);
+            element_type = parse_single_type(p);
             consume(p, TOK_GREATER, "Expect '>' after array element type");
         }
         // If no '<', element_type stays NULL (untyped array)
@@ -1108,5 +1109,35 @@ Type* parse_type(Parser *p) {
     }
 
     return type;
+}
+
+// Parse a type, including compound types (A & B & C)
+Type* parse_type(Parser *p) {
+    Type *first = parse_single_type(p);
+
+    // Check for compound type syntax: Type1 & Type2 & ...
+    if (p->current.type == TOK_AMP) {
+        // Collect all types in the compound
+        int capacity = 4;
+        int count = 1;
+        Type **types = malloc(sizeof(Type*) * capacity);
+        types[0] = first;
+
+        while (p->current.type == TOK_AMP) {
+            advance(p);  // consume '&'
+
+            if (count >= capacity) {
+                capacity *= 2;
+                types = realloc(types, sizeof(Type*) * capacity);
+            }
+
+            types[count++] = parse_single_type(p);
+        }
+
+        // Create the compound type
+        return type_compound(types, count);
+    }
+
+    return first;
 }
 

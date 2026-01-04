@@ -1427,6 +1427,20 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             fn->param_types[i]->element_type->type_name = strdup(expr->as.function.param_types[i]->element_type->type_name);
                         }
                     }
+                    // Copy compound types (for intersection types like A & B)
+                    if (expr->as.function.param_types[i]->compound_types) {
+                        Type *src = expr->as.function.param_types[i];
+                        fn->param_types[i]->num_compound_types = src->num_compound_types;
+                        fn->param_types[i]->compound_types = malloc(sizeof(Type*) * src->num_compound_types);
+                        for (int j = 0; j < src->num_compound_types; j++) {
+                            // Shallow copy - compound constituents are simple types (TYPE_CUSTOM_OBJECT)
+                            fn->param_types[i]->compound_types[j] = type_new(src->compound_types[j]->kind);
+                            fn->param_types[i]->compound_types[j]->nullable = src->compound_types[j]->nullable;
+                            if (src->compound_types[j]->type_name) {
+                                fn->param_types[i]->compound_types[j]->type_name = strdup(src->compound_types[j]->type_name);
+                            }
+                        }
+                    }
                 } else {
                     fn->param_types[i] = NULL;
                 }

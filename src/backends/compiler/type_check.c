@@ -87,6 +87,15 @@ CheckedType* checked_type_clone(const CheckedType *type) {
         }
     }
 
+    // Clone compound types
+    clone->num_compound_types = type->num_compound_types;
+    if (type->num_compound_types > 0 && type->compound_types) {
+        clone->compound_types = calloc(type->num_compound_types, sizeof(CheckedType*));
+        for (int i = 0; i < type->num_compound_types; i++) {
+            clone->compound_types[i] = checked_type_clone(type->compound_types[i]);
+        }
+    }
+
     return clone;
 }
 
@@ -100,6 +109,13 @@ void checked_type_free(CheckedType *type) {
             checked_type_free(type->param_types[i]);
         }
         free(type->param_types);
+    }
+    // Free compound types
+    if (type->compound_types) {
+        for (int i = 0; i < type->num_compound_types; i++) {
+            checked_type_free(type->compound_types[i]);
+        }
+        free(type->compound_types);
     }
     // Free type arguments (for generic types)
     if (type->type_args) {
@@ -164,6 +180,16 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
                 type->type_name = strdup(ast_type->type_name);
             }
             break;
+        case TYPE_COMPOUND:
+            type->kind = CHECKED_COMPOUND;
+            type->num_compound_types = ast_type->num_compound_types;
+            if (ast_type->num_compound_types > 0 && ast_type->compound_types) {
+                type->compound_types = calloc(ast_type->num_compound_types, sizeof(CheckedType*));
+                for (int i = 0; i < ast_type->num_compound_types; i++) {
+                    type->compound_types[i] = checked_type_from_ast(ast_type->compound_types[i]);
+                }
+            }
+            break;
         case TYPE_PARAM:
             type->kind = CHECKED_PARAM;
             if (ast_type->type_name) {
@@ -212,6 +238,7 @@ const char* checked_type_kind_name(CheckedTypeKind kind) {
         case CHECKED_ANY:     return "any";
         case CHECKED_NUMERIC: return "numeric";
         case CHECKED_INTEGER: return "integer";
+        case CHECKED_COMPOUND: return "compound";
         case CHECKED_PARAM:   return "type parameter";
         default:              return "unknown";
     }
@@ -251,6 +278,28 @@ const char* checked_type_name(CheckedType *type) {
     if (type->kind == CHECKED_ENUM && type->type_name) {
         snprintf(buffer, TYPE_NAME_BUFSIZE, "%s%s",
                  type->type_name, type->nullable ? "?" : "");
+        return buffer;
+    }
+
+    if (type->kind == CHECKED_COMPOUND && type->compound_types && type->num_compound_types > 0) {
+        // Build "A & B & C" format
+        char *pos = buffer;
+        int remaining = TYPE_NAME_BUFSIZE;
+        for (int i = 0; i < type->num_compound_types; i++) {
+            const char *name = checked_type_name(type->compound_types[i]);
+            int written;
+            if (i == 0) {
+                written = snprintf(pos, remaining, "%s", name);
+            } else {
+                written = snprintf(pos, remaining, " & %s", name);
+            }
+            if (written >= remaining) break;
+            pos += written;
+            remaining -= written;
+        }
+        if (type->nullable && remaining > 1) {
+            snprintf(pos, remaining, "?");
+        }
         return buffer;
     }
 
@@ -661,6 +710,29 @@ int type_is_assignable(CheckedType *to, CheckedType *from) {
         if (to->type_name && from->type_name) {
             return strcmp(to->type_name, from->type_name) == 0;
         }
+    }
+
+    // Compound type handling (A & B & C)
+    // For a value to be assigned to a compound type, it must satisfy ALL constituent types
+    if (to->kind == CHECKED_COMPOUND) {
+        // Check that 'from' is assignable to each constituent type
+        for (int i = 0; i < to->num_compound_types; i++) {
+            if (!type_is_assignable(to->compound_types[i], from)) {
+                return 0;  // Must satisfy all types
+            }
+        }
+        return 1;
+    }
+
+    // A compound source can be assigned to a single target if any constituent matches
+    if (from->kind == CHECKED_COMPOUND) {
+        // Check if any constituent type can be assigned to 'to'
+        for (int i = 0; i < from->num_compound_types; i++) {
+            if (type_is_assignable(to, from->compound_types[i])) {
+                return 1;  // At least one constituent satisfies target
+            }
+        }
+        return 0;
     }
 
     return 0;
