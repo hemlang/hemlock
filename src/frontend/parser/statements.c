@@ -813,6 +813,42 @@ Stmt* statement(Parser *p) {
         return const_statement(p);
     }
 
+    // Type alias: type Name = Type; or type Name<T> = Type<T>;
+    if (match(p, TOK_TYPE)) {
+        consume(p, TOK_IDENT, "Expect type alias name");
+        char *name = token_text(&p->previous);
+
+        // Parse optional type parameters: <T, U, ...>
+        int param_capacity = 4;
+        char **type_params = NULL;
+        int num_type_params = 0;
+
+        if (match(p, TOK_LESS)) {
+            type_params = malloc(sizeof(char*) * param_capacity);
+
+            do {
+                if (num_type_params >= param_capacity) {
+                    param_capacity *= 2;
+                    type_params = realloc(type_params, sizeof(char*) * param_capacity);
+                }
+                consume(p, TOK_IDENT, "Expect type parameter name");
+                type_params[num_type_params++] = token_text(&p->previous);
+            } while (match(p, TOK_COMMA));
+
+            consume(p, TOK_GREATER, "Expect '>' after type parameters");
+        }
+
+        consume(p, TOK_EQUAL, "Expect '=' after type alias name");
+
+        Type *aliased_type = parse_type(p);
+
+        consume(p, TOK_SEMICOLON, "Expect ';' after type alias");
+
+        Stmt *stmt = stmt_type_alias(name, type_params, num_type_params, aliased_type);
+        free(name);
+        return stmt;
+    }
+
     // Object type definition: define TypeName { ... }
     if (match(p, TOK_DEFINE)) {
         return define_statement(p);

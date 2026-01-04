@@ -151,6 +151,75 @@ void cleanup_enum_types(void) {
     enum_types.capacity = 0;
 }
 
+// ========== TYPE ALIAS REGISTRY ==========
+
+TypeAliasRegistry type_aliases = {0};
+
+void init_type_aliases(void) {
+    if (type_aliases.aliases == NULL) {
+        type_aliases.capacity = 16;
+        type_aliases.aliases = malloc(sizeof(TypeAlias*) * type_aliases.capacity);
+        type_aliases.count = 0;
+    }
+}
+
+void register_type_alias(TypeAlias *alias) {
+    init_type_aliases();
+    if (type_aliases.count >= type_aliases.capacity) {
+        type_aliases.capacity *= 2;
+        type_aliases.aliases = realloc(type_aliases.aliases, sizeof(TypeAlias*) * type_aliases.capacity);
+    }
+    type_aliases.aliases[type_aliases.count++] = alias;
+}
+
+TypeAlias* lookup_type_alias(const char *name) {
+    if (name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < type_aliases.count; i++) {
+        if (strcmp(type_aliases.aliases[i]->name, name) == 0) {
+            return type_aliases.aliases[i];
+        }
+    }
+    return NULL;
+}
+
+void cleanup_type_aliases(void) {
+    if (type_aliases.aliases == NULL) {
+        return;  // Nothing to clean up
+    }
+
+    // Free each TypeAlias
+    for (int i = 0; i < type_aliases.count; i++) {
+        TypeAlias *alias = type_aliases.aliases[i];
+        if (alias) {
+            // Free alias name
+            free(alias->name);
+
+            // Free type parameters
+            if (alias->type_params) {
+                for (int j = 0; j < alias->num_type_params; j++) {
+                    free(alias->type_params[j]);
+                }
+                free(alias->type_params);
+            }
+
+            // Note: aliased_type is an AST pointer, don't free it
+
+            // Free the TypeAlias struct itself
+            free(alias);
+        }
+    }
+
+    // Free the aliases array
+    free(type_aliases.aliases);
+
+    // Reset the registry
+    type_aliases.aliases = NULL;
+    type_aliases.count = 0;
+    type_aliases.capacity = 0;
+}
+
 // ========== TYPE PARAMETER SUBSTITUTION ==========
 
 // Substitute type parameters in a Type with concrete type arguments
@@ -617,6 +686,15 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     TypeKind kind = target_type->kind;
 
+    // Handle function types early - just verify it's a function
+    if (kind == TYPE_FUNCTION) {
+        if (value.type == VAL_FUNCTION) {
+            return value;  // TODO: Could validate parameter/return types
+        }
+        fprintf(stderr, "Runtime error: Expected function value\n");
+        exit(1);
+    }
+
     // Handle object and enum types (both use TYPE_CUSTOM_OBJECT at parse time)
     if (kind == TYPE_CUSTOM_OBJECT) {
         // Check if it's an enum type first
@@ -632,7 +710,15 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             return value;
         }
 
-        // Not an enum, try object type
+        // Not an enum, try type alias
+        TypeAlias *alias = lookup_type_alias(target_type->type_name);
+        if (alias) {
+            // Recursively check against the aliased type
+            // TODO: Handle generic type aliases with type argument substitution
+            return convert_to_type(value, alias->aliased_type, env, ctx);
+        }
+
+        // Not a type alias, try object type
         ObjectType *object_type = lookup_object_type(target_type->type_name);
         if (!object_type) {
             fprintf(stderr, "Runtime error: Unknown type '%s'\n", target_type->type_name);
@@ -969,6 +1055,25 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             // Type parameters should be substituted before reaching this point
             // If we get here, it means we're using a generic type without type arguments
             fprintf(stderr, "Runtime error: Unresolved type parameter - generic type requires type arguments\n");
+            exit(1);
+
+        case TYPE_COMPOUND:
+            // Compound types are handled earlier in this function
+            fprintf(stderr, "Runtime error: Internal error - compound type not handled properly\n");
+            exit(1);
+
+        case TYPE_FUNCTION:
+            // Function types are used for type annotations on callbacks
+            // At runtime, we just verify it's a function
+            if (value.type == VAL_FUNCTION) {
+                return value;
+            }
+            fprintf(stderr, "Runtime error: Expected function value\n");
+            exit(1);
+
+        case TYPE_SELF:
+            // Self type should be substituted with the concrete type before runtime
+            fprintf(stderr, "Runtime error: Unresolved Self type - should be substituted before runtime\n");
             exit(1);
     }
 
