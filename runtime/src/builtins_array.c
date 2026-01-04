@@ -89,9 +89,10 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
         a->length++;
     }
 
+    // Retain new value FIRST to prevent use-after-free when old == new
+    hml_retain(&val);
     hml_release(&a->elements[idx]);
     a->elements[idx] = val;
-    hml_retain(&a->elements[idx]);
 }
 
 HmlValue hml_array_length(HmlValue arr) {

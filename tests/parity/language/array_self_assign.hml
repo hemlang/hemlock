@@ -1,0 +1,49 @@
+// Test for double-free bug when assigning array element to itself via function return
+// This reproduces the issue: root[1] = insert(root[1], value) where insert returns root
+
+// Node represented as array: [value, left, right]
+fn new_node(value) {
+    return [value, null, null];
+}
+
+fn insert(root, value) {
+    if (root == null) {
+        return new_node(value);
+    }
+    if (value < root[0]) {
+        root[1] = insert(root[1], value);
+    } else {
+        root[2] = insert(root[2], value);
+    }
+    return root;
+}
+
+fn inorder_sum(root) {
+    if (root == null) {
+        return 0;
+    }
+    return inorder_sum(root[1]) + root[0] + inorder_sum(root[2]);
+}
+
+// Build a small tree
+let tree = null;
+tree = insert(tree, 5);
+tree = insert(tree, 3);
+tree = insert(tree, 7);
+tree = insert(tree, 1);
+tree = insert(tree, 4);
+tree = insert(tree, 6);
+tree = insert(tree, 8);
+
+// Sum should be 5+3+7+1+4+6+8 = 34
+print(inorder_sum(tree));
+
+// Also test direct self-assignment pattern
+let arr = [[1], [2], [3]];
+fn identity(x) {
+    return x;
+}
+
+// This should not crash: arr[0] = identity(arr[0])
+arr[0] = identity(arr[0]);
+print(arr[0][0]);
