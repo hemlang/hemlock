@@ -477,10 +477,26 @@ define Comparable {
     fn equals(other: Self): bool;
 }
 
-// Optional methods with default
+// Optional methods
 define Printable {
     fn to_string(): string;
-    fn debug_string?(): string;  // Optional method
+    fn debug_string?(): string;  // Optional method (may be absent)
+}
+
+// Methods with default implementations
+define Ordered {
+    fn compare(other: Self): i32;  // Required
+
+    // Default implementations (inherited if not overridden)
+    fn less_than(other: Self): bool {
+        return self.compare(other) < 0;
+    }
+    fn greater_than(other: Self): bool {
+        return self.compare(other) > 0;
+    }
+    fn equals(other: Self): bool {
+        return self.compare(other) == 0;
+    }
 }
 ```
 
@@ -548,7 +564,8 @@ struct {
     // Methods (NEW)
     char **method_names;
     Type **method_types;        // TYPE_FUNCTION
-    int *method_optional;       // Optional methods
+    int *method_optional;       // Optional methods (fn name?(): type)
+    Expr **method_defaults;     // Default implementations (NULL if signature only)
     int num_methods;
 } define_object;
 ```
@@ -712,35 +729,138 @@ fn try_parse(parsers: array<Parser>, input: string): AST? {
 
 ---
 
-## Open Questions
+## Design Decisions
 
-1. **Type alias generics:** Should `type Pair<T> = ...` be supported in v1?
+### 1. Generic Type Aliases: **YES**
 
-2. **Const propagation:** Should `const` be shallow or deep?
-   ```hemlock
-   fn f(const arr: array<object>) {
-       arr[0].x = 5;  // Is this allowed? (shallow: yes, deep: no)
-   }
-   ```
+Type aliases support generic parameters:
 
-3. **Self in non-define contexts:** Allow `Self` in standalone function types?
-   ```hemlock
-   type Cloner = fn(Self): Self;  // What does Self mean here?
-   ```
+```hemlock
+// Generic type aliases
+type Pair<T> = { first: T, second: T };
+type Result<T, E> = { value: T?, error: E? };
+type Mapper<T, U> = fn(T): U;
+type AsyncResult<T> = async fn(): T?;
 
-4. **Method default implementations:** Allow bodies in define methods?
-   ```hemlock
-   define Printable {
-       fn to_string(): string;
-       fn print() { print(self.to_string()); }  // Default impl?
-   }
-   ```
+// Usage
+let coords: Pair<f64> = { first: 3.14, second: 2.71 };
+let result: Result<User, string> = { value: user, error: null };
+let transform: Mapper<i32, string> = fn(n) { return n.to_string(); };
+```
 
-5. **Variance annotations:** Explicit covariance/contravariance?
-   ```hemlock
-   type Producer<out T> = fn(): T;     // Covariant
-   type Consumer<in T> = fn(T): void;  // Contravariant
-   ```
+### 2. Const Propagation: **DEEP**
+
+Const parameters are fully immutable - no mutation through any path:
+
+```hemlock
+fn process(const arr: array<object>) {
+    arr.push({});        // ERROR: cannot mutate const array
+    arr[0] = {};         // ERROR: cannot mutate const array
+    arr[0].x = 5;        // ERROR: cannot mutate through const (DEEP)
+
+    let x = arr[0].x;    // OK: reading is fine
+    let copy = arr[0];   // OK: creates a copy
+    copy.x = 5;          // OK: copy is not const
+}
+
+fn nested(const obj: object) {
+    obj.user.name = "x"; // ERROR: deep const prevents nested mutation
+    obj.items[0] = 1;    // ERROR: deep const prevents nested mutation
+}
+```
+
+**Rationale:** Deep const provides stronger guarantees and is more useful for
+ensuring data integrity. If you need to mutate nested data, make a copy first.
+
+### 3. Self in Standalone Type Aliases: **NO**
+
+`Self` is only valid inside `define` blocks where it has clear meaning:
+
+```hemlock
+// Valid: Self refers to the defined type
+define Comparable {
+    fn compare(other: Self): i32;
+}
+
+// Invalid: Self has no meaning here
+type Cloner = fn(Self): Self;  // ERROR: Self outside define context
+
+// Instead, use generics:
+type Cloner<T> = fn(T): T;
+```
+
+### 4. Method Default Implementations: **YES (Simple Only)**
+
+Allow default implementations for simple/utility methods:
+
+```hemlock
+define Comparable {
+    // Required: must be implemented
+    fn compare(other: Self): i32;
+
+    // Default implementations (simple convenience methods)
+    fn equals(other: Self): bool {
+        return self.compare(other) == 0;
+    }
+    fn less_than(other: Self): bool {
+        return self.compare(other) < 0;
+    }
+    fn greater_than(other: Self): bool {
+        return self.compare(other) > 0;
+    }
+}
+
+define Printable {
+    fn to_string(): string;
+
+    // Default: delegates to required method
+    fn print() {
+        print(self.to_string());
+    }
+    fn println() {
+        print(self.to_string() + "\n");
+    }
+}
+
+// Object only needs to implement required methods
+let item: Comparable = {
+    value: 42,
+    compare: fn(other) { return self.value - other.value; }
+    // equals, less_than, greater_than are inherited from defaults
+};
+
+item.less_than({ value: 50, compare: item.compare });  // true
+```
+
+**Guidelines for defaults:**
+- Keep them simple (1-3 lines)
+- Should delegate to required methods
+- No complex logic or side effects
+- Primitives and straightforward compositions only
+
+### 5. Variance: **INFERRED (No Explicit Annotations)**
+
+Variance is inferred from how type parameters are used:
+
+```hemlock
+// Variance is automatic based on position
+type Producer<T> = fn(): T;           // T in return = covariant
+type Consumer<T> = fn(T): void;       // T in param = contravariant
+type Transformer<T> = fn(T): T;       // T in both = invariant
+
+// Example: Dog <: Animal (Dog is subtype of Animal)
+let dog_producer: Producer<Dog> = fn() { return new_dog(); };
+let animal_producer: Producer<Animal> = dog_producer;  // OK: covariant
+
+let animal_consumer: Consumer<Animal> = fn(a) { print(a); };
+let dog_consumer: Consumer<Dog> = animal_consumer;     // OK: contravariant
+```
+
+**Why infer?**
+- Less boilerplate (`<out T>` / `<in T>` adds noise)
+- Follows "explicit over implicit" - the position IS explicit
+- Matches how most languages handle function type variance
+- Errors are clear when variance rules are violated
 
 ---
 
@@ -771,9 +891,10 @@ type_args := type ("," type)*
 type_alias := "type" identifier ["<" type_params ">"] "=" type ";"
 
 define_stmt := "define" identifier ["<" type_params ">"] "{" define_members "}"
-define_members := (field_def | method_sig)*
+define_members := (field_def | method_def)*
 field_def := identifier (":" type ["=" expr] | "?:" (type | expr)) ";"?
-method_sig := "fn" identifier "(" [param_types] ")" [":" type] ";"
+method_def := "fn" identifier ["?"] "(" [param_types] ")" [":" type] (block | ";")
+            (* "?" marks optional method, block provides default implementation *)
 
 (* Parameters *)
 param := ["const"] ["ref"] identifier [":" type] ["?:" expr]
