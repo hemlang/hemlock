@@ -574,6 +574,35 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;
     }
 
+    // Handle tuples
+    if (kind == TYPE_TUPLE) {
+        if (value.type != VAL_TUPLE) {
+            fprintf(stderr, "Runtime error: Expected tuple, got non-tuple\n");
+            exit(1);
+        }
+
+        Tuple *tuple = value.as.as_tuple;
+
+        // Check length matches
+        if (target_type->num_element_types != tuple->length) {
+            fprintf(stderr, "Runtime error: Tuple length mismatch: expected %d, got %d\n",
+                    target_type->num_element_types, tuple->length);
+            exit(1);
+        }
+
+        // Coerce each element to its target type
+        for (int i = 0; i < tuple->length; i++) {
+            Value elem = tuple->elements[i];
+            Value coerced = convert_to_type(elem, target_type->element_types[i], env, ctx);
+            // Release old value and retain new
+            VALUE_RELEASE(tuple->elements[i]);
+            VALUE_RETAIN(coerced);
+            tuple->elements[i] = coerced;
+        }
+
+        return value;
+    }
+
     // Original function continues with TypeKind
     TypeKind target_kind = kind;
     // Get the source value as the widest type for range checking
@@ -806,6 +835,12 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             // Void type is only used for FFI function return types
             // Should not be converted to in normal code
             fprintf(stderr, "Runtime error: Cannot convert to void type\n");
+            exit(1);
+
+        case TYPE_TUPLE:
+            // Tuple type is already handled earlier in this function
+            // If we reach here, something went wrong
+            fprintf(stderr, "Runtime error: Tuple type should be handled earlier\n");
             exit(1);
 
         case TYPE_CUSTOM_OBJECT:

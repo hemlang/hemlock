@@ -25,6 +25,7 @@ typedef enum {
     VAL_PTR,
     VAL_BUFFER,
     VAL_ARRAY,          // Dynamic array
+    VAL_TUPLE,          // Fixed-size heterogeneous tuple
     VAL_OBJECT,         // JavaScript-style object
     VAL_FILE,           // File handle
     VAL_SOCKET,         // Socket handle
@@ -71,6 +72,13 @@ typedef struct {
     Type *element_type;  // Optional: type constraint for array elements (NULL = untyped)
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
 } Array;
+
+// Tuple struct (fixed-size heterogeneous container)
+typedef struct {
+    Value *elements;     // Array of values
+    int length;          // Number of elements (fixed at creation)
+    int ref_count;       // Reference count for memory management
+} Tuple;
 
 // File handle struct
 typedef struct {
@@ -227,6 +235,7 @@ typedef struct Value {
         void *as_ptr;
         Buffer *as_buffer;
         Array *as_array;
+        Tuple *as_tuple;
         FileHandle *as_file;
         SocketHandle *as_socket;
         WebSocketHandle *as_websocket;
@@ -328,6 +337,14 @@ void array_push(Array *arr, Value val);
 Value array_pop(Array *arr);
 Value array_get(Array *arr, int index, ExecutionContext *ctx);
 void array_set(Array *arr, int index, Value val, ExecutionContext *ctx);
+
+// Tuple operations
+Tuple* tuple_new(int length);
+void tuple_free(Tuple *tuple);
+void tuple_retain(Tuple *tuple);
+void tuple_release(Tuple *tuple);
+Value tuple_get(Tuple *tuple, int index, ExecutionContext *ctx);
+Value val_tuple(Tuple *tuple);
 
 // File operations
 void file_free(FileHandle *file);

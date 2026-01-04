@@ -29,6 +29,7 @@ typedef enum {
     EXPR_FUNCTION,
     EXPR_ARRAY_LITERAL,
     EXPR_OBJECT_LITERAL,
+    EXPR_TUPLE_LITERAL,      // Tuple literal: (expr1, expr2, ...)
     EXPR_PREFIX_INC,
     EXPR_PREFIX_DEC,
     EXPR_POSTFIX_INC,
@@ -176,6 +177,10 @@ struct Expr {
             int num_fields;
         } object_literal;
         struct {
+            Expr **elements;
+            int num_elements;
+        } tuple_literal;
+        struct {
             Expr *operand;
         } prefix_inc;
         struct {
@@ -230,6 +235,7 @@ typedef enum {
     TYPE_PTR,
     TYPE_BUFFER,
     TYPE_ARRAY,          // Typed array (e.g., array<u8>)
+    TYPE_TUPLE,          // Tuple type (e.g., (i32, string))
     TYPE_NULL,
     TYPE_INFER,          // No annotation, infer from value
     TYPE_CUSTOM_OBJECT,  // Custom object type (Person, User, etc.)
@@ -242,6 +248,8 @@ struct Type {
     TypeKind kind;
     char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
+    struct Type **element_types;  // For TYPE_TUPLE (array of element types)
+    int num_element_types;        // For TYPE_TUPLE (number of elements)
     int nullable;         // If true, type allows null (e.g., string?)
 };
 
@@ -401,6 +409,7 @@ Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
 Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);
+Expr* expr_tuple_literal(Expr **elements, int num_elements);
 Expr* expr_prefix_inc(Expr *operand);
 Expr* expr_prefix_dec(Expr *operand);
 Expr* expr_postfix_inc(Expr *operand);

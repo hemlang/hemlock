@@ -33,6 +33,7 @@ typedef enum {
     CHECKED_PTR,
     CHECKED_BUFFER,
     CHECKED_ARRAY,      // Array with optional element type
+    CHECKED_TUPLE,      // Tuple with element types
     CHECKED_OBJECT,     // Generic object
     CHECKED_CUSTOM,     // Custom object type (Person, User, etc.)
     CHECKED_FUNCTION,   // Function type

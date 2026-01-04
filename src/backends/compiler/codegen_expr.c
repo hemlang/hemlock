@@ -1085,6 +1085,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_array_length(%s);", result, obj);
                 codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_TUPLE) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_i32(%s.as.as_tuple->length);", result, obj);
+                codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_string_length(%s);", result, obj);
@@ -1168,9 +1172,36 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else {
-                // Regular property access - throws error if field not found (parity with interpreter)
-                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_required(%s, \"%s\");",
-                              result, obj, expr->as.get_property.property);
+                // Check if property is a numeric index (for tuples: .0, .1, .2, etc.)
+                const char *prop = expr->as.get_property.property;
+                int is_numeric = (prop[0] >= '0' && prop[0] <= '9');
+                if (is_numeric) {
+                    // Check that entire property is numeric
+                    for (const char *p = prop; *p; p++) {
+                        if (*p < '0' || *p > '9') {
+                            is_numeric = 0;
+                            break;
+                        }
+                    }
+                }
+
+                if (is_numeric) {
+                    int index = atoi(prop);
+                    codegen_writeln(ctx, "HmlValue %s;", result);
+                    codegen_writeln(ctx, "if (%s.type == HML_VAL_TUPLE) {", obj);
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "%s = hml_tuple_get(%s, %d);", result, obj, index);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "} else {");
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_runtime_error(\"Cannot access .%s on non-tuple type\");", prop);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                } else {
+                    // Regular property access - throws error if field not found (parity with interpreter)
+                    codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_required(%s, \"%s\");",
+                                  result, obj, expr->as.get_property.property);
+                }
             }
             codegen_writeln(ctx, "hml_release(&%s);", obj);
             free(obj);
@@ -1236,6 +1267,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_TUPLE) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_tuple_get(%s, hml_to_i32(%s));", result, obj, idx);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
@@ -1346,6 +1381,19 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
                 char *elem = codegen_expr(ctx, expr->as.array_literal.elements[i]);
                 codegen_writeln(ctx, "hml_array_push(%s, %s);", result, elem);
+                codegen_writeln(ctx, "hml_release(&%s);", elem);
+                free(elem);
+            }
+            break;
+        }
+
+        case EXPR_TUPLE_LITERAL: {
+            int num_elements = expr->as.tuple_literal.num_elements;
+            codegen_writeln(ctx, "HmlValue %s = hml_val_tuple(%d);", result, num_elements);
+            for (int i = 0; i < num_elements; i++) {
+                char *elem = codegen_expr(ctx, expr->as.tuple_literal.elements[i]);
+                codegen_writeln(ctx, "%s.as.as_tuple->elements[%d] = %s;", result, i, elem);
+                codegen_writeln(ctx, "hml_retain(&%s.as.as_tuple->elements[%d]);", result, i);
                 codegen_writeln(ctx, "hml_release(&%s);", elem);
                 free(elem);
             }

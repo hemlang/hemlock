@@ -428,6 +428,72 @@ Value val_array(Array *arr) {
     return v;
 }
 
+// ========== TUPLE OPERATIONS ==========
+
+Tuple* tuple_new(int length) {
+    if (length < 2) {
+        fprintf(stderr, "Runtime error: Tuple must have at least 2 elements\n");
+        exit(1);
+    }
+    Tuple *tuple = malloc(sizeof(Tuple));
+    if (!tuple) {
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+    tuple->length = length;
+    tuple->ref_count = 1;  // Start with 1 - caller owns the first reference
+    tuple->elements = malloc(sizeof(Value) * length);
+    if (!tuple->elements) {
+        free(tuple);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
+    // Initialize all elements to null
+    for (int i = 0; i < length; i++) {
+        tuple->elements[i] = val_null();
+    }
+    return tuple;
+}
+
+void tuple_free(Tuple *tuple) {
+    if (!tuple) return;
+
+    // Release each element (decrements ref_counts)
+    for (int i = 0; i < tuple->length; i++) {
+        value_release(tuple->elements[i]);
+    }
+    free(tuple->elements);
+    free(tuple);
+}
+
+void tuple_retain(Tuple *tuple) {
+    if (tuple) {
+        __atomic_add_fetch(&tuple->ref_count, 1, __ATOMIC_SEQ_CST);
+    }
+}
+
+void tuple_release(Tuple *tuple) {
+    if (!tuple) return;
+    int old_count = __atomic_sub_fetch(&tuple->ref_count, 1, __ATOMIC_SEQ_CST);
+    if (old_count == 0) {
+        tuple_free(tuple);
+    }
+}
+
+Value tuple_get(Tuple *tuple, int index, ExecutionContext *ctx) {
+    if (index < 0 || index >= tuple->length) {
+        runtime_error(ctx, "Tuple index %d out of bounds (length %d)", index, tuple->length);
+    }
+    return tuple->elements[index];
+}
+
+Value val_tuple(Tuple *tuple) {
+    Value v = {0};  // Zero-initialize entire struct
+    v.type = VAL_TUPLE;
+    v.as.as_tuple = tuple;
+    return v;
+}
+
 // ========== FILE OPERATIONS ==========
 
 void file_free(FileHandle *file) {
@@ -1073,6 +1139,16 @@ void print_value(Value val) {
             printf("]");
             break;
         }
+        case VAL_TUPLE: {
+            Tuple *tuple = val.as.as_tuple;
+            printf("(");
+            for (int i = 0; i < tuple->length; i++) {
+                if (i > 0) printf(", ");
+                print_value(tuple->elements[i]);
+            }
+            printf(")");
+            break;
+        }
         case VAL_FILE: {
             FileHandle *file = val.as.as_file;
             if (file->closed) {
@@ -1241,6 +1317,38 @@ char* value_to_string(Value val) {
                 free(parts[i]);
             }
             result[pos++] = ']';
+            result[pos] = '\0';
+            free(parts);
+            free(part_lens);
+            return result;
+        }
+        case VAL_TUPLE: {
+            // Tuple representation with parentheses
+            Tuple *tuple = val.as.as_tuple;
+            size_t total_len = 2;  // ( and )
+            char **parts = malloc(sizeof(char*) * tuple->length);
+            size_t *part_lens = malloc(sizeof(size_t) * tuple->length);
+            for (int i = 0; i < tuple->length; i++) {
+                parts[i] = value_to_string(tuple->elements[i]);
+                part_lens[i] = strlen(parts[i]);
+                total_len += part_lens[i];
+                if (i > 0) total_len += 2;  // ", "
+            }
+
+            // SECURITY: Use memcpy with explicit position tracking instead of strcat
+            char *result = malloc(total_len + 1);
+            size_t pos = 0;
+            result[pos++] = '(';
+            for (int i = 0; i < tuple->length; i++) {
+                if (i > 0) {
+                    memcpy(result + pos, ", ", 2);
+                    pos += 2;
+                }
+                memcpy(result + pos, parts[i], part_lens[i]);
+                pos += part_lens[i];
+                free(parts[i]);
+            }
+            result[pos++] = ')';
             result[pos] = '\0';
             free(parts);
             free(part_lens);
@@ -1456,6 +1564,11 @@ static void value_free_internal(Value val, VisitedSet *visited) {
                 array_free_internal(val.as.as_array, visited);
             }
             break;
+        case VAL_TUPLE:
+            if (val.as.as_tuple) {
+                tuple_free(val.as.as_tuple);
+            }
+            break;
         case VAL_FILE:
             if (val.as.as_file) {
                 file_free(val.as.as_file);
@@ -1541,8 +1654,8 @@ void value_free(Value val) {
 static inline int value_needs_refcount(ValueType type) {
     // Only heap-allocated types need refcounting
     return type == VAL_STRING || type == VAL_BUFFER || type == VAL_ARRAY ||
-           type == VAL_OBJECT || type == VAL_FUNCTION || type == VAL_TASK ||
-           type == VAL_CHANNEL || type == VAL_REF;
+           type == VAL_TUPLE || type == VAL_OBJECT || type == VAL_FUNCTION ||
+           type == VAL_TASK || type == VAL_CHANNEL || type == VAL_REF;
 }
 
 // Public API - increment reference count for heap-allocated values
@@ -1564,6 +1677,11 @@ void value_retain(Value val) {
         case VAL_ARRAY:
             if (val.as.as_array) {
                 array_retain(val.as.as_array);
+            }
+            break;
+        case VAL_TUPLE:
+            if (val.as.as_tuple) {
+                tuple_retain(val.as.as_tuple);
             }
             break;
         case VAL_OBJECT:
@@ -1616,6 +1734,11 @@ void value_release(Value val) {
         case VAL_ARRAY:
             if (val.as.as_array) {
                 array_release(val.as.as_array);
+            }
+            break;
+        case VAL_TUPLE:
+            if (val.as.as_tuple) {
+                tuple_release(val.as.as_tuple);
             }
             break;
         case VAL_OBJECT:
@@ -1714,6 +1837,23 @@ Value value_deep_copy(Value val) {
                 }
                 result.type = VAL_ARRAY;
                 result.as.as_array = dst;
+            } else {
+                result = val_null();
+            }
+            break;
+
+        case VAL_TUPLE:
+            if (val.as.as_tuple) {
+                Tuple *src = val.as.as_tuple;
+                Tuple *dst = tuple_new(src->length);
+                // Deep copy each element
+                for (int i = 0; i < src->length; i++) {
+                    Value elem_copy = value_deep_copy(src->elements[i]);
+                    value_retain(elem_copy);
+                    dst->elements[i] = elem_copy;
+                }
+                result.type = VAL_TUPLE;
+                result.as.as_tuple = dst;
             } else {
                 result = val_null();
             }

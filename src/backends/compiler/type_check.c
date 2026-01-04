@@ -126,6 +126,17 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
                 type->element_type = checked_type_from_ast(ast_type->element_type);
             }
             break;
+        case TYPE_TUPLE:
+            type->kind = CHECKED_TUPLE;
+            // Store element types using param_types field
+            if (ast_type->num_element_types > 0) {
+                type->num_params = ast_type->num_element_types;
+                type->param_types = calloc(type->num_params, sizeof(CheckedType*));
+                for (int i = 0; i < type->num_params; i++) {
+                    type->param_types[i] = checked_type_from_ast(ast_type->element_types[i]);
+                }
+            }
+            break;
         case TYPE_CUSTOM_OBJECT:
             type->kind = CHECKED_CUSTOM;
             if (ast_type->type_name) {
@@ -172,6 +183,7 @@ const char* checked_type_kind_name(CheckedTypeKind kind) {
         case CHECKED_PTR:     return "ptr";
         case CHECKED_BUFFER:  return "buffer";
         case CHECKED_ARRAY:   return "array";
+        case CHECKED_TUPLE:   return "tuple";
         case CHECKED_OBJECT:  return "object";
         case CHECKED_CUSTOM:  return "object";
         case CHECKED_FUNCTION: return "function";
@@ -1015,6 +1027,19 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
             return checked_type_array(elem);
         }
 
+        case EXPR_TUPLE_LITERAL: {
+            // Create tuple type with inferred element types
+            int num = expr->as.tuple_literal.num_elements;
+            CheckedType *type = calloc(1, sizeof(CheckedType));
+            type->kind = CHECKED_TUPLE;
+            type->num_params = num;
+            type->param_types = calloc(num, sizeof(CheckedType*));
+            for (int i = 0; i < num; i++) {
+                type->param_types[i] = type_check_infer_expr(ctx, expr->as.tuple_literal.elements[i]);
+            }
+            return type;
+        }
+
         case EXPR_OBJECT_LITERAL:
             return checked_type_primitive(CHECKED_OBJECT);
 
@@ -1587,6 +1612,12 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
         case EXPR_ARRAY_LITERAL:
             for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
                 type_check_expr(ctx, expr->as.array_literal.elements[i]);
+            }
+            break;
+
+        case EXPR_TUPLE_LITERAL:
+            for (int i = 0; i < expr->as.tuple_literal.num_elements; i++) {
+                type_check_expr(ctx, expr->as.tuple_literal.elements[i]);
             }
             break;
 
@@ -2246,6 +2277,16 @@ static int variable_escapes_in_expr_internal(Expr *expr, const char *var_name) {
             }
             return 0;
 
+        case EXPR_TUPLE_LITERAL:
+            for (int i = 0; i < expr->as.tuple_literal.num_elements; i++) {
+                Expr *elem = expr->as.tuple_literal.elements[i];
+                if (elem->type == EXPR_IDENT && strcmp(elem->as.ident.name, var_name) == 0) {
+                    return 1;
+                }
+                if (variable_escapes_in_expr_internal(elem, var_name)) return 1;
+            }
+            return 0;
+
         case EXPR_OBJECT_LITERAL:
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
                 Expr *val = expr->as.object_literal.field_values[i];
@@ -2745,6 +2786,12 @@ static int contains_recursive_call(Expr *expr, const char *func_name) {
         case EXPR_ARRAY_LITERAL:
             for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
                 if (contains_recursive_call(expr->as.array_literal.elements[i], func_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_TUPLE_LITERAL:
+            for (int i = 0; i < expr->as.tuple_literal.num_elements; i++) {
+                if (contains_recursive_call(expr->as.tuple_literal.elements[i], func_name)) return 1;
             }
             return 0;
 

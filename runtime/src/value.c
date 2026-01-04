@@ -206,6 +206,43 @@ HmlValue hml_val_array(void) {
     return v;
 }
 
+HmlValue hml_val_tuple(int length) {
+    if (length < 2) {
+        hml_runtime_error("Tuple must have at least 2 elements");
+    }
+
+    HmlValue v;
+    v.type = HML_VAL_TUPLE;
+
+    HmlTuple *t = malloc(sizeof(HmlTuple));
+    t->elements = malloc(sizeof(HmlValue) * length);
+    t->length = length;
+    t->ref_count = 1;
+
+    // Initialize all elements to null
+    for (int i = 0; i < length; i++) {
+        t->elements[i] = hml_val_null();
+    }
+
+    v.as.as_tuple = t;
+    return v;
+}
+
+HmlValue hml_tuple_get(HmlValue tuple, int index) {
+    if (tuple.type != HML_VAL_TUPLE) {
+        hml_runtime_error("Cannot get element from non-tuple");
+    }
+    HmlTuple *t = tuple.as.as_tuple;
+    if (index < 0 || index >= t->length) {
+        hml_runtime_error("Tuple index %d out of bounds (length %d)", index, t->length);
+    }
+    HmlValue result = t->elements[index];
+    if (hml_needs_refcount(result)) {
+        hml_retain(&result);
+    }
+    return result;
+}
+
 HmlValue hml_val_object(void) {
     HmlValue v;
     v.type = HML_VAL_OBJECT;
@@ -358,6 +395,9 @@ void hml_retain(HmlValue *val) {
         case HML_VAL_ARRAY:
             if (val->as.as_array) val->as.as_array->ref_count++;
             break;
+        case HML_VAL_TUPLE:
+            if (val->as.as_tuple) val->as.as_tuple->ref_count++;
+            break;
         case HML_VAL_OBJECT:
             if (val->as.as_object) val->as.as_object->ref_count++;
             break;
@@ -397,6 +437,17 @@ static void array_free(HmlArray *arr) {
         }
         free(arr->elements);
         free(arr);
+    }
+}
+
+static void tuple_free(HmlTuple *tuple) {
+    if (tuple) {
+        // Release all elements
+        for (int i = 0; i < tuple->length; i++) {
+            hml_release(&tuple->elements[i]);
+        }
+        free(tuple->elements);
+        free(tuple);
     }
 }
 
@@ -453,6 +504,15 @@ void hml_release(HmlValue *val) {
                     array_free(val->as.as_array);
                 }
                 val->as.as_array = NULL;
+            }
+            break;
+        case HML_VAL_TUPLE:
+            if (val->as.as_tuple) {
+                val->as.as_tuple->ref_count--;
+                if (val->as.as_tuple->ref_count <= 0) {
+                    tuple_free(val->as.as_tuple);
+                }
+                val->as.as_tuple = NULL;
             }
             break;
         case HML_VAL_OBJECT:
@@ -707,6 +767,7 @@ const char* hml_type_name(HmlValueType type) {
         case HML_VAL_PTR:     return "ptr";
         case HML_VAL_BUFFER:  return "buffer";
         case HML_VAL_ARRAY:   return "array";
+        case HML_VAL_TUPLE:   return "tuple";
         case HML_VAL_OBJECT:  return "object";
         case HML_VAL_FILE:    return "file";
         case HML_VAL_FUNCTION: return "function";

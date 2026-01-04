@@ -842,6 +842,26 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 } else {
                     runtime_error(ctx, "Array has no property '%s'", property);
                 }
+            } else if (object.type == VAL_TUPLE) {
+                // Tuple element access via numeric property (e.g., tuple.0, tuple.1)
+                Tuple *tuple = object.as.as_tuple;
+                if (strcmp(property, "length") == 0) {
+                    result = val_i32(tuple->length);
+                } else {
+                    // Try to parse as numeric index
+                    char *endptr;
+                    long index = strtol(property, &endptr, 10);
+                    if (*endptr == '\0' && property[0] >= '0' && property[0] <= '9') {
+                        // Valid numeric property
+                        if (index < 0 || index >= tuple->length) {
+                            runtime_error(ctx, "Tuple index %ld out of bounds (length %d)", index, tuple->length);
+                        }
+                        result = tuple->elements[index];
+                        VALUE_RETAIN(result);
+                    } else {
+                        runtime_error(ctx, "Tuple has no property '%s' (use .0, .1, etc. for element access)", property);
+                    }
+                }
             } else if (object.type == VAL_OBJECT) {
                 // Look up field in object using inline cache or hash table
                 Object *obj = object.as.as_object;
@@ -965,6 +985,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Fall through to normal path for bounds error
             }
 
+            // FAST PATH: tuple[i32]
+            if (object.type == VAL_TUPLE && index_val.type == VAL_I32) {
+                Tuple *tuple = object.as.as_tuple;
+                int32_t index = index_val.as.as_i32;
+                if (index >= 0 && index < tuple->length) {
+                    result = tuple->elements[index];
+                    VALUE_RETAIN(result);
+                    VALUE_RELEASE(object);
+                    return result;
+                }
+                // Fall through to normal path for bounds error
+            }
+
             // Object property access with string key
             if (object.type == VAL_OBJECT && index_val.type == VAL_STRING) {
                 Object *obj = object.as.as_object;
@@ -1027,6 +1060,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 result = array_get(object.as.as_array, index, ctx);
                 // Retain the element so it survives array release
                 VALUE_RETAIN(result);
+            } else if (object.type == VAL_TUPLE) {
+                // Tuple indexing
+                result = tuple_get(object.as.as_tuple, index, ctx);
+                // Retain the element so it survives tuple release
+                VALUE_RETAIN(result);
             } else if (object.type == VAL_PTR) {
                 // Raw pointer indexing - no bounds checking (unsafe!)
                 void *ptr = object.as.as_ptr;
@@ -1039,7 +1077,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Return the byte as u8
                 result = val_u8(((unsigned char *)ptr)[index]);
             } else {
-                runtime_error(ctx, "Only strings, buffers, arrays, pointers, and objects can be indexed");
+                runtime_error(ctx, "Only strings, buffers, arrays, tuples, pointers, and objects can be indexed");
                 VALUE_RELEASE(object);
                 VALUE_RELEASE(index_val);
                 return val_null();
@@ -1264,6 +1302,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             fn->param_types[i]->element_type->type_name = strdup(expr->as.function.param_types[i]->element_type->type_name);
                         }
                     }
+                    // Copy element_types for tuples
+                    if (expr->as.function.param_types[i]->num_element_types > 0) {
+                        fn->param_types[i]->num_element_types = expr->as.function.param_types[i]->num_element_types;
+                        fn->param_types[i]->element_types = malloc(sizeof(Type*) * fn->param_types[i]->num_element_types);
+                        for (int ti = 0; ti < fn->param_types[i]->num_element_types; ti++) {
+                            Type *src_elem = expr->as.function.param_types[i]->element_types[ti];
+                            fn->param_types[i]->element_types[ti] = type_new(src_elem->kind);
+                            fn->param_types[i]->element_types[ti]->nullable = src_elem->nullable;
+                            if (src_elem->type_name) {
+                                fn->param_types[i]->element_types[ti]->type_name = strdup(src_elem->type_name);
+                            }
+                        }
+                    }
                 } else {
                     fn->param_types[i] = NULL;
                 }
@@ -1336,6 +1387,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
                     }
                 }
+                // Copy element_types for tuples
+                if (expr->as.function.return_type->num_element_types > 0) {
+                    fn->return_type->num_element_types = expr->as.function.return_type->num_element_types;
+                    fn->return_type->element_types = malloc(sizeof(Type*) * fn->return_type->num_element_types);
+                    for (int ti = 0; ti < fn->return_type->num_element_types; ti++) {
+                        Type *src_elem = expr->as.function.return_type->element_types[ti];
+                        fn->return_type->element_types[ti] = type_new(src_elem->kind);
+                        fn->return_type->element_types[ti]->nullable = src_elem->nullable;
+                        if (src_elem->type_name) {
+                            fn->return_type->element_types[ti]->type_name = strdup(src_elem->type_name);
+                        }
+                    }
+                }
             } else {
                 fn->return_type = NULL;
             }
@@ -1367,6 +1431,20 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             return val_array(arr);
+        }
+
+        case EXPR_TUPLE_LITERAL: {
+            // Create tuple and evaluate elements
+            int num_elements = expr->as.tuple_literal.num_elements;
+            Tuple *tuple = tuple_new(num_elements);
+
+            for (int i = 0; i < num_elements; i++) {
+                Value element = eval_expr(expr->as.tuple_literal.elements[i], env, ctx);
+                VALUE_RETAIN(element);
+                tuple->elements[i] = element;
+            }
+
+            return val_tuple(tuple);
         }
 
         case EXPR_OBJECT_LITERAL: {
