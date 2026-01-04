@@ -45,7 +45,9 @@ Hemlock is a **systems scripting language** with manual memory management and ex
 - `{}` blocks always required
 - Comments: `// line` and `/* block */`
 - Operators match C: `+`, `-`, `*`, `%`, `&&`, `||`, `!`, `&`, `|`, `^`, `<<`, `>>`
-- `/` always returns float (use `div()` or `divi()` for floor division)
+- Increment/decrement: `++x`, `x++`, `--x`, `x--` (prefix and postfix)
+- Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`
+- `/` always returns float (use `divi()` for integer division)
 - Type syntax: `let x: type = value;`
 
 ---
@@ -111,6 +113,16 @@ let f: f64 = 100;        // i32 to f64 via annotation (numeric coercion OK)
 // let n: i32 = "42";    // ERROR - use i32("42") for string parsing
 ```
 
+### Introspection
+```hemlock
+typeof(42);              // "i32"
+typeof("hello");         // "string"
+typeof([1, 2, 3]);       // "array"
+typeof(null);            // "null"
+len("hello");            // 5 (string length in bytes)
+len([1, 2, 3]);          // 3 (array length)
+```
+
 ### Memory
 ```hemlock
 let p = alloc(64);       // raw pointer
@@ -124,9 +136,9 @@ free(p);                 // manual cleanup required
 ```hemlock
 if (x > 0) { } else if (x < 0) { } else { }
 while (cond) { break; continue; }
-for (let i = 0; i < 10; i = i + 1) { }
+for (let i = 0; i < 10; i++) { }
 for (item in array) { }
-switch (x) { case 1: break; default: break; }
+switch (x) { case 1: break; default: break; }  // C-style fall-through
 defer cleanup();         // runs when function returns
 ```
 
@@ -217,6 +229,8 @@ let val = ch.recv();
 ch.close();
 ```
 
+**Memory ownership:** Tasks receive copies of primitive values but share pointers. If you pass a `ptr` to a spawned task, you must ensure the memory remains valid until the task completes. Use `join()` before `free()`, or use channels to signal completion.
+
 ### User Input
 ```hemlock
 let name = read_line();          // Read line from stdin (blocks)
@@ -255,6 +269,8 @@ raise(SIGUSR1);
 `byte_at`, `chars`, `bytes`, `to_bytes`, `deserialize`
 
 Template strings: `` `Hello ${name}!` ``
+
+**String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings without modifying the original. This allows in-place mutation when needed while keeping method chaining functional.
 
 ## Array Methods (18)
 
@@ -628,7 +644,8 @@ make parity
 - **Float literals without leading zero** (`.5`, `.123`, `.5e2`)
 - **Compile-time type checking** in hemlockc (enabled by default)
 - **LSP integration** with type checking for real-time diagnostics
-- **Compound bitwise operators** (`&=`, `|=`, `^=`, `<<=`, `>>=`, `%=`)
+- **Compound assignment operators** (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
+- **Increment/decrement operators** (`++x`, `x++`, `--x`, `x--`)
 - **Type precision fix**: i64/u64 + f32 → f64 to preserve precision
 - Unified type system with unboxing optimization hints
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
