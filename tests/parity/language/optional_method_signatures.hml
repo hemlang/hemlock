@@ -1,0 +1,82 @@
+// Test optional method signatures in define blocks (fn method?())
+
+// Define with both required and optional methods
+define Formatter {
+    data: string,
+    fn format(): string;         // Required method
+    fn pretty?(): string;        // Optional method (with ?)
+}
+
+// Object with required method only - should work since pretty is optional
+let obj1: Formatter = {
+    data: "test",
+    format: fn() { return self.data; }
+};
+
+print(obj1.format());
+
+// Object with both required and optional methods
+let obj2: Formatter = {
+    data: "hello",
+    format: fn() { return self.data; },
+    pretty: fn() { return "Pretty: " + self.data; }
+};
+
+print(obj2.format());
+print(obj2.pretty());
+
+// Define with only optional method
+define Debuggable {
+    name: string,
+    fn debug?(): string;  // Optional - objects don't need to provide it
+}
+
+// Object without the optional method
+let d1: Debuggable = {
+    name: "item1"
+};
+
+print(d1.name);
+
+// Object with the optional method
+let d2: Debuggable = {
+    name: "item2",
+    debug: fn() { return "Debug: " + self.name; }
+};
+
+print(d2.name);
+print(d2.debug());
+
+// Define with multiple optional methods
+define Printable {
+    value: i32,
+    fn to_string?(): string;
+    fn to_json?(): string;
+}
+
+// Object with no optional methods
+let p1: Printable = {
+    value: 42
+};
+
+print(p1.value);
+
+// Object with one optional method
+let p2: Printable = {
+    value: 100,
+    to_string: fn() { return "Value: " + self.value; }
+};
+
+print(p2.value);
+print(p2.to_string());
+
+// Object with both optional methods
+let p3: Printable = {
+    value: 200,
+    to_string: fn() { return "Value: " + self.value; },
+    to_json: fn() { return "{\"value\":" + self.value + "}"; }
+};
+
+print(p3.value);
+print(p3.to_string());
+print(p3.to_json());

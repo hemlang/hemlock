@@ -111,6 +111,11 @@ typedef struct ObjectDef {
     CheckedType **field_types;
     int *field_optional;
     int num_fields;
+    // Method signatures
+    char **method_names;      // Method names
+    CheckedType **method_types; // Function types (CHECKED_TYPE_FUNCTION)
+    int *method_optional;     // 1 if optional method (fn method?())
+    int num_methods;
     struct ObjectDef *next;
 } ObjectDef;
 
@@ -236,7 +241,9 @@ FunctionSig* type_check_lookup_function(TypeCheckContext *ctx, const char *name)
 void type_check_register_object(TypeCheckContext *ctx, const char *name,
                                 char **type_params, int num_type_params,
                                 char **field_names, CheckedType **field_types,
-                                int *field_optional, int num_fields);
+                                int *field_optional, int num_fields,
+                                char **method_names, CheckedType **method_types,
+                                int *method_optional, int num_methods);
 
 // Look up an object type definition
 ObjectDef* type_check_lookup_object(TypeCheckContext *ctx, const char *name);
