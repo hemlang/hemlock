@@ -20,7 +20,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // OPTIMIZATION: Check if this typed variable can be unboxed
             // Unboxed variables use native C types for 5-10x faster arithmetic
-            if (ctx->optimize && ctx->type_ctx && stmt->as.let.type_annotation && stmt->as.let.value) {
+            // IMPORTANT: Skip unboxing for main-level variables - they're pre-declared as HmlValue
+            if (ctx->optimize && ctx->type_ctx && stmt->as.let.type_annotation && stmt->as.let.value &&
+                !codegen_is_main_var(ctx, stmt->as.let.name)) {
                 CheckedTypeKind native_type = type_check_can_unbox_annotation(stmt->as.let.type_annotation);
                 if (native_type != CHECKED_UNKNOWN) {
                     // Check if variable is marked as unboxable (escape analysis passed)
@@ -43,7 +45,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // OPTIMIZATION: Check if untyped variable can be unboxed via type inference
             // This handles patterns like: let x = 42; let sum = a + b;
-            if (ctx->optimize && ctx->type_ctx && !stmt->as.let.type_annotation && stmt->as.let.value) {
+            // IMPORTANT: Skip unboxing for main-level variables - they're pre-declared as HmlValue
+            if (ctx->optimize && ctx->type_ctx && !stmt->as.let.type_annotation && stmt->as.let.value &&
+                !codegen_is_main_var(ctx, stmt->as.let.name)) {
                 CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, stmt->as.let.name);
                 if (native_type != CHECKED_UNKNOWN) {
                     const char *c_type = checked_type_to_c_type(native_type);

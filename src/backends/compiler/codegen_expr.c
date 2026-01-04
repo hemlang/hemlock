@@ -85,8 +85,10 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
 
         case EXPR_IDENT:
             // Check if this is an unboxable typed variable
+            // IMPORTANT: Skip main-level variables - they're pre-declared as HmlValue
             if (ctx->optimize && ctx->type_ctx &&
-                !codegen_is_func_param(ctx, expr->as.ident.name)) {
+                !codegen_is_func_param(ctx, expr->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.ident.name)) {
                 CheckedTypeKind native_type = type_check_get_unboxable(
                     ctx->type_ctx, expr->as.ident.name);
                 switch (native_type) {
@@ -325,12 +327,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // OPTIMIZATION: Native C arithmetic for unboxed typed variables
             // When both operands are unboxed variables of the same numeric type,
             // use pure C arithmetic instead of HmlValue boxing/unboxing
-            // Skip if either operand is a function parameter (always HmlValue)
+            // Skip if either operand is a function parameter or main variable (always HmlValue)
             if (ctx->optimize && ctx->type_ctx &&
                 expr->as.binary.left->type == EXPR_IDENT &&
                 expr->as.binary.right->type == EXPR_IDENT &&
                 !codegen_is_func_param(ctx, expr->as.binary.left->as.ident.name) &&
-                !codegen_is_func_param(ctx, expr->as.binary.right->as.ident.name)) {
+                !codegen_is_func_param(ctx, expr->as.binary.right->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.left->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.right->as.ident.name)) {
                 CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
                 CheckedTypeKind right_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.right->as.ident.name);
 
@@ -428,10 +432,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             // OPTIMIZATION: Native C arithmetic for one unboxed variable and one literal
-            // Skip if the variable is a function parameter (always HmlValue)
+            // Skip if the variable is a function parameter or main variable (always HmlValue)
             if (ctx->optimize && ctx->type_ctx && expr->as.binary.left->type == EXPR_IDENT &&
                 expr->as.binary.right->type == EXPR_NUMBER &&
-                !codegen_is_func_param(ctx, expr->as.binary.left->as.ident.name)) {
+                !codegen_is_func_param(ctx, expr->as.binary.left->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.left->as.ident.name)) {
                 CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
                 if (left_native != CHECKED_UNKNOWN && checked_kind_is_numeric(left_native)) {
                     const char *box_func = checked_type_to_box_func(left_native);
@@ -942,7 +947,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             // OPTIMIZATION: Check if assigning to an unboxed variable
-            if (ctx->optimize && ctx->type_ctx) {
+            // Skip main variables - they're always HmlValue, not unboxed
+            if (ctx->optimize && ctx->type_ctx && !codegen_is_main_var(ctx, expr->as.assign.name)) {
                 CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, expr->as.assign.name);
                 if (native_type != CHECKED_UNKNOWN) {
                     const char *unbox_cast = checked_type_to_unbox_cast(native_type);
