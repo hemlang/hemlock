@@ -1,96 +1,71 @@
 // Test the loop keyword (infinite loop)
-// Note: This test uses loop instead of while(true)
 
 // Basic loop with break
+print("Test 1: basic loop");
 let i = 0;
 loop {
-    if (i >= 3) {
-        break;
-    }
+    if (i >= 3) { break; }
+    print(i);
     i = i + 1;
 }
-// i should be 3
+print("after");
 
 // Loop with continue
+print("Test 2: continue");
 let j = 0;
-let sum = 0;
 loop {
     j = j + 1;
-    if (j > 5) {
-        break;
-    }
-    if (j == 3) {
-        continue;
-    }
-    sum = sum + j;
+    if (j > 5) { break; }
+    if (j == 3) { continue; }
+    print(j);
 }
-// sum should be 1+2+4+5 = 12
+print("after");
 
 // Nested loops
-let outer_count = 0;
-let inner_count = 0;
-loop {
-    if (outer_count >= 2) {
-        break;
-    }
-    let k = 0;
-    loop {
-        if (k >= 3) {
-            break;
-        }
-        inner_count = inner_count + 1;
-        k = k + 1;
-    }
-    outer_count = outer_count + 1;
-}
-// outer_count should be 2, inner_count should be 6
-
-// Labeled loop with break
-let x = 0;
-let y_sum = 0;
-outer: loop {
-    if (x >= 3) {
-        break;
-    }
-    let y = 0;
-    loop {
-        if (x == 1 && y == 1) {
-            break outer;
-        }
-        y_sum = y_sum + 1;
-        y = y + 1;
-        if (y >= 3) {
-            break;
-        }
-    }
-    x = x + 1;
-}
-// Should break at x=1, y=1, so y_sum should be 3+1 = 4
-
-// Labeled loop with continue
+print("Test 3: nested");
 let a = 0;
-let b_sum = 0;
-outer: loop {
-    a = a + 1;
-    if (a > 3) {
-        break;
-    }
+loop {
+    if (a >= 2) { break; }
     let b = 0;
     loop {
+        if (b >= 3) { break; }
+        print(a * 10 + b);
         b = b + 1;
-        if (b > 3) {
-            break;
-        }
-        if (a == 2 && b == 1) {
-            continue outer;
-        }
-        b_sum = b_sum + 1;
+    }
+    a = a + 1;
+}
+print("after");
+
+// Labeled loop with break
+print("Test 4: labeled break");
+let x = 0;
+outer: loop {
+    let y = 0;
+    loop {
+        if (x == 1 && y == 1) { break outer; }
+        print(x * 10 + y);
+        y = y + 1;
+        if (y >= 3) { break; }
+    }
+    x = x + 1;
+    if (x >= 3) { break; }
+}
+print("after");
+
+// Labeled loop with continue
+print("Test 5: labeled continue");
+let m = 0;
+outer: loop {
+    m = m + 1;
+    if (m > 3) { break; }
+    let n = 0;
+    loop {
+        n = n + 1;
+        if (n > 3) { break; }
+        if (m == 2 && n == 1) { continue outer; }
+        print(m * 10 + n);
     }
 }
-// For a=1: b=1,2,3 -> 3 counts
-// For a=2: b=1 -> continue outer, 0 counts
-// For a=3: b=1,2,3 -> 3 counts
-// Total: 6
+print("after");
 
-// Verify all results
-let all_pass = (i == 3) && (sum == 12) && (outer_count == 2) && (inner_count == 6) && (y_sum == 4) && (b_sum == 6);
+print("done");
