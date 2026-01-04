@@ -16,7 +16,7 @@ let WS_MSG_CLOSE = 8;
 // ========== MESSAGE TYPE ==========
 
 define WebSocketMessage {
-    type: string,       // "text", "binary", "ping", "pong", "close"
+    msg_type: string,   // "text", "binary", "ping", "pong", "close"
     data?: string,      // For text messages (null for non-text)
     binary?: buffer,    // For binary messages (null for non-binary)
 }
@@ -73,7 +73,7 @@ export fn WebSocket(url: string) {
 
             if (msg_type == WS_MSG_TEXT) {
                 message = {
-                    type: "text",
+                    msg_type: "text",
                     data: __lws_msg_text(msg_ptr),
                 };
             } else if (msg_type == WS_MSG_BINARY) {
@@ -81,25 +81,25 @@ export fn WebSocket(url: string) {
                 let bin_len = __lws_msg_len(msg_ptr);
                 // Would need to convert to buffer - for now just report length
                 message = {
-                    type: "binary",
+                    msg_type: "binary",
                     data: "binary data (" + bin_len + " bytes)",
                 };
             } else if (msg_type == WS_MSG_PING) {
                 message = {
-                    type: "ping",
+                    msg_type: "ping",
                 };
             } else if (msg_type == WS_MSG_PONG) {
                 message = {
-                    type: "pong",
+                    msg_type: "pong",
                 };
             } else if (msg_type == WS_MSG_CLOSE) {
                 message = {
-                    type: "close",
+                    msg_type: "close",
                 };
                 self.closed = true;
             } else {
                 message = {
-                    type: "unknown",
+                    msg_type: "unknown",
                 };
             }
 
@@ -179,31 +179,31 @@ export fn WebSocketServer(host: string, port: i32) {
 
                     if (msg_type == WS_MSG_TEXT) {
                         message = {
-                            type: "text",
+                            msg_type: "text",
                             data: __lws_msg_text(msg_ptr),
                         };
                     } else if (msg_type == WS_MSG_BINARY) {
                         let bin_len = __lws_msg_len(msg_ptr);
                         message = {
-                            type: "binary",
+                            msg_type: "binary",
                             data: "binary data (" + bin_len + " bytes)",
                         };
                     } else if (msg_type == WS_MSG_PING) {
                         message = {
-                            type: "ping",
+                            msg_type: "ping",
                         };
                     } else if (msg_type == WS_MSG_PONG) {
                         message = {
-                            type: "pong",
+                            msg_type: "pong",
                         };
                     } else if (msg_type == WS_MSG_CLOSE) {
                         message = {
-                            type: "close",
+                            msg_type: "close",
                         };
                         self.closed = true;
                     } else {
                         message = {
-                            type: "unknown",
+                            msg_type: "unknown",
                         };
                     }
 

@@ -419,15 +419,15 @@ fn lexer_read_number(lex): object {
     num_str = num_str.replace_all("_", "");
 
     if (is_float) {
-        return { type: TOK_FLOAT, value: parse_float(num_str) };
+        return { kind: TOK_FLOAT, value: parse_float(num_str) };
     } else if (is_hex) {
-        return { type: TOK_INTEGER, value: parse_int(num_str, 16) };
+        return { kind: TOK_INTEGER, value: parse_int(num_str, 16) };
     } else if (is_oct) {
-        return { type: TOK_INTEGER, value: parse_int(num_str, 8) };
+        return { kind: TOK_INTEGER, value: parse_int(num_str, 8) };
     } else if (is_bin) {
-        return { type: TOK_INTEGER, value: parse_int(num_str, 2) };
+        return { kind: TOK_INTEGER, value: parse_int(num_str, 2) };
     } else {
-        return { type: TOK_INTEGER, value: parse_int(num_str, 10) };
+        return { kind: TOK_INTEGER, value: parse_int(num_str, 10) };
     }
 }
 
@@ -447,7 +447,7 @@ fn lexer_next_token(lex): object {
     let ch = lexer_peek(lex);
 
     if (ch == '\0') {
-        return { type: TOK_EOF };
+        return { kind: TOK_EOF };
     }
 
     if (is_newline(ch)) {
@@ -455,29 +455,29 @@ fn lexer_next_token(lex): object {
         if (ch == '\r' && lexer_peek(lex) == '\n') {
             lexer_advance(lex);
         }
-        return { type: TOK_NEWLINE };
+        return { kind: TOK_NEWLINE };
     }
 
-    if (ch == '[') { lexer_advance(lex); return { type: TOK_LBRACKET }; }
-    if (ch == ']') { lexer_advance(lex); return { type: TOK_RBRACKET }; }
-    if (ch == '{') { lexer_advance(lex); return { type: TOK_LBRACE }; }
-    if (ch == '}') { lexer_advance(lex); return { type: TOK_RBRACE }; }
-    if (ch == '=') { lexer_advance(lex); return { type: TOK_EQUALS }; }
-    if (ch == '.') { lexer_advance(lex); return { type: TOK_DOT }; }
-    if (ch == ',') { lexer_advance(lex); return { type: TOK_COMMA }; }
+    if (ch == '[') { lexer_advance(lex); return { kind: TOK_LBRACKET }; }
+    if (ch == ']') { lexer_advance(lex); return { kind: TOK_RBRACKET }; }
+    if (ch == '{') { lexer_advance(lex); return { kind: TOK_LBRACE }; }
+    if (ch == '}') { lexer_advance(lex); return { kind: TOK_RBRACE }; }
+    if (ch == '=') { lexer_advance(lex); return { kind: TOK_EQUALS }; }
+    if (ch == '.') { lexer_advance(lex); return { kind: TOK_DOT }; }
+    if (ch == ',') { lexer_advance(lex); return { kind: TOK_COMMA }; }
 
     if (ch == '"') {
         if (lexer_peek_n(lex, 1) == '"' && lexer_peek_n(lex, 2) == '"') {
-            return { type: TOK_STRING, value: lexer_read_multiline_basic_string(lex) };
+            return { kind: TOK_STRING, value: lexer_read_multiline_basic_string(lex) };
         }
-        return { type: TOK_STRING, value: lexer_read_basic_string(lex) };
+        return { kind: TOK_STRING, value: lexer_read_basic_string(lex) };
     }
 
     if (ch == '\'') {
         if (lexer_peek_n(lex, 1) == '\'' && lexer_peek_n(lex, 2) == '\'') {
-            return { type: TOK_STRING, value: lexer_read_multiline_literal_string(lex) };
+            return { kind: TOK_STRING, value: lexer_read_multiline_literal_string(lex) };
         }
-        return { type: TOK_STRING, value: lexer_read_literal_string(lex) };
+        return { kind: TOK_STRING, value: lexer_read_literal_string(lex) };
     }
 
     if (is_digit(ch) || ((ch == '+' || ch == '-') && is_digit(lexer_peek_n(lex, 1)))) {
@@ -486,11 +486,11 @@ fn lexer_next_token(lex): object {
 
     if (is_bare_key_char(ch)) {
         let key = lexer_read_bare_key(lex);
-        if (key == "true") { return { type: TOK_BOOL, value: true }; }
-        if (key == "false") { return { type: TOK_BOOL, value: false }; }
-        if (key == "inf") { return { type: TOK_FLOAT, value: 1.0 / 0.0 }; }
-        if (key == "nan") { return { type: TOK_FLOAT, value: 0.0 / 0.0 }; }
-        return { type: TOK_KEY, value: key };
+        if (key == "true") { return { kind: TOK_BOOL, value: true }; }
+        if (key == "false") { return { kind: TOK_BOOL, value: false }; }
+        if (key == "inf") { return { kind: TOK_FLOAT, value: 1.0 / 0.0 }; }
+        if (key == "nan") { return { kind: TOK_FLOAT, value: 0.0 / 0.0 }; }
+        return { kind: TOK_KEY, value: key };
     }
 
     throw lexer_error(lex, "unexpected character: " + ch);
@@ -521,15 +521,15 @@ fn parser_advance(parser): object {
 
 fn parser_expect(parser, tok_type): object {
     let tok = parser["current"];
-    if (tok["type"] != tok_type) {
-        throw parser_error(parser, "expected " + tok_type + ", got " + tok["type"]);
+    if (tok["kind"] != tok_type) {
+        throw parser_error(parser, "expected " + tok_type + ", got " + tok["kind"]);
     }
     parser_advance(parser);
     return tok;
 }
 
 fn parser_skip_newlines(parser) {
-    while (parser_current(parser)["type"] == TOK_NEWLINE) {
+    while (parser_current(parser)["kind"] == TOK_NEWLINE) {
         parser_advance(parser);
     }
 }
@@ -538,23 +538,23 @@ fn parser_read_key(parser): array {
     let result: array = [];
 
     let tok = parser_current(parser);
-    if (tok["type"] == TOK_KEY) {
+    if (tok["kind"] == TOK_KEY) {
         result.push(tok["value"]);
         parser_advance(parser);
-    } else if (tok["type"] == TOK_STRING) {
+    } else if (tok["kind"] == TOK_STRING) {
         result.push(tok["value"]);
         parser_advance(parser);
     } else {
         throw parser_error(parser, "expected key");
     }
 
-    while (parser_current(parser)["type"] == TOK_DOT) {
+    while (parser_current(parser)["kind"] == TOK_DOT) {
         parser_advance(parser);
         tok = parser_current(parser);
-        if (tok["type"] == TOK_KEY) {
+        if (tok["kind"] == TOK_KEY) {
             result.push(tok["value"]);
             parser_advance(parser);
-        } else if (tok["type"] == TOK_STRING) {
+        } else if (tok["kind"] == TOK_STRING) {
             result.push(tok["value"]);
             parser_advance(parser);
         } else {
@@ -568,30 +568,30 @@ fn parser_read_key(parser): array {
 fn parser_read_value(parser) {
     let tok = parser_current(parser);
 
-    if (tok["type"] == TOK_STRING) {
+    if (tok["kind"] == TOK_STRING) {
         parser_advance(parser);
         return tok["value"];
     }
-    if (tok["type"] == TOK_INTEGER) {
+    if (tok["kind"] == TOK_INTEGER) {
         parser_advance(parser);
         return tok["value"];
     }
-    if (tok["type"] == TOK_FLOAT) {
+    if (tok["kind"] == TOK_FLOAT) {
         parser_advance(parser);
         return tok["value"];
     }
-    if (tok["type"] == TOK_BOOL) {
+    if (tok["kind"] == TOK_BOOL) {
         parser_advance(parser);
         return tok["value"];
     }
-    if (tok["type"] == TOK_LBRACKET) {
+    if (tok["kind"] == TOK_LBRACKET) {
         return parser_read_array(parser);
     }
-    if (tok["type"] == TOK_LBRACE) {
+    if (tok["kind"] == TOK_LBRACE) {
         return parser_read_inline_table(parser);
     }
 
-    throw parser_error(parser, "expected value, got " + tok["type"]);
+    throw parser_error(parser, "expected value, got " + tok["kind"]);
 }
 
 fn parser_read_array(parser): array {
@@ -600,10 +600,10 @@ fn parser_read_array(parser): array {
 
     parser_skip_newlines(parser);
 
-    while (parser_current(parser)["type"] != TOK_RBRACKET) {
+    while (parser_current(parser)["kind"] != TOK_RBRACKET) {
         arr.push(parser_read_value(parser));
         parser_skip_newlines(parser);
-        if (parser_current(parser)["type"] == TOK_COMMA) {
+        if (parser_current(parser)["kind"] == TOK_COMMA) {
             parser_advance(parser);
             parser_skip_newlines(parser);
         } else {
@@ -619,14 +619,14 @@ fn parser_read_inline_table(parser): object {
     parser_expect(parser, TOK_LBRACE);
     let table = {};
 
-    if (parser_current(parser)["type"] != TOK_RBRACE) {
+    if (parser_current(parser)["kind"] != TOK_RBRACE) {
         while (true) {
             let key_parts = parser_read_key(parser);
             parser_expect(parser, TOK_EQUALS);
             let value = parser_read_value(parser);
             set_nested(table, key_parts, value);
 
-            if (parser_current(parser)["type"] == TOK_COMMA) {
+            if (parser_current(parser)["kind"] == TOK_COMMA) {
                 parser_advance(parser);
             } else {
                 break;
@@ -698,17 +698,17 @@ fn parser_parse(parser): object {
     let result = parser["result"];
     let current_table = result;
 
-    while (parser_current(parser)["type"] != TOK_EOF) {
+    while (parser_current(parser)["kind"] != TOK_EOF) {
         parser_skip_newlines(parser);
 
-        if (parser_current(parser)["type"] == TOK_EOF) {
+        if (parser_current(parser)["kind"] == TOK_EOF) {
             break;
         }
 
-        if (parser_current(parser)["type"] == TOK_LBRACKET) {
+        if (parser_current(parser)["kind"] == TOK_LBRACKET) {
             parser_advance(parser);
 
-            if (parser_current(parser)["type"] == TOK_LBRACKET) {
+            if (parser_current(parser)["kind"] == TOK_LBRACKET) {
                 parser_advance(parser);
                 let key_parts = parser_read_key(parser);
                 parser_expect(parser, TOK_RBRACKET);
@@ -719,19 +719,19 @@ fn parser_parse(parser): object {
                 parser_expect(parser, TOK_RBRACKET);
                 current_table = get_or_create_table(result, key_parts);
             }
-        } else if (parser_current(parser)["type"] == TOK_KEY ||
-                   parser_current(parser)["type"] == TOK_STRING) {
+        } else if (parser_current(parser)["kind"] == TOK_KEY ||
+                   parser_current(parser)["kind"] == TOK_STRING) {
             let key_parts = parser_read_key(parser);
             parser_expect(parser, TOK_EQUALS);
             let value = parser_read_value(parser);
             set_nested(current_table, key_parts, value);
-        } else if (parser_current(parser)["type"] != TOK_NEWLINE &&
-                   parser_current(parser)["type"] != TOK_EOF) {
-            throw parser_error(parser, "unexpected token: " + parser_current(parser)["type"]);
+        } else if (parser_current(parser)["kind"] != TOK_NEWLINE &&
+                   parser_current(parser)["kind"] != TOK_EOF) {
+            throw parser_error(parser, "unexpected token: " + parser_current(parser)["kind"]);
         }
 
-        if (parser_current(parser)["type"] != TOK_NEWLINE &&
-            parser_current(parser)["type"] != TOK_EOF) {
+        if (parser_current(parser)["kind"] != TOK_NEWLINE &&
+            parser_current(parser)["kind"] != TOK_EOF) {
             throw parser_error(parser, "expected newline after statement");
         }
     }
