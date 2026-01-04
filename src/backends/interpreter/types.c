@@ -792,6 +792,16 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             arr->element_type->num_compound_types = 0;
             arr->element_type->type_args = NULL;
             arr->element_type->num_type_args = 0;
+            // Initialize function type fields to NULL
+            arr->element_type->fn_param_types = NULL;
+            arr->element_type->fn_param_names = NULL;
+            arr->element_type->fn_param_optional = NULL;
+            arr->element_type->fn_param_is_const = NULL;
+            arr->element_type->fn_num_params = 0;
+            arr->element_type->fn_rest_param_name = NULL;
+            arr->element_type->fn_rest_param_type = NULL;
+            arr->element_type->fn_return_type = NULL;
+            arr->element_type->fn_is_async = 0;
         }
 
         // Validate all existing elements match the type constraint
