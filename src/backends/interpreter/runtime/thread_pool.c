@@ -489,8 +489,9 @@ int thread_pool_init(int num_workers) {
     }
 
     // Determine number of workers
+    // Use 2x CPU count to handle blocking tasks (channel waits, I/O)
     if (num_workers <= 0) {
-        num_workers = get_cpu_count();
+        num_workers = get_cpu_count() * 2;
     }
     if (num_workers < HML_THREADPOOL_MIN_WORKERS) {
         num_workers = HML_THREADPOOL_MIN_WORKERS;
