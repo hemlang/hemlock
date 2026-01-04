@@ -681,7 +681,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 129 parity tests (100% pass rate)
+- 131 parity tests (100% pass rate)
 
 ---
 
