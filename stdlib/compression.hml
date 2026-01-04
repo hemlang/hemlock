@@ -144,7 +144,7 @@ define TarEntry {
     size: i64,
     mode: i32,
     mtime: i64,
-    type: rune,
+    entry_type: rune,
 }
 
 // Helper: Convert string to octal number
@@ -249,7 +249,7 @@ export fn TarWriter() {
                 size: content.byte_length,
                 mode: mode,
                 mtime: 0,
-                type: '0',
+                entry_type: '0',
             };
             entries.push(entry);
             return null;
@@ -268,7 +268,7 @@ export fn TarWriter() {
                 size: 0,
                 mode: mode,
                 mtime: 0,
-                type: '5',
+                entry_type: '5',
             };
             entries.push(entry);
             return null;
@@ -355,7 +355,7 @@ export fn TarWriter() {
                 header[154] = 32; header[155] = 32;
 
                 // Typeflag (offset 156, 1 byte)
-                let type_val: i32 = entry.type;
+                let type_val: i32 = entry.entry_type;
                 header[156] = type_val;
 
                 // Linkname (offset 157, 100 bytes) - empty
@@ -482,7 +482,7 @@ export fn TarReader(data) {
             size: size,
             mode: mode,
             mtime: 0,
-            type: typeflag,
+            entry_type: typeflag,
         };
         entries.push(entry);
     }

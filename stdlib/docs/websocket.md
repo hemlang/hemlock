@@ -90,7 +90,7 @@ Messages have the following structure:
 
 ```hemlock
 {
-    type: string,      // "text", "binary", "ping", "pong", "close"
+    msg_type: string,      // "text", "binary", "ping", "pong", "close"
     data: string,      // Text content (or null)
     binary: buffer,    // Binary content (or null)
 }
@@ -275,7 +275,7 @@ try {
 **Structure:**
 ```hemlock
 {
-    type: string,      // Message type
+    msg_type: string,      // Message type
     data: string,      // Text data (or null)
     binary: buffer,    // Binary data (or null)
 }
