@@ -138,8 +138,17 @@ if (x > 0) { } else if (x < 0) { } else { }
 while (cond) { break; continue; }
 for (let i = 0; i < 10; i++) { }
 for (item in array) { }
+loop { if (done) { break; } }   // infinite loop (cleaner than while(true))
 switch (x) { case 1: break; default: break; }  // C-style fall-through
 defer cleanup();         // runs when function returns
+
+// Loop labels for targeted break/continue in nested loops
+outer: while (cond) {
+    inner: for (let i = 0; i < 10; i++) {
+        if (i == 5) { break outer; }     // break outer loop
+        if (i == 3) { continue outer; }  // continue outer loop
+    }
+}
 ```
 
 ### Null Coalescing Operators
@@ -205,6 +214,15 @@ define Person { name: string, age: i32, active?: true }
 let p: Person = { name: "Alice", age: 30 };
 let json = p.serialize();
 let restored = json.deserialize();
+
+// Object shorthand syntax (ES6-style)
+let name = "Alice";
+let age = 30;
+let person = { name, age };         // equivalent to { name: name, age: age }
+
+// Object spread operator
+let defaults = { theme: "dark", size: "medium" };
+let config = { ...defaults, size: "large" };  // copies defaults, overrides size
 
 enum Color { RED, GREEN, BLUE }
 enum Status { OK = 0, ERROR = 1 }
@@ -665,6 +683,10 @@ make parity
 ## Version
 
 **v1.6.8** - Current release with:
+- **Loop keyword** (`loop { }`) - cleaner infinite loops, replaces `while (true)`
+- **Loop labels** (`outer: while`) - targeted break/continue for nested loops
+- **Object shorthand** (`{ name }`) - ES6-style shorthand property syntax
+- **Object spread** (`{ ...obj }`) - copy and merge object fields
 - **Compound duck types** (`A & B & C`) - intersection types for structural typing
 - **Named arguments** for function calls (`foo(name: "value", age: 30)`)
 - **Null coalescing operators** (`??`, `??=`, `?.`) for safe null handling
@@ -698,7 +720,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 131 parity tests (100% pass rate)
+- 139 parity tests (100% pass rate)
 
 ---
 

@@ -81,6 +81,102 @@ let mixed = {
 };
 ```
 
+### Shorthand Property Syntax
+
+When a variable name matches the property name, use shorthand syntax:
+
+```hemlock
+let name = "Alice";
+let age = 30;
+let active = true;
+
+// Shorthand: { name } is equivalent to { name: name }
+let person = { name, age, active };
+
+print(person.name);   // "Alice"
+print(person.age);    // 30
+print(person.active); // true
+```
+
+**Mix shorthand with regular properties:**
+```hemlock
+let city = "NYC";
+let obj = { name, age, city, role: "admin" };
+```
+
+### Spread Operator
+
+The spread operator (`...`) copies all fields from one object into another:
+
+```hemlock
+let base = { x: 1, y: 2 };
+let extended = { ...base, z: 3 };
+
+print(extended.x);  // 1
+print(extended.y);  // 2
+print(extended.z);  // 3
+```
+
+**Override values with spread:**
+```hemlock
+let defaults = { theme: "light", size: "medium", debug: false };
+let custom = { ...defaults, theme: "dark" };
+
+print(custom.theme);  // "dark" (overridden)
+print(custom.size);   // "medium" (from defaults)
+print(custom.debug);  // false (from defaults)
+```
+
+**Multiple spreads (later spreads override earlier):**
+```hemlock
+let a = { x: 1 };
+let b = { y: 2 };
+let merged = { ...a, ...b, z: 3 };
+
+print(merged.x);  // 1
+print(merged.y);  // 2
+print(merged.z);  // 3
+
+// Later spread overrides earlier
+let first = { val: "first" };
+let second = { val: "second" };
+let combined = { ...first, ...second };
+print(combined.val);  // "second"
+```
+
+**Combine shorthand and spread:**
+```hemlock
+let status = "active";
+let data = { id: 1, name: "Item" };
+let full = { ...data, status };
+
+print(full.id);      // 1
+print(full.name);    // "Item"
+print(full.status);  // "active"
+```
+
+**Configuration override pattern:**
+```hemlock
+let defaultConfig = {
+    debug: false,
+    timeout: 30,
+    retries: 3
+};
+
+let prodConfig = { ...defaultConfig, timeout: 60 };
+let devConfig = { ...defaultConfig, debug: true };
+
+print(prodConfig.timeout);  // 60
+print(devConfig.debug);     // true
+```
+
+**Note:** Spread performs a shallow copy. Nested objects share references:
+```hemlock
+let nested = { inner: { val: 42 } };
+let copied = { ...nested };
+print(copied.inner.val);  // 42 (same reference as nested.inner)
+```
+
 ## Field Access
 
 ### Dot Notation
@@ -747,9 +843,8 @@ emitter.emit("message", "Hello!");
 
 Current limitations:
 
-- **No deep copy** - Must manually copy nested objects
+- **No deep copy** - Must manually copy nested objects (spread is shallow)
 - **No pass-by-value** - Objects always passed by reference
-- **No object spread** - No `{...obj}` syntax
 - **No computed properties** - No `{[key]: value}` syntax
 - **`self` is read-only** - Cannot reassign `self` in methods
 - **No property deletion** - Cannot remove fields once added
