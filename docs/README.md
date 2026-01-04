@@ -32,6 +32,7 @@ Welcome to the Hemlock programming language documentation!
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands
+- [Profiling](advanced/profiling.md) - CPU time, memory tracking, and leak detection
 
 ### API Reference
 - [Type System Reference](reference/type-system.md) - Complete type reference
