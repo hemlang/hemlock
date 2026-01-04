@@ -979,6 +979,7 @@ not_function:
         // Look ahead to see if this is a labeled loop
         Token saved_current = p->current;
         Token saved_previous = p->previous;
+        Token saved_next = p->next;
         const char *saved_lexer_start = p->lexer->start;
         const char *saved_lexer_current = p->lexer->current;
         const char *saved_lexer_line_start = p->lexer->line_start;
@@ -1009,6 +1010,7 @@ not_function:
         // Not a labeled loop, restore state
         p->current = saved_current;
         p->previous = saved_previous;
+        p->next = saved_next;
         p->lexer->start = saved_lexer_start;
         p->lexer->current = saved_lexer_current;
         p->lexer->line_start = saved_lexer_line_start;
