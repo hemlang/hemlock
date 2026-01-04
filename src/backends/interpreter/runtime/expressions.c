@@ -1206,13 +1206,25 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Retain the element so it survives array release
                 VALUE_RETAIN(result);
             } else if (object.type == VAL_PTR) {
-                // Raw pointer indexing - no bounds checking (unsafe!)
+                // Raw pointer indexing - bounds checked when profiler is enabled
                 void *ptr = object.as.as_ptr;
                 if (ptr == NULL) {
                     runtime_error(ctx, "Cannot index into null pointer");
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     return val_null();
+                }
+                // Check bounds when profiler is tracking this pointer
+                uint64_t ptr_size = PROFILER_LOOKUP_PTR_SIZE(ctx, ptr);
+                if (ptr_size > 0) {
+                    // Pointer is tracked - perform bounds check
+                    if (index < 0 || (uint64_t)index >= ptr_size) {
+                        runtime_error(ctx, "Pointer index %d out of bounds (allocated size %llu)",
+                                      index, (unsigned long long)ptr_size);
+                        VALUE_RELEASE(object);
+                        VALUE_RELEASE(index_val);
+                        return val_null();
+                    }
                 }
                 // Return the byte as u8
                 result = val_u8(((unsigned char *)ptr)[index]);
@@ -1387,7 +1399,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Don't release value - it's returned
                 return value;
             } else if (object.type == VAL_PTR) {
-                // Raw pointer indexing - no bounds checking (unsafe!)
+                // Raw pointer indexing - bounds checked when profiler is enabled
                 void *ptr = object.as.as_ptr;
                 if (ptr == NULL) {
                     runtime_error(ctx, "Cannot index into null pointer");
@@ -1395,6 +1407,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(index_val);
                     VALUE_RELEASE(value);
                     return val_null();
+                }
+                // Check bounds when profiler is tracking this pointer
+                uint64_t ptr_size = PROFILER_LOOKUP_PTR_SIZE(ctx, ptr);
+                if (ptr_size > 0) {
+                    // Pointer is tracked - perform bounds check
+                    if (index < 0 || (uint64_t)index >= ptr_size) {
+                        runtime_error(ctx, "Pointer index %d out of bounds (allocated size %llu)",
+                                      index, (unsigned long long)ptr_size);
+                        VALUE_RELEASE(object);
+                        VALUE_RELEASE(index_val);
+                        VALUE_RELEASE(value);
+                        return val_null();
+                    }
                 }
                 // Treat as byte array
                 ((unsigned char *)ptr)[index] = (unsigned char)value_to_int(value);

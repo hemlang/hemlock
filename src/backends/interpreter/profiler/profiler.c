@@ -362,6 +362,18 @@ uint64_t profiler_untrack_ptr(ProfilerState *state, void *ptr) {
     return 0;  // Not found
 }
 
+uint64_t profiler_lookup_ptr_size(ProfilerState *state, void *ptr) {
+    if (!state || !ptr) return 0;
+
+    // Search for the pointer to get its tracked size
+    for (int i = 0; i < state->ptr_size_count; i++) {
+        if (state->ptr_sizes[i].ptr == ptr) {
+            return state->ptr_sizes[i].size;
+        }
+    }
+    return 0;  // Not found - pointer not tracked (FFI, arithmetic, etc.)
+}
+
 // ========== COMPARISON FUNCTIONS FOR SORTING ==========
 
 static int compare_by_self_time(const void *a, const void *b) {

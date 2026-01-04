@@ -171,6 +171,8 @@ void profiler_record_free(ProfilerState *state, const char *source_file,
 void profiler_track_ptr(ProfilerState *state, void *ptr, uint64_t size,
                         const char *source_file, int line);
 uint64_t profiler_untrack_ptr(ProfilerState *state, void *ptr);
+// Returns size of tracked pointer, or 0 if not found (for bounds checking)
+uint64_t profiler_lookup_ptr_size(ProfilerState *state, void *ptr);
 
 // Output
 void profiler_print_report(ProfilerState *state, FILE *output);
