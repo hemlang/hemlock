@@ -9,9 +9,13 @@ typedef struct {
     Lexer *lexer;
     Token current;
     Token previous;
+    Token next;          // One-token lookahead for named arguments
     int had_error;
     int panic_mode;
     const char *source;  // Source code for error messages
+    // Type parameters in scope (for parsing generic type definitions)
+    char **type_params;    // Current type parameter names (e.g., ["T", "U"])
+    int num_type_params;   // Number of type parameters in scope
 } Parser;
 
 // Public interface

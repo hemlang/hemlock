@@ -50,6 +50,14 @@ void cleanup_object_types(void) {
             // Free type name
             free(type->name);
 
+            // Free type parameters (for generic types)
+            if (type->type_params) {
+                for (int j = 0; j < type->num_type_params; j++) {
+                    free(type->type_params[j]);
+                }
+                free(type->type_params);
+            }
+
             // Free field names
             for (int j = 0; j < type->num_fields; j++) {
                 free(type->field_names[j]);
@@ -143,12 +151,132 @@ void cleanup_enum_types(void) {
     enum_types.capacity = 0;
 }
 
-// Check if an object matches a type definition (duck typing)
-Value check_object_type(Value value, ObjectType *object_type, Environment *env, ExecutionContext *ctx) {
+// ========== TYPE PARAMETER SUBSTITUTION ==========
+
+// Substitute type parameters in a Type with concrete type arguments
+// Returns a new Type that must be freed by caller, or the original type if no substitution needed
+// type_params: array of type parameter names (e.g., ["T", "U"])
+// type_args: array of Type* to substitute for each parameter
+// num_params: number of type parameters/arguments
+static Type* substitute_type_params(Type *type, char **type_params, Type **type_args, int num_params) {
+    if (!type) return NULL;
+
+    // Check if this type is a type parameter reference
+    if (type->kind == TYPE_PARAM && type->type_name) {
+        for (int i = 0; i < num_params; i++) {
+            if (type_params[i] && strcmp(type->type_name, type_params[i]) == 0) {
+                // Found matching type parameter - return a copy of the type argument
+                Type *result = malloc(sizeof(Type));
+                result->kind = type_args[i]->kind;
+                result->type_name = type_args[i]->type_name ? strdup(type_args[i]->type_name) : NULL;
+                result->element_type = type_args[i]->element_type ?
+                    substitute_type_params(type_args[i]->element_type, type_params, type_args, num_params) : NULL;
+                result->nullable = type_args[i]->nullable;
+                result->type_args = NULL;
+                result->num_type_args = 0;
+                // Copy type_args if present
+                if (type_args[i]->num_type_args > 0) {
+                    result->type_args = malloc(sizeof(Type*) * type_args[i]->num_type_args);
+                    result->num_type_args = type_args[i]->num_type_args;
+                    for (int j = 0; j < result->num_type_args; j++) {
+                        result->type_args[j] = substitute_type_params(type_args[i]->type_args[j],
+                                                                       type_params, type_args, num_params);
+                    }
+                }
+                return result;
+            }
+        }
+    }
+
+    // For array types, substitute element type
+    if (type->kind == TYPE_ARRAY && type->element_type) {
+        Type *new_element = substitute_type_params(type->element_type, type_params, type_args, num_params);
+        if (new_element != type->element_type) {
+            Type *result = malloc(sizeof(Type));
+            result->kind = TYPE_ARRAY;
+            result->type_name = NULL;
+            result->element_type = new_element;
+            result->nullable = type->nullable;
+            result->type_args = NULL;
+            result->num_type_args = 0;
+            return result;
+        }
+    }
+
+    // For custom object types with type arguments, substitute recursively
+    if (type->kind == TYPE_CUSTOM_OBJECT && type->num_type_args > 0) {
+        Type **new_args = malloc(sizeof(Type*) * type->num_type_args);
+        int any_changed = 0;
+        for (int i = 0; i < type->num_type_args; i++) {
+            new_args[i] = substitute_type_params(type->type_args[i], type_params, type_args, num_params);
+            if (new_args[i] != type->type_args[i]) {
+                any_changed = 1;
+            }
+        }
+        if (any_changed) {
+            Type *result = malloc(sizeof(Type));
+            result->kind = TYPE_CUSTOM_OBJECT;
+            result->type_name = type->type_name ? strdup(type->type_name) : NULL;
+            result->element_type = NULL;
+            result->nullable = type->nullable;
+            result->type_args = new_args;
+            result->num_type_args = type->num_type_args;
+            return result;
+        }
+        // No changes, free the copies
+        for (int i = 0; i < type->num_type_args; i++) {
+            if (new_args[i] != type->type_args[i]) {
+                type_free(new_args[i]);
+            }
+        }
+        free(new_args);
+    }
+
+    // No substitution needed, return original
+    return type;
+}
+
+// Free a substituted type (deep free)
+static void free_substituted_type(Type *type, Type *original) {
+    if (type && type != original) {
+        // This is a newly allocated type, free it
+        if (type->type_name) free(type->type_name);
+        if (type->element_type) {
+            // Recursively free if it was also substituted
+            free_substituted_type(type->element_type, original ? original->element_type : NULL);
+        }
+        if (type->type_args) {
+            for (int i = 0; i < type->num_type_args; i++) {
+                free_substituted_type(type->type_args[i], NULL);
+            }
+            free(type->type_args);
+        }
+        free(type);
+    }
+}
+
+// Forward declaration for convert_to_type (needed for recursive type checking)
+Value convert_to_type(Value value, Type *target_type, Environment *env, ExecutionContext *ctx);
+
+// Check if an object matches a type definition with type arguments (for generics)
+// type_args: array of Type* to substitute for type parameters (NULL for non-generic types)
+// num_type_args: number of type arguments
+Value check_object_type_generic(Value value, ObjectType *object_type,
+                                 Type **type_args, int num_type_args,
+                                 Environment *env, ExecutionContext *ctx) {
     if (value.type != VAL_OBJECT) {
         fprintf(stderr, "Runtime error: Expected object for type '%s', got non-object\n",
                 object_type->name);
         exit(1);
+    }
+
+    // Validate type argument count for generic types
+    if (object_type->num_type_params > 0) {
+        if (num_type_args != object_type->num_type_params) {
+            fprintf(stderr, "Runtime error: Type '%s' expects %d type argument(s), got %d\n",
+                    object_type->name, object_type->num_type_params, num_type_args);
+            exit(1);
+        }
     }
 
     Object *obj = value.as.as_object;
@@ -159,13 +287,22 @@ Value check_object_type(Value value, ObjectType *object_type, Environment *env, 
         int field_optional = object_type->field_optional[i];
         Type *field_type = object_type->field_types[i];
 
+        // Substitute type parameters if this is a generic type
+        Type *substituted_field_type = field_type;
+        if (field_type && object_type->num_type_params > 0 && type_args) {
+            substituted_field_type = substitute_type_params(
+                field_type, object_type->type_params, type_args, num_type_args);
+        }
+
         // Look for field in object
         int found = 0;
         Value field_value;
+        int field_index = -1;
         for (int j = 0; j < obj->num_fields; j++) {
             if (strcmp(obj->field_names[j], field_name) == 0) {
                 found = 1;
                 field_value = obj->field_values[j];
+                field_index = j;
                 break;
             }
         }
@@ -188,53 +325,33 @@ Value check_object_type(Value value, ObjectType *object_type, Environment *env, 
                 }
                 obj->num_fields++;
             } else {
+                // Free substituted type if allocated
+                free_substituted_type(substituted_field_type, field_type);
                 fprintf(stderr, "Runtime error: Object missing required field '%s' for type '%s'\n",
                         field_name, object_type->name);
                 exit(1);
             }
-        } else if (field_type && field_type->kind != TYPE_INFER) {
-            // Type check the field if it has a type annotation
-            // For now, skip nested object type checking to keep it simple
-            // Just verify basic types
-            int type_ok = 0;
-            switch (field_type->kind) {
-                case TYPE_I8: case TYPE_I16: case TYPE_I32: case TYPE_I64:
-                case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
-                    type_ok = is_integer(field_value);
-                    break;
-                case TYPE_F32: case TYPE_F64:
-                    type_ok = is_float(field_value);
-                    break;
-                case TYPE_BOOL:
-                    type_ok = (field_value.type == VAL_BOOL);
-                    break;
-                case TYPE_STRING:
-                    type_ok = (field_value.type == VAL_STRING);
-                    break;
-                case TYPE_PTR:
-                    type_ok = (field_value.type == VAL_PTR);
-                    break;
-                case TYPE_BUFFER:
-                    type_ok = (field_value.type == VAL_BUFFER);
-                    break;
-                default:
-                    type_ok = 1;  // Unknown types pass for now
-                    break;
-            }
-
-            if (!type_ok) {
-                fprintf(stderr, "Runtime error: Field '%s' has wrong type for '%s'\n",
-                        field_name, object_type->name);
-                exit(1);
-            }
+        } else if (substituted_field_type && substituted_field_type->kind != TYPE_INFER) {
+            // Type check the field using the (possibly substituted) type
+            // Use convert_to_type for recursive type checking (handles arrays, objects, etc.)
+            Value converted = convert_to_type(field_value, substituted_field_type, env, ctx);
+            obj->field_values[field_index] = converted;
         }
+
+        // Free substituted type if it was newly allocated
+        free_substituted_type(substituted_field_type, field_type);
     }
 
-    // Set the type name on the object
+    // Set the type name on the object (include type args for display)
     if (obj->type_name) free(obj->type_name);
     obj->type_name = strdup(object_type->name);
 
     return value;
+}
+
+// Check if an object matches a type definition (duck typing) - non-generic version
+Value check_object_type(Value value, ObjectType *object_type, Environment *env, ExecutionContext *ctx) {
+    return check_object_type_generic(value, object_type, NULL, 0, env, ctx);
 }
 
 // ========== TYPE CHECKING HELPERS ==========
@@ -521,6 +638,13 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             fprintf(stderr, "Runtime error: Unknown type '%s'\n", target_type->type_name);
             exit(1);
         }
+
+        // For generic types, pass type arguments for substitution
+        if (target_type->num_type_args > 0) {
+            return check_object_type_generic(value, object_type,
+                                             target_type->type_args, target_type->num_type_args,
+                                             env, ctx);
+        }
         return check_object_type(value, object_type, env, ctx);
     }
 
@@ -580,6 +704,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             arr->element_type->nullable = 0;
             arr->element_type->compound_types = NULL;
             arr->element_type->num_compound_types = 0;
+            arr->element_type->type_args = NULL;
+            arr->element_type->num_type_args = 0;
         }
 
         // Validate all existing elements match the type constraint
@@ -631,6 +757,13 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;  // Null to null, ok
     } else if (value.type == VAL_RUNE && target_kind == TYPE_RUNE) {
         return value;  // Rune to rune, ok
+    } else if (value.type == VAL_PTR && target_kind == TYPE_PTR) {
+        return value;  // Ptr to ptr, ok
+    } else if (value.type == VAL_BUFFER && target_kind == TYPE_BUFFER) {
+        return value;  // Buffer to buffer, ok
+    } else if (value.type == VAL_OBJECT && target_kind == TYPE_CUSTOM_OBJECT) {
+        // Object to custom object - already handled above, but be permissive
+        return value;
     } else {
         runtime_error(ctx, "Cannot convert type to target type");
         return val_null();
@@ -830,6 +963,12 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         case TYPE_GENERIC_OBJECT:
             // These should have been handled above in the early return
             fprintf(stderr, "Runtime error: Internal error - object type not handled properly\n");
+            exit(1);
+
+        case TYPE_PARAM:
+            // Type parameters should be substituted before reaching this point
+            // If we get here, it means we're using a generic type without type arguments
+            fprintf(stderr, "Runtime error: Unresolved type parameter - generic type requires type arguments\n");
             exit(1);
     }
 

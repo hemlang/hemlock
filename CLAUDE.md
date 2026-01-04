@@ -130,12 +130,62 @@ switch (x) { case 1: break; default: break; }
 defer cleanup();         // runs when function returns
 ```
 
+### Null Coalescing Operators
+```hemlock
+// Null coalescing (??) - returns left if non-null, else right
+let name = user.name ?? "Anonymous";
+let first = a ?? b ?? c ?? "fallback";
+
+// Null coalescing assignment (??=) - assigns only if null
+let config = null;
+config ??= { timeout: 30 };    // config is now { timeout: 30 }
+config ??= { timeout: 60 };    // config unchanged (not null)
+
+// Works with properties and indices
+obj.field ??= "default";
+arr[0] ??= "first";
+
+// Safe navigation (?.) - returns null if object is null
+let city = user?.address?.city;  // null if any part is null
+let upper = name?.to_upper();    // safe method call
+let item = arr?.[0];             // safe indexing
+```
+
 ### Functions
 ```hemlock
 fn add(a: i32, b: i32): i32 { return a + b; }
 fn greet(name: string, msg?: "Hello") { print(msg + " " + name); }
 let f = fn(x) { return x * 2; };  // anonymous/closure
 ```
+
+### Named Arguments
+```hemlock
+// Functions can be called with named arguments
+fn create_user(name: string, age?: 18, active?: true) {
+    print(name + " is " + age + " years old");
+}
+
+// Positional arguments (traditional)
+create_user("Alice", 25, false);
+
+// Named arguments - can be in any order
+create_user(name: "Bob", age: 30);
+create_user(age: 25, name: "Charlie", active: false);
+
+// Skip optional parameters by naming what you need
+create_user("David", active: false);  // Uses default age=18
+
+// Named arguments must come after positional arguments
+create_user("Eve", age: 21);          // OK: positional then named
+// create_user(name: "Bad", 25);      // ERROR: positional after named
+```
+
+**Rules:**
+- Named arguments use `name: value` syntax
+- Can appear in any order after positional arguments
+- Positional arguments cannot follow named arguments
+- Works with default/optional parameters
+- Unknown parameter names cause runtime errors
 
 ### Objects & Enums
 ```hemlock
@@ -600,6 +650,8 @@ make parity
 
 **v1.6.8** - Current release with:
 - **Compound duck types** (`A & B & C`) - intersection types for structural typing
+- **Named arguments** for function calls (`foo(name: "value", age: 30)`)
+- **Null coalescing operators** (`??`, `??=`, `?.`) for safe null handling
 - **Octal literals** (`0o777`, `0O123`)
 - **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
 - **Block comments** (`/* ... */`)
@@ -629,7 +681,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 122 parity tests (100% pass rate)
+- 129 parity tests (100% pass rate)
 
 ---
 

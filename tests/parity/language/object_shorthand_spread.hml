@@ -1,0 +1,104 @@
+// Test object shorthand syntax and spread operator
+
+// 1. Basic shorthand syntax
+let name = "Alice";
+let age = 30;
+let active = true;
+
+let person = { name, age, active };
+print(person.name);
+print(person.age);
+print(person.active);
+
+// 2. Mixed shorthand and regular syntax
+let city = "NYC";
+let obj = { name, age, city, role: "admin" };
+print(obj.name);
+print(obj.age);
+print(obj.city);
+print(obj.role);
+
+// 3. Basic spread operator
+let base = { x: 1, y: 2 };
+let extended = { ...base, z: 3 };
+print(extended.x);
+print(extended.y);
+print(extended.z);
+
+// 4. Spread with override (later fields win)
+let defaults = { theme: "light", size: "medium" };
+let custom = { ...defaults, theme: "dark" };
+print(custom.theme);
+print(custom.size);
+
+// 5. Multiple spreads
+let a = { x: 1 };
+let b = { y: 2 };
+let merged = { ...a, ...b, z: 3 };
+print(merged.x);
+print(merged.y);
+print(merged.z);
+
+// 6. Spread overrides earlier spread
+let first = { val: "first" };
+let second = { val: "second" };
+let combined = { ...first, ...second };
+print(combined.val);
+
+// 7. Field after spread overrides spread
+let source = { x: 100 };
+let overridden = { ...source, x: 200 };
+print(overridden.x);
+
+// 8. Shorthand with spread
+let status = "active";
+let data = { id: 1 };
+let full = { ...data, status };
+print(full.id);
+print(full.status);
+
+// 9. Empty spread (no fields)
+let empty = {};
+let withEmpty = { ...empty, key: "value" };
+print(withEmpty.key);
+
+// 10. Spread preserves all fields
+let multi = { a: 1, b: 2, c: 3 };
+let copy = { ...multi };
+print(copy.a);
+print(copy.b);
+print(copy.c);
+
+// 11. Nested object spread (shallow copy)
+let nested = { inner: { val: 42 } };
+let copied = { ...nested };
+print(copied.inner.val);
+
+// 12. Spread with function values
+fn greet() {
+    return "hello";
+}
+let withFn = { greet };
+print(withFn.greet());
+
+// 13. Complex example - config override
+let defaultConfig = {
+    debug: false,
+    timeout: 30,
+    retries: 3
+};
+let prodConfig = {
+    ...defaultConfig,
+    debug: false,
+    timeout: 60
+};
+let devConfig = {
+    ...defaultConfig,
+    debug: true
+};
+print(prodConfig.debug);
+print(prodConfig.timeout);
+print(prodConfig.retries);
+print(devConfig.debug);
+print(devConfig.timeout);
+print(devConfig.retries);

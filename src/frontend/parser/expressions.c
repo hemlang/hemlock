@@ -182,6 +182,8 @@ Expr* primary(Parser *p) {
     }
 
     // Object literal: { field: value, ... }
+    // Also supports shorthand: { name } means { name: name }
+    // Also supports spread: { ...obj } copies all fields from obj
     if (match(p, TOK_LBRACE)) {
         int capacity = 32;
         char **field_names = malloc(sizeof(char*) * capacity);
@@ -195,12 +197,26 @@ Expr* primary(Parser *p) {
                 field_names = realloc(field_names, sizeof(char*) * capacity);
                 field_values = realloc(field_values, sizeof(Expr*) * capacity);
             }
-            field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
-            consume(p, TOK_COLON, "Expect ':' after field name");
-            field_values[num_fields] = expression(p);
+            // Check for spread operator: ...expr
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                field_names[num_fields] = NULL;  // NULL marks spread
+                field_values[num_fields] = expression(p);
+                num_fields++;
+            } else {
+                // Normal field or shorthand
+                field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
-            num_fields++;
+                // Check for shorthand: { name } vs { name: value }
+                if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
+                    // Shorthand syntax: { name } means { name: name }
+                    field_values[num_fields] = expr_ident(field_names[num_fields]);
+                } else {
+                    consume(p, TOK_COLON, "Expect ':' after field name");
+                    field_values[num_fields] = expression(p);
+                }
+                num_fields++;
+            }
 
             if (!match(p, TOK_COMMA)) break;
         }
@@ -381,23 +397,60 @@ Expr* postfix(Parser *p) {
                 // Optional call: obj?.()
                 match(p, TOK_LPAREN);
                 Expr **args = NULL;
+                char **arg_names = NULL;
                 int num_args = 0;
+                int has_named_args = 0;
+                int seen_positional_after_named = 0;
 
                 if (!check(p, TOK_RPAREN)) {
                     args = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
-                    args[num_args++] = expression(p);
+                    arg_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+
+                    // Parse first argument - check for named argument
+                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                        has_named_args = 1;
+                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        consume(p, TOK_COLON, "Expect ':' after named argument");
+                        args[num_args++] = expression(p);
+                    } else {
+                        arg_names[num_args] = NULL;
+                        args[num_args++] = expression(p);
+                    }
 
                     while (match(p, TOK_COMMA)) {
                         if (num_args >= MAX_FUNCTION_PARAMS) {
                             error_at(p, &p->current, "function calls cannot have more than 64 arguments");
                             break;
                         }
-                        args[num_args++] = expression(p);
+
+                        // Check for named argument
+                        if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                            has_named_args = 1;
+                            arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                            consume(p, TOK_COLON, "Expect ':' after named argument");
+                            args[num_args++] = expression(p);
+                        } else {
+                            if (has_named_args) {
+                                seen_positional_after_named = 1;
+                            }
+                            arg_names[num_args] = NULL;
+                            args[num_args++] = expression(p);
+                        }
+                    }
+
+                    if (seen_positional_after_named) {
+                        error_at(p, &p->previous, "Positional arguments cannot follow named arguments");
                     }
                 }
 
                 consume(p, TOK_RPAREN, "Expect ')' after optional chaining arguments");
-                expr = expr_optional_chain_call(expr, args, num_args);
+
+                if (!has_named_args && arg_names) {
+                    free(arg_names);
+                    arg_names = NULL;
+                }
+
+                expr = expr_optional_chain_call(expr, args, arg_names, num_args);
             } else {
                 // Optional property access: obj?.property
                 char *property = consume_identifier_or_type(p, "Expect property name after '?.'");
@@ -419,23 +472,66 @@ Expr* postfix(Parser *p) {
             int call_line = p->previous.line;  // Save line of '(' for stack trace
             int call_column = p->previous.column;
             Expr **args = NULL;
+            char **arg_names = NULL;
             int num_args = 0;
+            int has_named_args = 0;
+            int seen_positional_after_named = 0;
 
             if (!check(p, TOK_RPAREN)) {
                 args = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
-                args[num_args++] = expression(p);
+                arg_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+
+                // Parse first argument
+                // Check for named argument: identifier followed by ':'
+                if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                    // Named argument
+                    has_named_args = 1;
+                    arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                    consume(p, TOK_COLON, "Expect ':' after named argument");
+                    args[num_args++] = expression(p);
+                } else {
+                    arg_names[num_args] = NULL;
+                    args[num_args++] = expression(p);
+                }
 
                 while (match(p, TOK_COMMA)) {
                     if (num_args >= MAX_FUNCTION_PARAMS) {
                         error_at(p, &p->current, "function calls cannot have more than 64 arguments");
                         break;
                     }
-                    args[num_args++] = expression(p);
+
+                    // Check for named argument
+                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                        // Named argument
+                        has_named_args = 1;
+                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        consume(p, TOK_COLON, "Expect ':' after named argument");
+                        args[num_args++] = expression(p);
+                    } else {
+                        // Positional argument
+                        if (has_named_args) {
+                            seen_positional_after_named = 1;
+                        }
+                        arg_names[num_args] = NULL;
+                        args[num_args++] = expression(p);
+                    }
+                }
+
+                // Warn if positional arguments come after named arguments
+                if (seen_positional_after_named) {
+                    error_at(p, &p->previous, "Positional arguments cannot follow named arguments");
                 }
             }
 
             consume(p, TOK_RPAREN, "Expect ')' after arguments");
-            expr = expr_call(expr, args, num_args);
+
+            // If no named arguments were used, free the arg_names array
+            if (!has_named_args && arg_names) {
+                free(arg_names);
+                arg_names = NULL;
+            }
+
+            expr = expr_call(expr, args, arg_names, num_args);
             expr->line = call_line;  // Set line number for stack trace
             expr->column = call_column;
         } else if (match(p, TOK_PLUS_PLUS)) {
@@ -720,6 +816,68 @@ Expr* assignment(Parser *p) {
         is_compound = 1;
     }
 
+    // Handle null coalescing assignment: x ??= value becomes x = x ?? value
+    if (match(p, TOK_QUESTION_QUESTION_EQUAL)) {
+        Expr *rhs = assignment(p);
+
+        if (expr->type == EXPR_IDENT) {
+            // Variable null coalescing assignment: x ??= value
+            const char *name = expr->as.ident.name;
+            Expr *lhs_copy = expr_ident(name);
+            Expr *null_coalesce = expr_null_coalesce(lhs_copy, rhs);
+            Expr *result = expr_assign(name, null_coalesce);
+            expr_free(expr);
+            return result;
+        } else if (expr->type == EXPR_INDEX) {
+            // Index null coalescing assignment: arr[i] ??= value
+            Expr *object = expr->as.index.object;
+            Expr *index = expr->as.index.index;
+
+            // Clone for the RHS
+            Expr *object_clone = expr_clone(object);
+            Expr *index_clone = expr_clone(index);
+
+            // Create the read expression: arr[i]
+            Expr *read_expr = expr_index(object_clone, index_clone);
+
+            // Create the null coalesce operation: arr[i] ?? value
+            Expr *null_coalesce = expr_null_coalesce(read_expr, rhs);
+
+            // Steal the object and index from the EXPR_INDEX for the assignment
+            expr->as.index.object = NULL;
+            expr->as.index.index = NULL;
+            expr_free(expr);
+
+            // Create the assignment: arr[i] = arr[i] ?? value
+            return expr_index_assign(object, index, null_coalesce);
+        } else if (expr->type == EXPR_GET_PROPERTY) {
+            // Property null coalescing assignment: obj.field ??= value
+            Expr *object = expr->as.get_property.object;
+            const char *property = expr->as.get_property.property;
+
+            // Clone the object for the RHS
+            Expr *object_clone = expr_clone(object);
+
+            // Create the read expression: obj.field
+            Expr *read_expr = expr_get_property(object_clone, property);
+
+            // Create the null coalesce operation: obj.field ?? value
+            Expr *null_coalesce = expr_null_coalesce(read_expr, rhs);
+
+            // Steal the object from the EXPR_GET_PROPERTY for the assignment
+            expr->as.get_property.object = NULL;
+
+            // Create the assignment before freeing expr (need property string)
+            Expr *result = expr_set_property(object, property, null_coalesce);
+            expr_free(expr);
+            return result;
+        } else {
+            error(p, "Invalid null coalescing assignment target");
+            expr_free(expr);
+            return expr_null();
+        }
+    }
+
     if (is_compound) {
         // Desugar compound assignment: x += 5 becomes x = x + 5
         Expr *rhs = assignment(p);
@@ -865,12 +1023,51 @@ static Type* parse_single_type(Parser *p) {
         type = type_new(TYPE_GENERIC_OBJECT);
         type->type_name = NULL;
     }
-    // Check for custom object type name (identifier)
+    // Check for identifier (could be type parameter or custom object type)
     else if (p->current.type == TOK_IDENT) {
         char *type_name = token_text(&p->current);
         advance(p);
-        type = type_new(TYPE_CUSTOM_OBJECT);
-        type->type_name = type_name;
+
+        // Check if it's a type parameter in scope
+        int is_type_param = 0;
+        for (int i = 0; i < p->num_type_params; i++) {
+            if (strcmp(p->type_params[i], type_name) == 0) {
+                is_type_param = 1;
+                break;
+            }
+        }
+
+        if (is_type_param) {
+            // It's a type parameter reference (e.g., T in items: array<T>)
+            type = type_new(TYPE_PARAM);
+            type->type_name = type_name;
+        } else {
+            // It's a custom object type (e.g., Person, Stack<i32>)
+            type = type_new(TYPE_CUSTOM_OBJECT);
+            type->type_name = type_name;
+
+            // Check for type arguments: <type, type, ...>
+            if (p->current.type == TOK_LESS) {
+                advance(p);  // consume '<'
+
+                int type_arg_capacity = 4;
+                Type **type_args = malloc(sizeof(Type*) * type_arg_capacity);
+                int num_type_args = 0;
+
+                do {
+                    if (num_type_args >= type_arg_capacity) {
+                        type_arg_capacity *= 2;
+                        type_args = realloc(type_args, sizeof(Type*) * type_arg_capacity);
+                    }
+                    type_args[num_type_args++] = parse_type(p);
+                } while (match(p, TOK_COMMA));
+
+                consume(p, TOK_GREATER, "Expect '>' after type arguments");
+
+                type->type_args = type_args;
+                type->num_type_args = num_type_args;
+            }
+        }
     }
     else {
         switch (p->current.type) {

@@ -1,0 +1,37 @@
+// Test named arguments
+
+// Basic function with positional parameters
+fn greet(name, greeting) {
+    print(greeting + ", " + name + "!");
+}
+
+// Positional call
+greet("World", "Hello");
+
+// Named arguments in order
+greet(name: "Alice", greeting: "Hi");
+
+// Named arguments out of order
+greet(greeting: "Good morning", name: "Bob");
+
+// Function with default parameters
+fn create_user(name, age?: 18, active?: true) {
+    print("Name: " + name);
+    print("Age: " + age);
+    print("Active: " + active);
+}
+
+// All positional
+create_user("Alice", 25, false);
+
+// Using defaults
+create_user("Bob");
+
+// Named argument to skip middle default
+create_user("Charlie", active: false);
+
+// Named arguments with defaults
+create_user(name: "David", age: 30);
+
+// Named arguments in different order with default
+create_user(active: false, name: "Eve");

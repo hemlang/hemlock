@@ -78,6 +78,14 @@ CheckedType* checked_type_clone(const CheckedType *type) {
             clone->param_types[i] = checked_type_clone(type->param_types[i]);
         }
     }
+    // Clone type arguments (for generic types like Stack<i32>)
+    clone->num_type_args = type->num_type_args;
+    if (type->num_type_args > 0 && type->type_args) {
+        clone->type_args = calloc(type->num_type_args, sizeof(CheckedType*));
+        for (int i = 0; i < type->num_type_args; i++) {
+            clone->type_args[i] = checked_type_clone(type->type_args[i]);
+        }
+    }
 
     // Clone compound types
     clone->num_compound_types = type->num_compound_types;
@@ -108,6 +116,13 @@ void checked_type_free(CheckedType *type) {
             checked_type_free(type->compound_types[i]);
         }
         free(type->compound_types);
+    }
+    // Free type arguments (for generic types)
+    if (type->type_args) {
+        for (int i = 0; i < type->num_type_args; i++) {
+            checked_type_free(type->type_args[i]);
+        }
+        free(type->type_args);
     }
     free(type);
 }
@@ -147,6 +162,14 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
             if (ast_type->type_name) {
                 type->type_name = strdup(ast_type->type_name);
             }
+            // Handle type arguments for generic types (e.g., Stack<i32>)
+            if (ast_type->num_type_args > 0) {
+                type->num_type_args = ast_type->num_type_args;
+                type->type_args = calloc(ast_type->num_type_args, sizeof(CheckedType*));
+                for (int i = 0; i < ast_type->num_type_args; i++) {
+                    type->type_args[i] = checked_type_from_ast(ast_type->type_args[i]);
+                }
+            }
             break;
         case TYPE_GENERIC_OBJECT:
             type->kind = CHECKED_OBJECT;
@@ -165,6 +188,12 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
                 for (int i = 0; i < ast_type->num_compound_types; i++) {
                     type->compound_types[i] = checked_type_from_ast(ast_type->compound_types[i]);
                 }
+            }
+            break;
+        case TYPE_PARAM:
+            type->kind = CHECKED_PARAM;
+            if (ast_type->type_name) {
+                type->type_name = strdup(ast_type->type_name);
             }
             break;
         case TYPE_INFER:
@@ -210,6 +239,7 @@ const char* checked_type_kind_name(CheckedTypeKind kind) {
         case CHECKED_NUMERIC: return "numeric";
         case CHECKED_INTEGER: return "integer";
         case CHECKED_COMPOUND: return "compound";
+        case CHECKED_PARAM:   return "type parameter";
         default:              return "unknown";
     }
 }
@@ -494,11 +524,23 @@ FunctionSig* type_check_lookup_function(TypeCheckContext *ctx, const char *name)
 // ========== OBJECT DEFINITION REGISTRATION ==========
 
 void type_check_register_object(TypeCheckContext *ctx, const char *name,
+                                char **type_params, int num_type_params,
                                 char **field_names, CheckedType **field_types,
                                 int *field_optional, int num_fields) {
     ObjectDef *def = calloc(1, sizeof(ObjectDef));
     def->name = strdup(name);
     def->num_fields = num_fields;
+
+    // Copy type parameters (for generic types)
+    def->num_type_params = num_type_params;
+    if (num_type_params > 0) {
+        def->type_params = calloc(num_type_params, sizeof(char*));
+        for (int i = 0; i < num_type_params; i++) {
+            def->type_params[i] = strdup(type_params[i]);
+        }
+    } else {
+        def->type_params = NULL;
+    }
 
     if (num_fields > 0) {
         def->field_names = calloc(num_fields, sizeof(char*));
@@ -1559,7 +1601,9 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
 
             // Check type compatibility
             CheckedType *var_type = type_check_lookup(ctx, expr->as.assign.name);
-            if (var_type && var_type->kind != CHECKED_ANY) {
+            // Variables initialized with null (and no type annotation) are dynamically typed
+            // and can accept any value on reassignment - this supports ??= patterns
+            if (var_type && var_type->kind != CHECKED_ANY && var_type->kind != CHECKED_NULL) {
                 CheckedType *val_type = type_check_infer_expr(ctx, expr->as.assign.value);
                 if (!type_is_assignable(var_type, val_type)) {
                     type_error(ctx, expr->line,
@@ -1936,6 +1980,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 }
             }
             type_check_register_object(ctx, stmt->as.define_object.name,
+                stmt->as.define_object.type_params, stmt->as.define_object.num_type_params,
                 stmt->as.define_object.field_names, field_types,
                 stmt->as.define_object.field_optional,
                 stmt->as.define_object.num_fields);
@@ -2104,6 +2149,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                 }
             }
             type_check_register_object(ctx, stmt->as.define_object.name,
+                stmt->as.define_object.type_params, stmt->as.define_object.num_type_params,
                 stmt->as.define_object.field_names, field_types,
                 stmt->as.define_object.field_optional,
                 stmt->as.define_object.num_fields);

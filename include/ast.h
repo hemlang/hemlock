@@ -75,6 +75,23 @@ typedef struct {
     int slot;         // Index within that environment's values array
 } ResolvedVar;
 
+// Inline cache for property access - speeds up repeated property lookups
+// Stores the result of the last successful lookup for monomorphic call sites
+typedef struct {
+    void *cached_object;     // Pointer to the last object accessed (for identity check)
+    int cached_field_index;  // Cached field index (-1 if not cached)
+    uint32_t cached_hash;    // Pre-computed hash of property name
+    int ic_state;            // HML_IC_STATE_UNINITIALIZED, MONOMORPHIC, or MEGAMORPHIC
+    int miss_count;          // Number of cache misses (for transitioning to megamorphic)
+} PropertyIC;
+
+// Inline cache for method dispatch - speeds up method calls on known receiver types
+typedef struct {
+    int cached_receiver_type;  // Last receiver's ValueType (0 if not cached)
+    int ic_state;              // HML_IC_STATE_UNINITIALIZED, MONOMORPHIC, or MEGAMORPHIC
+    int miss_count;            // Number of cache misses
+} MethodIC;
+
 // Expression node
 struct Expr {
     ExprType type;
@@ -110,7 +127,9 @@ struct Expr {
         struct {
             Expr *func;  // Changed from char *name to support method calls
             Expr **args;
+            char **arg_names;  // Array of argument names (NULL for positional args)
             int num_args;
+            MethodIC ic;  // Inline cache for method dispatch
         } call;
         struct {
             char *name;
@@ -120,6 +139,7 @@ struct Expr {
         struct {
             Expr *object;
             char *property;
+            PropertyIC ic;  // Inline cache for property access
         } get_property;
         struct {
             Expr *object;
@@ -152,8 +172,8 @@ struct Expr {
             int num_elements;
         } array_literal;
         struct {
-            char **field_names;
-            Expr **field_values;
+            char **field_names;   // NULL entry means spread
+            Expr **field_values;  // For spread, this is the expression to spread
             int num_fields;
         } object_literal;
         struct {
@@ -181,6 +201,7 @@ struct Expr {
             char *property;      // For property access (NULL for indexing/call)
             Expr *index;         // For indexing (NULL for property/call)
             Expr **args;         // For method calls (NULL for property/indexing)
+            char **arg_names;    // Array of argument names (NULL for positional args)
             int num_args;        // Number of arguments (0 if not a call)
             int is_property;     // 1 for property access, 0 for indexing/call
             int is_call;         // 1 for method call, 0 for property/indexing
@@ -218,17 +239,22 @@ typedef enum {
     TYPE_ENUM,           // Enum type (Color, Status, etc.)
     TYPE_VOID,           // Void type (for FFI functions with no return)
     TYPE_COMPOUND,       // Compound type (A & B & C) - intersection/duck typing
+    TYPE_PARAM,          // Type parameter (e.g., T in define Stack<T>)
 } TypeKind;
 
 struct Type {
     TypeKind kind;
-    char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person")
+    char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person") or TYPE_PARAM (e.g., "T")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
     int nullable;         // If true, type allows null (e.g., string?)
 
     // For TYPE_COMPOUND (intersection types like A & B & C)
     struct Type **compound_types;  // Array of constituent types
     int num_compound_types;        // Number of types in compound
+
+    // For generic types (e.g., Stack<i32>):
+    struct Type **type_args;    // Type arguments (e.g., [i32] for Stack<i32>)
+    int num_type_args;          // Number of type arguments
 };
 
 // ========== STATEMENT TYPES ==========
@@ -305,6 +331,8 @@ struct Stmt {
         } return_stmt;
         struct {
             char *name;
+            char **type_params;       // Type parameters (e.g., ["T", "U"] for define Pair<T, U>)
+            int num_type_params;      // Number of type parameters
             char **field_names;
             Type **field_types;       // NULL for dynamic fields
             int *field_optional;      // 1 if optional, 0 if required
@@ -378,7 +406,7 @@ Expr* expr_null(void);
 Expr* expr_binary(Expr *left, BinaryOp op, Expr *right);
 Expr* expr_unary(UnaryOp op, Expr *operand);
 Expr* expr_ternary(Expr *condition, Expr *true_expr, Expr *false_expr);
-Expr* expr_call(Expr *func, Expr **args, int num_args);
+Expr* expr_call(Expr *func, Expr **args, char **arg_names, int num_args);
 Expr* expr_assign(const char *name, Expr *value);
 Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
@@ -395,7 +423,7 @@ Expr* expr_await(Expr *awaited_expr);
 Expr* expr_string_interpolation(char **string_parts, Expr **expr_parts, int num_parts);
 Expr* expr_optional_chain_property(Expr *object, const char *property);
 Expr* expr_optional_chain_index(Expr *object, Expr *index);
-Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args);
+Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int num_args);
 Expr* expr_null_coalesce(Expr *left, Expr *right);
 
 // Statement constructors
@@ -412,7 +440,8 @@ Stmt* stmt_continue(void);
 Stmt* stmt_block(Stmt **statements, int count);
 Stmt* stmt_expr(Expr *expr);
 Stmt* stmt_return(Expr *value);
-Stmt* stmt_define_object(const char *name, char **field_names, Type **field_types,
+Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
+                         char **field_names, Type **field_types,
                          int *field_optional, Expr **field_defaults, int num_fields);
 Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, int num_variants);
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);

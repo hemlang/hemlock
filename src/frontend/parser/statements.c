@@ -655,9 +655,35 @@ Stmt* extern_fn_statement(Parser *p) {
 }
 
 Stmt* define_statement(Parser *p) {
-    // Object type definition: define TypeName { ... }
+    // Object type definition: define TypeName { ... } or define TypeName<T, U> { ... }
     consume(p, TOK_IDENT, "Expect object type name");
     char *name = token_text(&p->previous);
+
+    // Parse optional type parameters: <T, U, ...>
+    char **type_params = NULL;
+    int num_type_params = 0;
+    int type_param_capacity = 4;
+
+    if (match(p, TOK_LESS)) {
+        type_params = malloc(sizeof(char*) * type_param_capacity);
+
+        do {
+            consume(p, TOK_IDENT, "Expect type parameter name");
+            if (num_type_params >= type_param_capacity) {
+                type_param_capacity *= 2;
+                type_params = realloc(type_params, sizeof(char*) * type_param_capacity);
+            }
+            type_params[num_type_params++] = token_text(&p->previous);
+        } while (match(p, TOK_COMMA));
+
+        consume(p, TOK_GREATER, "Expect '>' after type parameters");
+    }
+
+    // Set type parameters in parser scope for field type parsing
+    char **old_type_params = p->type_params;
+    int old_num_type_params = p->num_type_params;
+    p->type_params = type_params;
+    p->num_type_params = num_type_params;
 
     consume(p, TOK_LBRACE, "Expect '{' after type name");
 
@@ -737,7 +763,12 @@ Stmt* define_statement(Parser *p) {
 
     consume(p, TOK_RBRACE, "Expect '}' after fields");
 
-    Stmt *stmt = stmt_define_object(name, field_names, field_types,
+    // Restore old type parameters scope
+    p->type_params = old_type_params;
+    p->num_type_params = old_num_type_params;
+
+    Stmt *stmt = stmt_define_object(name, type_params, num_type_params,
+                                   field_names, field_types,
                                    field_optional, field_defaults, num_fields);
     free(name);
     return stmt;

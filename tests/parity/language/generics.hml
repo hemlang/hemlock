@@ -1,0 +1,56 @@
+// Test generic type definitions
+
+// Simple generic type with one type parameter
+define Stack<T> {
+    items: array<T>
+}
+
+// Create a stack of integers
+let intStack: Stack<i32> = { items: [1, 2, 3] };
+print(intStack.items);
+print(intStack.items[0]);
+
+// Create a stack of strings
+let stringStack: Stack<string> = { items: ["hello", "world"] };
+print(stringStack.items);
+print(stringStack.items[0]);
+
+// Generic type with multiple type parameters
+define Pair<K, V> {
+    key: K,
+    value: V
+}
+
+// Create pairs with different types
+let pair1: Pair<string, i32> = { key: "age", value: 25 };
+print(pair1.key);
+print(pair1.value);
+
+let pair2: Pair<i32, string> = { key: 42, value: "answer" };
+print(pair2.key);
+print(pair2.value);
+
+// Generic type with optional field
+define Container<T> {
+    value: T,
+    label?: string
+}
+
+let container1: Container<i32> = { value: 42 };
+print(container1.value);
+
+let container2: Container<i32> = { value: 99, label: "important" };
+print(container2.value);
+print(container2.label);
+
+// Array of generic types
+define Wrapper<T> {
+    data: T
+}
+
+let wrapper1: Wrapper<i32> = { data: 100 };
+let wrapper2: Wrapper<string> = { data: "test" };
+print(wrapper1.data);
+print(wrapper2.data);
+
+print("All generic tests passed!");

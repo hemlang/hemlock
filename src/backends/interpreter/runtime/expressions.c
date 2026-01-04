@@ -227,6 +227,32 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
 
+                // METHOD DISPATCH INLINE CACHE:
+                // Cache the receiver type to skip the if-chain on subsequent calls
+                MethodIC *mic = &expr->as.call.ic;
+
+                // Fast path: if monomorphic, check cached type first
+                if (mic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    mic->cached_receiver_type == (int)method_self.type) {
+                    // Cache hit - type matches, continue to type-specific handler below
+                    // The switch below will handle it efficiently
+                } else if (mic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                    // Update cache: first time or different type
+                    if (mic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                        mic->cached_receiver_type = (int)method_self.type;
+                        mic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                        mic->miss_count = 0;
+                    } else if (mic->cached_receiver_type != (int)method_self.type) {
+                        // Different type - this call site is polymorphic
+                        mic->miss_count++;
+                        if (mic->miss_count >= HML_IC_MAX_MISSES) {
+                            mic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                        } else {
+                            mic->cached_receiver_type = (int)method_self.type;
+                        }
+                    }
+                }
+
                 // Special handling for file methods
                 if (method_self.type == VAL_FILE) {
                     const char *method = expr->as.call.func->as.get_property.property;
@@ -482,6 +508,110 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Call user-defined function
                 Function *fn = func.as.as_function;
 
+                // Handle named arguments: reorder args array to match parameter order
+                // Also track which argument indices are used for named vs positional
+                Value reordered_stack[MAX_STACK_ARGS];
+                Value *reordered_args = NULL;
+                int reordered_on_heap = 0;
+                int *arg_used = NULL;  // Track which args have been used
+                Value *original_args = args;  // Keep reference to original for cleanup
+                int original_args_on_heap = args_on_heap;
+
+                if (expr->as.call.arg_names != NULL) {
+                    // Allocate reordered array
+                    if (fn->num_params <= MAX_STACK_ARGS) {
+                        reordered_args = reordered_stack;
+                    } else {
+                        reordered_args = malloc(sizeof(Value) * fn->num_params);
+                        reordered_on_heap = 1;
+                    }
+
+                    // Initialize reordered_args to null values
+                    for (int i = 0; i < fn->num_params; i++) {
+                        reordered_args[i] = val_null();
+                    }
+
+                    // Track which arguments have been used
+                    arg_used = malloc(sizeof(int) * expr->as.call.num_args);
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        arg_used[i] = 0;
+                    }
+
+                    // First pass: place named arguments in their correct positions
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        if (expr->as.call.arg_names[i] != NULL) {
+                            // Find the parameter with this name
+                            uint32_t arg_hash = hash_string(expr->as.call.arg_names[i]);
+                            int found = 0;
+                            for (int j = 0; j < fn->num_params; j++) {
+                                if (fn->param_hashes[j] == arg_hash &&
+                                    strcmp(fn->param_names[j], expr->as.call.arg_names[i]) == 0) {
+                                    // Check if this parameter was already filled
+                                    if (reordered_args[j].type != VAL_NULL) {
+                                        runtime_error(ctx, "Duplicate argument for parameter '%s'",
+                                                    fn->param_names[j]);
+                                        // Cleanup and return
+                                        VALUE_RELEASE(func);
+                                        for (int k = 0; k < expr->as.call.num_args; k++) {
+                                            VALUE_RELEASE(args[k]);
+                                        }
+                                        if (args_on_heap) free(args);
+                                        free(arg_used);
+                                        if (reordered_on_heap) free(reordered_args);
+                                        return val_null();
+                                    }
+                                    reordered_args[j] = args[i];
+                                    arg_used[i] = 1;
+                                    found = 1;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                runtime_error(ctx, "Unknown parameter name '%s'",
+                                            expr->as.call.arg_names[i]);
+                                // Cleanup and return
+                                VALUE_RELEASE(func);
+                                for (int k = 0; k < expr->as.call.num_args; k++) {
+                                    VALUE_RELEASE(args[k]);
+                                }
+                                if (args_on_heap) free(args);
+                                free(arg_used);
+                                if (reordered_on_heap) free(reordered_args);
+                                return val_null();
+                            }
+                        }
+                    }
+
+                    // Second pass: place positional arguments in remaining slots
+                    int next_positional_slot = 0;
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        if (!arg_used[i]) {
+                            // Find the next unfilled slot
+                            while (next_positional_slot < fn->num_params &&
+                                   reordered_args[next_positional_slot].type != VAL_NULL) {
+                                next_positional_slot++;
+                            }
+                            if (next_positional_slot < fn->num_params) {
+                                reordered_args[next_positional_slot] = args[i];
+                                arg_used[i] = 1;
+                                next_positional_slot++;
+                            }
+                            // Extra positional args will be handled by rest param logic
+                        }
+                    }
+
+                    free(arg_used);
+                    // Now reordered_args contains arguments in parameter order
+                    // The original args values have been moved to reordered_args
+                    // Free the original array memory if it was on heap (values were moved, not copied)
+                    if (original_args_on_heap) {
+                        free(original_args);
+                    }
+                    // Switch to use reordered_args instead of args for parameter binding
+                    args = reordered_args;
+                    args_on_heap = reordered_on_heap;
+                }
+
                 // Calculate number of required parameters (those without defaults)
                 int required_params = 0;
                 if (fn->param_defaults) {
@@ -495,28 +625,55 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 // Check argument count (must be between required and total params)
-                // If function has rest param, allow unlimited extra args
-                int max_args = fn->rest_param ? INT_MAX : fn->num_params;
-                if (expr->as.call.num_args < required_params || expr->as.call.num_args > max_args) {
-                    if (fn->rest_param) {
-                        runtime_error(ctx, "Function expects at least %d arguments, got %d",
-                                required_params, expr->as.call.num_args);
-                    } else if (required_params == fn->num_params) {
-                        runtime_error(ctx, "Function expects %d arguments, got %d",
-                                fn->num_params, expr->as.call.num_args);
-                    } else {
-                        runtime_error(ctx, "Function expects %d-%d arguments, got %d",
-                                required_params, fn->num_params, expr->as.call.num_args);
-                    }
-                    // Release function and args before returning
-                    VALUE_RELEASE(func);
-                    if (args) {
-                        for (int i = 0; i < expr->as.call.num_args; i++) {
-                            VALUE_RELEASE(args[i]);
+                // For named arguments, count non-null slots in reordered array
+                int provided_args = expr->as.call.num_args;
+                if (expr->as.call.arg_names != NULL) {
+                    // Count how many required params are covered
+                    int covered_required = 0;
+                    for (int i = 0; i < fn->num_params; i++) {
+                        if (args[i].type != VAL_NULL) {
+                            if (!fn->param_defaults || !fn->param_defaults[i]) {
+                                covered_required++;
+                            }
                         }
-                        if (args_on_heap) free(args);
                     }
-                    return val_null();
+                    // With named args, check that all required params are covered
+                    if (covered_required < required_params) {
+                        runtime_error(ctx, "Missing required parameter(s)");
+                        VALUE_RELEASE(func);
+                        // Release original evaluated args
+                        for (int i = 0; i < fn->num_params; i++) {
+                            if (args[i].type != VAL_NULL) {
+                                VALUE_RELEASE(args[i]);
+                            }
+                        }
+                        if (reordered_on_heap) free(reordered_args);
+                        return val_null();
+                    }
+                } else {
+                    // Original arity check for positional-only calls
+                    int max_args = fn->rest_param ? INT_MAX : fn->num_params;
+                    if (provided_args < required_params || provided_args > max_args) {
+                        if (fn->rest_param) {
+                            runtime_error(ctx, "Function expects at least %d arguments, got %d",
+                                    required_params, provided_args);
+                        } else if (required_params == fn->num_params) {
+                            runtime_error(ctx, "Function expects %d arguments, got %d",
+                                    fn->num_params, provided_args);
+                        } else {
+                            runtime_error(ctx, "Function expects %d-%d arguments, got %d",
+                                    required_params, fn->num_params, provided_args);
+                        }
+                        // Release function and args before returning
+                        VALUE_RELEASE(func);
+                        if (args) {
+                            for (int i = 0; i < provided_args; i++) {
+                                VALUE_RELEASE(args[i]);
+                            }
+                            if (args_on_heap) free(args);
+                        }
+                        return val_null();
+                    }
                 }
 
                 // Determine function name for stack trace
@@ -544,27 +701,62 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Push call onto stack trace (with line number from call site)
                 call_stack_push_line(&ctx->call_stack, fn_name, expr->line);
 
+                // Profile: enter function
+                PROFILER_ENTER(ctx, fn_name, get_current_source_file(), expr->line);
+
                 // Create call environment with closure_env as parent
                 Environment *call_env = env_new(fn->closure_env);
 
                 // Bind parameters FIRST using fast path with pre-computed hashes
                 // This must happen before 'self' injection to preserve slot order
                 // for resolved variable lookups (params at slots 0, 1, 2, ...)
+                int has_named_args = (expr->as.call.arg_names != NULL);
                 for (int i = 0; i < fn->num_params; i++) {
                     Value arg_value = {0};
 
                     // Check if this is a ref parameter
                     int is_ref_param = fn->param_is_ref && fn->param_is_ref[i];
 
-                    if (is_ref_param && i < expr->as.call.num_args) {
+                    // Determine if this parameter has an argument provided
+                    // For named args, check if slot is non-null; for positional, check index
+                    int has_arg = has_named_args ? (args[i].type != VAL_NULL) : (i < expr->as.call.num_args);
+
+                    if (is_ref_param && has_arg) {
                         // For ref parameters, create a reference to the original location
-                        Expr *arg_expr = expr->as.call.args[i];
+                        // With named args, we need to find the original arg_expr
+                        Expr *arg_expr = NULL;
+                        if (has_named_args) {
+                            // Find which original argument corresponds to this parameter
+                            for (int j = 0; j < expr->as.call.num_args; j++) {
+                                if (expr->as.call.arg_names[j] &&
+                                    strcmp(expr->as.call.arg_names[j], fn->param_names[i]) == 0) {
+                                    arg_expr = expr->as.call.args[j];
+                                    break;
+                                }
+                            }
+                            // If not found by name, it was positional - find the first unused positional
+                            if (!arg_expr) {
+                                int positional_idx = 0;
+                                for (int j = 0; j < expr->as.call.num_args; j++) {
+                                    if (!expr->as.call.arg_names[j]) {
+                                        if (positional_idx == i) {
+                                            arg_expr = expr->as.call.args[j];
+                                            break;
+                                        }
+                                        positional_idx++;
+                                    }
+                                }
+                            }
+                        } else {
+                            arg_expr = expr->as.call.args[i];
+                        }
+
                         Reference *ref = NULL;
 
-                        if (arg_expr->type == EXPR_IDENT) {
+                        if (arg_expr && arg_expr->type == EXPR_IDENT) {
                             // Reference to a variable
                             ref = reference_new_variable(env, arg_expr->as.ident.name);
-                        } else if (arg_expr->type == EXPR_INDEX) {
+                        } else if (arg_expr && arg_expr->type == EXPR_INDEX) {
                             // Reference to an array element
                             Value arr_val = eval_expr(arg_expr->as.index.object, env, ctx);
                             Value idx_val = eval_expr(arg_expr->as.index.index, env, ctx);
@@ -589,7 +781,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             }
                             VALUE_RELEASE(arr_val);
                             VALUE_RELEASE(idx_val);
-                        } else if (arg_expr->type == EXPR_GET_PROPERTY) {
+                        } else if (arg_expr && arg_expr->type == EXPR_GET_PROPERTY) {
                             // Reference to an object property
                             Value obj_val = eval_expr(arg_expr->as.get_property.object, env, ctx);
                             if (obj_val.type == VAL_OBJECT) {
@@ -598,7 +790,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 runtime_error_at(ctx, arg_expr->line, "ref argument must be an object property");
                             }
                             VALUE_RELEASE(obj_val);
-                        } else {
+                        } else if (arg_expr) {
                             runtime_error_at(ctx, arg_expr->line, "ref argument must be a variable, array element, or object property");
                         }
 
@@ -611,7 +803,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             arg_value = val_null();
                             VALUE_RELEASE(args[i]);
                         }
-                    } else if (i < expr->as.call.num_args) {
+                    } else if (has_arg) {
                         // Regular parameter - use provided argument
                         arg_value = args[i];
                     } else {
@@ -699,6 +891,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Retain result for the caller (so it survives call_env cleanup)
                 // The caller now owns this reference
                 VALUE_RETAIN(result);
+
+                // Profile: exit function (always, even on exception, for accurate timing)
+                PROFILER_EXIT(ctx);
 
                 // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
                 if (!ctx->exception_state.is_throwing) {
@@ -811,9 +1006,58 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     runtime_error(ctx, "Array has no property '%s'", property);
                 }
             } else if (object.type == VAL_OBJECT) {
-                // Look up field in object using hash table
+                // Look up field in object using inline cache or hash table
                 Object *obj = object.as.as_object;
-                int idx = object_lookup_field(obj, property);
+                PropertyIC *ic = &expr->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH:
+                // If we're accessing the same object and the cache is valid, use cached index
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    // Validate the cached index still points to the correct field
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;  // Cache hit!
+                    } else {
+                        // Cache is stale (object was modified), invalidate
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
+                    }
+                }
+
+                // CACHE MISS: Do full lookup and update cache
+                if (idx < 0) {
+                    // Compute hash if not cached
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+
+                    // Update inline cache if not megamorphic
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            // First access - initialize cache
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            // Different object - this is polymorphic
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                // Too many different objects, go megamorphic
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                // Update cache to new object
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
                 if (idx >= 0) {
                     result = obj->field_values[idx];
                     // Retain the field value so it survives object release
@@ -1308,10 +1552,78 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Evaluate and store fields
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                obj->field_names[i] = strdup(expr->as.object_literal.field_names[i]);
-                obj->field_values[i] = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
-                // eval_expr returns with refcount 1, object now owns this reference
-                obj->num_fields++;
+                if (expr->as.object_literal.field_names[i] == NULL) {
+                    // Spread operator: ...expr
+                    // Evaluate the spread expression and copy all its fields
+                    Value spread_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                    if (spread_val.type != VAL_OBJECT) {
+                        VALUE_RELEASE(spread_val);
+                        runtime_error(ctx, "Spread operator requires an object");
+                        return val_object(obj);
+                    }
+                    Object *spread_obj = spread_val.as.as_object;
+
+                    // Copy all fields from spread object
+                    for (int j = 0; j < spread_obj->num_fields; j++) {
+                        // Check if field already exists (overwrite if so)
+                        int existing_idx = -1;
+                        for (int k = 0; k < obj->num_fields; k++) {
+                            if (strcmp(obj->field_names[k], spread_obj->field_names[j]) == 0) {
+                                existing_idx = k;
+                                break;
+                            }
+                        }
+
+                        if (existing_idx >= 0) {
+                            // Overwrite existing field
+                            VALUE_RELEASE(obj->field_values[existing_idx]);
+                            obj->field_values[existing_idx] = spread_obj->field_values[j];
+                            VALUE_RETAIN(obj->field_values[existing_idx]);
+                        } else {
+                            // Add new field - grow if needed
+                            if (obj->num_fields >= obj->capacity) {
+                                int new_capacity = obj->capacity * 2;
+                                obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                                obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                                obj->capacity = new_capacity;
+                            }
+                            obj->field_names[obj->num_fields] = strdup(spread_obj->field_names[j]);
+                            obj->field_values[obj->num_fields] = spread_obj->field_values[j];
+                            VALUE_RETAIN(obj->field_values[obj->num_fields]);
+                            obj->num_fields++;
+                        }
+                    }
+                    VALUE_RELEASE(spread_val);
+                } else {
+                    // Normal field: name: value
+                    // Check if field already exists (from previous spread)
+                    int existing_idx = -1;
+                    for (int k = 0; k < obj->num_fields; k++) {
+                        if (strcmp(obj->field_names[k], expr->as.object_literal.field_names[i]) == 0) {
+                            existing_idx = k;
+                            break;
+                        }
+                    }
+
+                    Value field_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+
+                    if (existing_idx >= 0) {
+                        // Overwrite existing field (from spread)
+                        VALUE_RELEASE(obj->field_values[existing_idx]);
+                        obj->field_values[existing_idx] = field_val;
+                    } else {
+                        // Add new field - grow if needed
+                        if (obj->num_fields >= obj->capacity) {
+                            int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
+                            obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                            obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                            obj->capacity = new_capacity;
+                        }
+                        obj->field_names[obj->num_fields] = strdup(expr->as.object_literal.field_names[i]);
+                        obj->field_values[obj->num_fields] = field_val;
+                        obj->num_fields++;
+                    }
+                }
             }
 
             return val_object(obj);
