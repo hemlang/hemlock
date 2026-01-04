@@ -1,0 +1,98 @@
+// Test advanced type alias features
+
+// 1. Async function type alias
+type AsyncCompute = async fn(i32): i32;
+
+async fn double(n: i32): i32 {
+    return n * 2;
+}
+
+fn run_async(compute: AsyncCompute, val: i32) {
+    let task = spawn(compute, val);
+    let result = join(task);
+    print(result);
+}
+
+run_async(double, 21);
+
+// 2. Function type alias with multiple parameters
+type BinaryOp = fn(i32, i32): i32;
+
+let add: BinaryOp = fn(a, b) { return a + b; };
+let mul: BinaryOp = fn(a, b) { return a * b; };
+
+print(add(3, 4));
+print(mul(3, 4));
+
+// 3. Function type alias with more params
+type TernaryOp = fn(i32, i32, i32): i32;
+
+let addThree: TernaryOp = fn(a, b, c) { return a + b + c; };
+print(addThree(1, 2, 3));
+
+// 4. Type alias for compound types with more components
+define HasId { id: i32 }
+define HasName { name: string }
+define HasActive { active: bool }
+type FullEntity = HasId & HasName & HasActive;
+
+let entity: FullEntity = { id: 42, name: "Widget", active: true };
+print(entity.id);
+print(entity.name);
+print(entity.active);
+
+// 5. Function type with void return
+type VoidCallback = fn(): void;
+
+fn execute(cb: VoidCallback) {
+    cb();
+}
+
+execute(fn() { print("callback executed"); });
+
+// 6. Type alias referencing another type alias
+type Num = i32;
+type BinaryNumOp = fn(Num, Num): Num;
+
+let subtract: BinaryNumOp = fn(a, b) { return a - b; };
+print(subtract(10, 3));
+
+// 7. Function type returning function
+type FnFactory = fn(i32): fn(i32): i32;
+
+let makeAdder: FnFactory = fn(n) {
+    return fn(x) { return x + n; };
+};
+
+let add10 = makeAdder(10);
+print(add10(5));
+
+// 8. Chained type aliases for function types
+type Predicate = fn(i32): bool;
+type PredicateConsumer = fn(Predicate): void;
+
+fn testPredicate(pred: Predicate) {
+    if (pred(5)) { print("passed"); }
+    else { print("failed"); }
+}
+
+let consumer: PredicateConsumer = testPredicate;
+consumer(fn(x) { return x > 3; });
+
+// 9. Type alias with float types
+type FloatOp = fn(f64): f64;
+
+let squareRoot: FloatOp = fn(x) { return sqrt(x); };
+print(squareRoot(16));
+
+// 10. Using type aliases as parameter types
+type StringMapper = fn(string): string;
+
+fn applyMapper(s: string, mapper: StringMapper): string {
+    return mapper(s);
+}
+
+let result = applyMapper("hello", fn(s) { return s.to_upper(); });
+print(result);
+
+print("done");

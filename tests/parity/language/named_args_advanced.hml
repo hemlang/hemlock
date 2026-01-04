@@ -1,0 +1,91 @@
+// Test advanced named argument features
+
+// 1. Named arguments with type annotations
+fn create_point(x: i32, y: i32, z?: 0): object {
+    return { x: x, y: y, z: z };
+}
+
+let p1 = create_point(x: 10, y: 20);
+print(p1.x);
+print(p1.y);
+print(p1.z);
+
+let p2 = create_point(10, 20, z: 70);
+print(p2.x);
+print(p2.y);
+print(p2.z);
+
+// 2. Named arguments with defaults
+fn config(host: string, port?: 8080, secure?: false): string {
+    return host + ":" + port + " (secure=" + secure + ")";
+}
+
+print(config("localhost"));
+print(config("localhost", port: 443));
+print(config("localhost", secure: true));
+
+// 3. Mixed positional and named
+fn greet(name: string, greeting?: "Hello", punctuation?: "!"): string {
+    return greeting + ", " + name + punctuation;
+}
+
+print(greet("World"));
+print(greet("Alice", punctuation: "?"));
+print(greet("Bob", greeting: "Hi"));
+print(greet("Charlie", "Hey", punctuation: "..."));
+
+// 4. Named arguments with function parameters
+fn apply_op(a: i32, b: i32, op?: null): i32 {
+    if (op != null) {
+        return op(a, b);
+    }
+    return a + b;
+}
+
+print(apply_op(5, 3));
+print(apply_op(a: 10, b: 5));
+
+// 5. Named arguments in nested calls
+fn outer(val: i32, scale?: 1): i32 {
+    return val * scale;
+}
+
+fn caller(x: i32): i32 {
+    return outer(val: x, scale: 2);
+}
+
+print(caller(25));
+
+// 6. Named arguments with string defaults
+fn format_message(msg: string, prefix?: "[INFO]", suffix?: ""): string {
+    return prefix + " " + msg + suffix;
+}
+
+print(format_message("test"));
+print(format_message("alert", prefix: "[WARN]"));
+print(format_message("done", suffix: " - OK"));
+
+// 7. Named arguments with different types
+fn mixed_types(count: i32, name: string, active?: true, score?: 0.0): string {
+    return name + ": " + count + " (" + active + ", " + score + ")";
+}
+
+print(mixed_types(10, "item"));
+print(mixed_types(5, "widget", score: 9.5));
+print(mixed_types(20, "thing", active: false, score: 3.14));
+
+// 8. Named arguments skipping middle defaults
+fn sequence(a: i32, b?: 2, c?: 3, d?: 4): string {
+    return a + "," + b + "," + c + "," + d;
+}
+
+print(sequence(1));
+print(sequence(1, d: 40));
+print(sequence(1, 20, d: 40));
+
+// 9. Named argument with same name as variable
+let host = "myhost";
+let port = 9000;
+print(config(host, port: port));
+
+print("done");

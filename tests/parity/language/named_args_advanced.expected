@@ -1,0 +1,27 @@
+10
+20
+0
+10
+20
+70
+localhost:8080 (secure=false)
+localhost:443 (secure=false)
+localhost:8080 (secure=true)
+Hello, World!
+Hello, Alice?
+Hi, Bob!
+Hey, Charlie...
+8
+15
+50
+[INFO] test
+[WARN] alert
+[INFO] done - OK
+item: 10 (true, 0)
+widget: 5 (true, 9.5)
+thing: 20 (false, 3.14)
+1,2,3,4
+1,2,3,40
+1,20,3,40
+myhost:9000 (secure=false)
+done
