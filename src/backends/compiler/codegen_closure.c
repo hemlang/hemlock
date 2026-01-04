@@ -286,6 +286,10 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
             scan_closures_stmt(ctx, stmt->as.while_stmt.body, local_scope);
             break;
 
+        case STMT_LOOP:
+            scan_closures_stmt(ctx, stmt->as.loop_stmt.body, local_scope);
+            break;
+
         case STMT_FOR:
             if (stmt->as.for_loop.initializer) {
                 scan_closures_stmt(ctx, stmt->as.for_loop.initializer, local_scope);
@@ -532,6 +536,10 @@ void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars) 
         case STMT_WHILE:
             find_free_vars(stmt->as.while_stmt.condition, local_scope, free_vars);
             find_free_vars_stmt(stmt->as.while_stmt.body, local_scope, free_vars);
+            break;
+
+        case STMT_LOOP:
+            find_free_vars_stmt(stmt->as.loop_stmt.body, local_scope, free_vars);
             break;
 
         case STMT_FOR:

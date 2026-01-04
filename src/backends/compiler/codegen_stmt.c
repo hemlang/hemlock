@@ -240,6 +240,40 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             break;
         }
 
+        case STMT_LOOP: {
+            ctx->loop_depth++;
+            const char *loop_label = stmt->as.loop_stmt.label;
+            char *break_label = NULL;
+            char *continue_label = NULL;
+
+            if (loop_label) {
+                break_label = codegen_label(ctx);
+                continue_label = codegen_label(ctx);
+                codegen_push_loop_label(ctx, loop_label, break_label, continue_label);
+            }
+
+            codegen_writeln(ctx, "while (1) {");
+            codegen_indent_inc(ctx);
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", continue_label);
+            }
+
+            codegen_stmt(ctx, stmt->as.loop_stmt.body);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", break_label);
+                codegen_pop_loop_label(ctx);
+                free(break_label);
+                free(continue_label);
+            }
+
+            ctx->loop_depth--;
+            break;
+        }
+
         case STMT_FOR: {
             ctx->loop_depth++;
             const char *loop_label = stmt->as.for_loop.label;

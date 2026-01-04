@@ -804,6 +804,10 @@ static void serialize_stmt(SerializeContext *ctx, Stmt *stmt) {
             serialize_stmt(ctx, stmt->as.while_stmt.body);
             break;
 
+        case STMT_LOOP:
+            serialize_stmt(ctx, stmt->as.loop_stmt.body);
+            break;
+
         case STMT_FOR:
             serialize_stmt(ctx, stmt->as.for_loop.initializer);
             serialize_expr(ctx, stmt->as.for_loop.condition);
@@ -961,6 +965,10 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
         case STMT_WHILE:
             stmt->as.while_stmt.condition = deserialize_expr(ctx);
             stmt->as.while_stmt.body = deserialize_stmt(ctx);
+            break;
+
+        case STMT_LOOP:
+            stmt->as.loop_stmt.body = deserialize_stmt(ctx);
             break;
 
         case STMT_FOR:

@@ -409,6 +409,10 @@ static void collect_stmt_deps(Stmt *stmt, Symbol *sym) {
             collect_stmt_deps(stmt->as.while_stmt.body, sym);
             break;
 
+        case STMT_LOOP:
+            collect_stmt_deps(stmt->as.loop_stmt.body, sym);
+            break;
+
         case STMT_FOR:
             collect_stmt_deps(stmt->as.for_loop.initializer, sym);
             collect_expr_deps(stmt->as.for_loop.condition, sym);
@@ -552,6 +556,7 @@ static int stmt_has_side_effects(Stmt *stmt) {
         // Control flow statements may have side effects
         case STMT_IF:
         case STMT_WHILE:
+        case STMT_LOOP:
         case STMT_FOR:
         case STMT_FOR_IN:
         case STMT_TRY:

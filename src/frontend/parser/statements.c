@@ -108,6 +108,17 @@ Stmt* while_statement(Parser *p) {
     return while_statement_with_label(p, NULL);
 }
 
+Stmt* loop_statement_with_label(Parser *p, const char *label) {
+    consume(p, TOK_LBRACE, "Expect '{' after 'loop'");
+    Stmt *body = block_statement(p);
+
+    return stmt_loop_labeled(label, body);
+}
+
+Stmt* loop_statement(Parser *p) {
+    return loop_statement_with_label(p, NULL);
+}
+
 Stmt* switch_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'switch'");
     Expr *expr = expression(p);
@@ -977,11 +988,15 @@ not_function:
         advance(p);  // consume identifier
         if (check(p, TOK_COLON)) {
             advance(p);  // consume colon
-            if (check(p, TOK_WHILE) || check(p, TOK_FOR)) {
+            if (check(p, TOK_WHILE) || check(p, TOK_LOOP) || check(p, TOK_FOR)) {
                 // This is a labeled loop
                 char *label = token_text(&saved_current);
                 if (match(p, TOK_WHILE)) {
                     Stmt *stmt = while_statement_with_label(p, label);
+                    free(label);
+                    return stmt;
+                } else if (match(p, TOK_LOOP)) {
+                    Stmt *stmt = loop_statement_with_label(p, label);
                     free(label);
                     return stmt;
                 } else if (match(p, TOK_FOR)) {
@@ -1004,6 +1019,10 @@ not_function:
 
     if (match(p, TOK_WHILE)) {
         return while_statement(p);
+    }
+
+    if (match(p, TOK_LOOP)) {
+        return loop_statement(p);
     }
 
     if (match(p, TOK_FOR)) {

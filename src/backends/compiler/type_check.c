@@ -1892,6 +1892,10 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             type_check_stmt(ctx, stmt->as.while_stmt.body);
             break;
 
+        case STMT_LOOP:
+            type_check_stmt(ctx, stmt->as.loop_stmt.body);
+            break;
+
         case STMT_FOR:
             type_check_push_scope(ctx);
             if (stmt->as.for_loop.initializer) {
@@ -2437,6 +2441,9 @@ static int variable_escapes_in_stmt_internal(Stmt *stmt, const char *var_name) {
             return variable_escapes_in_expr_internal(stmt->as.while_stmt.condition, var_name) ||
                    variable_escapes_in_stmt_internal(stmt->as.while_stmt.body, var_name);
 
+        case STMT_LOOP:
+            return variable_escapes_in_stmt_internal(stmt->as.loop_stmt.body, var_name);
+
         case STMT_FOR:
             return (stmt->as.for_loop.initializer && variable_escapes_in_stmt_internal(stmt->as.for_loop.initializer, var_name)) ||
                    (stmt->as.for_loop.condition && variable_escapes_in_expr_internal(stmt->as.for_loop.condition, var_name)) ||
@@ -2735,6 +2742,9 @@ static int has_incompatible_assignment_stmt(Stmt *stmt, const char *var_name) {
             return has_incompatible_assignment_expr(stmt->as.while_stmt.condition, var_name) ||
                    has_incompatible_assignment_stmt(stmt->as.while_stmt.body, var_name);
 
+        case STMT_LOOP:
+            return has_incompatible_assignment_stmt(stmt->as.loop_stmt.body, var_name);
+
         case STMT_FOR:
             return (stmt->as.for_loop.initializer && has_incompatible_assignment_stmt(stmt->as.for_loop.initializer, var_name)) ||
                    (stmt->as.for_loop.condition && has_incompatible_assignment_expr(stmt->as.for_loop.condition, var_name)) ||
@@ -2944,6 +2954,7 @@ static int stmt_is_tail_recursive(Stmt *stmt, const char *func_name) {
             return 1;
 
         case STMT_WHILE:
+        case STMT_LOOP:
         case STMT_FOR:
         case STMT_FOR_IN:
             // Loops are not compatible with tail call optimization
