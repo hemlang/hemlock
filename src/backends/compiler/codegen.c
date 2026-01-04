@@ -102,7 +102,9 @@ CodegenContext* codegen_new(FILE *output) {
 void codegen_free(CodegenContext *ctx) {
     if (ctx) {
         for (int i = 0; i < ctx->num_locals; i++) {
-            free(ctx->local_vars[i]);
+            if (ctx->local_vars[i]) {
+                free(ctx->local_vars[i]);
+            }
         }
         free(ctx->local_vars);
 
@@ -330,6 +332,8 @@ void codegen_remove_local(CodegenContext *ctx, const char *name) {
             for (int j = i; j < ctx->num_locals - 1; j++) {
                 ctx->local_vars[j] = ctx->local_vars[j + 1];
             }
+            // Clear the last slot to prevent double-free when num_locals is restored
+            ctx->local_vars[ctx->num_locals - 1] = NULL;
             ctx->num_locals--;
             return;
         }

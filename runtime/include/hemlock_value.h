@@ -506,14 +506,14 @@ static inline void hml_release_if_needed(HmlValue *val) {
 // Fast path: array[i32] = value (bounds checked, handles refcounting)
 static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue val) {
     if (index >= 0 && index < arr->length) {
-        // Release old value if needed
         HmlValue old = arr->elements[index];
-        if (hml_needs_refcount(old)) {
-            hml_release(&old);
-        }
-        // Retain new value if needed
+        // Retain new value FIRST to prevent use-after-free when old == new
         if (hml_needs_refcount(val)) {
             hml_retain(&val);
+        }
+        // Then release old value
+        if (hml_needs_refcount(old)) {
+            hml_release(&old);
         }
         arr->elements[index] = val;
         return;
