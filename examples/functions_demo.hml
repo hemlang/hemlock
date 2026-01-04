@@ -54,10 +54,10 @@ print("");
 
 // 6. Higher-order functions - passing functions as arguments
 print("6. Higher-order functions:");
-fn apply(func, value) {
+fn applyFn(func, value) {
     return func(value);
 }
-print(apply(square, 9));
+print(applyFn(square, 9));
 print("");
 
 // 7. Lexical scoping
