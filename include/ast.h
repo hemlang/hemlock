@@ -7,6 +7,7 @@
 typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Type Type;
+typedef struct Pattern Pattern;
 
 // ========== EXPRESSION TYPES ==========
 
@@ -65,6 +66,45 @@ typedef enum {
     UNARY_NEGATE,
     UNARY_BIT_NOT,
 } UnaryOp;
+
+// ========== PATTERN TYPES (for match expressions) ==========
+
+typedef enum {
+    PATTERN_LITERAL,      // Literal value: 42, "hello", true, null
+    PATTERN_IDENT,        // Variable binding: x, value (or _ for wildcard)
+    PATTERN_CONSTRUCTOR,  // Constructor pattern: Ok(value), Err(e), Some(x)
+    PATTERN_ARRAY,        // Array destructuring: [a, b, c] or [first, ...rest]
+    PATTERN_OBJECT,       // Object destructuring: { name, age } or { x: a, y: b }
+} PatternType;
+
+// Pattern node for match expressions
+struct Pattern {
+    PatternType type;
+    int line;
+    int column;
+    union {
+        Expr *literal;         // PATTERN_LITERAL: the literal expression
+        struct {
+            char *name;        // Variable name (or "_" for wildcard)
+            int is_wildcard;   // 1 if this is "_", 0 otherwise
+        } ident;
+        struct {
+            char *tag;         // Constructor name: "Ok", "Err", "Some", etc.
+            Pattern **fields;  // Nested patterns for fields
+            int num_fields;
+        } constructor;
+        struct {
+            Pattern **elements;   // Array element patterns
+            int num_elements;
+            char *rest_name;      // Name for ...rest, NULL if no rest pattern
+        } array;
+        struct {
+            char **field_names;   // Field names to match
+            Pattern **patterns;   // Patterns for each field (NULL for shorthand)
+            int num_fields;
+        } object;
+    } as;
+};
 
 // Variable resolution info - computed during resolution pass to enable O(1) variable lookup
 // When is_resolved is true, the variable can be accessed directly via (depth, slot) indices
@@ -297,6 +337,7 @@ typedef enum {
     STMT_IMPORT_FFI,
     STMT_EXTERN_FN,
     STMT_TYPE_ALIAS,     // Type alias: type Name<T> = SomeType;
+    STMT_MATCH,          // Pattern matching: match expr { Pat => body, ... }
 } StmtType;
 
 // Statement node
@@ -429,6 +470,13 @@ struct Stmt {
             int num_type_params;     // Number of type parameters
             Type *aliased_type;      // The actual type
         } type_alias;
+        struct {
+            Expr *expr;              // Expression to match against
+            Pattern **patterns;      // Array of patterns for each arm
+            Expr **guards;           // Optional guard expressions (NULL if no guard)
+            Stmt **bodies;           // Body statements for each arm
+            int num_arms;            // Number of match arms
+        } match_stmt;
     } as;
 };
 
@@ -512,6 +560,17 @@ Type* type_function(Type **param_types, char **param_names, int *param_optional,
                     Type *rest_param_type, Type *return_type, int is_async);
 Type* type_self(void);  // Create Self type for define blocks
 Stmt* stmt_type_alias(const char *name, char **type_params, int num_type_params, Type *aliased_type);
+Stmt* stmt_match(Expr *expr, Pattern **patterns, Expr **guards, Stmt **bodies, int num_arms);
+
+// Pattern constructors
+Pattern* pattern_literal(Expr *literal);
+Pattern* pattern_ident(const char *name);
+Pattern* pattern_wildcard(void);
+Pattern* pattern_constructor(const char *tag, Pattern **fields, int num_fields);
+Pattern* pattern_array(Pattern **elements, int num_elements, const char *rest_name);
+Pattern* pattern_object(char **field_names, Pattern **patterns, int num_fields);
+void pattern_free(Pattern *pattern);
+
 void type_free(Type *type);
 
 // Cloning

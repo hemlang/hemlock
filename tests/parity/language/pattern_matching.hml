@@ -1,0 +1,118 @@
+// Test pattern matching
+
+// Basic literal patterns
+let x = 42;
+match x {
+    42 => print("forty-two"),
+    0 => print("zero"),
+    _ => print("other")
+}
+
+// String literal patterns
+let color = "green";
+match color {
+    "red" => print("stop"),
+    "green" => print("go"),
+    "yellow" => print("caution"),
+    _ => print("unknown")
+}
+
+// Variable binding pattern
+let value = 100;
+match value {
+    n => print(n)
+}
+
+// Constructor patterns with tagged objects
+// Convention: { tag: "Tag", value: data }
+let ok_result = { tag: "Ok", value: 42 };
+match ok_result {
+    Ok(v) => print("Got: " + v),
+    Err(e) => print("Error: " + e),
+    _ => print("unknown")
+}
+
+let err_result = { tag: "Err", value: "failed" };
+match err_result {
+    Ok(v) => print("Got: " + v),
+    Err(e) => print("Error: " + e),
+    _ => print("unknown")
+}
+
+// Constructor with no fields
+let none_val = { tag: "None" };
+match none_val {
+    Some(x) => print("Some: " + x),
+    None() => print("None"),
+    _ => print("other")
+}
+
+let some_val = { tag: "Some", value: "hello" };
+match some_val {
+    Some(x) => print("Some: " + x),
+    None() => print("None"),
+    _ => print("other")
+}
+
+// Array destructuring
+let arr = [1, 2, 3];
+match arr {
+    [a, b, c] => print(a + b + c),
+    _ => print("no match")
+}
+
+// Object destructuring
+let person = { name: "Alice", age: 30 };
+match person {
+    { name, age } => print(name + " is " + age),
+    _ => print("no match")
+}
+
+// Object with renamed fields
+let point = { x: 10, y: 20 };
+match point {
+    { x: a, y: b } => print("point: " + a + ", " + b),
+    _ => print("no match")
+}
+
+// Guards
+let num = 15;
+match num {
+    n if n > 10 => print("big: " + n),
+    n if n > 5 => print("medium: " + n),
+    n => print("small: " + n)
+}
+
+// Nested patterns
+let nested = { tag: "Ok", value: [1, 2, 3] };
+match nested {
+    Ok([a, b, c]) => print("Ok with array: " + (a + b + c)),
+    Err(e) => print("Error: " + e),
+    _ => print("no match")
+}
+
+// Boolean pattern
+let flag = true;
+match flag {
+    true => print("yes"),
+    false => print("no")
+}
+
+// Null pattern
+let maybe_null = null;
+match maybe_null {
+    null => print("is null"),
+    x => print("has value: " + x)
+}
+
+// Match in block body
+let result = 5;
+match result {
+    5 => {
+        let msg = "five";
+        print(msg);
+    },
+    _ => print("other")
+}
+
+print("done");

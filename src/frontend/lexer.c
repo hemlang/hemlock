@@ -851,6 +851,9 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 3) return check_keyword(lex->start, 3, "let", TOK_LET);
             if (len == 4) return check_keyword(lex->start, 4, "loop", TOK_LOOP);
             break;
+        case 'm':
+            if (len == 5) return check_keyword(lex->start, 5, "match", TOK_MATCH);
+            break;
         case 'n':
             if (len == 4) return check_keyword(lex->start, 4, "null", TOK_NULL);
             if (len == 6) return check_keyword(lex->start, 6, "number", TOK_TYPE_NUMBER);
@@ -1064,6 +1067,10 @@ Token lexer_next(Lexer *lex) {
             if (peek(lex) == '=') {
                 advance(lex);
                 return make_token(lex, TOK_EQUAL_EQUAL);
+            }
+            if (peek(lex) == '>') {
+                advance(lex);
+                return make_token(lex, TOK_FAT_ARROW);
             }
             return make_token(lex, TOK_EQUAL);
             

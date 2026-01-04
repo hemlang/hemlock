@@ -40,6 +40,7 @@ typedef enum {
     TOK_SWITCH,
     TOK_CASE,
     TOK_DEFAULT,
+    TOK_MATCH,
     TOK_ASYNC,
     TOK_AWAIT,
     TOK_IMPORT,
@@ -109,6 +110,7 @@ typedef enum {
     TOK_QUESTION_DOT,        // ?.
     TOK_QUESTION_QUESTION,   // ??
     TOK_QUESTION_QUESTION_EQUAL, // ??=
+    TOK_FAT_ARROW,           // =>
 
     // Punctuation
     TOK_SEMICOLON,

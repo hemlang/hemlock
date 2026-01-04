@@ -1,6 +1,171 @@
 #include "internal.h"
 #include <stdatomic.h>
 
+// ========== PATTERN MATCHING HELPERS ==========
+
+// Forward declaration for recursive pattern matching
+static int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionContext *ctx);
+
+// Try to match a pattern against a value
+// Returns 1 if match succeeds, 0 if it fails
+// On success, binds variables in the environment
+static int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionContext *ctx) {
+    switch (pattern->type) {
+        case PATTERN_LITERAL: {
+            // Evaluate the literal expression
+            Value literal = eval_expr(pattern->as.literal, env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(literal);
+                return 0;
+            }
+            int equal = values_equal(value, literal);
+            VALUE_RELEASE(literal);
+            return equal;
+        }
+
+        case PATTERN_IDENT: {
+            // Wildcard "_" always matches but doesn't bind
+            if (pattern->as.ident.is_wildcard) {
+                return 1;
+            }
+            // Bind the value to the variable name
+            VALUE_RETAIN(value);
+            env_define(env, pattern->as.ident.name, value, 0, ctx);
+            VALUE_RELEASE(value);
+            return 1;
+        }
+
+        case PATTERN_CONSTRUCTOR: {
+            // Constructor pattern matches objects with { tag: "Tag", value: ... }
+            // The pattern Ok(x) matches { tag: "Ok", value: x }
+            if (value.type != VAL_OBJECT) {
+                return 0;
+            }
+
+            Object *obj = value.as.as_object;
+
+            // Look up the tag field
+            int tag_idx = object_lookup_field(obj, "tag");
+            if (tag_idx < 0) {
+                return 0;
+            }
+
+            // Check if tag matches
+            Value tag_val = obj->field_values[tag_idx];
+            if (tag_val.type != VAL_STRING) {
+                return 0;
+            }
+
+            String *tag_str = tag_val.as.as_string;
+            if (strcmp(tag_str->data, pattern->as.constructor.tag) != 0) {
+                return 0;
+            }
+
+            // Match the fields
+            if (pattern->as.constructor.num_fields == 0) {
+                // No fields to extract, just matching the tag
+                return 1;
+            } else if (pattern->as.constructor.num_fields == 1) {
+                // Single field: look for "value" field
+                int value_idx = object_lookup_field(obj, "value");
+                if (value_idx < 0) {
+                    return 0;
+                }
+                return match_pattern(pattern->as.constructor.fields[0],
+                                    obj->field_values[value_idx], env, ctx);
+            } else {
+                // Multiple fields: match against numbered fields (value0, value1, ...)
+                // or use a "values" array field
+                int values_idx = object_lookup_field(obj, "values");
+                if (values_idx >= 0 && obj->field_values[values_idx].type == VAL_ARRAY) {
+                    Array *arr = obj->field_values[values_idx].as.as_array;
+                    if (arr->length != pattern->as.constructor.num_fields) {
+                        return 0;
+                    }
+                    for (int i = 0; i < pattern->as.constructor.num_fields; i++) {
+                        if (!match_pattern(pattern->as.constructor.fields[i],
+                                          arr->elements[i], env, ctx)) {
+                            return 0;
+                        }
+                    }
+                    return 1;
+                }
+                return 0;
+            }
+        }
+
+        case PATTERN_ARRAY: {
+            if (value.type != VAL_ARRAY) {
+                return 0;
+            }
+
+            Array *arr = value.as.as_array;
+
+            // Check length requirement
+            if (pattern->as.array.rest_name) {
+                // With rest pattern, need at least num_elements items
+                if (arr->length < pattern->as.array.num_elements) {
+                    return 0;
+                }
+            } else {
+                // Without rest, need exact match
+                if (arr->length != pattern->as.array.num_elements) {
+                    return 0;
+                }
+            }
+
+            // Match elements
+            for (int i = 0; i < pattern->as.array.num_elements; i++) {
+                if (!match_pattern(pattern->as.array.elements[i],
+                                  arr->elements[i], env, ctx)) {
+                    return 0;
+                }
+            }
+
+            // Bind rest if present
+            if (pattern->as.array.rest_name) {
+                Array *rest = array_new();
+                for (int i = pattern->as.array.num_elements; i < arr->length; i++) {
+                    VALUE_RETAIN(arr->elements[i]);
+                    array_push(rest, arr->elements[i]);
+                }
+                Value rest_val = val_array(rest);
+                env_define(env, pattern->as.array.rest_name, rest_val, 0, ctx);
+                VALUE_RELEASE(rest_val);
+            }
+
+            return 1;
+        }
+
+        case PATTERN_OBJECT: {
+            if (value.type != VAL_OBJECT) {
+                return 0;
+            }
+
+            Object *obj = value.as.as_object;
+
+            // Match each field
+            for (int i = 0; i < pattern->as.object.num_fields; i++) {
+                const char *field_name = pattern->as.object.field_names[i];
+                int field_idx = object_lookup_field(obj, field_name);
+                if (field_idx < 0) {
+                    return 0;  // Field not found
+                }
+
+                Value field_val = obj->field_values[field_idx];
+                if (!match_pattern(pattern->as.object.patterns[i], field_val, env, ctx)) {
+                    return 0;
+                }
+            }
+
+            return 1;
+        }
+
+        default:
+            return 0;
+    }
+}
+
 // ========== STATEMENT EVALUATION ==========
 
 void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
@@ -885,6 +1050,57 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
             // Register the type alias
             register_type_alias(alias);
+            break;
+        }
+
+        case STMT_MATCH: {
+            // Evaluate the match expression
+            Value match_value = eval_expr(stmt->as.match_stmt.expr, env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(match_value);
+                break;
+            }
+
+            // Try each arm in order
+            int matched = 0;
+            for (int i = 0; i < stmt->as.match_stmt.num_arms && !matched; i++) {
+                // Create a new scope for pattern bindings
+                Environment *arm_env = env_new(env);
+
+                // Try to match the pattern
+                if (match_pattern(stmt->as.match_stmt.patterns[i], match_value, arm_env, ctx)) {
+                    // Pattern matched - check guard if present
+                    int guard_passed = 1;
+                    if (stmt->as.match_stmt.guards[i] != NULL) {
+                        Value guard_val = eval_expr(stmt->as.match_stmt.guards[i], arm_env, ctx);
+                        if (ctx->exception_state.is_throwing) {
+                            VALUE_RELEASE(guard_val);
+                            env_release(arm_env);
+                            VALUE_RELEASE(match_value);
+                            break;
+                        }
+                        guard_passed = value_is_truthy(guard_val);
+                        VALUE_RELEASE(guard_val);
+                    }
+
+                    if (guard_passed) {
+                        // Execute the arm body
+                        eval_stmt(stmt->as.match_stmt.bodies[i], arm_env, ctx);
+                        matched = 1;
+                    }
+                }
+
+                env_release(arm_env);
+
+                // Check for control flow
+                if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
+                    break;
+                }
+            }
+
+            VALUE_RELEASE(match_value);
+
+            // No match is not an error - just continue (like switch without default)
             break;
         }
     }

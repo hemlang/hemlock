@@ -5,6 +5,8 @@
 Stmt* statement(Parser *p);
 Stmt* extern_fn_statement(Parser *p);
 Stmt* define_statement(Parser *p);
+Stmt* match_statement(Parser *p);
+Pattern* parse_pattern(Parser *p);
 
 Stmt* let_statement(Parser *p) {
     char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
@@ -198,6 +200,226 @@ Stmt* switch_statement(Parser *p) {
 
     consume(p, TOK_RBRACE, "Expect '}' after switch body");
     return stmt_switch(expr, case_values, case_bodies, num_cases);
+}
+
+// ========== PATTERN MATCHING ==========
+
+// Forward declaration
+Pattern* parse_pattern(Parser *p);
+
+// Parse a pattern for match expressions
+Pattern* parse_pattern(Parser *p) {
+    // Check for array pattern: [a, b, c] or [first, ...rest]
+    if (match(p, TOK_LBRACKET)) {
+        int capacity = 8;
+        Pattern **elements = malloc(sizeof(Pattern*) * capacity);
+        int num_elements = 0;
+        char *rest_name = NULL;
+
+        while (!check(p, TOK_RBRACKET) && !check(p, TOK_EOF)) {
+            if (num_elements >= capacity) {
+                capacity *= 2;
+                elements = realloc(elements, sizeof(Pattern*) * capacity);
+            }
+
+            // Check for rest pattern: ...name
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                rest_name = consume_identifier_or_type_keyword(p, "Expect identifier after '...'");
+                // Rest must be last
+                if (!check(p, TOK_RBRACKET)) {
+                    error(p, "Rest pattern must be last in array pattern");
+                }
+                break;
+            }
+
+            elements[num_elements++] = parse_pattern(p);
+
+            if (!match(p, TOK_COMMA)) {
+                break;
+            }
+        }
+
+        consume(p, TOK_RBRACKET, "Expect ']' after array pattern");
+        Pattern *pattern = pattern_array(elements, num_elements, rest_name);
+        free(rest_name);  // pattern_array makes a copy
+        return pattern;
+    }
+
+    // Check for object pattern: { name, age } or { x: a, y: b }
+    if (match(p, TOK_LBRACE)) {
+        int capacity = 8;
+        char **field_names = malloc(sizeof(char*) * capacity);
+        Pattern **patterns = malloc(sizeof(Pattern*) * capacity);
+        int num_fields = 0;
+
+        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            if (num_fields >= capacity) {
+                capacity *= 2;
+                field_names = realloc(field_names, sizeof(char*) * capacity);
+                patterns = realloc(patterns, sizeof(Pattern*) * capacity);
+            }
+
+            char *name = consume_identifier_or_type_keyword(p, "Expect field name in object pattern");
+            field_names[num_fields] = name;
+
+            if (match(p, TOK_COLON)) {
+                // { x: pattern }
+                patterns[num_fields] = parse_pattern(p);
+            } else {
+                // Shorthand { name } -> binds 'name' to field 'name'
+                patterns[num_fields] = pattern_ident(name);
+            }
+            num_fields++;
+
+            if (!match(p, TOK_COMMA)) {
+                break;
+            }
+        }
+
+        consume(p, TOK_RBRACE, "Expect '}' after object pattern");
+        return pattern_object(field_names, patterns, num_fields);
+    }
+
+    // Check for literal patterns: numbers, strings, true, false, null
+    if (check(p, TOK_NUMBER)) {
+        advance(p);
+        Expr *literal;
+        if (p->previous.is_float) {
+            literal = expr_number_float(p->previous.float_value);
+        } else {
+            literal = expr_number_int(p->previous.int_value);
+        }
+        literal->line = p->previous.line;
+        literal->column = p->previous.column;
+        return pattern_literal(literal);
+    }
+
+    if (check(p, TOK_STRING)) {
+        advance(p);
+        Expr *literal = expr_string(p->previous.string_value);
+        literal->line = p->previous.line;
+        literal->column = p->previous.column;
+        return pattern_literal(literal);
+    }
+
+    if (match(p, TOK_TRUE)) {
+        Expr *literal = expr_bool(1);
+        literal->line = p->previous.line;
+        literal->column = p->previous.column;
+        return pattern_literal(literal);
+    }
+
+    if (match(p, TOK_FALSE)) {
+        Expr *literal = expr_bool(0);
+        literal->line = p->previous.line;
+        literal->column = p->previous.column;
+        return pattern_literal(literal);
+    }
+
+    if (match(p, TOK_NULL)) {
+        Expr *literal = expr_null();
+        literal->line = p->previous.line;
+        literal->column = p->previous.column;
+        return pattern_literal(literal);
+    }
+
+    // Identifier or constructor pattern
+    if (check_identifier_or_type_keyword(p)) {
+        char *name = consume_identifier_or_type_keyword(p, "Expect pattern");
+        int line = p->previous.line;
+        int column = p->previous.column;
+
+        // Check if this is a constructor pattern: Name(patterns...)
+        if (match(p, TOK_LPAREN)) {
+            int capacity = 8;
+            Pattern **fields = malloc(sizeof(Pattern*) * capacity);
+            int num_fields = 0;
+
+            while (!check(p, TOK_RPAREN) && !check(p, TOK_EOF)) {
+                if (num_fields >= capacity) {
+                    capacity *= 2;
+                    fields = realloc(fields, sizeof(Pattern*) * capacity);
+                }
+
+                fields[num_fields++] = parse_pattern(p);
+
+                if (!match(p, TOK_COMMA)) {
+                    break;
+                }
+            }
+
+            consume(p, TOK_RPAREN, "Expect ')' after constructor pattern");
+            Pattern *pattern = pattern_constructor(name, fields, num_fields);
+            pattern->line = line;
+            pattern->column = column;
+            free(name);
+            return pattern;
+        }
+
+        // Simple identifier pattern (variable binding)
+        Pattern *pattern = pattern_ident(name);
+        pattern->line = line;
+        pattern->column = column;
+        free(name);
+        return pattern;
+    }
+
+    error(p, "Expect pattern");
+    return pattern_wildcard();
+}
+
+Stmt* match_statement(Parser *p) {
+    Expr *expr = expression(p);
+    consume(p, TOK_LBRACE, "Expect '{' after match expression");
+
+    // Parse match arms
+    int capacity = 16;
+    Pattern **patterns = malloc(sizeof(Pattern*) * capacity);
+    Expr **guards = malloc(sizeof(Expr*) * capacity);
+    Stmt **bodies = malloc(sizeof(Stmt*) * capacity);
+    int num_arms = 0;
+
+    while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        if (num_arms >= capacity) {
+            capacity *= 2;
+            patterns = realloc(patterns, sizeof(Pattern*) * capacity);
+            guards = realloc(guards, sizeof(Expr*) * capacity);
+            bodies = realloc(bodies, sizeof(Stmt*) * capacity);
+        }
+
+        // Parse pattern
+        patterns[num_arms] = parse_pattern(p);
+
+        // Parse optional guard: if condition
+        guards[num_arms] = NULL;
+        if (match(p, TOK_IF)) {
+            guards[num_arms] = expression(p);
+        }
+
+        // Expect => arrow
+        consume(p, TOK_FAT_ARROW, "Expect '=>' after pattern");
+
+        // Parse body - can be block or single expression/statement
+        if (check(p, TOK_LBRACE)) {
+            advance(p);
+            bodies[num_arms] = block_statement(p);
+        } else {
+            // Single expression as body - no trailing semicolon required
+            // but allow comma to separate arms for cleaner syntax
+            Expr *body_expr = expression(p);
+            bodies[num_arms] = stmt_expr(body_expr);
+            bodies[num_arms]->line = body_expr->line;
+            bodies[num_arms]->column = body_expr->column;
+        }
+
+        num_arms++;
+
+        // Optional comma between arms
+        match(p, TOK_COMMA);
+    }
+
+    consume(p, TOK_RBRACE, "Expect '}' after match body");
+    return stmt_match(expr, patterns, guards, bodies, num_arms);
 }
 
 Stmt* for_statement_with_label(Parser *p, const char *label) {
@@ -1311,6 +1533,10 @@ not_function:
 
     if (match(p, TOK_SWITCH)) {
         return switch_statement(p);
+    }
+
+    if (match(p, TOK_MATCH)) {
+        return match_statement(p);
     }
 
     if (match(p, TOK_IMPORT)) {

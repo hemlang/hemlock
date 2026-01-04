@@ -6,6 +6,201 @@
 
 #include "codegen_internal.h"
 
+// ========== PATTERN MATCHING CODE GENERATION ==========
+
+// Forward declaration
+static void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *value_var, const char *fail_label);
+
+// Generate code to match a pattern against a value
+// If match fails, jumps to fail_label
+// If match succeeds, binds any pattern variables
+static void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *value_var, const char *fail_label) {
+    switch (pattern->type) {
+        case PATTERN_LITERAL: {
+            // Generate literal value and compare
+            char *literal_val = codegen_expr(ctx, pattern->as.literal);
+            codegen_writeln(ctx, "if (!hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) {", value_var, literal_val);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "hml_release(&%s);", literal_val);
+            codegen_writeln(ctx, "goto %s;", fail_label);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            codegen_writeln(ctx, "hml_release(&%s);", literal_val);
+            free(literal_val);
+            break;
+        }
+
+        case PATTERN_IDENT: {
+            if (pattern->as.ident.is_wildcard) {
+                // Wildcard matches anything, no code needed
+            } else {
+                // Bind the value to a variable
+                char *safe_name = codegen_sanitize_ident(pattern->as.ident.name);
+                codegen_add_local(ctx, pattern->as.ident.name);
+                // Add to current scope so identifier lookup finds it
+                if (ctx->current_scope) {
+                    scope_add_var(ctx->current_scope, pattern->as.ident.name);
+                }
+                codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value_var);
+                codegen_writeln(ctx, "hml_retain(&%s);", safe_name);
+                free(safe_name);
+            }
+            break;
+        }
+
+        case PATTERN_CONSTRUCTOR: {
+            // Check if value is an object
+            codegen_writeln(ctx, "if (%s.type != HML_VAL_OBJECT) goto %s;", value_var, fail_label);
+
+            // Check tag field
+            char *tag_temp = codegen_temp(ctx);
+            codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"tag\");", tag_temp, value_var);
+            codegen_writeln(ctx, "if (%s.type != HML_VAL_STRING) {", tag_temp);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "hml_release(&%s);", tag_temp);
+            codegen_writeln(ctx, "goto %s;", fail_label);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            // Compare tag string using hml_values_equal
+            char *expected_tag = codegen_temp(ctx);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_string(\"%s\");", expected_tag, pattern->as.constructor.tag);
+            codegen_writeln(ctx, "if (!hml_values_equal(%s, %s)) {", tag_temp, expected_tag);
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "hml_release(&%s);", expected_tag);
+            codegen_writeln(ctx, "hml_release(&%s);", tag_temp);
+            codegen_writeln(ctx, "goto %s;", fail_label);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            codegen_writeln(ctx, "hml_release(&%s);", expected_tag);
+            codegen_writeln(ctx, "hml_release(&%s);", tag_temp);
+            free(expected_tag);
+
+            // Match fields
+            if (pattern->as.constructor.num_fields == 1) {
+                // Single field: extract from "value" property
+                char *value_temp = codegen_temp(ctx);
+                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"value\");", value_temp, value_var);
+                codegen_pattern_match(ctx, pattern->as.constructor.fields[0], value_temp, fail_label);
+                codegen_writeln(ctx, "hml_release(&%s);", value_temp);
+                free(value_temp);
+            } else if (pattern->as.constructor.num_fields > 1) {
+                // Multiple fields: extract from "values" array
+                char *values_temp = codegen_temp(ctx);
+                char *len_temp = codegen_temp(ctx);
+                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"values\");", values_temp, value_var);
+                codegen_writeln(ctx, "HmlValue %s = hml_array_length(%s);", len_temp, values_temp);
+                codegen_writeln(ctx, "if (%s.type != HML_VAL_ARRAY || %s.as.as_i32 != %d) {",
+                              values_temp, len_temp, pattern->as.constructor.num_fields);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_release(&%s);", len_temp);
+                codegen_writeln(ctx, "hml_release(&%s);", values_temp);
+                codegen_writeln(ctx, "goto %s;", fail_label);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "hml_release(&%s);", len_temp);
+                free(len_temp);
+
+                for (int i = 0; i < pattern->as.constructor.num_fields; i++) {
+                    char *elem_temp = codegen_temp(ctx);
+                    codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, hml_val_i32(%d));", elem_temp, values_temp, i);
+                    codegen_pattern_match(ctx, pattern->as.constructor.fields[i], elem_temp, fail_label);
+                    codegen_writeln(ctx, "hml_release(&%s);", elem_temp);
+                    free(elem_temp);
+                }
+                codegen_writeln(ctx, "hml_release(&%s);", values_temp);
+                free(values_temp);
+            }
+
+            free(tag_temp);
+            break;
+        }
+
+        case PATTERN_ARRAY: {
+            // Check if value is an array
+            codegen_writeln(ctx, "if (%s.type != HML_VAL_ARRAY) goto %s;", value_var, fail_label);
+
+            // Get length
+            char *len_temp = codegen_temp(ctx);
+            codegen_writeln(ctx, "HmlValue %s = hml_array_length(%s);", len_temp, value_var);
+
+            // Check length
+            if (pattern->as.array.rest_name) {
+                // With rest: need at least num_elements
+                codegen_writeln(ctx, "if (%s.as.as_i32 < %d) {", len_temp, pattern->as.array.num_elements);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_release(&%s);", len_temp);
+                codegen_writeln(ctx, "goto %s;", fail_label);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else {
+                // Without rest: need exact match
+                codegen_writeln(ctx, "if (%s.as.as_i32 != %d) {", len_temp, pattern->as.array.num_elements);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_release(&%s);", len_temp);
+                codegen_writeln(ctx, "goto %s;", fail_label);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", len_temp);
+            free(len_temp);
+
+            // Match elements
+            for (int i = 0; i < pattern->as.array.num_elements; i++) {
+                char *elem_temp = codegen_temp(ctx);
+                codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, hml_val_i32(%d));", elem_temp, value_var, i);
+                codegen_pattern_match(ctx, pattern->as.array.elements[i], elem_temp, fail_label);
+                codegen_writeln(ctx, "hml_release(&%s);", elem_temp);
+                free(elem_temp);
+            }
+
+            // Bind rest if present
+            if (pattern->as.array.rest_name) {
+                char *safe_name = codegen_sanitize_ident(pattern->as.array.rest_name);
+                codegen_add_local(ctx, pattern->as.array.rest_name);
+                char *arr_len = codegen_temp(ctx);
+                codegen_writeln(ctx, "HmlValue %s = hml_array_length(%s);", arr_len, value_var);
+                codegen_writeln(ctx, "HmlValue %s = hml_array_slice(%s, hml_val_i32(%d), %s);",
+                              safe_name, value_var, pattern->as.array.num_elements, arr_len);
+                codegen_writeln(ctx, "hml_release(&%s);", arr_len);
+                free(arr_len);
+                free(safe_name);
+            }
+            break;
+        }
+
+        case PATTERN_OBJECT: {
+            // Check if value is an object
+            codegen_writeln(ctx, "if (%s.type != HML_VAL_OBJECT) goto %s;", value_var, fail_label);
+
+            // Match each field
+            for (int i = 0; i < pattern->as.object.num_fields; i++) {
+                const char *field_name = pattern->as.object.field_names[i];
+                char *field_temp = codegen_temp(ctx);
+
+                // Check if field exists
+                codegen_writeln(ctx, "if (!hml_object_has_field(%s, \"%s\")) goto %s;",
+                              value_var, field_name, fail_label);
+
+                // Get field value
+                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");",
+                              field_temp, value_var, field_name);
+
+                // Match the pattern
+                codegen_pattern_match(ctx, pattern->as.object.patterns[i], field_temp, fail_label);
+                codegen_writeln(ctx, "hml_release(&%s);", field_temp);
+
+                free(field_temp);
+            }
+            break;
+        }
+
+        default:
+            codegen_error(ctx, pattern->line, "unsupported pattern type %d", pattern->type);
+            break;
+    }
+}
+
 // ========== STATEMENT CODE GENERATION ==========
 
 void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
@@ -1434,6 +1629,83 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // Type aliases are handled at compile time during type checking
             // No runtime code is generated for them
             break;
+
+        case STMT_MATCH: {
+            // Generate pattern matching using if-else chain
+            char *expr_val = codegen_expr(ctx, stmt->as.match_stmt.expr);
+            int num_arms = stmt->as.match_stmt.num_arms;
+
+            // Generate unique labels and variable names
+            char *end_label = codegen_label(ctx);
+            char *match_val = codegen_temp(ctx);
+
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "HmlValue %s = %s;", match_val, expr_val);
+
+            // Generate code for each arm
+            for (int i = 0; i < num_arms; i++) {
+                Pattern *pattern = stmt->as.match_stmt.patterns[i];
+                Expr *guard = stmt->as.match_stmt.guards[i];
+                Stmt *body = stmt->as.match_stmt.bodies[i];
+
+                char *arm_label = codegen_label(ctx);
+                char *next_label = codegen_label(ctx);
+
+                // Generate pattern matching code
+                codegen_writeln(ctx, "// Match arm %d", i);
+                codegen_writeln(ctx, "{");
+                codegen_indent_inc(ctx);
+
+                // Push a new scope for pattern-bound variables
+                codegen_push_scope(ctx);
+
+                // Generate pattern match condition
+                codegen_pattern_match(ctx, pattern, match_val, next_label);
+
+                // Check guard if present
+                if (guard) {
+                    char *guard_val = codegen_expr(ctx, guard);
+                    codegen_writeln(ctx, "if (!hml_to_bool(%s)) {", guard_val);
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "hml_release(&%s);", guard_val);
+                    codegen_writeln(ctx, "goto %s;", next_label);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                    codegen_writeln(ctx, "hml_release(&%s);", guard_val);
+                    free(guard_val);
+                }
+
+                // Execute body
+                codegen_stmt(ctx, body);
+
+                // Pop the scope for this arm
+                codegen_pop_scope(ctx);
+
+                // Jump to end after executing body
+                codegen_writeln(ctx, "goto %s;", end_label);
+
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+
+                // Next arm label
+                codegen_writeln(ctx, "%s:;", next_label);
+
+                free(arm_label);
+                free(next_label);
+            }
+
+            // End label
+            codegen_writeln(ctx, "%s:;", end_label);
+            codegen_writeln(ctx, "hml_release(&%s);", match_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            free(match_val);
+            free(end_label);
+            free(expr_val);
+            break;
+        }
 
         default:
             codegen_error(ctx, stmt->line, "unsupported statement type %d", stmt->type);
