@@ -21,10 +21,8 @@ import { sleep } from "@stdlib/time";
 // Returns: i32 - Delay in milliseconds
 export fn exponential_backoff(attempt, base_delay?: 100, max_delay?: 30000, multiplier?: 2.0): i32 {
     let delay: f64 = base_delay;
-    let i = 0;
-    while (i < attempt) {
-        delay = delay * multiplier;
-        i = i + 1;
+    for (let i = 0; i < attempt; i++) {
+        delay *= multiplier;
     }
 
     let result: i32 = delay;
@@ -92,16 +90,14 @@ export fn retry(func, max_attempts?: 3) {
     }
 
     let last_error = null;
-    let attempt = 0;
 
-    while (attempt < max_attempts) {
+    for (let attempt = 0; attempt < max_attempts; attempt++) {
         try {
             // Note: Must capture result before returning to properly catch exceptions
             let result = func();
             return result;
         } catch (e) {
             last_error = e;
-            attempt = attempt + 1;
         }
     }
 
@@ -135,24 +131,12 @@ export fn retry_with_backoff(func, options?: null) {
 
     // Parse options
     if (options != null && typeof(options) == "object") {
-        if (options["max_attempts"] != null) {
-            max_attempts = options["max_attempts"];
-        }
-        if (options["base_delay"] != null) {
-            base_delay = options["base_delay"];
-        }
-        if (options["max_delay"] != null) {
-            max_delay = options["max_delay"];
-        }
-        if (options["multiplier"] != null) {
-            multiplier = options["multiplier"];
-        }
-        if (options["jitter"] != null) {
-            use_jitter = options["jitter"];
-        }
-        if (options["on_retry"] != null) {
-            on_retry = options["on_retry"];
-        }
+        max_attempts = options["max_attempts"] ?? max_attempts;
+        base_delay = options["base_delay"] ?? base_delay;
+        max_delay = options["max_delay"] ?? max_delay;
+        multiplier = options["multiplier"] ?? multiplier;
+        use_jitter = options["jitter"] ?? use_jitter;
+        on_retry = options["on_retry"] ?? on_retry;
     }
 
     if (max_attempts < 1) {
@@ -189,7 +173,7 @@ export fn retry_with_backoff(func, options?: null) {
             // Wait before next attempt
             sleep(delay);
 
-            attempt = attempt + 1;
+            attempt++;
         }
     }
 
@@ -226,7 +210,7 @@ export fn retry_linear(func, max_attempts?: 3, delay?: 1000) {
             }
 
             sleep(delay);
-            attempt = attempt + 1;
+            attempt++;
         }
     }
 
@@ -276,7 +260,7 @@ export fn retry_if(func, should_retry, max_attempts?: 3, delay?: 1000) {
             }
 
             sleep(delay);
-            attempt = attempt + 1;
+            attempt++;
         }
     }
 
@@ -311,15 +295,9 @@ export fn retry_until(func, condition, options?: null) {
     let timeout = -1;
 
     if (options != null && typeof(options) == "object") {
-        if (options["max_attempts"] != null) {
-            max_attempts = options["max_attempts"];
-        }
-        if (options["delay"] != null) {
-            delay = options["delay"];
-        }
-        if (options["timeout"] != null) {
-            timeout = options["timeout"];
-        }
+        max_attempts = options["max_attempts"] ?? max_attempts;
+        delay = options["delay"] ?? delay;
+        timeout = options["timeout"] ?? timeout;
     }
 
     let start_time = time_ms();
@@ -349,7 +327,7 @@ export fn retry_until(func, condition, options?: null) {
         }
 
         sleep(delay);
-        attempt = attempt + 1;
+        attempt++;
     }
 
     throw "retry_until() condition never met";

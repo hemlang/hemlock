@@ -12,10 +12,8 @@ export fn HashMap() {
     let load_factor = 0.75;
 
     // Initialize buckets
-    let i = 0;
-    while (i < bucket_count) {
+    for (let i = 0; i < bucket_count; i++) {
         buckets.push([]);
-        i = i + 1;
     }
 
     // Helper: modulo operation using native % operator
@@ -42,12 +40,10 @@ export fn HashMap() {
         if (value_type == "string") {
             // djb2 hash algorithm - much better distribution than simple sum
             let h = 5381;
-            let i = 0;
-            while (i < key.byte_length) {
+            for (let i = 0; i < key.byte_length; i++) {
                 let byte_val = key.byte_at(i);
                 // h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
                 h = ((h << 5) + h) + byte_val;
-                i = i + 1;
             }
             if (h < 0) {
                 h = -h;
@@ -130,7 +126,7 @@ export fn HashMap() {
         // Initialize new buckets
         while (i < bucket_count) {
             buckets.push([]);
-            i = i + 1;
+            i++;
         }
 
         // Rehash all entries
@@ -145,10 +141,10 @@ export fn HashMap() {
                 let idx = get_bucket_index(entry.key);
                 let new_bucket = buckets[idx];
                 new_bucket.push(entry);
-                item_count = item_count + 1;
-                j = j + 1;
+                item_count++;
+                j++;
             }
-            i = i + 1;
+            i++;
         }
     }
 
@@ -160,18 +156,16 @@ export fn HashMap() {
             let bucket = buckets[idx];
 
             // Check if key exists, update if so
-            let i = 0;
-            while (i < bucket.length) {
+            for (let i = 0; i < bucket.length; i++) {
                 if (keys_equal(bucket[i].key, key)) {
                     bucket[i].value = value;
                     return null;
                 }
-                i = i + 1;
             }
 
             // Add new entry
-            bucket.push({ key: key, value: value });
-            item_count = item_count + 1;
+            bucket.push({ key, value });
+            item_count++;
             self.size = item_count;
 
             // Resize if load factor exceeded
@@ -188,35 +182,27 @@ export fn HashMap() {
             let idx = get_bucket_index(key);
             let bucket = buckets[idx];
 
-            let i = 0;
-            while (i < bucket.length) {
+            for (let i = 0; i < bucket.length; i++) {
                 if (keys_equal(bucket[i].key, key)) {
                     return bucket[i].value;
                 }
-                i = i + 1;
             }
 
             return null;
         },
 
         get_or_default: fn(key, default_value) {
-            let value = self.get(key);
-            if (value == null) {
-                return default_value;
-            }
-            return value;
+            return self.get(key) ?? default_value;
         },
 
         has: fn(key) {
             let idx = get_bucket_index(key);
             let bucket = buckets[idx];
 
-            let i = 0;
-            while (i < bucket.length) {
+            for (let i = 0; i < bucket.length; i++) {
                 if (keys_equal(bucket[i].key, key)) {
                     return true;
                 }
-                i = i + 1;
             }
 
             return false;
@@ -226,15 +212,13 @@ export fn HashMap() {
             let idx = get_bucket_index(key);
             let bucket = buckets[idx];
 
-            let i = 0;
-            while (i < bucket.length) {
+            for (let i = 0; i < bucket.length; i++) {
                 if (keys_equal(bucket[i].key, key)) {
                     bucket.remove(i);
-                    item_count = item_count - 1;
+                    item_count--;
                     self.size = item_count;
                     return true;
                 }
-                i = i + 1;
             }
 
             return false;
@@ -242,10 +226,8 @@ export fn HashMap() {
 
         clear: fn() {
             buckets = [];
-            let i = 0;
-            while (i < bucket_count) {
+            for (let i = 0; i < bucket_count; i++) {
                 buckets.push([]);
-                i = i + 1;
             }
             item_count = 0;
             self.size = 0;
@@ -254,67 +236,39 @@ export fn HashMap() {
 
         keys: fn() {
             let result = [];
-            let i = 0;
-            let bucket = null;
-            let j = 0;
-            while (i < buckets.length) {
-                bucket = buckets[i];
-                j = 0;
-                while (j < bucket.length) {
-                    result.push(bucket[j].key);
-                    j = j + 1;
+            for (bucket in buckets) {
+                for (entry in bucket) {
+                    result.push(entry.key);
                 }
-                i = i + 1;
             }
             return result;
         },
 
         values: fn() {
             let result = [];
-            let i = 0;
-            let bucket = null;
-            let j = 0;
-            while (i < buckets.length) {
-                bucket = buckets[i];
-                j = 0;
-                while (j < bucket.length) {
-                    result.push(bucket[j].value);
-                    j = j + 1;
+            for (bucket in buckets) {
+                for (entry in bucket) {
+                    result.push(entry.value);
                 }
-                i = i + 1;
             }
             return result;
         },
 
         entries: fn() {
             let result = [];
-            let i = 0;
-            let bucket = null;
-            let j = 0;
-            while (i < buckets.length) {
-                bucket = buckets[i];
-                j = 0;
-                while (j < bucket.length) {
-                    result.push([bucket[j].key, bucket[j].value]);
-                    j = j + 1;
+            for (bucket in buckets) {
+                for (entry in bucket) {
+                    result.push([entry.key, entry.value]);
                 }
-                i = i + 1;
             }
             return result;
         },
 
         each: fn(callback) {
-            let i = 0;
-            let bucket = null;
-            let j = 0;
-            while (i < buckets.length) {
-                bucket = buckets[i];
-                j = 0;
-                while (j < bucket.length) {
-                    callback(bucket[j].key, bucket[j].value);
-                    j = j + 1;
+            for (bucket in buckets) {
+                for (entry in bucket) {
+                    callback(entry.key, entry.value);
                 }
-                i = i + 1;
             }
             return null;
         }
@@ -333,10 +287,8 @@ export fn Queue() {
     let capacity = 16; // Initial capacity
 
     // Initialize array with nulls
-    let i = 0;
-    while (i < capacity) {
+    for (let i = 0; i < capacity; i++) {
         items.push(null);
-        i = i + 1;
     }
 
     // Resize when capacity is reached
@@ -345,17 +297,13 @@ export fn Queue() {
         let new_items = [];
 
         // Initialize new array
-        let i = 0;
-        while (i < new_capacity) {
+        for (let i = 0; i < new_capacity; i++) {
             new_items.push(null);
-            i = i + 1;
         }
 
         // Copy items in order from head to tail
-        i = 0;
-        while (i < count) {
+        for (let i = 0; i < count; i++) {
             new_items[i] = items[(head + i) % capacity];
-            i = i + 1;
         }
 
         items = new_items;
@@ -375,7 +323,7 @@ export fn Queue() {
 
             items[tail] = item;
             tail = (tail + 1) % capacity;
-            count = count + 1;
+            count++;
             self.size = count;
             return null;
         },
@@ -388,7 +336,7 @@ export fn Queue() {
             let item = items[head];
             items[head] = null;  // Clear reference
             head = (head + 1) % capacity;
-            count = count - 1;
+            count--;
             self.size = count;
             return item;
         },
@@ -407,10 +355,8 @@ export fn Queue() {
         clear: fn() {
             // Reset to initial state
             items = [];
-            let i = 0;
-            while (i < capacity) {
+            for (let i = 0; i < capacity; i++) {
                 items.push(null);
-                i = i + 1;
             }
             head = 0;
             tail = 0;
@@ -421,19 +367,15 @@ export fn Queue() {
 
         to_array: fn() {
             let result = [];
-            let i = 0;
-            while (i < count) {
+            for (let i = 0; i < count; i++) {
                 result.push(items[(head + i) % capacity]);
-                i = i + 1;
             }
             return result;
         },
 
         each: fn(callback) {
-            let i = 0;
-            while (i < count) {
+            for (let i = 0; i < count; i++) {
                 callback(items[(head + i) % capacity], i);
-                i = i + 1;
             }
             return null;
         }
@@ -487,10 +429,8 @@ export fn Stack() {
         },
 
         each: fn(callback) {
-            let i = 0;
-            while (i < items.length) {
+            for (let i = 0; i < items.length; i++) {
                 callback(items[i], i);
-                i = i + 1;
             }
             return null;
         }
@@ -541,53 +481,39 @@ export fn Set() {
 
         union: fn(other_set) {
             let result = Set();
-            let my_values = map.keys();
-            let i = 0;
-            while (i < my_values.length) {
-                result.add(my_values[i]);
-                i = i + 1;
+            for (val in map.keys()) {
+                result.add(val);
             }
-            let other_values = other_set.values();
-            i = 0;
-            while (i < other_values.length) {
-                result.add(other_values[i]);
-                i = i + 1;
+            for (val in other_set.values()) {
+                result.add(val);
             }
             return result;
         },
 
         intersection: fn(other_set) {
             let result = Set();
-            let my_values = map.keys();
-            let i = 0;
-            while (i < my_values.length) {
-                if (other_set.has(my_values[i])) {
-                    result.add(my_values[i]);
+            for (val in map.keys()) {
+                if (other_set.has(val)) {
+                    result.add(val);
                 }
-                i = i + 1;
             }
             return result;
         },
 
         difference: fn(other_set) {
             let result = Set();
-            let my_values = map.keys();
-            let i = 0;
-            while (i < my_values.length) {
-                if (!other_set.has(my_values[i])) {
-                    result.add(my_values[i]);
+            for (val in map.keys()) {
+                if (!other_set.has(val)) {
+                    result.add(val);
                 }
-                i = i + 1;
             }
             return result;
         },
 
         each: fn(callback) {
             let my_values = map.keys();
-            let i = 0;
-            while (i < my_values.length) {
+            for (let i = 0; i < my_values.length; i++) {
                 callback(my_values[i], i);
-                i = i + 1;
             }
             return null;
         }
@@ -614,11 +540,7 @@ export fn LinkedList() {
 
     // Get node at index (optimized with bidirectional traversal)
     fn get_node(index) {
-        let zero = 0;
-        if (index < zero) {
-            return null;
-        }
-        if (index >= count) {
+        if (index < 0 || index >= count) {
             return null;
         }
 
@@ -627,19 +549,15 @@ export fn LinkedList() {
         if (index < half) {
             // Traverse from head (closer to start)
             let current = head;
-            let i = 0;
-            while (i < index) {
+            for (let i = 0; i < index; i++) {
                 current = current.next;
-                i = i + 1;
             }
             return current;
         } else {
             // Traverse from tail (closer to end)
             let current = tail;
-            let i = count - 1;
-            while (i > index) {
+            for (let i = count - 1; i > index; i--) {
                 current = current.prev;
-                i = i - 1;
             }
             return current;
         }
@@ -660,7 +578,7 @@ export fn LinkedList() {
                 tail = node;
             }
 
-            count = count + 1;
+            count++;
             self.size = count;
             return null;
         },
@@ -677,21 +595,17 @@ export fn LinkedList() {
                 head = node;
             }
 
-            count = count + 1;
+            count++;
             self.size = count;
             return null;
         },
 
         insert: fn(index, value) {
-            let zero = 0;
-            if (index < zero) {
-                throw "Index out of bounds";
-            }
-            if (index > count) {
+            if (index < 0 || index > count) {
                 throw "Index out of bounds";
             }
 
-            if (index == zero) {
+            if (index == 0) {
                 self.prepend(value);
                 return null;
             }
@@ -710,17 +624,13 @@ export fn LinkedList() {
             node.next = current;
             current.prev = node;
 
-            count = count + 1;
+            count++;
             self.size = count;
             return null;
         },
 
         remove: fn(index) {
-            let zero = 0;
-            if (index < zero) {
-                throw "Index out of bounds";
-            }
-            if (index >= count) {
+            if (index < 0 || index >= count) {
                 throw "Index out of bounds";
             }
 
@@ -741,7 +651,7 @@ export fn LinkedList() {
                 node.next.prev = node.prev;
             }
 
-            count = count - 1;
+            count--;
             self.size = count;
             return value;
         },
@@ -771,7 +681,7 @@ export fn LinkedList() {
                     return i;
                 }
                 current = current.next;
-                i = i + 1;
+                i++;
             }
             return -1;
         },
@@ -830,7 +740,7 @@ export fn LinkedList() {
             while (current != null) {
                 callback(current.value, i);
                 current = current.next;
-                i = i + 1;
+                i++;
             }
             return null;
         }
@@ -911,7 +821,7 @@ export fn LRUCache(capacity: i32) {
         let lru_key = tail["key"];
         remove_node(tail);
         cache[lru_key] = null;
-        count = count - 1;
+        count--;
         return lru_key;
     }
 
@@ -950,7 +860,7 @@ export fn LRUCache(capacity: i32) {
                 let new_node = create_node(key, value);
                 add_to_front(new_node);
                 cache[key] = new_node;
-                count = count + 1;
+                count++;
             }
 
             return evicted;
@@ -970,7 +880,7 @@ export fn LRUCache(capacity: i32) {
 
             remove_node(node);
             cache[key] = null;
-            count = count - 1;
+            count--;
             return node["value"];
         },
 

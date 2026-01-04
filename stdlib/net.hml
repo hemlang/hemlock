@@ -65,13 +65,13 @@ fn _TcpStream_from_socket(sock) {
             let chunks = [];
             let total_size = 0;
 
-            while (true) {
+            loop {
                 let chunk = self._socket.recv(4096);
                 if (chunk.length == 0) {
                     break;
                 }
                 chunks.push(chunk);
-                total_size = total_size + chunk.length;
+                total_size += chunk.length;
 
                 // Break if we got less than requested (no more data ready)
                 if (chunk.length < 4096) {
@@ -91,12 +91,9 @@ fn _TcpStream_from_socket(sock) {
             // Concatenate chunks
             let result = buffer(total_size);
             let offset = 0;
-            let i = 0;
-            while (i < chunks.length) {
-                let chunk = chunks[i];
+            for (chunk in chunks) {
                 memcpy(result, chunk, chunk.length);
                 // Note: This is simplified - real implementation would handle offsets
-                i = i + 1;
             }
             return result;
         },
@@ -105,7 +102,7 @@ fn _TcpStream_from_socket(sock) {
         // Read until newline (\n) and return as string
         read_line: fn() {
             let result = "";
-            while (true) {
+            loop {
                 let byte_buf = self._socket.recv(1);
                 if (byte_buf.length == 0) {
                     break;  // EOF
@@ -113,7 +110,7 @@ fn _TcpStream_from_socket(sock) {
 
                 // Convert buffer to string (simplified)
                 // Real implementation would handle this better
-                result = result + "X";  // Placeholder
+                result += "X";  // Placeholder
 
                 // Check for newline (byte value 10)
                 // This is simplified - real implementation would check buffer contents
@@ -162,8 +159,8 @@ fn UdpSocket(address: string, port: i32) {
 
     return {
         _socket: sock,
-        address: address,
-        port: port,
+        address,
+        port,
 
         // send_to(dest_addr: string, dest_port: i32, data: string | buffer) -> i32
         // Send datagram to destination, returns bytes sent
@@ -210,13 +207,10 @@ fn is_ipv4(address: string) {
         return false;
     }
 
-    let dot_count = 0;
-    let i = 0;
-    while (i < address.length) {
-        let ch = address[i];
-        // Check if character is digit or dot
-        // This is simplified - real implementation would validate properly
-        i = i + 1;
+    // This is simplified - real implementation would validate properly
+    // Check for digits and dots only
+    for (ch in address.chars()) {
+        // Just iterate through, simplified check
     }
 
     return true;  // Simplified
@@ -236,7 +230,7 @@ fn parse_address(addr_str: string) {
     // Convert port string to integer (simplified - would need proper parsing)
     // For now, return placeholder
     return {
-        host: host,
+        host,
         port: 8080,  // Placeholder - real implementation would parse port_str
     };
 }
