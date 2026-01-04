@@ -1,0 +1,34 @@
+// Test single-line while statements (without braces)
+
+// Basic single-line while
+let x = 3;
+while (x > 0) x--;
+print("x=" + x);
+
+// Single-line while with print
+let y = 3;
+while (y > 0) print(y--);
+
+// Single-line while with function call
+fn process(n) {
+    print("processing " + n);
+}
+let z = 3;
+while (z > 0) process(z--);
+
+// Nested while (outer has braces, inner single-line)
+let a = 2;
+while (a > 0) {
+    let b = 2;
+    while (b > 0) b--;
+    print("a=" + a + " b=" + b);
+    a--;
+}
+
+// While with assignment in body
+let count = 0;
+let limit = 5;
+while (count < limit) count = count + 1;
+print("count=" + count);
+
+print("done");

@@ -1,0 +1,33 @@
+// Test single-line for statements (without braces)
+
+// Basic C-style for loop
+for (let i = 0; i < 3; i++) print("i=" + i);
+
+// For-in loop with let
+let arr = ["a", "b", "c"];
+for (let item in arr) print("item=" + item);
+
+// For-in loop without let (single variable)
+for (x in arr) print("x=" + x);
+
+// For-in with index (using let)
+for (let idx, val in arr) print(idx + ":" + val);
+
+// Nested for loops (outer braced, inner single-line)
+for (let i = 0; i < 2; i++) {
+    for (let j = 0; j < 2; j++) print("(" + i + "," + j + ")");
+}
+
+// Single-line for with function call
+fn show(n) {
+    print("show:" + n);
+}
+for (let k = 5; k < 8; k++) show(k);
+
+// Mixed: braced for, single-line for-in
+let nums = [10, 20];
+for (let i = 0; i < 2; i++) {
+    for (let n in nums) print(i + "+" + n);
+}
+
+print("done");

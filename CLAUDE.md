@@ -785,7 +785,8 @@ make parity
 
 ## Version
 
-**v1.7.0** - Current release with:
+**v1.7.1** - Current release with:
+- **Single-line statements** - braceless `if`, `while`, `for` syntax (e.g., `if (x > 0) print(x);`)
 - **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
 - **Function type annotations** (`fn(i32): i32`) - first-class function types
 - **Const parameters** (`fn(const x: array)`) - deep immutability for parameters

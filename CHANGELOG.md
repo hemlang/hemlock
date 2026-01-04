@@ -5,6 +5,14 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-01-04
+
+### Added
+
+- **Single-line if statements** - braceless syntax for simple conditionals (e.g., `if (x > 0) print(x);`)
+- **Single-line while loops** - braceless syntax for simple loops (e.g., `while (x > 0) x--;`)
+- **Single-line for loops** - braceless syntax for C-style and for-in loops (e.g., `for (let i = 0; i < 10; i++) print(i);`)
+
 ## [1.7.0] - 2026-01-04
 
 ### Added
