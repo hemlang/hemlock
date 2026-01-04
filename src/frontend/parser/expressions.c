@@ -227,6 +227,7 @@ Expr* primary(Parser *p) {
     }
 
     // Array literal: [elem1, elem2, ...]
+    // Supports trailing commas: [1, 2, 3,]
     if (match(p, TOK_LBRACKET)) {
         int capacity = 64;
         Expr **elements = malloc(sizeof(Expr*) * capacity);
@@ -234,6 +235,8 @@ Expr* primary(Parser *p) {
 
         if (!check(p, TOK_RBRACKET)) {
             do {
+                // Allow trailing comma before closing bracket
+                if (check(p, TOK_RBRACKET)) break;
                 // Grow array if needed
                 if (num_elements >= capacity) {
                     capacity *= 2;
@@ -267,8 +270,12 @@ parse_fn_expr:
     char *rest_param = NULL;
     Type *rest_param_type = NULL;
 
+    // Parse function parameters - supports trailing commas: fn(a, b, c,)
     if (!check(p, TOK_RPAREN)) {
         do {
+            // Allow trailing comma before closing paren
+            if (check(p, TOK_RPAREN)) break;
+
             // Check for rest parameter: ...name
             if (match(p, TOK_DOT_DOT_DOT)) {
                 consume(p, TOK_IDENT, "Expect parameter name after '...'");
@@ -397,7 +404,7 @@ Expr* postfix(Parser *p) {
                 consume(p, TOK_RBRACKET, "Expect ']' after optional chaining index");
                 expr = expr_optional_chain_index(expr, index);
             } else if (check(p, TOK_LPAREN)) {
-                // Optional call: obj?.()
+                // Optional call: obj?.() - supports trailing commas
                 match(p, TOK_LPAREN);
                 Expr **args = NULL;
                 char **arg_names = NULL;
@@ -421,6 +428,9 @@ Expr* postfix(Parser *p) {
                     }
 
                     while (match(p, TOK_COMMA)) {
+                        // Allow trailing comma before closing paren
+                        if (check(p, TOK_RPAREN)) break;
+
                         if (num_args >= MAX_FUNCTION_PARAMS) {
                             error_at(p, &p->current, "function calls cannot have more than 64 arguments");
                             break;
@@ -480,6 +490,7 @@ Expr* postfix(Parser *p) {
             expr->column = index_column;
         } else if (match(p, TOK_LPAREN)) {
             // Function call: func(...) or obj.method(...)
+            // Supports trailing commas: func(a, b, c,)
             int call_line = p->previous.line;  // Save line of '(' for stack trace
             int call_column = p->previous.column;
             Expr **args = NULL;
@@ -506,6 +517,9 @@ Expr* postfix(Parser *p) {
                 }
 
                 while (match(p, TOK_COMMA)) {
+                    // Allow trailing comma before closing paren
+                    if (check(p, TOK_RPAREN)) break;
+
                     if (num_args >= MAX_FUNCTION_PARAMS) {
                         error_at(p, &p->current, "function calls cannot have more than 64 arguments");
                         break;
@@ -1040,8 +1054,12 @@ static Type* parse_function_type(Parser *p) {
     char *rest_param_name = NULL;
     Type *rest_param_type = NULL;
 
+    // Parse function type parameters - supports trailing commas
     if (p->current.type != TOK_RPAREN) {
         do {
+            // Allow trailing comma before closing paren
+            if (p->current.type == TOK_RPAREN) break;
+
             // Check for rest parameter: ...name or ...name: type
             if (p->current.type == TOK_DOT_DOT_DOT) {
                 advance(p);

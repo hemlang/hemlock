@@ -776,9 +776,7 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 }
                 fmt_expr(ctx, expr->as.call.args[i]);
                 if (should_break) {
-                    if (i < expr->as.call.num_args - 1) {
-                        buf_append(&ctx->buf, ",");
-                    }
+                    buf_append(&ctx->buf, ",");  // Always add trailing comma in multiline
                     fmt_newline(ctx);
                 }
             }
@@ -889,9 +887,7 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 }
                 fmt_expr(ctx, expr->as.array_literal.elements[i]);
                 if (should_break) {
-                    if (i < expr->as.array_literal.num_elements - 1) {
-                        buf_append(&ctx->buf, ",");
-                    }
+                    buf_append(&ctx->buf, ",");  // Always add trailing comma in multiline
                     fmt_newline(ctx);
                 }
             }
@@ -949,9 +945,7 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                     }
                 }
                 if (should_break) {
-                    if (i < expr->as.object_literal.num_fields - 1) {
-                        buf_append(&ctx->buf, ",");
-                    }
+                    buf_append(&ctx->buf, ",");  // Always add trailing comma in multiline
                     fmt_newline(ctx);
                 }
             }
@@ -1367,9 +1361,7 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                     buf_append(&ctx->buf, " = ");
                     fmt_expr(ctx, stmt->as.define_object.field_defaults[i]);
                 }
-                if (i < stmt->as.define_object.num_fields - 1) {
-                    buf_append_char(&ctx->buf, ',');
-                }
+                buf_append_char(&ctx->buf, ',');  // Always add trailing comma
                 fmt_newline(ctx);
             }
             ctx->indent--;
@@ -1392,9 +1384,7 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                     buf_append(&ctx->buf, " = ");
                     fmt_expr(ctx, stmt->as.enum_decl.variant_values[i]);
                 }
-                if (i < stmt->as.enum_decl.num_variants - 1) {
-                    buf_append_char(&ctx->buf, ',');
-                }
+                buf_append_char(&ctx->buf, ',');  // Always add trailing comma
                 fmt_newline(ctx);
             }
             ctx->indent--;
