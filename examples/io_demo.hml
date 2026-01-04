@@ -52,27 +52,22 @@ print("3. Low-level file operations:");
 let f = open("demo.txt", "r");
 print("  Opened file:");
 print(f);
-print("  Mode:");
-print(f.mode);
-print("  Closed:");
-print(f.closed);
 
 let pos = f.tell();
 print("  Current position:");
 print(pos);
 
-let chunk = f.read_text(10);
+let chunk = f.read(10);
 print("  Read chunk: " + chunk);
 
 f.seek(0);
 print("  Seeked to beginning");
 
-let line = f.read_text(100);
+let line = f.read();
 print("  Read full content: " + line);
 
 f.close();
-print("  File closed:");
-print(f.closed);
+print("  File closed");
 
 print("");
 
