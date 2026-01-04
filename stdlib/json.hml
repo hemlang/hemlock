@@ -144,19 +144,16 @@ fn format_array(arr: array, depth: i32, indent_str: string): string {
     let current_indent = repeat_string(indent_str, depth + 1);
     let closing_indent = repeat_string(indent_str, depth);
 
-    let i = 0;
-    while (i < arr.length) {
-        result = result + newline + current_indent;
-        result = result + format_value(arr[i], depth + 1, indent_str);
+    for (let i = 0; i < arr.length; i++) {
+        result += newline + current_indent;
+        result += format_value(arr[i], depth + 1, indent_str);
 
         if (i < arr.length - 1) {
-            result = result + ",";
+            result += ",";
         }
-
-        i = i + 1;
     }
 
-    result = result + newline + closing_indent + "]";
+    result += newline + closing_indent + "]";
     return result;
 }
 
@@ -173,63 +170,55 @@ fn format_object(obj, depth: i32, indent_str: string): string {
     let current_indent = repeat_string(indent_str, depth + 1);
     let closing_indent = repeat_string(indent_str, depth);
 
-    let i = 0;
-    while (i < keys.length) {
+    for (let i = 0; i < keys.length; i++) {
         let key = keys[i];
         let value = obj[key];
 
-        result = result + newline + current_indent;
-        result = result + escape_json_string(key) + ": ";
-        result = result + format_value(value, depth + 1, indent_str);
+        result += newline + current_indent;
+        result += escape_json_string(key) + ": ";
+        result += format_value(value, depth + 1, indent_str);
 
         if (i < keys.length - 1) {
-            result = result + ",";
+            result += ",";
         }
-
-        i = i + 1;
     }
 
-    result = result + newline + closing_indent + "}";
+    result += newline + closing_indent + "}";
     return result;
 }
 
 // Internal: Escape string for JSON
 fn escape_json_string(s: string): string {
     let result = "\"";
-    let i = 0;
 
-    while (i < s.length) {
+    for (let i = 0; i < s.length; i++) {
         let ch = s[i];
 
         if (ch == '"') {
-            result = result + "\\\"";
+            result += "\\\"";
         } else if (ch == '\\') {
-            result = result + "\\\\";
+            result += "\\\\";
         } else if (ch == '\n') {
-            result = result + "\\n";
+            result += "\\n";
         } else if (ch == '\r') {
-            result = result + "\\r";
+            result += "\\r";
         } else if (ch == '\t') {
-            result = result + "\\t";
+            result += "\\t";
         } else {
             // Concatenate rune with string (rune is automatically converted)
-            result = result + "" + ch;
+            result += "" + ch;
         }
-
-        i = i + 1;
     }
 
-    result = result + "\"";
+    result += "\"";
     return result;
 }
 
 // Internal: Repeat string n times
 fn repeat_string(s: string, count: i32): string {
     let result = "";
-    let i = 0;
-    while (i < count) {
-        result = result + s;
-        i = i + 1;
+    for (let i = 0; i < count; i++) {
+        result += s;
     }
     return result;
 }
@@ -280,13 +269,11 @@ fn is_numeric(s: string): bool {
         return false;
     }
 
-    let i = 0;
-    while (i < s.length) {
+    for (let i = 0; i < s.length; i++) {
         let ch = s[i];
         if (ch < '0' || ch > '9') {
             return false;
         }
-        i = i + 1;
     }
 
     return true;
@@ -307,14 +294,10 @@ fn get(obj, path: string, default_val?: null) {
 
     let parts = path.split(".");
     let current = obj;
-    let i = 0;
 
-    while (i < parts.length) {
+    for (let i = 0; i < parts.length; i++) {
         if (current == null) {
-            if (default_val != null) {
-                return default_val;
-            }
-            return null;
+            return default_val ?? null;
         }
 
         let part = parts[i];
@@ -322,41 +305,26 @@ fn get(obj, path: string, default_val?: null) {
         // Handle array indices (numeric parts)
         if (is_numeric(part)) {
             if (typeof(current) != "array") {
-                if (default_val != null) {
-                    return default_val;
-                }
-                return null;
+                return default_val ?? null;
             }
 
             let idx = parse_int(part);
             if (idx < 0 || idx >= current.length) {
-                if (default_val != null) {
-                    return default_val;
-                }
-                return null;
+                return default_val ?? null;
             }
 
             current = current[idx];
         } else {
             // Object property access
             if (typeof(current) != "object") {
-                if (default_val != null) {
-                    return default_val;
-                }
-                return null;
+                return default_val ?? null;
             }
 
             current = current[part];
         }
-
-        i = i + 1;
     }
 
-    if (current == null && default_val != null) {
-        return default_val;
-    }
-
-    return current;
+    return current ?? default_val ?? null;
 }
 
 // Set value by path (dot notation)
@@ -368,10 +336,9 @@ fn set(obj, path: string, value) {
 
     let parts = path.split(".");
     let current = obj;
-    let i = 0;
 
     // Navigate to parent
-    while (i < parts.length - 1) {
+    for (let i = 0; i < parts.length - 1; i++) {
         let part = parts[i];
 
         if (is_numeric(part)) {
@@ -384,8 +351,6 @@ fn set(obj, path: string, value) {
         if (current == null) {
             throw "Path does not exist: " + path;
         }
-
-        i = i + 1;
     }
 
     // Set final value
@@ -418,10 +383,9 @@ fn delete(obj, path: string): bool {
 
     let parts = path.split(".");
     let current = obj;
-    let i = 0;
 
     // Navigate to parent of the property to delete
-    while (i < parts.length - 1) {
+    for (let i = 0; i < parts.length - 1; i++) {
         if (current == null) {
             return false;
         }
@@ -443,8 +407,6 @@ fn delete(obj, path: string): bool {
             }
             current = current[part];
         }
-
-        i = i + 1;
     }
 
     // Delete the final property
@@ -605,12 +567,10 @@ fn equals(a, b): bool {
             return false;
         }
 
-        let i = 0;
-        while (i < a.length) {
+        for (let i = 0; i < a.length; i++) {
             if (!equals(a[i], b[i])) {
                 return false;
             }
-            i = i + 1;
         }
 
         return true;

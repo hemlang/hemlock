@@ -141,13 +141,10 @@ export fn is_alpha(str): bool {
         return false;
     }
 
-    let chars = str.chars();
-    let i = 0;
-    while (i < chars.length) {
-        if (!is_alpha_rune(chars[i])) {
+    for (ch in str.chars()) {
+        if (!is_alpha_rune(ch)) {
             return false;
         }
-        i = i + 1;
     }
 
     return true;
@@ -166,13 +163,10 @@ export fn is_digit(str): bool {
         return false;
     }
 
-    let chars = str.chars();
-    let i = 0;
-    while (i < chars.length) {
-        if (!is_digit_rune(chars[i])) {
+    for (ch in str.chars()) {
+        if (!is_digit_rune(ch)) {
             return false;
         }
-        i = i + 1;
     }
 
     return true;
@@ -191,13 +185,10 @@ export fn is_alnum(str): bool {
         return false;
     }
 
-    let chars = str.chars();
-    let i = 0;
-    while (i < chars.length) {
-        if (!is_alpha_rune(chars[i]) && !is_digit_rune(chars[i])) {
+    for (ch in str.chars()) {
+        if (!is_alpha_rune(ch) && !is_digit_rune(ch)) {
             return false;
         }
-        i = i + 1;
     }
 
     return true;
@@ -216,13 +207,10 @@ export fn is_whitespace(str): bool {
         return false;
     }
 
-    let chars = str.chars();
-    let i = 0;
-    while (i < chars.length) {
-        if (!is_whitespace_rune(chars[i])) {
+    for (ch in str.chars()) {
+        if (!is_whitespace_rune(ch)) {
             return false;
         }
-        i = i + 1;
     }
 
     return true;
@@ -247,10 +235,8 @@ export fn reverse(str): string {
 
     let chars = str.chars();
     let result = "";
-    let i = chars.length - 1;
-    while (i >= 0) {
-        result = result + chars[i];
-        i = i - 1;
+    for (let i = chars.length - 1; i >= 0; i--) {
+        result += chars[i];
     }
 
     return result;
@@ -281,13 +267,11 @@ export fn words(str): array {
     let parts = str.split(" ");
     let result: array = [];
 
-    let i = 0;
-    while (i < parts.length) {
-        let trimmed = parts[i].trim();
+    for (part in parts) {
+        let trimmed = part.trim();
         if (trimmed.length > 0) {
             result.push(trimmed);
         }
-        i = i + 1;
     }
 
     return result;
@@ -349,38 +333,32 @@ export fn snake_case(str): string {
 
     let result = "";
     let chars = str.chars();
-    let i = 0;
     let prev_was_sep = true;  // Start true to avoid leading underscore
 
-    while (i < chars.length) {
-        let c = chars[i];
-
+    for (c in chars) {
         // Check if separator (space, dash, underscore)
         if (c == ' ' || c == '-' || c == '_') {
             if (!prev_was_sep && result.length > 0) {
-                result = result + "_";
+                result += "_";
             }
             prev_was_sep = true;
-            i = i + 1;
             continue;
         }
 
         // Check if uppercase (indicates word boundary in camelCase)
         if (is_upper_rune(c)) {
             if (!prev_was_sep && result.length > 0) {
-                result = result + "_";
+                result += "_";
             }
-            result = result + to_lower_rune(c);
+            result += to_lower_rune(c);
             prev_was_sep = false;
         } else if (is_alpha_rune(c) || is_digit_rune(c)) {
-            result = result + to_lower_rune(c);
+            result += to_lower_rune(c);
             prev_was_sep = false;
         } else {
             // Skip non-alphanumeric characters
             prev_was_sep = true;
         }
-
-        i = i + 1;
     }
 
     // Remove trailing underscore if present
@@ -410,38 +388,32 @@ export fn camel_case(str): string {
 
     let result = "";
     let chars = str.chars();
-    let i = 0;
     let capitalize_next = false;
     let first_char = true;
 
-    while (i < chars.length) {
-        let c = chars[i];
-
+    for (c in chars) {
         // Check if separator (space, dash, underscore)
         if (c == ' ' || c == '-' || c == '_') {
             capitalize_next = true;
-            i = i + 1;
             continue;
         }
 
         if (is_alpha_rune(c)) {
             if (first_char) {
-                result = result + to_lower_rune(c);
+                result += to_lower_rune(c);
                 first_char = false;
             } else if (capitalize_next) {
-                result = result + to_upper_rune(c);
+                result += to_upper_rune(c);
                 capitalize_next = false;
             } else {
-                result = result + to_lower_rune(c);
+                result += to_lower_rune(c);
             }
         } else if (is_digit_rune(c)) {
-            result = result + c;
+            result += c;
             capitalize_next = true;  // Next alpha after digit is capitalized
             first_char = false;
         }
         // Skip other characters
-
-        i = i + 1;
     }
 
     return result;
@@ -466,33 +438,27 @@ export fn pascal_case(str): string {
 
     let result = "";
     let chars = str.chars();
-    let i = 0;
     let capitalize_next = true;  // First char is always capitalized
 
-    while (i < chars.length) {
-        let c = chars[i];
-
+    for (c in chars) {
         // Check if separator (space, dash, underscore)
         if (c == ' ' || c == '-' || c == '_') {
             capitalize_next = true;
-            i = i + 1;
             continue;
         }
 
         if (is_alpha_rune(c)) {
             if (capitalize_next) {
-                result = result + to_upper_rune(c);
+                result += to_upper_rune(c);
                 capitalize_next = false;
             } else {
-                result = result + to_lower_rune(c);
+                result += to_lower_rune(c);
             }
         } else if (is_digit_rune(c)) {
-            result = result + c;
+            result += c;
             capitalize_next = true;  // Next alpha after digit is capitalized
         }
         // Skip other characters
-
-        i = i + 1;
     }
 
     return result;
@@ -517,37 +483,31 @@ export fn kebab_case(str): string {
 
     let result = "";
     let chars = str.chars();
-    let i = 0;
     let prev_was_sep = true;
 
-    while (i < chars.length) {
-        let c = chars[i];
-
+    for (c in chars) {
         // Check if separator (space, dash, underscore)
         if (c == ' ' || c == '-' || c == '_') {
             if (!prev_was_sep && result.length > 0) {
-                result = result + "-";
+                result += "-";
             }
             prev_was_sep = true;
-            i = i + 1;
             continue;
         }
 
         // Check if uppercase (indicates word boundary in camelCase)
         if (is_upper_rune(c)) {
             if (!prev_was_sep && result.length > 0) {
-                result = result + "-";
+                result += "-";
             }
-            result = result + to_lower_rune(c);
+            result += to_lower_rune(c);
             prev_was_sep = false;
         } else if (is_alpha_rune(c) || is_digit_rune(c)) {
-            result = result + to_lower_rune(c);
+            result += to_lower_rune(c);
             prev_was_sep = false;
         } else {
             prev_was_sep = true;
         }
-
-        i = i + 1;
     }
 
     // Remove trailing dash if present
@@ -581,27 +541,23 @@ export fn slugify(str): string {
 
     let result = "";
     let chars = str.chars();
-    let i = 0;
     let prev_was_hyphen = true;  // Start true to avoid leading hyphen
 
-    while (i < chars.length) {
-        let c = chars[i];
+    for (c in chars) {
         let code: i32 = c;
 
         // Check if alphanumeric (a-z, A-Z, 0-9)
         if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57)) {
-            result = result + to_lower_rune(c);
+            result += to_lower_rune(c);
             prev_was_hyphen = false;
         } else if (c == ' ' || c == '-' || c == '_' || c == '\t') {
             // Separator becomes hyphen (but avoid duplicates)
             if (!prev_was_hyphen && result.length > 0) {
-                result = result + "-";
+                result += "-";
             }
             prev_was_hyphen = true;
         }
         // Skip all other characters (including non-ASCII)
-
-        i = i + 1;
     }
 
     // Remove trailing hyphen if present

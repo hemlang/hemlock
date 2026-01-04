@@ -19,13 +19,11 @@ export fn djb2(input: string): u32 {
     }
 
     let h: u32 = 5381;
-    let i = 0;
-    while (i < input.byte_length) {
+    for (let i = 0; i < input.byte_length; i++) {
         let byte_val = input.byte_at(i);
         // h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
         // Mask to 32 bits to ensure proper wraparound
         h = (((h << 5) + h) + byte_val) & 4294967295;
-        i = i + 1;
     }
 
     return h;
@@ -44,12 +42,10 @@ export fn fnv1a(input: string): u32 {
     let FNV_PRIME: u32 = 16777619;            // 0x01000193
 
     let h: u32 = FNV_OFFSET_BASIS;
-    let i = 0;
-    while (i < input.byte_length) {
+    for (let i = 0; i < input.byte_length; i++) {
         let byte_val = input.byte_at(i);
         h = (h ^ byte_val) & 4294967295;  // XOR with byte
         h = (h * FNV_PRIME) & 4294967295;  // Multiply by FNV prime, mask to 32 bits
-        i = i + 1;
     }
 
     return h;
@@ -80,8 +76,7 @@ export fn murmur3(input: string, seed?: 0): u32 {
     let chunks = divi(len, 4);
     let full_chunks: i32 = chunks;
 
-    i = 0;
-    while (i < full_chunks) {
+    for (let i = 0; i < full_chunks; i++) {
         // Read 4 bytes as little-endian u32
         let k: u32 = (bytes[i * 4]
             | (bytes[i * 4 + 1] << 8)
@@ -95,8 +90,6 @@ export fn murmur3(input: string, seed?: 0): u32 {
         h = (h ^ k) & 4294967295;
         h = ((h << r2) | ((h >> (32 - r2)) & 4294967295)) & 4294967295;  // rotl32
         h = ((h * m) + n) & 4294967295;
-
-        i = i + 1;
     }
 
     // Process remaining bytes
@@ -220,10 +213,8 @@ export fn file_murmur3(path: string): string {
 // Helper: XOR a byte array with a repeated byte value
 fn xor_with_byte(data: array, byte_val: i32): array {
     let result: array = [];
-    let i = 0;
-    while (i < data.length) {
-        result.push((data[i] ^ byte_val) & 255);
-        i = i + 1;
+    for (b in data) {
+        result.push((b ^ byte_val) & 255);
     }
     return result;
 }
@@ -231,12 +222,10 @@ fn xor_with_byte(data: array, byte_val: i32): array {
 // Helper: Convert hex string to byte array
 fn hex_to_bytes(hex: string): array {
     let bytes: array = [];
-    let i = 0;
-    while (i < hex.length) {
+    for (let i = 0; i < hex.length; i += 2) {
         let hi = hex_char_val(hex.char_at(i));
         let lo = hex_char_val(hex.char_at(i + 1));
         bytes.push((hi << 4) | lo);
-        i = i + 2;
     }
     return bytes;
 }
@@ -253,15 +242,11 @@ fn hex_char_val(ch: rune): i32 {
 // Helper: Concatenate two byte arrays
 fn concat_bytes(a: array, b: array): array {
     let result: array = [];
-    let i = 0;
-    while (i < a.length) {
-        result.push(a[i]);
-        i = i + 1;
+    for (item in a) {
+        result.push(item);
     }
-    i = 0;
-    while (i < b.length) {
-        result.push(b[i]);
-        i = i + 1;
+    for (item in b) {
+        result.push(item);
     }
     return result;
 }

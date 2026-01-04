@@ -40,16 +40,12 @@ export fn range(start_or_end, end_val?: null, step?: 1): array {
     let result: array = [];
 
     if (step > 0) {
-        let i = start;
-        while (i < stop) {
+        for (let i = start; i < stop; i += step) {
             result.push(i);
-            i = i + step;
         }
     } else {
-        let i = start;
-        while (i > stop) {
+        for (let i = start; i > stop; i += step) {
             result.push(i);
-            i = i + step;
         }
     }
 
@@ -73,13 +69,13 @@ export fn frange(start, end, step): array {
         let i: f64 = start;
         while (i < end) {
             result.push(i);
-            i = i + step;
+            i += step;
         }
     } else {
         let i: f64 = start;
         while (i > end) {
             result.push(i);
-            i = i + step;
+            i += step;
         }
     }
 
@@ -97,10 +93,8 @@ export fn repeat(value, n): array {
     }
 
     let result: array = [];
-    let i = 0;
-    while (i < n) {
+    for (let i = 0; i < n; i++) {
         result.push(value);
-        i = i + 1;
     }
 
     return result;
@@ -121,10 +115,8 @@ export fn enumerate(arr, start?: 0): array {
     }
 
     let result: array = [];
-    let i = 0;
-    while (i < arr.length) {
+    for (let i = 0; i < arr.length; i++) {
         result.push([start + i, arr[i]]);
-        i = i + 1;
     }
 
     return result;
@@ -150,10 +142,8 @@ export fn zip(a, b): array {
         len = b.length;
     }
 
-    let i = 0;
-    while (i < len) {
+    for (let i = 0; i < len; i++) {
         result.push([a[i], b[i]]);
-        i = i + 1;
     }
 
     return result;
@@ -173,10 +163,8 @@ export fn zip3(a, b, c): array {
     if (b.length < len) { len = b.length; }
     if (c.length < len) { len = c.length; }
 
-    let i = 0;
-    while (i < len) {
+    for (let i = 0; i < len; i++) {
         result.push([a[i], b[i], c[i]]);
-        i = i + 1;
     }
 
     return result;
@@ -194,15 +182,12 @@ export fn unzip(pairs): array {
     let a: array = [];
     let b: array = [];
 
-    let i = 0;
-    while (i < pairs.length) {
-        let pair = pairs[i];
+    for (pair in pairs) {
         if (typeof(pair) != "array" || pair.length < 2) {
             throw "unzip() requires array of pairs";
         }
         a.push(pair[0]);
         b.push(pair[1]);
-        i = i + 1;
     }
 
     return [a, b];
@@ -222,17 +207,13 @@ export fn chunk(arr, size): array {
     }
 
     let result: array = [];
-    let i = 0;
 
-    while (i < arr.length) {
+    for (let i = 0; i < arr.length; i += size) {
         let ch: array = [];
-        let j = 0;
-        while (j < size && i + j < arr.length) {
+        for (let j = 0; j < size && i + j < arr.length; j++) {
             ch.push(arr[i + j]);
-            j = j + 1;
         }
         result.push(ch);
-        i = i + size;
     }
 
     return result;
@@ -257,10 +238,8 @@ export fn take(arr, n): array {
         count = arr.length;
     }
 
-    let i = 0;
-    while (i < count) {
+    for (let i = 0; i < count; i++) {
         result.push(arr[i]);
-        i = i + 1;
     }
 
     return result;
@@ -285,10 +264,8 @@ export fn drop(arr, n): array {
         start = arr.length;
     }
 
-    let i = start;
-    while (i < arr.length) {
+    for (let i = start; i < arr.length; i++) {
         result.push(arr[i]);
-        i = i + 1;
     }
 
     return result;
@@ -313,10 +290,8 @@ export fn take_last(arr, n): array {
     }
 
     let result: array = [];
-    let i = start;
-    while (i < arr.length) {
+    for (let i = start; i < arr.length; i++) {
         result.push(arr[i]);
-        i = i + 1;
     }
 
     return result;
@@ -341,10 +316,8 @@ export fn drop_last(arr, n): array {
     }
 
     let result: array = [];
-    let i = 0;
-    while (i < end) {
+    for (let i = 0; i < end; i++) {
         result.push(arr[i]);
-        i = i + 1;
     }
 
     return result;
@@ -365,19 +338,14 @@ export fn flatten(arr): array {
 
     let result: array = [];
 
-    let i = 0;
-    while (i < arr.length) {
-        let item = arr[i];
+    for (item in arr) {
         if (typeof(item) == "array") {
-            let j = 0;
-            while (j < item.length) {
-                result.push(item[j]);
-                j = j + 1;
+            for (sub in item) {
+                result.push(sub);
             }
         } else {
             result.push(item);
         }
-        i = i + 1;
     }
 
     return result;
@@ -398,15 +366,12 @@ export fn flatten_deep(arr): array {
 }
 
 fn flatten_helper(arr, result) {
-    let i = 0;
-    while (i < arr.length) {
-        let item = arr[i];
+    for (item in arr) {
         if (typeof(item) == "array") {
             flatten_helper(item, result);
         } else {
             result.push(item);
         }
-        i = i + 1;
     }
 }
 
@@ -422,16 +387,13 @@ export fn unique(arr): array {
     let result: array = [];
     let seen = {};
 
-    let i = 0;
-    while (i < arr.length) {
-        let item = arr[i];
+    for (item in arr) {
         let key = "" + item;  // Convert to string for object key
 
         if (seen[key] == null) {
             seen[key] = true;
             result.push(item);
         }
-        i = i + 1;
     }
 
     return result;
@@ -452,17 +414,11 @@ export fn group_by(arr, key_fn): object {
 
     let result = {};
 
-    let i = 0;
-    while (i < arr.length) {
-        let item = arr[i];
+    for (item in arr) {
         let key = "" + key_fn(item);
 
-        if (result[key] == null) {
-            result[key] = [];
-        }
+        result[key] ??= [];
         result[key].push(item);
-
-        i = i + 1;
     }
 
     return result;
@@ -484,15 +440,12 @@ export fn partition(arr, pred): array {
     let matching: array = [];
     let non_matching: array = [];
 
-    let i = 0;
-    while (i < arr.length) {
-        let item = arr[i];
+    for (item in arr) {
         if (pred(item)) {
             matching.push(item);
         } else {
             non_matching.push(item);
         }
-        i = i + 1;
     }
 
     return [matching, non_matching];
@@ -512,10 +465,8 @@ export fn sum(arr) {
     }
 
     let total: f64 = 0;
-    let i = 0;
-    while (i < arr.length) {
-        total = total + arr[i];
-        i = i + 1;
+    for (item in arr) {
+        total += item;
     }
 
     return total;
@@ -535,10 +486,8 @@ export fn product(arr) {
     }
 
     let result: f64 = 1;
-    let i = 0;
-    while (i < arr.length) {
-        result = result * arr[i];
-        i = i + 1;
+    for (item in arr) {
+        result *= item;
     }
 
     return result;
@@ -557,12 +506,10 @@ export fn min_val(arr) {
     }
 
     let result = arr[0];
-    let i = 1;
-    while (i < arr.length) {
+    for (let i = 1; i < arr.length; i++) {
         if (arr[i] < result) {
             result = arr[i];
         }
-        i = i + 1;
     }
 
     return result;
@@ -581,12 +528,10 @@ export fn max_val(arr) {
     }
 
     let result = arr[0];
-    let i = 1;
-    while (i < arr.length) {
+    for (let i = 1; i < arr.length; i++) {
         if (arr[i] > result) {
             result = arr[i];
         }
-        i = i + 1;
     }
 
     return result;
@@ -624,12 +569,10 @@ export fn all(arr, pred): bool {
         throw "all() requires function argument";
     }
 
-    let i = 0;
-    while (i < arr.length) {
-        if (!pred(arr[i])) {
+    for (item in arr) {
+        if (!pred(item)) {
             return false;
         }
-        i = i + 1;
     }
 
     return true;
@@ -648,12 +591,10 @@ export fn any(arr, pred): bool {
         throw "any() requires function argument";
     }
 
-    let i = 0;
-    while (i < arr.length) {
-        if (pred(arr[i])) {
+    for (item in arr) {
+        if (pred(item)) {
             return true;
         }
-        i = i + 1;
     }
 
     return false;
@@ -682,12 +623,10 @@ export fn count(arr, pred): i32 {
     }
 
     let n = 0;
-    let i = 0;
-    while (i < arr.length) {
-        if (pred(arr[i])) {
-            n = n + 1;
+    for (item in arr) {
+        if (pred(item)) {
+            n++;
         }
-        i = i + 1;
     }
 
     return n;
@@ -706,12 +645,10 @@ export fn find_first(arr, pred) {
         throw "find_first() requires function argument";
     }
 
-    let i = 0;
-    while (i < arr.length) {
-        if (pred(arr[i])) {
-            return arr[i];
+    for (item in arr) {
+        if (pred(item)) {
+            return item;
         }
-        i = i + 1;
     }
 
     return null;
@@ -730,12 +667,10 @@ export fn find_index(arr, pred): i32 {
         throw "find_index() requires function argument";
     }
 
-    let i = 0;
-    while (i < arr.length) {
+    for (let i = 0; i < arr.length; i++) {
         if (pred(arr[i])) {
             return i;
         }
-        i = i + 1;
     }
 
     return -1;
