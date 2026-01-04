@@ -9,8 +9,10 @@ Available control flow features:
 - `if`/`else`/`else if` - Conditional branches
 - `while` loops - Condition-based iteration
 - `for` loops - C-style and for-in iteration
+- `loop` - Infinite loops (cleaner than `while (true)`)
 - `switch` statements - Multi-way branching
 - `break`/`continue` - Loop control
+- Loop labels - Targeted break/continue for nested loops
 - `defer` - Deferred execution (cleanup)
 - Boolean operators: `&&`, `||`, `!`
 - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
@@ -102,7 +104,7 @@ while (i < 10) {
 }
 ```
 
-**Infinite loops:**
+**Infinite loops (old style):**
 ```hemlock
 while (true) {
     // ... do work
@@ -111,6 +113,77 @@ while (true) {
     }
 }
 ```
+
+**Note:** For infinite loops, prefer the `loop` keyword (see below).
+
+## Loop (Infinite Loop)
+
+The `loop` keyword provides a cleaner syntax for infinite loops:
+
+```hemlock
+loop {
+    // ... do work
+    if (should_exit) {
+        break;
+    }
+}
+```
+
+**Equivalent to `while (true)` but more explicit about intent.**
+
+### Basic Loop with Break
+
+```hemlock
+let i = 0;
+loop {
+    if (i >= 5) {
+        break;
+    }
+    print(i);
+    i = i + 1;
+}
+// Prints: 0, 1, 2, 3, 4
+```
+
+### Loop with Continue
+
+```hemlock
+let i = 0;
+loop {
+    i = i + 1;
+    if (i > 5) {
+        break;
+    }
+    if (i == 3) {
+        continue;  // Skip printing 3
+    }
+    print(i);
+}
+// Prints: 1, 2, 4, 5
+```
+
+### Nested Loops
+
+```hemlock
+let x = 0;
+loop {
+    if (x >= 2) { break; }
+    let y = 0;
+    loop {
+        if (y >= 3) { break; }
+        print(x * 10 + y);
+        y = y + 1;
+    }
+    x = x + 1;
+}
+// Prints: 0, 1, 2, 10, 11, 12
+```
+
+### When to Use Loop
+
+- **Use `loop`** for intentionally infinite loops that exit via `break`
+- **Use `while`** when there's a natural termination condition
+- **Use `for`** when iterating a known number of times or over a collection
 
 ## For Loops
 
@@ -337,6 +410,142 @@ for (let i = 0; i < 10; i = i + 1) {
 **Difference:**
 - `break` - Exits loop entirely
 - `continue` - Skips to next iteration
+
+## Loop Labels
+
+Loop labels allow `break` and `continue` to target specific outer loops instead of just the innermost loop. This is useful for nested loops where you need to control an outer loop from an inner one.
+
+### Labeled Break
+
+Exit an outer loop from an inner loop:
+
+```hemlock
+outer: while (i < 3) {
+    let j = 0;
+    while (j < 3) {
+        if (i == 1 && j == 1) {
+            break outer;  // Exit the outer while loop
+        }
+        print(i * 10 + j);
+        j = j + 1;
+    }
+    i = i + 1;
+}
+// Prints: 0, 1, 2, 10 (stops at i=1, j=1)
+```
+
+### Labeled Continue
+
+Skip to the next iteration of an outer loop:
+
+```hemlock
+let i = 0;
+outer: while (i < 3) {
+    i = i + 1;
+    let j = 0;
+    while (j < 3) {
+        j = j + 1;
+        if (i == 2 && j == 1) {
+            continue outer;  // Skip rest of inner loop, continue outer
+        }
+        print(i * 10 + j);
+    }
+}
+// When i=2, j=1: skips to next outer iteration
+```
+
+### Labels with For Loops
+
+Labels work with all loop types:
+
+```hemlock
+outer: for (let x = 0; x < 3; x = x + 1) {
+    for (let y = 0; y < 3; y = y + 1) {
+        if (x == 1 && y == 1) {
+            break outer;
+        }
+        print(x * 10 + y);
+    }
+}
+```
+
+### Labels with For-In Loops
+
+```hemlock
+let arr1 = [1, 2, 3];
+let arr2 = [10, 20, 30];
+
+outer: for (let a in arr1) {
+    for (let b in arr2) {
+        if (a == 2 && b == 20) {
+            break outer;
+        }
+        print(a * 100 + b);
+    }
+}
+```
+
+### Labels with Loop Keyword
+
+```hemlock
+let x = 0;
+outer: loop {
+    let y = 0;
+    loop {
+        if (x == 1 && y == 1) {
+            break outer;
+        }
+        print(x * 10 + y);
+        y = y + 1;
+        if (y >= 3) { break; }
+    }
+    x = x + 1;
+    if (x >= 3) { break; }
+}
+```
+
+### Multiple Labels
+
+You can have labels at different nesting levels:
+
+```hemlock
+outer: for (let a = 0; a < 2; a = a + 1) {
+    inner: for (let b = 0; b < 3; b = b + 1) {
+        for (let c = 0; c < 3; c = c + 1) {
+            if (c == 1) {
+                continue inner;  // Skip to next iteration of middle loop
+            }
+            if (a == 1 && b == 1) {
+                break outer;      // Exit outermost loop
+            }
+            print(a * 100 + b * 10 + c);
+        }
+    }
+}
+```
+
+### Unlabeled Break/Continue with Labeled Loops
+
+Unlabeled `break` and `continue` still work normally (affecting the innermost loop), even when outer loops have labels:
+
+```hemlock
+outer: for (let x = 0; x < 3; x = x + 1) {
+    for (let y = 0; y < 5; y = y + 1) {
+        if (y == 2) {
+            break;  // Only breaks inner loop
+        }
+        print(x * 10 + y);
+    }
+}
+// Prints: 0, 1, 10, 11, 20, 21
+```
+
+### Label Syntax
+
+- Labels are identifiers followed by a colon
+- Labels must immediately precede a loop statement (`while`, `for`, `loop`)
+- Label names follow identifier rules (letters, digits, underscores)
+- Common conventions: `outer`, `inner`, `row`, `col`, descriptive names
 
 ## Defer Statement
 
