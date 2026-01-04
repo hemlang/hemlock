@@ -329,6 +329,9 @@ CheckedTypeKind type_check_get_unboxable(TypeCheckContext *ctx, const char *name
 // Clear unboxable status for a variable (used when codegen doesn't take optimized path)
 void type_check_clear_unboxable(TypeCheckContext *ctx, const char *name);
 
+// Clear all unboxable variables (used when entering a new function scope)
+void type_check_clear_all_unboxable(TypeCheckContext *ctx);
+
 // Check if variable is an unboxable loop counter
 int type_check_is_loop_counter(TypeCheckContext *ctx, const char *name);
 

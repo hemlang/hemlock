@@ -2131,6 +2131,19 @@ void type_check_clear_unboxable(TypeCheckContext *ctx, const char *name) {
     }
 }
 
+void type_check_clear_all_unboxable(TypeCheckContext *ctx) {
+    if (!ctx) return;
+
+    UnboxableVar *u = ctx->unboxable_vars;
+    while (u) {
+        UnboxableVar *next = u->next;
+        free(u->name);
+        free(u);
+        u = next;
+    }
+    ctx->unboxable_vars = NULL;
+}
+
 int type_check_is_loop_counter(TypeCheckContext *ctx, const char *name) {
     if (!ctx) return 0;
 

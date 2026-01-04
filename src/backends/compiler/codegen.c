@@ -1111,6 +1111,8 @@ void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
     // OPTIMIZATION: Analyze function body for unboxable typed variables
     // This identifies variables like "let x: i32 = 0" that can use native C types
     if (ctx->optimize && ctx->type_ctx) {
+        // Clear previous function's unboxable variables to avoid scope contamination
+        type_check_clear_all_unboxable(ctx->type_ctx);
         type_check_analyze_block_for_unboxing(ctx->type_ctx, func->as.function.body);
     }
 
