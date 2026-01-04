@@ -311,8 +311,9 @@ static void run_file(const char *path, int argc, char **argv, int stack_depth, i
     // Initialize FFI
     ffi_init();
 
-    // Set current source file for stack traces
+    // Set current source file and source code for stack traces and error context
     set_current_source_file(path);
+    set_current_source_code(source);
 
     // Check if file uses modules
     if (has_modules(source)) {
@@ -342,9 +343,10 @@ static void run_file(const char *path, int argc, char **argv, int stack_depth, i
         exec_context_free(ctx);
         free(source);
 
-        // Cleanup FFI and source file tracking
+        // Cleanup FFI and source tracking
         ffi_cleanup();
         set_current_source_file(NULL);
+        set_current_source_code(NULL);
 
         if (result != 0) {
             exit(1);
@@ -354,9 +356,10 @@ static void run_file(const char *path, int argc, char **argv, int stack_depth, i
         run_source(source, argc, argv, stack_depth, sandbox_flags, sandbox_root);
         free(source);
 
-        // Cleanup FFI and source file tracking
+        // Cleanup FFI and source tracking
         ffi_cleanup();
         set_current_source_file(NULL);
+        set_current_source_code(NULL);
     }
 }
 
@@ -1101,8 +1104,9 @@ static int run_profile(int argc, char **argv) {
     // Initialize FFI
     ffi_init();
 
-    // Set current source file for stack traces
+    // Set current source file and source code for stack traces and error context
     set_current_source_file(file_to_run);
+    set_current_source_code(source);
 
     // Parse
     Lexer lexer;
@@ -1120,6 +1124,7 @@ static int run_profile(int argc, char **argv) {
         profiler_free(profiler);
         ffi_cleanup();
         set_current_source_file(NULL);
+        set_current_source_code(NULL);
         return 1;
     }
 
@@ -1179,6 +1184,7 @@ static int run_profile(int argc, char **argv) {
     profiler_free(profiler);
     ffi_cleanup();
     set_current_source_file(NULL);
+    set_current_source_code(NULL);
     cleanup_object_types();
     cleanup_enum_types();
 

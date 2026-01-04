@@ -41,6 +41,7 @@ typedef struct {
     char *function_name;
     char *source_file;  // Source file name (optional, can be NULL)
     int line;           // Line number of the call site
+    int column;         // Column number of the call site (0 if unknown)
 } CallFrame;
 
 typedef struct {
@@ -423,8 +424,10 @@ void call_stack_init(CallStack *stack);
 void call_stack_push(CallStack *stack, const char *function_name);
 void call_stack_push_line(CallStack *stack, const char *function_name, int line);
 void call_stack_push_full(CallStack *stack, const char *function_name, const char *source_file, int line);
+void call_stack_push_full_loc(CallStack *stack, const char *function_name, const char *source_file, int line, int column);
 void call_stack_pop(CallStack *stack);
 void call_stack_print(CallStack *stack);
+void call_stack_print_with_source(CallStack *stack, const char *source);  // Enhanced stack trace with source snippets
 void call_stack_free(CallStack *stack);
 
 // Current source file tracking (for stack traces)
@@ -443,6 +446,26 @@ void runtime_error(ExecutionContext *ctx, const char *format, ...);
 
 // Runtime error with line number (for better error reporting)
 void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...);
+
+// Runtime error with full location (file, line, column) and source context
+void runtime_error_with_context(ExecutionContext *ctx, const char *file, int line, int column, const char *format, ...);
+
+// ========== SOURCE CODE TRACKING (for error context) ==========
+
+// Set the current source code content (for showing error snippets)
+void set_current_source_code(const char *source);
+const char* get_current_source_code(void);
+
+// Get a specific line from the source code (returns pointer into source, not a copy)
+// Returns NULL if line is out of bounds. Sets *line_length to the length of the line.
+const char* get_source_line(const char *source, int line_num, int *line_length);
+
+// Print source context around an error (shows the line with a caret pointing to the column)
+void print_source_context(FILE *out, const char *source, int line, int column);
+
+// Format an error message with full location and source context into a string
+// Caller must free the returned string
+char* format_error_with_context(const char *file, int line, int column, const char *message);
 
 // ========== SANDBOX HELPERS ==========
 

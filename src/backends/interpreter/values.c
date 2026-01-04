@@ -390,6 +390,7 @@ Value array_pop(Array *arr) {
 Value array_get(Array *arr, int index, ExecutionContext *ctx) {
     if (index < 0 || index >= arr->length) {
         runtime_error(ctx, "Array index %d out of bounds (length %d)", index, arr->length);
+        return val_null();  // Return null after error
     }
     return arr->elements[index];
 }

@@ -172,7 +172,7 @@ Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (num_args > 1) {
         fprintf(stderr, "Runtime error: panic() expects 0 or 1 argument (message)\n");
-        call_stack_print(&ctx->call_stack);
+        call_stack_print_with_source(&ctx->call_stack, get_current_source_code());
         exit(1);
     }
 
@@ -189,14 +189,14 @@ Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx) {
             fprintf(stderr, "%s", str);
             free(str);
             fprintf(stderr, "\n");
-            call_stack_print(&ctx->call_stack);
+            call_stack_print_with_source(&ctx->call_stack, get_current_source_code());
             exit(1);
         }
     }
 
     // Print panic message, stack trace, and exit
     fprintf(stderr, "panic: %s\n", message);
-    call_stack_print(&ctx->call_stack);
+    call_stack_print_with_source(&ctx->call_stack, get_current_source_code());
     exit(1);
 }
 
