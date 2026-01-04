@@ -32,6 +32,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr);
  * Returns the temp variable name containing the result (same as result param).
  */
 char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
+    // IMPORTANT: Check for local variables/parameters FIRST before builtin lookup.
+    // This allows user code to shadow builtin names like 'fork', 'exec', etc.
+    // We check: function parameters, scope variables, and local variables.
+    if (codegen_is_func_param(ctx, expr->as.ident.name) ||
+        (ctx->current_scope && scope_is_defined(ctx->current_scope, expr->as.ident.name)) ||
+        codegen_is_shadow(ctx, expr->as.ident.name)) {
+        // This is a local variable or parameter - handle it directly
+        goto handle_variable;
+    }
+
     // Handle 'self' specially - maps to hml_self global
     if (strcmp(expr->as.ident.name, "self") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_self;", result);
@@ -553,6 +563,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "atomic_fence") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
     } else {
+handle_variable:
         // OPTIMIZATION: Check if this is an unboxed variable (loop counter, accumulator, or typed var)
         // If so, convert the native C type back to HmlValue
         // IMPORTANT: Skip this for function parameters - they are always HmlValue
