@@ -18,6 +18,6 @@ let arr = [
 	17,
 	18,
 	19,
-	20
+	20,
 ];
 let obj = { name: "Alice", age: 30, city: "NYC", country: "USA", zip: "10001" };

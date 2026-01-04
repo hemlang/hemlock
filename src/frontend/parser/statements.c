@@ -449,7 +449,11 @@ Stmt* import_statement(Parser *p) {
     char **import_aliases = malloc(sizeof(char*) * import_capacity);
     int num_imports = 0;
 
+    // Parse import list - supports trailing commas: import { a, b, c, }
     do {
+        // Allow trailing comma before closing brace
+        if (check(p, TOK_RBRACE)) break;
+
         // Grow arrays if needed
         if (num_imports >= import_capacity) {
             import_capacity *= 2;
@@ -490,7 +494,11 @@ Stmt* export_statement(Parser *p) {
         char **export_aliases = malloc(sizeof(char*) * export_capacity);
         int num_exports = 0;
 
+        // Parse export list - supports trailing commas: export { a, b, c, }
         do {
+            // Allow trailing comma before closing brace
+            if (check(p, TOK_RBRACE)) break;
+
             // Grow arrays if needed
             if (num_exports >= export_capacity) {
                 export_capacity *= 2;
@@ -582,8 +590,12 @@ Stmt* export_statement(Parser *p) {
     char *rest_param = NULL;
     Type *rest_param_type = NULL;
 
+    // Parse function parameters - supports trailing commas: fn name(a, b, c,)
     if (!check(p, TOK_RPAREN)) {
         do {
+            // Allow trailing comma before closing paren
+            if (check(p, TOK_RPAREN)) break;
+
             // Check for rest parameter: ...name
             if (match(p, TOK_DOT_DOT_DOT)) {
                 rest_param = consume_identifier_or_type_keyword(p, "Expect parameter name after '...'");
@@ -681,13 +693,16 @@ Stmt* extern_fn_statement(Parser *p) {
 
     consume(p, TOK_LPAREN, "Expect '(' after function name");
 
-    // Parse parameters
+    // Parse extern function parameters - supports trailing commas
     int param_capacity = 32;
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     int num_params = 0;
 
     if (!check(p, TOK_RPAREN)) {
         do {
+            // Allow trailing comma before closing paren
+            if (check(p, TOK_RPAREN)) break;
+
             // Grow array if needed
             if (num_params >= param_capacity) {
                 param_capacity *= 2;
@@ -723,7 +738,7 @@ Stmt* define_statement(Parser *p) {
     // Contextual keywords can be used as type names
     char *name = consume_identifier_or_type_keyword(p, "Expect object type name");
 
-    // Parse optional type parameters: <T, U, ...>
+    // Parse optional type parameters: <T, U, ...> - supports trailing commas
     char **type_params = NULL;
     int num_type_params = 0;
     int type_param_capacity = 4;
@@ -732,6 +747,9 @@ Stmt* define_statement(Parser *p) {
         type_params = malloc(sizeof(char*) * type_param_capacity);
 
         do {
+            // Allow trailing comma before closing >
+            if (check(p, TOK_GREATER)) break;
+
             consume(p, TOK_IDENT, "Expect type parameter name");
             if (num_type_params >= type_param_capacity) {
                 type_param_capacity *= 2;
@@ -794,8 +812,12 @@ Stmt* define_statement(Parser *p) {
             int *fn_param_is_const = malloc(sizeof(int) * fn_param_capacity);
             int fn_num_params = 0;
 
+            // Parse method parameters - supports trailing commas
             if (!check(p, TOK_RPAREN)) {
                 do {
+                    // Allow trailing comma before closing paren
+                    if (check(p, TOK_RPAREN)) break;
+
                     if (fn_num_params >= fn_param_capacity) {
                         fn_param_capacity *= 2;
                         fn_param_types = realloc(fn_param_types, sizeof(Type*) * fn_param_capacity);
@@ -960,7 +982,7 @@ Stmt* statement(Parser *p) {
         // Contextual keywords can be used as type alias names
         char *name = consume_identifier_or_type_keyword(p, "Expect type alias name");
 
-        // Parse optional type parameters: <T, U, ...>
+        // Parse optional type parameters: <T, U, ...> - supports trailing commas
         int param_capacity = 4;
         char **type_params = NULL;
         int num_type_params = 0;
@@ -969,6 +991,9 @@ Stmt* statement(Parser *p) {
             type_params = malloc(sizeof(char*) * param_capacity);
 
             do {
+                // Allow trailing comma before closing >
+                if (check(p, TOK_GREATER)) break;
+
                 if (num_type_params >= param_capacity) {
                     param_capacity *= 2;
                     type_params = realloc(type_params, sizeof(char*) * param_capacity);
@@ -1071,8 +1096,12 @@ Stmt* statement(Parser *p) {
         char *rest_param = NULL;
         Type *rest_param_type = NULL;
 
+        // Parse function parameters - supports trailing commas
         if (!check(p, TOK_RPAREN)) {
             do {
+                // Allow trailing comma before closing paren
+                if (check(p, TOK_RPAREN)) break;
+
                 // Check for rest parameter: ...name
                 if (match(p, TOK_DOT_DOT_DOT)) {
                     rest_param = consume_identifier_or_type_keyword(p, "Expect parameter name after '...'");

@@ -1247,7 +1247,7 @@ static int run_format(int argc, char **argv) {
             printf("    - Tab indentation\n");
             printf("    - K&R brace style\n");
             printf("    - Max line width: 100 characters\n");
-            printf("    - No trailing commas\n");
+            printf("    - Trailing commas in multiline contexts\n");
             printf("    - Single blank line maximum\n");
             return 0;
         } else if (argv[i][0] == '-') {
