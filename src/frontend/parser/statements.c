@@ -541,6 +541,7 @@ Stmt* export_statement(Parser *p) {
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
     int num_params = 0;
     int seen_optional = 0;
     char *rest_param = NULL;
@@ -574,11 +575,21 @@ Stmt* export_statement(Parser *p) {
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                 param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                 param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
             }
+
+            // Check for const keyword (immutable parameter)
+            int is_const = match(p, TOK_CONST);
+            param_is_const[num_params] = is_const;
 
             // Check for ref keyword (pass-by-reference)
             int is_ref = match(p, TOK_REF);
             param_is_ref[num_params] = is_ref;
+
+            // const and ref are mutually exclusive
+            if (is_const && is_ref) {
+                error_at(p, &p->current, "const and ref modifiers cannot be combined");
+            }
 
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
@@ -621,7 +632,7 @@ Stmt* export_statement(Parser *p) {
     Stmt *body = block_statement(p);
 
     // Create function expression
-    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -876,6 +887,7 @@ Stmt* statement(Parser *p) {
         Type **param_types = malloc(sizeof(Type*) * param_capacity);
         Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
         int *param_is_ref = malloc(sizeof(int) * param_capacity);
+        int *param_is_const = malloc(sizeof(int) * param_capacity);
         int num_params = 0;
         int seen_optional = 0;
         char *rest_param = NULL;
@@ -909,11 +921,21 @@ Stmt* statement(Parser *p) {
                     param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                     param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                     param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                    param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
                 }
+
+                // Check for const keyword (immutable parameter)
+                int is_const = match(p, TOK_CONST);
+                param_is_const[num_params] = is_const;
 
                 // Check for ref keyword (pass-by-reference)
                 int is_ref = match(p, TOK_REF);
                 param_is_ref[num_params] = is_ref;
+
+                // const and ref are mutually exclusive
+                if (is_const && is_ref) {
+                    error_at(p, &p->current, "const and ref modifiers cannot be combined");
+                }
 
                 consume(p, TOK_IDENT, "Expect parameter name");
                 param_names[num_params] = token_text(&p->previous);
@@ -956,7 +978,7 @@ Stmt* statement(Parser *p) {
         Stmt *body = block_statement(p);
 
         // Create function expression (with is_async flag)
-        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);

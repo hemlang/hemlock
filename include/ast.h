@@ -161,6 +161,7 @@ struct Expr {
             Type **param_types;
             Expr **param_defaults;  // Default value expressions (NULL if required)
             int *param_is_ref;      // 1 if parameter is pass-by-reference (ref keyword)
+            int *param_is_const;    // 1 if parameter is const (immutable)
             int num_params;
             char *rest_param;       // Name of rest parameter (...args), NULL if none
             Type *rest_param_type;  // Type of rest parameter, NULL if none
@@ -240,6 +241,8 @@ typedef enum {
     TYPE_VOID,           // Void type (for FFI functions with no return)
     TYPE_COMPOUND,       // Compound type (A & B & C) - intersection/duck typing
     TYPE_PARAM,          // Type parameter (e.g., T in define Stack<T>)
+    TYPE_FUNCTION,       // Function type (e.g., fn(i32, i32): i32)
+    TYPE_SELF,           // Self type (refers to defining type in define blocks)
 } TypeKind;
 
 struct Type {
@@ -255,6 +258,17 @@ struct Type {
     // For generic types (e.g., Stack<i32>):
     struct Type **type_args;    // Type arguments (e.g., [i32] for Stack<i32>)
     int num_type_args;          // Number of type arguments
+
+    // For TYPE_FUNCTION (e.g., fn(i32, string): bool)
+    struct Type **fn_param_types;   // Parameter types
+    char **fn_param_names;          // Optional parameter names (for documentation)
+    int *fn_param_optional;         // Which parameters are optional
+    int *fn_param_is_const;         // Which parameters are const
+    int fn_num_params;              // Number of parameters
+    char *fn_rest_param_name;       // Rest parameter name (NULL if none)
+    struct Type *fn_rest_param_type; // Rest parameter type (NULL if none)
+    struct Type *fn_return_type;    // Return type (NULL = void)
+    int fn_is_async;                // 1 if async function type
 };
 
 // ========== STATEMENT TYPES ==========
@@ -282,6 +296,7 @@ typedef enum {
     STMT_EXPORT,
     STMT_IMPORT_FFI,
     STMT_EXTERN_FN,
+    STMT_TYPE_ALIAS,     // Type alias: type Name<T> = SomeType;
 } StmtType;
 
 // Statement node
@@ -351,6 +366,12 @@ struct Stmt {
             int *field_optional;      // 1 if optional, 0 if required
             Expr **field_defaults;    // NULL or default value expression
             int num_fields;
+            // Method signatures and defaults
+            char **method_names;      // Method names
+            Type **method_types;      // Function types (TYPE_FUNCTION)
+            int *method_optional;     // 1 if optional method
+            Expr **method_defaults;   // Default implementation (NULL if signature only)
+            int num_methods;
         } define_object;
         struct {
             char *name;               // Enum type name
@@ -402,6 +423,12 @@ struct Stmt {
             int num_params;          // Number of parameters
             Type *return_type;       // Return type (NULL for void)
         } extern_fn;
+        struct {
+            char *name;              // Alias name
+            char **type_params;      // Generic type parameters (e.g., ["T", "U"])
+            int num_type_params;     // Number of type parameters
+            Type *aliased_type;      // The actual type
+        } type_alias;
     } as;
 };
 
@@ -425,7 +452,7 @@ Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
 Expr* expr_index(Expr *object, Expr *index);
 Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
-Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body);
+Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int *param_is_const, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);
 Expr* expr_prefix_inc(Expr *operand);
@@ -478,6 +505,11 @@ Stmt* stmt_import_ffi(const char *library_path);
 Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_params, Type *return_type);
 Type* type_new(TypeKind kind);
 Type* type_compound(Type **types, int num_types);  // Create compound type (A & B & C)
+Type* type_function(Type **param_types, char **param_names, int *param_optional,
+                    int *param_is_const, int num_params, char *rest_param_name,
+                    Type *rest_param_type, Type *return_type, int is_async);
+Type* type_self(void);  // Create Self type for define blocks
+Stmt* stmt_type_alias(const char *name, char **type_params, int num_type_params, Type *aliased_type);
 void type_free(Type *type);
 
 // Cloning

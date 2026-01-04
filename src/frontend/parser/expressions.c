@@ -269,6 +269,7 @@ Expr* primary(Parser *p) {
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
     char *rest_param = NULL;
@@ -304,11 +305,21 @@ Expr* primary(Parser *p) {
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                 param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                 param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
             }
+
+            // Check for const keyword (immutable parameter)
+            int is_const = match(p, TOK_CONST);
+            param_is_const[num_params] = is_const;
 
             // Check for ref keyword (pass-by-reference)
             int is_ref = match(p, TOK_REF);
             param_is_ref[num_params] = is_ref;
+
+            // const and ref are mutually exclusive
+            if (is_const && is_ref) {
+                error_at(p, &p->current, "const and ref modifiers cannot be combined");
+            }
 
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
@@ -352,7 +363,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
 not_fn_expr:
 
