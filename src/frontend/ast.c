@@ -449,6 +449,20 @@ Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body) {
     return stmt;
 }
 
+Stmt* stmt_loop(Stmt *body) {
+    return stmt_loop_labeled(NULL, body);
+}
+
+Stmt* stmt_loop_labeled(const char *label, Stmt *body) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_LOOP;
+    stmt->line = 0;
+    stmt->column = 0;
+    stmt->as.loop_stmt.label = label ? strdup(label) : NULL;
+    stmt->as.loop_stmt.body = body;
+    return stmt;
+}
+
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) {
     return stmt_for_labeled(NULL, initializer, condition, increment, body);
 }
@@ -1130,6 +1144,10 @@ void stmt_free(Stmt *stmt) {
             free(stmt->as.while_stmt.label);
             expr_free(stmt->as.while_stmt.condition);
             stmt_free(stmt->as.while_stmt.body);
+            break;
+        case STMT_LOOP:
+            free(stmt->as.loop_stmt.label);
+            stmt_free(stmt->as.loop_stmt.body);
             break;
         case STMT_FOR:
             free(stmt->as.for_loop.label);

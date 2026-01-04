@@ -608,6 +608,9 @@ static int count_stmt_nodes(Stmt *stmt) {
             count += count_expr_nodes(stmt->as.while_stmt.condition);
             count += count_stmt_nodes(stmt->as.while_stmt.body);
             break;
+        case STMT_LOOP:
+            count += count_stmt_nodes(stmt->as.loop_stmt.body);
+            break;
         case STMT_FOR:
             count += count_stmt_nodes(stmt->as.for_loop.initializer);
             count += count_expr_nodes(stmt->as.for_loop.condition);

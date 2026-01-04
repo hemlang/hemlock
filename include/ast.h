@@ -265,6 +265,7 @@ typedef enum {
     STMT_EXPR,
     STMT_IF,
     STMT_WHILE,
+    STMT_LOOP,
     STMT_FOR,
     STMT_FOR_IN,
     STMT_BREAK,
@@ -310,6 +311,10 @@ struct Stmt {
             Expr *condition;
             Stmt *body;
         } while_stmt;
+        struct {
+            char *label;        // optional loop label (NULL if unlabeled)
+            Stmt *body;         // no condition - always infinite
+        } loop_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
             Stmt *initializer;  // let i = 0
@@ -442,6 +447,8 @@ Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value);
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch);
 Stmt* stmt_while(Expr *condition, Stmt *body);
 Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body);
+Stmt* stmt_loop(Stmt *body);
+Stmt* stmt_loop_labeled(const char *label, Stmt *body);
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
 Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
 Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body);

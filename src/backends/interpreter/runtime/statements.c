@@ -136,6 +136,54 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             break;
         }
 
+        case STMT_LOOP: {
+            // Create iteration environment once, reuse each iteration
+            Environment *iter_env = env_new(env);
+            const char *loop_label = stmt->as.loop_stmt.label;
+            for (;;) {
+                // Clear and reuse iteration environment
+                env_clear(iter_env);
+                eval_stmt(stmt->as.loop_stmt.body, iter_env, ctx);
+
+                // Check for break/continue/return/exception
+                if (ctx->loop_state.is_breaking) {
+                    // Check if this break targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Break targets this loop
+                        ctx->loop_state.is_breaking = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        break;
+                    }
+                    // Break targets an outer loop, propagate
+                    break;
+                }
+                if (ctx->loop_state.is_continuing) {
+                    // Check if this continue targets us
+                    if (ctx->loop_state.target_label == NULL ||
+                        (loop_label && strcmp(ctx->loop_state.target_label, loop_label) == 0)) {
+                        // Continue targets this loop
+                        ctx->loop_state.is_continuing = 0;
+                        if (ctx->loop_state.target_label) {
+                            free(ctx->loop_state.target_label);
+                            ctx->loop_state.target_label = NULL;
+                        }
+                        continue;
+                    }
+                    // Continue targets an outer loop, propagate
+                    break;
+                }
+                if (ctx->return_state.is_returning || ctx->exception_state.is_throwing) {
+                    break;
+                }
+            }
+            env_release(iter_env);
+            break;
+        }
+
         case STMT_FOR: {
             // Create new environment for loop scope
             Environment *loop_env = env_new(env);

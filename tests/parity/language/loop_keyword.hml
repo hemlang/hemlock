@@ -1,0 +1,96 @@
+// Test the loop keyword (infinite loop)
+// Note: This test uses loop instead of while(true)
+
+// Basic loop with break
+let i = 0;
+loop {
+    if (i >= 3) {
+        break;
+    }
+    i = i + 1;
+}
+// i should be 3
+
+// Loop with continue
+let j = 0;
+let sum = 0;
+loop {
+    j = j + 1;
+    if (j > 5) {
+        break;
+    }
+    if (j == 3) {
+        continue;
+    }
+    sum = sum + j;
+}
+// sum should be 1+2+4+5 = 12
+
+// Nested loops
+let outer_count = 0;
+let inner_count = 0;
+loop {
+    if (outer_count >= 2) {
+        break;
+    }
+    let k = 0;
+    loop {
+        if (k >= 3) {
+            break;
+        }
+        inner_count = inner_count + 1;
+        k = k + 1;
+    }
+    outer_count = outer_count + 1;
+}
+// outer_count should be 2, inner_count should be 6
+
+// Labeled loop with break
+let x = 0;
+let y_sum = 0;
+outer: loop {
+    if (x >= 3) {
+        break;
+    }
+    let y = 0;
+    loop {
+        if (x == 1 && y == 1) {
+            break outer;
+        }
+        y_sum = y_sum + 1;
+        y = y + 1;
+        if (y >= 3) {
+            break;
+        }
+    }
+    x = x + 1;
+}
+// Should break at x=1, y=1, so y_sum should be 3+1 = 4
+
+// Labeled loop with continue
+let a = 0;
+let b_sum = 0;
+outer: loop {
+    a = a + 1;
+    if (a > 3) {
+        break;
+    }
+    let b = 0;
+    loop {
+        b = b + 1;
+        if (b > 3) {
+            break;
+        }
+        if (a == 2 && b == 1) {
+            continue outer;
+        }
+        b_sum = b_sum + 1;
+    }
+}
+// For a=1: b=1,2,3 -> 3 counts
+// For a=2: b=1 -> continue outer, 0 counts
+// For a=3: b=1,2,3 -> 3 counts
+// Total: 6
+
+// Verify all results
+let all_pass = (i == 3) && (sum == 12) && (outer_count == 2) && (inner_count == 6) && (y_sum == 4) && (b_sum == 6);
