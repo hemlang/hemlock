@@ -530,6 +530,10 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
         case STMT_EXTERN_FN:
             // FFI declarations - no expressions to resolve
             break;
+
+        case STMT_TYPE_ALIAS:
+            // Type aliases - no expressions to resolve
+            break;
     }
 }
 
