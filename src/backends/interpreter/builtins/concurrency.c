@@ -103,7 +103,8 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // Create task (atomically increment task ID for thread-safety)
     // NOTE: We keep closure_env for read access to builtins and global functions
     // Arguments are deep-copied above to prevent sharing mutable data
-    // Modifying parent scope variables from tasks is undefined behavior
+    // The closure environment is protected by a per-environment mutex, making
+    // concurrent reads safe. Writes to parent scope variables are also synchronized.
     int task_id = atomic_fetch_add(&next_task_id, 1);
     Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
@@ -273,6 +274,7 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         // Create task (atomically increment task ID for thread-safety)
         // NOTE: We keep closure_env for read access to builtins and global functions
         // Arguments are deep-copied above to prevent sharing mutable data
+        // The closure environment is protected by a per-environment mutex for thread-safety.
         int task_id = atomic_fetch_add(&next_task_id, 1);
         Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
