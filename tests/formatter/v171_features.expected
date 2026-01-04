@@ -1,0 +1,28 @@
+// Test v1.7.1 language features
+// Loop keyword
+// Type alias
+// Loop labels
+// Object shorthand
+// Object spread
+// Compound types
+// Function types
+loop {
+	break;
+}
+type Integer = i32;
+type Callback = fn(i32);
+outer: while (true) {
+	inner: for (let i = 0; i < 10; i++) {
+		if (i == 5) {
+			break outer;
+		}
+		continue inner;
+	}
+}
+let name = "Alice";
+let age = 30;
+let person = { name, age };
+let defaults = { x: 0, y: 0 };
+let point = { ...defaults, z: 10 };
+let p: HasName & HasAge = { name: "Bob", age: 25 };
+type BinaryOp = fn(i32, i32): i32;

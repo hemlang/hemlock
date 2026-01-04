@@ -99,6 +99,23 @@ jobs:
     - name: Run bundler tests
       run: make test-bundler
 
+  # Formatter tests
+  formatter:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev
+
+    - name: Build interpreter
+      run: make clean && make
+
+    - name: Run formatter tests
+      run: make test-formatter
+
   # Memory checks with AddressSanitizer
   asan:
     runs-on: ubuntu-latest

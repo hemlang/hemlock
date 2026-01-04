@@ -78,8 +78,9 @@ INTERP_SRCS = $(wildcard $(SRC_DIR)/backends/interpreter/*.c) \
               $(wildcard $(SRC_DIR)/backends/interpreter/runtime/*.c) \
               $(wildcard $(SRC_DIR)/backends/interpreter/profiler/*.c)
 
-# Other components (LSP, bundler, and type checker for LSP integration)
+# Other components (LSP, bundler, formatter, and type checker for LSP integration)
 OTHER_SRCS = $(wildcard $(SRC_DIR)/lsp/*.c) $(wildcard $(SRC_DIR)/bundler/*.c) \
+             $(wildcard $(SRC_DIR)/formatter/*.c) \
              $(SRC_DIR)/backends/compiler/type_check.c
 
 # All interpreter sources
@@ -98,7 +99,8 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/backends/interpreter/profiler \
              $(BUILD_DIR)/backends/compiler \
              $(BUILD_DIR)/lsp \
-             $(BUILD_DIR)/bundler
+             $(BUILD_DIR)/bundler \
+             $(BUILD_DIR)/formatter
 
 all: $(BUILD_DIRS) $(TARGET) compiler
 
@@ -127,6 +129,9 @@ run: $(TARGET)
 
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
+
+test-formatter: $(TARGET)
+	@bash tests/formatter/run_tests.sh
 
 # ========== STDLIB C MODULES ==========
 
@@ -468,7 +473,8 @@ RELEASE_BUILD_DIRS = $(RELEASE_BUILD_DIR) \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/runtime \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/profiler \
                      $(RELEASE_BUILD_DIR)/lsp \
-                     $(RELEASE_BUILD_DIR)/bundler
+                     $(RELEASE_BUILD_DIR)/bundler \
+                     $(RELEASE_BUILD_DIR)/formatter
 
 # Build optimized, stripped binary for distribution
 release: $(RELEASE_BUILD_DIRS) $(RELEASE_BUILD_DIR)/hemlock
@@ -563,7 +569,8 @@ STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
                     $(STATIC_BUILD_DIR)/backends/interpreter/profiler \
                     $(STATIC_BUILD_DIR)/backends/compiler \
                     $(STATIC_BUILD_DIR)/lsp \
-                    $(STATIC_BUILD_DIR)/bundler
+                    $(STATIC_BUILD_DIR)/bundler \
+                    $(STATIC_BUILD_DIR)/formatter
 
 .PHONY: release-static release-static-compiler release-static-clean
 
