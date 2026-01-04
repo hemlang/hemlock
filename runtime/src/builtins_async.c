@@ -121,8 +121,10 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     if (num_args > 0) {
         task->args = malloc(sizeof(HmlValue) * num_args);
         for (int i = 0; i < num_args; i++) {
-            task->args[i] = args[i];
-            hml_retain(&task->args[i]);
+            // Deep copy arguments to prevent sharing mutable state between threads.
+            // This matches the interpreter's behavior and prevents data races with
+            // mutable types like strings, arrays, and objects.
+            task->args[i] = hml_value_deep_copy(args[i]);
         }
     } else {
         task->args = NULL;
