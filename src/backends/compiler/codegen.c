@@ -486,6 +486,49 @@ const char* codegen_get_for_continue_label(CodegenContext *ctx) {
     return NULL;
 }
 
+// ========== LOOP LABEL TRACKING ==========
+
+void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char *break_label, const char *continue_label) {
+    if (ctx->loop_label_depth >= ctx->loop_label_capacity) {
+        int new_cap = (ctx->loop_label_capacity == 0) ? 4 : ctx->loop_label_capacity * 2;
+        ctx->loop_labels = realloc(ctx->loop_labels, new_cap * sizeof(char*));
+        ctx->loop_break_labels = realloc(ctx->loop_break_labels, new_cap * sizeof(char*));
+        ctx->loop_continue_labels = realloc(ctx->loop_continue_labels, new_cap * sizeof(char*));
+        ctx->loop_label_capacity = new_cap;
+    }
+    ctx->loop_labels[ctx->loop_label_depth] = strdup(label);
+    ctx->loop_break_labels[ctx->loop_label_depth] = strdup(break_label);
+    ctx->loop_continue_labels[ctx->loop_label_depth] = strdup(continue_label);
+    ctx->loop_label_depth++;
+}
+
+void codegen_pop_loop_label(CodegenContext *ctx) {
+    if (ctx->loop_label_depth > 0) {
+        ctx->loop_label_depth--;
+        free(ctx->loop_labels[ctx->loop_label_depth]);
+        free(ctx->loop_break_labels[ctx->loop_label_depth]);
+        free(ctx->loop_continue_labels[ctx->loop_label_depth]);
+    }
+}
+
+const char* codegen_get_labeled_break(CodegenContext *ctx, const char *label) {
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            return ctx->loop_break_labels[i];
+        }
+    }
+    return NULL;
+}
+
+const char* codegen_get_labeled_continue(CodegenContext *ctx, const char *label) {
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            return ctx->loop_continue_labels[i];
+        }
+    }
+    return NULL;
+}
+
 // Forward declaration
 int codegen_is_main_var(CodegenContext *ctx, const char *name);
 

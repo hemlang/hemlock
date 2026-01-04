@@ -16,6 +16,7 @@ typedef struct {
 typedef struct {
     int is_breaking;
     int is_continuing;
+    char *target_label;  // NULL for innermost loop, or label name to target
 } LoopState;
 
 typedef struct {

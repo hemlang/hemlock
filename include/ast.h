@@ -275,22 +275,30 @@ struct Stmt {
             Stmt *else_branch;  // can be NULL
         } if_stmt;
         struct {
+            char *label;        // optional loop label (NULL if unlabeled)
             Expr *condition;
             Stmt *body;
         } while_stmt;
         struct {
+            char *label;        // optional loop label (NULL if unlabeled)
             Stmt *initializer;  // let i = 0
             Expr *condition;    // i < 10
             Expr *increment;    // i = i + 1
             Stmt *body;
         } for_loop;
         struct {
+            char *label;        // optional loop label (NULL if unlabeled)
             char *key_var;      // variable name (or NULL for value-only iteration)
             char *value_var;    // variable name
             Expr *iterable;     // array or object to iterate
             Stmt *body;
         } for_in;
-        // break and continue have no fields
+        struct {
+            char *label;        // optional target label (NULL for innermost loop)
+        } break_stmt;
+        struct {
+            char *label;        // optional target label (NULL for innermost loop)
+        } continue_stmt;
         struct {
             Stmt **statements;
             int count;
@@ -400,10 +408,15 @@ Stmt* stmt_const(const char *name, Expr *value);
 Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value);
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch);
 Stmt* stmt_while(Expr *condition, Stmt *body);
+Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body);
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
+Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
 Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body);
+Stmt* stmt_for_in_labeled(const char *label, char *key_var, char *value_var, Expr *iterable, Stmt *body);
 Stmt* stmt_break(void);
+Stmt* stmt_break_labeled(const char *label);
 Stmt* stmt_continue(void);
+Stmt* stmt_continue_labeled(const char *label);
 Stmt* stmt_block(Stmt **statements, int count);
 Stmt* stmt_expr(Expr *expr);
 Stmt* stmt_return(Expr *value);
