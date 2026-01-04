@@ -141,14 +141,7 @@ export fn now() {
 
 // Create DateTime from date components (local time)
 export fn from_date(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
-    let components = {
-        year: year,
-        month: month,
-        day: day,
-        hour: hour,
-        minute: minute,
-        second: second
-    };
+    let components = { year, month, day, hour, minute, second };
     let timestamp = __mktime(components);
     return DateTime(timestamp);
 }
@@ -157,14 +150,7 @@ export fn from_date(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, secon
 export fn from_utc(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
     // Create local components, convert to timestamp, then adjust
     // Note: This is a simplified approach. Full UTC support would need timegm()
-    let components = {
-        year: year,
-        month: month,
-        day: day,
-        hour: hour,
-        minute: minute,
-        second: second
-    };
+    let components = { year, month, day, hour, minute, second };
     let timestamp = __mktime(components);
     return DateTime(timestamp);
 }

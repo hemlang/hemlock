@@ -1,0 +1,152 @@
+// Test Self type in various contexts
+
+// 1. Self in return type of method signature
+define Clonable {
+    value: i32,
+    fn clone(): Self;
+}
+
+let obj1: Clonable = {
+    value: 42,
+    clone: fn() { return { value: self.value, clone: self.clone }; }
+};
+
+let obj2 = obj1.clone();
+print(obj2.value);
+
+// 2. Self as parameter - comparison
+define Comparable {
+    value: i32,
+    fn compare(other: Self): i32;
+}
+
+let c1: Comparable = {
+    value: 10,
+    compare: fn(other) { return self.value - other.value; }
+};
+
+let c2: Comparable = {
+    value: 20,
+    compare: fn(other) { return self.value - other.value; }
+};
+
+print(c1.compare(c2));  // -10
+print(c2.compare(c1));  // 10
+
+// 3. Self in equality method
+define Equatable {
+    val: i32,
+    fn equals(other: Self): bool;
+}
+
+let a: Equatable = {
+    val: 10,
+    equals: fn(other) { return self.val == other.val; }
+};
+
+let b: Equatable = {
+    val: 10,
+    equals: fn(other) { return self.val == other.val; }
+};
+
+let c: Equatable = {
+    val: 20,
+    equals: fn(other) { return self.val == other.val; }
+};
+
+print(a.equals(b));   // true
+print(a.equals(c));   // false
+
+// 4. Self with increment pattern
+define Counter {
+    count: i32,
+    fn increment(): Self;
+    fn get(): i32;
+}
+
+let counter: Counter = {
+    count: 0,
+    increment: fn() {
+        return {
+            count: self.count + 1,
+            increment: self.increment,
+            get: self.get
+        };
+    },
+    get: fn() { return self.count; }
+};
+
+let c3 = counter.increment().increment().increment();
+print(c3.get());
+
+// 5. Self with generics
+define Box<T> {
+    value: T,
+    fn set(v: T): Self;
+    fn get(): T;
+}
+
+let intBox: Box<i32> = {
+    value: 100,
+    set: fn(v) {
+        return { value: v, set: self.set, get: self.get };
+    },
+    get: fn() { return self.value; }
+};
+
+let updated = intBox.set(200);
+print(updated.get());
+
+// 6. Self with multiple Self parameters
+define Mergeable {
+    data: i32,
+    fn merge(other: Self): Self;
+}
+
+let m1: Mergeable = {
+    data: 5,
+    merge: fn(other) {
+        return {
+            data: self.data + other.data,
+            merge: self.merge
+        };
+    }
+};
+
+let m2: Mergeable = {
+    data: 10,
+    merge: fn(other) {
+        return {
+            data: self.data + other.data,
+            merge: self.merge
+        };
+    }
+};
+
+let merged = m1.merge(m2);
+print(merged.data);
+
+// 7. Chained Self returns
+define Fluent {
+    x: i32,
+    y: i32,
+    fn setX(v: i32): Self;
+    fn setY(v: i32): Self;
+}
+
+let fluent: Fluent = {
+    x: 0,
+    y: 0,
+    setX: fn(v) {
+        return { x: v, y: self.y, setX: self.setX, setY: self.setY };
+    },
+    setY: fn(v) {
+        return { x: self.x, y: v, setX: self.setX, setY: self.setY };
+    }
+};
+
+let f = fluent.setX(10).setY(20);
+print(f.x);
+print(f.y);
+
+print("done");

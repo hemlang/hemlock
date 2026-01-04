@@ -136,7 +136,7 @@ enum Color {
 }
 
 let c = Color.RED;
-print(c);              // "RED"
+print(c);              // 0
 print(typeof(c));      // "Color"
 
 // Comparison
@@ -629,14 +629,67 @@ let cfg2: Config = { host: "0.0.0.0", port: 80, debug: true };
 print(cfg2.debug);    // true (overridden)
 ```
 
+## Type Aliases
+
+Hemlock supports custom type aliases using the `type` keyword:
+
+### Basic Type Aliases
+
+```hemlock
+// Simple type alias
+type Integer = i32;
+type Text = string;
+
+// Using the alias
+let x: Integer = 42;
+let msg: Text = "hello";
+```
+
+### Function Type Aliases
+
+```hemlock
+// Function type alias
+type Callback = fn(i32): void;
+type Predicate = fn(i32): bool;
+type AsyncHandler = async fn(string): i32;
+
+// Using function type aliases
+let cb: Callback = fn(n) { print(n); };
+let isEven: Predicate = fn(n) { return n % 2 == 0; };
+```
+
+### Compound Type Aliases
+
+```hemlock
+// Combine multiple defines into one type
+define HasName { name: string }
+define HasAge { age: i32 }
+
+type Person = HasName & HasAge;
+
+let p: Person = { name: "Alice", age: 30 };
+```
+
+### Generic Type Aliases
+
+```hemlock
+// Generic type alias
+type Pair<T> = { first: T, second: T };
+type Result<T, E> = { value: T?, error: E? };
+
+// Using generic aliases
+let coords: Pair<f64> = { first: 3.14, second: 2.71 };
+```
+
+**Note:** Type aliases are transparent - `typeof()` returns the underlying type name, not the alias.
+
 ## Type System Limitations
 
 Current limitations:
 
-- **No generics** - Cannot parameterize types
+- **No generics on functions** - Function type parameters not yet supported
 - **No union types** - Cannot express "A or B"
-- **No nullable types** - All types can be null
-- **No custom type aliases** - Cannot define your own type aliases (built-in aliases like `integer`, `number`, `byte` exist)
+- **No nullable types** - All types can be null (use `?` suffix for explicit nullability)
 
 **Note:** The compiler (`hemlockc`) provides compile-time type checking. The interpreter performs runtime type checking only. See the [compiler documentation](../design/implementation.md) for details.
 

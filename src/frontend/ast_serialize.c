@@ -917,6 +917,15 @@ static void serialize_stmt(SerializeContext *ctx, Stmt *stmt) {
             }
             serialize_type(ctx, stmt->as.extern_fn.return_type);
             break;
+
+        case STMT_TYPE_ALIAS:
+            write_string_id(ctx, stmt->as.type_alias.name);
+            write_u32(ctx, (uint32_t)stmt->as.type_alias.num_type_params);
+            for (int i = 0; i < stmt->as.type_alias.num_type_params; i++) {
+                write_string_id(ctx, stmt->as.type_alias.type_params[i]);
+            }
+            serialize_type(ctx, stmt->as.type_alias.aliased_type);
+            break;
     }
 }
 
@@ -1180,6 +1189,26 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
                 stmt->as.extern_fn.param_types = NULL;
             }
             stmt->as.extern_fn.return_type = deserialize_type(ctx);
+            break;
+        }
+
+        case STMT_TYPE_ALIAS: {
+            stmt->as.type_alias.name = read_string_id(ctx);
+            stmt->as.type_alias.num_type_params = (int)read_u32(ctx);
+            int n = stmt->as.type_alias.num_type_params;
+            if (n > 0) {
+                stmt->as.type_alias.type_params = malloc(n * sizeof(char*));
+                if (!stmt->as.type_alias.type_params) {
+                    free(stmt);
+                    return NULL;
+                }
+                for (int i = 0; i < n; i++) {
+                    stmt->as.type_alias.type_params[i] = read_string_id(ctx);
+                }
+            } else {
+                stmt->as.type_alias.type_params = NULL;
+            }
+            stmt->as.type_alias.aliased_type = deserialize_type(ctx);
             break;
         }
     }

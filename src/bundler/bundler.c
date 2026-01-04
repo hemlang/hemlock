@@ -483,6 +483,7 @@ static void collect_stmt_deps(Stmt *stmt, Symbol *sym) {
         case STMT_EXPORT:
         case STMT_IMPORT_FFI:
         case STMT_EXTERN_FN:
+        case STMT_TYPE_ALIAS:
             // No dependencies to collect
             break;
     }

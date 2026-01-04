@@ -22,12 +22,10 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
     // Determine content type from headers or use default
     let content_type = "application/x-www-form-urlencoded";
     if (headers != null && headers.length > 0) {
-        let i = 0;
-        while (i < headers.length) {
-            if (headers[i].starts_with("Content-Type:")) {
-                content_type = headers[i].substr(14, headers[i].length - 14).trim();
+        for (header in headers) {
+            if (header.starts_with("Content-Type:")) {
+                content_type = header.substr(14, header.length - 14).trim();
             }
-            i = i + 1;
         }
     }
 
@@ -149,54 +147,36 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 // ========== PUBLIC API ==========
 
 export fn get(url, headers) {
-    if (headers == null) {
-        headers = [];
-    }
+    headers ??= [];
     return http_request("GET", url, "", headers);
 }
 
 // Get binary data (for file downloads - returns buffer instead of string)
 export fn get_binary(url, headers) {
-    if (headers == null) {
-        headers = [];
-    }
+    headers ??= [];
     return http_request_binary("GET", url, headers);
 }
 
 export fn post(url, body, headers) {
-    if (body == null) {
-        body = "";
-    }
-    if (headers == null) {
-        headers = [];
-    }
+    body ??= "";
+    headers ??= [];
     return http_request("POST", url, body, headers);
 }
 
 export fn put(url, body, headers) {
-    if (body == null) {
-        body = "";
-    }
-    if (headers == null) {
-        headers = [];
-    }
+    body ??= "";
+    headers ??= [];
     return http_request("PUT", url, body, headers);
 }
 
 export fn delete(url, headers) {
-    if (headers == null) {
-        headers = [];
-    }
+    headers ??= [];
     return http_request("DELETE", url, "", headers);
 }
 
 export fn request(method, url, body, headers) {
-    if (body == null) {
-        body = "";
-    }
-    if (headers == null) {
-        headers = [];
-    }
+    body ??= "";
+    headers ??= [];
     return http_request(method, url, body, headers);
 }
 
@@ -276,8 +256,8 @@ export fn HttpServer(host: string, port: i32) {
     let routes = [];
 
     return {
-        host: host,
-        port: port,
+        host,
+        port,
         _listener: listener,
         _routes: routes,
 
@@ -316,7 +296,7 @@ export fn HttpServer(host: string, port: i32) {
             let handled = 0;
             while (count == 0 || handled < count) {
                 self.handle_one();
-                handled = handled + 1;
+                handled++;
             }
         },
 
@@ -348,9 +328,8 @@ export fn HttpServer(host: string, port: i32) {
 
             // Parse headers
             let headers = {};
-            let i = 1;
             let body_start = -1;
-            while (i < lines.length) {
+            for (let i = 1; i < lines.length; i++) {
                 let line = lines[i];
                 if (line == "") {
                     body_start = i + 1;
@@ -362,39 +341,33 @@ export fn HttpServer(host: string, port: i32) {
                     let value = line.substr(colon + 1, line.length - colon - 1).trim();
                     headers[key] = value;
                 }
-                i = i + 1;
             }
 
             // Extract body
             let body = "";
             if (body_start > 0 && body_start < lines.length) {
                 let body_lines = [];
-                let j = body_start;
-                while (j < lines.length) {
+                for (let j = body_start; j < lines.length; j++) {
                     body_lines.push(lines[j]);
-                    j = j + 1;
                 }
                 body = body_lines.join("\r\n");
             }
 
             return {
-                method: method,
-                path: path,
-                version: version,
-                headers: headers,
-                body: body
+                method,
+                path,
+                version,
+                headers,
+                body
             };
         },
 
         // Internal: Find route and call handler
         _handle_request: fn(req) {
-            let i = 0;
-            while (i < self._routes.length) {
-                let route = self._routes[i];
+            for (route in self._routes) {
                 if (route.method == req.method && route.path == req.path) {
                     return route.handler(req);
                 }
-                i = i + 1;
             }
 
             // No route found - return 404
@@ -407,20 +380,9 @@ export fn HttpServer(host: string, port: i32) {
 
         // Internal: Build HTTP response string
         _build_response: fn(response) {
-            let status = response.status;
-            if (status == null) {
-                status = 200;
-            }
-
-            let body = response.body;
-            if (body == null) {
-                body = "";
-            }
-
-            let content_type = response.content_type;
-            if (content_type == null) {
-                content_type = "text/plain";
-            }
+            let status = response.status ?? 200;
+            let body = response.body ?? "";
+            let content_type = response.content_type ?? "text/plain";
 
             let status_text = "OK";
             if (status == 201) { status_text = "Created"; }
@@ -433,11 +395,11 @@ export fn HttpServer(host: string, port: i32) {
             else if (status == 500) { status_text = "Internal Server Error"; }
 
             let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
-            resp = resp + "Content-Type: " + content_type + "\r\n";
-            resp = resp + "Content-Length: " + body.length + "\r\n";
-            resp = resp + "Connection: close\r\n";
-            resp = resp + "\r\n";
-            resp = resp + body;
+            resp += "Content-Type: " + content_type + "\r\n";
+            resp += "Content-Length: " + body.length + "\r\n";
+            resp += "Connection: close\r\n";
+            resp += "\r\n";
+            resp += body;
 
             return resp;
         }

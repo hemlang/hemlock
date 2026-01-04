@@ -19,7 +19,7 @@ export fn ThreadPool(num_workers: i32) {
 
     // Worker function - pulls tasks from queue and executes them
     async fn worker_loop(queue, id) {
-        while (true) {
+        loop {
             // Get next task from queue (blocking)
             let task = queue.recv();
 
@@ -45,11 +45,9 @@ export fn ThreadPool(num_workers: i32) {
     }
 
     // Start worker threads
-    let i = 0;
-    while (i < num_workers) {
+    for (let i = 0; i < num_workers; i++) {
         let w = spawn(worker_loop, work_queue, i);
         workers.push(w);
-        i = i + 1;
     }
 
     // Submit a task to the pool
@@ -65,15 +63,14 @@ export fn ThreadPool(num_workers: i32) {
         // So we'll just support submit(fn) for now
 
         let result_ch = channel(1);
-        let task_id = next_task_id;
-        next_task_id = next_task_id + 1;
+        let task_id = next_task_id++;
 
         // Send task to queue
         work_queue.send({
             id: task_id,
             func: task_fn,
             args: args_arr,
-            result_ch: result_ch
+            result_ch
         });
 
         // Return a Future object
@@ -114,14 +111,13 @@ export fn ThreadPool(num_workers: i32) {
         }
 
         let result_ch = channel(1);
-        let task_id = next_task_id;
-        next_task_id = next_task_id + 1;
+        let task_id = next_task_id++;
 
         work_queue.send({
             id: task_id,
             func: task_fn,
             args: [arg1],
-            result_ch: result_ch
+            result_ch
         });
 
         return {
@@ -157,14 +153,13 @@ export fn ThreadPool(num_workers: i32) {
         }
 
         let result_ch = channel(1);
-        let task_id = next_task_id;
-        next_task_id = next_task_id + 1;
+        let task_id = next_task_id++;
 
         work_queue.send({
             id: task_id,
             func: task_fn,
             args: [arg1, arg2],
-            result_ch: result_ch
+            result_ch
         });
 
         return {
@@ -201,17 +196,13 @@ export fn ThreadPool(num_workers: i32) {
         shutdown_flag = true;
 
         // Send shutdown signals to all workers
-        let i = 0;
-        while (i < num_workers) {
+        for (let i = 0; i < num_workers; i++) {
             work_queue.send(null);  // null = shutdown signal
-            i = i + 1;
         }
 
         // Wait for all workers to finish
-        i = 0;
-        while (i < workers.length) {
-            join(workers[i]);
-            i = i + 1;
+        for (worker in workers) {
+            join(worker);
         }
 
         work_queue.close();
@@ -219,11 +210,11 @@ export fn ThreadPool(num_workers: i32) {
 
     // Return the pool object
     return {
-        submit: submit,
-        submit1: submit1,
-        submit2: submit2,
-        shutdown: shutdown,
-        num_workers: num_workers
+        submit,
+        submit1,
+        submit2,
+        shutdown,
+        num_workers
     };
 }
 
@@ -235,18 +226,14 @@ export fn parallel_map(arr, map_fn, num_workers?: 4) {
     let futures = [];
 
     // Submit all tasks
-    let i = 0;
-    while (i < arr.length) {
-        futures.push(pool.submit1(map_fn, arr[i]));
-        i = i + 1;
+    for (item in arr) {
+        futures.push(pool.submit1(map_fn, item));
     }
 
     // Collect results
     let results = [];
-    i = 0;
-    while (i < futures.length) {
-        results.push(futures[i].get());
-        i = i + 1;
+    for (future in futures) {
+        results.push(future.get());
     }
 
     pool.shutdown();

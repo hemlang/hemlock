@@ -801,6 +801,7 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
         case STMT_EXPORT:
         case STMT_IMPORT_FFI:
         case STMT_EXTERN_FN:
+        case STMT_TYPE_ALIAS:
             break;
     }
 }
