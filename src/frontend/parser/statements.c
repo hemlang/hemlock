@@ -7,8 +7,7 @@ Stmt* extern_fn_statement(Parser *p);
 Stmt* define_statement(Parser *p);
 
 Stmt* let_statement(Parser *p) {
-    consume(p, TOK_IDENT, "Expect variable name");
-    char *name = token_text(&p->previous);
+    char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
 
     Type *type_annotation = NULL;
 
@@ -29,8 +28,7 @@ Stmt* let_statement(Parser *p) {
 }
 
 Stmt* const_statement(Parser *p) {
-    consume(p, TOK_IDENT, "Expect variable name");
-    char *name = token_text(&p->previous);
+    char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
 
     Type *type_annotation = NULL;
 
@@ -843,8 +841,7 @@ Stmt* define_statement(Parser *p) {
             field_optional = realloc(field_optional, sizeof(int) * field_capacity);
             field_defaults = realloc(field_defaults, sizeof(Expr*) * field_capacity);
         }
-        consume(p, TOK_IDENT, "Expect field name");
-        field_names[num_fields] = token_text(&p->previous);
+        field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
 
         // Check for optional marker followed by colon (?: syntax)
         if (match(p, TOK_QUESTION)) {

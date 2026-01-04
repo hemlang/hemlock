@@ -22,24 +22,7 @@ Expr* postfix(Parser *p);
 Expr* primary(Parser *p);
 Type* parse_type(Parser *p);
 
-// Helper: Check if current token is a type keyword and can be used as identifier
-static int is_type_keyword(TokenType type) {
-    return type == TOK_TYPE_I8 || type == TOK_TYPE_I16 || type == TOK_TYPE_I32 || type == TOK_TYPE_I64 ||
-           type == TOK_TYPE_U8 || type == TOK_TYPE_U16 || type == TOK_TYPE_U32 || type == TOK_TYPE_U64 ||
-           type == TOK_TYPE_F32 || type == TOK_TYPE_F64 || type == TOK_TYPE_BOOL || type == TOK_TYPE_STRING ||
-           type == TOK_TYPE_RUNE || type == TOK_TYPE_PTR || type == TOK_TYPE_BUFFER || type == TOK_TYPE_ARRAY ||
-           type == TOK_TYPE_INTEGER || type == TOK_TYPE_NUMBER || type == TOK_TYPE_BYTE || type == TOK_TYPE_VOID;
-}
-
-// Helper: Consume identifier or type keyword (for property/field names)
-static char* consume_identifier_or_type(Parser *p, const char *message) {
-    if (p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) {
-        advance(p);
-        return token_text(&p->previous);
-    }
-    error_at_current(p, message);
-    return strdup("error");
-}
+// Use the shared is_identifier_or_type_keyword and consume_identifier_or_type_keyword from core.c
 
 // Helper: Parse interpolated string with ${...} expressions
 static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
@@ -164,7 +147,8 @@ Expr* primary(Parser *p) {
         return expr_rune(p->previous.rune_value);
     }
 
-    if (match(p, TOK_IDENT)) {
+    // Identifier or 'type' keyword used as identifier (after let/const/etc.)
+    if (match(p, TOK_IDENT) || match(p, TOK_TYPE)) {
         char *name = token_text(&p->previous);
         Expr *ident = expr_ident(name);
         free(name);
@@ -205,7 +189,7 @@ Expr* primary(Parser *p) {
                 num_fields++;
             } else {
                 // Normal field or shorthand
-                field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
+                field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
 
                 // Check for shorthand: { name } vs { name: value }
                 if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
@@ -418,9 +402,9 @@ Expr* postfix(Parser *p) {
                     arg_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
 
                     // Parse first argument - check for named argument
-                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                    if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                         has_named_args = 1;
-                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                         consume(p, TOK_COLON, "Expect ':' after named argument");
                         args[num_args++] = expression(p);
                     } else {
@@ -435,9 +419,9 @@ Expr* postfix(Parser *p) {
                         }
 
                         // Check for named argument
-                        if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                        if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                             has_named_args = 1;
-                            arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                            arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                             consume(p, TOK_COLON, "Expect ':' after named argument");
                             args[num_args++] = expression(p);
                         } else {
@@ -464,13 +448,13 @@ Expr* postfix(Parser *p) {
                 expr = expr_optional_chain_call(expr, args, arg_names, num_args);
             } else {
                 // Optional property access: obj?.property
-                char *property = consume_identifier_or_type(p, "Expect property name after '?.'");
+                char *property = consume_identifier_or_type_keyword(p, "Expect property name after '?.'");
                 expr = expr_optional_chain_property(expr, property);
                 free(property);
             }
         } else if (match(p, TOK_DOT)) {
             // Property access: obj.property
-            char *property = consume_identifier_or_type(p, "Expect property name after '.'");
+            char *property = consume_identifier_or_type_keyword(p, "Expect property name after '.'");
             expr = expr_get_property(expr, property);
             free(property);
         } else if (match(p, TOK_LBRACKET)) {
@@ -494,10 +478,10 @@ Expr* postfix(Parser *p) {
 
                 // Parse first argument
                 // Check for named argument: identifier followed by ':'
-                if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                     // Named argument
                     has_named_args = 1;
-                    arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                    arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                     consume(p, TOK_COLON, "Expect ':' after named argument");
                     args[num_args++] = expression(p);
                 } else {
@@ -512,10 +496,10 @@ Expr* postfix(Parser *p) {
                     }
 
                     // Check for named argument
-                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                    if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                         // Named argument
                         has_named_args = 1;
-                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                         consume(p, TOK_COLON, "Expect ':' after named argument");
                         args[num_args++] = expression(p);
                     } else {
