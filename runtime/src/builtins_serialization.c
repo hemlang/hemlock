@@ -504,6 +504,8 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         obj->capacity = capacity;
         obj->ref_count = 1;
         atomic_store(&obj->freed, 0);
+        obj->hash_table = NULL;  // Lazy initialization
+        obj->hash_capacity = 0;
         HmlValue result;
         result.type = HML_VAL_OBJECT;
         result.as.as_object = obj;
@@ -583,6 +585,8 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     obj->capacity = capacity;
     obj->ref_count = 1;
     atomic_store(&obj->freed, 0);
+    obj->hash_table = NULL;  // Lazy initialization
+    obj->hash_capacity = 0;
 
     HmlValue result;
     result.type = HML_VAL_OBJECT;

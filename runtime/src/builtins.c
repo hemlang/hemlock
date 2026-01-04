@@ -2423,6 +2423,73 @@ HmlValue hml_builtin_talloc(HmlClosureEnv *env, HmlValue type_name, HmlValue cou
 
 // ========== OBJECT OPERATIONS ==========
 
+// DJB2 hash function - fast and good distribution for field names
+static uint32_t djb2_hash(const char *str) {
+    uint32_t hash = 5381;  // HML_DJB2_HASH_SEED
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+    return hash;
+}
+
+// Rebuild hash table for object (called after adding fields or on first lookup)
+static void object_hash_rebuild(HmlObject *obj) {
+    // Free existing hash table
+    free(obj->hash_table);
+
+    // Create hash table with 2x capacity for good load factor
+    int new_capacity = obj->num_fields < 4 ? 8 : obj->num_fields * 2;
+    obj->hash_table = malloc(sizeof(int) * new_capacity);
+    obj->hash_capacity = new_capacity;
+
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < new_capacity; i++) {
+        obj->hash_table[i] = -1;
+    }
+
+    // Rehash all existing fields
+    for (int i = 0; i < obj->num_fields; i++) {
+        uint32_t hash = djb2_hash(obj->field_names[i]);
+        int slot = hash % new_capacity;
+
+        // Linear probing to find empty slot
+        while (obj->hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        obj->hash_table[slot] = i;
+    }
+}
+
+// Look up field index by name using hash table, returns -1 if not found
+static int object_lookup_field(HmlObject *obj, const char *name) {
+    // Lazy hash table creation: if no hash table and we have fields, build it
+    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
+        object_hash_rebuild(obj);
+    }
+
+    if (!obj->hash_table || obj->hash_capacity == 0) {
+        return -1;  // Empty object
+    }
+
+    uint32_t hash = djb2_hash(name);
+    int slot = hash % obj->hash_capacity;
+    int start_slot = slot;
+
+    // Linear probing
+    while (obj->hash_table[slot] != -1) {
+        int idx = obj->hash_table[slot];
+        if (strcmp(obj->field_names[idx], name) == 0) {
+            return idx;  // Found
+        }
+        slot = (slot + 1) % obj->hash_capacity;
+        if (slot == start_slot) {
+            break;  // Full circle, not found
+        }
+    }
+    return -1;  // Not found
+}
+
 HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
         hml_runtime_error("Property access requires object (trying to get '%s' from type %s)",
@@ -2430,12 +2497,11 @@ HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            HmlValue result = o->field_values[i];
-            hml_retain(&result);
-            return result;
-        }
+    int idx = object_lookup_field(o, field);
+    if (idx >= 0) {
+        HmlValue result = o->field_values[idx];
+        hml_retain(&result);
+        return result;
     }
 
     return hml_val_null();  // Field not found
@@ -2449,12 +2515,11 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            HmlValue result = o->field_values[i];
-            hml_retain(&result);
-            return result;
-        }
+    int idx = object_lookup_field(o, field);
+    if (idx >= 0) {
+        HmlValue result = o->field_values[idx];
+        hml_retain(&result);
+        return result;
     }
 
     hml_runtime_error("Object has no field '%s' (use ?. for optional access)", field);
@@ -2468,14 +2533,13 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
 
     HmlObject *o = obj.as.as_object;
 
-    // Check if field exists
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            hml_release(&o->field_values[i]);
-            o->field_values[i] = val;
-            hml_retain(&o->field_values[i]);
-            return;
-        }
+    // Check if field exists using hash lookup
+    int idx = object_lookup_field(o, field);
+    if (idx >= 0) {
+        hml_release(&o->field_values[idx]);
+        o->field_values[idx] = val;
+        hml_retain(&o->field_values[idx]);
+        return;
     }
 
     // Add new field
@@ -2490,6 +2554,11 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
     o->field_values[o->num_fields] = val;
     hml_retain(&o->field_values[o->num_fields]);
     o->num_fields++;
+
+    // Invalidate hash table - will be rebuilt on next lookup
+    free(o->hash_table);
+    o->hash_table = NULL;
+    o->hash_capacity = 0;
 }
 
 int hml_object_has_field(HmlValue obj, const char *field) {
@@ -2498,12 +2567,7 @@ int hml_object_has_field(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            return 1;
-        }
-    }
-    return 0;
+    return object_lookup_field(o, field) >= 0;
 }
 
 // Delete a field from object, returns 1 if deleted, 0 if not found
@@ -2513,15 +2577,7 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
     }
 
     HmlObject *o = obj.as.as_object;
-    int found_index = -1;
-
-    // Find the field
-    for (int i = 0; i < o->num_fields; i++) {
-        if (strcmp(o->field_names[i], field) == 0) {
-            found_index = i;
-            break;
-        }
-    }
+    int found_index = object_lookup_field(o, field);
 
     if (found_index == -1) {
         return 0;  // Not found
@@ -2538,6 +2594,12 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
     }
 
     o->num_fields--;
+
+    // Invalidate hash table - will be rebuilt on next lookup
+    free(o->hash_table);
+    o->hash_table = NULL;
+    o->hash_capacity = 0;
+
     return 1;  // Deleted
 }
 
