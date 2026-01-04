@@ -9,14 +9,15 @@
 #define HEMLOCK_VERSION_H
 
 #define HEMLOCK_VERSION_MAJOR 1
-#define HEMLOCK_VERSION_MINOR 6
-#define HEMLOCK_VERSION_PATCH 7
+#define HEMLOCK_VERSION_MINOR 7
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "1.6.7"
+#define HEMLOCK_VERSION "1.7.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.7.0 - Type aliases, function types, const params, method signatures, loop labels, named args, null coalescing
  *   1.6.7 - Octal literals, block comments, hex/unicode escapes, numeric separators
  *   1.6.6 - Float literals without leading zero, fix strength reduction bug
  *   1.6.5 - Fix for-in loop syntax without 'let' keyword

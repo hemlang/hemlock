@@ -157,15 +157,17 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.6.7 is released with:
+Hemlock v1.7.0 is released with:
 
-- **Octal literals** (`0o777`, `0O123`)
-- **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
-- **Block comments** (`/* ... */`)
-- **Hex/Unicode escape sequences** (`\x41`, `\u{1F600}`)
-- **Compile-time type checking** in hemlockc (enabled by default)
-- **LSP integration** with real-time type diagnostics
-- **Compound bitwise operators** (`&=`, `|=`, `^=`, `<<=`, `>>=`, `%=`)
+- **Type aliases** (`type Name = Type;`) for complex types
+- **Function type annotations** (`fn(i32): i32`) for first-class function types
+- **Const parameters** (`fn(const x: array)`) for deep immutability
+- **Method signatures in define** (`fn method(): Type;`) for interface-like contracts
+- **Loop keyword** (`loop { }`) and **loop labels** (`outer: while`)
+- **Named arguments** (`foo(name: "value", age: 30)`)
+- **Null coalescing operators** (`??`, `??=`, `?.`)
+- **Object shorthand** (`{ name }`) and **spread** (`{ ...obj }`)
+- **Compound duck types** (`A & B & C`) for intersection types
 - Full type system with 64-bit integers and Unicode support
 - Manual memory management with safe and unsafe options
 - Async/await with true pthread parallelism
