@@ -266,6 +266,36 @@ HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_requi
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
+    f->param_names = NULL;
+    f->num_params = num_params;
+    f->num_required = num_required;
+    f->is_async = is_async;
+    f->has_rest_param = has_rest_param;
+    f->ref_count = 1;
+
+    v.as.as_function = f;
+    return v;
+}
+
+HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param, const char *name, const char **param_names) {
+    HmlValue v;
+    v.type = HML_VAL_FUNCTION;
+
+    HmlFunction *f = malloc(sizeof(HmlFunction));
+    f->fn_ptr = fn_ptr;
+    f->closure_env = NULL;
+    f->name = name ? strdup(name) : NULL;
+
+    // Copy parameter names
+    if (param_names && num_params > 0) {
+        f->param_names = malloc(sizeof(char*) * num_params);
+        for (int i = 0; i < num_params; i++) {
+            f->param_names[i] = param_names[i] ? strdup(param_names[i]) : NULL;
+        }
+    } else {
+        f->param_names = NULL;
+    }
+
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -288,6 +318,7 @@ HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
+    f->param_names = NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -310,6 +341,7 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
+    f->param_names = NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -326,6 +358,24 @@ void hml_function_set_name(HmlValue fn, const char *name) {
         // Free existing name if any
         free(f->name);
         f->name = name ? strdup(name) : NULL;
+    }
+}
+
+void hml_function_set_param_names(HmlValue fn, const char **param_names, int num_params) {
+    if (fn.type == HML_VAL_FUNCTION && fn.as.as_function != NULL && param_names != NULL && num_params > 0) {
+        HmlFunction *f = fn.as.as_function;
+        // Free existing param_names if any
+        if (f->param_names) {
+            for (int i = 0; i < f->num_params; i++) {
+                free(f->param_names[i]);
+            }
+            free(f->param_names);
+        }
+        // Copy new param_names
+        f->param_names = malloc(sizeof(char*) * num_params);
+        for (int i = 0; i < num_params; i++) {
+            f->param_names[i] = param_names[i] ? strdup(param_names[i]) : NULL;
+        }
     }
 }
 

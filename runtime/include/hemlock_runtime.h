@@ -383,6 +383,9 @@ extern __thread HmlValue hml_self;
 // Call a function value with arguments
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args);
 
+// Call a function with named arguments (reorders args to match parameter names)
+HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_names, int num_args);
+
 // Call a method on an object (sets hml_self before calling)
 HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int num_args);
 

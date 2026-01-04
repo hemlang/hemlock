@@ -107,13 +107,14 @@ Expr* expr_ternary(Expr *condition, Expr *true_expr, Expr *false_expr) {
     return expr;
 }
 
-Expr* expr_call(Expr *func, Expr **args, int num_args) {
+Expr* expr_call(Expr *func, Expr **args, char **arg_names, int num_args) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_CALL;
     expr->line = 0;
     expr->column = 0;
     expr->as.call.func = func;
     expr->as.call.args = args;
+    expr->as.call.arg_names = arg_names;
     expr->as.call.num_args = num_args;
     // Initialize inline cache for method dispatch
     expr->as.call.ic.cached_receiver_type = 0;
@@ -287,6 +288,7 @@ Expr* expr_optional_chain_property(Expr *object, const char *property) {
     expr->as.optional_chain.property = strdup(property);
     expr->as.optional_chain.index = NULL;
     expr->as.optional_chain.args = NULL;
+    expr->as.optional_chain.arg_names = NULL;
     expr->as.optional_chain.num_args = 0;
     expr->as.optional_chain.is_property = 1;
     expr->as.optional_chain.is_call = 0;
@@ -302,13 +304,14 @@ Expr* expr_optional_chain_index(Expr *object, Expr *index) {
     expr->as.optional_chain.property = NULL;
     expr->as.optional_chain.index = index;
     expr->as.optional_chain.args = NULL;
+    expr->as.optional_chain.arg_names = NULL;
     expr->as.optional_chain.num_args = 0;
     expr->as.optional_chain.is_property = 0;
     expr->as.optional_chain.is_call = 0;
     return expr;
 }
 
-Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args) {
+Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int num_args) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_OPTIONAL_CHAIN;
     expr->line = 0;
@@ -317,6 +320,7 @@ Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args) {
     expr->as.optional_chain.property = NULL;
     expr->as.optional_chain.index = NULL;
     expr->as.optional_chain.args = args;
+    expr->as.optional_chain.arg_names = arg_names;
     expr->as.optional_chain.num_args = num_args;
     expr->as.optional_chain.is_property = 0;
     expr->as.optional_chain.is_call = 1;
@@ -707,12 +711,20 @@ Expr* expr_clone(const Expr *expr) {
 
         case EXPR_CALL: {
             Expr **args_copy = malloc(sizeof(Expr*) * expr->as.call.num_args);
+            char **names_copy = NULL;
             for (int i = 0; i < expr->as.call.num_args; i++) {
                 args_copy[i] = expr_clone(expr->as.call.args[i]);
+            }
+            if (expr->as.call.arg_names) {
+                names_copy = malloc(sizeof(char*) * expr->as.call.num_args);
+                for (int i = 0; i < expr->as.call.num_args; i++) {
+                    names_copy[i] = expr->as.call.arg_names[i] ? strdup(expr->as.call.arg_names[i]) : NULL;
+                }
             }
             return expr_call(
                 expr_clone(expr->as.call.func),
                 args_copy,
+                names_copy,
                 expr->as.call.num_args
             );
         }
@@ -828,15 +840,23 @@ Expr* expr_clone(const Expr *expr) {
                 );
             } else if (expr->as.optional_chain.is_call) {
                 Expr **args_copy = NULL;
+                char **names_copy = NULL;
                 if (expr->as.optional_chain.num_args > 0) {
                     args_copy = malloc(sizeof(Expr*) * expr->as.optional_chain.num_args);
                     for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
                         args_copy[i] = expr_clone(expr->as.optional_chain.args[i]);
                     }
+                    if (expr->as.optional_chain.arg_names) {
+                        names_copy = malloc(sizeof(char*) * expr->as.optional_chain.num_args);
+                        for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                            names_copy[i] = expr->as.optional_chain.arg_names[i] ? strdup(expr->as.optional_chain.arg_names[i]) : NULL;
+                        }
+                    }
                 }
                 return expr_optional_chain_call(
                     expr_clone(expr->as.optional_chain.object),
                     args_copy,
+                    names_copy,
                     expr->as.optional_chain.num_args
                 );
             } else {
@@ -889,6 +909,12 @@ void expr_free(Expr *expr) {
                 expr_free(expr->as.call.args[i]);
             }
             free(expr->as.call.args);
+            if (expr->as.call.arg_names) {
+                for (int i = 0; i < expr->as.call.num_args; i++) {
+                    free(expr->as.call.arg_names[i]);
+                }
+                free(expr->as.call.arg_names);
+            }
             break;
         case EXPR_ASSIGN:
             free(expr->as.assign.name);
@@ -997,6 +1023,12 @@ void expr_free(Expr *expr) {
                     expr_free(expr->as.optional_chain.args[i]);
                 }
                 free(expr->as.optional_chain.args);
+            }
+            if (expr->as.optional_chain.arg_names) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    free(expr->as.optional_chain.arg_names[i]);
+                }
+                free(expr->as.optional_chain.arg_names);
             }
             break;
         case EXPR_NULL_COALESCE:

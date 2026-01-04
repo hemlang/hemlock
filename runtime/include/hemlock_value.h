@@ -139,6 +139,7 @@ struct HmlFunction {
     void *fn_ptr;           // C function pointer
     void *closure_env;      // Closure environment (NULL if not a closure)
     char *name;             // Function name for error reporting (NULL for anonymous)
+    char **param_names;     // Parameter names for named argument support (NULL if not needed)
     int num_params;         // Total number of parameters
     int num_required;       // Number of required parameters (for arity checking)
     int is_async;
@@ -250,6 +251,12 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
 
 // Set function name (for late binding when name is known after creation)
 void hml_function_set_name(HmlValue fn, const char *name);
+
+// Set parameter names (for named argument support)
+void hml_function_set_param_names(HmlValue fn, const char **param_names, int num_params);
+
+// Function with parameter names (for named argument support)
+HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param, const char *name, const char **param_names);
 
 HmlValue hml_val_builtin_fn(HmlBuiltinFn fn);
 HmlValue hml_val_socket(HmlSocket *sock);
