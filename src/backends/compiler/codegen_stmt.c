@@ -41,6 +41,25 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
+            // OPTIMIZATION: Check if untyped variable can be unboxed via type inference
+            // This handles patterns like: let x = 42; let sum = a + b;
+            if (ctx->optimize && ctx->type_ctx && !stmt->as.let.type_annotation && stmt->as.let.value) {
+                CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, stmt->as.let.name);
+                if (native_type != CHECKED_UNKNOWN) {
+                    const char *c_type = checked_type_to_c_type(native_type);
+                    const char *unbox_cast = checked_type_to_unbox_cast(native_type);
+                    if (c_type && unbox_cast) {
+                        // Generate unboxed variable with inferred native C type
+                        char *value = codegen_expr(ctx, stmt->as.let.value);
+                        codegen_writeln(ctx, "%s %s = %s(%s);", c_type, safe_name, unbox_cast, value);
+                        codegen_writeln(ctx, "hml_release(&%s);", value);
+                        free(value);
+                        free(safe_name);
+                        break;
+                    }
+                }
+            }
+
             // If we reach here, we're generating standard boxed code
             // Clear any unboxable mark to avoid mismatch with codegen_expr_ident
             if (ctx->type_ctx) {
