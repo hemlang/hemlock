@@ -122,6 +122,15 @@ typedef struct EnumDef {
     struct EnumDef *next;
 } EnumDef;
 
+// Type alias definition (from 'type Name = OtherType' statements)
+typedef struct TypeAliasDef {
+    char *name;
+    struct CheckedType *aliased_type;  // The type this alias resolves to
+    char **type_params;       // Type parameters (e.g., ["T"] for type List<T> = ...)
+    int num_type_params;      // Number of type parameters
+    struct TypeAliasDef *next;
+} TypeAliasDef;
+
 // ========== UNBOXING OPTIMIZATION ==========
 
 // Unboxable variable info (variables that can use native C types)
@@ -156,6 +165,7 @@ typedef struct {
     FunctionSig *functions;     // Registered function signatures
     ObjectDef *object_defs;     // Registered object type definitions
     EnumDef *enum_defs;         // Registered enum definitions
+    TypeAliasDef *type_aliases; // Registered type aliases
 
     // Current function being checked (for return type validation)
     CheckedType *current_return_type;
@@ -240,6 +250,16 @@ void type_check_register_enum(TypeCheckContext *ctx, const char *name,
 // Look up an enum definition
 EnumDef* type_check_lookup_enum(TypeCheckContext *ctx, const char *name);
 
+// ========== TYPE ALIAS REGISTRATION ==========
+
+// Register a type alias
+void type_check_register_type_alias(TypeCheckContext *ctx, const char *name,
+                                     CheckedType *aliased_type,
+                                     char **type_params, int num_type_params);
+
+// Look up a type alias (returns the aliased type, or NULL if not found)
+TypeAliasDef* type_check_lookup_type_alias(TypeCheckContext *ctx, const char *name);
+
 // ========== TYPE CONSTRUCTORS ==========
 
 // Create a primitive type
@@ -266,6 +286,9 @@ void checked_type_free(CheckedType *type);
 
 // Convert AST Type to CheckedType
 CheckedType* checked_type_from_ast(Type *ast_type);
+
+// Convert AST Type to CheckedType with context (resolves type aliases)
+CheckedType* checked_type_from_ast_ctx(TypeCheckContext *ctx, Type *ast_type);
 
 // ========== TYPE COMPATIBILITY ==========
 

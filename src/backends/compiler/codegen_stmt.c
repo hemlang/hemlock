@@ -70,7 +70,63 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (stmt->as.let.value) {
                 char *value = codegen_expr(ctx, stmt->as.let.value);
                 // Check if there's a custom object type annotation (for duck typing)
+                // But first check if it's a type alias - if so, use the resolved type
+                int is_type_alias = 0;
+                CheckedType *resolved_type = NULL;
                 if (stmt->as.let.type_annotation &&
+                    stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                    stmt->as.let.type_annotation->type_name &&
+                    ctx->type_ctx) {
+                    TypeAliasDef *alias = type_check_lookup_type_alias(ctx->type_ctx, stmt->as.let.type_annotation->type_name);
+                    if (alias && alias->aliased_type) {
+                        is_type_alias = 1;
+                        resolved_type = alias->aliased_type;
+                    }
+                }
+                if (is_type_alias && resolved_type) {
+                    // Type alias resolved - generate type check for the underlying type
+                    const char *hml_type = NULL;
+                    int handled = 0;
+                    switch (resolved_type->kind) {
+                        case CHECKED_I8: hml_type = "HML_VAL_I8"; break;
+                        case CHECKED_I16: hml_type = "HML_VAL_I16"; break;
+                        case CHECKED_I32: hml_type = "HML_VAL_I32"; break;
+                        case CHECKED_I64: hml_type = "HML_VAL_I64"; break;
+                        case CHECKED_U8: hml_type = "HML_VAL_U8"; break;
+                        case CHECKED_U16: hml_type = "HML_VAL_U16"; break;
+                        case CHECKED_U32: hml_type = "HML_VAL_U32"; break;
+                        case CHECKED_U64: hml_type = "HML_VAL_U64"; break;
+                        case CHECKED_F32: hml_type = "HML_VAL_F32"; break;
+                        case CHECKED_F64: hml_type = "HML_VAL_F64"; break;
+                        case CHECKED_BOOL: hml_type = "HML_VAL_BOOL"; break;
+                        case CHECKED_STRING: hml_type = "HML_VAL_STRING"; break;
+                        case CHECKED_RUNE: hml_type = "HML_VAL_RUNE"; break;
+                        case CHECKED_PTR: hml_type = "HML_VAL_PTR"; break;
+                        case CHECKED_BUFFER: hml_type = "HML_VAL_BUFFER"; break;
+                        case CHECKED_NULL: hml_type = "HML_VAL_NULL"; break;
+                        case CHECKED_FUNCTION: hml_type = "HML_VAL_FUNCTION"; break;
+                        case CHECKED_ARRAY: hml_type = "HML_VAL_ARRAY"; break;
+                        case CHECKED_OBJECT: hml_type = "HML_VAL_OBJECT"; break;
+                        case CHECKED_CUSTOM:
+                            // Custom type alias - validate as object type
+                            if (resolved_type->type_name) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
+                                              safe_name, value, resolved_type->type_name);
+                                handled = 1;
+                            }
+                            break;
+                        default:
+                            hml_type = NULL;
+                            break;
+                    }
+                    if (hml_type) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
+                                      safe_name, value, hml_type);
+                    } else if (!handled) {
+                        // No specific type check needed, just assign
+                        codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
+                    }
+                } else if (stmt->as.let.type_annotation &&
                     stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                     stmt->as.let.type_annotation->type_name) {
                     codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
@@ -1368,6 +1424,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
         case STMT_EXTERN_FN:
             // Wrapper function is generated in codegen_program, nothing to do here
+            break;
+
+        case STMT_TYPE_ALIAS:
+            // Type aliases are handled at compile time during type checking
+            // No runtime code is generated for them
             break;
 
         default:

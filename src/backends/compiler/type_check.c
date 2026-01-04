@@ -205,6 +205,56 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
     return type;
 }
 
+// Forward declare for use in checked_type_from_ast_ctx
+TypeAliasDef* type_check_lookup_type_alias(TypeCheckContext *ctx, const char *name);
+
+CheckedType* checked_type_from_ast_ctx(TypeCheckContext *ctx, Type *ast_type) {
+    if (!ast_type) return checked_type_primitive(CHECKED_ANY);
+
+    // Check if this is a custom type that's actually a type alias
+    if (ast_type->kind == TYPE_CUSTOM_OBJECT && ast_type->type_name && ctx) {
+        TypeAliasDef *alias = type_check_lookup_type_alias(ctx, ast_type->type_name);
+        if (alias && alias->aliased_type) {
+            // Return a clone of the aliased type
+            CheckedType *resolved = checked_type_clone(alias->aliased_type);
+            // Preserve nullable from the original
+            if (ast_type->nullable) {
+                resolved->nullable = 1;
+            }
+            return resolved;
+        }
+    }
+
+    // Handle arrays with context for element type resolution
+    if (ast_type->kind == TYPE_ARRAY) {
+        CheckedType *type = calloc(1, sizeof(CheckedType));
+        type->kind = CHECKED_ARRAY;
+        type->nullable = ast_type->nullable;
+        if (ast_type->element_type) {
+            type->element_type = checked_type_from_ast_ctx(ctx, ast_type->element_type);
+        }
+        return type;
+    }
+
+    // Handle compound types with context
+    if (ast_type->kind == TYPE_COMPOUND) {
+        CheckedType *type = calloc(1, sizeof(CheckedType));
+        type->kind = CHECKED_COMPOUND;
+        type->nullable = ast_type->nullable;
+        type->num_compound_types = ast_type->num_compound_types;
+        if (ast_type->num_compound_types > 0 && ast_type->compound_types) {
+            type->compound_types = calloc(ast_type->num_compound_types, sizeof(CheckedType*));
+            for (int i = 0; i < ast_type->num_compound_types; i++) {
+                type->compound_types[i] = checked_type_from_ast_ctx(ctx, ast_type->compound_types[i]);
+            }
+        }
+        return type;
+    }
+
+    // For other types, use the base function
+    return checked_type_from_ast(ast_type);
+}
+
 // ========== TYPE NAME HELPERS ==========
 
 const char* checked_type_kind_name(CheckedTypeKind kind) {
@@ -399,6 +449,22 @@ void type_check_free(TypeCheckContext *ctx) {
         e = next;
     }
 
+    // Free type alias definitions
+    TypeAliasDef *a = ctx->type_aliases;
+    while (a) {
+        TypeAliasDef *next = a->next;
+        free(a->name);
+        checked_type_free(a->aliased_type);
+        if (a->type_params) {
+            for (int i = 0; i < a->num_type_params; i++) {
+                free(a->type_params[i]);
+            }
+            free(a->type_params);
+        }
+        free(a);
+        a = next;
+    }
+
     // Free unboxable variable list
     UnboxableVar *u = ctx->unboxable_vars;
     while (u) {
@@ -589,6 +655,36 @@ EnumDef* type_check_lookup_enum(TypeCheckContext *ctx, const char *name) {
     for (EnumDef *e = ctx->enum_defs; e; e = e->next) {
         if (strcmp(e->name, name) == 0) {
             return e;
+        }
+    }
+    return NULL;
+}
+
+// ========== TYPE ALIAS REGISTRATION ==========
+
+void type_check_register_type_alias(TypeCheckContext *ctx, const char *name,
+                                     CheckedType *aliased_type,
+                                     char **type_params, int num_type_params) {
+    TypeAliasDef *def = calloc(1, sizeof(TypeAliasDef));
+    def->name = strdup(name);
+    def->aliased_type = aliased_type;
+    def->num_type_params = num_type_params;
+
+    if (num_type_params > 0 && type_params) {
+        def->type_params = calloc(num_type_params, sizeof(char*));
+        for (int i = 0; i < num_type_params; i++) {
+            def->type_params[i] = strdup(type_params[i]);
+        }
+    }
+
+    def->next = ctx->type_aliases;
+    ctx->type_aliases = def;
+}
+
+TypeAliasDef* type_check_lookup_type_alias(TypeCheckContext *ctx, const char *name) {
+    for (TypeAliasDef *a = ctx->type_aliases; a; a = a->next) {
+        if (strcmp(a->name, name) == 0) {
+            return a;
         }
     }
     return NULL;
@@ -1139,14 +1235,14 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
                 param_types = calloc(func->as.function.num_params, sizeof(CheckedType*));
                 for (int i = 0; i < func->as.function.num_params; i++) {
                     if (func->as.function.param_types[i]) {
-                        param_types[i] = checked_type_from_ast(func->as.function.param_types[i]);
+                        param_types[i] = checked_type_from_ast_ctx(ctx, func->as.function.param_types[i]);
                     } else {
                         param_types[i] = checked_type_primitive(CHECKED_ANY);
                     }
                 }
             }
             CheckedType *ret = func->as.function.return_type
-                ? checked_type_from_ast(func->as.function.return_type)
+                ? checked_type_from_ast_ctx(ctx, func->as.function.return_type)
                 : checked_type_primitive(CHECKED_ANY);
             return checked_type_function(param_types, func->as.function.num_params,
                                          ret, func->as.function.rest_param != NULL);
@@ -1771,7 +1867,7 @@ static void type_check_function_body(TypeCheckContext *ctx, Expr *func, const ch
 
     // Set up function context
     ctx->current_return_type = func->as.function.return_type
-        ? checked_type_from_ast(func->as.function.return_type)
+        ? checked_type_from_ast_ctx(ctx, func->as.function.return_type)
         : NULL;
     ctx->current_function_name = name ? strdup(name) : NULL;
     ctx->in_async_function = func->as.function.is_async;
@@ -1780,7 +1876,7 @@ static void type_check_function_body(TypeCheckContext *ctx, Expr *func, const ch
     for (int i = 0; i < func->as.function.num_params; i++) {
         CheckedType *param_type;
         if (func->as.function.param_types[i]) {
-            param_type = checked_type_from_ast(func->as.function.param_types[i]);
+            param_type = checked_type_from_ast_ctx(ctx, func->as.function.param_types[i]);
         } else {
             param_type = checked_type_primitive(CHECKED_ANY);
         }
@@ -1791,7 +1887,7 @@ static void type_check_function_body(TypeCheckContext *ctx, Expr *func, const ch
     if (func->as.function.rest_param) {
         CheckedType *rest_type = checked_type_array(
             func->as.function.rest_param_type
-                ? checked_type_from_ast(func->as.function.rest_param_type)
+                ? checked_type_from_ast_ctx(ctx, func->as.function.rest_param_type)
                 : checked_type_primitive(CHECKED_ANY)
         );
         type_check_bind(ctx, func->as.function.rest_param, rest_type, 0, 1, 0);  // is_param=1
@@ -1823,7 +1919,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
 
             CheckedType *declared_type = NULL;
             if (stmt->as.let.type_annotation) {
-                declared_type = checked_type_from_ast(stmt->as.let.type_annotation);
+                declared_type = checked_type_from_ast_ctx(ctx, stmt->as.let.type_annotation);
 
                 // Check that initializer matches declared type
                 if (stmt->as.let.value) {
@@ -1853,7 +1949,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
 
             CheckedType *declared_type = NULL;
             if (stmt->as.const_stmt.type_annotation) {
-                declared_type = checked_type_from_ast(stmt->as.const_stmt.type_annotation);
+                declared_type = checked_type_from_ast_ctx(ctx, stmt->as.const_stmt.type_annotation);
 
                 if (stmt->as.const_stmt.value) {
                     CheckedType *init_type = type_check_infer_expr(ctx, stmt->as.const_stmt.value);
@@ -1977,7 +2073,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 field_types = calloc(stmt->as.define_object.num_fields, sizeof(CheckedType*));
                 for (int i = 0; i < stmt->as.define_object.num_fields; i++) {
                     if (stmt->as.define_object.field_types[i]) {
-                        field_types[i] = checked_type_from_ast(stmt->as.define_object.field_types[i]);
+                        field_types[i] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.field_types[i]);
                     } else {
                         field_types[i] = checked_type_primitive(CHECKED_ANY);
                     }
@@ -1990,6 +2086,11 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 stmt->as.define_object.num_fields);
             break;
         }
+
+        case STMT_TYPE_ALIAS:
+            // Type aliases are registered during the first pass in collect_function_signatures
+            // Nothing to do here during the type checking pass
+            break;
 
         case STMT_ENUM: {
             type_check_register_enum(ctx, stmt->as.enum_decl.name,
@@ -2050,6 +2151,33 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
 // ========== FIRST PASS: COLLECT SIGNATURES ==========
 
 static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count) {
+    // First pass: collect type aliases (so other types can reference them)
+    for (int i = 0; i < count; i++) {
+        Stmt *stmt = stmts[i];
+        if (!stmt) continue;
+
+        if (stmt->type == STMT_TYPE_ALIAS) {
+            CheckedType *aliased = checked_type_from_ast(stmt->as.type_alias.aliased_type);
+            type_check_register_type_alias(ctx, stmt->as.type_alias.name,
+                aliased,
+                stmt->as.type_alias.type_params,
+                stmt->as.type_alias.num_type_params);
+        }
+
+        // Handle exported type aliases
+        if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
+            Stmt *decl = stmt->as.export_stmt.declaration;
+            if (decl && decl->type == STMT_TYPE_ALIAS) {
+                CheckedType *aliased = checked_type_from_ast(decl->as.type_alias.aliased_type);
+                type_check_register_type_alias(ctx, decl->as.type_alias.name,
+                    aliased,
+                    decl->as.type_alias.type_params,
+                    decl->as.type_alias.num_type_params);
+            }
+        }
+    }
+
+    // Second pass: collect functions, objects, enums (which can now reference type aliases)
     for (int i = 0; i < count; i++) {
         Stmt *stmt = stmts[i];
         if (!stmt) continue;
@@ -2076,7 +2204,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                     param_optional = calloc(func->as.function.num_params, sizeof(int));
                     for (int j = 0; j < func->as.function.num_params; j++) {
                         if (func->as.function.param_types[j]) {
-                            param_types[j] = checked_type_from_ast(func->as.function.param_types[j]);
+                            param_types[j] = checked_type_from_ast_ctx(ctx, func->as.function.param_types[j]);
                         }
                         param_names[j] = strdup(func->as.function.param_names[j]);
                         // Parameter is optional if it has a default value
@@ -2086,7 +2214,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                 }
 
                 CheckedType *return_type = func->as.function.return_type
-                    ? checked_type_from_ast(func->as.function.return_type)
+                    ? checked_type_from_ast_ctx(ctx, func->as.function.return_type)
                     : NULL;
 
                 type_check_register_function(ctx, name, param_types, param_names,
@@ -2119,7 +2247,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                         param_optional = calloc(func->as.function.num_params, sizeof(int));
                         for (int j = 0; j < func->as.function.num_params; j++) {
                             if (func->as.function.param_types[j]) {
-                                param_types[j] = checked_type_from_ast(func->as.function.param_types[j]);
+                                param_types[j] = checked_type_from_ast_ctx(ctx, func->as.function.param_types[j]);
                             }
                             param_names[j] = strdup(func->as.function.param_names[j]);
                             param_optional[j] = (func->as.function.param_defaults &&
@@ -2128,7 +2256,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                     }
 
                     CheckedType *return_type = func->as.function.return_type
-                        ? checked_type_from_ast(func->as.function.return_type)
+                        ? checked_type_from_ast_ctx(ctx, func->as.function.return_type)
                         : NULL;
 
                     type_check_register_function(ctx, name, param_types, param_names,
@@ -2146,7 +2274,7 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                 field_types = calloc(stmt->as.define_object.num_fields, sizeof(CheckedType*));
                 for (int j = 0; j < stmt->as.define_object.num_fields; j++) {
                     if (stmt->as.define_object.field_types[j]) {
-                        field_types[j] = checked_type_from_ast(stmt->as.define_object.field_types[j]);
+                        field_types[j] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.field_types[j]);
                     } else {
                         field_types[j] = checked_type_primitive(CHECKED_ANY);
                     }
