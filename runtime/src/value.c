@@ -528,6 +528,152 @@ void hml_release(HmlValue *val) {
     }
 }
 
+// ========== VALUE DEEP COPY (for thread isolation) ==========
+
+// Forward declarations for helper functions
+extern void hml_array_push(HmlValue arr, HmlValue val);
+extern void hml_object_set_field(HmlValue obj, const char *name, HmlValue val);
+
+// Deep copy a value for passing to spawned tasks.
+// This ensures tasks don't share mutable state with the parent thread.
+HmlValue hml_value_deep_copy(HmlValue val) {
+    HmlValue result = {0};
+
+    switch (val.type) {
+        // Primitive types - just return the value (immutable, safe to share)
+        case HML_VAL_I8:
+        case HML_VAL_I16:
+        case HML_VAL_I32:
+        case HML_VAL_I64:
+        case HML_VAL_U8:
+        case HML_VAL_U16:
+        case HML_VAL_U32:
+        case HML_VAL_U64:
+        case HML_VAL_F32:
+        case HML_VAL_F64:
+        case HML_VAL_BOOL:
+        case HML_VAL_RUNE:
+        case HML_VAL_NULL:
+        case HML_VAL_BUILTIN_FN:
+            return val;
+
+        case HML_VAL_STRING:
+            if (val.as.as_string) {
+                HmlString *src = val.as.as_string;
+                // Create a new string with copied data
+                HmlString *dst = malloc(sizeof(HmlString));
+                dst->length = src->length;
+                dst->char_length = src->char_length;
+                dst->capacity = src->length + 1;
+                dst->ref_count = 1;
+                dst->data = malloc(dst->capacity);
+                memcpy(dst->data, src->data, src->length + 1);
+
+                result.type = HML_VAL_STRING;
+                result.as.as_string = dst;
+            } else {
+                result = hml_val_null();
+            }
+            break;
+
+        case HML_VAL_BUFFER:
+            if (val.as.as_buffer) {
+                HmlBuffer *src = val.as.as_buffer;
+                // Create a new buffer with copied data
+                result = hml_val_buffer(src->length);
+                memcpy(result.as.as_buffer->data, src->data, src->length);
+            } else {
+                result = hml_val_null();
+            }
+            break;
+
+        case HML_VAL_ARRAY:
+            if (val.as.as_array) {
+                HmlArray *src = val.as.as_array;
+                // Create a new array
+                result = hml_val_array();
+                HmlArray *dst = result.as.as_array;
+
+                // Copy element type
+                dst->element_type = src->element_type;
+
+                // Deep copy each element
+                for (int i = 0; i < src->length; i++) {
+                    HmlValue elem_copy = hml_value_deep_copy(src->elements[i]);
+                    hml_array_push(result, elem_copy);
+                    hml_release(&elem_copy);  // array_push retains
+                }
+            } else {
+                result = hml_val_null();
+            }
+            break;
+
+        case HML_VAL_OBJECT:
+            if (val.as.as_object) {
+                HmlObject *src = val.as.as_object;
+                // Create a new object
+                result = hml_val_object();
+                HmlObject *dst = result.as.as_object;
+
+                // Copy type name if present
+                if (src->type_name) {
+                    dst->type_name = strdup(src->type_name);
+                }
+
+                // Deep copy each field
+                for (int i = 0; i < src->num_fields; i++) {
+                    HmlValue field_copy = hml_value_deep_copy(src->field_values[i]);
+                    hml_object_set_field(result, src->field_names[i], field_copy);
+                    hml_release(&field_copy);  // set_field retains
+                }
+            } else {
+                result = hml_val_null();
+            }
+            break;
+
+        case HML_VAL_PTR:
+            // Raw pointers cannot be deep copied safely - this is intentional
+            // Tasks should not share raw pointers; use channels or buffers instead
+            fprintf(stderr, "Runtime error: Cannot pass raw pointer to spawned task (use buffer or channel instead)\n");
+            exit(1);
+
+        case HML_VAL_FILE:
+        case HML_VAL_SOCKET:
+            // OS resources - kernel handles concurrent access
+            // Share by reference (retain the value)
+            hml_retain(&val);
+            return val;
+
+        case HML_VAL_FUNCTION:
+            // Functions are shared by reference
+            // The closure environment is already designed for this
+            if (val.as.as_function) {
+                val.as.as_function->ref_count++;
+            }
+            return val;
+
+        case HML_VAL_TASK:
+            // Task handles are shared - they're used for coordination
+            if (val.as.as_task) {
+                val.as.as_task->ref_count++;
+            }
+            return val;
+
+        case HML_VAL_CHANNEL:
+            // Channels are shared - they're the communication mechanism
+            if (val.as.as_channel) {
+                val.as.as_channel->ref_count++;
+            }
+            return val;
+
+        default:
+            // Unknown type - return null for safety
+            return hml_val_null();
+    }
+
+    return result;
+}
+
 // ========== TYPE CHECKING ==========
 
 int hml_is_null(HmlValue val) {
