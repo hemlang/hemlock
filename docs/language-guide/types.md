@@ -136,7 +136,7 @@ enum Color {
 }
 
 let c = Color.RED;
-print(c);              // "RED"
+print(c);              // 0
 print(typeof(c));      // "Color"
 
 // Comparison
