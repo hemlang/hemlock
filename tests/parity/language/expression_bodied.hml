@@ -1,0 +1,56 @@
+// Test expression-bodied functions (arrow syntax)
+
+// Basic expression-bodied named function
+fn times_two(x: i32): i32 => x * 2;
+print(times_two(21));
+
+// Expression-bodied with multiple parameters
+fn add(a: i32, b: i32): i32 => a + b;
+print(add(10, 32));
+
+// Expression-bodied returning expression result
+fn square(x: i32): i32 => x * x;
+print(square(6));
+
+// Anonymous expression-bodied function
+let triple = fn(x: i32): i32 => x * 3;
+print(triple(14));
+
+// Higher-order with expression body
+fn apply_fn(f: fn(i32): i32, x: i32): i32 => f(x);
+print(apply_fn(times_two, 10));
+
+// Expression body with ternary
+fn max(a: i32, b: i32): i32 => a > b ? a : b;
+print(max(5, 10));
+print(max(20, 15));
+
+// Expression body calling other function
+fn quadruple(x: i32): i32 => times_two(times_two(x));
+print(quadruple(5));
+
+// Expression body with string
+fn greet(name: string): string => "Hello, " + name + "!";
+print(greet("World"));
+
+// Mix of expression-bodied and block-bodied
+fn block_add(a: i32, b: i32): i32 {
+    return a + b;
+}
+fn arrow_add(a: i32, b: i32): i32 => a + b;
+print(block_add(1, 2) == arrow_add(1, 2));
+
+// Closure capturing with expression body
+let multiplier = 10;
+let scale = fn(x: i32): i32 => x * multiplier;
+print(scale(5));
+
+// Expression body with side effect (no explicit return type)
+fn log_value(x: i32) => print(x);
+log_value(99);
+
+// Nested function calls in expression body
+fn increment(x: i32): i32 => x + 1;
+fn decrement(x: i32): i32 => x - 1;
+fn identity(x: i32): i32 => decrement(increment(x));
+print(identity(42));

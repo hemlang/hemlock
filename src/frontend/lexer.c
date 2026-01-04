@@ -1065,6 +1065,10 @@ Token lexer_next(Lexer *lex) {
                 advance(lex);
                 return make_token(lex, TOK_EQUAL_EQUAL);
             }
+            if (peek(lex) == '>') {
+                advance(lex);
+                return make_token(lex, TOK_ARROW);
+            }
             return make_token(lex, TOK_EQUAL);
             
         case '!':

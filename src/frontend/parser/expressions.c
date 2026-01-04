@@ -351,9 +351,20 @@ parse_fn_expr:
         return_type = parse_type(p);
     }
 
-    // Parse body (must be a block)
-    consume(p, TOK_LBRACE, "Expect '{' before function body");
-    Stmt *body = block_statement(p);
+    // Parse body - either block { } or expression-bodied => expr
+    Stmt *body;
+    if (match(p, TOK_ARROW)) {
+        // Expression-bodied anonymous function: fn(...) => expr
+        Expr *body_expr = expression(p);
+        // Wrap expression in return statement, then in block
+        Stmt *return_stmt = stmt_return(body_expr);
+        Stmt **stmts = malloc(sizeof(Stmt*));
+        stmts[0] = return_stmt;
+        body = stmt_block(stmts, 1);
+    } else {
+        consume(p, TOK_LBRACE, "Expect '{' or '=>' before function body");
+        body = block_statement(p);
+    }
 
     return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
