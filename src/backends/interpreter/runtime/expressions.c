@@ -1294,10 +1294,78 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Evaluate and store fields
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                obj->field_names[i] = strdup(expr->as.object_literal.field_names[i]);
-                obj->field_values[i] = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
-                // eval_expr returns with refcount 1, object now owns this reference
-                obj->num_fields++;
+                if (expr->as.object_literal.field_names[i] == NULL) {
+                    // Spread operator: ...expr
+                    // Evaluate the spread expression and copy all its fields
+                    Value spread_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                    if (spread_val.type != VAL_OBJECT) {
+                        VALUE_RELEASE(spread_val);
+                        runtime_error(ctx, "Spread operator requires an object");
+                        return val_object(obj);
+                    }
+                    Object *spread_obj = spread_val.as.as_object;
+
+                    // Copy all fields from spread object
+                    for (int j = 0; j < spread_obj->num_fields; j++) {
+                        // Check if field already exists (overwrite if so)
+                        int existing_idx = -1;
+                        for (int k = 0; k < obj->num_fields; k++) {
+                            if (strcmp(obj->field_names[k], spread_obj->field_names[j]) == 0) {
+                                existing_idx = k;
+                                break;
+                            }
+                        }
+
+                        if (existing_idx >= 0) {
+                            // Overwrite existing field
+                            VALUE_RELEASE(obj->field_values[existing_idx]);
+                            obj->field_values[existing_idx] = spread_obj->field_values[j];
+                            VALUE_RETAIN(obj->field_values[existing_idx]);
+                        } else {
+                            // Add new field - grow if needed
+                            if (obj->num_fields >= obj->capacity) {
+                                int new_capacity = obj->capacity * 2;
+                                obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                                obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                                obj->capacity = new_capacity;
+                            }
+                            obj->field_names[obj->num_fields] = strdup(spread_obj->field_names[j]);
+                            obj->field_values[obj->num_fields] = spread_obj->field_values[j];
+                            VALUE_RETAIN(obj->field_values[obj->num_fields]);
+                            obj->num_fields++;
+                        }
+                    }
+                    VALUE_RELEASE(spread_val);
+                } else {
+                    // Normal field: name: value
+                    // Check if field already exists (from previous spread)
+                    int existing_idx = -1;
+                    for (int k = 0; k < obj->num_fields; k++) {
+                        if (strcmp(obj->field_names[k], expr->as.object_literal.field_names[i]) == 0) {
+                            existing_idx = k;
+                            break;
+                        }
+                    }
+
+                    Value field_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+
+                    if (existing_idx >= 0) {
+                        // Overwrite existing field (from spread)
+                        VALUE_RELEASE(obj->field_values[existing_idx]);
+                        obj->field_values[existing_idx] = field_val;
+                    } else {
+                        // Add new field - grow if needed
+                        if (obj->num_fields >= obj->capacity) {
+                            int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
+                            obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                            obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                            obj->capacity = new_capacity;
+                        }
+                        obj->field_names[obj->num_fields] = strdup(expr->as.object_literal.field_names[i]);
+                        obj->field_values[obj->num_fields] = field_val;
+                        obj->num_fields++;
+                    }
+                }
             }
 
             return val_object(obj);

@@ -182,6 +182,8 @@ Expr* primary(Parser *p) {
     }
 
     // Object literal: { field: value, ... }
+    // Also supports shorthand: { name } means { name: name }
+    // Also supports spread: { ...obj } copies all fields from obj
     if (match(p, TOK_LBRACE)) {
         int capacity = 32;
         char **field_names = malloc(sizeof(char*) * capacity);
@@ -195,12 +197,26 @@ Expr* primary(Parser *p) {
                 field_names = realloc(field_names, sizeof(char*) * capacity);
                 field_values = realloc(field_values, sizeof(Expr*) * capacity);
             }
-            field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
-            consume(p, TOK_COLON, "Expect ':' after field name");
-            field_values[num_fields] = expression(p);
+            // Check for spread operator: ...expr
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                field_names[num_fields] = NULL;  // NULL marks spread
+                field_values[num_fields] = expression(p);
+                num_fields++;
+            } else {
+                // Normal field or shorthand
+                field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
-            num_fields++;
+                // Check for shorthand: { name } vs { name: value }
+                if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
+                    // Shorthand syntax: { name } means { name: name }
+                    field_values[num_fields] = expr_ident(field_names[num_fields]);
+                } else {
+                    consume(p, TOK_COLON, "Expect ':' after field name");
+                    field_values[num_fields] = expression(p);
+                }
+                num_fields++;
+            }
 
             if (!match(p, TOK_COMMA)) break;
         }
