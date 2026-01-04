@@ -629,7 +629,9 @@ let s: string = 'H';    // "H"
 
 ## Type Aliases
 
-Hemlock provides type aliases for common types:
+### Built-in Aliases
+
+Hemlock provides built-in type aliases for common types:
 
 | Alias     | Actual Type | Usage                    |
 |-----------|-------------|--------------------------|
@@ -642,6 +644,93 @@ Hemlock provides type aliases for common types:
 let count: integer = 100;       // Same as i32
 let price: number = 19.99;      // Same as f64
 let b: byte = 255;              // Same as u8
+```
+
+### Custom Type Aliases
+
+Define custom type aliases using the `type` keyword:
+
+```hemlock
+// Simple aliases
+type Integer = i32;
+type Text = string;
+
+// Function type aliases
+type Callback = fn(i32): void;
+type Predicate = fn(any): bool;
+type BinaryOp = fn(i32, i32): i32;
+
+// Compound type aliases
+define HasName { name: string }
+define HasAge { age: i32 }
+type Person = HasName & HasAge;
+
+// Generic type aliases
+type Pair<T> = { first: T, second: T };
+type Result<T, E> = { value: T?, error: E? };
+```
+
+**Using custom aliases:**
+```hemlock
+let cb: Callback = fn(n) { print(n); };
+let p: Person = { name: "Alice", age: 30 };
+let coords: Pair<f64> = { first: 3.14, second: 2.71 };
+```
+
+**Note:** Type aliases are transparent - `typeof()` returns the underlying type name.
+
+---
+
+## Function Types
+
+Function types specify the signature of function values:
+
+### Syntax
+
+```hemlock
+fn(param_types): return_type
+```
+
+### Examples
+
+```hemlock
+// Basic function type
+let add: fn(i32, i32): i32 = fn(a, b) { return a + b; };
+
+// Function parameter
+fn apply(f: fn(i32): i32, x: i32): i32 {
+    return f(x);
+}
+
+// Higher-order function returning function
+fn make_adder(n: i32): fn(i32): i32 {
+    return fn(x) { return x + n; };
+}
+
+// Async function type
+fn run_async(handler: async fn(): void) {
+    spawn(handler);
+}
+```
+
+---
+
+## Compound Types (Intersection)
+
+Compound types use `&` to require multiple type constraints:
+
+```hemlock
+define HasName { name: string }
+define HasAge { age: i32 }
+define HasEmail { email: string }
+
+// Object must satisfy all types
+let person: HasName & HasAge = { name: "Alice", age: 30 };
+
+// Three or more types
+fn describe(p: HasName & HasAge & HasEmail) {
+    print(p.name + " <" + p.email + ">");
+}
 ```
 
 ---

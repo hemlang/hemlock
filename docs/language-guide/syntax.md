@@ -700,15 +700,31 @@ let result =
     );
 ```
 
+## Loop Statement
+
+The `loop` keyword provides a cleaner syntax for infinite loops:
+
+```hemlock
+loop {
+    // ... do work
+    if (done) {
+        break;
+    }
+}
+```
+
+This is equivalent to `while (true)` but makes the intent clearer.
+
 ## Reserved Keywords
 
 The following keywords are reserved in Hemlock:
 
 ```
-let, const, fn, if, else, while, for, in, break, continue,
+let, const, fn, if, else, while, for, in, loop, break, continue,
 return, true, false, null, typeof, import, export, from,
 try, catch, finally, throw, panic, async, await, spawn, join,
-detach, channel, define, switch, case, default, extern, self
+detach, channel, define, switch, case, default, extern, self,
+type, defer, enum, ref, buffer, Self
 ```
 
 ## Next Steps
