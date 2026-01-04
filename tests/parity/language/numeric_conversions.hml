@@ -1,0 +1,112 @@
+// Comprehensive numeric conversions test
+// Tests that all numeric type conversions are allowed at compile time
+// per type_check.c:785-789 and validated at runtime
+
+// ========== WIDENING CONVERSIONS (always safe) ==========
+
+// i8 to larger integers
+let i8_val: i8 = 42;
+let i8_to_i16: i16 = i8_val;
+let i8_to_i32: i32 = i8_val;
+let i8_to_i64: i64 = i8_val;
+print(i8_to_i64);
+
+// i16 to larger integers
+let i16_val: i16 = 1000;
+let i16_to_i32: i32 = i16_val;
+let i16_to_i64: i64 = i16_val;
+print(i16_to_i64);
+
+// i32 to i64
+let i32_val: i32 = 100000;
+let i32_to_i64: i64 = i32_val;
+print(i32_to_i64);
+
+// Integer to float (always safe)
+let int_to_f32: f32 = i32_val;
+let int_to_f64: f64 = i32_val;
+print(int_to_f64);
+
+// f32 to f64
+let f32_val: f32 = 1.5;
+let f32_to_f64: f64 = f32_val;
+print(f32_to_f64);
+
+// ========== NARROWING CONVERSIONS (may truncate) ==========
+
+// i64 to smaller integers (values that fit)
+let small_i64: i64 = 50;
+let i64_to_i32: i32 = small_i64;
+let i64_to_i16: i16 = small_i64;
+let i64_to_i8: i8 = small_i64;
+print(i64_to_i8);
+
+// Float to integer (truncates decimal part)
+let float_val: f64 = 7.99;
+let f64_to_i32: i32 = float_val;
+print(f64_to_i32);  // 7 (truncated)
+
+let neg_float: f64 = -3.7;
+let neg_to_int: i32 = neg_float;
+print(neg_to_int);  // -3 (truncated toward zero)
+
+// f64 to f32
+let big_f64: f64 = 1.25;
+let f64_to_f32: f32 = big_f64;
+print(f64_to_f32);
+
+// ========== SIGNED TO UNSIGNED ==========
+
+let signed: i32 = 100;
+let to_u8: u8 = signed;
+let to_u16: u16 = signed;
+let to_u32: u32 = signed;
+let to_u64: u64 = signed;
+print(to_u64);
+
+// ========== UNSIGNED TO SIGNED ==========
+
+let unsigned: u32 = 200;
+let u_to_i32: i32 = unsigned;
+let u_to_i64: i64 = unsigned;
+print(u_to_i64);
+
+// ========== CROSS-SIZE SIGNED/UNSIGNED ==========
+
+let u8_val: u8 = 255;
+let u8_to_i16: i16 = u8_val;
+let u8_to_i32: i32 = u8_val;
+print(u8_to_i32);
+
+let i8_small: i8 = 127;
+let i8_to_u16: u16 = i8_small;
+let i8_to_u32: u32 = i8_small;
+print(i8_to_u32);
+
+// ========== FUNCTION PARAMETERS ==========
+
+fn take_i64(n: i64): i64 {
+    return n;
+}
+
+fn take_f64(n: f64): f64 {
+    return n;
+}
+
+// Pass smaller types to larger parameter types
+let result1 = take_i64(i8_val);
+print(result1);
+
+let result2 = take_f64(i32_val);
+print(result2);
+
+// ========== ARITHMETIC MIXED TYPES ==========
+
+// Operations promote to common type
+let mix1 = i8_val + i32_val;  // i8 + i32 -> i32
+print(typeof(mix1));
+
+let mix2 = i32_val + float_val;  // i32 + f64 -> f64
+print(typeof(mix2));
+
+print("All numeric conversions passed");
