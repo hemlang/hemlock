@@ -1658,14 +1658,39 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
 
                     // Check argument types
                     for (int i = 0; i < provided && i < sig->num_params; i++) {
-                        if (!sig->param_types[i]) continue;
+                        // Determine which parameter this argument corresponds to
+                        int param_idx = i;  // Default: positional argument
+
+                        // Check if this is a named argument
+                        if (expr->as.call.arg_names && expr->as.call.arg_names[i]) {
+                            const char *arg_name = expr->as.call.arg_names[i];
+                            param_idx = -1;  // Will be set if we find the parameter
+
+                            // Find the parameter by name
+                            if (sig->param_names) {
+                                for (int j = 0; j < sig->num_params; j++) {
+                                    if (sig->param_names[j] && strcmp(sig->param_names[j], arg_name) == 0) {
+                                        param_idx = j;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // If parameter not found, skip type checking (runtime will catch it)
+                            if (param_idx < 0) continue;
+                        }
+
+                        if (!sig->param_types[param_idx]) continue;
 
                         CheckedType *arg_type = type_check_infer_expr(ctx, expr->as.call.args[i]);
-                        if (!type_is_assignable(sig->param_types[i], arg_type)) {
+                        if (!type_is_assignable(sig->param_types[param_idx], arg_type)) {
                             type_error(ctx, expr->line,
-                                "argument %d to '%s': expected '%s', got '%s'",
-                                i + 1, name,
-                                checked_type_name(sig->param_types[i]),
+                                "argument '%s' to '%s': expected '%s', got '%s'",
+                                (expr->as.call.arg_names && expr->as.call.arg_names[i])
+                                    ? expr->as.call.arg_names[i]
+                                    : "positional",
+                                name,
+                                checked_type_name(sig->param_types[param_idx]),
                                 checked_type_name(arg_type));
                         }
                         checked_type_free(arg_type);

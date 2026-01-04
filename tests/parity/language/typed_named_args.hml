@@ -1,0 +1,37 @@
+// Test named arguments with type annotations
+// This validates parity between interpreter and compiler type checking
+
+// Function with typed parameters
+fn typed_func(a: i32, b: string, c: bool) {
+    print("a=" + a + " b=" + b + " c=" + c);
+}
+
+// Named arguments in different order - should work with type checking
+typed_func(c: true, a: 42, b: "hello");
+typed_func(b: "world", c: false, a: 99);
+
+// Function with typed optional parameters
+fn typed_opt(a: i32, b?: "default", c?: 0) {
+    print("a=" + a + " b=" + b + " c=" + c);
+}
+
+// Named args skipping optional parameters
+typed_opt(c: 100, a: 1);
+typed_opt(b: "custom", a: 2, c: 200);
+
+// All named in reversed order with all optional params
+fn all_opt(x?: 1, y?: 2, z?: 3) {
+    print("x=" + x + " y=" + y + " z=" + z);
+}
+
+all_opt(z: 30, y: 20, x: 10);
+all_opt(y: 22);
+
+// Mixed required and optional with typed parameters
+fn mixed(req1: string, req2: i32, opt1?: true, opt2?: "X") {
+    print("req1=" + req1 + " req2=" + req2 + " opt1=" + opt1 + " opt2=" + opt2);
+}
+
+// All named in different order
+mixed(opt2: "Y", req2: 42, opt1: false, req1: "hello");
+mixed(req2: 100, req1: "world");
