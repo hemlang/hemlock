@@ -1178,9 +1178,21 @@ Stmt* statement(Parser *p) {
             return_type = parse_type(p);
         }
 
-        // Parse body
-        consume(p, TOK_LBRACE, "Expect '{' before function body");
-        Stmt *body = block_statement(p);
+        // Parse body - either block { } or expression-bodied => expr;
+        Stmt *body;
+        if (match(p, TOK_ARROW)) {
+            // Expression-bodied function: fn name(...) => expr;
+            Expr *body_expr = expression(p);
+            consume(p, TOK_SEMICOLON, "Expect ';' after expression-bodied function");
+            // Wrap expression in return statement, then in block
+            Stmt *return_stmt = stmt_return(body_expr);
+            Stmt **stmts = malloc(sizeof(Stmt*));
+            stmts[0] = return_stmt;
+            body = stmt_block(stmts, 1);
+        } else {
+            consume(p, TOK_LBRACE, "Expect '{' or '=>' before function body");
+            body = block_statement(p);
+        }
 
         // Create function expression (with is_async flag)
         Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);

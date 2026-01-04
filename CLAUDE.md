@@ -177,6 +177,11 @@ let item = arr?.[0];             // safe indexing
 fn add(a: i32, b: i32): i32 { return a + b; }
 fn greet(name: string, msg?: "Hello") { print(msg + " " + name); }
 let f = fn(x) { return x * 2; };  // anonymous/closure
+
+// Expression-bodied functions (arrow syntax)
+fn double(x: i32): i32 => x * 2;
+fn max(a: i32, b: i32): i32 => a > b ? a : b;
+let square = fn(x: i32): i32 => x * x;  // anonymous expression-bodied
 ```
 
 ### Named Arguments
@@ -786,6 +791,7 @@ make parity
 ## Version
 
 **v1.7.1** - Current release with:
+- **Expression-bodied functions** (`fn double(x): i32 => x * 2;`) - concise single-expression function syntax
 - **Single-line statements** - braceless `if`, `while`, `for` syntax (e.g., `if (x > 0) print(x);`)
 - **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
 - **Function type annotations** (`fn(i32): i32`) - first-class function types
@@ -829,7 +835,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 139 parity tests (100% pass rate)
+- 159 parity tests (100% pass rate)
 
 ---
 
