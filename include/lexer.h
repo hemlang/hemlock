@@ -107,6 +107,7 @@ typedef enum {
     TOK_GREATER_GREATER,
     TOK_QUESTION_DOT,        // ?.
     TOK_QUESTION_QUESTION,   // ??
+    TOK_QUESTION_QUESTION_EQUAL, // ??=
 
     // Punctuation
     TOK_SEMICOLON,
