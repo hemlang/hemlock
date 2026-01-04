@@ -4,6 +4,7 @@
 // ========== CURRENT SOURCE FILE TRACKING ==========
 
 static char *current_source_file = NULL;
+static char *current_source_code = NULL;
 
 void set_current_source_file(const char *file) {
     if (current_source_file) {
@@ -17,6 +18,166 @@ void set_current_source_file(const char *file) {
 
 const char* get_current_source_file(void) {
     return current_source_file;
+}
+
+void set_current_source_code(const char *source) {
+    if (current_source_code) {
+        free(current_source_code);
+        current_source_code = NULL;
+    }
+    if (source) {
+        current_source_code = strdup(source);
+    }
+}
+
+const char* get_current_source_code(void) {
+    return current_source_code;
+}
+
+// ========== SOURCE CONTEXT HELPERS ==========
+
+// Get a specific line from the source code
+const char* get_source_line(const char *source, int line_num, int *line_length) {
+    if (!source || line_num <= 0) {
+        *line_length = 0;
+        return NULL;
+    }
+
+    const char *p = source;
+    int current_line = 1;
+
+    // Find the start of the requested line
+    while (*p && current_line < line_num) {
+        if (*p == '\n') {
+            current_line++;
+        }
+        p++;
+    }
+
+    if (!*p && current_line < line_num) {
+        *line_length = 0;
+        return NULL;
+    }
+
+    // Find the end of the line
+    const char *line_start = p;
+    while (*p && *p != '\n') {
+        p++;
+    }
+
+    *line_length = (int)(p - line_start);
+    return line_start;
+}
+
+// Print source context with caret pointing to error position
+void print_source_context(FILE *out, const char *source, int line, int column) {
+    if (!source || line <= 0) return;
+
+    int line_length;
+    const char *line_text = get_source_line(source, line, &line_length);
+    if (!line_text || line_length == 0) return;
+
+    // Print line number prefix
+    fprintf(out, "  %4d | ", line);
+
+    // Print the source line (truncate if too long)
+    int max_display = 120;
+    int display_len = line_length < max_display ? line_length : max_display;
+    fprintf(out, "%.*s", display_len, line_text);
+    if (line_length > max_display) {
+        fprintf(out, "...");
+    }
+    fprintf(out, "\n");
+
+    // Print the caret pointing to the column
+    fprintf(out, "       | ");
+    if (column > 0) {
+        // Account for tabs and print spaces to align caret
+        for (int i = 1; i < column && i <= display_len; i++) {
+            if (line_text[i-1] == '\t') {
+                fprintf(out, "\t");
+            } else {
+                fprintf(out, " ");
+            }
+        }
+        fprintf(out, "^\n");
+    } else {
+        fprintf(out, "^\n");
+    }
+}
+
+// Format an error message with full location and context
+char* format_error_with_context(const char *file, int line, int column, const char *message) {
+    // Handle null message
+    if (!message) message = "Unknown error";
+
+    // Calculate buffer size needed
+    // Format: [file:line:column] message\n  line | source\n       | ^
+    size_t base_size = 1024;
+    char *buffer = malloc(base_size);
+    if (!buffer) return strdup(message);
+
+    int offset = 0;
+
+    // Format location prefix
+    if (file && line > 0 && column > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[%s:%d:%d] ", file, line, column);
+    } else if (file && line > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[%s:%d] ", file, line);
+    } else if (line > 0 && column > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[line %d:%d] ", line, column);
+    } else if (line > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[line %d] ", line);
+    }
+
+    // Add the error message
+    offset += snprintf(buffer + offset, base_size - offset, "%s", message);
+
+    // Add source context if available
+    const char *source = get_current_source_code();
+    if (source && line > 0) {
+        int line_length;
+        const char *line_text = get_source_line(source, line, &line_length);
+        if (line_text && line_length > 0) {
+            // Truncate line if too long
+            int max_display = 80;
+            int display_len = line_length < max_display ? line_length : max_display;
+
+            // Realloc if needed
+            size_t needed = offset + display_len + 100;
+            if (needed > base_size) {
+                char *new_buf = realloc(buffer, needed);
+                if (new_buf) {
+                    buffer = new_buf;
+                    base_size = needed;
+                }
+            }
+
+            offset += snprintf(buffer + offset, base_size - offset, "\n  %4d | %.*s",
+                             line, display_len, line_text);
+            if (line_length > max_display) {
+                offset += snprintf(buffer + offset, base_size - offset, "...");
+            }
+            offset += snprintf(buffer + offset, base_size - offset, "\n       | ");
+
+            // Add caret (with bounds checking)
+            if (column > 0 && (size_t)(offset + column + 2) < base_size) {
+                for (int i = 1; i < column && i <= display_len; i++) {
+                    if (line_text[i-1] == '\t') {
+                        buffer[offset++] = '\t';
+                    } else {
+                        buffer[offset++] = ' ';
+                    }
+                }
+            }
+            if ((size_t)(offset + 2) < base_size) {
+                buffer[offset++] = '^';
+                buffer[offset] = '\0';
+            }
+        }
+    }
+
+    return buffer;
 }
 
 // ========== EXECUTION CONTEXT IMPLEMENTATION ==========
@@ -76,9 +237,14 @@ void call_stack_push_line(CallStack *stack, const char *function_name, int line)
     call_stack_push_full(stack, function_name, get_current_source_file(), line);
 }
 
-// Push with full info
-// OPTIMIZATION: Store const pointers instead of strdup'ing - the strings are from AST and live long enough
+// Push with full info (without column)
 void call_stack_push_full(CallStack *stack, const char *function_name, const char *source_file, int line) {
+    call_stack_push_full_loc(stack, function_name, source_file, line, 0);
+}
+
+// Push with full info including column
+// OPTIMIZATION: Store const pointers instead of strdup'ing - the strings are from AST and live long enough
+void call_stack_push_full_loc(CallStack *stack, const char *function_name, const char *source_file, int line, int column) {
     if (stack->capacity == 0) {
         call_stack_init(stack);
     }
@@ -97,6 +263,7 @@ void call_stack_push_full(CallStack *stack, const char *function_name, const cha
     stack->frames[stack->count].function_name = (char*)function_name;
     stack->frames[stack->count].source_file = (char*)source_file;
     stack->frames[stack->count].line = line;
+    stack->frames[stack->count].column = column;
     stack->count++;
 }
 
@@ -120,18 +287,35 @@ void call_stack_print(CallStack *stack) {
         int frame_num = stack->count - 1 - i;
 
         if (frame->source_file && frame->line > 0) {
-            // Full info: file:line
-            fprintf(stderr, "  #%d  %s (%s:%d)\n",
-                    frame_num,
-                    frame->function_name,
-                    frame->source_file,
-                    frame->line);
+            // Full info: file:line:column
+            if (frame->column > 0) {
+                fprintf(stderr, "  #%d  %s (%s:%d:%d)\n",
+                        frame_num,
+                        frame->function_name,
+                        frame->source_file,
+                        frame->line,
+                        frame->column);
+            } else {
+                fprintf(stderr, "  #%d  %s (%s:%d)\n",
+                        frame_num,
+                        frame->function_name,
+                        frame->source_file,
+                        frame->line);
+            }
         } else if (frame->line > 0) {
-            // Line only
-            fprintf(stderr, "  #%d  %s (line %d)\n",
-                    frame_num,
-                    frame->function_name,
-                    frame->line);
+            // Line only (with optional column)
+            if (frame->column > 0) {
+                fprintf(stderr, "  #%d  %s (line %d:%d)\n",
+                        frame_num,
+                        frame->function_name,
+                        frame->line,
+                        frame->column);
+            } else {
+                fprintf(stderr, "  #%d  %s (line %d)\n",
+                        frame_num,
+                        frame->function_name,
+                        frame->line);
+            }
         } else if (frame->source_file) {
             // File only
             fprintf(stderr, "  #%d  %s (%s)\n",
@@ -143,6 +327,70 @@ void call_stack_print(CallStack *stack) {
             fprintf(stderr, "  #%d  %s\n",
                     frame_num,
                     frame->function_name);
+        }
+    }
+}
+
+// Enhanced stack trace with source code snippets
+void call_stack_print_with_source(CallStack *stack, const char *source) {
+    if (stack->count == 0) {
+        return;
+    }
+
+    fprintf(stderr, "\nStack trace (most recent call first):\n");
+    for (int i = stack->count - 1; i >= 0; i--) {
+        CallFrame *frame = &stack->frames[i];
+        int frame_num = stack->count - 1 - i;
+
+        // Print frame header
+        fprintf(stderr, "  #%d  ", frame_num);
+        fprintf(stderr, "%s", frame->function_name);
+
+        if (frame->source_file && frame->line > 0) {
+            if (frame->column > 0) {
+                fprintf(stderr, " (%s:%d:%d)", frame->source_file, frame->line, frame->column);
+            } else {
+                fprintf(stderr, " (%s:%d)", frame->source_file, frame->line);
+            }
+        } else if (frame->line > 0) {
+            if (frame->column > 0) {
+                fprintf(stderr, " (line %d:%d)", frame->line, frame->column);
+            } else {
+                fprintf(stderr, " (line %d)", frame->line);
+            }
+        } else if (frame->source_file) {
+            fprintf(stderr, " (%s)", frame->source_file);
+        }
+        fprintf(stderr, "\n");
+
+        // Show source context for the top frame only (to avoid clutter)
+        if (frame_num == 0 && source && frame->line > 0) {
+            int line_length;
+            const char *line_text = get_source_line(source, frame->line, &line_length);
+            if (line_text && line_length > 0) {
+                // Truncate if too long
+                int max_display = 80;
+                int display_len = line_length < max_display ? line_length : max_display;
+
+                fprintf(stderr, "       %4d | %.*s", frame->line, display_len, line_text);
+                if (line_length > max_display) {
+                    fprintf(stderr, "...");
+                }
+                fprintf(stderr, "\n");
+
+                // Print caret
+                if (frame->column > 0) {
+                    fprintf(stderr, "            | ");
+                    for (int j = 1; j < frame->column && j <= display_len; j++) {
+                        if (line_text[j-1] == '\t') {
+                            fprintf(stderr, "\t");
+                        } else {
+                            fprintf(stderr, " ");
+                        }
+                    }
+                    fprintf(stderr, "^\n");
+                }
+            }
         }
     }
 }
@@ -236,6 +484,7 @@ void defer_stack_free(DeferStack *stack) {
 }
 
 // Runtime error with stack trace
+// Automatically includes location info from ctx->current_line if available
 void runtime_error(ExecutionContext *ctx, const char *format, ...) {
     char buffer[512];
     va_list args;
@@ -245,7 +494,16 @@ void runtime_error(ExecutionContext *ctx, const char *format, ...) {
 
     // Set exception state for catchable errors
     if (ctx) {
-        ctx->exception_state.exception_value = val_string(buffer);
+
+        // If we have location info in context, use it to format a better error
+        if (ctx->current_line > 0) {
+            const char *file = ctx->current_source_file ? ctx->current_source_file : get_current_source_file();
+            char *formatted = format_error_with_context(file, ctx->current_line, 0, buffer);
+            ctx->exception_state.exception_value = val_string(formatted);
+            free(formatted);
+        } else {
+            ctx->exception_state.exception_value = val_string(buffer);
+        }
         value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
     } else {
@@ -281,6 +539,32 @@ void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...) 
         fprintf(stderr, "Runtime error: %s\n", full_buffer);
         exit(1);
     }
+}
+
+// Runtime error with full location (file, line, column) and source context
+void runtime_error_with_context(ExecutionContext *ctx, const char *file, int line, int column, const char *format, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    // Format error with full location and source context
+    char *formatted = format_error_with_context(file, line, column, buffer);
+
+    // Set exception state for catchable errors
+    if (ctx) {
+        ctx->exception_state.exception_value = val_string(formatted);
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+    } else {
+        // No context - print error and exit
+        fprintf(stderr, "Runtime error: %s\n", formatted);
+        free(formatted);
+        exit(1);
+    }
+
+    free(formatted);
 }
 
 // ========== SANDBOX HELPERS ==========

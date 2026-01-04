@@ -900,8 +900,8 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             char *error_msg = value_to_string(ctx->exception_state.exception_value);
             fprintf(stderr, "Uncaught exception: %s\n", error_msg);
             free(error_msg);
-            // Print stack trace
-            call_stack_print(&ctx->call_stack);
+            // Print stack trace with source context
+            call_stack_print_with_source(&ctx->call_stack, get_current_source_code());
             // Clear stack for next execution (REPL mode)
             call_stack_free(&ctx->call_stack);
             // Release exception value before exiting

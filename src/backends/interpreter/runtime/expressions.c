@@ -959,9 +959,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
 
         case EXPR_GET_PROPERTY: {
+            // Save line for error reporting (sub-expression eval may change it)
+            int saved_line = expr->line;
+
             Value object = eval_expr(expr->as.get_property.object, env, ctx);
             const char *property = expr->as.get_property.property;
             Value result = {0};
+
+            // Restore line for any errors in this expression
+            ctx->current_line = saved_line;
 
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
@@ -1114,9 +1120,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
 
         case EXPR_INDEX: {
+            // Save line for error reporting (sub-expression evals may change it)
+            int saved_line = expr->line;
+
             Value object = eval_expr(expr->as.index.object, env, ctx);
             Value index_val = eval_expr(expr->as.index.index, env, ctx);
             Value result = {0};
+
+            // Restore line for any errors in this expression
+            ctx->current_line = saved_line;
 
             // FAST PATH: array[i32] - most common indexing case
             if (object.type == VAL_ARRAY && index_val.type == VAL_I32) {

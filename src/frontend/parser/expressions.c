@@ -462,14 +462,22 @@ Expr* postfix(Parser *p) {
             }
         } else if (match(p, TOK_DOT)) {
             // Property access: obj.property
+            int prop_line = p->previous.line;     // Save line of '.' for error reporting
+            int prop_column = p->previous.column;
             char *property = consume_identifier_or_type_keyword(p, "Expect property name after '.'");
             expr = expr_get_property(expr, property);
+            expr->line = prop_line;               // Set line for error messages
+            expr->column = prop_column;
             free(property);
         } else if (match(p, TOK_LBRACKET)) {
             // Indexing: obj[index]
+            int index_line = p->previous.line;    // Save line of '[' for error reporting
+            int index_column = p->previous.column;
             Expr *index = expression(p);
             consume(p, TOK_RBRACKET, "Expect ']' after index");
             expr = expr_index(expr, index);
+            expr->line = index_line;              // Set line for error messages
+            expr->column = index_column;
         } else if (match(p, TOK_LPAREN)) {
             // Function call: func(...) or obj.method(...)
             int call_line = p->previous.line;  // Save line of '(' for stack trace
