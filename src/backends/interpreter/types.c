@@ -739,6 +739,13 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;  // Null to null, ok
     } else if (value.type == VAL_RUNE && target_kind == TYPE_RUNE) {
         return value;  // Rune to rune, ok
+    } else if (value.type == VAL_PTR && target_kind == TYPE_PTR) {
+        return value;  // Ptr to ptr, ok
+    } else if (value.type == VAL_BUFFER && target_kind == TYPE_BUFFER) {
+        return value;  // Buffer to buffer, ok
+    } else if (value.type == VAL_OBJECT && target_kind == TYPE_CUSTOM_OBJECT) {
+        // Object to custom object - already handled above, but be permissive
+        return value;
     } else {
         runtime_error(ctx, "Cannot convert type to target type");
         return val_null();
