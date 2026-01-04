@@ -116,6 +116,10 @@ Expr* expr_call(Expr *func, Expr **args, char **arg_names, int num_args) {
     expr->as.call.args = args;
     expr->as.call.arg_names = arg_names;
     expr->as.call.num_args = num_args;
+    // Initialize inline cache for method dispatch
+    expr->as.call.ic.cached_receiver_type = 0;
+    expr->as.call.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.call.ic.miss_count = 0;
     return expr;
 }
 
@@ -139,6 +143,12 @@ Expr* expr_get_property(Expr *object, const char *property) {
     expr->column = 0;
     expr->as.get_property.object = object;
     expr->as.get_property.property = strdup(property);
+    // Initialize inline cache for property access
+    expr->as.get_property.ic.cached_object = NULL;
+    expr->as.get_property.ic.cached_field_index = -1;
+    expr->as.get_property.ic.cached_hash = 0;
+    expr->as.get_property.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.get_property.ic.miss_count = 0;
     return expr;
 }
 
@@ -774,7 +784,10 @@ Expr* expr_clone(const Expr *expr) {
             char **field_names_copy = malloc(sizeof(char*) * expr->as.object_literal.num_fields);
             Expr **field_values_copy = malloc(sizeof(Expr*) * expr->as.object_literal.num_fields);
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                field_names_copy[i] = strdup(expr->as.object_literal.field_names[i]);
+                // NULL field_name indicates spread operator
+                field_names_copy[i] = expr->as.object_literal.field_names[i]
+                    ? strdup(expr->as.object_literal.field_names[i])
+                    : NULL;
                 field_values_copy[i] = expr_clone(expr->as.object_literal.field_values[i]);
             }
             return expr_object_literal(

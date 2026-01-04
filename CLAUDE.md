@@ -130,6 +130,27 @@ switch (x) { case 1: break; default: break; }
 defer cleanup();         // runs when function returns
 ```
 
+### Null Coalescing Operators
+```hemlock
+// Null coalescing (??) - returns left if non-null, else right
+let name = user.name ?? "Anonymous";
+let first = a ?? b ?? c ?? "fallback";
+
+// Null coalescing assignment (??=) - assigns only if null
+let config = null;
+config ??= { timeout: 30 };    // config is now { timeout: 30 }
+config ??= { timeout: 60 };    // config unchanged (not null)
+
+// Works with properties and indices
+obj.field ??= "default";
+arr[0] ??= "first";
+
+// Safe navigation (?.) - returns null if object is null
+let city = user?.address?.city;  // null if any part is null
+let upper = name?.to_upper();    // safe method call
+let item = arr?.[0];             // safe indexing
+```
+
 ### Functions
 ```hemlock
 fn add(a: i32, b: i32): i32 { return a + b; }
@@ -598,6 +619,7 @@ make parity
 
 **v1.6.8** - Current release with:
 - **Named arguments** for function calls (`foo(name: "value", age: 30)`)
+- **Null coalescing operators** (`??`, `??=`, `?.`) for safe null handling
 - **Octal literals** (`0o777`, `0O123`)
 - **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
 - **Block comments** (`/* ... */`)
@@ -627,7 +649,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 122 parity tests (100% pass rate)
+- 128 parity tests (100% pass rate)
 
 ---
 

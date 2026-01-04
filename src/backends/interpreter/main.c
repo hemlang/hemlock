@@ -16,6 +16,7 @@
 #include "ast_serialize.h"
 #include "bundler/bundler.h"
 #include "version.h"
+#include "profiler/profiler.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -931,7 +932,13 @@ static void print_help(const char *program) {
     printf("SUBCOMMANDS:\n");
     printf("    lsp          Start Language Server Protocol server\n");
     printf("        --stdio      Use stdio transport (default)\n");
-    printf("        --tcp PORT   Use TCP transport on specified port\n\n");
+    printf("        --tcp PORT   Use TCP transport on specified port\n");
+    printf("    profile      Profile script execution (CPU time, memory, call counts)\n");
+    printf("        --cpu        CPU/time profiling (default)\n");
+    printf("        --memory     Memory allocation profiling\n");
+    printf("        --json       Output in JSON format\n");
+    printf("        --flamegraph Output in flamegraph-compatible format\n");
+    printf("        --top N      Show top N entries (default: 20)\n\n");
     printf("OPTIONS:\n");
     printf("    -h, --help           Display this help message\n");
     printf("    -v, --version        Display version information\n");
@@ -973,6 +980,183 @@ static void print_help(const char *program) {
     printf("    %s --sandbox script.hml    # Run in sandbox mode\n", program);
     printf("    %s --sandbox /tmp script.hml   # Sandbox with /tmp as allowed dir\n\n", program);
     printf("For more information, visit: https://github.com/hemlang/hemlock\n");
+}
+
+// Run profiler
+static int run_profile(int argc, char **argv) {
+    ProfileMode mode = PROFILE_MODE_CPU;
+    ProfileOutputFormat output_format = PROFILE_OUTPUT_TEXT;
+    int top_n = 20;
+    const char *output_file = NULL;
+    const char *file_to_run = NULL;
+    int first_script_arg = 0;
+
+    // Parse profile-specific options
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--cpu") == 0) {
+            mode = PROFILE_MODE_CPU;
+        } else if (strcmp(argv[i], "--memory") == 0) {
+            mode = PROFILE_MODE_MEMORY;
+        } else if (strcmp(argv[i], "--calls") == 0) {
+            mode = PROFILE_MODE_CALLS;
+        } else if (strcmp(argv[i], "--json") == 0) {
+            output_format = PROFILE_OUTPUT_JSON;
+        } else if (strcmp(argv[i], "--flamegraph") == 0) {
+            output_format = PROFILE_OUTPUT_FLAMEGRAPH;
+        } else if (strcmp(argv[i], "--top") == 0) {
+            if (i + 1 < argc) {
+                top_n = atoi(argv[i + 1]);
+                i++;
+            }
+        } else if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) {
+            if (i + 1 < argc) {
+                output_file = argv[i + 1];
+                i++;
+            }
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Hemlock Profiler\n\n");
+            printf("USAGE:\n");
+            printf("    hemlock profile [OPTIONS] <FILE> [ARGS...]\n\n");
+            printf("OPTIONS:\n");
+            printf("    --cpu            CPU/time profiling (default)\n");
+            printf("    --memory         Memory allocation profiling\n");
+            printf("    --calls          Call counts only (minimal overhead)\n");
+            printf("    --json           Output in JSON format\n");
+            printf("    --flamegraph     Output in flamegraph-compatible format\n");
+            printf("    --top N          Show top N entries (default: 20)\n");
+            printf("    -o, --output F   Write profile to file F (default: stdout)\n");
+            printf("    -h, --help       Display this help message\n\n");
+            printf("EXAMPLES:\n");
+            printf("    hemlock profile script.hml\n");
+            printf("    hemlock profile --top 50 script.hml\n");
+            printf("    hemlock profile --json -o profile.json script.hml\n");
+            printf("    hemlock profile --flamegraph script.hml | flamegraph.pl > out.svg\n");
+            return 0;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "Try 'hemlock profile --help' for more information.\n");
+            return 1;
+        } else {
+            // First non-flag argument is the file to run
+            file_to_run = argv[i];
+            first_script_arg = i;
+            break;
+        }
+    }
+
+    if (!file_to_run) {
+        fprintf(stderr, "Error: No input file specified\n");
+        fprintf(stderr, "Usage: hemlock profile [OPTIONS] <FILE> [ARGS...]\n");
+        return 1;
+    }
+
+    // Initialize profiler
+    ProfilerState *profiler = profiler_new(mode);
+    profiler->output_format = output_format;
+    profiler->top_n = top_n;
+
+    // Read and parse the file
+    char *source = NULL;
+    FILE *f = fopen(file_to_run, "rb");
+    if (!f) {
+        fprintf(stderr, "Error: Could not open file '%s'\n", file_to_run);
+        profiler_free(profiler);
+        return 1;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+    source = malloc(size + 1);
+    fread(source, 1, size, f);
+    source[size] = '\0';
+    fclose(f);
+
+    // Initialize FFI
+    ffi_init();
+
+    // Set current source file for stack traces
+    set_current_source_file(file_to_run);
+
+    // Parse
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    Parser parser;
+    parser_init(&parser, &lexer);
+
+    int stmt_count;
+    Stmt **statements = parse_program(&parser, &stmt_count);
+
+    if (parser.had_error) {
+        fprintf(stderr, "Parse failed!\n");
+        free(source);
+        profiler_free(profiler);
+        ffi_cleanup();
+        set_current_source_file(NULL);
+        return 1;
+    }
+
+    // Resolve and optimize
+    resolve_program(statements, stmt_count);
+    optimize_program(statements, stmt_count);
+
+    // Create execution environment with profiler
+    Environment *env = env_new(NULL);
+    ExecutionContext *ctx = exec_context_new();
+    ctx->profiler = profiler;
+
+    int script_argc = argc - first_script_arg;
+    char **script_argv = &argv[first_script_arg];
+    register_builtins(env, script_argc, script_argv, ctx);
+
+    // Start profiling and run
+    profiler_start(profiler);
+    eval_program(statements, stmt_count, env, ctx);
+    profiler_stop(profiler);
+
+    // Output results
+    FILE *output = stdout;
+    if (output_file) {
+        output = fopen(output_file, "w");
+        if (!output) {
+            fprintf(stderr, "Error: Could not open output file '%s'\n", output_file);
+            output = stdout;
+        }
+    }
+
+    switch (output_format) {
+        case PROFILE_OUTPUT_JSON:
+            profiler_print_json(profiler, output);
+            break;
+        case PROFILE_OUTPUT_FLAMEGRAPH:
+            profiler_print_flamegraph(profiler, output);
+            break;
+        default:
+            profiler_print_report(profiler, output);
+            break;
+    }
+
+    if (output != stdout) {
+        fclose(output);
+    }
+
+    // Cleanup
+    exec_context_free(ctx);
+    env_break_cycles(env);
+    env_release(env);
+    for (int i = 0; i < stmt_count; i++) {
+        stmt_free(statements[i]);
+    }
+    free(statements);
+    free(source);
+    profiler_free(profiler);
+    ffi_cleanup();
+    set_current_source_file(NULL);
+    cleanup_object_types();
+    cleanup_enum_types();
+
+    return 0;
 }
 
 // Run LSP server
@@ -1049,9 +1233,12 @@ int main(int argc, char **argv) {
     const char *command_to_run = NULL;
     int first_script_arg = 0;  // Index of first argument to pass to script
 
-    // Check for LSP subcommand first
+    // Check for subcommands first
     if (argc >= 2 && strcmp(argv[1], "lsp") == 0) {
         return run_lsp(argc, argv);
+    }
+    if (argc >= 2 && strcmp(argv[1], "profile") == 0) {
+        return run_profile(argc, argv);
     }
 
     // Parse command-line flags

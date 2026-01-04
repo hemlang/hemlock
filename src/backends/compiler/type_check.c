@@ -1487,7 +1487,9 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
 
             // Check type compatibility
             CheckedType *var_type = type_check_lookup(ctx, expr->as.assign.name);
-            if (var_type && var_type->kind != CHECKED_ANY) {
+            // Variables initialized with null (and no type annotation) are dynamically typed
+            // and can accept any value on reassignment - this supports ??= patterns
+            if (var_type && var_type->kind != CHECKED_ANY && var_type->kind != CHECKED_NULL) {
                 CheckedType *val_type = type_check_infer_expr(ctx, expr->as.assign.value);
                 if (!type_is_assignable(var_type, val_type)) {
                     type_error(ctx, expr->line,

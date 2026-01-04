@@ -141,4 +141,27 @@
 // Maximum path length for sandbox root directory
 #define HML_SANDBOX_ROOT_MAX_PATH        4096
 
+// ========== INLINE CACHE CONSTANTS ==========
+
+// Inline caching is used to speed up property access and method dispatch
+// by caching the result of lookups at call sites
+
+// IC state values
+#define HML_IC_STATE_UNINITIALIZED 0   // Cache not yet populated
+#define HML_IC_STATE_MONOMORPHIC   1   // Single type/shape seen
+#define HML_IC_STATE_MEGAMORPHIC   2   // Too many types, disable caching
+
+// Maximum number of misses before going megamorphic
+#define HML_IC_MAX_MISSES 4
+
+// IC type tags for method dispatch (matches ValueType enum ordering)
+// These allow fast type comparison without needing the full Value struct
+#define HML_IC_TYPE_STRING   1
+#define HML_IC_TYPE_ARRAY    2
+#define HML_IC_TYPE_OBJECT   3
+#define HML_IC_TYPE_FILE     4
+#define HML_IC_TYPE_SOCKET   5
+#define HML_IC_TYPE_CHANNEL  6
+#define HML_IC_TYPE_BUFFER   7
+
 #endif // HEMLOCK_LIMITS_H

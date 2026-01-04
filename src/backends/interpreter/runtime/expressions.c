@@ -227,6 +227,32 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
 
+                // METHOD DISPATCH INLINE CACHE:
+                // Cache the receiver type to skip the if-chain on subsequent calls
+                MethodIC *mic = &expr->as.call.ic;
+
+                // Fast path: if monomorphic, check cached type first
+                if (mic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    mic->cached_receiver_type == (int)method_self.type) {
+                    // Cache hit - type matches, continue to type-specific handler below
+                    // The switch below will handle it efficiently
+                } else if (mic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                    // Update cache: first time or different type
+                    if (mic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                        mic->cached_receiver_type = (int)method_self.type;
+                        mic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                        mic->miss_count = 0;
+                    } else if (mic->cached_receiver_type != (int)method_self.type) {
+                        // Different type - this call site is polymorphic
+                        mic->miss_count++;
+                        if (mic->miss_count >= HML_IC_MAX_MISSES) {
+                            mic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                        } else {
+                            mic->cached_receiver_type = (int)method_self.type;
+                        }
+                    }
+                }
+
                 // Special handling for file methods
                 if (method_self.type == VAL_FILE) {
                     const char *method = expr->as.call.func->as.get_property.property;
@@ -675,6 +701,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Push call onto stack trace (with line number from call site)
                 call_stack_push_line(&ctx->call_stack, fn_name, expr->line);
 
+                // Profile: enter function
+                PROFILER_ENTER(ctx, fn_name, get_current_source_file(), expr->line);
+
                 // Create call environment with closure_env as parent
                 Environment *call_env = env_new(fn->closure_env);
 
@@ -863,6 +892,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // The caller now owns this reference
                 VALUE_RETAIN(result);
 
+                // Profile: exit function (always, even on exception, for accurate timing)
+                PROFILER_EXIT(ctx);
+
                 // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
                 if (!ctx->exception_state.is_throwing) {
                     call_stack_pop(&ctx->call_stack);
@@ -974,9 +1006,58 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     runtime_error(ctx, "Array has no property '%s'", property);
                 }
             } else if (object.type == VAL_OBJECT) {
-                // Look up field in object using hash table
+                // Look up field in object using inline cache or hash table
                 Object *obj = object.as.as_object;
-                int idx = object_lookup_field(obj, property);
+                PropertyIC *ic = &expr->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH:
+                // If we're accessing the same object and the cache is valid, use cached index
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    // Validate the cached index still points to the correct field
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;  // Cache hit!
+                    } else {
+                        // Cache is stale (object was modified), invalidate
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
+                    }
+                }
+
+                // CACHE MISS: Do full lookup and update cache
+                if (idx < 0) {
+                    // Compute hash if not cached
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+
+                    // Update inline cache if not megamorphic
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            // First access - initialize cache
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            // Different object - this is polymorphic
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                // Too many different objects, go megamorphic
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                // Update cache to new object
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
                 if (idx >= 0) {
                     result = obj->field_values[idx];
                     // Retain the field value so it survives object release
@@ -1457,10 +1538,78 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Evaluate and store fields
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                obj->field_names[i] = strdup(expr->as.object_literal.field_names[i]);
-                obj->field_values[i] = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
-                // eval_expr returns with refcount 1, object now owns this reference
-                obj->num_fields++;
+                if (expr->as.object_literal.field_names[i] == NULL) {
+                    // Spread operator: ...expr
+                    // Evaluate the spread expression and copy all its fields
+                    Value spread_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                    if (spread_val.type != VAL_OBJECT) {
+                        VALUE_RELEASE(spread_val);
+                        runtime_error(ctx, "Spread operator requires an object");
+                        return val_object(obj);
+                    }
+                    Object *spread_obj = spread_val.as.as_object;
+
+                    // Copy all fields from spread object
+                    for (int j = 0; j < spread_obj->num_fields; j++) {
+                        // Check if field already exists (overwrite if so)
+                        int existing_idx = -1;
+                        for (int k = 0; k < obj->num_fields; k++) {
+                            if (strcmp(obj->field_names[k], spread_obj->field_names[j]) == 0) {
+                                existing_idx = k;
+                                break;
+                            }
+                        }
+
+                        if (existing_idx >= 0) {
+                            // Overwrite existing field
+                            VALUE_RELEASE(obj->field_values[existing_idx]);
+                            obj->field_values[existing_idx] = spread_obj->field_values[j];
+                            VALUE_RETAIN(obj->field_values[existing_idx]);
+                        } else {
+                            // Add new field - grow if needed
+                            if (obj->num_fields >= obj->capacity) {
+                                int new_capacity = obj->capacity * 2;
+                                obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                                obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                                obj->capacity = new_capacity;
+                            }
+                            obj->field_names[obj->num_fields] = strdup(spread_obj->field_names[j]);
+                            obj->field_values[obj->num_fields] = spread_obj->field_values[j];
+                            VALUE_RETAIN(obj->field_values[obj->num_fields]);
+                            obj->num_fields++;
+                        }
+                    }
+                    VALUE_RELEASE(spread_val);
+                } else {
+                    // Normal field: name: value
+                    // Check if field already exists (from previous spread)
+                    int existing_idx = -1;
+                    for (int k = 0; k < obj->num_fields; k++) {
+                        if (strcmp(obj->field_names[k], expr->as.object_literal.field_names[i]) == 0) {
+                            existing_idx = k;
+                            break;
+                        }
+                    }
+
+                    Value field_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+
+                    if (existing_idx >= 0) {
+                        // Overwrite existing field (from spread)
+                        VALUE_RELEASE(obj->field_values[existing_idx]);
+                        obj->field_values[existing_idx] = field_val;
+                    } else {
+                        // Add new field - grow if needed
+                        if (obj->num_fields >= obj->capacity) {
+                            int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
+                            obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                            obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                            obj->capacity = new_capacity;
+                        }
+                        obj->field_names[obj->num_fields] = strdup(expr->as.object_literal.field_names[i]);
+                        obj->field_values[obj->num_fields] = field_val;
+                        obj->num_fields++;
+                    }
+                }
             }
 
             return val_object(obj);

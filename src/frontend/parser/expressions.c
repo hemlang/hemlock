@@ -182,6 +182,8 @@ Expr* primary(Parser *p) {
     }
 
     // Object literal: { field: value, ... }
+    // Also supports shorthand: { name } means { name: name }
+    // Also supports spread: { ...obj } copies all fields from obj
     if (match(p, TOK_LBRACE)) {
         int capacity = 32;
         char **field_names = malloc(sizeof(char*) * capacity);
@@ -195,12 +197,26 @@ Expr* primary(Parser *p) {
                 field_names = realloc(field_names, sizeof(char*) * capacity);
                 field_values = realloc(field_values, sizeof(Expr*) * capacity);
             }
-            field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
-            consume(p, TOK_COLON, "Expect ':' after field name");
-            field_values[num_fields] = expression(p);
+            // Check for spread operator: ...expr
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                field_names[num_fields] = NULL;  // NULL marks spread
+                field_values[num_fields] = expression(p);
+                num_fields++;
+            } else {
+                // Normal field or shorthand
+                field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
 
-            num_fields++;
+                // Check for shorthand: { name } vs { name: value }
+                if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
+                    // Shorthand syntax: { name } means { name: name }
+                    field_values[num_fields] = expr_ident(field_names[num_fields]);
+                } else {
+                    consume(p, TOK_COLON, "Expect ':' after field name");
+                    field_values[num_fields] = expression(p);
+                }
+                num_fields++;
+            }
 
             if (!match(p, TOK_COMMA)) break;
         }
@@ -798,6 +814,68 @@ Expr* assignment(Parser *p) {
     } else if (match(p, TOK_GREATER_GREATER_EQUAL)) {
         compound_op = OP_BIT_RSHIFT;
         is_compound = 1;
+    }
+
+    // Handle null coalescing assignment: x ??= value becomes x = x ?? value
+    if (match(p, TOK_QUESTION_QUESTION_EQUAL)) {
+        Expr *rhs = assignment(p);
+
+        if (expr->type == EXPR_IDENT) {
+            // Variable null coalescing assignment: x ??= value
+            const char *name = expr->as.ident.name;
+            Expr *lhs_copy = expr_ident(name);
+            Expr *null_coalesce = expr_null_coalesce(lhs_copy, rhs);
+            Expr *result = expr_assign(name, null_coalesce);
+            expr_free(expr);
+            return result;
+        } else if (expr->type == EXPR_INDEX) {
+            // Index null coalescing assignment: arr[i] ??= value
+            Expr *object = expr->as.index.object;
+            Expr *index = expr->as.index.index;
+
+            // Clone for the RHS
+            Expr *object_clone = expr_clone(object);
+            Expr *index_clone = expr_clone(index);
+
+            // Create the read expression: arr[i]
+            Expr *read_expr = expr_index(object_clone, index_clone);
+
+            // Create the null coalesce operation: arr[i] ?? value
+            Expr *null_coalesce = expr_null_coalesce(read_expr, rhs);
+
+            // Steal the object and index from the EXPR_INDEX for the assignment
+            expr->as.index.object = NULL;
+            expr->as.index.index = NULL;
+            expr_free(expr);
+
+            // Create the assignment: arr[i] = arr[i] ?? value
+            return expr_index_assign(object, index, null_coalesce);
+        } else if (expr->type == EXPR_GET_PROPERTY) {
+            // Property null coalescing assignment: obj.field ??= value
+            Expr *object = expr->as.get_property.object;
+            const char *property = expr->as.get_property.property;
+
+            // Clone the object for the RHS
+            Expr *object_clone = expr_clone(object);
+
+            // Create the read expression: obj.field
+            Expr *read_expr = expr_get_property(object_clone, property);
+
+            // Create the null coalesce operation: obj.field ?? value
+            Expr *null_coalesce = expr_null_coalesce(read_expr, rhs);
+
+            // Steal the object from the EXPR_GET_PROPERTY for the assignment
+            expr->as.get_property.object = NULL;
+
+            // Create the assignment before freeing expr (need property string)
+            Expr *result = expr_set_property(object, property, null_coalesce);
+            expr_free(expr);
+            return result;
+        } else {
+            error(p, "Invalid null coalescing assignment target");
+            expr_free(expr);
+            return expr_null();
+        }
     }
 
     if (is_compound) {
