@@ -466,6 +466,9 @@ void profiler_record_alloc(ProfilerState *state, const char *source_file,
                            int line, uint64_t bytes);
 void profiler_record_free(ProfilerState *state, const char *source_file,
                           int line, uint64_t bytes);
+void profiler_track_ptr(ProfilerState *state, void *ptr, uint64_t size,
+                        const char *source_file, int line);
+uint64_t profiler_untrack_ptr(ProfilerState *state, void *ptr);
 
 // Convenience macros that check for NULL profiler
 #define PROFILER_ENTER(ctx, name, file, line) \
@@ -476,5 +479,9 @@ void profiler_record_free(ProfilerState *state, const char *source_file,
     do { if ((ctx)->profiler) profiler_record_alloc((ctx)->profiler, file, line, bytes); } while(0)
 #define PROFILER_FREE(ctx, file, line, bytes) \
     do { if ((ctx)->profiler) profiler_record_free((ctx)->profiler, file, line, bytes); } while(0)
+#define PROFILER_TRACK_PTR(ctx, ptr, size, file, line) \
+    do { if ((ctx)->profiler) profiler_track_ptr((ctx)->profiler, ptr, size, file, line); } while(0)
+#define PROFILER_UNTRACK_PTR(ctx, ptr) \
+    ((ctx)->profiler ? profiler_untrack_ptr((ctx)->profiler, ptr) : 0)
 
 #endif // HEMLOCK_INTERPRETER_INTERNAL_H

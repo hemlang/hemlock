@@ -83,6 +83,11 @@ ProfilerState* profiler_new(ProfileMode mode) {
     state->flamegraph_samples = malloc(state->flamegraph_sample_capacity * sizeof(char*));
     state->flamegraph_counts = malloc(state->flamegraph_sample_capacity * sizeof(uint64_t));
 
+    // Initialize pointer size tracking
+    state->ptr_size_capacity = 256;
+    state->ptr_size_count = 0;
+    state->ptr_sizes = malloc(state->ptr_size_capacity * sizeof(*state->ptr_sizes));
+
     return state;
 }
 
@@ -95,6 +100,7 @@ void profiler_free(ProfilerState *state) {
     free(state->alloc_buckets);
     free(state->call_stack.stack_indices);
     free(state->timing_stack);
+    free(state->ptr_sizes);
 
     // Free flamegraph samples
     for (int i = 0; i < state->flamegraph_sample_count; i++) {
@@ -307,6 +313,55 @@ void profiler_record_free(ProfilerState *state, const char *source_file,
     }
 }
 
+// ========== POINTER TRACKING ==========
+
+void profiler_track_ptr(ProfilerState *state, void *ptr, uint64_t size,
+                        const char *source_file, int line) {
+    if (!state || !state->enabled || !ptr) return;
+
+    // Grow array if needed
+    if (state->ptr_size_count >= state->ptr_size_capacity) {
+        state->ptr_size_capacity *= 2;
+        state->ptr_sizes = realloc(state->ptr_sizes,
+                                   state->ptr_size_capacity * sizeof(*state->ptr_sizes));
+    }
+
+    // Find the allocation site for this location
+    int site_idx = find_or_create_alloc_site(state, source_file, line);
+
+    // Add new entry
+    state->ptr_sizes[state->ptr_size_count].ptr = ptr;
+    state->ptr_sizes[state->ptr_size_count].size = size;
+    state->ptr_sizes[state->ptr_size_count].alloc_site_idx = site_idx;
+    state->ptr_size_count++;
+}
+
+uint64_t profiler_untrack_ptr(ProfilerState *state, void *ptr) {
+    if (!state || !ptr) return 0;
+
+    // Search for the pointer (linear search - could use hash for large counts)
+    for (int i = 0; i < state->ptr_size_count; i++) {
+        if (state->ptr_sizes[i].ptr == ptr) {
+            uint64_t size = state->ptr_sizes[i].size;
+            int site_idx = state->ptr_sizes[i].alloc_site_idx;
+
+            // Decrement current_bytes at the original allocation site (for leak detection)
+            if (site_idx >= 0 && site_idx < state->alloc_site_count) {
+                AllocSite *site = &state->alloc_sites[site_idx];
+                if (site->current_bytes >= size) {
+                    site->current_bytes -= size;
+                }
+            }
+
+            // Remove by swapping with last element
+            state->ptr_sizes[i] = state->ptr_sizes[state->ptr_size_count - 1];
+            state->ptr_size_count--;
+            return size;
+        }
+    }
+    return 0;  // Not found
+}
+
 // ========== COMPARISON FUNCTIONS FOR SORTING ==========
 
 static int compare_by_self_time(const void *a, const void *b) {
@@ -332,6 +387,14 @@ static int compare_by_alloc_bytes(const void *a, const void *b) {
     const AllocSite *sb = *(const AllocSite **)b;
     if (sb->total_bytes > sa->total_bytes) return 1;
     if (sb->total_bytes < sa->total_bytes) return -1;
+    return 0;
+}
+
+static int compare_by_current_bytes(const void *a, const void *b) {
+    const AllocSite *sa = *(const AllocSite **)a;
+    const AllocSite *sb = *(const AllocSite **)b;
+    if (sb->current_bytes > sa->current_bytes) return 1;
+    if (sb->current_bytes < sa->current_bytes) return -1;
     return 0;
 }
 
@@ -397,10 +460,19 @@ void profiler_print_report(ProfilerState *state, FILE *output) {
         fprintf(output, "\n");
         fprintf(output, "--- Top %d by Self Time ---\n", show_count);
         fprintf(output, "\n");
-        fprintf(output, "%-30s %10s %10s %8s %10s\n",
-                "Function", "Self", "Total", "Calls", "Avg");
-        fprintf(output, "%-30s %10s %10s %8s %10s\n",
-                "--------", "----", "-----", "-----", "---");
+
+        // Show different headers based on mode
+        if (state->mode == PROFILE_MODE_MEMORY) {
+            fprintf(output, "%-25s %10s %10s %7s %10s %10s\n",
+                    "Function", "Self", "Total", "Calls", "Alloc", "Count");
+            fprintf(output, "%-25s %10s %10s %7s %10s %10s\n",
+                    "--------", "----", "-----", "-----", "-----", "-----");
+        } else {
+            fprintf(output, "%-30s %10s %10s %8s %10s\n",
+                    "Function", "Self", "Total", "Calls", "Avg");
+            fprintf(output, "%-30s %10s %10s %8s %10s\n",
+                    "--------", "----", "-----", "-----", "---");
+        }
 
         for (int i = 0; i < show_count; i++) {
             FunctionStats *fn = sorted[i];
@@ -412,9 +484,10 @@ void profiler_print_report(ProfilerState *state, FILE *output) {
             format_time(fn->total_time_ns / fn->call_count, avg_buf, sizeof(avg_buf));
 
             // Truncate function name if too long
+            int max_name_len = (state->mode == PROFILE_MODE_MEMORY) ? 25 : 30;
             char name_buf[31];
-            if (strlen(fn->name) > 30) {
-                snprintf(name_buf, sizeof(name_buf), "%.27s...", fn->name);
+            if ((int)strlen(fn->name) > max_name_len) {
+                snprintf(name_buf, sizeof(name_buf), "%.*s...", max_name_len - 3, fn->name);
             } else {
                 snprintf(name_buf, sizeof(name_buf), "%s", fn->name);
             }
@@ -422,43 +495,83 @@ void profiler_print_report(ProfilerState *state, FILE *output) {
             double self_pct = (state->total_time_ns > 0)
                               ? (100.0 * fn->self_time_ns / state->total_time_ns) : 0;
 
-            fprintf(output, "%-30s %9s %10s %8lu %10s  (%.1f%%)\n",
-                    name_buf, self_buf, total_buf,
-                    (unsigned long)fn->call_count, avg_buf, self_pct);
+            if (state->mode == PROFILE_MODE_MEMORY) {
+                char alloc_buf[32];
+                format_bytes(fn->alloc_bytes, alloc_buf, sizeof(alloc_buf));
+                fprintf(output, "%-25s %9s %10s %7lu %10s %10lu  (%.1f%%)\n",
+                        name_buf, self_buf, total_buf,
+                        (unsigned long)fn->call_count, alloc_buf,
+                        (unsigned long)fn->alloc_count, self_pct);
+            } else {
+                fprintf(output, "%-30s %9s %10s %8lu %10s  (%.1f%%)\n",
+                        name_buf, self_buf, total_buf,
+                        (unsigned long)fn->call_count, avg_buf, self_pct);
+            }
         }
     }
 
     // Show memory stats if available
     if (state->mode == PROFILE_MODE_MEMORY && state->alloc_site_count > 0) {
+        // Build list of sites to display (filter if leaks only)
         AllocSite **sorted_sites = malloc(state->alloc_site_count * sizeof(AllocSite*));
+        int filtered_count = 0;
         for (int i = 0; i < state->alloc_site_count; i++) {
-            sorted_sites[i] = &state->alloc_sites[i];
+            if (state->show_leaks_only && state->alloc_sites[i].current_bytes == 0) {
+                continue;  // Skip sites with no current allocations
+            }
+            sorted_sites[filtered_count++] = &state->alloc_sites[i];
         }
-        qsort(sorted_sites, state->alloc_site_count, sizeof(AllocSite*), compare_by_alloc_bytes);
 
-        int site_count = (state->top_n > 0 && state->top_n < state->alloc_site_count)
-                         ? state->top_n : state->alloc_site_count;
-
-        fprintf(output, "\n");
-        fprintf(output, "--- Top %d Allocation Sites ---\n", site_count);
-        fprintf(output, "\n");
-        fprintf(output, "%-40s %10s %8s\n", "Location", "Total", "Count");
-        fprintf(output, "%-40s %10s %8s\n", "--------", "-----", "-----");
-
-        for (int i = 0; i < site_count; i++) {
-            AllocSite *site = sorted_sites[i];
-            char bytes_buf[32];
-            format_bytes(site->total_bytes, bytes_buf, sizeof(bytes_buf));
-
-            char loc_buf[41];
-            if (site->source_file) {
-                snprintf(loc_buf, sizeof(loc_buf), "%s:%d", site->source_file, site->line);
+        if (filtered_count > 0) {
+            // Sort by current_bytes for leaks, total_bytes otherwise
+            if (state->show_leaks_only) {
+                qsort(sorted_sites, filtered_count, sizeof(AllocSite*), compare_by_current_bytes);
             } else {
-                snprintf(loc_buf, sizeof(loc_buf), "<unknown>:%d", site->line);
+                qsort(sorted_sites, filtered_count, sizeof(AllocSite*), compare_by_alloc_bytes);
             }
 
-            fprintf(output, "%-40s %10s %8lu\n",
-                    loc_buf, bytes_buf, (unsigned long)site->alloc_count);
+            int site_count = (state->top_n > 0 && state->top_n < filtered_count)
+                             ? state->top_n : filtered_count;
+
+            fprintf(output, "\n");
+            if (state->show_leaks_only) {
+                fprintf(output, "--- Memory Leaks (%d sites) ---\n", filtered_count);
+                fprintf(output, "\n");
+                fprintf(output, "%-40s %10s %10s %8s\n", "Location", "Leaked", "Total", "Count");
+                fprintf(output, "%-40s %10s %10s %8s\n", "--------", "------", "-----", "-----");
+            } else {
+                fprintf(output, "--- Top %d Allocation Sites ---\n", site_count);
+                fprintf(output, "\n");
+                fprintf(output, "%-40s %10s %8s\n", "Location", "Total", "Count");
+                fprintf(output, "%-40s %10s %8s\n", "--------", "-----", "-----");
+            }
+
+            for (int i = 0; i < site_count; i++) {
+                AllocSite *site = sorted_sites[i];
+
+                char loc_buf[41];
+                if (site->source_file) {
+                    snprintf(loc_buf, sizeof(loc_buf), "%s:%d", site->source_file, site->line);
+                } else {
+                    snprintf(loc_buf, sizeof(loc_buf), "<unknown>:%d", site->line);
+                }
+
+                if (state->show_leaks_only) {
+                    char leaked_buf[32], total_buf[32];
+                    format_bytes(site->current_bytes, leaked_buf, sizeof(leaked_buf));
+                    format_bytes(site->total_bytes, total_buf, sizeof(total_buf));
+                    fprintf(output, "%-40s %10s %10s %8lu\n",
+                            loc_buf, leaked_buf, total_buf, (unsigned long)site->alloc_count);
+                } else {
+                    char bytes_buf[32];
+                    format_bytes(site->total_bytes, bytes_buf, sizeof(bytes_buf));
+                    fprintf(output, "%-40s %10s %8lu\n",
+                            loc_buf, bytes_buf, (unsigned long)site->alloc_count);
+                }
+            }
+        } else if (state->show_leaks_only) {
+            fprintf(output, "\n");
+            fprintf(output, "--- No memory leaks detected ---\n");
         }
         free(sorted_sites);
     }

@@ -102,6 +102,7 @@ struct ProfilerState {
     ProfileMode mode;
     ProfileOutputFormat output_format;
     int top_n;                  // Show top N entries (0 = all)
+    bool show_leaks_only;       // Only show allocations with current_bytes > 0
 
     // Function stats hash table
     FunctionStats *functions;
@@ -139,6 +140,14 @@ struct ProfilerState {
     int timing_stack_depth;
     int timing_stack_capacity;
 
+    // Pointer tracking (for accurate free() reporting and leak detection)
+    struct {
+        void *ptr;
+        uint64_t size;
+        int alloc_site_idx;  // Index into alloc_sites for proper current_bytes tracking
+    } *ptr_sizes;
+    int ptr_size_count;
+    int ptr_size_capacity;
 };
 
 // ========== PROFILER API ==========
@@ -157,6 +166,11 @@ void profiler_record_alloc(ProfilerState *state, const char *source_file,
                            int line, uint64_t bytes);
 void profiler_record_free(ProfilerState *state, const char *source_file,
                           int line, uint64_t bytes);
+
+// Pointer tracking (for accurate free reporting and leak detection)
+void profiler_track_ptr(ProfilerState *state, void *ptr, uint64_t size,
+                        const char *source_file, int line);
+uint64_t profiler_untrack_ptr(ProfilerState *state, void *ptr);
 
 // Output
 void profiler_print_report(ProfilerState *state, FILE *output);

@@ -54,8 +54,9 @@ Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Record allocation for profiler
+    // Record allocation for profiler and track pointer size
     PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)size);
+    PROFILER_TRACK_PTR(ctx, ptr, (uint64_t)size, ctx->current_source_file, ctx->current_line);
 
     return val_ptr(ptr);
 }
@@ -67,8 +68,9 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (args[0].type == VAL_PTR) {
-        // Record free for profiler (size unknown for raw pointers)
-        PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, 0);
+        // Look up tracked size for this pointer
+        uint64_t size = PROFILER_UNTRACK_PTR(ctx, args[0].as.as_ptr);
+        PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, size);
         free(args[0].as.as_ptr);
         return val_null();
     } else if (args[0].type == VAL_BUFFER) {
@@ -97,8 +99,10 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
             exit(1);
         }
 
-        // Record free for profiler (capacity + sizeof(Buffer))
-        PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)buf->capacity + sizeof(Buffer));
+        // Untrack pointer to update original allocation site's current_bytes (for leak detection)
+        uint64_t tracked_size = PROFILER_UNTRACK_PTR(ctx, buf->data);
+        // Record free for profiler
+        PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, tracked_size);
 
         // Free the internal data but keep the struct alive for cleanup to check freed flag
         free(buf->data);
@@ -280,10 +284,17 @@ Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
 
     int32_t size = value_to_int(args[0]);
 
-    // Record allocation for profiler (buffer allocates size + sizeof(Buffer))
-    PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)size + sizeof(Buffer));
+    Value result = val_buffer(size);
 
-    return val_buffer(size);
+    // Record allocation for profiler and track buffer's data pointer
+    if (result.type == VAL_BUFFER) {
+        uint64_t total_size = (uint64_t)size + sizeof(Buffer);
+        PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, total_size);
+        PROFILER_TRACK_PTR(ctx, result.as.as_buffer->data, total_size,
+                          ctx->current_source_file, ctx->current_line);
+    }
+
+    return result;
 }
 
 Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
@@ -325,8 +336,9 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Record allocation for profiler
+    // Record allocation for profiler and track pointer size
     PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)total_size);
+    PROFILER_TRACK_PTR(ctx, ptr, (uint64_t)total_size, ctx->current_source_file, ctx->current_line);
 
     return val_ptr(ptr);
 }
@@ -355,13 +367,20 @@ Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+    // Untrack old pointer to get its size (for accurate free tracking)
+    uint64_t old_size = PROFILER_UNTRACK_PTR(ctx, old_ptr);
+
     void *new_ptr = realloc(old_ptr, new_size);
     if (new_ptr == NULL) {
+        // Realloc failed - re-track the old pointer since it's still valid
+        PROFILER_TRACK_PTR(ctx, old_ptr, old_size, ctx->current_source_file, ctx->current_line);
         return val_null();
     }
 
-    // Record realloc as an allocation (we don't know old size to record free)
+    // Record the size change: alloc new size at the new location
+    // Note: We don't record a free since profiler_untrack_ptr already updated current_bytes
     PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)new_size);
+    PROFILER_TRACK_PTR(ctx, new_ptr, (uint64_t)new_size, ctx->current_source_file, ctx->current_line);
 
     return val_ptr(new_ptr);
 }
