@@ -137,6 +137,35 @@ fn greet(name: string, msg?: "Hello") { print(msg + " " + name); }
 let f = fn(x) { return x * 2; };  // anonymous/closure
 ```
 
+### Named Arguments
+```hemlock
+// Functions can be called with named arguments
+fn create_user(name: string, age?: 18, active?: true) {
+    print(name + " is " + age + " years old");
+}
+
+// Positional arguments (traditional)
+create_user("Alice", 25, false);
+
+// Named arguments - can be in any order
+create_user(name: "Bob", age: 30);
+create_user(age: 25, name: "Charlie", active: false);
+
+// Skip optional parameters by naming what you need
+create_user("David", active: false);  // Uses default age=18
+
+// Named arguments must come after positional arguments
+create_user("Eve", age: 21);          // OK: positional then named
+// create_user(name: "Bad", 25);      // ERROR: positional after named
+```
+
+**Rules:**
+- Named arguments use `name: value` syntax
+- Can appear in any order after positional arguments
+- Positional arguments cannot follow named arguments
+- Works with default/optional parameters
+- Unknown parameter names cause runtime errors
+
 ### Objects & Enums
 ```hemlock
 define Person { name: string, age: i32, active?: true }
@@ -567,7 +596,8 @@ make parity
 
 ## Version
 
-**v1.6.7** - Current release with:
+**v1.6.8** - Current release with:
+- **Named arguments** for function calls (`foo(name: "value", age: 30)`)
 - **Octal literals** (`0o777`, `0O123`)
 - **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
 - **Block comments** (`/* ... */`)
@@ -597,7 +627,7 @@ make parity
 - AST optimization pass and variable resolution for O(1) lookup
 - apply() builtin for dynamic function calls
 - Unbuffered channels and many-params support
-- 121 parity tests (100% pass rate)
+- 122 parity tests (100% pass rate)
 
 ---
 
