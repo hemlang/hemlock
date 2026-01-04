@@ -2,8 +2,8 @@
 
 > Extending Hemlock's type system with function types, nullable modifiers, type aliases, const parameters, and method signatures.
 
-**Status:** Design Draft
-**Version:** 0.1
+**Status:** Implemented (v1.7.0)
+**Version:** 1.0
 **Author:** Claude
 
 ---

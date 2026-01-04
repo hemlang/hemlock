@@ -411,6 +411,124 @@ print(typeof(p));      // "object" (original is still anonymous)
 - Validates field types match (with implicit conversions)
 - Sets the object's type name
 
+## Method Signatures in Define
+
+Define blocks can specify method signatures, creating interface-like contracts:
+
+### Required Methods
+
+```hemlock
+define Comparable {
+    value: i32,
+    fn compare(other: Self): i32;  // Required method signature
+}
+
+// Objects must provide the required method
+let a: Comparable = {
+    value: 10,
+    compare: fn(other) { return self.value - other.value; }
+};
+```
+
+### Optional Methods
+
+```hemlock
+define Serializable {
+    fn serialize(): string;       // Required
+    fn pretty?(): string;         // Optional method (may be absent)
+}
+```
+
+### The `Self` Type
+
+`Self` refers to the type being defined, enabling recursive type definitions:
+
+```hemlock
+define Cloneable {
+    fn clone(): Self;  // Returns same type as the object
+}
+
+define Comparable {
+    fn compare(other: Self): i32;  // Takes same type as parameter
+    fn equals(other: Self): bool;
+}
+
+let item: Cloneable = {
+    value: 42,
+    clone: fn() {
+        return { value: self.value, clone: self.clone };
+    }
+};
+```
+
+### Mixed Fields and Methods
+
+```hemlock
+define Entity {
+    id: i32,
+    name: string,
+    fn validate(): bool;
+    fn serialize(): string;
+}
+
+let user: Entity = {
+    id: 1,
+    name: "Alice",
+    validate: fn() { return self.id > 0 && self.name != ""; },
+    serialize: fn() { return '{"id":' + self.id + ',"name":"' + self.name + '"}'; }
+};
+```
+
+## Compound Types (Intersection Types)
+
+Compound types use `&` to require an object to satisfy multiple type definitions:
+
+### Basic Compound Types
+
+```hemlock
+define HasName { name: string }
+define HasAge { age: i32 }
+
+// Compound type: object must satisfy ALL types
+let person: HasName & HasAge = { name: "Alice", age: 30 };
+```
+
+### Function Parameters with Compound Types
+
+```hemlock
+fn greet(p: HasName & HasAge) {
+    print(p.name + " is " + p.age);
+}
+
+greet({ name: "Bob", age: 25, city: "NYC" });  // Extra fields OK
+```
+
+### Three or More Types
+
+```hemlock
+define HasEmail { email: string }
+
+fn describe(p: HasName & HasAge & HasEmail) {
+    print(p.name + " <" + p.email + ">");
+}
+```
+
+### Type Aliases for Compound Types
+
+```hemlock
+// Create a named alias for a compound type
+type Person = HasName & HasAge;
+type Employee = HasName & HasAge & HasEmail;
+
+let emp: Employee = {
+    name: "Charlie",
+    age: 35,
+    email: "charlie@example.com"
+};
+```
+
+**Duck typing with compounds:** Extra fields are always allowed - the object just needs to have at least the fields required by all component types.
+
 ## JSON Serialization
 
 ### Serialize to JSON

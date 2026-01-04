@@ -761,6 +761,137 @@ log("INFO", "Starting", "Running", "Done");
 - Rest parameter collects all remaining arguments into an array
 - Can be combined with regular and optional parameters
 
+## Function Type Annotations
+
+Function types allow you to specify the exact signature expected for function parameters and return values:
+
+### Basic Function Types
+
+```hemlock
+// Function type syntax: fn(param_types): return_type
+fn apply(f: fn(i32): i32, x: i32): i32 {
+    return f(x);
+}
+
+let double = fn(n) { return n * 2; };
+let result = apply(double, 5);  // 10
+```
+
+### Higher-Order Function Types
+
+```hemlock
+// Function returning a function
+fn make_adder(n: i32): fn(i32): i32 {
+    return fn(x) { return x + n; };
+}
+
+let add5 = make_adder(5);
+print(add5(10));  // 15
+```
+
+### Async Function Types
+
+```hemlock
+// Async function type
+fn run_task(handler: async fn(): void) {
+    spawn(handler);
+}
+
+run_task(async fn() {
+    print("Running async!");
+});
+```
+
+### Function Type Aliases
+
+```hemlock
+// Create named function types for clarity
+type Callback = fn(i32): void;
+type Predicate = fn(any): bool;
+type BinaryOp = fn(i32, i32): i32;
+
+fn filter_with(arr: array, pred: Predicate): array {
+    return arr.filter(pred);
+}
+```
+
+## Const Parameters
+
+The `const` modifier prevents a parameter from being mutated within the function:
+
+### Basic Const Parameters
+
+```hemlock
+fn print_all(const items: array) {
+    // items.push(4);  // ERROR: cannot mutate const parameter
+    for (item in items) {
+        print(item);   // OK: reading is allowed
+    }
+}
+
+let nums = [1, 2, 3];
+print_all(nums);
+```
+
+### Deep Immutability
+
+Const parameters enforce deep immutability - no mutation through any path:
+
+```hemlock
+fn describe(const person: object) {
+    print(person.name);       // OK: reading is allowed
+    // person.name = "Bob";   // ERROR: cannot mutate
+    // person.address.city = "NYC";  // ERROR: deep const
+}
+```
+
+### What Const Prevents
+
+| Type | Blocked by Const | Allowed |
+|------|-----------------|---------|
+| array | push, pop, shift, unshift, insert, remove, clear, reverse | slice, concat, map, filter, find, contains |
+| object | field assignment | field read |
+| buffer | index assignment | index read |
+| string | index assignment | all methods (return new strings) |
+
+## Named Arguments
+
+Functions can be called with named arguments for clarity and flexibility:
+
+### Basic Named Arguments
+
+```hemlock
+fn create_user(name: string, age?: 18, active?: true) {
+    print(name + " is " + age + " years old");
+}
+
+// Positional arguments (traditional)
+create_user("Alice", 25, false);
+
+// Named arguments - can be in any order
+create_user(name: "Bob", age: 30);
+create_user(age: 25, name: "Charlie", active: false);
+```
+
+### Mixing Positional and Named
+
+```hemlock
+// Skip optional parameters by naming what you need
+create_user("David", active: false);  // Uses default age=18
+
+// Named arguments must come after positional
+create_user("Eve", age: 21);          // OK
+// create_user(name: "Bad", 25);      // ERROR: positional after named
+```
+
+### Rules for Named Arguments
+
+- Use `name: value` syntax for named arguments
+- Named arguments can appear in any order after positional arguments
+- Positional arguments cannot follow named arguments
+- Works with default/optional parameters
+- Unknown parameter names cause runtime errors
+
 ## Limitations
 
 Current limitations to be aware of:
