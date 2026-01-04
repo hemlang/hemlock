@@ -577,6 +577,9 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             arr->element_type->kind = target_type->element_type->kind;
             arr->element_type->type_name = target_type->element_type->type_name ? strdup(target_type->element_type->type_name) : NULL;
             arr->element_type->element_type = NULL;  // Don't support nested typed arrays yet
+            arr->element_type->nullable = 0;
+            arr->element_type->compound_types = NULL;
+            arr->element_type->num_compound_types = 0;
         }
 
         // Validate all existing elements match the type constraint

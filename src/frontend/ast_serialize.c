@@ -263,6 +263,14 @@ static void serialize_type(SerializeContext *ctx, Type *type) {
     if (type->kind == TYPE_ARRAY) {
         serialize_type(ctx, type->element_type);
     }
+
+    // Write compound types
+    if (type->kind == TYPE_COMPOUND) {
+        write_u8(ctx, (uint8_t)type->num_compound_types);
+        for (int i = 0; i < type->num_compound_types; i++) {
+            serialize_type(ctx, type->compound_types[i]);
+        }
+    }
 }
 
 static Type* deserialize_type(DeserializeContext *ctx) {
@@ -277,6 +285,9 @@ static Type* deserialize_type(DeserializeContext *ctx) {
     type->kind = (TypeKind)kind_byte;
     type->type_name = NULL;
     type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
 
     if (type->kind == TYPE_CUSTOM_OBJECT || type->kind == TYPE_ENUM) {
         type->type_name = read_string_id(ctx);
@@ -284,6 +295,17 @@ static Type* deserialize_type(DeserializeContext *ctx) {
 
     if (type->kind == TYPE_ARRAY) {
         type->element_type = deserialize_type(ctx);
+    }
+
+    // Deserialize compound types
+    if (type->kind == TYPE_COMPOUND) {
+        type->num_compound_types = read_u8(ctx);
+        if (type->num_compound_types > 0) {
+            type->compound_types = malloc(sizeof(Type*) * type->num_compound_types);
+            for (int i = 0; i < type->num_compound_types; i++) {
+                type->compound_types[i] = deserialize_type(ctx);
+            }
+        }
     }
 
     return type;
