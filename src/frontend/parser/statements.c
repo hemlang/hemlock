@@ -717,7 +717,7 @@ Stmt* define_statement(Parser *p) {
 
     consume(p, TOK_LBRACE, "Expect '{' after type name");
 
-    // Parse fields
+    // Parse fields and methods
     int field_capacity = 32;
     char **field_names = malloc(sizeof(char*) * field_capacity);
     Type **field_types = malloc(sizeof(Type*) * field_capacity);
@@ -725,7 +725,116 @@ Stmt* define_statement(Parser *p) {
     Expr **field_defaults = malloc(sizeof(Expr*) * field_capacity);
     int num_fields = 0;
 
+    int method_capacity = 16;
+    char **method_names = malloc(sizeof(char*) * method_capacity);
+    Type **method_types = malloc(sizeof(Type*) * method_capacity);
+    int *method_optional = malloc(sizeof(int) * method_capacity);
+    Expr **method_defaults = malloc(sizeof(Expr*) * method_capacity);
+    int num_methods = 0;
+
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Check if this is a method definition (starts with 'fn')
+        if (match(p, TOK_FN)) {
+            // Grow method arrays if needed
+            if (num_methods >= method_capacity) {
+                method_capacity *= 2;
+                method_names = realloc(method_names, sizeof(char*) * method_capacity);
+                method_types = realloc(method_types, sizeof(Type*) * method_capacity);
+                method_optional = realloc(method_optional, sizeof(int) * method_capacity);
+                method_defaults = realloc(method_defaults, sizeof(Expr*) * method_capacity);
+            }
+
+            // Parse method name
+            consume(p, TOK_IDENT, "Expect method name");
+            method_names[num_methods] = token_text(&p->previous);
+
+            // Check for optional marker (fn name?(): type means optional method)
+            method_optional[num_methods] = match(p, TOK_QUESTION) ? 1 : 0;
+
+            // Parse parameter types for the function type
+            consume(p, TOK_LPAREN, "Expect '(' after method name");
+
+            int fn_param_capacity = 8;
+            Type **fn_param_types = malloc(sizeof(Type*) * fn_param_capacity);
+            char **fn_param_names = malloc(sizeof(char*) * fn_param_capacity);
+            int *fn_param_optional = malloc(sizeof(int) * fn_param_capacity);
+            int *fn_param_is_const = malloc(sizeof(int) * fn_param_capacity);
+            int fn_num_params = 0;
+
+            if (!check(p, TOK_RPAREN)) {
+                do {
+                    if (fn_num_params >= fn_param_capacity) {
+                        fn_param_capacity *= 2;
+                        fn_param_types = realloc(fn_param_types, sizeof(Type*) * fn_param_capacity);
+                        fn_param_names = realloc(fn_param_names, sizeof(char*) * fn_param_capacity);
+                        fn_param_optional = realloc(fn_param_optional, sizeof(int) * fn_param_capacity);
+                        fn_param_is_const = realloc(fn_param_is_const, sizeof(int) * fn_param_capacity);
+                    }
+
+                    // Parse const modifier
+                    fn_param_is_const[fn_num_params] = match(p, TOK_CONST) ? 1 : 0;
+
+                    // Parse parameter name
+                    consume(p, TOK_IDENT, "Expect parameter name");
+                    fn_param_names[fn_num_params] = token_text(&p->previous);
+
+                    // Parse optional type annotation
+                    if (match(p, TOK_COLON)) {
+                        fn_param_types[fn_num_params] = parse_type(p);
+                    } else {
+                        fn_param_types[fn_num_params] = NULL;
+                    }
+
+                    // Check for optional parameter
+                    fn_param_optional[fn_num_params] = 0;  // TODO: support optional params in method signatures
+
+                    fn_num_params++;
+                } while (match(p, TOK_COMMA));
+            }
+
+            consume(p, TOK_RPAREN, "Expect ')' after method parameters");
+
+            // Parse return type
+            Type *return_type = NULL;
+            if (match(p, TOK_COLON)) {
+                return_type = parse_type(p);
+            }
+
+            // Create the function type
+            method_types[num_methods] = type_function(
+                fn_param_types, fn_param_names, fn_param_optional, fn_param_is_const,
+                fn_num_params, NULL, NULL, return_type, 0);
+
+            // Check for default implementation (block) or just signature (semicolon)
+            if (match(p, TOK_LBRACE)) {
+                // Parse default implementation as anonymous function
+                Stmt *body = block_statement(p);
+
+                // Create function expression for the default
+                // Duplicate param_names for the function expression
+                char **default_param_names = malloc(sizeof(char*) * fn_num_params);
+                for (int i = 0; i < fn_num_params; i++) {
+                    default_param_names[i] = strdup(fn_param_names[i]);
+                }
+
+                method_defaults[num_methods] = expr_function(
+                    0, default_param_names, fn_param_types, NULL,
+                    NULL, fn_param_is_const, fn_num_params,
+                    NULL, NULL, return_type, body);
+            } else {
+                // Just a signature, no default
+                match(p, TOK_SEMICOLON);  // Optional semicolon
+                method_defaults[num_methods] = NULL;
+            }
+
+            num_methods++;
+
+            // Skip comma if present
+            match(p, TOK_COMMA);
+            continue;
+        }
+
+        // Otherwise, it's a field
         // Grow arrays if needed
         if (num_fields >= field_capacity) {
             field_capacity *= 2;
@@ -799,7 +908,9 @@ Stmt* define_statement(Parser *p) {
 
     Stmt *stmt = stmt_define_object(name, type_params, num_type_params,
                                    field_names, field_types,
-                                   field_optional, field_defaults, num_fields);
+                                   field_optional, field_defaults, num_fields,
+                                   method_names, method_types,
+                                   method_optional, method_defaults, num_methods);
     free(name);
     return stmt;
 }

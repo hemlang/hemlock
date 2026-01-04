@@ -652,7 +652,9 @@ Stmt* stmt_return(Expr *value) {
 
 Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
                          char **field_names, Type **field_types,
-                         int *field_optional, Expr **field_defaults, int num_fields) {
+                         int *field_optional, Expr **field_defaults, int num_fields,
+                         char **method_names, Type **method_types,
+                         int *method_optional, Expr **method_defaults, int num_methods) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFINE_OBJECT;
     stmt->line = 0;
@@ -665,6 +667,11 @@ Stmt* stmt_define_object(const char *name, char **type_params, int num_type_para
     stmt->as.define_object.field_optional = field_optional;
     stmt->as.define_object.field_defaults = field_defaults;
     stmt->as.define_object.num_fields = num_fields;
+    stmt->as.define_object.method_names = method_names;
+    stmt->as.define_object.method_types = method_types;
+    stmt->as.define_object.method_optional = method_optional;
+    stmt->as.define_object.method_defaults = method_defaults;
+    stmt->as.define_object.num_methods = num_methods;
     return stmt;
 }
 

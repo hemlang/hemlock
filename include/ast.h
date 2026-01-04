@@ -489,7 +489,9 @@ Stmt* stmt_expr(Expr *expr);
 Stmt* stmt_return(Expr *value);
 Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
                          char **field_names, Type **field_types,
-                         int *field_optional, Expr **field_defaults, int num_fields);
+                         int *field_optional, Expr **field_defaults, int num_fields,
+                         char **method_names, Type **method_types,
+                         int *method_optional, Expr **method_defaults, int num_methods);
 Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, int num_variants);
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);
 Stmt* stmt_throw(Expr *value);
