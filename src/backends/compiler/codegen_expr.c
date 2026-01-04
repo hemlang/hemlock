@@ -1421,6 +1421,19 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 int has_rest = expr->as.function.rest_param ? 1 : 0;
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function_rest((void*)%s, %d, %d, %d, %d);",
                               result, func_name, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
+                // Set parameter names for named argument support
+                if (expr->as.function.num_params > 0) {
+                    int param_names_counter = ctx->temp_counter++;
+                    codegen_writeln(ctx, "const char *_param_names%d[%d] = {", param_names_counter, expr->as.function.num_params);
+                    for (int i = 0; i < expr->as.function.num_params; i++) {
+                        codegen_write(ctx, "\"%s\"", expr->as.function.param_names[i]);
+                        if (i < expr->as.function.num_params - 1) {
+                            codegen_write(ctx, ", ");
+                        }
+                    }
+                    codegen_writeln(ctx, "};");
+                    codegen_writeln(ctx, "hml_function_set_param_names(%s, _param_names%d, %d);", result, param_names_counter, expr->as.function.num_params);
+                }
             } else if (ctx->shared_env_name && !has_block_scoped_capture) {
                 // Use the shared environment only if no block-scoped captures.
                 // Block-scoped captures (like loop-local variables) need per-closure environments.
@@ -1461,6 +1474,19 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 int has_rest = expr->as.function.rest_param ? 1 : 0;
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env_rest((void*)%s, (void*)%s, %d, %d, %d, %d);",
                               result, func_name, ctx->shared_env_name, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
+                // Set parameter names for named argument support
+                if (expr->as.function.num_params > 0) {
+                    int param_names_counter = ctx->temp_counter++;
+                    codegen_writeln(ctx, "const char *_param_names%d[%d] = {", param_names_counter, expr->as.function.num_params);
+                    for (int i = 0; i < expr->as.function.num_params; i++) {
+                        codegen_write(ctx, "\"%s\"", expr->as.function.param_names[i]);
+                        if (i < expr->as.function.num_params - 1) {
+                            codegen_write(ctx, ", ");
+                        }
+                    }
+                    codegen_writeln(ctx, "};");
+                    codegen_writeln(ctx, "hml_function_set_param_names(%s, _param_names%d, %d);", result, param_names_counter, expr->as.function.num_params);
+                }
 
                 // Track for self-reference fixup
                 ctx->last_closure_env_id = -1;  // Using shared env, different mechanism
@@ -1511,6 +1537,19 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env_rest((void*)%s, (void*)_env_%d, %d, %d, %d, %d);",
                               result, func_name, env_id, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
                 ctx->temp_counter++;
+                // Set parameter names for named argument support
+                if (expr->as.function.num_params > 0) {
+                    int param_names_counter = ctx->temp_counter++;
+                    codegen_writeln(ctx, "const char *_param_names%d[%d] = {", param_names_counter, expr->as.function.num_params);
+                    for (int i = 0; i < expr->as.function.num_params; i++) {
+                        codegen_write(ctx, "\"%s\"", expr->as.function.param_names[i]);
+                        if (i < expr->as.function.num_params - 1) {
+                            codegen_write(ctx, ", ");
+                        }
+                    }
+                    codegen_writeln(ctx, "};");
+                    codegen_writeln(ctx, "hml_function_set_param_names(%s, _param_names%d, %d);", result, param_names_counter, expr->as.function.num_params);
+                }
 
                 // Track this closure for potential self-reference fixup in let statements
                 ctx->last_closure_env_id = env_id;

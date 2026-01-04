@@ -381,23 +381,60 @@ Expr* postfix(Parser *p) {
                 // Optional call: obj?.()
                 match(p, TOK_LPAREN);
                 Expr **args = NULL;
+                char **arg_names = NULL;
                 int num_args = 0;
+                int has_named_args = 0;
+                int seen_positional_after_named = 0;
 
                 if (!check(p, TOK_RPAREN)) {
                     args = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
-                    args[num_args++] = expression(p);
+                    arg_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+
+                    // Parse first argument - check for named argument
+                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                        has_named_args = 1;
+                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        consume(p, TOK_COLON, "Expect ':' after named argument");
+                        args[num_args++] = expression(p);
+                    } else {
+                        arg_names[num_args] = NULL;
+                        args[num_args++] = expression(p);
+                    }
 
                     while (match(p, TOK_COMMA)) {
                         if (num_args >= MAX_FUNCTION_PARAMS) {
                             error_at(p, &p->current, "function calls cannot have more than 64 arguments");
                             break;
                         }
-                        args[num_args++] = expression(p);
+
+                        // Check for named argument
+                        if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                            has_named_args = 1;
+                            arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                            consume(p, TOK_COLON, "Expect ':' after named argument");
+                            args[num_args++] = expression(p);
+                        } else {
+                            if (has_named_args) {
+                                seen_positional_after_named = 1;
+                            }
+                            arg_names[num_args] = NULL;
+                            args[num_args++] = expression(p);
+                        }
+                    }
+
+                    if (seen_positional_after_named) {
+                        error_at(p, &p->previous, "Positional arguments cannot follow named arguments");
                     }
                 }
 
                 consume(p, TOK_RPAREN, "Expect ')' after optional chaining arguments");
-                expr = expr_optional_chain_call(expr, args, num_args);
+
+                if (!has_named_args && arg_names) {
+                    free(arg_names);
+                    arg_names = NULL;
+                }
+
+                expr = expr_optional_chain_call(expr, args, arg_names, num_args);
             } else {
                 // Optional property access: obj?.property
                 char *property = consume_identifier_or_type(p, "Expect property name after '?.'");
@@ -419,23 +456,66 @@ Expr* postfix(Parser *p) {
             int call_line = p->previous.line;  // Save line of '(' for stack trace
             int call_column = p->previous.column;
             Expr **args = NULL;
+            char **arg_names = NULL;
             int num_args = 0;
+            int has_named_args = 0;
+            int seen_positional_after_named = 0;
 
             if (!check(p, TOK_RPAREN)) {
                 args = malloc(sizeof(Expr*) * MAX_FUNCTION_PARAMS);
-                args[num_args++] = expression(p);
+                arg_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
+
+                // Parse first argument
+                // Check for named argument: identifier followed by ':'
+                if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                    // Named argument
+                    has_named_args = 1;
+                    arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                    consume(p, TOK_COLON, "Expect ':' after named argument");
+                    args[num_args++] = expression(p);
+                } else {
+                    arg_names[num_args] = NULL;
+                    args[num_args++] = expression(p);
+                }
 
                 while (match(p, TOK_COMMA)) {
                     if (num_args >= MAX_FUNCTION_PARAMS) {
                         error_at(p, &p->current, "function calls cannot have more than 64 arguments");
                         break;
                     }
-                    args[num_args++] = expression(p);
+
+                    // Check for named argument
+                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                        // Named argument
+                        has_named_args = 1;
+                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        consume(p, TOK_COLON, "Expect ':' after named argument");
+                        args[num_args++] = expression(p);
+                    } else {
+                        // Positional argument
+                        if (has_named_args) {
+                            seen_positional_after_named = 1;
+                        }
+                        arg_names[num_args] = NULL;
+                        args[num_args++] = expression(p);
+                    }
+                }
+
+                // Warn if positional arguments come after named arguments
+                if (seen_positional_after_named) {
+                    error_at(p, &p->previous, "Positional arguments cannot follow named arguments");
                 }
             }
 
             consume(p, TOK_RPAREN, "Expect ')' after arguments");
-            expr = expr_call(expr, args, num_args);
+
+            // If no named arguments were used, free the arg_names array
+            if (!has_named_args && arg_names) {
+                free(arg_names);
+                arg_names = NULL;
+            }
+
+            expr = expr_call(expr, args, arg_names, num_args);
             expr->line = call_line;  // Set line number for stack trace
             expr->column = call_column;
         } else if (match(p, TOK_PLUS_PLUS)) {

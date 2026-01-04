@@ -2884,6 +2884,85 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
     hml_runtime_error("Cannot call non-function value (type: %s)", hml_typeof_str(fn));
 }
 
+// Call a function with named arguments - reorders args to match parameter names
+HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_names, int num_args) {
+    // If no named arguments or not a function, fall back to regular call
+    if (arg_names == NULL || fn.type != HML_VAL_FUNCTION) {
+        return hml_call_function(fn, args, num_args);
+    }
+
+    HmlFunction *func = fn.as.as_function;
+
+    // Check if function has parameter names
+    if (func->param_names == NULL) {
+        hml_runtime_error("Cannot use named arguments with function '%s' (no parameter info)",
+                         func->name ? func->name : "<anonymous>");
+    }
+
+    // Allocate reordered args array
+    HmlValue reordered[8];  // Stack allocation for up to 8 params
+    HmlValue *reordered_args = (func->num_params <= 8) ? reordered : malloc(sizeof(HmlValue) * func->num_params);
+
+    // Initialize to null
+    for (int i = 0; i < func->num_params; i++) {
+        reordered_args[i] = HML_NULL_VAL;
+    }
+
+    // Track which args have been used
+    int used[8] = {0};  // Assumes max 8 args for simplicity
+    int *arg_used = (num_args <= 8) ? used : calloc(num_args, sizeof(int));
+
+    // First pass: place named arguments
+    for (int i = 0; i < num_args; i++) {
+        if (arg_names[i] != NULL) {
+            // Find the parameter with this name
+            int found = 0;
+            for (int j = 0; j < func->num_params; j++) {
+                if (func->param_names[j] && strcmp(func->param_names[j], arg_names[i]) == 0) {
+                    if (reordered_args[j].type != HML_VAL_NULL) {
+                        if (reordered_args != reordered) free(reordered_args);
+                        if (arg_used != used) free(arg_used);
+                        hml_runtime_error("Duplicate argument for parameter '%s'", func->param_names[j]);
+                    }
+                    reordered_args[j] = args[i];
+                    arg_used[i] = 1;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                if (reordered_args != reordered) free(reordered_args);
+                if (arg_used != used) free(arg_used);
+                hml_runtime_error("Unknown parameter name '%s'", arg_names[i]);
+            }
+        }
+    }
+
+    // Second pass: place positional arguments in remaining slots
+    int next_slot = 0;
+    for (int i = 0; i < num_args; i++) {
+        if (!arg_used[i]) {
+            // Find next unfilled slot
+            while (next_slot < func->num_params && reordered_args[next_slot].type != HML_VAL_NULL) {
+                next_slot++;
+            }
+            if (next_slot < func->num_params) {
+                reordered_args[next_slot] = args[i];
+                next_slot++;
+            }
+        }
+    }
+
+    if (arg_used != used) free(arg_used);
+
+    // Call with reordered args
+    HmlValue result = hml_call_function(fn, reordered_args, func->num_params);
+
+    if (reordered_args != reordered) free(reordered_args);
+
+    return result;
+}
+
 // Thread-local self for method calls
 __thread HmlValue hml_self = {0};
 

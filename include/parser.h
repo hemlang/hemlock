@@ -9,6 +9,7 @@ typedef struct {
     Lexer *lexer;
     Token current;
     Token previous;
+    Token next;          // One-token lookahead for named arguments
     int had_error;
     int panic_mode;
     const char *source;  // Source code for error messages

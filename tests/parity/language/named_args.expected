@@ -1,0 +1,18 @@
+Hello, World!
+Hi, Alice!
+Good morning, Bob!
+Name: Alice
+Age: 25
+Active: false
+Name: Bob
+Age: 18
+Active: true
+Name: Charlie
+Age: 18
+Active: false
+Name: David
+Age: 30
+Active: true
+Name: Eve
+Age: 18
+Active: false

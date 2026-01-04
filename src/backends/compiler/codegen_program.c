@@ -340,9 +340,26 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
             int num_required = count_required_params(func->as.function.param_defaults, func->as.function.num_params);
             int has_rest = func->as.function.rest_param ? 1 : 0;
-            codegen_writeln(ctx, "%s = hml_val_function_rest_named((void*)%sfn_%s, %d, %d, %d, %d, \"%s\");",
-                          mangled, module->module_prefix, name,
-                          func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name);
+
+            // Generate parameter names array for named argument support
+            if (func->as.function.num_params > 0) {
+                int param_names_counter = ctx->temp_counter++;
+                codegen_writeln(ctx, "const char *_param_names%d[%d] = {", param_names_counter, func->as.function.num_params);
+                for (int i = 0; i < func->as.function.num_params; i++) {
+                    codegen_write(ctx, "\"%s\"", func->as.function.param_names[i]);
+                    if (i < func->as.function.num_params - 1) {
+                        codegen_write(ctx, ", ");
+                    }
+                }
+                codegen_writeln(ctx, "};");
+                codegen_writeln(ctx, "%s = hml_val_function_with_params((void*)%sfn_%s, %d, %d, %d, %d, \"%s\", _param_names%d);",
+                              mangled, module->module_prefix, name,
+                              func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name, param_names_counter);
+            } else {
+                codegen_writeln(ctx, "%s = hml_val_function_rest_named((void*)%sfn_%s, %d, %d, %d, %d, \"%s\");",
+                              mangled, module->module_prefix, name,
+                              func->as.function.num_params, num_required, func->as.function.is_async, has_rest, name);
+            }
         } else if (stmt->type == STMT_LET && stmt->as.let.value) {
             // Non-function let statement - assign to module global
             char mangled[CODEGEN_MANGLED_NAME_SIZE];

@@ -107,12 +107,15 @@ void synchronize(Parser *p) {
 
 void advance(Parser *p) {
     p->previous = p->current;
-    
+    p->current = p->next;
+
     for (;;) {
-        p->current = lexer_next(p->lexer);
-        if (p->current.type != TOK_ERROR) break;
-        
-        error_at_current(p, p->current.start);
+        p->next = lexer_next(p->lexer);
+        if (p->next.type != TOK_ERROR) break;
+
+        // Report error for the bad token
+        Token bad = p->next;
+        error_at(p, &bad, bad.start);
     }
 }
 
@@ -166,7 +169,16 @@ void parser_init(Parser *parser, Lexer *lexer) {
     parser->panic_mode = 0;
     parser->source = lexer->source;  // Store source for error messages
 
-    advance(parser);  // Prime the pump
+    // Prime the lookahead: get both current and next tokens
+    // First, get the first token into 'next'
+    for (;;) {
+        parser->next = lexer_next(parser->lexer);
+        if (parser->next.type != TOK_ERROR) break;
+        // Skip error tokens during initialization
+    }
+
+    // Now advance to set current = next and get the new next
+    advance(parser);
 }
 
 Stmt** parse_program(Parser *parser, int *stmt_count) {

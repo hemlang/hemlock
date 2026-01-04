@@ -110,6 +110,7 @@ struct Expr {
         struct {
             Expr *func;  // Changed from char *name to support method calls
             Expr **args;
+            char **arg_names;  // Array of argument names (NULL for positional args)
             int num_args;
         } call;
         struct {
@@ -181,6 +182,7 @@ struct Expr {
             char *property;      // For property access (NULL for indexing/call)
             Expr *index;         // For indexing (NULL for property/call)
             Expr **args;         // For method calls (NULL for property/indexing)
+            char **arg_names;    // Array of argument names (NULL for positional args)
             int num_args;        // Number of arguments (0 if not a call)
             int is_property;     // 1 for property access, 0 for indexing/call
             int is_call;         // 1 for method call, 0 for property/indexing
@@ -373,7 +375,7 @@ Expr* expr_null(void);
 Expr* expr_binary(Expr *left, BinaryOp op, Expr *right);
 Expr* expr_unary(UnaryOp op, Expr *operand);
 Expr* expr_ternary(Expr *condition, Expr *true_expr, Expr *false_expr);
-Expr* expr_call(Expr *func, Expr **args, int num_args);
+Expr* expr_call(Expr *func, Expr **args, char **arg_names, int num_args);
 Expr* expr_assign(const char *name, Expr *value);
 Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
@@ -390,7 +392,7 @@ Expr* expr_await(Expr *awaited_expr);
 Expr* expr_string_interpolation(char **string_parts, Expr **expr_parts, int num_parts);
 Expr* expr_optional_chain_property(Expr *object, const char *property);
 Expr* expr_optional_chain_index(Expr *object, Expr *index);
-Expr* expr_optional_chain_call(Expr *object, Expr **args, int num_args);
+Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int num_args);
 Expr* expr_null_coalesce(Expr *left, Expr *right);
 
 // Statement constructors
