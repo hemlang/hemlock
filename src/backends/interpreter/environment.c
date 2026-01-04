@@ -271,6 +271,11 @@ void env_break_cycles(Environment *env) {
 
 // Clear all variables from environment without deallocating (for loop reuse)
 void env_clear(Environment *env) {
+    // Fast path: nothing to clear
+    if (env->count == 0) {
+        return;
+    }
+
     // Release all values and free names
     for (int i = 0; i < env->count; i++) {
         // Only free name if it's not borrowed (check bit flag)
@@ -282,10 +287,8 @@ void env_clear(Environment *env) {
     // Reset count but keep capacity and allocated arrays
     env->count = 0;
     env->borrowed_flags = 0;  // Clear borrowed flags
-    // Clear hash table (reset all slots to -1)
-    for (int i = 0; i < env->hash_capacity; i++) {
-        env->hash_table[i] = -1;
-    }
+    // Clear hash table using memset (0xFF sets all bytes to -1 for int type)
+    memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
 }
 
 void env_free(Environment *env) {

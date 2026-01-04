@@ -177,7 +177,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Use fast resolved lookup if available, else fall back to hash lookup
             Value val;
             if (expr->as.ident.resolved.is_resolved) {
-                val = env_get_resolved(env, expr->as.ident.resolved.depth, expr->as.ident.resolved.slot);
+                // FAST PATH: depth=0 (local variable) - inline the lookup
+                int depth = expr->as.ident.resolved.depth;
+                int slot = expr->as.ident.resolved.slot;
+                if (depth == 0) {
+                    // Direct access to current environment
+                    val = env->values[slot];
+                    VALUE_RETAIN(val);
+                } else {
+                    val = env_get_resolved(env, depth, slot);
+                }
             } else {
                 val = env_get(env, expr->as.ident.name, ctx);
             }
@@ -192,26 +201,48 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         case EXPR_ASSIGN: {
             Value new_value = eval_expr(expr->as.assign.value, env, ctx);
-            // Check if target is a reference (from ref parameter)
-            Value target;
+
+            // FAST PATH: resolved depth=0 assignment (most common case)
             if (expr->as.assign.resolved.is_resolved) {
-                target = env_get_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot);
-            } else {
-                target = env_get(env, expr->as.assign.name, ctx);
+                int depth = expr->as.assign.resolved.depth;
+                int slot = expr->as.assign.resolved.slot;
+
+                if (depth == 0) {
+                    // Check if current value is a reference first
+                    Value current = env->values[slot];
+                    if (current.type == VAL_REF) {
+                        // Rare case: write through reference
+                        ref_assign(current.as.as_ref, new_value, ctx);
+                        return new_value;
+                    }
+                    // Direct assignment - release old, retain new
+                    VALUE_RELEASE(current);
+                    VALUE_RETAIN(new_value);
+                    env->values[slot] = new_value;
+                    return new_value;
+                }
+
+                // Non-local: check for ref and assign
+                Value target = env_get_resolved(env, depth, slot);
+                if (target.type == VAL_REF) {
+                    ref_assign(target.as.as_ref, new_value, ctx);
+                    VALUE_RELEASE(target);
+                    return new_value;
+                }
+                VALUE_RELEASE(target);
+                env_set_resolved(env, depth, slot, new_value, ctx);
+                return new_value;
             }
+
+            // Fall back to hash lookup for unresolved variables
+            Value target = env_get(env, expr->as.assign.name, ctx);
             if (target.type == VAL_REF) {
-                // Write through the reference to the original location
                 ref_assign(target.as.as_ref, new_value, ctx);
                 VALUE_RELEASE(target);
                 return new_value;
             }
             VALUE_RELEASE(target);
-            // Regular assignment
-            if (expr->as.assign.resolved.is_resolved) {
-                env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, new_value, ctx);
-            } else {
-                env_set(env, expr->as.assign.name, new_value, ctx);
-            }
+            env_set(env, expr->as.assign.name, new_value, ctx);
             return new_value;
         }
 
