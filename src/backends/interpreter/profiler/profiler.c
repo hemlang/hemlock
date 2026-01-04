@@ -362,7 +362,7 @@ static void format_bytes(uint64_t bytes, char *buf, size_t size) {
 }
 
 void profiler_print_report(ProfilerState *state, FILE *output) {
-    if (!state || state->function_count == 0) {
+    if (!state || (state->function_count == 0 && state->alloc_site_count == 0)) {
         fprintf(output, "No profiling data collected.\n");
         return;
     }
@@ -382,47 +382,50 @@ void profiler_print_report(ProfilerState *state, FILE *output) {
                 (unsigned long)state->total_alloc_count, bytes_buf);
     }
 
-    // Sort functions by self time
-    FunctionStats **sorted = malloc(state->function_count * sizeof(FunctionStats*));
-    for (int i = 0; i < state->function_count; i++) {
-        sorted[i] = &state->functions[i];
-    }
-    qsort(sorted, state->function_count, sizeof(FunctionStats*), compare_by_self_time);
-
-    int show_count = (state->top_n > 0 && state->top_n < state->function_count)
-                     ? state->top_n : state->function_count;
-
-    fprintf(output, "\n");
-    fprintf(output, "--- Top %d by Self Time ---\n", show_count);
-    fprintf(output, "\n");
-    fprintf(output, "%-30s %10s %10s %8s %10s\n",
-            "Function", "Self", "Total", "Calls", "Avg");
-    fprintf(output, "%-30s %10s %10s %8s %10s\n",
-            "--------", "----", "-----", "-----", "---");
-
-    for (int i = 0; i < show_count; i++) {
-        FunctionStats *fn = sorted[i];
-        if (fn->call_count == 0) continue;
-
-        char self_buf[32], total_buf[32], avg_buf[32];
-        format_time(fn->self_time_ns, self_buf, sizeof(self_buf));
-        format_time(fn->total_time_ns, total_buf, sizeof(total_buf));
-        format_time(fn->total_time_ns / fn->call_count, avg_buf, sizeof(avg_buf));
-
-        // Truncate function name if too long
-        char name_buf[31];
-        if (strlen(fn->name) > 30) {
-            snprintf(name_buf, sizeof(name_buf), "%.27s...", fn->name);
-        } else {
-            snprintf(name_buf, sizeof(name_buf), "%s", fn->name);
+    // Sort and print functions if any were tracked
+    FunctionStats **sorted = NULL;
+    if (state->function_count > 0) {
+        sorted = malloc(state->function_count * sizeof(FunctionStats*));
+        for (int i = 0; i < state->function_count; i++) {
+            sorted[i] = &state->functions[i];
         }
+        qsort(sorted, state->function_count, sizeof(FunctionStats*), compare_by_self_time);
 
-        double self_pct = (state->total_time_ns > 0)
-                          ? (100.0 * fn->self_time_ns / state->total_time_ns) : 0;
+        int show_count = (state->top_n > 0 && state->top_n < state->function_count)
+                         ? state->top_n : state->function_count;
 
-        fprintf(output, "%-30s %9s %10s %8lu %10s  (%.1f%%)\n",
-                name_buf, self_buf, total_buf,
-                (unsigned long)fn->call_count, avg_buf, self_pct);
+        fprintf(output, "\n");
+        fprintf(output, "--- Top %d by Self Time ---\n", show_count);
+        fprintf(output, "\n");
+        fprintf(output, "%-30s %10s %10s %8s %10s\n",
+                "Function", "Self", "Total", "Calls", "Avg");
+        fprintf(output, "%-30s %10s %10s %8s %10s\n",
+                "--------", "----", "-----", "-----", "---");
+
+        for (int i = 0; i < show_count; i++) {
+            FunctionStats *fn = sorted[i];
+            if (fn->call_count == 0) continue;
+
+            char self_buf[32], total_buf[32], avg_buf[32];
+            format_time(fn->self_time_ns, self_buf, sizeof(self_buf));
+            format_time(fn->total_time_ns, total_buf, sizeof(total_buf));
+            format_time(fn->total_time_ns / fn->call_count, avg_buf, sizeof(avg_buf));
+
+            // Truncate function name if too long
+            char name_buf[31];
+            if (strlen(fn->name) > 30) {
+                snprintf(name_buf, sizeof(name_buf), "%.27s...", fn->name);
+            } else {
+                snprintf(name_buf, sizeof(name_buf), "%s", fn->name);
+            }
+
+            double self_pct = (state->total_time_ns > 0)
+                              ? (100.0 * fn->self_time_ns / state->total_time_ns) : 0;
+
+            fprintf(output, "%-30s %9s %10s %8lu %10s  (%.1f%%)\n",
+                    name_buf, self_buf, total_buf,
+                    (unsigned long)fn->call_count, avg_buf, self_pct);
+        }
     }
 
     // Show memory stats if available

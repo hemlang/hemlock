@@ -69,6 +69,9 @@ struct ExecutionContext {
     char *sandbox_root;   // Root directory for file access (NULL = no restriction)
     // Profiler state (NULL when profiling disabled)
     ProfilerState *profiler;
+    // Current source location (for profiler allocation tracking)
+    const char *current_source_file;
+    int current_line;
 };
 
 // ========== OBJECT TYPE REGISTRY ==========

@@ -32,7 +32,6 @@ int get_type_size(TypeKind kind) {
 }
 
 Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
         fprintf(stderr, "Runtime error: alloc() expects 1 argument (size in bytes)\n");
         exit(1);
@@ -55,17 +54,21 @@ Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    // Record allocation for profiler
+    PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)size);
+
     return val_ptr(ptr);
 }
 
 Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
         fprintf(stderr, "Runtime error: free() expects 1 argument (pointer, buffer, object, or array)\n");
         exit(1);
     }
 
     if (args[0].type == VAL_PTR) {
+        // Record free for profiler (size unknown for raw pointers)
+        PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, 0);
         free(args[0].as.as_ptr);
         return val_null();
     } else if (args[0].type == VAL_BUFFER) {
@@ -93,6 +96,9 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
             fprintf(stderr, "    4. Remove the explicit free() call - Hemlock manages buffer lifecycle\n\n");
             exit(1);
         }
+
+        // Record free for profiler (capacity + sizeof(Buffer))
+        PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)buf->capacity + sizeof(Buffer));
 
         // Free the internal data but keep the struct alive for cleanup to check freed flag
         free(buf->data);
@@ -262,7 +268,6 @@ Value builtin_sizeof(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
         fprintf(stderr, "Runtime error: buffer() expects 1 argument (size in bytes)\n");
         exit(1);
@@ -274,11 +279,14 @@ Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     int32_t size = value_to_int(args[0]);
+
+    // Record allocation for profiler (buffer allocates size + sizeof(Buffer))
+    PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)size + sizeof(Buffer));
+
     return val_buffer(size);
 }
 
 Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 2) {
         fprintf(stderr, "Runtime error: talloc() expects 2 arguments (type, count)\n");
         exit(1);
@@ -317,11 +325,13 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    // Record allocation for profiler
+    PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)total_size);
+
     return val_ptr(ptr);
 }
 
 Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 2) {
         fprintf(stderr, "Runtime error: realloc() expects 2 arguments (ptr, new_size)\n");
         exit(1);
@@ -349,6 +359,9 @@ Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx) {
     if (new_ptr == NULL) {
         return val_null();
     }
+
+    // Record realloc as an allocation (we don't know old size to record free)
+    PROFILER_ALLOC(ctx, ctx->current_source_file, ctx->current_line, (uint64_t)new_size);
 
     return val_ptr(new_ptr);
 }

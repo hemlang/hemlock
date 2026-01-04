@@ -37,6 +37,8 @@ ExecutionContext* exec_context_new(void) {
     ctx->sandbox_flags = HML_SANDBOX_RESTRICT_NONE;  // No restrictions by default
     ctx->sandbox_root = NULL;                         // No root restriction
     ctx->profiler = NULL;                             // Profiler disabled by default
+    ctx->current_source_file = NULL;                  // Set before builtin calls
+    ctx->current_line = 0;
     call_stack_init(&ctx->call_stack);
     defer_stack_init(&ctx->defer_stack);
     return ctx;
