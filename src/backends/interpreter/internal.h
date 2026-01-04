@@ -6,6 +6,9 @@
 #include "hemlock_limits.h"
 #include <stdint.h>
 
+// Forward declaration for profiler
+typedef struct ProfilerState ProfilerState;
+
 // ========== CONTROL FLOW STATE ==========
 
 typedef struct {
@@ -63,6 +66,8 @@ struct ExecutionContext {
     // Sandbox configuration
     int sandbox_flags;    // Bitmask of HML_SANDBOX_RESTRICT_* flags (0 = unrestricted)
     char *sandbox_root;   // Root directory for file access (NULL = no restriction)
+    // Profiler state (NULL when profiling disabled)
+    ProfilerState *profiler;
 };
 
 // ========== OBJECT TYPE REGISTRY ==========
@@ -413,5 +418,26 @@ int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write);
 
 // Throw a sandbox violation error
 void sandbox_error(ExecutionContext *ctx, const char *operation);
+
+// ========== PROFILER ==========
+
+// Profiler instrumentation hooks (inline checks for NULL profiler)
+void profiler_enter_function(ProfilerState *state, const char *name,
+                             const char *source_file, int line);
+void profiler_exit_function(ProfilerState *state);
+void profiler_record_alloc(ProfilerState *state, const char *source_file,
+                           int line, uint64_t bytes);
+void profiler_record_free(ProfilerState *state, const char *source_file,
+                          int line, uint64_t bytes);
+
+// Convenience macros that check for NULL profiler
+#define PROFILER_ENTER(ctx, name, file, line) \
+    do { if ((ctx)->profiler) profiler_enter_function((ctx)->profiler, name, file, line); } while(0)
+#define PROFILER_EXIT(ctx) \
+    do { if ((ctx)->profiler) profiler_exit_function((ctx)->profiler); } while(0)
+#define PROFILER_ALLOC(ctx, file, line, bytes) \
+    do { if ((ctx)->profiler) profiler_record_alloc((ctx)->profiler, file, line, bytes); } while(0)
+#define PROFILER_FREE(ctx, file, line, bytes) \
+    do { if ((ctx)->profiler) profiler_record_free((ctx)->profiler, file, line, bytes); } while(0)
 
 #endif // HEMLOCK_INTERPRETER_INTERNAL_H

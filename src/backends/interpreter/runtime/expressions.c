@@ -544,6 +544,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Push call onto stack trace (with line number from call site)
                 call_stack_push_line(&ctx->call_stack, fn_name, expr->line);
 
+                // Profile: enter function
+                PROFILER_ENTER(ctx, fn_name, get_current_source_file(), expr->line);
+
                 // Create call environment with closure_env as parent
                 Environment *call_env = env_new(fn->closure_env);
 
@@ -699,6 +702,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Retain result for the caller (so it survives call_env cleanup)
                 // The caller now owns this reference
                 VALUE_RETAIN(result);
+
+                // Profile: exit function (always, even on exception, for accurate timing)
+                PROFILER_EXIT(ctx);
 
                 // Pop call from stack trace (but not if exception is active - preserve stack for error reporting)
                 if (!ctx->exception_state.is_throwing) {
