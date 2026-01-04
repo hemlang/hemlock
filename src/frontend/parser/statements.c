@@ -71,23 +71,30 @@ Stmt* if_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'if'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
-    
-    consume(p, TOK_LBRACE, "Expect '{' after if condition");
-    Stmt *then_branch = block_statement(p);
-    
+
+    // Parse then branch - braces optional for single statements
+    Stmt *then_branch;
+    if (match(p, TOK_LBRACE)) {
+        then_branch = block_statement(p);
+    } else {
+        then_branch = statement(p);
+    }
+
     Stmt *else_branch = NULL;
     if (match(p, TOK_ELSE)) {
         if (check(p, TOK_IF)) {
             // else if - recursively parse the if statement
             advance(p);  // consume the IF token
             else_branch = if_statement(p);
-        } else {
-            // regular else - parse block
-            consume(p, TOK_LBRACE, "Expect '{' after 'else'");
+        } else if (match(p, TOK_LBRACE)) {
+            // else with braces - parse block
             else_branch = block_statement(p);
+        } else {
+            // else without braces - parse single statement
+            else_branch = statement(p);
         }
     }
-    
+
     return stmt_if(condition, then_branch, else_branch);
 }
 

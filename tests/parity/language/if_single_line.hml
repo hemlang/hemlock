@@ -1,0 +1,48 @@
+// Test single-line if statements (without braces)
+
+let x = 10;
+
+// Basic single-line if
+if (x > 5) print("greater");
+
+// Single-line if with else (both braceless)
+if (x < 5) print("less");
+else print("not less");
+
+// Single-line if, block else
+if (x < 5) print("less2");
+else {
+    print("not less2");
+}
+
+// Block if, single-line else
+if (x < 5) {
+    print("less3");
+} else print("not less3");
+
+// else if chain with single-line statements
+if (x == 0) print("zero");
+else if (x == 10) print("ten");
+else print("other");
+
+// Mixed: block in middle
+if (x == 0) print("zero2");
+else if (x == 10) {
+    print("ten2");
+} else print("other2");
+
+// Nested single-line if
+if (x > 0) if (x < 20) print("between");
+
+// Single-line with more complex statement
+let y = 0;
+if (x > 5) y = 100;
+print("y=" + y);
+
+// Single-line with function call
+fn greet(name) {
+    print("Hello, " + name);
+}
+if (x == 10) greet("world");
+
+print("done");
