@@ -3,8 +3,8 @@
 // Define with both required and optional methods
 define Formatter {
     data: string,
-    fn format(): string;         // Required method
-    fn pretty?(): string;        // Optional method (with ?)
+    fn format(): string,         // Required method
+    fn pretty?(): string         // Optional method (with ?)
 }
 
 // Object with required method only - should work since pretty is optional
@@ -28,7 +28,7 @@ print(obj2.pretty());
 // Define with only optional method
 define Debuggable {
     name: string,
-    fn debug?(): string;  // Optional - objects don't need to provide it
+    fn debug?(): string   // Optional - objects don't need to provide it
 }
 
 // Object without the optional method
@@ -50,8 +50,8 @@ print(d2.debug());
 // Define with multiple optional methods
 define Printable {
     value: i32,
-    fn to_string?(): string;
-    fn to_json?(): string;
+    fn to_string?(): string,
+    fn to_json?(): string
 }
 
 // Object with no optional methods

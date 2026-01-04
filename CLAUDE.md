@@ -343,7 +343,7 @@ This provides compile-time safety for functions that should not modify their inp
 // Define with method signatures (interface pattern)
 define Comparable {
     value: i32,
-    fn compare(other: Self): i32;  // Required method signature
+    fn compare(other: Self): i32   // Required method signature
 }
 
 // Objects must provide the required method
@@ -354,18 +354,19 @@ let a: Comparable = {
 
 // Optional methods with ?
 define Serializable {
-    fn serialize(): string;       // Required
-    fn pretty?(): string;         // Optional method
+    fn serialize(): string,        // Required
+    fn pretty?(): string           // Optional method
 }
 
 // Self type refers to the defining type
 define Cloneable {
-    fn clone(): Self;  // Returns same type as the object
+    fn clone(): Self   // Returns same type as the object
 }
 ```
 
-Method signatures in `define` blocks establish contracts that objects must fulfill,
-enabling interface-like programming patterns with Hemlock's duck typing system.
+Method signatures in `define` blocks use comma delimiters (like TypeScript interfaces),
+establishing contracts that objects must fulfill and enabling interface-like programming
+patterns with Hemlock's duck typing system.
 
 ### Error Handling
 ```hemlock
@@ -796,7 +797,7 @@ make parity
 - **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
 - **Function type annotations** (`fn(i32): i32`) - first-class function types
 - **Const parameters** (`fn(const x: array)`) - deep immutability for parameters
-- **Method signatures in define** (`fn method(): Type;`) - interface-like contracts
+- **Method signatures in define** (`fn method(): Type`) - interface-like contracts (comma-delimited)
 - **Self type** in method signatures - refers to the defining type
 - **Loop keyword** (`loop { }`) - cleaner infinite loops, replaces `while (true)`
 - **Loop labels** (`outer: while`) - targeted break/continue for nested loops

@@ -877,14 +877,13 @@ Stmt* define_statement(Parser *p) {
                     NULL, NULL, return_type, body);
             } else {
                 // Just a signature, no default
-                match(p, TOK_SEMICOLON);  // Optional semicolon
                 method_defaults[num_methods] = NULL;
             }
 
             num_methods++;
 
-            // Skip comma if present
-            match(p, TOK_COMMA);
+            // Comma-delimited like fields (TypeScript style)
+            if (!match(p, TOK_COMMA)) break;
             continue;
         }
 
