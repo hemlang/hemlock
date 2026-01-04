@@ -518,6 +518,45 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
             }
 
+            // OPTIMIZATION: Native C comparison for unboxed local variable vs boxed parameter
+            // For patterns like: j < high (where j is int32_t and high is HmlValue from parameter)
+            // Generate: hml_val_bool(j < hml_to_i32(high)) instead of the generic path
+            if (ctx->optimize && ctx->type_ctx &&
+                expr->as.binary.left->type == EXPR_IDENT &&
+                expr->as.binary.right->type == EXPR_IDENT &&
+                !codegen_is_func_param(ctx, expr->as.binary.left->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.left->as.ident.name) &&
+                (codegen_is_func_param(ctx, expr->as.binary.right->as.ident.name) ||
+                 codegen_is_main_var(ctx, expr->as.binary.right->as.ident.name))) {
+                CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                if (left_native == CHECKED_I32 &&
+                    (expr->as.binary.op == OP_LESS || expr->as.binary.op == OP_LESS_EQUAL ||
+                     expr->as.binary.op == OP_GREATER || expr->as.binary.op == OP_GREATER_EQUAL ||
+                     expr->as.binary.op == OP_EQUAL || expr->as.binary.op == OP_NOT_EQUAL)) {
+                    char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
+                    char *right_var = codegen_sanitize_ident(expr->as.binary.right->as.ident.name);
+                    const char *op_str = NULL;
+                    switch (expr->as.binary.op) {
+                        case OP_LESS: op_str = "<"; break;
+                        case OP_LESS_EQUAL: op_str = "<="; break;
+                        case OP_GREATER: op_str = ">"; break;
+                        case OP_GREATER_EQUAL: op_str = ">="; break;
+                        case OP_EQUAL: op_str = "=="; break;
+                        case OP_NOT_EQUAL: op_str = "!="; break;
+                        default: break;
+                    }
+                    if (op_str) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s %s hml_to_i32(%s));",
+                                      result, left_var, op_str, right_var);
+                        free(left_var);
+                        free(right_var);
+                        break;
+                    }
+                    free(left_var);
+                    free(right_var);
+                }
+            }
+
             // OPTIMIZATION: Detect chained string concatenations (a + b + c + ...)
             // Use hml_string_concat3/4/5 for single-allocation efficiency
             {
