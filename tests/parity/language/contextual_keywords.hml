@@ -1,0 +1,96 @@
+// Test contextual keywords as identifiers
+// Keywords like 'type', 'define', 'enum', 'import', 'export', 'extern', 'async', 'defer'
+// can be used as variable names when not at the start of a statement
+
+// Test statement keywords as variable names
+let type = 42;
+print("type=" + type);
+
+let define = "hello";
+print("define=" + define);
+
+let enum = 999;
+print("enum=" + enum);
+
+let import = "imported";
+print("import=" + import);
+
+let export = true;
+print("export=" + export);
+
+let extern = 3.14;
+print("extern=" + extern);
+
+let async = 100;
+print("async=" + async);
+
+let defer = "deferred";
+print("defer=" + defer);
+
+let object = 42;
+print("object=" + object);
+
+// Test contextual keywords as object fields
+let obj = {
+    type: "test",
+    define: 123,
+    enum: false,
+    i32: 42,
+    string: "hello"
+};
+print("field type=" + obj.type);
+print("field define=" + obj.define);
+print("field i32=" + obj.i32);
+
+// Test contextual keywords as function parameters
+fn test_params(type, define, i32) {
+    print("param type=" + type);
+    print("param define=" + define);
+    print("param i32=" + i32);
+}
+test_params("a", "b", "c");
+
+// Test contextual keywords as function names
+fn my_type() {
+    return "type function";
+}
+print("fn type=" + my_type());
+
+fn my_define() {
+    return "define function";
+}
+print("fn define=" + my_define());
+
+// Use a block to avoid variable shadowing issues with types
+{
+    // Type keywords as variable names in isolated scope
+    let i32 = "not a number";
+    print("var i32=" + i32);
+
+    let string = 123;
+    print("var string=" + string);
+
+    let bool = "truthy";
+    print("var bool=" + bool);
+}
+
+// Verify statement keywords still work when at statement level
+type MyAlias = i32;
+let myValue: MyAlias = 100;
+print("type alias=" + myValue);
+
+define Person {
+    name: string,
+    age: i32
+}
+let p: Person = { name: "Alice", age: 30 };
+print("define type=" + p.name);
+
+enum Color { RED, GREEN, BLUE }
+print("enum variant=" + Color.RED);
+
+// Test shadowing - use keyword as variable then use keyword syntax
+let type2 = 50;
+type AnotherAlias = i32;
+let type2_alias: AnotherAlias = type2;
+print("shadowing=" + type2_alias);

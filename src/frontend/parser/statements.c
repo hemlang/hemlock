@@ -197,13 +197,11 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
     char *second_var = NULL;
 
     if (match(p, TOK_LET)) {
-        consume(p, TOK_IDENT, "Expect variable name");
-        first_var = token_text(&p->previous);
+        first_var = consume_identifier_or_type_keyword(p, "Expect variable name");
 
         if (match(p, TOK_COMMA)) {
             // for (let key, value in ...)
-            consume(p, TOK_IDENT, "Expect second variable name");
-            second_var = token_text(&p->previous);
+            second_var = consume_identifier_or_type_keyword(p, "Expect second variable name");
             consume(p, TOK_IN, "Expect 'in' in for-in loop");
             is_for_in = 1;
         } else if (match(p, TOK_IN)) {
@@ -261,7 +259,8 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
     }
 
     // Check for for-in loop without let (e.g., for (item in array))
-    if (check(p, TOK_IDENT)) {
+    // Contextual keywords can be used as loop variables
+    if (check_identifier_or_type_keyword(p)) {
         // Save state for potential backtracking
         Token saved_current = p->current;
         Token saved_previous = p->previous;
@@ -275,10 +274,9 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
 
         if (check(p, TOK_COMMA)) {
             // for (key, value in ...) - two variable form without let
-            char *first_var = token_text(&saved_current);
+            char *for_first_var = token_text(&saved_current);
             advance(p);  // consume comma
-            consume(p, TOK_IDENT, "Expect second variable name");
-            char *second_var = token_text(&p->previous);
+            char *for_second_var = consume_identifier_or_type_keyword(p, "Expect second variable name");
             consume(p, TOK_IN, "Expect 'in' in for-in loop");
 
             Expr *iterable = expression(p);
@@ -287,7 +285,7 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
             Stmt *body = block_statement(p);
 
             // stmt_for_in takes ownership of the strings, don't free them
-            return stmt_for_in_labeled(label, first_var, second_var, iterable, body);
+            return stmt_for_in_labeled(label, for_first_var, for_second_var, iterable, body);
         } else if (check(p, TOK_IN)) {
             // for (item in ...) - single variable form without let
             char *var_name = token_text(&saved_current);
@@ -526,9 +524,8 @@ Stmt* export_statement(Parser *p) {
         return stmt_expr(expr_number(0));
     }
 
-    // Must be a named function
-    consume(p, TOK_IDENT, "Expect function name after 'export fn'");
-    char *name = token_text(&p->previous);
+    // Must be a named function - contextual keywords can be used as function names
+    char *name = consume_identifier_or_type_keyword(p, "Expect function name after 'export fn'");
 
     // Parse function (same as in statement())
     consume(p, TOK_LPAREN, "Expect '(' after function name");
@@ -549,8 +546,7 @@ Stmt* export_statement(Parser *p) {
         do {
             // Check for rest parameter: ...name
             if (match(p, TOK_DOT_DOT_DOT)) {
-                consume(p, TOK_IDENT, "Expect parameter name after '...'");
-                rest_param = token_text(&p->previous);
+                rest_param = consume_identifier_or_type_keyword(p, "Expect parameter name after '...'");
                 if (match(p, TOK_COLON)) {
                     rest_param_type = parse_type(p);
                 }
@@ -589,8 +585,7 @@ Stmt* export_statement(Parser *p) {
                 error_at(p, &p->current, "const and ref modifiers cannot be combined");
             }
 
-            consume(p, TOK_IDENT, "Expect parameter name");
-            param_names[num_params] = token_text(&p->previous);
+            param_names[num_params] = consume_identifier_or_type_keyword(p, "Expect parameter name");
 
             if (match(p, TOK_COLON)) {
                 param_types[num_params] = parse_type(p);
@@ -642,8 +637,7 @@ Stmt* export_statement(Parser *p) {
 Stmt* extern_fn_statement(Parser *p) {
     // extern fn name(param1: type1, param2: type2): return_type;
     consume(p, TOK_FN, "Expect 'fn' after 'extern'");
-    consume(p, TOK_IDENT, "Expect function name");
-    char *function_name = token_text(&p->previous);
+    char *function_name = consume_identifier_or_type_keyword(p, "Expect function name");
 
     consume(p, TOK_LPAREN, "Expect '(' after function name");
 
@@ -660,7 +654,9 @@ Stmt* extern_fn_statement(Parser *p) {
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
             }
             // Parameter name is not used in FFI, but required for syntax
-            consume(p, TOK_IDENT, "Expect parameter name");
+            // Contextual keywords can be used as parameter names
+            char *param_name = consume_identifier_or_type_keyword(p, "Expect parameter name");
+            free(param_name);  // Not used for FFI
             consume(p, TOK_COLON, "Expect ':' after parameter name in extern declaration");
             param_types[num_params] = parse_type(p);
             num_params++;
@@ -684,8 +680,8 @@ Stmt* extern_fn_statement(Parser *p) {
 
 Stmt* define_statement(Parser *p) {
     // Object type definition: define TypeName { ... } or define TypeName<T, U> { ... }
-    consume(p, TOK_IDENT, "Expect object type name");
-    char *name = token_text(&p->previous);
+    // Contextual keywords can be used as type names
+    char *name = consume_identifier_or_type_keyword(p, "Expect object type name");
 
     // Parse optional type parameters: <T, U, ...>
     char **type_params = NULL;
@@ -742,9 +738,8 @@ Stmt* define_statement(Parser *p) {
                 method_defaults = realloc(method_defaults, sizeof(Expr*) * method_capacity);
             }
 
-            // Parse method name
-            consume(p, TOK_IDENT, "Expect method name");
-            method_names[num_methods] = token_text(&p->previous);
+            // Parse method name - contextual keywords can be used as method names
+            method_names[num_methods] = consume_identifier_or_type_keyword(p, "Expect method name");
 
             // Check for optional marker (fn name?(): type means optional method)
             method_optional[num_methods] = match(p, TOK_QUESTION) ? 1 : 0;
@@ -772,9 +767,8 @@ Stmt* define_statement(Parser *p) {
                     // Parse const modifier
                     fn_param_is_const[fn_num_params] = match(p, TOK_CONST) ? 1 : 0;
 
-                    // Parse parameter name
-                    consume(p, TOK_IDENT, "Expect parameter name");
-                    fn_param_names[fn_num_params] = token_text(&p->previous);
+                    // Parse parameter name - contextual keywords allowed
+                    fn_param_names[fn_num_params] = consume_identifier_or_type_keyword(p, "Expect parameter name");
 
                     // Parse optional type annotation
                     if (match(p, TOK_COLON)) {
@@ -923,8 +917,8 @@ Stmt* statement(Parser *p) {
 
     // Type alias: type Name = Type; or type Name<T> = Type<T>;
     if (match(p, TOK_TYPE)) {
-        consume(p, TOK_IDENT, "Expect type alias name");
-        char *name = token_text(&p->previous);
+        // Contextual keywords can be used as type alias names
+        char *name = consume_identifier_or_type_keyword(p, "Expect type alias name");
 
         // Parse optional type parameters: <T, U, ...>
         int param_capacity = 4;
@@ -939,8 +933,8 @@ Stmt* statement(Parser *p) {
                     param_capacity *= 2;
                     type_params = realloc(type_params, sizeof(char*) * param_capacity);
                 }
-                consume(p, TOK_IDENT, "Expect type parameter name");
-                type_params[num_type_params++] = token_text(&p->previous);
+                // Contextual keywords can be used as type parameter names
+                type_params[num_type_params++] = consume_identifier_or_type_keyword(p, "Expect type parameter name");
             } while (match(p, TOK_COMMA));
 
             consume(p, TOK_GREATER, "Expect '>' after type parameters");
@@ -964,8 +958,8 @@ Stmt* statement(Parser *p) {
 
     // Enum definition: enum EnumName { ... }
     if (match(p, TOK_ENUM)) {
-        consume(p, TOK_IDENT, "Expect enum type name");
-        char *name = token_text(&p->previous);
+        // Contextual keywords can be used as enum type names
+        char *name = consume_identifier_or_type_keyword(p, "Expect enum type name");
 
         consume(p, TOK_LBRACE, "Expect '{' after enum name");
 
@@ -982,8 +976,8 @@ Stmt* statement(Parser *p) {
                 variant_names = realloc(variant_names, sizeof(char*) * variant_capacity);
                 variant_values = realloc(variant_values, sizeof(Expr*) * variant_capacity);
             }
-            consume(p, TOK_IDENT, "Expect variant name");
-            variant_names[num_variants] = token_text(&p->previous);
+            // Contextual keywords can be used as variant names
+            variant_names[num_variants] = consume_identifier_or_type_keyword(p, "Expect variant name");
 
             // Check for explicit value assignment
             if (match(p, TOK_EQUAL)) {
@@ -1017,8 +1011,8 @@ Stmt* statement(Parser *p) {
         goto not_function;
     }
 
-    // Check if it's a named function (next token is identifier)
-    if (check(p, TOK_IDENT)) {
+    // Check if it's a named function (next token is identifier or contextual keyword)
+    if (check_identifier_or_type_keyword(p)) {
         char *name = token_text(&p->current);
         advance(p);  // consume identifier
 
@@ -1041,8 +1035,7 @@ Stmt* statement(Parser *p) {
             do {
                 // Check for rest parameter: ...name
                 if (match(p, TOK_DOT_DOT_DOT)) {
-                    consume(p, TOK_IDENT, "Expect parameter name after '...'");
-                    rest_param = token_text(&p->previous);
+                    rest_param = consume_identifier_or_type_keyword(p, "Expect parameter name after '...'");
                     if (match(p, TOK_COLON)) {
                         rest_param_type = parse_type(p);
                     }
@@ -1081,8 +1074,7 @@ Stmt* statement(Parser *p) {
                     error_at(p, &p->current, "const and ref modifiers cannot be combined");
                 }
 
-                consume(p, TOK_IDENT, "Expect parameter name");
-                param_names[num_params] = token_text(&p->previous);
+                param_names[num_params] = consume_identifier_or_type_keyword(p, "Expect parameter name");
 
                 if (match(p, TOK_COLON)) {
                     param_types[num_params] = parse_type(p);
@@ -1140,8 +1132,9 @@ not_function:
         return if_statement(p);
     }
 
-    // Check for labeled loop: identifier: while/for
-    if (check(p, TOK_IDENT)) {
+    // Check for labeled loop: identifier: while/for/loop
+    // Contextual keywords can also be used as loop labels
+    if (check_identifier_or_type_keyword(p)) {
         // Look ahead to see if this is a labeled loop
         Token saved_current = p->current;
         Token saved_previous = p->previous;
@@ -1196,8 +1189,8 @@ not_function:
     }
 
     if (match(p, TOK_BREAK)) {
-        // Check for optional label
-        if (check(p, TOK_IDENT)) {
+        // Check for optional label - contextual keywords can be used as labels
+        if (check_identifier_or_type_keyword(p)) {
             advance(p);
             char *label = token_text(&p->previous);
             consume(p, TOK_SEMICOLON, "Expect ';' after 'break'");
@@ -1210,8 +1203,8 @@ not_function:
     }
 
     if (match(p, TOK_CONTINUE)) {
-        // Check for optional label
-        if (check(p, TOK_IDENT)) {
+        // Check for optional label - contextual keywords can be used as labels
+        if (check_identifier_or_type_keyword(p)) {
             advance(p);
             char *label = token_text(&p->previous);
             consume(p, TOK_SEMICOLON, "Expect ';' after 'continue'");
@@ -1237,8 +1230,8 @@ not_function:
         Stmt *catch_block = NULL;
         if (match(p, TOK_CATCH)) {
             consume(p, TOK_LPAREN, "Expect '(' after 'catch'");
-            consume(p, TOK_IDENT, "Expect parameter name");
-            catch_param = token_text(&p->previous);
+            // Contextual keywords can be used as catch parameter names
+            catch_param = consume_identifier_or_type_keyword(p, "Expect parameter name");
             consume(p, TOK_RPAREN, "Expect ')' after catch parameter");
             consume(p, TOK_LBRACE, "Expect '{' before catch block");
             catch_block = block_statement(p);

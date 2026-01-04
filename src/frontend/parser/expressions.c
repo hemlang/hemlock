@@ -147,8 +147,24 @@ Expr* primary(Parser *p) {
         return expr_rune(p->previous.rune_value);
     }
 
-    // Identifier or 'type' keyword used as identifier (after let/const/etc.)
-    if (match(p, TOK_IDENT) || match(p, TOK_TYPE)) {
+    // Function expression: fn(...) { ... } or async fn(...) { ... }
+    // Must check this BEFORE treating 'async' as a plain identifier
+    int is_async_fn = 0;
+    if (check(p, TOK_ASYNC) && p->next.type == TOK_FN) {
+        advance(p);  // consume 'async'
+        is_async_fn = 1;
+        consume(p, TOK_FN, "Expect 'fn' after 'async'");
+        goto parse_fn_expr;
+    } else if (match(p, TOK_FN)) {
+        is_async_fn = 0;
+        goto parse_fn_expr;
+    }
+
+    // Identifier or contextual keywords used as identifiers
+    // Keywords like 'type', 'define', 'enum', 'import', 'export', 'extern', 'async', 'defer'
+    // can be used as variable names when not at the start of a statement
+    if (is_identifier_or_type_keyword(p->current.type)) {
+        advance(p);
         char *name = token_text(&p->previous);
         Expr *ident = expr_ident(name);
         free(name);
@@ -232,19 +248,11 @@ Expr* primary(Parser *p) {
         return expr_array_literal(elements, num_elements);
     }
 
-    // Function expression: fn(...) { ... } or async fn(...) { ... }
-    int is_async_fn = 0;
-    if (match(p, TOK_ASYNC)) {
-        is_async_fn = 1;
-        consume(p, TOK_FN, "Expect 'fn' after 'async'");
-    } else if (match(p, TOK_FN)) {
-        is_async_fn = 0;
-    } else {
-        // Not a function expression, continue to other cases
-        goto not_fn_expr;
-    }
+    // Not a function expression, skip to other cases
+    goto not_fn_expr;
 
-    // Parse function expression
+parse_fn_expr:
+    // Parse function expression (jumped to from async fn / fn detection above)
     consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
 
     // Parse parameters - start with small capacity and grow as needed

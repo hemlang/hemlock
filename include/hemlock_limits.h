@@ -35,7 +35,8 @@
 
 // Default maximum call stack depth (prevents stack overflow)
 // Can be changed at runtime via --stack-depth flag
-#define HML_DEFAULT_MAX_STACK_DEPTH 10000
+// Note: 10000 can exceed C stack limits on some systems; 8000 is safer
+#define HML_DEFAULT_MAX_STACK_DEPTH 8000
 
 // Maximum signal number for signal handlers (POSIX standard)
 #define HML_MAX_SIGNAL 64
