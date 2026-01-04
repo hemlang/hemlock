@@ -22,24 +22,7 @@ Expr* postfix(Parser *p);
 Expr* primary(Parser *p);
 Type* parse_type(Parser *p);
 
-// Helper: Check if current token is a type keyword and can be used as identifier
-static int is_type_keyword(TokenType type) {
-    return type == TOK_TYPE_I8 || type == TOK_TYPE_I16 || type == TOK_TYPE_I32 || type == TOK_TYPE_I64 ||
-           type == TOK_TYPE_U8 || type == TOK_TYPE_U16 || type == TOK_TYPE_U32 || type == TOK_TYPE_U64 ||
-           type == TOK_TYPE_F32 || type == TOK_TYPE_F64 || type == TOK_TYPE_BOOL || type == TOK_TYPE_STRING ||
-           type == TOK_TYPE_RUNE || type == TOK_TYPE_PTR || type == TOK_TYPE_BUFFER || type == TOK_TYPE_ARRAY ||
-           type == TOK_TYPE_INTEGER || type == TOK_TYPE_NUMBER || type == TOK_TYPE_BYTE || type == TOK_TYPE_VOID;
-}
-
-// Helper: Consume identifier or type keyword (for property/field names)
-static char* consume_identifier_or_type(Parser *p, const char *message) {
-    if (p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) {
-        advance(p);
-        return token_text(&p->previous);
-    }
-    error_at_current(p, message);
-    return strdup("error");
-}
+// Use the shared is_identifier_or_type_keyword and consume_identifier_or_type_keyword from core.c
 
 // Helper: Parse interpolated string with ${...} expressions
 static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
@@ -164,7 +147,8 @@ Expr* primary(Parser *p) {
         return expr_rune(p->previous.rune_value);
     }
 
-    if (match(p, TOK_IDENT)) {
+    // Identifier or 'type' keyword used as identifier (after let/const/etc.)
+    if (match(p, TOK_IDENT) || match(p, TOK_TYPE)) {
         char *name = token_text(&p->previous);
         Expr *ident = expr_ident(name);
         free(name);
@@ -205,7 +189,7 @@ Expr* primary(Parser *p) {
                 num_fields++;
             } else {
                 // Normal field or shorthand
-                field_names[num_fields] = consume_identifier_or_type(p, "Expect field name");
+                field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
 
                 // Check for shorthand: { name } vs { name: value }
                 if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
@@ -269,6 +253,7 @@ Expr* primary(Parser *p) {
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
     char *rest_param = NULL;
@@ -304,11 +289,21 @@ Expr* primary(Parser *p) {
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                 param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                 param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
             }
+
+            // Check for const keyword (immutable parameter)
+            int is_const = match(p, TOK_CONST);
+            param_is_const[num_params] = is_const;
 
             // Check for ref keyword (pass-by-reference)
             int is_ref = match(p, TOK_REF);
             param_is_ref[num_params] = is_ref;
+
+            // const and ref are mutually exclusive
+            if (is_const && is_ref) {
+                error_at(p, &p->current, "const and ref modifiers cannot be combined");
+            }
 
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
@@ -352,7 +347,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
 not_fn_expr:
 
@@ -407,9 +402,9 @@ Expr* postfix(Parser *p) {
                     arg_names = malloc(sizeof(char*) * MAX_FUNCTION_PARAMS);
 
                     // Parse first argument - check for named argument
-                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                    if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                         has_named_args = 1;
-                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                         consume(p, TOK_COLON, "Expect ':' after named argument");
                         args[num_args++] = expression(p);
                     } else {
@@ -424,9 +419,9 @@ Expr* postfix(Parser *p) {
                         }
 
                         // Check for named argument
-                        if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                        if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                             has_named_args = 1;
-                            arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                            arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                             consume(p, TOK_COLON, "Expect ':' after named argument");
                             args[num_args++] = expression(p);
                         } else {
@@ -453,13 +448,13 @@ Expr* postfix(Parser *p) {
                 expr = expr_optional_chain_call(expr, args, arg_names, num_args);
             } else {
                 // Optional property access: obj?.property
-                char *property = consume_identifier_or_type(p, "Expect property name after '?.'");
+                char *property = consume_identifier_or_type_keyword(p, "Expect property name after '?.'");
                 expr = expr_optional_chain_property(expr, property);
                 free(property);
             }
         } else if (match(p, TOK_DOT)) {
             // Property access: obj.property
-            char *property = consume_identifier_or_type(p, "Expect property name after '.'");
+            char *property = consume_identifier_or_type_keyword(p, "Expect property name after '.'");
             expr = expr_get_property(expr, property);
             free(property);
         } else if (match(p, TOK_LBRACKET)) {
@@ -483,10 +478,10 @@ Expr* postfix(Parser *p) {
 
                 // Parse first argument
                 // Check for named argument: identifier followed by ':'
-                if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                     // Named argument
                     has_named_args = 1;
-                    arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                    arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                     consume(p, TOK_COLON, "Expect ':' after named argument");
                     args[num_args++] = expression(p);
                 } else {
@@ -501,10 +496,10 @@ Expr* postfix(Parser *p) {
                     }
 
                     // Check for named argument
-                    if ((p->current.type == TOK_IDENT || is_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
+                    if ((p->current.type == TOK_IDENT || is_identifier_or_type_keyword(p->current.type)) && p->next.type == TOK_COLON) {
                         // Named argument
                         has_named_args = 1;
-                        arg_names[num_args] = consume_identifier_or_type(p, "Expect argument name");
+                        arg_names[num_args] = consume_identifier_or_type_keyword(p, "Expect argument name");
                         consume(p, TOK_COLON, "Expect ':' after named argument");
                         args[num_args++] = expression(p);
                     } else {
@@ -995,10 +990,149 @@ Expr* expression(Parser *p) {
     return assignment(p);
 }
 
+// Parse function type: fn(params): return_type or async fn(params): return_type
+static Type* parse_function_type(Parser *p) {
+    int is_async = 0;
+
+    // Check for 'async fn'
+    if (p->current.type == TOK_ASYNC) {
+        is_async = 1;
+        advance(p);
+        if (p->current.type != TOK_FN) {
+            error_at_current(p, "Expected 'fn' after 'async' in type");
+            return type_new(TYPE_INFER);
+        }
+    }
+
+    // Consume 'fn'
+    advance(p);
+
+    // Consume '('
+    if (p->current.type != TOK_LPAREN) {
+        error_at_current(p, "Expected '(' after 'fn' in function type");
+        return type_new(TYPE_INFER);
+    }
+    advance(p);
+
+    // Parse parameters
+    int param_capacity = 8;
+    Type **param_types = malloc(sizeof(Type*) * param_capacity);
+    char **param_names = malloc(sizeof(char*) * param_capacity);
+    int *param_optional = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
+    int num_params = 0;
+    char *rest_param_name = NULL;
+    Type *rest_param_type = NULL;
+
+    if (p->current.type != TOK_RPAREN) {
+        do {
+            // Check for rest parameter: ...name or ...name: type
+            if (p->current.type == TOK_DOT_DOT_DOT) {
+                advance(p);
+                if (p->current.type == TOK_IDENT) {
+                    rest_param_name = token_text(&p->current);
+                    advance(p);
+                }
+                if (p->current.type == TOK_COLON) {
+                    advance(p);
+                    rest_param_type = parse_type(p);
+                }
+                break;  // Rest must be last
+            }
+
+            if (num_params >= param_capacity) {
+                param_capacity *= 2;
+                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                param_names = realloc(param_names, sizeof(char*) * param_capacity);
+                param_optional = realloc(param_optional, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+            }
+
+            // Check for const modifier
+            int is_const = 0;
+            if (p->current.type == TOK_CONST) {
+                is_const = 1;
+                advance(p);
+            }
+            param_is_const[num_params] = is_const;
+
+            // Check for optional parameter marker (?)
+            int is_optional = 0;
+            if (p->current.type == TOK_QUESTION) {
+                is_optional = 1;
+                advance(p);
+            }
+            param_optional[num_params] = is_optional;
+
+            // Check if this is "name: type" or just "type"
+            // Lookahead: if IDENT followed by COLON, it's a named param
+            if (p->current.type == TOK_IDENT && p->next.type == TOK_COLON) {
+                param_names[num_params] = token_text(&p->current);
+                advance(p);  // consume name
+                advance(p);  // consume ':'
+                param_types[num_params] = parse_type(p);
+            } else {
+                // Just a type
+                param_names[num_params] = NULL;
+                param_types[num_params] = parse_type(p);
+            }
+
+            num_params++;
+        } while (match(p, TOK_COMMA));
+    }
+
+    // Consume ')'
+    if (p->current.type != TOK_RPAREN) {
+        error_at_current(p, "Expected ')' after function type parameters");
+        free(param_types);
+        free(param_names);
+        free(param_optional);
+        free(param_is_const);
+        return type_new(TYPE_INFER);
+    }
+    advance(p);
+
+    // Optional return type
+    Type *return_type = NULL;
+    if (p->current.type == TOK_COLON) {
+        advance(p);
+        return_type = parse_type(p);
+    }
+
+    return type_function(param_types, param_names, param_optional, param_is_const,
+                         num_params, rest_param_name, rest_param_type, return_type, is_async);
+}
+
 // Parse a single base type (not compound)
 static Type* parse_single_type(Parser *p) {
     TypeKind kind;
     Type *type = NULL;
+
+    // Check for function type: fn(...) or async fn(...)
+    if (p->current.type == TOK_FN ||
+        (p->current.type == TOK_ASYNC && p->next.type == TOK_FN)) {
+        type = parse_function_type(p);
+
+        // Check for nullable function type
+        if (p->current.type == TOK_QUESTION) {
+            advance(p);
+            type->nullable = 1;
+        }
+        return type;
+    }
+
+    // Check for Self type (in define blocks)
+    if (p->current.type == TOK_SELF) {
+        advance(p);
+        type = type_self();
+
+        // Check for nullable
+        if (p->current.type == TOK_QUESTION) {
+            advance(p);
+            type->nullable = 1;
+        }
+        return type;
+    }
 
     // Check for 'array' or 'array<type>' syntax
     if (p->current.type == TOK_TYPE_ARRAY) {

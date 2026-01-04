@@ -1710,6 +1710,16 @@ Value value_deep_copy(Value val) {
                     dst->element_type->num_compound_types = 0;
                     dst->element_type->type_args = NULL;
                     dst->element_type->num_type_args = 0;
+                    // Initialize function type fields to NULL
+                    dst->element_type->fn_param_types = NULL;
+                    dst->element_type->fn_param_names = NULL;
+                    dst->element_type->fn_param_optional = NULL;
+                    dst->element_type->fn_param_is_const = NULL;
+                    dst->element_type->fn_num_params = 0;
+                    dst->element_type->fn_rest_param_name = NULL;
+                    dst->element_type->fn_rest_param_type = NULL;
+                    dst->element_type->fn_return_type = NULL;
+                    dst->element_type->fn_is_async = 0;
                 }
                 // Deep copy each element
                 for (int i = 0; i < src->length; i++) {

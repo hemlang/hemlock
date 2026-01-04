@@ -842,6 +842,30 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             }
             // Export lists and re-exports are no-ops during execution
             break;
+
+        case STMT_TYPE_ALIAS: {
+            // Create type alias definition
+            TypeAlias *alias = malloc(sizeof(TypeAlias));
+            alias->name = strdup(stmt->as.type_alias.name);
+            alias->num_type_params = stmt->as.type_alias.num_type_params;
+
+            // Copy type parameters
+            if (alias->num_type_params > 0) {
+                alias->type_params = malloc(sizeof(char*) * alias->num_type_params);
+                for (int i = 0; i < alias->num_type_params; i++) {
+                    alias->type_params[i] = strdup(stmt->as.type_alias.type_params[i]);
+                }
+            } else {
+                alias->type_params = NULL;
+            }
+
+            // Store the aliased type (this is an AST pointer, don't free it)
+            alias->aliased_type = stmt->as.type_alias.aliased_type;
+
+            // Register the type alias
+            register_type_alias(alias);
+            break;
+        }
     }
 }
 

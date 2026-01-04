@@ -161,6 +161,29 @@ void consume_contextual(Parser *p, const char *keyword, const char *message) {
     error_at_current(p, message);
 }
 
+// Check if token type is a type keyword that can be used as an identifier
+// This includes built-in type names (i32, string, etc.) and the 'type' keyword
+int is_identifier_or_type_keyword(TokenType type) {
+    return type == TOK_IDENT ||
+           type == TOK_TYPE_I8 || type == TOK_TYPE_I16 || type == TOK_TYPE_I32 || type == TOK_TYPE_I64 ||
+           type == TOK_TYPE_U8 || type == TOK_TYPE_U16 || type == TOK_TYPE_U32 || type == TOK_TYPE_U64 ||
+           type == TOK_TYPE_F32 || type == TOK_TYPE_F64 || type == TOK_TYPE_BOOL || type == TOK_TYPE_STRING ||
+           type == TOK_TYPE_RUNE || type == TOK_TYPE_PTR || type == TOK_TYPE_BUFFER || type == TOK_TYPE_ARRAY ||
+           type == TOK_TYPE_INTEGER || type == TOK_TYPE_NUMBER || type == TOK_TYPE_BYTE || type == TOK_TYPE_VOID ||
+           type == TOK_TYPE;  // Allow 'type' keyword as identifier in appropriate contexts
+}
+
+// Consume an identifier or type keyword, returning the token text
+// Used for variable names, field names, and property names
+char* consume_identifier_or_type_keyword(Parser *p, const char *message) {
+    if (is_identifier_or_type_keyword(p->current.type)) {
+        advance(p);
+        return token_text(&p->previous);
+    }
+    error_at_current(p, message);
+    return strdup("error");
+}
+
 // ========== PUBLIC INTERFACE ==========
 
 void parser_init(Parser *parser, Lexer *lexer) {

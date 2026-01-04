@@ -109,6 +109,23 @@ typedef struct {
 
 extern EnumTypeRegistry enum_types;
 
+// ========== TYPE ALIAS REGISTRY ==========
+
+typedef struct {
+    char *name;
+    char **type_params;       // Type parameters (e.g., ["T", "U"] for type Pair<T, U> = ...)
+    int num_type_params;      // Number of type parameters (0 for non-generic aliases)
+    Type *aliased_type;       // The actual type
+} TypeAlias;
+
+typedef struct {
+    TypeAlias **aliases;
+    int count;
+    int capacity;
+} TypeAliasRegistry;
+
+extern TypeAliasRegistry type_aliases;
+
 // ========== VISITED SET (for cycle detection) ==========
 
 // Internal structure for tracking visited objects/arrays during cycle detection
@@ -277,6 +294,12 @@ void register_enum_type(EnumType *type);
 EnumType* lookup_enum_type(const char *name);
 void cleanup_enum_types(void);
 Value check_object_type(Value value, ObjectType *object_type, Environment *env, ExecutionContext *ctx);
+
+// Type alias registry
+void init_type_aliases(void);
+void register_type_alias(TypeAlias *alias);
+TypeAlias* lookup_type_alias(const char *name);
+void cleanup_type_aliases(void);
 
 // ========== BUILTINS (builtins.c) ==========
 

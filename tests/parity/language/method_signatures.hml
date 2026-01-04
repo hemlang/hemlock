@@ -1,0 +1,34 @@
+// Test method signatures in define blocks
+
+// Define with method signature
+define Greeter {
+    name: string,
+    fn greet(): string;  // Required method signature
+}
+
+// Create instance with required method
+let g: Greeter = { 
+    name: "World",
+    greet: fn() { return "Hello, " + self.name + "!"; }
+};
+
+print(g.greet());
+print(g.name);
+
+// Define with Self type parameter (interface pattern)
+define Comparable {
+    value: i32,
+    fn compare(other: Self): i32;
+}
+
+let a: Comparable = {
+    value: 10,
+    compare: fn(other) { return self.value - other.value; }
+};
+
+let b: Comparable = {
+    value: 5,
+    compare: fn(other) { return self.value - other.value; }
+};
+
+print(a.compare(b));  // Should print 5

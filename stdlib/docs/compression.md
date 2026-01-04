@@ -284,7 +284,7 @@ Check if archive contains entry with given name.
     size: i64,         // Content size in bytes
     mode: i32,         // File permissions
     mtime: i64,        // Modification time
-    type: rune,        // Entry type ('0'=file, '5'=dir, etc.)
+    entry_type: rune,        // Entry type ('0'=file, '5'=dir, etc.)
 }
 ```
 
