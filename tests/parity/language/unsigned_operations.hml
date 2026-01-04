@@ -30,10 +30,10 @@ let s: i32 = 500;
 print(u + s);  // 1500
 print(u - s);  // 500
 
-// Unsigned division (always positive)
+// Float division
 let x: u32 = 100;
 let y: u32 = 3;
-print(div(x, y));  // 33
+print(div(x, y));  // 33.333...
 
 // Unsigned modulo
 print(x % y);  // 1

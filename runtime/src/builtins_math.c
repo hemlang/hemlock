@@ -83,7 +83,7 @@ HmlValue hml_div(HmlValue a, HmlValue b) {
     double ad = hml_to_f64(a);
     double bd = hml_to_f64(b);
     if (bd == 0.0) hml_runtime_error("Division by zero");
-    return hml_val_f64(floor(ad / bd));
+    return hml_val_f64(ad / bd);
 }
 
 HmlValue hml_divi(HmlValue a, HmlValue b) {

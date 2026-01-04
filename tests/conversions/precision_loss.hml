@@ -27,11 +27,11 @@ let mixed = u64_val * f32_small;
 print("u64(10^12) * f32(1.5) = " + mixed);
 print("Result type: " + typeof(mixed));
 
-// Integer division vs float division
+// Float division
 let a = 7;
 let b = 3;
 print("7 / 3 (float): " + (a / b));        // Float division
-print("div(7, 3): " + div(a, b));           // Integer division
+print("div(7, 3): " + div(a, b));           // Same as / (alias)
 
 // Modulo with negative numbers
 print("-7 % 3 = " + (-7 % 3));

@@ -8,8 +8,8 @@ print("-10 / 3 = " + (-10 / 3));
 print("10 / -3 = " + (10 / -3));
 print("-10 / -3 = " + (-10 / -3));
 
-// Integer division with div()
-print("=== Integer Division ===");
+// div() is an alias for / (float division)
+print("=== div() Function ===");
 print("div(10, 3) = " + div(10, 3));
 print("div(1, 2) = " + div(1, 2));
 print("div(-10, 3) = " + div(-10, 3));
