@@ -54,6 +54,20 @@ static int is_const_integer(Expr *expr, int64_t *value) {
     return 0;
 }
 
+// Helper: Check if a variable is captured by the current closure
+// Captured variables cannot be unboxed because they're stored as HmlValue in the closure environment
+static int is_captured_variable(CodegenContext *ctx, const char *name) {
+    if (!ctx->current_closure || ctx->current_closure->num_captured == 0) {
+        return 0;
+    }
+    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+        if (strcmp(ctx->current_closure->captured_vars[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // Type inference result for compile-time optimization
 typedef enum {
     INFER_UNKNOWN = 0,
@@ -1624,8 +1638,35 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     safe_var = codegen_sanitize_ident(raw_var);
                     var = safe_var;
                 }
+                // Check if variable is unboxed (native C type)
+                // Skip if captured variable - captured vars are always HmlValue in closure env
+                if (ctx->optimize && ctx->type_ctx && !codegen_is_main_var(ctx, raw_var) &&
+                    !is_captured_variable(ctx, raw_var)) {
+                    CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, raw_var);
+                    if (native_type != CHECKED_UNKNOWN && checked_kind_is_numeric(native_type)) {
+                        const char *box_func = checked_type_to_box_func(native_type);
+                        if (box_func) {
+                            // Unboxed variable - use simple C increment
+                            codegen_writeln(ctx, "++%s;", var);
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, var);
+                            if (safe_var) free(safe_var);
+                            break;
+                        }
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
+                // If captured variable, update closure environment
+                if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
+                    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+                        if (strcmp(ctx->current_closure->captured_vars[i], raw_var) == 0) {
+                            int env_index = ctx->current_closure->shared_env_indices ?
+                                           ctx->current_closure->shared_env_indices[i] : i;
+                            codegen_writeln(ctx, "hml_closure_env_set(_closure_env, %d, %s);", env_index, var);
+                            break;
+                        }
+                    }
+                }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
@@ -1685,8 +1726,35 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     safe_var = codegen_sanitize_ident(raw_var);
                     var = safe_var;
                 }
+                // Check if variable is unboxed (native C type)
+                // Skip if captured variable - captured vars are always HmlValue in closure env
+                if (ctx->optimize && ctx->type_ctx && !codegen_is_main_var(ctx, raw_var) &&
+                    !is_captured_variable(ctx, raw_var)) {
+                    CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, raw_var);
+                    if (native_type != CHECKED_UNKNOWN && checked_kind_is_numeric(native_type)) {
+                        const char *box_func = checked_type_to_box_func(native_type);
+                        if (box_func) {
+                            // Unboxed variable - use simple C decrement
+                            codegen_writeln(ctx, "--%s;", var);
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, var);
+                            if (safe_var) free(safe_var);
+                            break;
+                        }
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
+                // If captured variable, update closure environment
+                if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
+                    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+                        if (strcmp(ctx->current_closure->captured_vars[i], raw_var) == 0) {
+                            int env_index = ctx->current_closure->shared_env_indices ?
+                                           ctx->current_closure->shared_env_indices[i] : i;
+                            codegen_writeln(ctx, "hml_closure_env_set(_closure_env, %d, %s);", env_index, var);
+                            break;
+                        }
+                    }
+                }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
@@ -1747,10 +1815,37 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     safe_var = codegen_sanitize_ident(raw_var);
                     var = safe_var;
                 }
+                // Check if variable is unboxed (native C type)
+                // Skip if captured variable - captured vars are always HmlValue in closure env
+                if (ctx->optimize && ctx->type_ctx && !codegen_is_main_var(ctx, raw_var) &&
+                    !is_captured_variable(ctx, raw_var)) {
+                    CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, raw_var);
+                    if (native_type != CHECKED_UNKNOWN && checked_kind_is_numeric(native_type)) {
+                        const char *box_func = checked_type_to_box_func(native_type);
+                        if (box_func) {
+                            // Unboxed variable - return old value, then increment
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, var);
+                            codegen_writeln(ctx, "%s++;", var);
+                            if (safe_var) free(safe_var);
+                            break;
+                        }
+                    }
+                }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
+                // If captured variable, update closure environment
+                if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
+                    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+                        if (strcmp(ctx->current_closure->captured_vars[i], raw_var) == 0) {
+                            int env_index = ctx->current_closure->shared_env_indices ?
+                                           ctx->current_closure->shared_env_indices[i] : i;
+                            codegen_writeln(ctx, "hml_closure_env_set(_closure_env, %d, %s);", env_index, var);
+                            break;
+                        }
+                    }
+                }
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_inc.operand->type == EXPR_INDEX) {
                 // arr[i]++
@@ -1808,10 +1903,37 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     safe_var = codegen_sanitize_ident(raw_var);
                     var = safe_var;
                 }
+                // Check if variable is unboxed (native C type)
+                // Skip if captured variable - captured vars are always HmlValue in closure env
+                if (ctx->optimize && ctx->type_ctx && !codegen_is_main_var(ctx, raw_var) &&
+                    !is_captured_variable(ctx, raw_var)) {
+                    CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, raw_var);
+                    if (native_type != CHECKED_UNKNOWN && checked_kind_is_numeric(native_type)) {
+                        const char *box_func = checked_type_to_box_func(native_type);
+                        if (box_func) {
+                            // Unboxed variable - return old value, then decrement
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, var);
+                            codegen_writeln(ctx, "%s--;", var);
+                            if (safe_var) free(safe_var);
+                            break;
+                        }
+                    }
+                }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
+                // If captured variable, update closure environment
+                if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
+                    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+                        if (strcmp(ctx->current_closure->captured_vars[i], raw_var) == 0) {
+                            int env_index = ctx->current_closure->shared_env_indices ?
+                                           ctx->current_closure->shared_env_indices[i] : i;
+                            codegen_writeln(ctx, "hml_closure_env_set(_closure_env, %d, %s);", env_index, var);
+                            break;
+                        }
+                    }
+                }
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_dec.operand->type == EXPR_INDEX) {
                 // arr[i]--
