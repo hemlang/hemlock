@@ -736,6 +736,68 @@ Expr* assignment(Parser *p) {
         is_compound = 1;
     }
 
+    // Handle null coalescing assignment: x ??= value becomes x = x ?? value
+    if (match(p, TOK_QUESTION_QUESTION_EQUAL)) {
+        Expr *rhs = assignment(p);
+
+        if (expr->type == EXPR_IDENT) {
+            // Variable null coalescing assignment: x ??= value
+            const char *name = expr->as.ident.name;
+            Expr *lhs_copy = expr_ident(name);
+            Expr *null_coalesce = expr_null_coalesce(lhs_copy, rhs);
+            Expr *result = expr_assign(name, null_coalesce);
+            expr_free(expr);
+            return result;
+        } else if (expr->type == EXPR_INDEX) {
+            // Index null coalescing assignment: arr[i] ??= value
+            Expr *object = expr->as.index.object;
+            Expr *index = expr->as.index.index;
+
+            // Clone for the RHS
+            Expr *object_clone = expr_clone(object);
+            Expr *index_clone = expr_clone(index);
+
+            // Create the read expression: arr[i]
+            Expr *read_expr = expr_index(object_clone, index_clone);
+
+            // Create the null coalesce operation: arr[i] ?? value
+            Expr *null_coalesce = expr_null_coalesce(read_expr, rhs);
+
+            // Steal the object and index from the EXPR_INDEX for the assignment
+            expr->as.index.object = NULL;
+            expr->as.index.index = NULL;
+            expr_free(expr);
+
+            // Create the assignment: arr[i] = arr[i] ?? value
+            return expr_index_assign(object, index, null_coalesce);
+        } else if (expr->type == EXPR_GET_PROPERTY) {
+            // Property null coalescing assignment: obj.field ??= value
+            Expr *object = expr->as.get_property.object;
+            const char *property = expr->as.get_property.property;
+
+            // Clone the object for the RHS
+            Expr *object_clone = expr_clone(object);
+
+            // Create the read expression: obj.field
+            Expr *read_expr = expr_get_property(object_clone, property);
+
+            // Create the null coalesce operation: obj.field ?? value
+            Expr *null_coalesce = expr_null_coalesce(read_expr, rhs);
+
+            // Steal the object from the EXPR_GET_PROPERTY for the assignment
+            expr->as.get_property.object = NULL;
+
+            // Create the assignment before freeing expr (need property string)
+            Expr *result = expr_set_property(object, property, null_coalesce);
+            expr_free(expr);
+            return result;
+        } else {
+            error(p, "Invalid null coalescing assignment target");
+            expr_free(expr);
+            return expr_null();
+        }
+    }
+
     if (is_compound) {
         // Desugar compound assignment: x += 5 becomes x = x + 5
         Expr *rhs = assignment(p);

@@ -1041,13 +1041,17 @@ Token lexer_next(Lexer *lex) {
         case ']': return make_token(lex, TOK_RBRACKET);
 
         case '?':
-            // Check for ?. (optional chaining) or ?? (null coalescing)
+            // Check for ?. (optional chaining) or ?? (null coalescing) or ??= (null coalescing assignment)
             if (peek(lex) == '.') {
                 advance(lex);
                 return make_token(lex, TOK_QUESTION_DOT);
             }
             if (peek(lex) == '?') {
                 advance(lex);
+                if (peek(lex) == '=') {
+                    advance(lex);
+                    return make_token(lex, TOK_QUESTION_QUESTION_EQUAL);
+                }
                 return make_token(lex, TOK_QUESTION_QUESTION);
             }
             return make_token(lex, TOK_QUESTION);
