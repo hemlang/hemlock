@@ -1,0 +1,29 @@
+// Test function type annotations
+
+// Function with function parameter
+fn apply_fn(f: fn(i32): i32, x: i32): i32 {
+    return f(x);
+}
+
+let result = apply_fn(fn(n) { return n * 2; }, 21);
+print(result);
+
+// Higher-order function returning function
+fn make_adder(n: i32): fn(i32): i32 {
+    return fn(x) { return x + n; };
+}
+
+let add5 = make_adder(5);
+print(add5(10));
+
+// Function type as callback
+fn run_twice(callback: fn(): void) {
+    callback();
+    callback();
+}
+
+let counter = 0;
+run_twice(fn() { 
+    counter = counter + 1;
+    print(counter); 
+});

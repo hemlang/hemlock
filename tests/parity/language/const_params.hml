@@ -1,0 +1,26 @@
+// Test const parameters
+
+// Function with const array parameter
+fn print_all(const items: array) {
+    for (item in items) {
+        print(item);
+    }
+}
+
+print_all([1, 2, 3]);
+
+// Function with const object parameter
+fn describe(const person: object) {
+    print(person.name);
+    print(person.age);
+}
+
+describe({ name: "Bob", age: 25 });
+
+// Nested const - can read deeply
+fn get_city(const user: object) {
+    return user.address.city;
+}
+
+let city = get_city({ address: { city: "NYC" } });
+print(city);

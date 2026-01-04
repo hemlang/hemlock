@@ -541,6 +541,7 @@ Stmt* export_statement(Parser *p) {
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
     int num_params = 0;
     int seen_optional = 0;
     char *rest_param = NULL;
@@ -574,11 +575,21 @@ Stmt* export_statement(Parser *p) {
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                 param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                 param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
             }
+
+            // Check for const keyword (immutable parameter)
+            int is_const = match(p, TOK_CONST);
+            param_is_const[num_params] = is_const;
 
             // Check for ref keyword (pass-by-reference)
             int is_ref = match(p, TOK_REF);
             param_is_ref[num_params] = is_ref;
+
+            // const and ref are mutually exclusive
+            if (is_const && is_ref) {
+                error_at(p, &p->current, "const and ref modifiers cannot be combined");
+            }
 
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
@@ -621,7 +632,7 @@ Stmt* export_statement(Parser *p) {
     Stmt *body = block_statement(p);
 
     // Create function expression
-    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+    Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -706,7 +717,7 @@ Stmt* define_statement(Parser *p) {
 
     consume(p, TOK_LBRACE, "Expect '{' after type name");
 
-    // Parse fields
+    // Parse fields and methods
     int field_capacity = 32;
     char **field_names = malloc(sizeof(char*) * field_capacity);
     Type **field_types = malloc(sizeof(Type*) * field_capacity);
@@ -714,7 +725,116 @@ Stmt* define_statement(Parser *p) {
     Expr **field_defaults = malloc(sizeof(Expr*) * field_capacity);
     int num_fields = 0;
 
+    int method_capacity = 16;
+    char **method_names = malloc(sizeof(char*) * method_capacity);
+    Type **method_types = malloc(sizeof(Type*) * method_capacity);
+    int *method_optional = malloc(sizeof(int) * method_capacity);
+    Expr **method_defaults = malloc(sizeof(Expr*) * method_capacity);
+    int num_methods = 0;
+
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Check if this is a method definition (starts with 'fn')
+        if (match(p, TOK_FN)) {
+            // Grow method arrays if needed
+            if (num_methods >= method_capacity) {
+                method_capacity *= 2;
+                method_names = realloc(method_names, sizeof(char*) * method_capacity);
+                method_types = realloc(method_types, sizeof(Type*) * method_capacity);
+                method_optional = realloc(method_optional, sizeof(int) * method_capacity);
+                method_defaults = realloc(method_defaults, sizeof(Expr*) * method_capacity);
+            }
+
+            // Parse method name
+            consume(p, TOK_IDENT, "Expect method name");
+            method_names[num_methods] = token_text(&p->previous);
+
+            // Check for optional marker (fn name?(): type means optional method)
+            method_optional[num_methods] = match(p, TOK_QUESTION) ? 1 : 0;
+
+            // Parse parameter types for the function type
+            consume(p, TOK_LPAREN, "Expect '(' after method name");
+
+            int fn_param_capacity = 8;
+            Type **fn_param_types = malloc(sizeof(Type*) * fn_param_capacity);
+            char **fn_param_names = malloc(sizeof(char*) * fn_param_capacity);
+            int *fn_param_optional = malloc(sizeof(int) * fn_param_capacity);
+            int *fn_param_is_const = malloc(sizeof(int) * fn_param_capacity);
+            int fn_num_params = 0;
+
+            if (!check(p, TOK_RPAREN)) {
+                do {
+                    if (fn_num_params >= fn_param_capacity) {
+                        fn_param_capacity *= 2;
+                        fn_param_types = realloc(fn_param_types, sizeof(Type*) * fn_param_capacity);
+                        fn_param_names = realloc(fn_param_names, sizeof(char*) * fn_param_capacity);
+                        fn_param_optional = realloc(fn_param_optional, sizeof(int) * fn_param_capacity);
+                        fn_param_is_const = realloc(fn_param_is_const, sizeof(int) * fn_param_capacity);
+                    }
+
+                    // Parse const modifier
+                    fn_param_is_const[fn_num_params] = match(p, TOK_CONST) ? 1 : 0;
+
+                    // Parse parameter name
+                    consume(p, TOK_IDENT, "Expect parameter name");
+                    fn_param_names[fn_num_params] = token_text(&p->previous);
+
+                    // Parse optional type annotation
+                    if (match(p, TOK_COLON)) {
+                        fn_param_types[fn_num_params] = parse_type(p);
+                    } else {
+                        fn_param_types[fn_num_params] = NULL;
+                    }
+
+                    // Check for optional parameter
+                    fn_param_optional[fn_num_params] = 0;  // TODO: support optional params in method signatures
+
+                    fn_num_params++;
+                } while (match(p, TOK_COMMA));
+            }
+
+            consume(p, TOK_RPAREN, "Expect ')' after method parameters");
+
+            // Parse return type
+            Type *return_type = NULL;
+            if (match(p, TOK_COLON)) {
+                return_type = parse_type(p);
+            }
+
+            // Create the function type
+            method_types[num_methods] = type_function(
+                fn_param_types, fn_param_names, fn_param_optional, fn_param_is_const,
+                fn_num_params, NULL, NULL, return_type, 0);
+
+            // Check for default implementation (block) or just signature (semicolon)
+            if (match(p, TOK_LBRACE)) {
+                // Parse default implementation as anonymous function
+                Stmt *body = block_statement(p);
+
+                // Create function expression for the default
+                // Duplicate param_names for the function expression
+                char **default_param_names = malloc(sizeof(char*) * fn_num_params);
+                for (int i = 0; i < fn_num_params; i++) {
+                    default_param_names[i] = strdup(fn_param_names[i]);
+                }
+
+                method_defaults[num_methods] = expr_function(
+                    0, default_param_names, fn_param_types, NULL,
+                    NULL, fn_param_is_const, fn_num_params,
+                    NULL, NULL, return_type, body);
+            } else {
+                // Just a signature, no default
+                match(p, TOK_SEMICOLON);  // Optional semicolon
+                method_defaults[num_methods] = NULL;
+            }
+
+            num_methods++;
+
+            // Skip comma if present
+            match(p, TOK_COMMA);
+            continue;
+        }
+
+        // Otherwise, it's a field
         // Grow arrays if needed
         if (num_fields >= field_capacity) {
             field_capacity *= 2;
@@ -788,7 +908,9 @@ Stmt* define_statement(Parser *p) {
 
     Stmt *stmt = stmt_define_object(name, type_params, num_type_params,
                                    field_names, field_types,
-                                   field_optional, field_defaults, num_fields);
+                                   field_optional, field_defaults, num_fields,
+                                   method_names, method_types,
+                                   method_optional, method_defaults, num_methods);
     free(name);
     return stmt;
 }
@@ -800,6 +922,42 @@ Stmt* statement(Parser *p) {
 
     if (match(p, TOK_CONST)) {
         return const_statement(p);
+    }
+
+    // Type alias: type Name = Type; or type Name<T> = Type<T>;
+    if (match(p, TOK_TYPE)) {
+        consume(p, TOK_IDENT, "Expect type alias name");
+        char *name = token_text(&p->previous);
+
+        // Parse optional type parameters: <T, U, ...>
+        int param_capacity = 4;
+        char **type_params = NULL;
+        int num_type_params = 0;
+
+        if (match(p, TOK_LESS)) {
+            type_params = malloc(sizeof(char*) * param_capacity);
+
+            do {
+                if (num_type_params >= param_capacity) {
+                    param_capacity *= 2;
+                    type_params = realloc(type_params, sizeof(char*) * param_capacity);
+                }
+                consume(p, TOK_IDENT, "Expect type parameter name");
+                type_params[num_type_params++] = token_text(&p->previous);
+            } while (match(p, TOK_COMMA));
+
+            consume(p, TOK_GREATER, "Expect '>' after type parameters");
+        }
+
+        consume(p, TOK_EQUAL, "Expect '=' after type alias name");
+
+        Type *aliased_type = parse_type(p);
+
+        consume(p, TOK_SEMICOLON, "Expect ';' after type alias");
+
+        Stmt *stmt = stmt_type_alias(name, type_params, num_type_params, aliased_type);
+        free(name);
+        return stmt;
     }
 
     // Object type definition: define TypeName { ... }
@@ -876,6 +1034,7 @@ Stmt* statement(Parser *p) {
         Type **param_types = malloc(sizeof(Type*) * param_capacity);
         Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
         int *param_is_ref = malloc(sizeof(int) * param_capacity);
+        int *param_is_const = malloc(sizeof(int) * param_capacity);
         int num_params = 0;
         int seen_optional = 0;
         char *rest_param = NULL;
@@ -909,11 +1068,21 @@ Stmt* statement(Parser *p) {
                     param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                     param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                     param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                    param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
                 }
+
+                // Check for const keyword (immutable parameter)
+                int is_const = match(p, TOK_CONST);
+                param_is_const[num_params] = is_const;
 
                 // Check for ref keyword (pass-by-reference)
                 int is_ref = match(p, TOK_REF);
                 param_is_ref[num_params] = is_ref;
+
+                // const and ref are mutually exclusive
+                if (is_const && is_ref) {
+                    error_at(p, &p->current, "const and ref modifiers cannot be combined");
+                }
 
                 consume(p, TOK_IDENT, "Expect parameter name");
                 param_names[num_params] = token_text(&p->previous);
@@ -956,7 +1125,7 @@ Stmt* statement(Parser *p) {
         Stmt *body = block_statement(p);
 
         // Create function expression (with is_async flag)
-        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+        Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);

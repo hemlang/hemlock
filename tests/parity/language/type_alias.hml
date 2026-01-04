@@ -1,0 +1,22 @@
+// Test type aliases
+
+// Simple type alias
+type Integer = i32;
+let x: Integer = 42;
+print(x);
+
+// Function type alias
+type Callback = fn(i32): void;
+fn test_callback(cb: Callback) {
+    cb(100);
+}
+test_callback(fn(n) { print(n); });
+
+// Compound type alias
+define HasName { name: string }
+define HasAge { age: i32 }
+type Person = HasName & HasAge;
+
+let p: Person = { name: "Alice", age: 30 };
+print(p.name);
+print(p.age);

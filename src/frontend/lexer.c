@@ -875,7 +875,10 @@ static TokenType identifier_type(Lexer *lex) {
             break;
         case 't':
             if (len == 3) return check_keyword(lex->start, 3, "try", TOK_TRY);
-            if (len == 4) return check_keyword(lex->start, 4, "true", TOK_TRUE);
+            if (len == 4) {
+                if (strncmp(lex->start, "true", 4) == 0) return TOK_TRUE;
+                if (strncmp(lex->start, "type", 4) == 0) return TOK_TYPE;
+            }
             if (len == 5) return check_keyword(lex->start, 5, "throw", TOK_THROW);
             break;
         case 'u':

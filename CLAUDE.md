@@ -259,6 +259,109 @@ let employee: HasName & HasAge = {
 Compound types provide interface-like behavior without a separate `interface` keyword,
 building on the existing `define` and duck typing paradigms.
 
+### Type Aliases
+```hemlock
+// Simple type alias
+type Integer = i32;
+type Text = string;
+
+// Function type alias
+type Callback = fn(i32): void;
+type Predicate = fn(i32): bool;
+type AsyncHandler = async fn(string): i32;
+
+// Compound type alias (great for reusable interfaces)
+define HasName { name: string }
+define HasAge { age: i32 }
+type Person = HasName & HasAge;
+
+// Generic type alias
+type Pair<T> = { first: T, second: T };
+
+// Using type aliases
+let x: Integer = 42;
+let cb: Callback = fn(n) { print(n); };
+let p: Person = { name: "Alice", age: 30 };
+```
+
+Type aliases create named shortcuts for complex types, improving readability and maintainability.
+
+### Function Types
+```hemlock
+// Function type annotations for parameters
+fn apply_fn(f: fn(i32): i32, x: i32): i32 {
+    return f(x);
+}
+
+// Higher-order function returning a function
+fn make_adder(n: i32): fn(i32): i32 {
+    return fn(x) { return x + n; };
+}
+
+// Async function types
+fn run_async(handler: async fn(): void) {
+    spawn(handler);
+}
+
+// Function types with multiple parameters
+type BinaryOp = fn(i32, i32): i32;
+let add: BinaryOp = fn(a, b) { return a + b; };
+```
+
+### Const Parameters
+```hemlock
+// Const parameter - deep immutability
+fn print_all(const items: array) {
+    // items.push(4);  // ERROR: cannot mutate const parameter
+    for (item in items) {
+        print(item);
+    }
+}
+
+// Const with objects - no mutation through any path
+fn describe(const person: object) {
+    print(person.name);       // OK: reading is allowed
+    // person.name = "Bob";   // ERROR: cannot mutate
+}
+
+// Nested access is allowed for reading
+fn get_city(const user: object) {
+    return user.address.city;  // OK: reading nested properties
+}
+```
+
+The `const` modifier prevents any mutation of the parameter, including nested properties.
+This provides compile-time safety for functions that should not modify their inputs.
+
+### Method Signatures in Define
+```hemlock
+// Define with method signatures (interface pattern)
+define Comparable {
+    value: i32,
+    fn compare(other: Self): i32;  // Required method signature
+}
+
+// Objects must provide the required method
+let a: Comparable = {
+    value: 10,
+    compare: fn(other) { return self.value - other.value; }
+};
+
+// Optional methods with ?
+define Serializable {
+    fn serialize(): string;       // Required
+    fn pretty?(): string;         // Optional method
+}
+
+// Self type refers to the defining type
+define Cloneable {
+    fn clone(): Self;  // Returns same type as the object
+}
+```
+
+Method signatures in `define` blocks establish contracts that objects must fulfill,
+enabling interface-like programming patterns with Hemlock's duck typing system.
+
 ### Error Handling
 ```hemlock
 try { throw "error"; } catch (e) { print(e); } finally { cleanup(); }
@@ -682,7 +785,12 @@ make parity
 
 ## Version
 
-**v1.6.8** - Current release with:
+**v1.7.0** - Current release with:
+- **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
+- **Function type annotations** (`fn(i32): i32`) - first-class function types
+- **Const parameters** (`fn(const x: array)`) - deep immutability for parameters
+- **Method signatures in define** (`fn method(): Type;`) - interface-like contracts
+- **Self type** in method signatures - refers to the defining type
 - **Loop keyword** (`loop { }`) - cleaner infinite loops, replaces `while (true)`
 - **Loop labels** (`outer: while`) - targeted break/continue for nested loops
 - **Object shorthand** (`{ name }`) - ES6-style shorthand property syntax

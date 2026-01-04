@@ -269,6 +269,7 @@ Expr* primary(Parser *p) {
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
     char *rest_param = NULL;
@@ -304,11 +305,21 @@ Expr* primary(Parser *p) {
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
                 param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
                 param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
             }
+
+            // Check for const keyword (immutable parameter)
+            int is_const = match(p, TOK_CONST);
+            param_is_const[num_params] = is_const;
 
             // Check for ref keyword (pass-by-reference)
             int is_ref = match(p, TOK_REF);
             param_is_ref[num_params] = is_ref;
+
+            // const and ref are mutually exclusive
+            if (is_const && is_ref) {
+                error_at(p, &p->current, "const and ref modifiers cannot be combined");
+            }
 
             consume(p, TOK_IDENT, "Expect parameter name");
             param_names[num_params] = token_text(&p->previous);
@@ -352,7 +363,7 @@ Expr* primary(Parser *p) {
     consume(p, TOK_LBRACE, "Expect '{' before function body");
     Stmt *body = block_statement(p);
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, num_params, rest_param, rest_param_type, return_type, body);
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
 
 not_fn_expr:
 
@@ -995,10 +1006,149 @@ Expr* expression(Parser *p) {
     return assignment(p);
 }
 
+// Parse function type: fn(params): return_type or async fn(params): return_type
+static Type* parse_function_type(Parser *p) {
+    int is_async = 0;
+
+    // Check for 'async fn'
+    if (p->current.type == TOK_ASYNC) {
+        is_async = 1;
+        advance(p);
+        if (p->current.type != TOK_FN) {
+            error_at_current(p, "Expected 'fn' after 'async' in type");
+            return type_new(TYPE_INFER);
+        }
+    }
+
+    // Consume 'fn'
+    advance(p);
+
+    // Consume '('
+    if (p->current.type != TOK_LPAREN) {
+        error_at_current(p, "Expected '(' after 'fn' in function type");
+        return type_new(TYPE_INFER);
+    }
+    advance(p);
+
+    // Parse parameters
+    int param_capacity = 8;
+    Type **param_types = malloc(sizeof(Type*) * param_capacity);
+    char **param_names = malloc(sizeof(char*) * param_capacity);
+    int *param_optional = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
+    int num_params = 0;
+    char *rest_param_name = NULL;
+    Type *rest_param_type = NULL;
+
+    if (p->current.type != TOK_RPAREN) {
+        do {
+            // Check for rest parameter: ...name or ...name: type
+            if (p->current.type == TOK_DOT_DOT_DOT) {
+                advance(p);
+                if (p->current.type == TOK_IDENT) {
+                    rest_param_name = token_text(&p->current);
+                    advance(p);
+                }
+                if (p->current.type == TOK_COLON) {
+                    advance(p);
+                    rest_param_type = parse_type(p);
+                }
+                break;  // Rest must be last
+            }
+
+            if (num_params >= param_capacity) {
+                param_capacity *= 2;
+                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                param_names = realloc(param_names, sizeof(char*) * param_capacity);
+                param_optional = realloc(param_optional, sizeof(int) * param_capacity);
+                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+            }
+
+            // Check for const modifier
+            int is_const = 0;
+            if (p->current.type == TOK_CONST) {
+                is_const = 1;
+                advance(p);
+            }
+            param_is_const[num_params] = is_const;
+
+            // Check for optional parameter marker (?)
+            int is_optional = 0;
+            if (p->current.type == TOK_QUESTION) {
+                is_optional = 1;
+                advance(p);
+            }
+            param_optional[num_params] = is_optional;
+
+            // Check if this is "name: type" or just "type"
+            // Lookahead: if IDENT followed by COLON, it's a named param
+            if (p->current.type == TOK_IDENT && p->next.type == TOK_COLON) {
+                param_names[num_params] = token_text(&p->current);
+                advance(p);  // consume name
+                advance(p);  // consume ':'
+                param_types[num_params] = parse_type(p);
+            } else {
+                // Just a type
+                param_names[num_params] = NULL;
+                param_types[num_params] = parse_type(p);
+            }
+
+            num_params++;
+        } while (match(p, TOK_COMMA));
+    }
+
+    // Consume ')'
+    if (p->current.type != TOK_RPAREN) {
+        error_at_current(p, "Expected ')' after function type parameters");
+        free(param_types);
+        free(param_names);
+        free(param_optional);
+        free(param_is_const);
+        return type_new(TYPE_INFER);
+    }
+    advance(p);
+
+    // Optional return type
+    Type *return_type = NULL;
+    if (p->current.type == TOK_COLON) {
+        advance(p);
+        return_type = parse_type(p);
+    }
+
+    return type_function(param_types, param_names, param_optional, param_is_const,
+                         num_params, rest_param_name, rest_param_type, return_type, is_async);
+}
+
 // Parse a single base type (not compound)
 static Type* parse_single_type(Parser *p) {
     TypeKind kind;
     Type *type = NULL;
+
+    // Check for function type: fn(...) or async fn(...)
+    if (p->current.type == TOK_FN ||
+        (p->current.type == TOK_ASYNC && p->next.type == TOK_FN)) {
+        type = parse_function_type(p);
+
+        // Check for nullable function type
+        if (p->current.type == TOK_QUESTION) {
+            advance(p);
+            type->nullable = 1;
+        }
+        return type;
+    }
+
+    // Check for Self type (in define blocks)
+    if (p->current.type == TOK_SELF) {
+        advance(p);
+        type = type_self();
+
+        // Check for nullable
+        if (p->current.type == TOK_QUESTION) {
+            advance(p);
+            type->nullable = 1;
+        }
+        return type;
+    }
 
     // Check for 'array' or 'array<type>' syntax
     if (p->current.type == TOK_TYPE_ARRAY) {

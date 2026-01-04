@@ -184,7 +184,7 @@ Expr* expr_index_assign(Expr *object, Expr *index, Expr *value) {
     return expr;
 }
 
-Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body) {
+Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int *param_is_const, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_FUNCTION;
     expr->line = 0;
@@ -194,6 +194,7 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     expr->as.function.param_types = param_types;
     expr->as.function.param_defaults = param_defaults;
     expr->as.function.param_is_ref = param_is_ref;
+    expr->as.function.param_is_const = param_is_const;
     expr->as.function.num_params = num_params;
     expr->as.function.rest_param = rest_param;
     expr->as.function.rest_param_type = rest_param_type;
@@ -349,6 +350,16 @@ Type* type_new(TypeKind kind) {
     type->num_compound_types = 0;
     type->type_args = NULL;
     type->num_type_args = 0;
+    // Function type fields
+    type->fn_param_types = NULL;
+    type->fn_param_names = NULL;
+    type->fn_param_optional = NULL;
+    type->fn_param_is_const = NULL;
+    type->fn_num_params = 0;
+    type->fn_rest_param_name = NULL;
+    type->fn_rest_param_type = NULL;
+    type->fn_return_type = NULL;
+    type->fn_is_async = 0;
     return type;
 }
 
@@ -362,6 +373,64 @@ Type* type_compound(Type **types, int num_types) {
     type->num_compound_types = num_types;
     type->type_args = NULL;
     type->num_type_args = 0;
+    // Function type fields
+    type->fn_param_types = NULL;
+    type->fn_param_names = NULL;
+    type->fn_param_optional = NULL;
+    type->fn_param_is_const = NULL;
+    type->fn_num_params = 0;
+    type->fn_rest_param_name = NULL;
+    type->fn_rest_param_type = NULL;
+    type->fn_return_type = NULL;
+    type->fn_is_async = 0;
+    return type;
+}
+
+Type* type_function(Type **param_types, char **param_names, int *param_optional,
+                    int *param_is_const, int num_params, char *rest_param_name,
+                    Type *rest_param_type, Type *return_type, int is_async) {
+    Type *type = malloc(sizeof(Type));
+    type->kind = TYPE_FUNCTION;
+    type->type_name = NULL;
+    type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
+    type->type_args = NULL;
+    type->num_type_args = 0;
+    // Function type fields
+    type->fn_param_types = param_types;
+    type->fn_param_names = param_names;
+    type->fn_param_optional = param_optional;
+    type->fn_param_is_const = param_is_const;
+    type->fn_num_params = num_params;
+    type->fn_rest_param_name = rest_param_name;
+    type->fn_rest_param_type = rest_param_type;
+    type->fn_return_type = return_type;
+    type->fn_is_async = is_async;
+    return type;
+}
+
+Type* type_self(void) {
+    Type *type = malloc(sizeof(Type));
+    type->kind = TYPE_SELF;
+    type->type_name = NULL;
+    type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
+    type->type_args = NULL;
+    type->num_type_args = 0;
+    // Function type fields
+    type->fn_param_types = NULL;
+    type->fn_param_names = NULL;
+    type->fn_param_optional = NULL;
+    type->fn_param_is_const = NULL;
+    type->fn_num_params = 0;
+    type->fn_rest_param_name = NULL;
+    type->fn_rest_param_type = NULL;
+    type->fn_return_type = NULL;
+    type->fn_is_async = 0;
     return type;
 }
 
@@ -386,6 +455,36 @@ void type_free(Type *type) {
                 type_free(type->type_args[i]);
             }
             free(type->type_args);
+        }
+        // Free function type fields
+        if (type->fn_param_types) {
+            for (int i = 0; i < type->fn_num_params; i++) {
+                type_free(type->fn_param_types[i]);
+            }
+            free(type->fn_param_types);
+        }
+        if (type->fn_param_names) {
+            for (int i = 0; i < type->fn_num_params; i++) {
+                if (type->fn_param_names[i]) {
+                    free(type->fn_param_names[i]);
+                }
+            }
+            free(type->fn_param_names);
+        }
+        if (type->fn_param_optional) {
+            free(type->fn_param_optional);
+        }
+        if (type->fn_param_is_const) {
+            free(type->fn_param_is_const);
+        }
+        if (type->fn_rest_param_name) {
+            free(type->fn_rest_param_name);
+        }
+        if (type->fn_rest_param_type) {
+            type_free(type->fn_rest_param_type);
+        }
+        if (type->fn_return_type) {
+            type_free(type->fn_return_type);
         }
         free(type);
     }
@@ -553,7 +652,9 @@ Stmt* stmt_return(Expr *value) {
 
 Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
                          char **field_names, Type **field_types,
-                         int *field_optional, Expr **field_defaults, int num_fields) {
+                         int *field_optional, Expr **field_defaults, int num_fields,
+                         char **method_names, Type **method_types,
+                         int *method_optional, Expr **method_defaults, int num_methods) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFINE_OBJECT;
     stmt->line = 0;
@@ -566,6 +667,11 @@ Stmt* stmt_define_object(const char *name, char **type_params, int num_type_para
     stmt->as.define_object.field_optional = field_optional;
     stmt->as.define_object.field_defaults = field_defaults;
     stmt->as.define_object.num_fields = num_fields;
+    stmt->as.define_object.method_names = method_names;
+    stmt->as.define_object.method_types = method_types;
+    stmt->as.define_object.method_optional = method_optional;
+    stmt->as.define_object.method_defaults = method_defaults;
+    stmt->as.define_object.num_methods = num_methods;
     return stmt;
 }
 
@@ -728,6 +834,18 @@ Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_para
     stmt->as.extern_fn.param_types = param_types;
     stmt->as.extern_fn.num_params = num_params;
     stmt->as.extern_fn.return_type = return_type;
+    return stmt;
+}
+
+Stmt* stmt_type_alias(const char *name, char **type_params, int num_type_params, Type *aliased_type) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_TYPE_ALIAS;
+    stmt->line = 0;
+    stmt->column = 0;
+    stmt->as.type_alias.name = strdup(name);
+    stmt->as.type_alias.type_params = type_params;
+    stmt->as.type_alias.num_type_params = num_type_params;
+    stmt->as.type_alias.aliased_type = aliased_type;
     return stmt;
 }
 
@@ -1030,6 +1148,9 @@ void expr_free(Expr *expr) {
             if (expr->as.function.param_is_ref) {
                 free(expr->as.function.param_is_ref);
             }
+            if (expr->as.function.param_is_const) {
+                free(expr->as.function.param_is_const);
+            }
             // Free return type
             if (expr->as.function.return_type) {
                 type_free(expr->as.function.return_type);
@@ -1200,6 +1321,22 @@ void stmt_free(Stmt *stmt) {
             free(stmt->as.define_object.field_types);
             free(stmt->as.define_object.field_optional);
             free(stmt->as.define_object.field_defaults);
+            // Free method signatures
+            if (stmt->as.define_object.method_names) {
+                for (int i = 0; i < stmt->as.define_object.num_methods; i++) {
+                    free(stmt->as.define_object.method_names[i]);
+                    if (stmt->as.define_object.method_types[i]) {
+                        type_free(stmt->as.define_object.method_types[i]);
+                    }
+                    if (stmt->as.define_object.method_defaults[i]) {
+                        expr_free(stmt->as.define_object.method_defaults[i]);
+                    }
+                }
+                free(stmt->as.define_object.method_names);
+                free(stmt->as.define_object.method_types);
+                free(stmt->as.define_object.method_optional);
+                free(stmt->as.define_object.method_defaults);
+            }
             break;
         case STMT_ENUM:
             free(stmt->as.enum_decl.name);
@@ -1277,6 +1414,16 @@ void stmt_free(Stmt *stmt) {
             if (stmt->as.extern_fn.return_type) {
                 type_free(stmt->as.extern_fn.return_type);
             }
+            break;
+        case STMT_TYPE_ALIAS:
+            free(stmt->as.type_alias.name);
+            if (stmt->as.type_alias.type_params) {
+                for (int i = 0; i < stmt->as.type_alias.num_type_params; i++) {
+                    free(stmt->as.type_alias.type_params[i]);
+                }
+                free(stmt->as.type_alias.type_params);
+            }
+            type_free(stmt->as.type_alias.aliased_type);
             break;
     }
 
