@@ -345,6 +345,21 @@ Type* type_new(TypeKind kind) {
     type->type_name = NULL;
     type->element_type = NULL;
     type->nullable = 0;
+    type->compound_types = NULL;
+    type->num_compound_types = 0;
+    type->type_args = NULL;
+    type->num_type_args = 0;
+    return type;
+}
+
+Type* type_compound(Type **types, int num_types) {
+    Type *type = malloc(sizeof(Type));
+    type->kind = TYPE_COMPOUND;
+    type->type_name = NULL;
+    type->element_type = NULL;
+    type->nullable = 0;
+    type->compound_types = types;
+    type->num_compound_types = num_types;
     type->type_args = NULL;
     type->num_type_args = 0;
     return type;
@@ -357,6 +372,13 @@ void type_free(Type *type) {
         }
         if (type->element_type) {
             type_free(type->element_type);
+        }
+        // Free compound types
+        if (type->compound_types) {
+            for (int i = 0; i < type->num_compound_types; i++) {
+                type_free(type->compound_types[i]);
+            }
+            free(type->compound_types);
         }
         // Free type arguments (for generic types like Stack<i32>)
         if (type->type_args) {
@@ -413,20 +435,30 @@ Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
 }
 
 Stmt* stmt_while(Expr *condition, Stmt *body) {
+    return stmt_while_labeled(NULL, condition, body);
+}
+
+Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_WHILE;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.while_stmt.label = label ? strdup(label) : NULL;
     stmt->as.while_stmt.condition = condition;
     stmt->as.while_stmt.body = body;
     return stmt;
 }
 
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) {
+    return stmt_for_labeled(NULL, initializer, condition, increment, body);
+}
+
+Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_FOR;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.for_loop.label = label ? strdup(label) : NULL;
     stmt->as.for_loop.initializer = initializer;
     stmt->as.for_loop.condition = condition;
     stmt->as.for_loop.increment = increment;
@@ -435,10 +467,15 @@ Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body) 
 }
 
 Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body) {
+    return stmt_for_in_labeled(NULL, key_var, value_var, iterable, body);
+}
+
+Stmt* stmt_for_in_labeled(const char *label, char *key_var, char *value_var, Expr *iterable, Stmt *body) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_FOR_IN;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.for_in.label = label ? strdup(label) : NULL;
     stmt->as.for_in.key_var = key_var;
     stmt->as.for_in.value_var = value_var;
     stmt->as.for_in.iterable = iterable;
@@ -447,18 +484,28 @@ Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body) {
 }
 
 Stmt* stmt_break(void) {
+    return stmt_break_labeled(NULL);
+}
+
+Stmt* stmt_break_labeled(const char *label) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_BREAK;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.break_stmt.label = label ? strdup(label) : NULL;
     return stmt;
 }
 
 Stmt* stmt_continue(void) {
+    return stmt_continue_labeled(NULL);
+}
+
+Stmt* stmt_continue_labeled(const char *label) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_CONTINUE;
     stmt->line = 0;
     stmt->column = 0;
+    stmt->as.continue_stmt.label = label ? strdup(label) : NULL;
     return stmt;
 }
 
@@ -1080,24 +1127,29 @@ void stmt_free(Stmt *stmt) {
             stmt_free(stmt->as.if_stmt.else_branch);
             break;
         case STMT_WHILE:
+            free(stmt->as.while_stmt.label);
             expr_free(stmt->as.while_stmt.condition);
             stmt_free(stmt->as.while_stmt.body);
             break;
         case STMT_FOR:
+            free(stmt->as.for_loop.label);
             stmt_free(stmt->as.for_loop.initializer);
             expr_free(stmt->as.for_loop.condition);
             expr_free(stmt->as.for_loop.increment);
             stmt_free(stmt->as.for_loop.body);
             break;
         case STMT_FOR_IN:
+            free(stmt->as.for_in.label);
             free(stmt->as.for_in.key_var);
             free(stmt->as.for_in.value_var);
             expr_free(stmt->as.for_in.iterable);
             stmt_free(stmt->as.for_in.body);
             break;
         case STMT_BREAK:
+            free(stmt->as.break_stmt.label);
+            break;
         case STMT_CONTINUE:
-            // No fields to free
+            free(stmt->as.continue_stmt.label);
             break;
         case STMT_BLOCK:
             for (int i = 0; i < stmt->as.block.count; i++) {

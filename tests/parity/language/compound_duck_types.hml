@@ -1,0 +1,48 @@
+// Test compound duck types (intersection types like A & B)
+
+define HasName { name: string }
+define HasAge { age: i32 }
+define HasEmail { email: string }
+
+// Test 1: Variable with compound type annotation
+let person: HasName & HasAge = { name: "Alice", age: 30 };
+print("1. Variable compound type: " + person.name + ", " + person.age);
+
+// Test 2: Function parameter with compound type
+fn greet(p: HasName & HasAge) {
+    print("2. Param compound type: Hello " + p.name + ", age " + p.age);
+}
+greet({ name: "Bob", age: 25 });
+
+// Test 3: Three types combined
+fn describe(p: HasName & HasAge & HasEmail) {
+    print("3. Three types: " + p.name + " (" + p.email + ") is " + p.age);
+}
+describe({ name: "Carol", age: 35, email: "carol@test.com" });
+
+// Test 4: Extra fields are allowed (duck typing)
+let employee: HasName & HasAge = {
+    name: "Dave",
+    age: 40,
+    department: "Engineering",
+    salary: 100000
+};
+print("4. Extra fields allowed: " + employee.name);
+
+// Test 5: Compound type in nested function
+fn outer() {
+    fn inner(obj: HasName & HasEmail): string {
+        return obj.name + " <" + obj.email + ">";
+    }
+    let result = inner({ name: "Eve", email: "eve@test.com" });
+    print("5. Nested function: " + result);
+}
+outer();
+
+// Test 6: Anonymous function with compound type
+let formatter = fn(item: HasName & HasAge): string {
+    return item.name + " is " + item.age + " years old";
+};
+print("6. Anonymous fn: " + formatter({ name: "Frank", age: 45 }));
+
+print("All compound duck type tests passed!");

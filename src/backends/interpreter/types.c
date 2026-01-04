@@ -656,6 +656,21 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;
     }
 
+    // Handle compound types (A & B & C) - value must satisfy ALL constituent types
+    if (kind == TYPE_COMPOUND) {
+        if (value.type != VAL_OBJECT) {
+            fprintf(stderr, "Runtime error: Compound type requires an object\n");
+            exit(1);
+        }
+
+        // Check against each constituent type
+        for (int i = 0; i < target_type->num_compound_types; i++) {
+            Type *constituent = target_type->compound_types[i];
+            value = convert_to_type(value, constituent, env, ctx);
+        }
+        return value;
+    }
+
     // Handle typed arrays
     if (kind == TYPE_ARRAY) {
         if (value.type != VAL_ARRAY) {
@@ -686,6 +701,9 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             arr->element_type->kind = target_type->element_type->kind;
             arr->element_type->type_name = target_type->element_type->type_name ? strdup(target_type->element_type->type_name) : NULL;
             arr->element_type->element_type = NULL;  // Don't support nested typed arrays yet
+            arr->element_type->nullable = 0;
+            arr->element_type->compound_types = NULL;
+            arr->element_type->num_compound_types = 0;
             arr->element_type->type_args = NULL;
             arr->element_type->num_type_args = 0;
         }

@@ -1,0 +1,130 @@
+// Test loop labels for break and continue
+
+// Labeled break in nested while loops
+print("Test 1: labeled break in nested while");
+let i = 0;
+outer: while (i < 3) {
+    let j = 0;
+    while (j < 3) {
+        if (i == 1 && j == 1) {
+            break outer;
+        }
+        print(i * 10 + j);
+        j = j + 1;
+    }
+    i = i + 1;
+}
+print("after labeled break");
+
+// Labeled continue in nested while loops
+print("Test 2: labeled continue in nested while");
+i = 0;
+outer: while (i < 3) {
+    i = i + 1;
+    let j = 0;
+    while (j < 3) {
+        j = j + 1;
+        if (i == 2 && j == 1) {
+            continue outer;
+        }
+        print(i * 10 + j);
+    }
+}
+print("after labeled continue");
+
+// Labeled break in nested for loops
+print("Test 3: labeled break in nested for");
+outer: for (let x = 0; x < 3; x = x + 1) {
+    for (let y = 0; y < 3; y = y + 1) {
+        if (x == 1 && y == 1) {
+            break outer;
+        }
+        print(x * 10 + y);
+    }
+}
+print("after for labeled break");
+
+// Labeled continue in nested for loops
+print("Test 4: labeled continue in nested for");
+outer: for (let x = 0; x < 3; x = x + 1) {
+    for (let y = 0; y < 3; y = y + 1) {
+        if (y == 1) {
+            continue outer;
+        }
+        print(x * 10 + y);
+    }
+}
+print("after for labeled continue");
+
+// Labeled break in nested for-in loops
+print("Test 5: labeled break in nested for-in");
+let arr1 = [1, 2, 3];
+let arr2 = [10, 20, 30];
+outer: for (let a in arr1) {
+    for (let b in arr2) {
+        if (a == 2 && b == 20) {
+            break outer;
+        }
+        print(a * 100 + b);
+    }
+}
+print("after for-in labeled break");
+
+// Labeled continue in nested for-in loops
+print("Test 6: labeled continue in nested for-in");
+outer: for (let a in arr1) {
+    for (let b in arr2) {
+        if (b == 20) {
+            continue outer;
+        }
+        print(a * 100 + b);
+    }
+}
+print("after for-in labeled continue");
+
+// Mixed loop types with labels
+print("Test 7: mixed loop types");
+outer: for (let x = 0; x < 2; x = x + 1) {
+    let y = 0;
+    while (y < 3) {
+        for (let z in [100, 200]) {
+            if (x == 1 && y == 1) {
+                break outer;
+            }
+            print(x * 1000 + y * 100 + z);
+        }
+        y = y + 1;
+    }
+}
+print("after mixed labeled break");
+
+// Multiple labels at different levels
+print("Test 8: multiple labels");
+outer: for (let a = 0; a < 2; a = a + 1) {
+    inner: for (let b = 0; b < 3; b = b + 1) {
+        for (let c = 0; c < 3; c = c + 1) {
+            if (c == 1) {
+                continue inner;
+            }
+            if (a == 1 && b == 1) {
+                break outer;
+            }
+            print(a * 100 + b * 10 + c);
+        }
+    }
+}
+print("after multiple labels");
+
+// Unlabeled break/continue still work with labeled loop
+print("Test 9: unlabeled with labeled loop");
+outer: for (let x = 0; x < 3; x = x + 1) {
+    for (let y = 0; y < 5; y = y + 1) {
+        if (y == 2) {
+            break;  // breaks inner loop only
+        }
+        print(x * 10 + y);
+    }
+}
+print("after unlabeled break");
+
+print("done");

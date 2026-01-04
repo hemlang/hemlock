@@ -187,6 +187,13 @@ typedef struct {
     int for_continue_depth;       // Current for-loop nesting depth
     int for_continue_capacity;    // Capacity of for_continue_labels stack
 
+    // Loop label tracking (for labeled break/continue)
+    char **loop_labels;           // Stack of loop labels (user-defined)
+    char **loop_break_labels;     // Stack of generated break target labels
+    char **loop_continue_labels;  // Stack of generated continue target labels
+    int loop_label_depth;         // Current labeled loop nesting depth
+    int loop_label_capacity;      // Capacity of loop label stacks
+
     // Type checking context (for optimized code generation)
     TypeCheckContext *type_ctx;   // Type check context (NULL if --no-type-check)
     int optimize;                 // Optimization level (0 = none, 1+ = optimize)
@@ -333,6 +340,20 @@ FreeVarSet* free_var_set_new(void);
 
 // Free a free variable set
 void free_var_set_free(FreeVarSet *set);
+
+// ========== LOOP LABEL TRACKING ==========
+
+// Push a labeled loop onto the stack
+void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char *break_label, const char *continue_label);
+
+// Pop a labeled loop from the stack
+void codegen_pop_loop_label(CodegenContext *ctx);
+
+// Get the break label for a given user-defined label (returns NULL if not found)
+const char* codegen_get_labeled_break(CodegenContext *ctx, const char *label);
+
+// Get the continue label for a given user-defined label (returns NULL if not found)
+const char* codegen_get_labeled_continue(CodegenContext *ctx, const char *label);
 
 // ========== MODULE COMPILATION ==========
 

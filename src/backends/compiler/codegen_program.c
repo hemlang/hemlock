@@ -879,6 +879,18 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     stmt->as.let.type_annotation->type_name) {
                     codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
                                   stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                } else if (stmt->as.let.type_annotation &&
+                           stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
+                    // Compound type: validate against each constituent type
+                    Type *compound = stmt->as.let.type_annotation;
+                    codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
+                    for (int i = 0; i < compound->num_compound_types; i++) {
+                        Type *constituent = compound->compound_types[i];
+                        if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
+                            codegen_writeln(ctx, "_main_%s = hml_validate_object_type(_main_%s, \"%s\");",
+                                          stmt->as.let.name, stmt->as.let.name, constituent->type_name);
+                        }
+                    }
                 } else if (stmt->as.let.type_annotation) {
                     // Handle type annotations
                     if (stmt->as.let.type_annotation->kind == TYPE_ARRAY) {

@@ -238,6 +238,7 @@ typedef enum {
     TYPE_GENERIC_OBJECT, // Generic 'object' keyword
     TYPE_ENUM,           // Enum type (Color, Status, etc.)
     TYPE_VOID,           // Void type (for FFI functions with no return)
+    TYPE_COMPOUND,       // Compound type (A & B & C) - intersection/duck typing
     TYPE_PARAM,          // Type parameter (e.g., T in define Stack<T>)
 } TypeKind;
 
@@ -246,6 +247,11 @@ struct Type {
     char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person") or TYPE_PARAM (e.g., "T")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
     int nullable;         // If true, type allows null (e.g., string?)
+
+    // For TYPE_COMPOUND (intersection types like A & B & C)
+    struct Type **compound_types;  // Array of constituent types
+    int num_compound_types;        // Number of types in compound
+
     // For generic types (e.g., Stack<i32>):
     struct Type **type_args;    // Type arguments (e.g., [i32] for Stack<i32>)
     int num_type_args;          // Number of type arguments
@@ -300,22 +306,30 @@ struct Stmt {
             Stmt *else_branch;  // can be NULL
         } if_stmt;
         struct {
+            char *label;        // optional loop label (NULL if unlabeled)
             Expr *condition;
             Stmt *body;
         } while_stmt;
         struct {
+            char *label;        // optional loop label (NULL if unlabeled)
             Stmt *initializer;  // let i = 0
             Expr *condition;    // i < 10
             Expr *increment;    // i = i + 1
             Stmt *body;
         } for_loop;
         struct {
+            char *label;        // optional loop label (NULL if unlabeled)
             char *key_var;      // variable name (or NULL for value-only iteration)
             char *value_var;    // variable name
             Expr *iterable;     // array or object to iterate
             Stmt *body;
         } for_in;
-        // break and continue have no fields
+        struct {
+            char *label;        // optional target label (NULL for innermost loop)
+        } break_stmt;
+        struct {
+            char *label;        // optional target label (NULL for innermost loop)
+        } continue_stmt;
         struct {
             Stmt **statements;
             int count;
@@ -427,10 +441,15 @@ Stmt* stmt_const(const char *name, Expr *value);
 Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value);
 Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch);
 Stmt* stmt_while(Expr *condition, Stmt *body);
+Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body);
 Stmt* stmt_for(Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
+Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Expr *increment, Stmt *body);
 Stmt* stmt_for_in(char *key_var, char *value_var, Expr *iterable, Stmt *body);
+Stmt* stmt_for_in_labeled(const char *label, char *key_var, char *value_var, Expr *iterable, Stmt *body);
 Stmt* stmt_break(void);
+Stmt* stmt_break_labeled(const char *label);
 Stmt* stmt_continue(void);
+Stmt* stmt_continue_labeled(const char *label);
 Stmt* stmt_block(Stmt **statements, int count);
 Stmt* stmt_expr(Expr *expr);
 Stmt* stmt_return(Expr *value);
@@ -451,6 +470,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
 Stmt* stmt_import_ffi(const char *library_path);
 Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_params, Type *return_type);
 Type* type_new(TypeKind kind);
+Type* type_compound(Type **types, int num_types);  // Create compound type (A & B & C)
 void type_free(Type *type);
 
 // Cloning
