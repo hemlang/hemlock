@@ -698,24 +698,30 @@ This ensures safe memory management even when values are shared across threads.
 
 ### Closure Environment Access
 
-Tasks have **read access** to the closure environment for:
+Tasks have access to the closure environment for:
 - Built-in functions (`print`, `len`, etc.)
 - Global function definitions
-- Constants
+- Constants and variables
 
-However, **modifying variables from the parent scope is undefined behavior**:
+The closure environment is protected by a per-environment mutex, making
+concurrent reads and writes thread-safe:
 
 ```hemlock
 let x = 10;
 
-async fn read_only(): i32 {
-    return x;  // OK: reading closure variable
+async fn read_closure(): i32 {
+    return x;  // OK: reading closure variable (thread-safe)
 }
 
 async fn modify_closure() {
-    x = 20;  // UNDEFINED BEHAVIOR: don't do this!
+    x = 20;  // OK: writing closure variable (synchronized with mutex)
 }
 ```
+
+**Note:** While concurrent access is synchronized, modifying shared state from
+multiple tasks can still lead to logical race conditions (non-deterministic
+ordering). For predictable behavior, use channels for task communication or
+return values from tasks.
 
 If you need to return data from a task, use the return value or channels.
 

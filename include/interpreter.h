@@ -255,6 +255,8 @@ typedef struct Environment {
     int hash_capacity;   // Size of hash table (usually 2x capacity)
     // Borrowed names optimization: bit flags (1 = borrowed, don't free)
     unsigned int borrowed_flags;  // Bit flags for first 32 names
+    // Thread-safety: mutex for concurrent access from tasks
+    void *mutex;  // pthread_mutex_t* (opaque pointer for header compatibility)
 } Environment;
 
 // Public interface
