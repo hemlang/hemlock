@@ -124,6 +124,35 @@
 #define HML_ASCII_PRINTABLE_START 32
 #define HML_ASCII_PRINTABLE_END   127
 
+// ========== THREAD POOL CONFIGURATION ==========
+
+// Default number of worker threads (0 = auto-detect based on CPU count)
+#define HML_THREADPOOL_DEFAULT_WORKERS 0
+
+// Maximum number of worker threads
+#define HML_THREADPOOL_MAX_WORKERS 256
+
+// Minimum number of worker threads
+#define HML_THREADPOOL_MIN_WORKERS 2
+
+// Initial capacity of per-worker work-stealing deque
+#define HML_THREADPOOL_DEQUE_INITIAL_CAPACITY 64
+
+// Maximum capacity of per-worker work-stealing deque
+#define HML_THREADPOOL_DEQUE_MAX_CAPACITY 65536
+
+// Global submission queue capacity
+#define HML_THREADPOOL_SUBMISSION_QUEUE_CAPACITY 4096
+
+// Number of steal attempts before sleeping
+#define HML_THREADPOOL_STEAL_ATTEMPTS 32
+
+// Sleep duration when no work is available (microseconds)
+#define HML_THREADPOOL_IDLE_SLEEP_US 100
+
+// Work stealing random seed multiplier (for LFSR)
+#define HML_THREADPOOL_STEAL_SEED_MULT 1103515245
+
 // ========== SANDBOX CONFIGURATION ==========
 
 // Sandbox restriction flags (bitmask)

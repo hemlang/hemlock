@@ -5,11 +5,49 @@
  */
 
 #include "builtins_internal.h"
+#include "thread_pool.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <poll.h>
 
 static atomic_int g_next_task_id = 1;
+
+// Helper function to free a task
+static void task_free(HmlTask *task) {
+    if (!task) return;
+
+    // Free function and args
+    hml_release(&task->function);
+    for (int i = 0; i < task->num_args; i++) {
+        hml_release(&task->args[i]);
+    }
+    free(task->args);
+
+    // Free mutex and cond
+    if (task->mutex) {
+        pthread_mutex_destroy((pthread_mutex_t*)task->mutex);
+        free(task->mutex);
+    }
+    if (task->cond) {
+        pthread_cond_destroy((pthread_cond_t*)task->cond);
+        free(task->cond);
+    }
+    if (task->thread) {
+        free(task->thread);
+    }
+
+    free(task);
+}
+
+// Decrement task reference count and free if it reaches 0
+static void hml_task_release(HmlTask *task) {
+    if (!task) return;
+
+    int new_count = __atomic_sub_fetch(&task->ref_count, 1, __ATOMIC_SEQ_CST);
+    if (new_count <= 0) {
+        task_free(task);
+    }
+}
 
 // Define ffi_type for HmlValue struct (16 bytes: 4 type + 4 padding + 8 union)
 static ffi_type *hml_value_elements[] = {
@@ -67,9 +105,10 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
     return result;
 }
 
-// Thread wrapper function
-static void* task_thread_wrapper(void* arg) {
-    HmlTask *task = (HmlTask*)arg;
+// Thread pool work item callback for task execution
+static void* task_pool_execute(void* data, void* ctx_unused) {
+    (void)ctx_unused;
+    HmlTask *task = (HmlTask*)data;
 
     // Mark as running
     pthread_mutex_lock((pthread_mutex_t*)task->mutex);
@@ -88,10 +127,15 @@ static void* task_thread_wrapper(void* arg) {
     pthread_mutex_lock((pthread_mutex_t*)task->mutex);
     task->result = result;
     task->state = HML_TASK_COMPLETED;
-    pthread_cond_signal((pthread_cond_t*)task->cond);
+    pthread_cond_broadcast((pthread_cond_t*)task->cond);
     pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
 
-    return NULL;
+    // Clean up detached tasks
+    if (task->detached) {
+        hml_task_release(task);
+    }
+
+    return task;
 }
 
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
@@ -134,9 +178,14 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     pthread_mutex_init((pthread_mutex_t*)task->mutex, NULL);
     pthread_cond_init((pthread_cond_t*)task->cond, NULL);
 
-    // Create thread
-    task->thread = malloc(sizeof(pthread_t));
-    pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+    // task->thread not used with thread pool, set to NULL
+    task->thread = NULL;
+
+    // Submit task to thread pool
+    HmlWorkItem* work = hml_thread_pool_submit(task_pool_execute, task, NULL);
+    if (!work) {
+        hml_runtime_error("Failed to submit task to thread pool");
+    }
 
     // Return task value
     HmlValue result;
@@ -160,16 +209,14 @@ HmlValue hml_join(HmlValue task_val) {
         hml_runtime_error("cannot join detached task");
     }
 
-    // Wait for task to complete
+    // Wait for task to complete using condition variable
+    // With thread pool, task->thread is not used (pool manages threads)
     pthread_mutex_lock((pthread_mutex_t*)task->mutex);
     while (task->state != HML_TASK_COMPLETED) {
         pthread_cond_wait((pthread_cond_t*)task->cond, (pthread_mutex_t*)task->mutex);
     }
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
-
-    // Join the thread
-    pthread_join(*(pthread_t*)task->thread, NULL);
     task->joined = 1;
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
 
     // Return result (retained)
     HmlValue result = task->result;
@@ -192,8 +239,9 @@ void hml_detach(HmlValue task_val) {
         return; // Already detached
     }
 
+    // With thread pool, just mark as detached
+    // Pool manages its own threads, so no pthread_detach needed
     task->detached = 1;
-    pthread_detach(*(pthread_t*)task->thread);
 }
 
 // task_debug_info(task) - Print debug information about a task

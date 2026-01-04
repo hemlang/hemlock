@@ -4,16 +4,12 @@
 // Global task ID counter (atomic for thread-safety in concurrent spawns)
 static atomic_int next_task_id = 1;
 
-// Thread wrapper function that executes a task
-static void* task_thread_wrapper(void* arg) {
-    Task *task = (Task*)arg;
+// Task execution function for thread pool
+// This is the work item callback that executes the async task
+static void* task_pool_execute(void* data, void* ctx_unused) {
+    (void)ctx_unused;  // ExecutionContext is stored in task->ctx
+    Task *task = (Task*)data;
     Function *fn = task->function;
-
-    // Block all signals in worker thread - only main thread should handle signals
-    // This prevents signal handlers from corrupting task state during execution
-    sigset_t set;
-    sigfillset(&set);
-    pthread_sigmask(SIG_BLOCK, &set, NULL);
 
     // Mark as running (thread-safe)
     pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
@@ -50,6 +46,10 @@ static void* task_thread_wrapper(void* arg) {
     task->result = malloc(sizeof(Value));
     *task->result = result;
     task->state = TASK_COMPLETED;
+    // Signal anyone waiting on join
+    if (task->thread) {  // thread field reused as condition variable
+        pthread_cond_broadcast((pthread_cond_t*)task->thread);
+    }
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
     // Release function environment (reference counted)
@@ -61,7 +61,7 @@ static void* task_thread_wrapper(void* arg) {
         task_release(task);
     }
 
-    return NULL;
+    return task;  // Return task pointer (not used, but required by API)
 }
 
 Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
@@ -107,19 +107,29 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     int task_id = atomic_fetch_add(&next_task_id, 1);
     Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
-    // Allocate pthread_t
-    task->thread = malloc(sizeof(pthread_t));
+    // Allocate condition variable for join() to wait on
+    // We reuse the task->thread field to store the condition variable
+    task->thread = malloc(sizeof(pthread_cond_t));
     if (!task->thread) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
+    pthread_cond_init((pthread_cond_t*)task->thread, NULL);
 
-    // Create thread to execute task
-    int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
-    if (rc != 0) {
-        fprintf(stderr, "Runtime error: Failed to create thread: %d\n", rc);
+    // Submit task to thread pool
+    // The pool will execute task_pool_execute with the task as data
+    WorkItem* work = thread_pool_submit(task_pool_execute, task, NULL);
+    if (!work) {
+        fprintf(stderr, "Runtime error: Failed to submit task to thread pool\n");
+        pthread_cond_destroy((pthread_cond_t*)task->thread);
+        free(task->thread);
+        task->thread = NULL;
+        task_free(task);
         exit(1);
     }
+
+    // We don't need to track the WorkItem - the task has its own completion mechanism
+    // The work item will be freed by the pool after execution
 
     return val_task(task);
 }
@@ -157,19 +167,19 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     // Mark as joined
     task->joined = 1;
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
-
-    // Wait for thread to complete (outside of mutex to avoid deadlock)
-    if (task->thread) {
-        int rc = pthread_join(*(pthread_t*)task->thread, NULL);
-        if (rc != 0) {
-            runtime_error(ctx, "pthread_join failed: %d", rc);
-            return val_null();
+    // Wait for task to complete using condition variable
+    // The task->thread field now holds a condition variable instead of pthread_t
+    while (task->state != TASK_COMPLETED) {
+        if (task->thread) {
+            pthread_cond_wait((pthread_cond_t*)task->thread, (pthread_mutex_t*)task->task_mutex);
+        } else {
+            // No condition variable - spin briefly using nanosleep
+            pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+            struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000 };  // 100 microseconds
+            nanosleep(&ts, NULL);
+            pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
         }
     }
-
-    // Access exception state and result (thread-safe)
-    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
 
     // Check if task threw an exception
     if (task->ctx->exception_state.is_throwing) {
@@ -231,19 +241,11 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
 
-        // Mark as detached
+        // Mark as detached - with thread pool, no pthread_detach needed
+        // The pool manages its own threads
         t->detached = 1;
 
         pthread_mutex_unlock((pthread_mutex_t*)t->task_mutex);
-
-        // Detach the pthread (fire and forget)
-        if (t->thread) {
-            int rc = pthread_detach(*(pthread_t*)t->thread);
-            if (rc != 0) {
-                runtime_error(ctx, "pthread_detach failed: %d", rc);
-                return val_null();
-            }
-        }
 
         return val_null();
     }
@@ -276,41 +278,26 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         int task_id = atomic_fetch_add(&next_task_id, 1);
         Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
-        // Mark as detached before starting thread
+        // Mark as detached before submitting to pool
         task->detached = 1;
 
-        // Allocate pthread_t
-        task->thread = malloc(sizeof(pthread_t));
-        if (!task->thread) {
-            runtime_error(ctx, "Memory allocation failed");
-            return val_null();
-        }
+        // No condition variable needed for detached tasks (no one will join)
+        task->thread = NULL;
 
-        // CRITICAL: Retain task to prevent premature cleanup during pthread_detach
-        // Without this, the worker thread may complete and free the task before
-        // we finish calling pthread_detach, leading to use-after-free
+        // CRITICAL: Retain task to prevent premature cleanup
+        // The worker will release the task when done (via task->detached check)
         task_retain(task);  // ref_count: 1 -> 2
 
-        // Create thread to execute task
-        int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
-        if (rc != 0) {
-            runtime_error(ctx, "Failed to create thread: %d", rc);
-            free(task->thread);
+        // Submit task to thread pool (fire and forget)
+        WorkItem* work = thread_pool_submit(task_pool_execute, task, NULL);
+        if (!work) {
+            runtime_error(ctx, "Failed to submit task to thread pool");
             task_release(task);  // Release our temporary reference
             return val_null();
         }
 
-        // Detach the pthread immediately (fire and forget)
-        // Safe to access task->thread because we're holding a reference
-        rc = pthread_detach(*(pthread_t*)task->thread);
-        if (rc != 0) {
-            runtime_error(ctx, "pthread_detach failed: %d", rc);
-            task_release(task);  // Release our temporary reference
-            return val_null();
-        }
-
-        // Release our temporary reference - worker thread will clean up when done
-        // ref_count: 2 -> 1 (worker thread holds the remaining reference)
+        // Release our reference - worker thread will clean up when done
+        // ref_count: 2 -> 1 (worker thread holds the remaining reference via task->detached cleanup)
         task_release(task);
 
         return val_null();
