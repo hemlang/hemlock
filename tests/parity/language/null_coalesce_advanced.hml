@@ -1,0 +1,116 @@
+// Test advanced null coalescing features
+
+// 1. Chained null coalescing
+let a = null;
+let b = null;
+let c = "found";
+print(a ?? b ?? c);
+
+// 2. Null coalescing with function calls
+fn maybe_value() {
+    return null;
+}
+
+fn get_default() {
+    return "default";
+}
+
+print(maybe_value() ?? get_default());
+
+// 3. Null coalescing in expressions
+let x = null;
+let y = 10;
+print((x ?? 5) + y);
+
+// 4. Nested null coalescing
+let obj = { inner: null };
+let fallback = { inner: { val: 42 } };
+let result = obj.inner ?? fallback.inner;
+print(result.val);
+
+// 5. Null coalescing with array access
+let arr = [null, null, 3];
+print(arr[0] ?? arr[1] ?? arr[2]);
+
+// 6. Null coalescing assignment basics
+let val = null;
+val ??= "assigned";
+print(val);
+
+val ??= "not assigned";
+print(val);
+
+// 7. Null coalescing assignment with object properties
+let config = { host: null, port: 8080 };
+config.host ??= "localhost";
+config.port ??= 3000;
+print(config.host);
+print(config.port);
+
+// 8. Mixed with optional chaining
+let user = null;
+print(user?.name ?? "Anonymous");
+
+let user2 = { name: "Alice", addr: null };
+print(user2?.name ?? "Anonymous");
+print(user2?.addr?.city ?? "Unknown");
+
+// 9. Null coalescing with boolean values (not falsy coalescing)
+let falseVal = false;
+let zeroVal = 0;
+let emptyStr = "";
+
+// These should NOT use fallback (they're not null)
+print(falseVal ?? "fallback");
+print(zeroVal ?? "fallback");
+print(emptyStr ?? "fallback");
+
+// 10. Null coalescing with different types
+let numNull = null;
+print(numNull ?? 42);
+print(numNull ?? 3.14);
+print(numNull ?? true);
+
+// 11. Complex expression with null coalescing
+fn compute(x) {
+    if (x < 0) { return null; }
+    return x * 2;
+}
+
+print(compute(5) ?? -1);
+print(compute(-5) ?? -1);
+
+// 12. Null coalescing assignment in arrays
+let defaults = [null, "two", null];
+defaults[0] ??= "one";
+defaults[1] ??= "not set";
+defaults[2] ??= "three";
+print(defaults[0]);
+print(defaults[1]);
+print(defaults[2]);
+
+// 13. Double null coalescing assignment
+let setting = null;
+setting ??= null;  // Still null
+setting ??= "final";
+print(setting);
+
+// 14. Null coalescing with nested property access
+let data = { user: { name: "Bob" } };
+let noData = { user: null };
+
+print(data.user?.name ?? "no name");
+print(noData.user?.name ?? "no name");
+
+// 15. Null coalescing short-circuit evaluation
+let called = false;
+fn side_effect() {
+    called = true;
+    return "effect";
+}
+
+let hasValue = "exists";
+print(hasValue ?? side_effect());
+print(called);  // Should be false - side effect not called
+
+print("done");

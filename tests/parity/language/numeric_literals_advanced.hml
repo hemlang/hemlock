@@ -1,0 +1,106 @@
+// Test advanced numeric literal features
+
+// 1. Octal literals with underscores
+let oct1 = 0o7_7_7;
+print(oct1);  // 511
+
+let oct2 = 0o1_234;
+print(oct2);  // 668
+
+let oct3 = 0O77_77;  // Uppercase O
+print(oct3);  // 4095
+
+// 2. Binary literals with underscores
+let bin1 = 0b1111_0000;
+print(bin1);  // 240
+
+let bin2 = 0b1010_1010_1010_1010;
+print(bin2);  // 43690
+
+let bin3 = 0B1111_1111;  // Uppercase B
+print(bin3);  // 255
+
+// 3. Hex literals with underscores
+let hex1 = 0xFF_FF;
+print(hex1);  // 65535
+
+let hex2 = 0xDEAD_BEEF;
+print(hex2);  // 3735928559 (larger than i32 max, becomes i64)
+
+let hex3 = 0x00_FF_00;
+print(hex3);  // 65280
+
+// 4. Decimal with underscores (various positions)
+let dec1 = 1_000_000;
+print(dec1);  // 1000000
+
+let dec2 = 123_456_789;
+print(dec2);  // 123456789
+
+let dec3 = 1_2_3_4;
+print(dec3);  // 1234
+
+// 5. Float literals with underscores
+let float1 = 1_000.5;
+print(float1);  // 1000.5
+
+let float2 = 3.141_592;
+print(float2);  // 3.141592
+
+let float3 = 1_000_000.123_456;
+print(float3);  // 1000000.123456
+
+// 6. Scientific notation with underscores
+let sci1 = 1_000e3;
+print(sci1);  // 1000000
+
+let sci2 = 1.5e1_0;
+print(sci2);  // 15000000000
+
+// 7. Float without leading zero
+let nolead1 = .5;
+print(nolead1);  // 0.5
+
+let nolead2 = .123;
+print(nolead2);  // 0.123
+
+let nolead3 = .5e2;
+print(nolead3);  // 50
+
+// 8. Mixing underscores in different parts
+let mix1 = 0xFF_FF_FF_FF;  // max u32
+print(mix1);
+
+// 9. Large numbers becoming i64
+let large1 = 10_000_000_000;  // > i32 max
+print(large1);
+
+let large2 = 0x1_0000_0000;  // > i32 max in hex
+print(large2);
+
+// 10. Edge case: max i32 with underscores
+let max_i32 = 2_147_483_647;
+print(max_i32);
+
+// 11. Negative with underscores (unary minus)
+let neg1 = -1_000;
+print(neg1);
+
+let neg2 = -0xFF_FF;
+print(neg2);
+
+// 12. Binary arithmetic with separated literals
+let result = 0b1111_0000 | 0b0000_1111;
+print(result);  // 255
+
+let result2 = 0xFF_00 & 0x00_FF;
+print(result2);  // 0
+
+// 13. Octal edge cases
+let oct_zero = 0o0;
+print(oct_zero);
+
+let oct_max7 = 0o7777_7777;
+print(oct_max7);  // 16777215
+
+print("done");

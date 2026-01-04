@@ -1,0 +1,123 @@
+// Test advanced function type annotations
+
+// 1. Function with multiple typed parameters
+fn multi_param(f: fn(i32, string, bool): string, n: i32, s: string, b: bool): string {
+    return f(n, s, b);
+}
+
+let formatter = fn(num, text, flag) {
+    if (flag) { return text + ":" + num; }
+    else { return num + ":" + text; }
+};
+
+print(multi_param(formatter, 42, "test", true));
+print(multi_param(formatter, 99, "data", false));
+
+// 2. Array of functions with type annotation
+fn apply_all(funcs: array, value: i32) {
+    for (f in funcs) {
+        print(f(value));
+    }
+}
+
+let transforms = [
+    fn(x) { return x * 2; },
+    fn(x) { return x + 10; },
+    fn(x) { return x * x; }
+];
+
+apply_all(transforms, 5);
+
+// 3. Higher-order function returning typed function
+fn create_multiplier(factor: i32): fn(i32): i32 {
+    return fn(x) { return x * factor; };
+}
+
+let times3 = create_multiplier(3);
+let times7 = create_multiplier(7);
+print(times3(4));
+print(times7(4));
+
+// 4. Curried function
+fn curry_add(a: i32): fn(i32): fn(i32): i32 {
+    return fn(b) {
+        return fn(c) {
+            return a + b + c;
+        };
+    };
+}
+
+let add1 = curry_add(1);
+let add1_2 = add1(2);
+print(add1_2(3));
+
+// 5. Function taking optional function parameter
+fn maybe_transform(value: i32, transform?: null) {
+    if (transform != null) {
+        print(transform(value));
+    } else {
+        print(value);
+    }
+}
+
+maybe_transform(10);
+maybe_transform(10, fn(x) { return x * 100; });
+
+// 6. Recursive function type in closure
+fn make_countdown(start: i32): fn(): i32 {
+    let count = start;
+    return fn() {
+        let current = count;
+        count = count - 1;
+        return current;
+    };
+}
+
+let counter = make_countdown(5);
+print(counter());
+print(counter());
+print(counter());
+
+// 7. Function with function parameters of different arities
+fn compose_binary_unary(binary: fn(i32, i32): i32, unary: fn(i32): i32, a: i32, b: i32): i32 {
+    return unary(binary(a, b));
+}
+
+let result = compose_binary_unary(
+    fn(x, y) { return x + y; },
+    fn(z) { return z * 2; },
+    3, 4
+);
+print(result);
+
+// 8. Async function type as parameter
+async fn async_double(n: i32): i32 {
+    return n * 2;
+}
+
+fn run_task(f: async fn(i32): i32, val: i32): i32 {
+    let task = spawn(f, val);
+    return join(task);
+}
+
+print(run_task(async_double, 25));
+
+// 9. Function type variable declaration
+let doubler: fn(i32): i32 = fn(x) { return x * 2; };
+print(doubler(15));
+
+// 10. Function returning nothing (void)
+fn run_callback(cb: fn(): void) {
+    cb();
+}
+
+run_callback(fn() { print("void callback"); });
+
+// 11. Multiple function types in same call
+fn combine(f1: fn(i32): i32, f2: fn(i32): i32, val: i32): i32 {
+    return f1(val) + f2(val);
+}
+
+print(combine(fn(x) { return x; }, fn(x) { return x * 2; }, 10));
+
+print("done");

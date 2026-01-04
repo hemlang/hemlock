@@ -1,0 +1,84 @@
+// Test type precision promotion: i64/u64 + f32 → f64
+
+// 1. i64 + f32 should promote to f64
+let i64_val: i64 = 9007199254740993;  // 2^53 + 1, not representable in f32
+let f32_val: f32 = 1.0;
+
+let result1 = i64_val + f32_val;
+print(typeof(result1));  // f64
+print(result1);
+
+// 2. u64 + f32 should promote to f64
+let u64_val: u64 = 9007199254740993;
+let result2 = u64_val + f32_val;
+print(typeof(result2));
+print(result2);
+
+// 3. i64 - f32
+let result3 = i64_val - f32_val;
+print(typeof(result3));
+print(result3);
+
+// 4. i64 * f32
+let i64_mul: i64 = 1000000000000;
+let f32_mul: f32 = 2.5;
+let result4 = i64_mul * f32_mul;
+print(typeof(result4));
+print(result4);
+
+// 5. i64 / f32
+let result5 = i64_mul / f32_mul;
+print(typeof(result5));
+print(result5);
+
+// 6. f32 + i64 (order shouldn't matter)
+let result6 = f32_val + i64_val;
+print(typeof(result6));
+print(result6);
+
+// 7. u64 * f32
+let u64_large: u64 = 18000000000000000000;
+let result7 = u64_large * f32_val;
+print(typeof(result7));
+// Note: result may have precision loss but type should be f64
+
+// 8. Small i64 + f32 (still promotes to f64)
+let small_i64: i64 = 100;
+let result8 = small_i64 + f32_val;
+print(typeof(result8));
+print(result8);
+
+// 9. Standard type promotions still work
+let i32_val: i32 = 100;
+let f64_val: f64 = 2.5;
+let result9 = i32_val + f64_val;
+print(typeof(result9));  // f64 (standard promotion)
+print(result9);
+
+// 10. i32 + f32 stays f32 or promotes to f64
+let result10 = i32_val + f32_val;
+print(typeof(result10));
+
+// 11. Chained operations
+let i64_a: i64 = 1000000;
+let f32_a: f32 = 1.5;
+let f32_b: f32 = 2.5;
+let result11 = i64_a + f32_a + f32_b;
+print(typeof(result11));
+print(result11);
+
+// 12. Comparison with f32 (i64 vs f32)
+let cmp_i64: i64 = 100;
+let cmp_f32: f32 = 100.0;
+print(cmp_i64 == cmp_f32);
+
+// 13. Expression in function call
+fn show_type(x) {
+    print(typeof(x));
+}
+
+let expr_i64: i64 = 999;
+let expr_f32: f32 = 0.5;
+show_type(expr_i64 + expr_f32);
+
+print("done");

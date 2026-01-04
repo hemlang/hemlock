@@ -1,0 +1,143 @@
+// Test compound duck types with method signatures
+
+// 1. Basic compound type with methods
+define HasId {
+    id: i32,
+    fn getId(): i32;
+}
+
+define HasName {
+    name: string,
+    fn getName(): string;
+}
+
+type Entity = HasId & HasName;
+
+let entity: Entity = {
+    id: 42,
+    name: "Widget",
+    getId: fn() { return self.id; },
+    getName: fn() { return self.name; }
+};
+
+print(entity.getId());
+print(entity.getName());
+
+// 2. Three-way compound type
+define HasValue {
+    value: i32,
+    fn getValue(): i32;
+}
+
+define HasLabel {
+    label: string,
+    fn getLabel(): string;
+}
+
+define HasActive {
+    active: bool,
+    fn isActive(): bool;
+}
+
+type Tagged = HasValue & HasLabel & HasActive;
+
+let tagged: Tagged = {
+    value: 100,
+    label: "important",
+    active: true,
+    getValue: fn() { return self.value; },
+    getLabel: fn() { return self.label; },
+    isActive: fn() { return self.active; }
+};
+
+print(tagged.getValue());
+print(tagged.getLabel());
+print(tagged.isActive());
+
+// 3. Compound type as function parameter
+fn describe(obj: HasId & HasName) {
+    print(obj.getId());
+    print(obj.getName());
+}
+
+describe(entity);
+
+// 4. Compound type with Self references
+define Comparable {
+    val: i32,
+    fn compare(other: Self): i32;
+}
+
+define Printable {
+    fn print_val(): void;
+}
+
+type ComparablePrintable = Comparable & Printable;
+
+let cp1: ComparablePrintable = {
+    val: 10,
+    compare: fn(other) { return self.val - other.val; },
+    print_val: fn() { print(self.val); }
+};
+
+let cp2: ComparablePrintable = {
+    val: 20,
+    compare: fn(other) { return self.val - other.val; },
+    print_val: fn() { print(self.val); }
+};
+
+cp1.print_val();
+cp2.print_val();
+print(cp1.compare(cp2));
+
+// 5. Compound type in return value
+define Maker {
+    fn make(): HasId & HasName;
+}
+
+let maker: Maker = {
+    make: fn() {
+        return {
+            id: 999,
+            name: "Made",
+            getId: fn() { return self.id; },
+            getName: fn() { return self.name; }
+        };
+    }
+};
+
+let made = maker.make();
+print(made.getId());
+print(made.getName());
+
+// 6. Extra fields allowed with compound type (duck typing)
+let extended: HasId & HasName = {
+    id: 50,
+    name: "Extended",
+    extra: "bonus",  // Extra field allowed
+    getId: fn() { return self.id; },
+    getName: fn() { return self.name; }
+};
+
+print(extended.getId());
+print(extended.getName());
+print(extended.extra);
+
+// 7. Compound type alias used in multiple places
+type Identifiable = HasId & HasName;
+
+fn process_identifiable(obj: Identifiable) {
+    print(obj.getId() * 2);
+    print(obj.getName().to_upper());
+}
+
+let item: Identifiable = {
+    id: 25,
+    name: "item",
+    getId: fn() { return self.id; },
+    getName: fn() { return self.name; }
+};
+
+process_identifiable(item);
+
+print("done");
