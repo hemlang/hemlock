@@ -25,6 +25,8 @@ void consume(Parser *p, TokenType type, const char *message);
 int check(Parser *p, TokenType type);
 int match(Parser *p, TokenType type);
 int is_identifier_or_type_keyword(TokenType type);
+int check_identifier_or_type_keyword(Parser *p);
+int match_identifier_or_type_keyword(Parser *p);
 char* consume_identifier_or_type_keyword(Parser *p, const char *message);
 
 // Contextual keywords (identifiers that act as keywords in specific contexts)

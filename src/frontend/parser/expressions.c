@@ -147,8 +147,11 @@ Expr* primary(Parser *p) {
         return expr_rune(p->previous.rune_value);
     }
 
-    // Identifier or 'type' keyword used as identifier (after let/const/etc.)
-    if (match(p, TOK_IDENT) || match(p, TOK_TYPE)) {
+    // Identifier or contextual keywords used as identifiers
+    // Keywords like 'type', 'define', 'enum', 'import', 'export', 'extern', 'async', 'defer'
+    // can be used as variable names when not at the start of a statement
+    if (is_identifier_or_type_keyword(p->current.type)) {
+        advance(p);
         char *name = token_text(&p->previous);
         Expr *ident = expr_ident(name);
         free(name);

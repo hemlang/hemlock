@@ -162,15 +162,46 @@ void consume_contextual(Parser *p, const char *keyword, const char *message) {
 }
 
 // Check if token type is a type keyword that can be used as an identifier
-// This includes built-in type names (i32, string, etc.) and the 'type' keyword
+// This includes built-in type names (i32, string, etc.) and contextual keywords
+// that only have special meaning at the start of statements
 int is_identifier_or_type_keyword(TokenType type) {
-    return type == TOK_IDENT ||
-           type == TOK_TYPE_I8 || type == TOK_TYPE_I16 || type == TOK_TYPE_I32 || type == TOK_TYPE_I64 ||
-           type == TOK_TYPE_U8 || type == TOK_TYPE_U16 || type == TOK_TYPE_U32 || type == TOK_TYPE_U64 ||
-           type == TOK_TYPE_F32 || type == TOK_TYPE_F64 || type == TOK_TYPE_BOOL || type == TOK_TYPE_STRING ||
-           type == TOK_TYPE_RUNE || type == TOK_TYPE_PTR || type == TOK_TYPE_BUFFER || type == TOK_TYPE_ARRAY ||
-           type == TOK_TYPE_INTEGER || type == TOK_TYPE_NUMBER || type == TOK_TYPE_BYTE || type == TOK_TYPE_VOID ||
-           type == TOK_TYPE;  // Allow 'type' keyword as identifier in appropriate contexts
+    switch (type) {
+        // Always an identifier
+        case TOK_IDENT:
+        // Type keywords (can be used as variable/field names)
+        case TOK_TYPE_I8: case TOK_TYPE_I16: case TOK_TYPE_I32: case TOK_TYPE_I64:
+        case TOK_TYPE_U8: case TOK_TYPE_U16: case TOK_TYPE_U32: case TOK_TYPE_U64:
+        case TOK_TYPE_F32: case TOK_TYPE_F64:
+        case TOK_TYPE_BOOL: case TOK_TYPE_STRING: case TOK_TYPE_RUNE:
+        case TOK_TYPE_PTR: case TOK_TYPE_BUFFER: case TOK_TYPE_ARRAY:
+        case TOK_TYPE_INTEGER: case TOK_TYPE_NUMBER: case TOK_TYPE_BYTE:
+        case TOK_TYPE_VOID:
+        // Contextual keywords (only special at statement level)
+        case TOK_TYPE:      // 'type' for type aliases
+        case TOK_DEFINE:    // 'define' for object types
+        case TOK_ENUM:      // 'enum' for enumerations
+        case TOK_IMPORT:    // 'import' for module imports
+        case TOK_EXPORT:    // 'export' for module exports
+        case TOK_EXTERN:    // 'extern' for FFI declarations
+        case TOK_ASYNC:     // 'async' for async functions
+        case TOK_DEFER:     // 'defer' for deferred execution
+        case TOK_OBJECT:    // 'object' type name
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// Check if the current token can be used as an identifier
+int check_identifier_or_type_keyword(Parser *p) {
+    return is_identifier_or_type_keyword(p->current.type);
+}
+
+// Check and advance if current token can be used as an identifier
+int match_identifier_or_type_keyword(Parser *p) {
+    if (!is_identifier_or_type_keyword(p->current.type)) return 0;
+    advance(p);
+    return 1;
 }
 
 // Consume an identifier or type keyword, returning the token text
