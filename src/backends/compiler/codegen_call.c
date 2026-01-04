@@ -1090,7 +1090,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // div(a, b) - floor division returning float
+        // div(a, b) - float division (alias for /)
         if ((strcmp(fn_name, "div") == 0 || strcmp(fn_name, "__div") == 0) && expr->as.call.num_args == 2) {
             char *a = codegen_expr(ctx, expr->as.call.args[0]);
             char *b = codegen_expr(ctx, expr->as.call.args[1]);
