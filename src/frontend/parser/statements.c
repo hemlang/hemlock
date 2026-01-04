@@ -695,6 +695,7 @@ Stmt* extern_fn_statement(Parser *p) {
 
     // Parse extern function parameters - supports trailing commas
     int param_capacity = 32;
+    char **param_names = malloc(sizeof(char*) * param_capacity);
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
     int num_params = 0;
 
@@ -706,12 +707,13 @@ Stmt* extern_fn_statement(Parser *p) {
             // Grow array if needed
             if (num_params >= param_capacity) {
                 param_capacity *= 2;
+                param_names = realloc(param_names, sizeof(char*) * param_capacity);
                 param_types = realloc(param_types, sizeof(Type*) * param_capacity);
             }
-            // Parameter name is not used in FFI, but required for syntax
+            // Parameter name is required for syntax and preserved for formatting
             // Contextual keywords can be used as parameter names
             char *param_name = consume_identifier_or_type_keyword(p, "Expect parameter name");
-            free(param_name);  // Not used for FFI
+            param_names[num_params] = param_name;
             consume(p, TOK_COLON, "Expect ':' after parameter name in extern declaration");
             param_types[num_params] = parse_type(p);
             num_params++;
@@ -728,7 +730,7 @@ Stmt* extern_fn_statement(Parser *p) {
 
     consume(p, TOK_SEMICOLON, "Expect ';' after extern declaration");
 
-    Stmt *stmt = stmt_extern_fn(function_name, param_types, num_params, return_type);
+    Stmt *stmt = stmt_extern_fn(function_name, param_names, param_types, num_params, return_type);
     free(function_name);
     return stmt;
 }

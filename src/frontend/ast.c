@@ -825,12 +825,13 @@ Stmt* stmt_import_ffi(const char *library_path) {
     return stmt;
 }
 
-Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_params, Type *return_type) {
+Stmt* stmt_extern_fn(const char *function_name, char **param_names, Type **param_types, int num_params, Type *return_type) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_EXTERN_FN;
     stmt->line = 0;
     stmt->column = 0;
     stmt->as.extern_fn.function_name = strdup(function_name);
+    stmt->as.extern_fn.param_names = param_names;
     stmt->as.extern_fn.param_types = param_types;
     stmt->as.extern_fn.num_params = num_params;
     stmt->as.extern_fn.return_type = return_type;
@@ -1406,10 +1407,14 @@ void stmt_free(Stmt *stmt) {
         case STMT_EXTERN_FN:
             free(stmt->as.extern_fn.function_name);
             for (int i = 0; i < stmt->as.extern_fn.num_params; i++) {
+                if (stmt->as.extern_fn.param_names && stmt->as.extern_fn.param_names[i]) {
+                    free(stmt->as.extern_fn.param_names[i]);
+                }
                 if (stmt->as.extern_fn.param_types[i]) {
                     type_free(stmt->as.extern_fn.param_types[i]);
                 }
             }
+            free(stmt->as.extern_fn.param_names);
             free(stmt->as.extern_fn.param_types);
             if (stmt->as.extern_fn.return_type) {
                 type_free(stmt->as.extern_fn.return_type);

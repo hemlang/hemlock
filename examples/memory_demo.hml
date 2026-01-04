@@ -1,39 +1,43 @@
 // Memory Management Demo
-
 // 1. sizeof() - Query type sizes
-print(sizeof(u8));     // 1
-print(sizeof(i32));    // 4
-print(sizeof(f64));    // 8
-print(sizeof(ptr));    // 8 (on 64-bit systems)
-
+// 1
+// 4
+// 8
+// 8 (on 64-bit systems)
 // 2. talloc() - Typed allocation
-let numbers = talloc(i32, 10);  // allocate 10 i32s (40 bytes)
-print(numbers);
-
+// allocate 10 i32s (40 bytes)
 // Initialize the array using memset
+// 3. buffer() - Safe wrapper with bounds checking
+// 'H'
+// 'e'
+// 'l'
+// 'l'
+// 'o'
+// 4. realloc() - Resize allocations
+// Clean up
+print(sizeof(u8));
+print(sizeof(i32));
+print(sizeof(f64));
+print(sizeof(ptr));
+let numbers = talloc(i32, 10);
+print(numbers);
 let elem_size = sizeof(i32);
 let total_bytes = elem_size * 10;
 memset(numbers, 0, total_bytes);
-
-// 3. buffer() - Safe wrapper with bounds checking
 let buf = buffer(256);
-buf[0] = 72;   // 'H'
-buf[1] = 101;  // 'e'
-buf[2] = 108;  // 'l'
-buf[3] = 108;  // 'l'
-buf[4] = 111;  // 'o'
+buf[0] = 72;
+buf[1] = 101;
+buf[2] = 108;
+buf[3] = 108;
+buf[4] = 111;
 print(buf[0]);
 print(buf.length);
-
-// 4. realloc() - Resize allocations
 let p = alloc(64);
 print(p);
 p = realloc(p, 128);
 print(p);
 p = realloc(p, 256);
 print(p);
-
-// Clean up
 free(numbers);
 free(buf);
 free(p);

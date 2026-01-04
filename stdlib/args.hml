@@ -1,510 +1,436 @@
 // @stdlib/args - Command-line argument parsing
-//
+// 
 // Provides utilities for parsing command-line arguments, including flags,
 // options with values, and positional arguments.
-//
+// 
 // Usage:
-//   import { parse, has_flag, get_option, get_positionals } from "@stdlib/args";
-//   let parsed = parse(args);
-
+// import { parse, has_flag, get_option, get_positionals } from "@stdlib/args";
+// let parsed = parse(args);
 // ============================================================================
 // Argument Parser
 // ============================================================================
-
 // Parse command-line arguments into a structured object
 // Supports:
-//   --flag or -f           : Boolean flags
-//   --option=value         : Options with = separator
-//   --option value         : Options with space separator
-//   -o value               : Short options with value
-//   --                     : End of options marker
-//   positional             : Positional arguments
+// --flag or -f           : Boolean flags
+// --option=value         : Options with = separator
+// --option value         : Options with space separator
+// -o value               : Short options with value
+// --                     : End of options marker
+// positional             : Positional arguments
 // Parameters:
-//   argv: array<string> - Command-line arguments (typically the global 'args')
-//   options: object - Optional configuration { booleans: [], strings: [] }
+// argv: array<string> - Command-line arguments (typically the global 'args')
+// options: object - Optional configuration { booleans: [], strings: [] }
 // Returns: object - { flags: array, options: array, positionals: array, script: string }
-export fn parse(argv, options?: null): object {
-    if (typeof(argv) != "array") {
-        throw "parse() requires array argument";
-    }
-
-    // Store flags as array of names, options as array of {name, value}
-    let flags_arr: array = [];
-    let options_arr: array = [];
-    let positionals_arr: array = [];
-    let script_name = "";
-
-    // Extract script name (first argument)
-    if (argv.length > 0) {
-        script_name = argv[0];
-    }
-
-    // Get boolean and string option names from config
-    let boolean_opts: array = [];
-    let string_opts: array = [];
-
-    if (options != null && typeof(options) == "object") {
-        let bools = options["booleans"];
-        let strs = options["strings"];
-        if (bools != null && typeof(bools) == "array") {
-            boolean_opts = bools;
-        }
-        if (strs != null && typeof(strs) == "array") {
-            string_opts = strs;
-        }
-    }
-
-    let i = 1;
-    let end_of_options = false;
-
-    while (i < argv.length) {
-        let arg = argv[i];
-
-        // End of options marker
-        if (arg == "--") {
-            end_of_options = true;
-            i = i + 1;
-            continue;
-        }
-
-        // After --, everything is positional
-        if (end_of_options) {
-            positionals_arr.push(arg);
-            i = i + 1;
-            continue;
-        }
-
-        // Long option: --option or --option=value
-        if (arg.starts_with("--") && arg.length > 2) {
-            let opt_part = arg.slice(2, arg.length);
-
-            // Check for = separator
-            let eq_idx = opt_part.find("=");
-            if (eq_idx >= 0) {
-                let key = opt_part.slice(0, eq_idx);
-                let value = opt_part.slice(eq_idx + 1, opt_part.length);
-                options_arr.push({ name: key, value: value });
-            } else {
-                // Check if it's a known string option
-                if (is_in_array(opt_part, string_opts) && i + 1 < argv.length) {
-                    options_arr.push({ name: opt_part, value: argv[i + 1] });
-                    i = i + 1;
-                } else {
-                    // Treat as boolean flag
-                    flags_arr.push(opt_part);
-                }
-            }
-            i = i + 1;
-            continue;
-        }
-
-        // Short option: -f or -o value
-        if (arg.starts_with("-") && arg.length > 1 && !arg.starts_with("--")) {
-            let opt_char = arg.slice(1, arg.length);
-
-            // Multiple flags combined: -abc
-            if (opt_char.length > 1 && !is_in_array(opt_char, string_opts)) {
-                let j = 0;
-                while (j < opt_char.length) {
-                    // Use substr to get single character as string
-                    let c = opt_char.substr(j, 1);
-                    flags_arr.push(c);
-                    j = j + 1;
-                }
-            } else if (is_in_array(opt_char, string_opts) && i + 1 < argv.length) {
-                // Short option expecting value
-                options_arr.push({ name: opt_char, value: argv[i + 1] });
-                i = i + 1;
-            } else {
-                // Single short flag
-                flags_arr.push(opt_char);
-            }
-            i = i + 1;
-            continue;
-        }
-
-        // Positional argument
-        positionals_arr.push(arg);
-        i = i + 1;
-    }
-
-    return {
-        script: script_name,
-        flags: flags_arr,
-        options: options_arr,
-        positionals: positionals_arr,
-        _raw: argv
-    };
-}
-
+// Store flags as array of names, options as array of {name, value}
+// Extract script name (first argument)
+// Get boolean and string option names from config
+// End of options marker
+// After --, everything is positional
+// Long option: --option or --option=value
+// Check for = separator
+// Check if it's a known string option
+// Treat as boolean flag
+// Short option: -f or -o value
+// Multiple flags combined: -abc
+// Use substr to get single character as string
+// Short option expecting value
+// Single short flag
+// Positional argument
 // Helper: Check if value is in array
-fn is_in_array(value, arr): bool {
-    let i = 0;
-    while (i < arr.length) {
-        if (arr[i] == value) {
-            return true;
-        }
-        i = i + 1;
-    }
-    return false;
-}
-
 // ============================================================================
 // Convenience Functions
 // ============================================================================
-
 // Check if a flag is set
 // Parameters:
-//   parsed: object - Result from parse()
-//   name: string - Flag name (without -- prefix)
+// parsed: object - Result from parse()
+// name: string - Flag name (without -- prefix)
 // Returns: bool - True if flag is set
-export fn has_flag(parsed, name): bool {
-    if (typeof(parsed) != "object") {
-        throw "has_flag() requires parsed object";
-    }
-    if (typeof(name) != "string") {
-        throw "has_flag() name must be string";
-    }
-
-    let flags = parsed["flags"];
-    if (flags == null) {
-        return false;
-    }
-
-    return is_in_array(name, flags);
-}
-
 // Get an option value
 // Parameters:
-//   parsed: object - Result from parse()
-//   name: string - Option name (without -- prefix)
-//   default_value: any - Default value if option not set
+// parsed: object - Result from parse()
+// name: string - Option name (without -- prefix)
+// default_value: any - Default value if option not set
 // Returns: string|any - Option value or default
-export fn get_option(parsed, name, default_value?: null) {
-    if (typeof(parsed) != "object") {
-        throw "get_option() requires parsed object";
-    }
-    if (typeof(name) != "string") {
-        throw "get_option() name must be string";
-    }
-
-    let opts = parsed["options"];
-    if (opts == null) {
-        return default_value;
-    }
-
-    let i = 0;
-    while (i < opts.length) {
-        let opt = opts[i];
-        if (opt.name == name) {
-            return opt.value;
-        }
-        i = i + 1;
-    }
-
-    return default_value;
-}
-
 // Get positional arguments
 // Parameters:
-//   parsed: object - Result from parse()
+// parsed: object - Result from parse()
 // Returns: array<string> - Array of positional arguments
-export fn get_positionals(parsed): array {
-    if (typeof(parsed) != "object") {
-        throw "get_positionals() requires parsed object";
-    }
-
-    let pos = parsed["positionals"];
-    if (pos == null) {
-        return [];
-    }
-
-    return pos;
-}
-
 // Get the script name
 // Parameters:
-//   parsed: object - Result from parse()
+// parsed: object - Result from parse()
 // Returns: string - Script name (first argument)
-export fn get_script(parsed): string {
-    if (typeof(parsed) != "object") {
-        throw "get_script() requires parsed object";
-    }
-
-    let script = parsed["script"];
-    if (script == null) {
-        return "";
-    }
-
-    return script;
-}
-
 // ============================================================================
 // Argument Builder (for creating CLI interfaces)
 // ============================================================================
-
 // Create an argument parser with configuration
 // Returns a builder object for defining CLI interface
-export fn ArgParser(name, description?: "") {
-    let config_name = name;
-    let config_description = description;
-    let config_version = "";
-    let config_flags: array = [];
-    let config_options: array = [];
-    let config_positionals: array = [];
-
-    // Build help text
-    fn build_help(): string {
-        let text = "";
-
-        // Name and description
-        text = text + "Usage: " + config_name;
-
-        if (config_options.length > 0) {
-            text = text + " [OPTIONS]";
-        }
-
-        let i = 0;
-        while (i < config_positionals.length) {
-            let pos = config_positionals[i];
-            if (pos.required) {
-                text = text + " <" + pos.name + ">";
-            } else {
-                text = text + " [" + pos.name + "]";
-            }
-            i = i + 1;
-        }
-
-        text = text + "\n";
-
-        if (config_description.length > 0) {
-            text = text + "\n" + config_description + "\n";
-        }
-
-        // Flags
-        if (config_flags.length > 0) {
-            text = text + "\nFlags:\n";
-            let j = 0;
-            while (j < config_flags.length) {
-                let flag = config_flags[j];
-                text = text + "  ";
-                if (flag.short != null && flag.short.length > 0) {
-                    text = text + "-" + flag.short;
-                    if (flag.long != null && flag.long.length > 0) {
-                        text = text + ", ";
-                    }
-                }
-                if (flag.long != null && flag.long.length > 0) {
-                    text = text + "--" + flag.long;
-                }
-                if (flag.description.length > 0) {
-                    text = text + "\n      " + flag.description;
-                }
-                text = text + "\n";
-                j = j + 1;
-            }
-        }
-
-        // Options
-        if (config_options.length > 0) {
-            text = text + "\nOptions:\n";
-            let k = 0;
-            while (k < config_options.length) {
-                let opt = config_options[k];
-                text = text + "  ";
-                if (opt.short != null && opt.short.length > 0) {
-                    text = text + "-" + opt.short;
-                    if (opt.long != null && opt.long.length > 0) {
-                        text = text + ", ";
-                    }
-                }
-                if (opt.long != null && opt.long.length > 0) {
-                    text = text + "--" + opt.long + " <value>";
-                }
-                if (opt.description.length > 0) {
-                    text = text + "\n      " + opt.description;
-                }
-                if (opt.default_value != null) {
-                    text = text + " [default: " + opt.default_value + "]";
-                }
-                text = text + "\n";
-                k = k + 1;
-            }
-        }
-
-        // Positional arguments
-        if (config_positionals.length > 0) {
-            text = text + "\nArguments:\n";
-            let m = 0;
-            while (m < config_positionals.length) {
-                let pos = config_positionals[m];
-                text = text + "  <" + pos.name + ">";
-                if (!pos.required) {
-                    text = text + " (optional)";
-                }
-                if (pos.description.length > 0) {
-                    text = text + "\n      " + pos.description;
-                }
-                text = text + "\n";
-                m = m + 1;
-            }
-        }
-
-        // Standard flags
-        text = text + "\n  -h, --help\n      Print help information\n";
-        if (config_version.length > 0) {
-            text = text + "  -V, --version\n      Print version information\n";
-        }
-
-        return text;
-    }
-
-    return {
-        // Set version string
-        version: fn(v: string) {
-            config_version = v;
-            return self;
-        },
-
-        // Add a boolean flag
-        flag: fn(short, long, desc?: "") {
-            config_flags.push({
-                short: short,
-                long: long,
-                description: desc
-            });
-            return self;
-        },
-
-        // Add an option that takes a value
-        option: fn(short, long, desc?: "", default_val?: null) {
-            config_options.push({
-                short: short,
-                long: long,
-                description: desc,
-                default_value: default_val
-            });
-            return self;
-        },
-
-        // Add a positional argument
-        positional: fn(pname, desc?: "", required?: true) {
-            config_positionals.push({
-                name: pname,
-                description: desc,
-                required: required
-            });
-            return self;
-        },
-
-        // Parse arguments and return result
-        parse_args: fn(argv) {
-            // Build string options list
-            let string_opts: array = [];
-            let i = 0;
-            while (i < config_options.length) {
-                let opt = config_options[i];
-                if (opt.short != null && opt.short.length > 0) {
-                    string_opts.push(opt.short);
-                }
-                if (opt.long != null && opt.long.length > 0) {
-                    string_opts.push(opt.long);
-                }
-                i = i + 1;
-            }
-
-            let parsed = parse(argv, { strings: string_opts });
-
-            // Check for help flag
-            if (has_flag(parsed, "help") || has_flag(parsed, "h")) {
-                return {
-                    help_requested: true,
-                    help_text: build_help()
-                };
-            }
-
-            // Check for version flag
-            if (has_flag(parsed, "version") || has_flag(parsed, "V")) {
-                return {
-                    version_requested: true,
-                    version_text: config_name + " " + config_version
-                };
-            }
-
-            // Apply defaults for options
-            let j = 0;
-            while (j < config_options.length) {
-                let opt = config_options[j];
-                let long_name = opt.long;
-                if (long_name != null && long_name.length > 0) {
-                    let current = get_option(parsed, long_name);
-                    if (current == null && opt.default_value != null) {
-                        // Add default to options array
-                        parsed.options.push({ name: long_name, value: opt.default_value });
-                    }
-                }
-                j = j + 1;
-            }
-
-            // Validate required positionals
-            let pos = get_positionals(parsed);
-            let required_count = 0;
-            let k = 0;
-            while (k < config_positionals.length) {
-                if (config_positionals[k].required) {
-                    required_count = required_count + 1;
-                }
-                k = k + 1;
-            }
-
-            if (pos.length < required_count) {
-                return {
-                    error: true,
-                    error_message: "Missing required positional argument(s)"
-                };
-            }
-
-            parsed.valid = true;
-            return parsed;
-        },
-
-        // Generate help text
-        help: fn(): string {
-            return build_help();
-        }
-    };
-}
-
+// Build help text
+// Name and description
+// Flags
+// Options
+// Positional arguments
+// Standard flags
+// Set version string
+// Add a boolean flag
+// Add an option that takes a value
+// Add a positional argument
+// Parse arguments and return result
+// Build string options list
+// Check for help flag
+// Check for version flag
+// Apply defaults for options
+// Add default to options array
+// Validate required positionals
+// Generate help text
 // ============================================================================
 // Simple Helpers
 // ============================================================================
-
 // Shift arguments (remove first N elements)
 // Parameters:
-//   argv: array - Arguments array
-//   n: i32 - Number of elements to remove (default: 1)
+// argv: array - Arguments array
+// n: i32 - Number of elements to remove (default: 1)
 // Returns: array - New array without first N elements
-export fn shift(argv, n?: 1): array {
-    if (typeof(argv) != "array") {
-        throw "shift() requires array argument";
-    }
-
-    if (n >= argv.length) {
-        return [];
-    }
-
-    return argv.slice(n, argv.length);
-}
-
 // Join remaining arguments into a string
 // Parameters:
-//   argv: array - Arguments array
-//   separator: string - Separator (default: " ")
+// argv: array - Arguments array
+// separator: string - Separator (default: " ")
 // Returns: string - Joined arguments
+export fn parse(argv, options?: null): object {
+	if (typeof(argv) != "array") {
+		throw "parse() requires array argument";
+	}
+	let flags_arr: array = [];
+	let options_arr: array = [];
+	let positionals_arr: array = [];
+	let script_name = "";
+	if (argv.length > 0) {
+		script_name = argv[0];
+	}
+	let boolean_opts: array = [];
+	let string_opts: array = [];
+	if (options != null && typeof(options) == "object") {
+		let bools = options["booleans"];
+		let strs = options["strings"];
+		if (bools != null && typeof(bools) == "array") {
+			boolean_opts = bools;
+		}
+		if (strs != null && typeof(strs) == "array") {
+			string_opts = strs;
+		}
+	}
+	let i = 1;
+	let end_of_options = false;
+	while (i < argv.length) {
+		let arg = argv[i];
+		if (arg == "--") {
+			end_of_options = true;
+			i = i + 1;
+			continue;
+		}
+		if (end_of_options) {
+			positionals_arr.push(arg);
+			i = i + 1;
+			continue;
+		}
+		if (arg.starts_with("--") && arg.length > 2) {
+			let opt_part = arg.slice(2, arg.length);
+			let eq_idx = opt_part.find("=");
+			if (eq_idx >= 0) {
+				let key = opt_part.slice(0, eq_idx);
+				let value = opt_part.slice(eq_idx + 1, opt_part.length);
+				options_arr.push({ name: key, value });
+			} else {
+				if (is_in_array(opt_part, string_opts) && i + 1 < argv.length) {
+					options_arr.push({ name: opt_part, value: argv[i + 1] });
+					i = i + 1;
+				} else {
+					flags_arr.push(opt_part);
+				}
+			}
+			i = i + 1;
+			continue;
+		}
+		if (arg.starts_with("-") && arg.length > 1 && !arg.starts_with("--")) {
+			let opt_char = arg.slice(1, arg.length);
+			if (opt_char.length > 1 && !is_in_array(opt_char, string_opts)) {
+				let j = 0;
+				while (j < opt_char.length) {
+					let c = opt_char.substr(j, 1);
+					flags_arr.push(c);
+					j = j + 1;
+				}
+			} else if (is_in_array(opt_char, string_opts) && i + 1 < argv.length) {
+	options_arr.push({ name: opt_char, value: argv[i + 1] });
+	i = i + 1;
+} else {
+	flags_arr.push(opt_char);
+}
+i = i + 1;
+continue;
+}
+positionals_arr.push(arg);
+i = i + 1;
+}
+return {
+script: script_name,
+flags: flags_arr,
+options: options_arr,
+positionals: positionals_arr,
+_raw: argv,
+};
+}
+fn is_in_array(value, arr): bool {
+	let i = 0;
+	while (i < arr.length) {
+		if (arr[i] == value) {
+			return true;
+		}
+		i = i + 1;
+	}
+	return false;
+}
+export fn has_flag(parsed, name): bool {
+	if (typeof(parsed) != "object") {
+		throw "has_flag() requires parsed object";
+	}
+	if (typeof(name) != "string") {
+		throw "has_flag() name must be string";
+	}
+	let flags = parsed["flags"];
+	if (flags == null) {
+		return false;
+	}
+	return is_in_array(name, flags);
+}
+export fn get_option(parsed, name, default_value?: null) {
+	if (typeof(parsed) != "object") {
+		throw "get_option() requires parsed object";
+	}
+	if (typeof(name) != "string") {
+		throw "get_option() name must be string";
+	}
+	let opts = parsed["options"];
+	if (opts == null) {
+		return default_value;
+	}
+	let i = 0;
+	while (i < opts.length) {
+		let opt = opts[i];
+		if (opt.name == name) {
+			return opt.value;
+		}
+		i = i + 1;
+	}
+	return default_value;
+}
+export fn get_positionals(parsed): array {
+	if (typeof(parsed) != "object") {
+		throw "get_positionals() requires parsed object";
+	}
+	let pos = parsed["positionals"];
+	if (pos == null) {
+		return [];
+	}
+	return pos;
+}
+export fn get_script(parsed): string {
+	if (typeof(parsed) != "object") {
+		throw "get_script() requires parsed object";
+	}
+	let script = parsed["script"];
+	if (script == null) {
+		return "";
+	}
+	return script;
+}
+export fn ArgParser(name, description?: "") {
+	let config_name = name;
+	let config_description = description;
+	let config_version = "";
+	let config_flags: array = [];
+	let config_options: array = [];
+	let config_positionals: array = [];
+	fn build_help(): string {
+		let text = "";
+		text = text + "Usage: " + config_name;
+		if (config_options.length > 0) {
+			text = text + " [OPTIONS]";
+		}
+		let i = 0;
+		while (i < config_positionals.length) {
+			let pos = config_positionals[i];
+			if (pos.required) {
+				text = text + " <" + pos.name + ">";
+			} else {
+				text = text + " [" + pos.name + "]";
+			}
+			i = i + 1;
+		}
+		text = text + "\n";
+		if (config_description.length > 0) {
+			text = text + "\n" + config_description + "\n";
+		}
+		if (config_flags.length > 0) {
+			text = text + "\nFlags:\n";
+			let j = 0;
+			while (j < config_flags.length) {
+				let flag = config_flags[j];
+				text = text + "  ";
+				if (flag.short != null && flag.short.length > 0) {
+					text = text + "-" + flag.short;
+					if (flag.long != null && flag.long.length > 0) {
+						text = text + ", ";
+					}
+				}
+				if (flag.long != null && flag.long.length > 0) {
+					text = text + "--" + flag.long;
+				}
+				if (flag.description.length > 0) {
+					text = text + "\n      " + flag.description;
+				}
+				text = text + "\n";
+				j = j + 1;
+			}
+		}
+		if (config_options.length > 0) {
+			text = text + "\nOptions:\n";
+			let k = 0;
+			while (k < config_options.length) {
+				let opt = config_options[k];
+				text = text + "  ";
+				if (opt.short != null && opt.short.length > 0) {
+					text = text + "-" + opt.short;
+					if (opt.long != null && opt.long.length > 0) {
+						text = text + ", ";
+					}
+				}
+				if (opt.long != null && opt.long.length > 0) {
+					text = text + "--" + opt.long + " <value>";
+				}
+				if (opt.description.length > 0) {
+					text = text + "\n      " + opt.description;
+				}
+				if (opt.default_value != null) {
+					text = text + " [default: " + opt.default_value + "]";
+				}
+				text = text + "\n";
+				k = k + 1;
+			}
+		}
+		if (config_positionals.length > 0) {
+			text = text + "\nArguments:\n";
+			let m = 0;
+			while (m < config_positionals.length) {
+				let pos = config_positionals[m];
+				text = text + "  <" + pos.name + ">";
+				if (!pos.required) {
+					text = text + " (optional)";
+				}
+				if (pos.description.length > 0) {
+					text = text + "\n      " + pos.description;
+				}
+				text = text + "\n";
+				m = m + 1;
+			}
+		}
+		text = text + "\n  -h, --help\n      Print help information\n";
+		if (config_version.length > 0) {
+			text = text + "  -V, --version\n      Print version information\n";
+		}
+		return text;
+	}
+	return {
+		version: fn(v: string) {
+			config_version = v;
+			return self;
+		}
+,
+		flag: fn(short, long, desc?: "") {
+			config_flags.push({ short, long, description: desc });
+			return self;
+		}
+,
+		option: fn(short, long, desc?: "", default_val?: null) {
+			config_options.push({
+				short,
+				long,
+				description: desc,
+				default_value: default_val,
+			});
+			return self;
+		}
+,
+		positional: fn(pname, desc?: "", required?: true) {
+			config_positionals.push({ name: pname, description: desc, required });
+			return self;
+		}
+,
+		parse_args: fn(argv) {
+			let string_opts: array = [];
+			let i = 0;
+			while (i < config_options.length) {
+				let opt = config_options[i];
+				if (opt.short != null && opt.short.length > 0) {
+					string_opts.push(opt.short);
+				}
+				if (opt.long != null && opt.long.length > 0) {
+					string_opts.push(opt.long);
+				}
+				i = i + 1;
+			}
+			let parsed = parse(argv, { strings: string_opts });
+			if (has_flag(parsed, "help") || has_flag(parsed, "h")) {
+				return { help_requested: true, help_text: build_help() };
+			}
+			if (has_flag(parsed, "version") || has_flag(parsed, "V")) {
+				return { version_requested: true, version_text: config_name + " " + config_version };
+			}
+			let j = 0;
+			while (j < config_options.length) {
+				let opt = config_options[j];
+				let long_name = opt.long;
+				if (long_name != null && long_name.length > 0) {
+					let current = get_option(parsed, long_name);
+					if (current == null && opt.default_value != null) {
+						parsed.options.push({ name: long_name, value: opt.default_value });
+					}
+				}
+				j = j + 1;
+			}
+			let pos = get_positionals(parsed);
+			let required_count = 0;
+			let k = 0;
+			while (k < config_positionals.length) {
+				if (config_positionals[k].required) {
+					required_count = required_count + 1;
+				}
+				k = k + 1;
+			}
+			if (pos.length < required_count) {
+				return { error: true, error_message: "Missing required positional argument(s)" };
+			}
+			parsed.valid = true;
+			return parsed;
+		}
+,
+		help: fn(): string {
+			return build_help();
+		}
+,
+	};
+}
+export fn shift(argv, n?: 1): array {
+	if (typeof(argv) != "array") {
+		throw "shift() requires array argument";
+	}
+	if (n >= argv.length) {
+		return [];
+	}
+	return argv.slice(n, argv.length);
+}
 export fn join_args(argv, separator?: " "): string {
-    if (typeof(argv) != "array") {
-        throw "join_args() requires array argument";
-    }
-
-    return argv.join(separator);
+	if (typeof(argv) != "array") {
+		throw "join_args() requires array argument";
+	}
+	return argv.join(separator);
 }

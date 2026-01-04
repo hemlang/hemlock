@@ -1,13 +1,11 @@
 // Multi-module example
 // Demonstrates importing from multiple local modules
-
+// Math utilities
+// String utilities
 import { PI, square, cube, circle_area, factorial, is_even } from "./math_utils";
 import { repeat_string, reverse_string, is_palindrome } from "./string_utils";
-
 print("=== Multi-Module Example ===");
 print("");
-
-// Math utilities
 print("--- Math Utils ---");
 print("PI = " + PI);
 print("square(5) = " + square(5));
@@ -16,13 +14,10 @@ print("circle_area(2) = " + circle_area(2));
 print("factorial(5) = " + factorial(5));
 print("is_even(42) = " + is_even(42));
 print("");
-
-// String utilities
 print("--- String Utils ---");
 print("repeat_string('ha', 3) = " + repeat_string("ha", 3));
 print("reverse_string('hello') = " + reverse_string("hello"));
 print("is_palindrome('radar') = " + is_palindrome("radar"));
 print("is_palindrome('hello') = " + is_palindrome("hello"));
 print("");
-
 print("=== Example Complete ===");

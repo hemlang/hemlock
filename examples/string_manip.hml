@@ -1,12 +1,10 @@
 let name = "alice";
 print(name);
 print(name.length);
-
 name[0] = 65;
 print(name);
-
 let i = 0;
 while (i < name.length) {
-    print(name[i]);
-    i = i + 1;
+	print(name[i]);
+	i = i + 1;
 }

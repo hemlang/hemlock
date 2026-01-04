@@ -842,9 +842,12 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                     buf_append(&ctx->buf, ": ");
                     fmt_type(ctx, expr->as.function.param_types[i]);
                 } else if (expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
-                    buf_append(&ctx->buf, "?");
+                    buf_append(&ctx->buf, "?: ");
+                    fmt_expr(ctx, expr->as.function.param_defaults[i]);
                 }
-                if (expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
+                if (expr->as.function.param_types && expr->as.function.param_types[i] &&
+                    expr->as.function.param_types[i]->kind != TYPE_INFER &&
+                    expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
                     buf_append(&ctx->buf, " = ");
                     fmt_expr(ctx, expr->as.function.param_defaults[i]);
                 }
@@ -1060,9 +1063,12 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                         buf_append(&ctx->buf, ": ");
                         fmt_type(ctx, fn->as.function.param_types[i]);
                     } else if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                        buf_append(&ctx->buf, "?");
+                        buf_append(&ctx->buf, "?: ");
+                        fmt_expr(ctx, fn->as.function.param_defaults[i]);
                     }
-                    if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+                    if (fn->as.function.param_types && fn->as.function.param_types[i] &&
+                        fn->as.function.param_types[i]->kind != TYPE_INFER &&
+                        fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
                         buf_append(&ctx->buf, " = ");
                         fmt_expr(ctx, fn->as.function.param_defaults[i]);
                     }
@@ -1521,8 +1527,29 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                         buf_append(&ctx->buf, fn->as.function.param_names[i]);
                         if (fn->as.function.param_types && fn->as.function.param_types[i] &&
                             fn->as.function.param_types[i]->kind != TYPE_INFER) {
+                            if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+                                buf_append(&ctx->buf, "?");
+                            }
                             buf_append(&ctx->buf, ": ");
                             fmt_type(ctx, fn->as.function.param_types[i]);
+                        } else if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+                            buf_append(&ctx->buf, "?: ");
+                            fmt_expr(ctx, fn->as.function.param_defaults[i]);
+                        }
+                        if (fn->as.function.param_types && fn->as.function.param_types[i] &&
+                            fn->as.function.param_types[i]->kind != TYPE_INFER &&
+                            fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+                            buf_append(&ctx->buf, " = ");
+                            fmt_expr(ctx, fn->as.function.param_defaults[i]);
+                        }
+                    }
+                    if (fn->as.function.rest_param) {
+                        if (fn->as.function.num_params > 0) buf_append(&ctx->buf, ", ");
+                        buf_append(&ctx->buf, "...");
+                        buf_append(&ctx->buf, fn->as.function.rest_param);
+                        if (fn->as.function.rest_param_type) {
+                            buf_append(&ctx->buf, ": ");
+                            fmt_type(ctx, fn->as.function.rest_param_type);
                         }
                     }
                     buf_append_char(&ctx->buf, ')');
@@ -1580,6 +1607,10 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
             buf_append_char(&ctx->buf, '(');
             for (int i = 0; i < stmt->as.extern_fn.num_params; i++) {
                 if (i > 0) buf_append(&ctx->buf, ", ");
+                if (stmt->as.extern_fn.param_names && stmt->as.extern_fn.param_names[i]) {
+                    buf_append(&ctx->buf, stmt->as.extern_fn.param_names[i]);
+                    buf_append(&ctx->buf, ": ");
+                }
                 if (stmt->as.extern_fn.param_types && stmt->as.extern_fn.param_types[i]) {
                     fmt_type(ctx, stmt->as.extern_fn.param_types[i]);
                 }

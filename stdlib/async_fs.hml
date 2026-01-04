@@ -1,158 +1,130 @@
 // Hemlock Standard Library: Async File System Operations
 // This module provides non-blocking file I/O using ThreadPool
 // All operations return Futures that can be awaited or polled
-
-import { ThreadPool } from "@stdlib/async";
-
 // Global thread pool for async file operations
 // Using 4 workers by default - good balance for I/O bound work
-let _file_io_pool = null;
-
-fn get_pool() {
-    if (_file_io_pool == null) {
-        _file_io_pool = ThreadPool(4);
-    }
-    return _file_io_pool;
-}
-
 // ========== ASYNC FILE OPERATIONS ==========
-
 // Read entire file contents asynchronously
 // Returns a Future<string>
-export fn async_read_file(path: string) {
-    return get_pool().submit1(__read_file, path);
-}
-
 // Write content to file asynchronously
 // Returns a Future<null>
-export fn async_write_file(path: string, content: string) {
-    return get_pool().submit2(__write_file, path, content);
-}
-
 // Append content to file asynchronously
 // Returns a Future<null>
-export fn async_append_file(path: string, content: string) {
-    return get_pool().submit2(__append_file, path, content);
-}
-
 // Copy file asynchronously
 // Returns a Future<null>
-export fn async_copy_file(src: string, dst: string) {
-    return get_pool().submit2(__copy_file, src, dst);
-}
-
 // Remove file asynchronously
 // Returns a Future<null>
-export fn async_remove_file(path: string) {
-    return get_pool().submit1(__remove_file, path);
-}
-
 // Rename/move file asynchronously
 // Returns a Future<null>
-export fn async_rename(old_path: string, new_path: string) {
-    return get_pool().submit2(__rename, old_path, new_path);
-}
-
 // Check if file/directory exists asynchronously
 // Returns a Future<bool>
-export fn async_exists(path: string) {
-    return get_pool().submit1(__exists, path);
-}
-
 // Get file stat asynchronously
 // Returns a Future<object>
-export fn async_file_stat(path: string) {
-    return get_pool().submit1(__file_stat, path);
-}
-
 // ========== ASYNC DIRECTORY OPERATIONS ==========
-
 // List directory contents asynchronously
 // Returns a Future<array<string>>
-export fn async_list_dir(path: string) {
-    return get_pool().submit1(__list_dir, path);
-}
-
 // Create directory asynchronously
 // Returns a Future<null>
-export fn async_make_dir(path: string) {
-    return get_pool().submit1(__make_dir, path);
-}
-
 // Remove directory asynchronously
 // Returns a Future<null>
-export fn async_remove_dir(path: string) {
-    return get_pool().submit1(__remove_dir, path);
-}
-
 // ========== CONVENIENCE FUNCTIONS ==========
-
 // Read multiple files in parallel
 // Returns array of file contents
-export fn read_files_parallel(paths) {
-    let pool = get_pool();
-    let futures = [];
-
-    let i = 0;
-    while (i < paths.length) {
-        futures.push(pool.submit1(__read_file, paths[i]));
-        i = i + 1;
-    }
-
-    let results = [];
-    i = 0;
-    while (i < futures.length) {
-        results.push(futures[i].get());
-        i = i + 1;
-    }
-
-    return results;
-}
-
 // Write multiple files in parallel
 // files is array of {path, content} objects
-export fn write_files_parallel(files) {
-    let pool = get_pool();
-    let futures = [];
-
-    let i = 0;
-    while (i < files.length) {
-        futures.push(pool.submit2(__write_file, files[i].path, files[i].content));
-        i = i + 1;
-    }
-
-    // Wait for all writes to complete
-    i = 0;
-    while (i < futures.length) {
-        futures[i].get();
-        i = i + 1;
-    }
-}
-
+// Wait for all writes to complete
 // Copy multiple files in parallel
 // copies is array of {src, dst} objects
-export fn copy_files_parallel(copies) {
-    let pool = get_pool();
-    let futures = [];
-
-    let i = 0;
-    while (i < copies.length) {
-        futures.push(pool.submit2(__copy_file, copies[i].src, copies[i].dst));
-        i = i + 1;
-    }
-
-    // Wait for all copies to complete
-    i = 0;
-    while (i < futures.length) {
-        futures[i].get();
-        i = i + 1;
-    }
-}
-
+// Wait for all copies to complete
 // Shutdown the internal thread pool (call when done with async file I/O)
+import { ThreadPool } from "@stdlib/async";
+let _file_io_pool = null;
+fn get_pool() {
+	if (_file_io_pool == null) {
+		_file_io_pool = ThreadPool(4);
+	}
+	return _file_io_pool;
+}
+export fn async_read_file(path: string) {
+	return get_pool().submit1(__read_file, path);
+}
+export fn async_write_file(path: string, content: string) {
+	return get_pool().submit2(__write_file, path, content);
+}
+export fn async_append_file(path: string, content: string) {
+	return get_pool().submit2(__append_file, path, content);
+}
+export fn async_copy_file(src: string, dst: string) {
+	return get_pool().submit2(__copy_file, src, dst);
+}
+export fn async_remove_file(path: string) {
+	return get_pool().submit1(__remove_file, path);
+}
+export fn async_rename(old_path: string, new_path: string) {
+	return get_pool().submit2(__rename, old_path, new_path);
+}
+export fn async_exists(path: string) {
+	return get_pool().submit1(__exists, path);
+}
+export fn async_file_stat(path: string) {
+	return get_pool().submit1(__file_stat, path);
+}
+export fn async_list_dir(path: string) {
+	return get_pool().submit1(__list_dir, path);
+}
+export fn async_make_dir(path: string) {
+	return get_pool().submit1(__make_dir, path);
+}
+export fn async_remove_dir(path: string) {
+	return get_pool().submit1(__remove_dir, path);
+}
+export fn read_files_parallel(paths) {
+	let pool = get_pool();
+	let futures = [];
+	let i = 0;
+	while (i < paths.length) {
+		futures.push(pool.submit1(__read_file, paths[i]));
+		i = i + 1;
+	}
+	let results = [];
+	i = 0;
+	while (i < futures.length) {
+		results.push(futures[i].get());
+		i = i + 1;
+	}
+	return results;
+}
+export fn write_files_parallel(files) {
+	let pool = get_pool();
+	let futures = [];
+	let i = 0;
+	while (i < files.length) {
+		futures.push(pool.submit2(__write_file, files[i].path, files[i].content));
+		i = i + 1;
+	}
+	i = 0;
+	while (i < futures.length) {
+		futures[i].get();
+		i = i + 1;
+	}
+}
+export fn copy_files_parallel(copies) {
+	let pool = get_pool();
+	let futures = [];
+	let i = 0;
+	while (i < copies.length) {
+		futures.push(pool.submit2(__copy_file, copies[i].src, copies[i].dst));
+		i = i + 1;
+	}
+	i = 0;
+	while (i < futures.length) {
+		futures[i].get();
+		i = i + 1;
+	}
+}
 export fn shutdown_async_fs() {
-    if (_file_io_pool != null) {
-        _file_io_pool.shutdown();
-        _file_io_pool = null;
-    }
+	if (_file_io_pool != null) {
+		_file_io_pool.shutdown();
+		_file_io_pool = null;
+	}
 }

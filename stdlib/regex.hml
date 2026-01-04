@@ -1,164 +1,165 @@
 // Hemlock Standard Library: Regular Expressions
 // This module provides regex pattern matching using POSIX regex via builtins
 // Works with both interpreter and compiler, including static builds
-
 // ========== CONSTANTS ==========
-
 // regcomp() flags
-export let REG_EXTENDED = 1;   // Use extended regex syntax
-export let REG_ICASE = 2;       // Case-insensitive matching
-export let REG_NOSUB = 4;       // Don't report match positions
-export let REG_NEWLINE = 8;     // Treat newline as special
-
+// Use extended regex syntax
+// Case-insensitive matching
+// Don't report match positions
+// Treat newline as special
 // regexec() flags
-export let REG_NOTBOL = 1;      // String is not beginning of line
-export let REG_NOTEOL = 2;      // String is not end of line
-
+// String is not beginning of line
+// String is not end of line
 // Error codes
-export let REG_NOMATCH = 1;     // No match found
-export let REG_BADPAT = 2;      // Invalid regex pattern
-export let REG_ECOLLATE = 3;    // Invalid collation element
-export let REG_ECTYPE = 4;      // Invalid character class
-export let REG_EESCAPE = 5;     // Trailing backslash
-export let REG_ESUBREG = 6;     // Invalid back reference
-export let REG_EBRACK = 7;      // Brackets [] not balanced
-export let REG_EPAREN = 8;      // Parentheses () not balanced
-export let REG_EBRACE = 9;      // Braces {} not balanced
-export let REG_BADBR = 10;      // Invalid repetition count
-export let REG_ERANGE = 11;     // Invalid range in []
-export let REG_ESPACE = 12;     // Out of memory
-export let REG_BADRPT = 13;     // Invalid use of repetition operator
-
+// No match found
+// Invalid regex pattern
+// Invalid collation element
+// Invalid character class
+// Trailing backslash
+// Invalid back reference
+// Brackets [] not balanced
+// Parentheses () not balanced
+// Braces {} not balanced
+// Invalid repetition count
+// Invalid range in []
+// Out of memory
+// Invalid use of repetition operator
 // ========== REGEX OBJECT ==========
-
 // Create a new compiled regex object
 // flags: compilation flags (pass null for default REG_EXTENDED)
-export fn compile(pattern: string, flags): object {
-    // Default to extended regex
-    if (flags == null) {
-        flags = REG_EXTENDED;
-    }
-
-    // Compile the pattern using builtin
-    let preg = __regex_compile(pattern, flags);
-
-    // Check for compilation errors
-    if (preg == null) {
-        throw "Regex compilation failed";
-    }
-
-    // Create regex object
-    let regex = {
-        // Private fields
-        _preg: preg,
-        _pattern: pattern,
-        _flags: flags,
-        _freed: false,
-
-        // Public properties
-        pattern: pattern,
-
-        // Test if string matches pattern
-        test: fn(text: string): bool {
-            if (self._freed) {
-                throw "Regex has been freed";
-            }
-            return __regex_test(self._preg, text, null);
-        },
-
-        // Match string and return true/false
-        matches: fn(text: string): bool {
-            return self.test(text);
-        },
-
-        // Find first match in string (returns true if found)
-        find: fn(text: string): bool {
-            if (self._freed) {
-                throw "Regex has been freed";
-            }
-            return __regex_test(self._preg, text, null);
-        },
-
-        // Find all matches and return array of match objects
-        // Each match object has: { start: i32, end: i32, text: string }
-        match: fn(text: string, max_matches): array {
-            if (self._freed) {
-                throw "Regex has been freed";
-            }
-            return __regex_match(self._preg, text, max_matches);
-        },
-
-        // Replace first match with replacement string
-        replace: fn(text: string, replacement: string): string {
-            if (self._freed) {
-                throw "Regex has been freed";
-            }
-            return __regex_replace(self._preg, text, replacement);
-        },
-
-        // Replace all matches with replacement string
-        replace_all: fn(text: string, replacement: string): string {
-            if (self._freed) {
-                throw "Regex has been freed";
-            }
-            return __regex_replace_all(self._preg, text, replacement);
-        },
-
-        // Free the compiled regex (must be called manually)
-        free: fn() {
-            if (!self._freed) {
-                __regex_free(self._preg);
-                self._freed = true;
-            }
-            return null;
-        },
-    };
-
-    return regex;
-}
-
+// Default to extended regex
+// Compile the pattern using builtin
+// Check for compilation errors
+// Create regex object
+// Private fields
+// Public properties
+// Test if string matches pattern
+// Match string and return true/false
+// Find first match in string (returns true if found)
+// Find all matches and return array of match objects
+// Each match object has: { start: i32, end: i32, text: string }
+// Replace first match with replacement string
+// Replace all matches with replacement string
+// Free the compiled regex (must be called manually)
 // ========== CONVENIENCE FUNCTIONS ==========
-
 // Test if string matches pattern (one-shot, no compilation needed for reuse)
 // flags: compilation flags (pass null for default REG_EXTENDED)
-export fn test(pattern: string, text: string, flags): bool {
-    let regex = compile(pattern, flags);
-    let result = regex.test(text);
-    regex.free();
-    return result;
-}
-
 // Match string against pattern (one-shot)
 // flags: compilation flags (pass null for default REG_EXTENDED)
-export fn matches(pattern: string, text: string, flags): bool {
-    return test(pattern, text, flags);
-}
-
 // Find if pattern exists in string (one-shot)
 // flags: compilation flags (pass null for default REG_EXTENDED)
-export fn find(pattern: string, text: string, flags): bool {
-    return test(pattern, text, flags);
-}
-
 // Replace first match in text (one-shot)
 // flags: compilation flags (pass null for default REG_EXTENDED)
-export fn replace(pattern: string, text: string, replacement: string, flags): string {
-    let regex = compile(pattern, flags);
-    let result = regex.replace(text, replacement);
-    regex.free();
-    return result;
-}
-
 // Replace all matches in text (one-shot)
 // flags: compilation flags (pass null for default REG_EXTENDED)
-export fn replace_all(pattern: string, text: string, replacement: string, flags): string {
-    let regex = compile(pattern, flags);
-    let result = regex.replace_all(text, replacement);
-    regex.free();
-    return result;
-}
-
 // Get error message for a regex error code
+export let REG_EXTENDED = 1;
+export let REG_ICASE = 2;
+export let REG_NOSUB = 4;
+export let REG_NEWLINE = 8;
+export let REG_NOTBOL = 1;
+export let REG_NOTEOL = 2;
+export let REG_NOMATCH = 1;
+export let REG_BADPAT = 2;
+export let REG_ECOLLATE = 3;
+export let REG_ECTYPE = 4;
+export let REG_EESCAPE = 5;
+export let REG_ESUBREG = 6;
+export let REG_EBRACK = 7;
+export let REG_EPAREN = 8;
+export let REG_EBRACE = 9;
+export let REG_BADBR = 10;
+export let REG_ERANGE = 11;
+export let REG_ESPACE = 12;
+export let REG_BADRPT = 13;
+export fn compile(pattern: string, flags): object {
+	if (flags == null) {
+		flags = REG_EXTENDED;
+	}
+	let preg = __regex_compile(pattern, flags);
+	if (preg == null) {
+		throw "Regex compilation failed";
+	}
+	let regex = {
+		_preg: preg,
+		_pattern: pattern,
+		_flags: flags,
+		_freed: false,
+		pattern,
+		test: fn(text: string): bool {
+			if (self._freed) {
+				throw "Regex has been freed";
+			}
+			return __regex_test(self._preg, text, null);
+		}
+,
+		matches: fn(text: string): bool {
+			return self.test(text);
+		}
+,
+		find: fn(text: string): bool {
+			if (self._freed) {
+				throw "Regex has been freed";
+			}
+			return __regex_test(self._preg, text, null);
+		}
+,
+		match: fn(text: string, max_matches): array {
+			if (self._freed) {
+				throw "Regex has been freed";
+			}
+			return __regex_match(self._preg, text, max_matches);
+		}
+,
+		replace: fn(text: string, replacement: string): string {
+			if (self._freed) {
+				throw "Regex has been freed";
+			}
+			return __regex_replace(self._preg, text, replacement);
+		}
+,
+		replace_all: fn(text: string, replacement: string): string {
+			if (self._freed) {
+				throw "Regex has been freed";
+			}
+			return __regex_replace_all(self._preg, text, replacement);
+		}
+,
+		free: fn() {
+			if (!self._freed) {
+				__regex_free(self._preg);
+				self._freed = true;
+			}
+			return null;
+		}
+,
+	};
+	return regex;
+}
+export fn test(pattern: string, text: string, flags): bool {
+	let regex = compile(pattern, flags);
+	let result = regex.test(text);
+	regex.free();
+	return result;
+}
+export fn matches(pattern: string, text: string, flags): bool {
+	return test(pattern, text, flags);
+}
+export fn find(pattern: string, text: string, flags): bool {
+	return test(pattern, text, flags);
+}
+export fn replace(pattern: string, text: string, replacement: string, flags): string {
+	let regex = compile(pattern, flags);
+	let result = regex.replace(text, replacement);
+	regex.free();
+	return result;
+}
+export fn replace_all(pattern: string, text: string, replacement: string, flags): string {
+	let regex = compile(pattern, flags);
+	let result = regex.replace_all(text, replacement);
+	regex.free();
+	return result;
+}
 export fn error_message(errcode: i32): string {
-    return __regex_error(errcode, null);
+	return __regex_error(errcode, null);
 }
