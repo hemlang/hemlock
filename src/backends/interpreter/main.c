@@ -40,7 +40,11 @@ static char* read_file(const char *path) {
     // Get file size
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
-    rewind(file);
+    if (fseek(file, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "Error: Could not seek to beginning of file\n");
+        fclose(file);
+        return NULL;
+    }
     
     // Allocate buffer
     char *buffer = malloc(size + 1);
@@ -384,13 +388,13 @@ static int compile_file(const char *input_path, const char *output_path, int deb
         // Default: replace .hml with .hmlc or append .hmlc
         size_t len = strlen(input_path);
         final_output = malloc(len + 6);  // Room for ".hmlc" (5) + null (1)
-        strcpy(final_output, input_path);
+        memcpy(final_output, input_path, len + 1);
 
         // Check for .hml extension
         if (len > 4 && strcmp(input_path + len - 4, ".hml") == 0) {
-            strcpy(final_output + len - 4, ".hmlc");
+            memcpy(final_output + len - 4, ".hmlc", 6);
         } else {
-            strcat(final_output, ".hmlc");
+            memcpy(final_output + len, ".hmlc", 6);
         }
     } else {
         final_output = strdup(output_path);
@@ -540,13 +544,13 @@ static int bundle_file(const char *input_path, const char *output_path, int verb
     if (output_path == NULL) {
         size_t len = strlen(input_path);
         final_output = malloc(len + 6);  // Room for ".hmlb\0" or ".hmlc\0"
-        strcpy(final_output, input_path);
+        memcpy(final_output, input_path, len + 1);
 
         const char *ext = compressed ? ".hmlb" : ".hmlc";
         if (len > 4 && strcmp(input_path + len - 4, ".hml") == 0) {
-            strcpy(final_output + len - 4, ext);
+            memcpy(final_output + len - 4, ext, 6);
         } else {
-            strcat(final_output, ext);
+            memcpy(final_output + len, ext, 6);
         }
     } else {
         final_output = strdup(output_path);
@@ -726,7 +730,7 @@ static int package_file(const char *input_path, const char *output_path, int ver
     if (output_path == NULL) {
         size_t input_len = strlen(input_path);
         final_output = malloc(input_len + 6);  // Room for ".hmlp\0"
-        strcpy(final_output, input_path);
+        memcpy(final_output, input_path, input_len + 1);
 
         if (input_len > 4 && strcmp(input_path + input_len - 4, ".hml") == 0) {
             final_output[input_len - 4] = '\0';  // Strip .hml extension
@@ -1066,9 +1070,21 @@ static int run_profile(int argc, char **argv) {
 
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
-    rewind(f);
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "Error: Could not seek to beginning of file\n");
+        fclose(f);
+        profiler_free(profiler);
+        return 1;
+    }
     source = malloc(size + 1);
-    fread(source, 1, size, f);
+    size_t bytes_read = fread(source, 1, size, f);
+    if ((long)bytes_read != size) {
+        fprintf(stderr, "Error: Could not read complete file (read %zu of %ld bytes)\n", bytes_read, size);
+        free(source);
+        fclose(f);
+        profiler_free(profiler);
+        return 1;
+    }
     source[size] = '\0';
     fclose(f);
 

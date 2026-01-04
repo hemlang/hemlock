@@ -317,6 +317,8 @@ static int compare_by_self_time(const void *a, const void *b) {
     return 0;
 }
 
+// Kept for future use (alternative sorting option)
+__attribute__((unused))
 static int compare_by_total_time(const void *a, const void *b) {
     const FunctionStats *fa = *(const FunctionStats **)a;
     const FunctionStats *fb = *(const FunctionStats **)b;

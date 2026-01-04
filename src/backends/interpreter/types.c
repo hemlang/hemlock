@@ -970,6 +970,12 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             // If we get here, it means we're using a generic type without type arguments
             fprintf(stderr, "Runtime error: Unresolved type parameter - generic type requires type arguments\n");
             exit(1);
+
+        case TYPE_COMPOUND:
+            // Compound types (A & B & C) are handled earlier in the function
+            // If we reach here, something went wrong
+            fprintf(stderr, "Runtime error: Internal error - compound type not handled properly\n");
+            exit(1);
     }
 
     fprintf(stderr, "Runtime error: Unknown type conversion\n");
