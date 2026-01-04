@@ -16,6 +16,8 @@
 #include "../../include/ast.h"
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
+#include "../../include/resolver.h"
+#include "../../include/optimizer.h"
 #include "codegen.h"
 #include "type_check.h"
 
@@ -566,6 +568,23 @@ int main(int argc, char **argv) {
 
     if (opts.verbose) {
         printf("Parsed %d statements\n", stmt_count);
+    }
+
+    // Resolve variables (compute depth/slot indices - shared with interpreter)
+    if (opts.verbose) {
+        printf("Resolving variables...\n");
+    }
+    resolve_program(statements, stmt_count);
+
+    // Optimize AST (constant folding, boolean simplification, strength reduction)
+    // This runs before type checking to simplify patterns for analysis
+    if (opts.verbose) {
+        printf("Optimizing AST...\n");
+    }
+    OptimizationStats opt_stats = optimize_program(statements, stmt_count);
+    if (opts.verbose && (opt_stats.constants_folded > 0 || opt_stats.booleans_simplified > 0 || opt_stats.strength_reductions > 0)) {
+        printf("  Folded %d constants, simplified %d booleans, %d strength reductions\n",
+               opt_stats.constants_folded, opt_stats.booleans_simplified, opt_stats.strength_reductions);
     }
 
     // Type check (if enabled - on by default)
