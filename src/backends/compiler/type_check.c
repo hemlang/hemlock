@@ -592,7 +592,9 @@ FunctionSig* type_check_lookup_function(TypeCheckContext *ctx, const char *name)
 void type_check_register_object(TypeCheckContext *ctx, const char *name,
                                 char **type_params, int num_type_params,
                                 char **field_names, CheckedType **field_types,
-                                int *field_optional, int num_fields) {
+                                int *field_optional, int num_fields,
+                                char **method_names, CheckedType **method_types,
+                                int *method_optional, int num_methods) {
     ObjectDef *def = calloc(1, sizeof(ObjectDef));
     def->name = strdup(name);
     def->num_fields = num_fields;
@@ -617,6 +619,23 @@ void type_check_register_object(TypeCheckContext *ctx, const char *name,
             def->field_types[i] = field_types[i];
             def->field_optional[i] = field_optional ? field_optional[i] : 0;
         }
+    }
+
+    // Copy method signatures
+    def->num_methods = num_methods;
+    if (num_methods > 0) {
+        def->method_names = calloc(num_methods, sizeof(char*));
+        def->method_types = calloc(num_methods, sizeof(CheckedType*));
+        def->method_optional = calloc(num_methods, sizeof(int));
+        for (int i = 0; i < num_methods; i++) {
+            def->method_names[i] = strdup(method_names[i]);
+            def->method_types[i] = method_types[i];
+            def->method_optional[i] = method_optional ? method_optional[i] : 0;
+        }
+    } else {
+        def->method_names = NULL;
+        def->method_types = NULL;
+        def->method_optional = NULL;
     }
 
     def->next = ctx->object_defs;
@@ -1733,10 +1752,20 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                 if (def) {
                     const char *prop = expr->as.get_property.property;
                     int found = 0;
+                    // Check fields
                     for (int i = 0; i < def->num_fields; i++) {
                         if (strcmp(def->field_names[i], prop) == 0) {
                             found = 1;
                             break;
+                        }
+                    }
+                    // Also check methods
+                    if (!found) {
+                        for (int i = 0; i < def->num_methods; i++) {
+                            if (strcmp(def->method_names[i], prop) == 0) {
+                                found = 1;
+                                break;
+                            }
                         }
                     }
                     if (!found) {
@@ -1762,11 +1791,22 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                     const char *prop = expr->as.set_property.property;
                     int found = 0;
                     CheckedType *field_type = NULL;
+                    // Check fields
                     for (int i = 0; i < def->num_fields; i++) {
                         if (strcmp(def->field_names[i], prop) == 0) {
                             found = 1;
                             field_type = def->field_types[i];
                             break;
+                        }
+                    }
+                    // Also check methods
+                    if (!found) {
+                        for (int i = 0; i < def->num_methods; i++) {
+                            if (strcmp(def->method_names[i], prop) == 0) {
+                                found = 1;
+                                field_type = def->method_types[i];
+                                break;
+                            }
                         }
                     }
                     if (!found) {
@@ -2079,11 +2119,26 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                     }
                 }
             }
+            // Convert method types
+            CheckedType **method_types = NULL;
+            if (stmt->as.define_object.num_methods > 0) {
+                method_types = calloc(stmt->as.define_object.num_methods, sizeof(CheckedType*));
+                for (int i = 0; i < stmt->as.define_object.num_methods; i++) {
+                    if (stmt->as.define_object.method_types[i]) {
+                        method_types[i] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.method_types[i]);
+                    } else {
+                        method_types[i] = checked_type_primitive(CHECKED_ANY);
+                    }
+                }
+            }
             type_check_register_object(ctx, stmt->as.define_object.name,
                 stmt->as.define_object.type_params, stmt->as.define_object.num_type_params,
                 stmt->as.define_object.field_names, field_types,
                 stmt->as.define_object.field_optional,
-                stmt->as.define_object.num_fields);
+                stmt->as.define_object.num_fields,
+                stmt->as.define_object.method_names, method_types,
+                stmt->as.define_object.method_optional,
+                stmt->as.define_object.num_methods);
             break;
         }
 
@@ -2280,11 +2335,26 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                     }
                 }
             }
+            // Convert method types
+            CheckedType **method_types = NULL;
+            if (stmt->as.define_object.num_methods > 0) {
+                method_types = calloc(stmt->as.define_object.num_methods, sizeof(CheckedType*));
+                for (int j = 0; j < stmt->as.define_object.num_methods; j++) {
+                    if (stmt->as.define_object.method_types[j]) {
+                        method_types[j] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.method_types[j]);
+                    } else {
+                        method_types[j] = checked_type_primitive(CHECKED_ANY);
+                    }
+                }
+            }
             type_check_register_object(ctx, stmt->as.define_object.name,
                 stmt->as.define_object.type_params, stmt->as.define_object.num_type_params,
                 stmt->as.define_object.field_names, field_types,
                 stmt->as.define_object.field_optional,
-                stmt->as.define_object.num_fields);
+                stmt->as.define_object.num_fields,
+                stmt->as.define_object.method_names, method_types,
+                stmt->as.define_object.method_optional,
+                stmt->as.define_object.num_methods);
         }
 
         // Handle enum definitions

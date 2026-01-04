@@ -82,6 +82,12 @@ typedef struct {
     int *field_optional;
     Expr **field_defaults;
     int num_fields;
+    // Method signatures
+    char **method_names;      // Method names
+    Type **method_types;      // Function types (TYPE_FUNCTION)
+    int *method_optional;     // 1 if optional method (fn method?())
+    Expr **method_defaults;   // Default implementation (NULL if signature only)
+    int num_methods;
 } ObjectType;
 
 typedef struct {

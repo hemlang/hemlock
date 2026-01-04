@@ -564,6 +564,27 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 type->field_defaults[i] = stmt->as.define_object.field_defaults[i];
             }
 
+            // Copy method signature information
+            type->num_methods = stmt->as.define_object.num_methods;
+            if (type->num_methods > 0) {
+                type->method_names = malloc(sizeof(char*) * type->num_methods);
+                type->method_types = malloc(sizeof(Type*) * type->num_methods);
+                type->method_optional = malloc(sizeof(int) * type->num_methods);
+                type->method_defaults = malloc(sizeof(Expr*) * type->num_methods);
+
+                for (int i = 0; i < type->num_methods; i++) {
+                    type->method_names[i] = strdup(stmt->as.define_object.method_names[i]);
+                    type->method_types[i] = stmt->as.define_object.method_types[i];
+                    type->method_optional[i] = stmt->as.define_object.method_optional[i];
+                    type->method_defaults[i] = stmt->as.define_object.method_defaults[i];
+                }
+            } else {
+                type->method_names = NULL;
+                type->method_types = NULL;
+                type->method_optional = NULL;
+                type->method_defaults = NULL;
+            }
+
             // Register the type
             register_object_type(type);
 

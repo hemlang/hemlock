@@ -69,6 +69,19 @@ void cleanup_object_types(void) {
             free(type->field_optional);
             free(type->field_defaults);
 
+            // Free method names
+            if (type->method_names) {
+                for (int j = 0; j < type->num_methods; j++) {
+                    free(type->method_names[j]);
+                }
+                free(type->method_names);
+            }
+
+            // Free method arrays (but not contents - they're AST pointers)
+            free(type->method_types);
+            free(type->method_optional);
+            free(type->method_defaults);
+
             // Free the ObjectType struct itself
             free(type);
         }
@@ -409,6 +422,56 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
 
         // Free substituted type if it was newly allocated
         free_substituted_type(substituted_field_type, field_type);
+    }
+
+    // Check all required method signatures
+    for (int i = 0; i < object_type->num_methods; i++) {
+        const char *method_name = object_type->method_names[i];
+        int method_optional = object_type->method_optional[i];
+
+        // Look for method in object (stored as a field with function value)
+        int found = 0;
+        Value method_value;
+        for (int j = 0; j < obj->num_fields; j++) {
+            if (strcmp(obj->field_names[j], method_name) == 0) {
+                found = 1;
+                method_value = obj->field_values[j];
+                break;
+            }
+        }
+
+        if (!found) {
+            // Method not present
+            if (method_optional) {
+                // Optional method - provide default implementation if available
+                if (object_type->method_defaults[i]) {
+                    // Add method with default implementation
+                    if (obj->num_fields >= obj->capacity) {
+                        obj->capacity *= 2;
+                        obj->field_names = realloc(obj->field_names, sizeof(char*) * obj->capacity);
+                        obj->field_values = realloc(obj->field_values, sizeof(Value) * obj->capacity);
+                    }
+
+                    obj->field_names[obj->num_fields] = strdup(method_name);
+                    obj->field_values[obj->num_fields] = eval_expr(object_type->method_defaults[i], env, ctx);
+                    obj->num_fields++;
+                }
+                // If no default, optional methods are simply not required
+            } else {
+                // Required method missing
+                fprintf(stderr, "Runtime error: Object missing required method '%s' for type '%s'\n",
+                        method_name, object_type->name);
+                exit(1);
+            }
+        } else {
+            // Method found - verify it's a function
+            if (method_value.type != VAL_FUNCTION) {
+                fprintf(stderr, "Runtime error: Property '%s' must be a function for type '%s'\n",
+                        method_name, object_type->name);
+                exit(1);
+            }
+            // TODO: Could validate parameter/return types against method_types[i]
+        }
     }
 
     // Set the type name on the object (include type args for display)
