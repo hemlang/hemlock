@@ -1355,11 +1355,36 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_OBJECT_LITERAL: {
             codegen_writeln(ctx, "HmlValue %s = hml_val_object();", result);
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                char *val = codegen_expr(ctx, expr->as.object_literal.field_values[i]);
-                codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);",
-                              result, expr->as.object_literal.field_names[i], val);
-                codegen_writeln(ctx, "hml_release(&%s);", val);
-                free(val);
+                if (expr->as.object_literal.field_names[i] == NULL) {
+                    // Spread operator: ...expr
+                    char *spread_val = codegen_expr(ctx, expr->as.object_literal.field_values[i]);
+                    char *spread_idx = codegen_temp(ctx);
+                    char *spread_key = codegen_temp(ctx);
+                    char *spread_field = codegen_temp(ctx);
+                    codegen_writeln(ctx, "for (int %s = 0; %s < hml_object_num_fields(%s); %s++) {",
+                                  spread_idx, spread_idx, spread_val, spread_idx);
+                    codegen_writeln(ctx, "  HmlValue %s = hml_object_key_at(%s, %s);",
+                                  spread_key, spread_val, spread_idx);
+                    codegen_writeln(ctx, "  HmlValue %s = hml_object_value_at(%s, %s);",
+                                  spread_field, spread_val, spread_idx);
+                    codegen_writeln(ctx, "  hml_object_set_field(%s, %s.as.as_string->data, %s);",
+                                  result, spread_key, spread_field);
+                    codegen_writeln(ctx, "  hml_release(&%s);", spread_key);
+                    codegen_writeln(ctx, "  hml_release(&%s);", spread_field);
+                    codegen_writeln(ctx, "}");
+                    codegen_writeln(ctx, "hml_release(&%s);", spread_val);
+                    free(spread_val);
+                    free(spread_idx);
+                    free(spread_key);
+                    free(spread_field);
+                } else {
+                    // Normal field: name: value
+                    char *val = codegen_expr(ctx, expr->as.object_literal.field_values[i]);
+                    codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);",
+                                  result, expr->as.object_literal.field_names[i], val);
+                    codegen_writeln(ctx, "hml_release(&%s);", val);
+                    free(val);
+                }
             }
             break;
         }

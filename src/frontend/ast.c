@@ -772,7 +772,10 @@ Expr* expr_clone(const Expr *expr) {
             char **field_names_copy = malloc(sizeof(char*) * expr->as.object_literal.num_fields);
             Expr **field_values_copy = malloc(sizeof(Expr*) * expr->as.object_literal.num_fields);
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
-                field_names_copy[i] = strdup(expr->as.object_literal.field_names[i]);
+                // NULL field_name indicates spread operator
+                field_names_copy[i] = expr->as.object_literal.field_names[i]
+                    ? strdup(expr->as.object_literal.field_names[i])
+                    : NULL;
                 field_values_copy[i] = expr_clone(expr->as.object_literal.field_values[i]);
             }
             return expr_object_literal(

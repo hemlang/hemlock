@@ -171,8 +171,8 @@ struct Expr {
             int num_elements;
         } array_literal;
         struct {
-            char **field_names;
-            Expr **field_values;
+            char **field_names;   // NULL entry means spread
+            Expr **field_values;  // For spread, this is the expression to spread
             int num_fields;
         } object_literal;
         struct {
