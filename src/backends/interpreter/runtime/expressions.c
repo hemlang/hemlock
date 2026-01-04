@@ -501,6 +501,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (func.type == VAL_BUILTIN_FN) {
                 // Call builtin function
                 BuiltinFn fn = func.as.as_builtin_fn;
+                // Set source location for profiler allocation tracking
+                ctx->current_source_file = get_current_source_file();
+                ctx->current_line = expr->line;
                 result = fn(args, expr->as.call.num_args, ctx);
                 // Builtin functions don't retain args, so we must release them
                 should_release_args = 1;
@@ -2108,6 +2111,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     env_release(call_env);
                 } else if (object_val.type == VAL_BUILTIN_FN) {
                     BuiltinFn fn = object_val.as.as_builtin_fn;
+                    // Set source location for profiler allocation tracking
+                    ctx->current_source_file = get_current_source_file();
+                    ctx->current_line = expr->line;
                     result = fn(args, num_args, ctx);
                 } else {
                     runtime_error(ctx, "Cannot call non-function value");

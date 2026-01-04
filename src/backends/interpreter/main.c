@@ -991,6 +991,7 @@ static int run_profile(int argc, char **argv) {
     ProfileMode mode = PROFILE_MODE_CPU;
     ProfileOutputFormat output_format = PROFILE_OUTPUT_TEXT;
     int top_n = 20;
+    bool show_leaks_only = false;
     const char *output_file = NULL;
     const char *file_to_run = NULL;
     int first_script_arg = 0;
@@ -1003,6 +1004,9 @@ static int run_profile(int argc, char **argv) {
             mode = PROFILE_MODE_MEMORY;
         } else if (strcmp(argv[i], "--calls") == 0) {
             mode = PROFILE_MODE_CALLS;
+        } else if (strcmp(argv[i], "--leaks") == 0) {
+            mode = PROFILE_MODE_MEMORY;  // Leaks implies memory mode
+            show_leaks_only = true;
         } else if (strcmp(argv[i], "--json") == 0) {
             output_format = PROFILE_OUTPUT_JSON;
         } else if (strcmp(argv[i], "--flamegraph") == 0) {
@@ -1024,6 +1028,7 @@ static int run_profile(int argc, char **argv) {
             printf("OPTIONS:\n");
             printf("    --cpu            CPU/time profiling (default)\n");
             printf("    --memory         Memory allocation profiling\n");
+            printf("    --leaks          Show only unfreed allocations (implies --memory)\n");
             printf("    --calls          Call counts only (minimal overhead)\n");
             printf("    --json           Output in JSON format\n");
             printf("    --flamegraph     Output in flamegraph-compatible format\n");
@@ -1058,6 +1063,7 @@ static int run_profile(int argc, char **argv) {
     ProfilerState *profiler = profiler_new(mode);
     profiler->output_format = output_format;
     profiler->top_n = top_n;
+    profiler->show_leaks_only = show_leaks_only;
 
     // Read and parse the file
     char *source = NULL;
