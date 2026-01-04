@@ -218,6 +218,8 @@ HmlValue hml_val_object(void) {
     o->capacity = 0;
     o->ref_count = 1;
     atomic_store(&o->freed, 0);  // Not freed
+    o->hash_table = NULL;        // Lazy initialization
+    o->hash_capacity = 0;
 
     v.as.as_object = o;
     return v;
@@ -408,6 +410,7 @@ static void object_free(HmlObject *obj) {
         free(obj->field_names);
         free(obj->field_values);
         free(obj->type_name);
+        free(obj->hash_table);  // Free hash table
         free(obj);
     }
 }
