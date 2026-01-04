@@ -1022,12 +1022,51 @@ Type* parse_type(Parser *p) {
         type = type_new(TYPE_GENERIC_OBJECT);
         type->type_name = NULL;
     }
-    // Check for custom object type name (identifier)
+    // Check for identifier (could be type parameter or custom object type)
     else if (p->current.type == TOK_IDENT) {
         char *type_name = token_text(&p->current);
         advance(p);
-        type = type_new(TYPE_CUSTOM_OBJECT);
-        type->type_name = type_name;
+
+        // Check if it's a type parameter in scope
+        int is_type_param = 0;
+        for (int i = 0; i < p->num_type_params; i++) {
+            if (strcmp(p->type_params[i], type_name) == 0) {
+                is_type_param = 1;
+                break;
+            }
+        }
+
+        if (is_type_param) {
+            // It's a type parameter reference (e.g., T in items: array<T>)
+            type = type_new(TYPE_PARAM);
+            type->type_name = type_name;
+        } else {
+            // It's a custom object type (e.g., Person, Stack<i32>)
+            type = type_new(TYPE_CUSTOM_OBJECT);
+            type->type_name = type_name;
+
+            // Check for type arguments: <type, type, ...>
+            if (p->current.type == TOK_LESS) {
+                advance(p);  // consume '<'
+
+                int type_arg_capacity = 4;
+                Type **type_args = malloc(sizeof(Type*) * type_arg_capacity);
+                int num_type_args = 0;
+
+                do {
+                    if (num_type_args >= type_arg_capacity) {
+                        type_arg_capacity *= 2;
+                        type_args = realloc(type_args, sizeof(Type*) * type_arg_capacity);
+                    }
+                    type_args[num_type_args++] = parse_type(p);
+                } while (match(p, TOK_COMMA));
+
+                consume(p, TOK_GREATER, "Expect '>' after type arguments");
+
+                type->type_args = type_args;
+                type->num_type_args = num_type_args;
+            }
+        }
     }
     else {
         switch (p->current.type) {

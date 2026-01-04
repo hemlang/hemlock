@@ -238,13 +238,17 @@ typedef enum {
     TYPE_GENERIC_OBJECT, // Generic 'object' keyword
     TYPE_ENUM,           // Enum type (Color, Status, etc.)
     TYPE_VOID,           // Void type (for FFI functions with no return)
+    TYPE_PARAM,          // Type parameter (e.g., T in define Stack<T>)
 } TypeKind;
 
 struct Type {
     TypeKind kind;
-    char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person")
+    char *type_name;      // For TYPE_CUSTOM_OBJECT (e.g., "Person") or TYPE_PARAM (e.g., "T")
     struct Type *element_type;  // For TYPE_ARRAY (element type)
     int nullable;         // If true, type allows null (e.g., string?)
+    // For generic types (e.g., Stack<i32>):
+    struct Type **type_args;    // Type arguments (e.g., [i32] for Stack<i32>)
+    int num_type_args;          // Number of type arguments
 };
 
 // ========== STATEMENT TYPES ==========
@@ -321,6 +325,8 @@ struct Stmt {
         } return_stmt;
         struct {
             char *name;
+            char **type_params;       // Type parameters (e.g., ["T", "U"] for define Pair<T, U>)
+            int num_type_params;      // Number of type parameters
             char **field_names;
             Type **field_types;       // NULL for dynamic fields
             int *field_optional;      // 1 if optional, 0 if required
@@ -428,7 +434,8 @@ Stmt* stmt_continue(void);
 Stmt* stmt_block(Stmt **statements, int count);
 Stmt* stmt_expr(Expr *expr);
 Stmt* stmt_return(Expr *value);
-Stmt* stmt_define_object(const char *name, char **field_names, Type **field_types,
+Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
+                         char **field_names, Type **field_types,
                          int *field_optional, Expr **field_defaults, int num_fields);
 Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, int num_variants);
 Stmt* stmt_try(Stmt *try_block, char *catch_param, Stmt *catch_block, Stmt *finally_block);

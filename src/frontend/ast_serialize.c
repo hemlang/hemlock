@@ -277,6 +277,8 @@ static Type* deserialize_type(DeserializeContext *ctx) {
     type->kind = (TypeKind)kind_byte;
     type->type_name = NULL;
     type->element_type = NULL;
+    type->type_args = NULL;
+    type->num_type_args = 0;
 
     if (type->kind == TYPE_CUSTOM_OBJECT || type->kind == TYPE_ENUM) {
         type->type_name = read_string_id(ctx);

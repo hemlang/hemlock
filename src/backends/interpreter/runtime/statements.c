@@ -378,6 +378,17 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             type->name = strdup(stmt->as.define_object.name);
             type->num_fields = stmt->as.define_object.num_fields;
 
+            // Copy type parameters (for generic types like define Stack<T>)
+            type->num_type_params = stmt->as.define_object.num_type_params;
+            if (type->num_type_params > 0) {
+                type->type_params = malloc(sizeof(char*) * type->num_type_params);
+                for (int i = 0; i < type->num_type_params; i++) {
+                    type->type_params[i] = strdup(stmt->as.define_object.type_params[i]);
+                }
+            } else {
+                type->type_params = NULL;
+            }
+
             // Copy field information
             type->field_names = malloc(sizeof(char*) * type->num_fields);
             type->field_types = malloc(sizeof(Type*) * type->num_fields);
@@ -395,16 +406,23 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             register_object_type(type);
 
             // Also register for FFI if all fields have type annotations
+            // and it's not a generic type (generic types can't be used for FFI directly)
             // (FFI struct registration is lazy/best-effort - it only fails
             // when the struct is actually used in an FFI function)
             int has_all_types = 1;
+            int has_type_params = (type->num_type_params > 0);
             for (int i = 0; i < type->num_fields; i++) {
                 if (type->field_types[i] == NULL) {
                     has_all_types = 0;
                     break;
                 }
+                // Also check if any field type is a type parameter
+                if (type->field_types[i]->kind == TYPE_PARAM) {
+                    has_type_params = 1;
+                    break;
+                }
             }
-            if (has_all_types && type->num_fields > 0) {
+            if (has_all_types && type->num_fields > 0 && !has_type_params) {
                 ffi_register_struct(type->name, type->field_names,
                                     type->field_types, type->num_fields);
             }

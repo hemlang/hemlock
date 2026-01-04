@@ -345,6 +345,8 @@ Type* type_new(TypeKind kind) {
     type->type_name = NULL;
     type->element_type = NULL;
     type->nullable = 0;
+    type->type_args = NULL;
+    type->num_type_args = 0;
     return type;
 }
 
@@ -355,6 +357,13 @@ void type_free(Type *type) {
         }
         if (type->element_type) {
             type_free(type->element_type);
+        }
+        // Free type arguments (for generic types like Stack<i32>)
+        if (type->type_args) {
+            for (int i = 0; i < type->num_type_args; i++) {
+                type_free(type->type_args[i]);
+            }
+            free(type->type_args);
         }
         free(type);
     }
@@ -481,13 +490,16 @@ Stmt* stmt_return(Expr *value) {
     return stmt;
 }
 
-Stmt* stmt_define_object(const char *name, char **field_names, Type **field_types,
+Stmt* stmt_define_object(const char *name, char **type_params, int num_type_params,
+                         char **field_names, Type **field_types,
                          int *field_optional, Expr **field_defaults, int num_fields) {
     Stmt *stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_DEFINE_OBJECT;
     stmt->line = 0;
     stmt->column = 0;
     stmt->as.define_object.name = strdup(name);
+    stmt->as.define_object.type_params = type_params;
+    stmt->as.define_object.num_type_params = num_type_params;
     stmt->as.define_object.field_names = field_names;
     stmt->as.define_object.field_types = field_types;
     stmt->as.define_object.field_optional = field_optional;
@@ -1098,6 +1110,13 @@ void stmt_free(Stmt *stmt) {
             break;
         case STMT_DEFINE_OBJECT:
             free(stmt->as.define_object.name);
+            // Free type parameters (for generic types like define Stack<T>)
+            if (stmt->as.define_object.type_params) {
+                for (int i = 0; i < stmt->as.define_object.num_type_params; i++) {
+                    free(stmt->as.define_object.type_params[i]);
+                }
+                free(stmt->as.define_object.type_params);
+            }
             for (int i = 0; i < stmt->as.define_object.num_fields; i++) {
                 free(stmt->as.define_object.field_names[i]);
                 if (stmt->as.define_object.field_types[i]) {
