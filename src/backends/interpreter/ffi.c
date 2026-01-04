@@ -261,6 +261,7 @@ static ffi_type* type_kind_to_ffi_type(TypeKind kind) {
         case TYPE_F32:    return &ffi_type_float;
         case TYPE_F64:    return &ffi_type_double;
         case TYPE_PTR:    return &ffi_type_pointer;
+        case TYPE_BUFFER: return &ffi_type_pointer;  // buffer is a pointer to data
         case TYPE_STRING: return &ffi_type_pointer;
         case TYPE_BOOL:   return &ffi_type_sint;
         case TYPE_VOID:   return &ffi_type_void;
@@ -282,6 +283,7 @@ static size_t type_kind_size(TypeKind kind) {
         case TYPE_F32:    return sizeof(float);
         case TYPE_F64:    return sizeof(double);
         case TYPE_PTR:    return sizeof(void*);
+        case TYPE_BUFFER: return sizeof(void*);  // buffer is a pointer
         case TYPE_STRING: return sizeof(char*);
         case TYPE_BOOL:   return sizeof(int);
         default:          return 0;
