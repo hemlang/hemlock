@@ -445,7 +445,12 @@ static int estimate_expr_len(Expr *expr) {
             int len = 4;  // "{ " and " }"
             for (int i = 0; i < expr->as.object_literal.num_fields; i++) {
                 if (i > 0) len += 2;
-                len += strlen(expr->as.object_literal.field_names[i]) + 2;
+                if (expr->as.object_literal.field_names[i] == NULL) {
+                    // Spread: ...expr
+                    len += 3;  // "..."
+                } else {
+                    len += strlen(expr->as.object_literal.field_names[i]) + 2;
+                }
                 len += estimate_expr_len(expr->as.object_literal.field_values[i]);
             }
             return len;
@@ -498,6 +503,50 @@ static void fmt_type(FmtCtx *ctx, Type *type) {
             break;
         case TYPE_VOID: buf_append(&ctx->buf, "void"); break;
         case TYPE_INFER: break;  // No annotation
+        case TYPE_PARAM:
+            // Generic type parameter (e.g., T)
+            if (type->type_name) {
+                buf_append(&ctx->buf, type->type_name);
+            }
+            break;
+        case TYPE_SELF:
+            buf_append(&ctx->buf, "Self");
+            break;
+        case TYPE_COMPOUND:
+            // Intersection type (A & B & C)
+            for (int i = 0; i < type->num_compound_types; i++) {
+                if (i > 0) buf_append(&ctx->buf, " & ");
+                fmt_type(ctx, type->compound_types[i]);
+            }
+            break;
+        case TYPE_FUNCTION:
+            // Function type: fn(params): return_type
+            if (type->fn_is_async) {
+                buf_append(&ctx->buf, "async ");
+            }
+            buf_append(&ctx->buf, "fn(");
+            for (int i = 0; i < type->fn_num_params; i++) {
+                if (i > 0) buf_append(&ctx->buf, ", ");
+                if (type->fn_param_is_const && type->fn_param_is_const[i]) {
+                    buf_append(&ctx->buf, "const ");
+                }
+                if (type->fn_param_names && type->fn_param_names[i]) {
+                    buf_append(&ctx->buf, type->fn_param_names[i]);
+                    if (type->fn_param_optional && type->fn_param_optional[i]) {
+                        buf_append_char(&ctx->buf, '?');
+                    }
+                    buf_append(&ctx->buf, ": ");
+                }
+                if (type->fn_param_types && type->fn_param_types[i]) {
+                    fmt_type(ctx, type->fn_param_types[i]);
+                }
+            }
+            buf_append_char(&ctx->buf, ')');
+            if (type->fn_return_type && type->fn_return_type->kind != TYPE_VOID) {
+                buf_append(&ctx->buf, ": ");
+                fmt_type(ctx, type->fn_return_type);
+            }
+            break;
     }
 
     if (type->nullable) {
@@ -861,6 +910,10 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                                (expr->as.object_literal.num_fields > 1);
 
             buf_append(&ctx->buf, "{");
+            if (expr->as.object_literal.num_fields == 0) {
+                buf_append(&ctx->buf, "}");
+                break;
+            }
             if (should_break) {
                 fmt_newline(ctx);
                 ctx->indent++;
@@ -873,9 +926,28 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 } else if (i > 0) {
                     buf_append(&ctx->buf, ", ");
                 }
-                buf_append(&ctx->buf, expr->as.object_literal.field_names[i]);
-                buf_append(&ctx->buf, ": ");
-                fmt_expr(ctx, expr->as.object_literal.field_values[i]);
+
+                // Check for spread (field_names[i] is NULL for spread)
+                if (expr->as.object_literal.field_names[i] == NULL) {
+                    buf_append(&ctx->buf, "...");
+                    fmt_expr(ctx, expr->as.object_literal.field_values[i]);
+                } else {
+                    // Check for shorthand: { name } where value is identifier with same name
+                    int is_shorthand = 0;
+                    Expr *val = expr->as.object_literal.field_values[i];
+                    if (val && val->type == EXPR_IDENT && val->as.ident.name &&
+                        strcmp(expr->as.object_literal.field_names[i], val->as.ident.name) == 0) {
+                        is_shorthand = 1;
+                    }
+
+                    if (is_shorthand) {
+                        buf_append(&ctx->buf, expr->as.object_literal.field_names[i]);
+                    } else {
+                        buf_append(&ctx->buf, expr->as.object_literal.field_names[i]);
+                        buf_append(&ctx->buf, ": ");
+                        fmt_expr(ctx, expr->as.object_literal.field_values[i]);
+                    }
+                }
                 if (should_break) {
                     if (i < expr->as.object_literal.num_fields - 1) {
                         buf_append(&ctx->buf, ",");
@@ -1103,6 +1175,11 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
 
         case STMT_WHILE:
             fmt_indent(ctx);
+            // Output label if present
+            if (stmt->as.while_stmt.label) {
+                buf_append(&ctx->buf, stmt->as.while_stmt.label);
+                buf_append(&ctx->buf, ": ");
+            }
             buf_append(&ctx->buf, "while (");
             fmt_expr(ctx, stmt->as.while_stmt.condition);
             buf_append(&ctx->buf, ") ");
@@ -1120,8 +1197,35 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
             }
             break;
 
+        case STMT_LOOP:
+            fmt_indent(ctx);
+            // Output label if present
+            if (stmt->as.loop_stmt.label) {
+                buf_append(&ctx->buf, stmt->as.loop_stmt.label);
+                buf_append(&ctx->buf, ": ");
+            }
+            buf_append(&ctx->buf, "loop ");
+            if (stmt->as.loop_stmt.body->type == STMT_BLOCK) {
+                fmt_stmt(ctx, stmt->as.loop_stmt.body);
+            } else {
+                buf_append(&ctx->buf, "{");
+                fmt_newline(ctx);
+                ctx->indent++;
+                fmt_stmt(ctx, stmt->as.loop_stmt.body);
+                ctx->indent--;
+                fmt_indent(ctx);
+                buf_append(&ctx->buf, "}");
+                fmt_newline(ctx);
+            }
+            break;
+
         case STMT_FOR:
             fmt_indent(ctx);
+            // Output label if present
+            if (stmt->as.for_loop.label) {
+                buf_append(&ctx->buf, stmt->as.for_loop.label);
+                buf_append(&ctx->buf, ": ");
+            }
             buf_append(&ctx->buf, "for (");
             // Initializer (without indent and newline)
             if (stmt->as.for_loop.initializer) {
@@ -1161,6 +1265,11 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
 
         case STMT_FOR_IN:
             fmt_indent(ctx);
+            // Output label if present
+            if (stmt->as.for_in.label) {
+                buf_append(&ctx->buf, stmt->as.for_in.label);
+                buf_append(&ctx->buf, ": ");
+            }
             buf_append(&ctx->buf, "for (");
             if (stmt->as.for_in.key_var) {
                 buf_append(&ctx->buf, stmt->as.for_in.key_var);
@@ -1186,13 +1295,23 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
 
         case STMT_BREAK:
             fmt_indent(ctx);
-            buf_append(&ctx->buf, "break;");
+            buf_append(&ctx->buf, "break");
+            if (stmt->as.break_stmt.label) {
+                buf_append_char(&ctx->buf, ' ');
+                buf_append(&ctx->buf, stmt->as.break_stmt.label);
+            }
+            buf_append_char(&ctx->buf, ';');
             fmt_newline(ctx);
             break;
 
         case STMT_CONTINUE:
             fmt_indent(ctx);
-            buf_append(&ctx->buf, "continue;");
+            buf_append(&ctx->buf, "continue");
+            if (stmt->as.continue_stmt.label) {
+                buf_append_char(&ctx->buf, ' ');
+                buf_append(&ctx->buf, stmt->as.continue_stmt.label);
+            }
+            buf_append_char(&ctx->buf, ';');
             fmt_newline(ctx);
             break;
 
@@ -1481,6 +1600,25 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 fmt_type(ctx, stmt->as.extern_fn.return_type);
             }
             buf_append(&ctx->buf, ";");
+            fmt_newline(ctx);
+            break;
+
+        case STMT_TYPE_ALIAS:
+            fmt_indent(ctx);
+            buf_append(&ctx->buf, "type ");
+            buf_append(&ctx->buf, stmt->as.type_alias.name);
+            // Type parameters (e.g., <T, U>)
+            if (stmt->as.type_alias.num_type_params > 0) {
+                buf_append_char(&ctx->buf, '<');
+                for (int i = 0; i < stmt->as.type_alias.num_type_params; i++) {
+                    if (i > 0) buf_append(&ctx->buf, ", ");
+                    buf_append(&ctx->buf, stmt->as.type_alias.type_params[i]);
+                }
+                buf_append_char(&ctx->buf, '>');
+            }
+            buf_append(&ctx->buf, " = ");
+            fmt_type(ctx, stmt->as.type_alias.aliased_type);
+            buf_append_char(&ctx->buf, ';');
             fmt_newline(ctx);
             break;
     }
