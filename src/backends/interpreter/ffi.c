@@ -47,6 +47,9 @@ typedef struct {
 
 static FFIStructRegistry g_struct_registry = {NULL, 0};
 
+// Thread-safety: Mutex for FFI struct registry access
+static pthread_mutex_t ffi_struct_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 // Global FFI state
 typedef struct {
     FFILibrary **libraries;  // All loaded libraries
@@ -291,8 +294,8 @@ static size_t type_kind_size(TypeKind kind) {
     }
 }
 
-// Lookup a registered FFI struct type by name
-FFIStructType* ffi_lookup_struct(const char *name) {
+// Internal lookup without locking (caller must hold ffi_struct_mutex)
+static FFIStructType* ffi_lookup_struct_unlocked(const char *name) {
     if (!name) return NULL;
     FFIStructType *st = g_struct_registry.types;
     while (st) {
@@ -304,32 +307,48 @@ FFIStructType* ffi_lookup_struct(const char *name) {
     return NULL;
 }
 
-// Register a struct type for FFI use
+// Lookup a registered FFI struct type by name (thread-safe)
+FFIStructType* ffi_lookup_struct(const char *name) {
+    if (!name) return NULL;
+
+    pthread_mutex_lock(&ffi_struct_mutex);
+    FFIStructType *result = ffi_lookup_struct_unlocked(name);
+    pthread_mutex_unlock(&ffi_struct_mutex);
+    return result;
+}
+
+// Register a struct type for FFI use (thread-safe)
 // This creates the libffi struct type with proper layout
 FFIStructType* ffi_register_struct(const char *name, char **field_names,
                                     Type **field_types, int num_fields) {
-    // Check if already registered
-    FFIStructType *existing = ffi_lookup_struct(name);
+    pthread_mutex_lock(&ffi_struct_mutex);
+
+    // Check if already registered (use unlocked version - we already hold the mutex)
+    FFIStructType *existing = ffi_lookup_struct_unlocked(name);
     if (existing) {
+        pthread_mutex_unlock(&ffi_struct_mutex);
         return existing;
     }
 
     // Validate all field types are FFI-compatible
     for (int i = 0; i < num_fields; i++) {
         if (!field_types[i]) {
+            pthread_mutex_unlock(&ffi_struct_mutex);
             fprintf(stderr, "Error: Struct '%s' field '%s' has no type annotation (required for FFI)\n",
                     name, field_names[i]);
             return NULL;
         }
         TypeKind kind = field_types[i]->kind;
         if (kind == TYPE_CUSTOM_OBJECT) {
-            // Nested structs - check if already registered
-            if (!ffi_lookup_struct(field_types[i]->type_name)) {
+            // Nested structs - check if already registered (unlocked)
+            if (!ffi_lookup_struct_unlocked(field_types[i]->type_name)) {
+                pthread_mutex_unlock(&ffi_struct_mutex);
                 fprintf(stderr, "Error: Struct '%s' field '%s' uses unregistered struct type '%s'\n",
                         name, field_names[i], field_types[i]->type_name);
                 return NULL;
             }
         } else if (!type_kind_to_ffi_type(kind)) {
+            pthread_mutex_unlock(&ffi_struct_mutex);
             fprintf(stderr, "Error: Struct '%s' field '%s' has unsupported FFI type\n",
                     name, field_names[i]);
             return NULL;
@@ -349,8 +368,8 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
         st->fields[i].hemlock_type = field_types[i]->kind;
 
         if (field_types[i]->kind == TYPE_CUSTOM_OBJECT) {
-            // Nested struct
-            FFIStructType *nested = ffi_lookup_struct(field_types[i]->type_name);
+            // Nested struct (unlocked lookup - we hold the mutex)
+            FFIStructType *nested = ffi_lookup_struct_unlocked(field_types[i]->type_name);
             st->fields[i].ffi_type = nested->ffi_type;
             st->fields[i].size = nested->size;
         } else {
@@ -394,6 +413,8 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
     st->next = g_struct_registry.types;
     g_struct_registry.types = st;
     g_struct_registry.count++;
+
+    pthread_mutex_unlock(&ffi_struct_mutex);
 
     return st;
 }
@@ -580,8 +601,10 @@ Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) {
     return val_object(obj);
 }
 
-// Free the struct registry on cleanup
+// Free the struct registry on cleanup (thread-safe)
 void ffi_struct_cleanup(void) {
+    pthread_mutex_lock(&ffi_struct_mutex);
+
     FFIStructType *st = g_struct_registry.types;
     while (st) {
         FFIStructType *next = st->next;
@@ -597,6 +620,8 @@ void ffi_struct_cleanup(void) {
     }
     g_struct_registry.types = NULL;
     g_struct_registry.count = 0;
+
+    pthread_mutex_unlock(&ffi_struct_mutex);
 }
 
 // ========== TYPE MAPPING ==========
