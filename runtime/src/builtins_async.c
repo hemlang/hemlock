@@ -195,15 +195,26 @@ void hml_detach(HmlValue task_val) {
 
     HmlTask *task = task_val.as.as_task;
 
+    // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
+    // Multiple threads calling detach() or join()/detach() simultaneously must be serialized
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+
     if (task->joined) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         hml_runtime_error("cannot detach already joined task");
     }
 
     if (task->detached) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         return; // Already detached
     }
 
+    // Mark as detached while holding mutex to prevent concurrent join/detach
     task->detached = 1;
+
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Detach the pthread (outside mutex - this is a pthread operation)
     pthread_detach(*(pthread_t*)task->thread);
 }
 
