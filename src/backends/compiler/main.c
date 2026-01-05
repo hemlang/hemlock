@@ -182,6 +182,8 @@ typedef struct {
     int stack_check;             // Enable stack overflow checking (default: on)
     int sandbox;                 // Enable sandbox mode (restrict FFI, network, process, file writes)
     const char *sandbox_root;    // Optional sandbox root directory for file access
+    int lto;                     // Enable Link-Time Optimization
+    int native;                  // Enable -march=native -mtune=native for CPU-specific optimizations
 } Options;
 
 static void print_usage(const char *progname) {
@@ -204,6 +206,8 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
     fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
     fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
+    fprintf(stderr, "  --lto           Enable Link-Time Optimization (cross-file optimization)\n");
+    fprintf(stderr, "  --native        Enable CPU-specific optimizations (-march=native -mtune=native)\n");
     fprintf(stderr, "  --sandbox [DIR] Enable sandbox mode (restrict FFI, network, process, file writes)\n");
     fprintf(stderr, "                  If DIR provided, restricts file reads to that directory\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
@@ -232,7 +236,9 @@ static Options parse_args(int argc, char **argv) {
         .static_link = 0,
         .stack_check = 1,        // Stack overflow checking ON by default
         .sandbox = 0,
-        .sandbox_root = NULL
+        .sandbox_root = NULL,
+        .lto = 0,
+        .native = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -284,6 +290,10 @@ static Options parse_args(int argc, char **argv) {
                     i++;  // Skip the directory argument
                 }
             }
+        } else if (strcmp(argv[i], "--lto") == 0) {
+            opts.lto = 1;
+        } else if (strcmp(argv[i], "--native") == 0) {
+            opts.native = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -374,8 +384,18 @@ static char* make_c_filename(const char *input) {
 static int compile_c(const Options *opts, const char *c_file) {
     // Build command
     char cmd[4096];
-    char opt_flag[4];
-    snprintf(opt_flag, sizeof(opt_flag), "-O%d", opts->optimize);
+    char opt_flag[64];
+    int opt_len = snprintf(opt_flag, sizeof(opt_flag), "-O%d", opts->optimize);
+
+    // Add LTO flag if enabled
+    if (opts->lto) {
+        opt_len += snprintf(opt_flag + opt_len, sizeof(opt_flag) - opt_len, " -flto");
+    }
+
+    // Add native tuning flags if enabled
+    if (opts->native) {
+        opt_len += snprintf(opt_flag + opt_len, sizeof(opt_flag) - opt_len, " -march=native -mtune=native");
+    }
 
     // Determine runtime path
     // Priority: --runtime flag > auto-detect (self dir, install dir, cwd)
@@ -472,6 +492,16 @@ static int compile_c(const Options *opts, const char *c_file) {
 
     // Build the linker command
     int n;
+    // Verbose output for optimization flags
+    if (opts->verbose) {
+        if (opts->lto) {
+            printf("Link-Time Optimization (LTO) enabled\n");
+        }
+        if (opts->native) {
+            printf("CPU-specific optimization enabled (-march=native -mtune=native)\n");
+        }
+    }
+
     if (opts->static_link) {
         // Hybrid static/dynamic linking:
         // - Static: libffi, libz, libssl, libcrypto, libwebsockets
@@ -582,9 +612,14 @@ int main(int argc, char **argv) {
         printf("Optimizing AST...\n");
     }
     OptimizationStats opt_stats = optimize_program(statements, stmt_count);
-    if (opts.verbose && (opt_stats.constants_folded > 0 || opt_stats.booleans_simplified > 0 || opt_stats.strength_reductions > 0)) {
-        printf("  Folded %d constants, simplified %d booleans, %d strength reductions\n",
+    if (opts.verbose && (opt_stats.constants_folded > 0 || opt_stats.booleans_simplified > 0 ||
+                         opt_stats.strength_reductions > 0 || opt_stats.dead_code_eliminated > 0)) {
+        printf("  Folded %d constants, simplified %d booleans, %d strength reductions",
                opt_stats.constants_folded, opt_stats.booleans_simplified, opt_stats.strength_reductions);
+        if (opt_stats.dead_code_eliminated > 0) {
+            printf(", eliminated %d dead code paths", opt_stats.dead_code_eliminated);
+        }
+        printf("\n");
     }
 
     // Type check (if enabled - on by default)

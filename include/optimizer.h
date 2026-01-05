@@ -19,6 +19,9 @@ typedef struct {
     int constants_folded;
     int booleans_simplified;
     int strength_reductions;
+    int dead_code_eliminated;      /* Unreachable code removed */
+    int constants_propagated;      /* Variables replaced with their constant values */
+    int loops_optimized;           /* Loop invariant code motion */
 } OptimizationStats;
 
 /*

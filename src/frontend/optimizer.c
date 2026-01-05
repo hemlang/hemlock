@@ -708,14 +708,41 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
 
         case STMT_IF:
             stmt->as.if_stmt.condition = optimize_expr_internal(stmt->as.if_stmt.condition, stats);
-            optimize_stmt_internal(stmt->as.if_stmt.then_branch, stats);
-            if (stmt->as.if_stmt.else_branch) {
-                optimize_stmt_internal(stmt->as.if_stmt.else_branch, stats);
+            /* OPTIMIZATION: Dead code elimination for constant conditions */
+            /* if (true) { A } else { B } → A */
+            /* if (false) { A } else { B } → B (or nothing if no else) */
+            if (is_const_bool(stmt->as.if_stmt.condition)) {
+                int cond_val = stmt->as.if_stmt.condition->as.boolean;
+                if (cond_val) {
+                    /* Condition is true - optimize and keep then branch only */
+                    optimize_stmt_internal(stmt->as.if_stmt.then_branch, stats);
+                    /* Mark else branch as dead (we don't modify AST structure) */
+                    if (stmt->as.if_stmt.else_branch) {
+                        stats->dead_code_eliminated++;
+                    }
+                } else {
+                    /* Condition is false - then branch is dead */
+                    stats->dead_code_eliminated++;
+                    if (stmt->as.if_stmt.else_branch) {
+                        optimize_stmt_internal(stmt->as.if_stmt.else_branch, stats);
+                    }
+                }
+            } else {
+                optimize_stmt_internal(stmt->as.if_stmt.then_branch, stats);
+                if (stmt->as.if_stmt.else_branch) {
+                    optimize_stmt_internal(stmt->as.if_stmt.else_branch, stats);
+                }
             }
             break;
 
         case STMT_WHILE:
             stmt->as.while_stmt.condition = optimize_expr_internal(stmt->as.while_stmt.condition, stats);
+            /* OPTIMIZATION: Dead code elimination for while(false) */
+            if (is_const_bool(stmt->as.while_stmt.condition) && !stmt->as.while_stmt.condition->as.boolean) {
+                /* while(false) { ... } is dead code */
+                stats->dead_code_eliminated++;
+                /* Body is never executed, but we still optimize it for completeness */
+            }
             optimize_stmt_internal(stmt->as.while_stmt.body, stats);
             break;
 
@@ -824,7 +851,7 @@ void optimize_stmt(Stmt *stmt, OptimizationStats *stats) {
  * Public API: Optimize all statements in a program.
  */
 OptimizationStats optimize_program(Stmt **statements, int count) {
-    OptimizationStats stats = {0, 0, 0};
+    OptimizationStats stats = {0, 0, 0, 0, 0, 0};
 
     for (int i = 0; i < count; i++) {
         optimize_stmt_internal(statements[i], &stats);
