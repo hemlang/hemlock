@@ -2031,6 +2031,10 @@ static void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr
         // Type check the field value if we have type information
         if (field_value && def->field_types && def->field_types[i]) {
             CheckedType *expected_type = def->field_types[i];
+            // Skip type checking for type parameters (generics) - can't validate without substitution
+            if (expected_type->kind == CHECKED_PARAM) {
+                continue;
+            }
             CheckedType *actual_type = type_check_infer_expr(ctx, field_value);
             if (actual_type && !type_is_assignable(expected_type, actual_type)) {
                 type_error(ctx, line, "field '%s' of type '%s' expects '%s', got '%s'",
