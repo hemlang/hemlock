@@ -5,6 +5,7 @@
  */
 
 #include "type_check.h"
+#include "../../include/builtins_registry.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1047,30 +1048,19 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
                 return checked_type_clone(type);
             }
 
-            // Check for built-in functions (don't warn for these)
-            static const char *builtins[] = {
-                "print", "eprint", "typeof", "len", "alloc", "free", "memset",
-                "memcpy", "buffer", "ptr_read_i8", "ptr_read_i16", "ptr_read_i32",
-                "ptr_read_i64", "ptr_read_f32", "ptr_read_f64", "ptr_read_u8",
-                "ptr_read_u16", "ptr_read_u32", "ptr_read_u64", "ptr_write_i8",
-                "ptr_write_i16", "ptr_write_i32", "ptr_write_i64", "ptr_write_f32",
-                "ptr_write_f64", "ptr_write_u8", "ptr_write_u16", "ptr_write_u32",
-                "ptr_write_u64", "ptr_null", "sizeof", "talloc", "open", "read_line",
-                "panic", "throw", "spawn", "join", "detach", "channel", "signal",
-                "raise", "apply", "exec", "wait", "kill", "fork", "sleep", "exit",
-                "atomic_load_i32", "atomic_store_i32", "atomic_add_i32", "atomic_sub_i32",
-                "atomic_cas_i32", "atomic_exchange_i32", "atomic_fence",
-                "atomic_load_i64", "atomic_store_i64", "atomic_add_i64", "atomic_sub_i64",
-                "atomic_cas_i64", "atomic_and_i32", "atomic_or_i32", "atomic_xor_i32",
-                "ffi_open", "ffi_bind", "ffi_close",
-                // Type constructors
+            // Check for built-in functions using unified registry
+            if (hml_is_builtin(name)) {
+                return checked_type_primitive(CHECKED_ANY);
+            }
+
+            // Also check for type constructors (not in registry as builtins)
+            static const char *type_constructors[] = {
                 "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
                 "f32", "f64", "bool", "string", "integer", "number", "byte",
                 NULL
             };
-
-            for (int i = 0; builtins[i]; i++) {
-                if (strcmp(name, builtins[i]) == 0) {
+            for (int i = 0; type_constructors[i]; i++) {
+                if (strcmp(name, type_constructors[i]) == 0) {
                     return checked_type_primitive(CHECKED_ANY);
                 }
             }
