@@ -710,21 +710,39 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
             stmt->as.if_stmt.condition = optimize_expr_internal(stmt->as.if_stmt.condition, stats);
             /* OPTIMIZATION: Dead code elimination for constant conditions */
             /* if (true) { A } else { B } → A */
-            /* if (false) { A } else { B } → B (or nothing if no else) */
+            /* if (false) { A } else { B } → B (or empty block if no else) */
             if (is_const_bool(stmt->as.if_stmt.condition)) {
                 int cond_val = stmt->as.if_stmt.condition->as.boolean;
                 if (cond_val) {
-                    /* Condition is true - optimize and keep then branch only */
-                    optimize_stmt_internal(stmt->as.if_stmt.then_branch, stats);
-                    /* Mark else branch as dead (we don't modify AST structure) */
+                    /* Condition is true - replace entire if with then branch */
+                    Stmt *live_branch = stmt->as.if_stmt.then_branch;
+                    optimize_stmt_internal(live_branch, stats);
                     if (stmt->as.if_stmt.else_branch) {
                         stats->dead_code_eliminated++;
                     }
+                    /* Copy the live branch into this statement, eliminating the if */
+                    int line = stmt->line;
+                    int column = stmt->column;
+                    *stmt = *live_branch;
+                    stmt->line = line;
+                    stmt->column = column;
                 } else {
-                    /* Condition is false - then branch is dead */
+                    /* Condition is false - replace with else branch or empty block */
                     stats->dead_code_eliminated++;
                     if (stmt->as.if_stmt.else_branch) {
-                        optimize_stmt_internal(stmt->as.if_stmt.else_branch, stats);
+                        Stmt *live_branch = stmt->as.if_stmt.else_branch;
+                        optimize_stmt_internal(live_branch, stats);
+                        /* Copy the else branch into this statement */
+                        int line = stmt->line;
+                        int column = stmt->column;
+                        *stmt = *live_branch;
+                        stmt->line = line;
+                        stmt->column = column;
+                    } else {
+                        /* No else branch - replace with empty block */
+                        stmt->type = STMT_BLOCK;
+                        stmt->as.block.statements = NULL;
+                        stmt->as.block.count = 0;
                     }
                 }
             } else {
@@ -739,11 +757,14 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
             stmt->as.while_stmt.condition = optimize_expr_internal(stmt->as.while_stmt.condition, stats);
             /* OPTIMIZATION: Dead code elimination for while(false) */
             if (is_const_bool(stmt->as.while_stmt.condition) && !stmt->as.while_stmt.condition->as.boolean) {
-                /* while(false) { ... } is dead code */
+                /* while(false) { ... } → empty block */
                 stats->dead_code_eliminated++;
-                /* Body is never executed, but we still optimize it for completeness */
+                stmt->type = STMT_BLOCK;
+                stmt->as.block.statements = NULL;
+                stmt->as.block.count = 0;
+            } else {
+                optimize_stmt_internal(stmt->as.while_stmt.body, stats);
             }
-            optimize_stmt_internal(stmt->as.while_stmt.body, stats);
             break;
 
         case STMT_LOOP:
