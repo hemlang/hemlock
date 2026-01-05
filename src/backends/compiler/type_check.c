@@ -1984,6 +1984,21 @@ static void type_check_function_body(TypeCheckContext *ctx, Expr *func, const ch
 
 // ========== STRUCTURAL VALIDATION FOR OBJECT LITERALS ==========
 
+// Check if a type contains any type parameters (generics) that can't be validated
+static int type_contains_param(CheckedType *type) {
+    if (!type) return 0;
+    if (type->kind == CHECKED_PARAM) return 1;
+    if (type->element_type && type_contains_param(type->element_type)) return 1;
+    if (type->return_type && type_contains_param(type->return_type)) return 1;
+    for (int i = 0; i < type->num_params; i++) {
+        if (type->param_types && type_contains_param(type->param_types[i])) return 1;
+    }
+    for (int i = 0; i < type->num_compound_types; i++) {
+        if (type->compound_types && type_contains_param(type->compound_types[i])) return 1;
+    }
+    return 0;
+}
+
 // Validate an object literal against a custom type definition at compile time.
 // This provides compile-time safety for duck typing by checking field presence and types.
 static void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr,
@@ -2031,8 +2046,8 @@ static void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr
         // Type check the field value if we have type information
         if (field_value && def->field_types && def->field_types[i]) {
             CheckedType *expected_type = def->field_types[i];
-            // Skip type checking for type parameters (generics) - can't validate without substitution
-            if (expected_type->kind == CHECKED_PARAM) {
+            // Skip type checking for types containing type parameters - can't validate without substitution
+            if (type_contains_param(expected_type)) {
                 continue;
             }
             CheckedType *actual_type = type_check_infer_expr(ctx, field_value);
