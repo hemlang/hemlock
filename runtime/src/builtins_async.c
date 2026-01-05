@@ -654,7 +654,25 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
 
             pthread_mutex_lock(mutex);
 
-            // Check if channel has data
+            // Check for unbuffered channel with sender waiting (rendezvous pattern)
+            if (ch->capacity == 0 && ch->sender_waiting) {
+                // Get the value from sender
+                HmlValue msg = *(ch->unbuffered_value);
+                *(ch->unbuffered_value) = hml_val_null();
+                ch->sender_waiting = 0;
+
+                // Signal sender that value was received
+                pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
+                pthread_mutex_unlock(mutex);
+
+                // Create result object { channel, value }
+                HmlValue result = hml_val_object();
+                hml_object_set_field(result, "channel", arr->elements[i]);
+                hml_object_set_field(result, "value", msg);
+                return result;
+            }
+
+            // Check if buffered channel has data
             if (ch->count > 0) {
                 // Read the value
                 HmlValue msg = ch->buffer[ch->head];
