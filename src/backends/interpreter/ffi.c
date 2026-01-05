@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 // Stack allocation threshold for FFI calls
 #define FFI_MAX_STACK_ARGS 8
@@ -67,7 +68,7 @@ typedef struct {
 } CallbackState;
 
 static CallbackState g_callback_state = {NULL, 0, 0};
-static int g_next_callback_id = 1;
+static atomic_int g_next_callback_id = 1;  // Atomic to prevent race conditions
 
 // Thread-safety: Mutex for callback invocations
 // Note: Hemlock interpreter is not fully thread-safe, so callbacks must be serialized
@@ -1154,7 +1155,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     cb->hemlock_fn = fn;
     function_retain(fn);  // Keep the function alive
     cb->num_params = num_params;
-    cb->id = g_next_callback_id++;
+    cb->id = atomic_fetch_add(&g_next_callback_id, 1);  // Thread-safe ID assignment
 
     // Copy parameter types
     cb->hemlock_params = malloc(sizeof(Type*) * num_params);
