@@ -154,28 +154,37 @@ HmlValue hml_join(HmlValue task_val) {
 
     HmlTask *task = task_val.as.as_task;
 
+    // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
+    // Multiple threads calling join() simultaneously must be serialized
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+
     if (task->joined) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         hml_runtime_error("task handle already joined");
     }
 
     if (task->detached) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         hml_runtime_error("cannot join detached task");
     }
 
+    // Mark as joined while holding mutex to prevent concurrent join/detach
+    task->joined = 1;
+
     // Wait for task to complete
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
     while (task->state != HML_TASK_COMPLETED) {
         pthread_cond_wait((pthread_cond_t*)task->cond, (pthread_mutex_t*)task->mutex);
     }
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
 
-    // Join the thread
-    pthread_join(*(pthread_t*)task->thread, NULL);
-    task->joined = 1;
-
-    // Return result (retained)
+    // Get result while holding mutex
     HmlValue result = task->result;
     hml_retain(&result);
+
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Join the thread (outside mutex to avoid blocking other operations)
+    pthread_join(*(pthread_t*)task->thread, NULL);
+
     return result;
 }
 
