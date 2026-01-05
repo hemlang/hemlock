@@ -477,6 +477,13 @@ Template strings: `` `Hello ${name}!` ``
 
 **String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings without modifying the original. This allows in-place mutation when needed while keeping method chaining functional.
 
+**String length properties:**
+```hemlock
+let s = "hello 🚀";
+print(s.length);       // 7 (character/rune count)
+print(s.byte_length);  // 10 (byte count - emoji is 4 bytes UTF-8)
+```
+
 ## Array Methods (18)
 
 `push`, `pop`, `shift`, `unshift`, `insert`, `remove`, `find`, `contains`,
