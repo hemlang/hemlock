@@ -816,8 +816,11 @@ int type_is_assignable(CheckedType *to, CheckedType *from) {
     }
 
     // Object to custom object (duck typing)
+    // Type assignment is allowed; structural validation for object literals is done
+    // separately in type_check_validate_object_literal when the source is known.
+    // For dynamic sources (e.g., function returns, variables), runtime checks apply.
     if (to->kind == CHECKED_CUSTOM && from->kind == CHECKED_OBJECT) {
-        return 1; // Will be checked at runtime
+        return 1;
     }
 
     // Custom objects with same name
@@ -1979,6 +1982,102 @@ static void type_check_function_body(TypeCheckContext *ctx, Expr *func, const ch
     type_check_pop_scope(ctx);
 }
 
+// ========== STRUCTURAL VALIDATION FOR OBJECT LITERALS ==========
+
+// Check if a type contains any type parameters (generics) that can't be validated
+static int type_contains_param(CheckedType *type) {
+    if (!type) return 0;
+    if (type->kind == CHECKED_PARAM) return 1;
+    if (type->element_type && type_contains_param(type->element_type)) return 1;
+    if (type->return_type && type_contains_param(type->return_type)) return 1;
+    for (int i = 0; i < type->num_params; i++) {
+        if (type->param_types && type_contains_param(type->param_types[i])) return 1;
+    }
+    for (int i = 0; i < type->num_compound_types; i++) {
+        if (type->compound_types && type_contains_param(type->compound_types[i])) return 1;
+    }
+    return 0;
+}
+
+// Validate an object literal against a custom type definition at compile time.
+// This provides compile-time safety for duck typing by checking field presence and types.
+static void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr,
+                                                const char *type_name, int line) {
+    if (!ctx || !expr || !type_name) return;
+    if (expr->type != EXPR_OBJECT_LITERAL) return;
+
+    ObjectDef *def = type_check_lookup_object(ctx, type_name);
+    if (!def) {
+        // Unknown type - let runtime handle it (might be defined elsewhere)
+        return;
+    }
+
+    // Check each required field in the type definition
+    for (int i = 0; i < def->num_fields; i++) {
+        const char *field_name = def->field_names[i];
+        int is_optional = def->field_optional && def->field_optional[i];
+
+        // Skip optional fields
+        if (is_optional) continue;
+
+        // Look for this field in the object literal
+        int found = 0;
+        Expr *field_value = NULL;
+        for (int j = 0; j < expr->as.object_literal.num_fields; j++) {
+            // Handle spread operator (field_name is NULL for spreads)
+            if (expr->as.object_literal.field_names[j] == NULL) {
+                // Spread - we can't statically verify, so assume it might provide the field
+                found = 1;
+                break;
+            }
+            if (strcmp(expr->as.object_literal.field_names[j], field_name) == 0) {
+                found = 1;
+                field_value = expr->as.object_literal.field_values[j];
+                break;
+            }
+        }
+
+        if (!found) {
+            type_error(ctx, line, "missing required field '%s' for type '%s'",
+                      field_name, type_name);
+            continue;
+        }
+
+        // Type check the field value if we have type information
+        if (field_value && def->field_types && def->field_types[i]) {
+            CheckedType *expected_type = def->field_types[i];
+            // Skip type checking for types containing type parameters - can't validate without substitution
+            if (type_contains_param(expected_type)) {
+                continue;
+            }
+            CheckedType *actual_type = type_check_infer_expr(ctx, field_value);
+            if (actual_type && !type_is_assignable(expected_type, actual_type)) {
+                type_error(ctx, line, "field '%s' of type '%s' expects '%s', got '%s'",
+                          field_name, type_name,
+                          checked_type_name(expected_type),
+                          checked_type_name(actual_type));
+            }
+            checked_type_free(actual_type);
+        }
+    }
+}
+
+// Validate an object literal against a compound type (A & B & C)
+static void type_check_validate_compound_object(TypeCheckContext *ctx, Expr *expr,
+                                                 Type *compound_type, int line) {
+    if (!ctx || !expr || !compound_type) return;
+    if (expr->type != EXPR_OBJECT_LITERAL) return;
+    if (compound_type->kind != TYPE_COMPOUND) return;
+
+    // Validate against each constituent type
+    for (int i = 0; i < compound_type->num_compound_types; i++) {
+        Type *constituent = compound_type->compound_types[i];
+        if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
+            type_check_validate_object_literal(ctx, expr, constituent->type_name, line);
+        }
+    }
+}
+
 void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
     if (!stmt) return;
 
@@ -2002,6 +2101,18 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                             checked_type_name(init_type));
                     }
                     checked_type_free(init_type);
+
+                    // Structural validation for object literals assigned to custom types
+                    if (stmt->as.let.value->type == EXPR_OBJECT_LITERAL) {
+                        if (stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                            stmt->as.let.type_annotation->type_name) {
+                            type_check_validate_object_literal(ctx, stmt->as.let.value,
+                                stmt->as.let.type_annotation->type_name, stmt->line);
+                        } else if (stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
+                            type_check_validate_compound_object(ctx, stmt->as.let.value,
+                                stmt->as.let.type_annotation, stmt->line);
+                        }
+                    }
                 }
             } else if (stmt->as.let.value) {
                 declared_type = type_check_infer_expr(ctx, stmt->as.let.value);
@@ -2031,6 +2142,18 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                             checked_type_name(init_type));
                     }
                     checked_type_free(init_type);
+
+                    // Structural validation for object literals assigned to custom types
+                    if (stmt->as.const_stmt.value->type == EXPR_OBJECT_LITERAL) {
+                        if (stmt->as.const_stmt.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                            stmt->as.const_stmt.type_annotation->type_name) {
+                            type_check_validate_object_literal(ctx, stmt->as.const_stmt.value,
+                                stmt->as.const_stmt.type_annotation->type_name, stmt->line);
+                        } else if (stmt->as.const_stmt.type_annotation->kind == TYPE_COMPOUND) {
+                            type_check_validate_compound_object(ctx, stmt->as.const_stmt.value,
+                                stmt->as.const_stmt.type_annotation, stmt->line);
+                        }
+                    }
                 }
             } else if (stmt->as.const_stmt.value) {
                 declared_type = type_check_infer_expr(ctx, stmt->as.const_stmt.value);
