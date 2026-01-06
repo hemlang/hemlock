@@ -154,28 +154,37 @@ HmlValue hml_join(HmlValue task_val) {
 
     HmlTask *task = task_val.as.as_task;
 
+    // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
+    // Multiple threads calling join() simultaneously must be serialized
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+
     if (task->joined) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         hml_runtime_error("task handle already joined");
     }
 
     if (task->detached) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         hml_runtime_error("cannot join detached task");
     }
 
+    // Mark as joined while holding mutex to prevent concurrent join/detach
+    task->joined = 1;
+
     // Wait for task to complete
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
     while (task->state != HML_TASK_COMPLETED) {
         pthread_cond_wait((pthread_cond_t*)task->cond, (pthread_mutex_t*)task->mutex);
     }
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
 
-    // Join the thread
-    pthread_join(*(pthread_t*)task->thread, NULL);
-    task->joined = 1;
-
-    // Return result (retained)
+    // Get result while holding mutex
     HmlValue result = task->result;
     hml_retain(&result);
+
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Join the thread (outside mutex to avoid blocking other operations)
+    pthread_join(*(pthread_t*)task->thread, NULL);
+
     return result;
 }
 
@@ -186,15 +195,26 @@ void hml_detach(HmlValue task_val) {
 
     HmlTask *task = task_val.as.as_task;
 
+    // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
+    // Multiple threads calling detach() or join()/detach() simultaneously must be serialized
+    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+
     if (task->joined) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         hml_runtime_error("cannot detach already joined task");
     }
 
     if (task->detached) {
+        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
         return; // Already detached
     }
 
+    // Mark as detached while holding mutex to prevent concurrent join/detach
     task->detached = 1;
+
+    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+
+    // Detach the pthread (outside mutex - this is a pthread operation)
     pthread_detach(*(pthread_t*)task->thread);
 }
 
@@ -634,7 +654,25 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
 
             pthread_mutex_lock(mutex);
 
-            // Check if channel has data
+            // Check for unbuffered channel with sender waiting (rendezvous pattern)
+            if (ch->capacity == 0 && ch->sender_waiting) {
+                // Get the value from sender
+                HmlValue msg = *(ch->unbuffered_value);
+                *(ch->unbuffered_value) = hml_val_null();
+                ch->sender_waiting = 0;
+
+                // Signal sender that value was received
+                pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
+                pthread_mutex_unlock(mutex);
+
+                // Create result object { channel, value }
+                HmlValue result = hml_val_object();
+                hml_object_set_field(result, "channel", arr->elements[i]);
+                hml_object_set_field(result, "value", msg);
+                return result;
+            }
+
+            // Check if buffered channel has data
             if (ch->count > 0) {
                 // Read the value
                 HmlValue msg = ch->buffer[ch->head];
