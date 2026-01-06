@@ -157,7 +157,7 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.7.1 is released with:
+Hemlock v1.7.2 is released with:
 
 - **Single-line statements** - braceless `if`, `while`, `for` syntax
 - **Type aliases** (`type Name = Type;`) for complex types
