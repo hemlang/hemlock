@@ -215,12 +215,12 @@ export fn run_lines(command): array {
 	let output = run_output(command);
 	return split_lines(output);
 }
-fn prepare_command(command): string {
+fn prepare_command(command) {
 	if (typeof(command) == "string") {
 		return command;
 	}
 	if (typeof(command) == "array") {
-		return build_command(command);
+		return command;
 	}
 	throw "Command must be string or array";
 }
@@ -392,8 +392,11 @@ export fn redirect_stderr(command: string, file: string): string {
 export fn redirect_all(command: string, file: string): string {
 	return command + " > " + quote(file) + " 2>&1";
 }
-fn exec_cmd(cmd: string): object {
-return __exec(cmd);
+fn exec_cmd(cmd): object {
+	if (typeof(cmd) == "array") {
+		return __exec_argv(cmd);
+	}
+	return __exec(cmd);
 }
 fn getenv(name: string) {
 return __getenv(name);
