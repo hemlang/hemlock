@@ -21,6 +21,7 @@ static void buf_init(StrBuf *buf) {
     buf->len = 0;
 }
 
+static void buf_free(StrBuf *buf) __attribute__((unused));
 static void buf_free(StrBuf *buf) {
     free(buf->data);
     buf->data = NULL;
