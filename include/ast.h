@@ -419,6 +419,7 @@ struct Stmt {
         } import_ffi;
         struct {
             char *function_name;     // C function name
+            char **param_names;      // Parameter names (for formatting)
             Type **param_types;      // Parameter types
             int num_params;          // Number of parameters
             Type *return_type;       // Return type (NULL for void)
@@ -504,7 +505,7 @@ Stmt* stmt_export_declaration(Stmt *declaration);
 Stmt* stmt_export_list(char **export_names, char **export_aliases, int num_exports);
 Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_exports, const char *module_path);
 Stmt* stmt_import_ffi(const char *library_path);
-Stmt* stmt_extern_fn(const char *function_name, Type **param_types, int num_params, Type *return_type);
+Stmt* stmt_extern_fn(const char *function_name, char **param_names, Type **param_types, int num_params, Type *return_type);
 Type* type_new(TypeKind kind);
 Type* type_compound(Type **types, int num_types);  // Create compound type (A & B & C)
 Type* type_function(Type **param_types, char **param_names, int *param_optional,

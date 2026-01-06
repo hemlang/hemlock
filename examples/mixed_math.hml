@@ -2,15 +2,11 @@ let tiny: u8 = 5;
 let small: i16 = -10;
 let big: i32 = 100;
 let precise: f64 = 3.14;
-
 let result1 = tiny + small;
 print(result1);
-
 let result2 = big + precise;
 print(result2);
-
 let result3 = tiny + small + big;
 print(result3);
-
 let result4 = tiny + small + big + precise;
 print(result4);

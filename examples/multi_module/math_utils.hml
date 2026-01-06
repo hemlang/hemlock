@@ -1,32 +1,25 @@
 // Math utilities module
 // Demonstrates exported functions and constants
-
-export let PI = 3.14159265359;
-export let E = 2.71828182845;
-
+export let PI = 3.14159;
+export let E = 2.71828;
 export fn square(x) {
-    return x * x;
+	return x * x;
 }
-
 export fn cube(x) {
-    return x * x * x;
+	return x * x * x;
 }
-
 export fn circle_area(radius) {
-    return PI * radius * radius;
+	return PI * radius * radius;
 }
-
 export fn factorial(n) {
-    if (n <= 1) {
-        return 1;
-    }
-    return n * factorial(n - 1);
+	if (n <= 1) {
+		return 1;
+	}
+	return n * factorial(n - 1);
 }
-
 export fn is_even(n) {
-    return n % 2 == 0;
+	return n % 2 == 0;
 }
-
 export fn is_odd(n) {
-    return n % 2 != 0;
+	return n % 2 != 0;
 }

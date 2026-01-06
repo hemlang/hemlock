@@ -2,17 +2,14 @@ let a: u8 = 10;
 let b: i32 = 20;
 let c = a + b;
 print(c);
-
 let x: i32 = 5;
 let y: f64 = 3.14;
 let z = x + y;
 print(z);
-
 let p: u8 = 100;
 let q: u16 = 200;
 let r = p + q;
 print(r);
-
 let m: f32 = 2.5;
 let n: f64 = 1.5;
 let o = m + n;

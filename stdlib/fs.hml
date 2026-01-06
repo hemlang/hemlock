@@ -1,8 +1,9 @@
 // Hemlock Standard Library: File System Operations
 // This module provides high-level file and directory operations
-
 // ========== FILE OPERATIONS ==========
-
+// ========== DIRECTORY OPERATIONS ==========
+// ========== FILE INFO ==========
+// ========== PATH OPERATIONS ==========
 export let exists = __exists;
 export let read_file = __read_file;
 export let write_file = __write_file;
@@ -10,21 +11,12 @@ export let append_file = __append_file;
 export let remove_file = __remove_file;
 export let rename = __rename;
 export let copy_file = __copy_file;
-
-// ========== DIRECTORY OPERATIONS ==========
-
 export let make_dir = __make_dir;
 export let remove_dir = __remove_dir;
 export let list_dir = __list_dir;
-
-// ========== FILE INFO ==========
-
 export let is_file = __is_file;
 export let is_dir = __is_dir;
 export let file_stat = __file_stat;
-
-// ========== PATH OPERATIONS ==========
-
 export let cwd = __cwd;
 export let chdir = __chdir;
 export let absolute_path = __absolute_path;

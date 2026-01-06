@@ -1,16 +1,22 @@
 // Hemlock Standard Library: Mathematical Operations
 // This module provides comprehensive math functions and constants
-
 // ========== CONSTANTS ==========
-
+// ========== TRIGONOMETRIC FUNCTIONS ==========
+// ========== EXPONENTIAL & LOGARITHMIC FUNCTIONS ==========
+// Natural logarithm (ln)
+// Base-10 logarithm
+// Base-2 logarithm
+// ========== ROUNDING FUNCTIONS ==========
+// ========== UTILITY FUNCTIONS ==========
+// ========== RANDOM FUNCTIONS ==========
+// Random float [0.0, 1.0)
+// Random float [min, max)
+// Seed random number generator
 export let PI = __PI;
 export let E = __E;
 export let TAU = __TAU;
 export let INF = __INF;
 export let NAN = __NAN;
-
-// ========== TRIGONOMETRIC FUNCTIONS ==========
-
 export let sin = __sin;
 export let cos = __cos;
 export let tan = __tan;
@@ -18,32 +24,20 @@ export let asin = __asin;
 export let acos = __acos;
 export let atan = __atan;
 export let atan2 = __atan2;
-
-// ========== EXPONENTIAL & LOGARITHMIC FUNCTIONS ==========
-
 export let sqrt = __sqrt;
 export let pow = __pow;
 export let exp = __exp;
-export let log = __log;      // Natural logarithm (ln)
-export let log10 = __log10;  // Base-10 logarithm
-export let log2 = __log2;    // Base-2 logarithm
-
-// ========== ROUNDING FUNCTIONS ==========
-
+export let log = __log;
+export let log10 = __log10;
+export let log2 = __log2;
 export let floor = __floor;
 export let ceil = __ceil;
 export let round = __round;
 export let trunc = __trunc;
-
-// ========== UTILITY FUNCTIONS ==========
-
 export let abs = __abs;
 export let min = __min;
 export let max = __max;
 export let clamp = __clamp;
-
-// ========== RANDOM FUNCTIONS ==========
-
-export let rand = __rand;              // Random float [0.0, 1.0)
-export let rand_range = __rand_range;  // Random float [min, max)
-export let seed = __seed;              // Seed random number generator
+export let rand = __rand;
+export let rand_range = __rand_range;
+export let seed = __seed;

@@ -6,7 +6,6 @@ let e: u16 = 65535;
 let f: u32 = 100000;
 let g: f32 = 3.14;
 let h: f64 = 2.71828;
-
 print(a);
 print(b);
 print(c);

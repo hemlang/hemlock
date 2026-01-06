@@ -1,106 +1,84 @@
 // Example: Using @stdlib/http module
 // Demonstrates production-ready HTTP/HTTPS client using curl
-
-import { get, post_json, fetch, get_json, is_success } from "@stdlib/http";
-
-print("=== Hemlock HTTP Client Example ===\n");
-
 // Example 1: Simple HTTPS GET request
+// Example 2: Fetch JSON API
+// Example 3: POST JSON data
+// Example 4: Custom headers with authentication
+// Example 5: Error handling
+// Example 6: Simple fetch
+import { get, post_json, fetch, get_json, is_success } from "@stdlib/http";
+print("=== Hemlock HTTP Client Example ===\n");
 print("Example 1: HTTPS GET request");
 print("-----------------------------");
 try {
-    let response = get("https://httpbin.org/get", null);
-
-    if (is_success(response.status_code)) {
-        print("Status: " + typeof(response.status_code));
-        print("Body (first 100 chars): " + response.body.substr(0, 100));
-    } else {
-        print("Request failed with status: " + typeof(response.status_code));
-    }
+	let response = get("https://httpbin.org/get", null);
+	if (is_success(response.status_code)) {
+		print("Status: " + typeof(response.status_code));
+		print("Body (first 100 chars): " + response.body.substr(0, 100));
+	} else {
+		print("Request failed with status: " + typeof(response.status_code));
+	}
 } catch (e) {
-    print("Error: " + e);
-    print("(Requires curl to be installed and network access)");
+	print("Error: " + e);
+	print("(Requires curl to be installed and network access)");
 }
-
 print("\n");
-
-// Example 2: Fetch JSON API
 print("Example 2: Fetch and Parse JSON");
 print("--------------------------------");
 try {
-    let user = get_json("https://jsonplaceholder.typicode.com/users/1");
-    print("Name: " + user.name);
-    print("Email: " + user.email);
-    print("Company: " + user.company.name);
+	let user = get_json("https://jsonplaceholder.typicode.com/users/1");
+	print("Name: " + user.name);
+	print("Email: " + user.email);
+	print("Company: " + user.company.name);
 } catch (e) {
-    print("Error: " + e);
+	print("Error: " + e);
 }
-
 print("\n");
-
-// Example 3: POST JSON data
 print("Example 3: POST JSON");
 print("--------------------");
 try {
-    let data = {
-        title: "Buy groceries",
-        completed: false,
-        userId: 1
-    };
-
-    let response = post_json("https://jsonplaceholder.typicode.com/todos", data);
-    print("Response (first 100 chars): " + response.body.substr(0, 100));
+	let data = { title: "Buy groceries", completed: false, userId: 1 };
+	let response = post_json("https://jsonplaceholder.typicode.com/todos", data);
+	print("Response (first 100 chars): " + response.body.substr(0, 100));
 } catch (e) {
-    print("Error: " + e);
+	print("Error: " + e);
 }
-
 print("\n");
-
-// Example 4: Custom headers with authentication
 print("Example 4: Custom Headers");
 print("-------------------------");
 try {
-    let headers = [
-        "User-Agent: Hemlock-HTTP/1.0",
-        "Accept: application/json",
-        "X-Custom-Header: test-value"
-    ];
-
-    let response = get("https://httpbin.org/headers", headers);
-    print("Response received (check headers were sent)");
+	let headers = [
+		"User-Agent: Hemlock-HTTP/1.0",
+		"Accept: application/json",
+		"X-Custom-Header: test-value",
+	];
+	let response = get("https://httpbin.org/headers", headers);
+	print("Response received (check headers were sent)");
 } catch (e) {
-    print("Error: " + e);
+	print("Error: " + e);
 }
-
 print("\n");
-
-// Example 5: Error handling
 print("Example 5: Error Handling");
 print("-------------------------");
 try {
-    let response = get("https://httpbin.org/status/404", null);
-    if (is_success(response.status_code)) {
-        print("Success!");
-    } else {
-        print("Got error status: " + typeof(response.status_code));
-    }
+	let response = get("https://httpbin.org/status/404", null);
+	if (is_success(response.status_code)) {
+		print("Success!");
+	} else {
+		print("Got error status: " + typeof(response.status_code));
+	}
 } catch (e) {
-    print("Request failed: " + e);
+	print("Request failed: " + e);
 }
-
 print("\n");
-
-// Example 6: Simple fetch
 print("Example 6: Simple Fetch");
 print("-----------------------");
 try {
-    let html = fetch("https://example.com");
-    print("Fetched " + typeof(html.length) + " bytes from example.com");
+	let html = fetch("https://example.com");
+	print("Fetched " + typeof(html.length) + " bytes from example.com");
 } catch (e) {
-    print("Error: " + e);
+	print("Error: " + e);
 }
-
 print("\n=== Examples Complete ===");
-
 print("\nNOTE: This module uses curl for HTTP/HTTPS support.");
 print("Ensure curl is installed: which curl");

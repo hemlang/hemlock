@@ -1,64 +1,50 @@
 // WebSocket Echo Client Example
 // Demonstrates @stdlib/websocket (requires libwebsockets)
-
-import { WebSocket } from "@stdlib/websocket";
-
-print("=== Hemlock WebSocket Echo Client ===");
-print("");
-
 // Note: This uses libwebsockets implementation with SSL/TLS support
 // Requires: libwebsockets-dev package (sudo apt-get install libwebsockets-dev)
-
+// Send a few test messages
+// 5 second timeout
+// Send another message
+// 5 second timeout
+import { WebSocket } from "@stdlib/websocket";
+print("=== Hemlock WebSocket Echo Client ===");
+print("");
 print("Connecting to ws://echo.websocket.org...");
-
 try {
-    let ws = WebSocket("ws://echo.websocket.org");
-    defer ws.close();
-
-    print("✓ Connected!");
-    print("");
-
-    // Send a few test messages
-    print("Sending: 'Hello WebSocket!'");
-    ws.send_text("Hello WebSocket!");
-
-    print("Waiting for echo...");
-    let msg1 = ws.recv(5000);  // 5 second timeout
-
-    if (msg1 != null && msg1.type == "text") {
-        print("✓ Received: " + msg1.data);
-    } else {
-        print("✗ No response or wrong type");
-    }
-
-    print("");
-
-    // Send another message
-    print("Sending: 'Hemlock WebSocket Test'");
-    ws.send_text("Hemlock WebSocket Test");
-
-    print("Waiting for echo...");
-    let msg2 = ws.recv(5000);  // 5 second timeout
-
-    if (msg2 != null && msg2.type == "text") {
-        print("✓ Received: " + msg2.data);
-    } else {
-        print("✗ No response or wrong type");
-    }
-
-    print("");
-    print("Closing connection...");
-
+	let ws = WebSocket("ws://echo.websocket.org");
+	defer ws.close();
+	print("✓ Connected!");
+	print("");
+	print("Sending: 'Hello WebSocket!'");
+	ws.send_text("Hello WebSocket!");
+	print("Waiting for echo...");
+	let msg1 = ws.recv(5000);
+	if (msg1 != null && msg1.type == "text") {
+		print("✓ Received: " + msg1.data);
+	} else {
+		print("✗ No response or wrong type");
+	}
+	print("");
+	print("Sending: 'Hemlock WebSocket Test'");
+	ws.send_text("Hemlock WebSocket Test");
+	print("Waiting for echo...");
+	let msg2 = ws.recv(5000);
+	if (msg2 != null && msg2.type == "text") {
+		print("✓ Received: " + msg2.data);
+	} else {
+		print("✗ No response or wrong type");
+	}
+	print("");
+	print("Closing connection...");
 } catch (e) {
-    print("ERROR: " + e);
-    print("");
-    print("Common issues:");
-    print("- libwebsockets not installed");
-    print("- Network connectivity");
-    print("- echo.websocket.org is down");
-    print("");
-    print("To install libwebsockets:");
-    print("  sudo apt-get install libwebsockets-dev");
+	print("ERROR: " + e);
+	print("");
+	print("Common issues:");
+	print("- libwebsockets not installed");
+	print("- Network connectivity");
+	print("- echo.websocket.org is down");
+	print("");
+	print("To install libwebsockets:");
+	print("  sudo apt-get install libwebsockets-dev");
 }
-
 print("Done!");

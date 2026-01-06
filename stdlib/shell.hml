@@ -1,499 +1,403 @@
 // @stdlib/shell - Shell utilities and command helpers
-//
+// 
 // Provides utilities for building shell commands safely, escaping arguments,
 // and parsing command output.
-//
+// 
 // Usage:
-//   import { escape, quote, run, run_capture } from "@stdlib/shell";
-
+// import { escape, quote, run, run_capture } from "@stdlib/shell";
 // ============================================================================
 // Argument Escaping and Quoting
 // ============================================================================
-
 // Escape special shell characters in a string
 // Parameters:
-//   s: string - String to escape
+// s: string - String to escape
 // Returns: string - Escaped string safe for shell use
-export fn escape(s: string): string {
-    let result = "";
-    let i = 0;
-
-    while (i < s.length) {
-        let ch = s.char_at(i);
-
-        // Characters that need escaping in shell
-        if (ch == '\\' || ch == '"' || ch == '\'' || ch == '`' ||
-            ch == '$' || ch == '!' || ch == '*' || ch == '?' ||
-            ch == '[' || ch == ']' || ch == '{' || ch == '}' ||
-            ch == '(' || ch == ')' || ch == '|' || ch == '&' ||
-            ch == ';' || ch == '<' || ch == '>' || ch == ' ' ||
-            ch == '\t' || ch == '\n' || ch == '#' || ch == '~') {
-            result = result + "\\" + ch;
-        } else {
-            result = result + ch;
-        }
-
-        i = i + 1;
-    }
-
-    return result;
-}
-
+// Characters that need escaping in shell
 // Quote a string for safe shell use (single quotes)
 // Parameters:
-//   s: string - String to quote
+// s: string - String to quote
 // Returns: string - Quoted string
-export fn quote(s: string): string {
-    // Single quotes are safest - only need to handle embedded single quotes
-    let result = "'";
-    let i = 0;
-
-    while (i < s.length) {
-        let ch = s.char_at(i);
-
-        if (ch == '\'') {
-            // End quote, escaped single quote, start quote again
-            result = result + "'\"'\"'";
-        } else {
-            result = result + ch;
-        }
-
-        i = i + 1;
-    }
-
-    return result + "'";
-}
-
+// Single quotes are safest - only need to handle embedded single quotes
+// End quote, escaped single quote, start quote again
 // Quote a string using double quotes (allows variable expansion)
 // Parameters:
-//   s: string - String to quote
+// s: string - String to quote
 // Returns: string - Double-quoted string
-export fn double_quote(s: string): string {
-    let result = "\"";
-    let i = 0;
-
-    while (i < s.length) {
-        let ch = s.char_at(i);
-
-        // Characters that need escaping in double quotes
-        if (ch == '"' || ch == '\\' || ch == '$' || ch == '`' || ch == '!') {
-            result = result + "\\" + ch;
-        } else {
-            result = result + ch;
-        }
-
-        i = i + 1;
-    }
-
-    return result + "\"";
-}
-
+// Characters that need escaping in double quotes
 // ============================================================================
 // Command Building
 // ============================================================================
-
 // Build a command string from parts
 // Parameters:
-//   parts: array - Command and arguments
+// parts: array - Command and arguments
 // Returns: string - Shell command string
-export fn build_command(parts): string {
-    if (typeof(parts) != "array") {
-        throw "build_command() requires array argument";
-    }
-    if (parts.length == 0) {
-        throw "build_command() requires at least one element";
-    }
-
-    let result = "";
-    let i = 0;
-
-    while (i < parts.length) {
-        if (i > 0) {
-            result = result + " ";
-        }
-        result = result + quote("" + parts[i]);
-        i = i + 1;
-    }
-
-    return result;
-}
-
 // Join commands with && (run second only if first succeeds)
-export fn and_then(commands): string {
-    return join_commands(commands, " && ");
-}
-
 // Join commands with || (run second only if first fails)
-export fn or_else(commands): string {
-    return join_commands(commands, " || ");
-}
-
 // Join commands with ; (run all regardless of success)
-export fn sequential(commands): string {
-    return join_commands(commands, "; ");
-}
-
 // Join commands with | (pipe output)
-export fn pipe(commands): string {
-    return join_commands(commands, " | ");
-}
-
 // Helper: Join command array with separator
-fn join_commands(commands, sep: string): string {
-    if (typeof(commands) != "array") {
-        throw "Expected array of commands";
-    }
-
-    let result = "";
-    let i = 0;
-
-    while (i < commands.length) {
-        if (i > 0) {
-            result = result + sep;
-        }
-        result = result + commands[i];
-        i = i + 1;
-    }
-
-    return result;
-}
-
 // ============================================================================
 // Command Execution
 // ============================================================================
-
 // Run a command and return success status
 // Parameters:
-//   command: string or array - Command to run
+// command: string or array - Command to run
 // Returns: bool - True if command succeeded
-export fn run(command): bool {
-    let cmd = prepare_command(command);
-    try {
-        let result = exec_cmd(cmd);
-        return result["exit_code"] == 0;
-    } catch (e) {
-        return false;
-    }
-}
-
 // Run a command and capture output
 // Parameters:
-//   command: string or array - Command to run
+// command: string or array - Command to run
 // Returns: object - { success, stdout, stderr, code }
-export fn run_capture(command): object {
-    let cmd = prepare_command(command);
-    try {
-        let result = exec_cmd(cmd);
-        return {
-            success: result["exit_code"] == 0,
-            stdout: result["output"],
-            stderr: "",
-            code: result["exit_code"]
-        };
-    } catch (e) {
-        return {
-            success: false,
-            stdout: "",
-            stderr: "" + e,
-            code: -1
-        };
-    }
-}
-
 // Run a command and return stdout, or throw on failure
 // Parameters:
-//   command: string or array - Command to run
+// command: string or array - Command to run
 // Returns: string - Stdout output
-export fn run_output(command): string {
-    let result = run_capture(command);
-    if (!result["success"]) {
-        throw "Command failed with code " + result["code"] + ": " + result["stderr"];
-    }
-    return result["stdout"];
-}
-
 // Run a command and return stdout lines as array
-export fn run_lines(command): array {
-    let output = run_output(command);
-    return split_lines(output);
-}
-
 // Helper: Prepare command from string or array
-fn prepare_command(command): string {
-    if (typeof(command) == "string") {
-        return command;
-    }
-    if (typeof(command) == "array") {
-        return build_command(command);
-    }
-    throw "Command must be string or array";
-}
-
 // Helper: Split output into lines
-fn split_lines(s: string): array {
-    let lines: array = [];
-    let current = "";
-    let i = 0;
-
-    while (i < s.length) {
-        let ch = s.char_at(i);
-        if (ch == '\n') {
-            lines.push(current);
-            current = "";
-        } else if (ch == '\r') {
-            // Skip carriage return
-        } else {
-            current = current + ch;
-        }
-        i = i + 1;
-    }
-
-    // Add last line if not empty
-    if (current.length > 0) {
-        lines.push(current);
-    }
-
-    return lines;
-}
-
+// Skip carriage return
+// Add last line if not empty
 // ============================================================================
 // Environment Helpers
 // ============================================================================
-
 // Get environment variable or default
-export fn env_or(name: string, default_val: string): string {
-    let val = getenv(name);
-    if (val == null || val == "") {
-        return default_val;
-    }
-    return val;
-}
-
 // Check if environment variable is set
-export fn has_env(name: string): bool {
-    let val = getenv(name);
-    return val != null && val != "";
-}
-
 // Set multiple environment variables
-export fn set_envs(vars) {
-    if (typeof(vars) != "object") {
-        throw "set_envs() requires object";
-    }
-
-    let var_keys = vars.keys();
-    let i = 0;
-    while (i < var_keys.length) {
-        let key = var_keys[i];
-        setenv(key, "" + vars[key]);
-        i = i + 1;
-    }
-}
-
 // ============================================================================
 // Path Utilities (Shell-focused)
 // ============================================================================
-
 // Check if a command exists in PATH
-export fn which(command: string) {
-    let result = run_capture("which " + quote(command));
-    if (result["success"]) {
-        let output = result["stdout"];
-        // Trim trailing newline
-        if (output.length > 0 && output.char_at(output.length - 1) == '\n') {
-            output = output.slice(0, output.length - 1);
-        }
-        return output;
-    }
-    return null;
-}
-
+// Trim trailing newline
 // Check if a command exists
-export fn command_exists(command: string): bool {
-    return which(command) != null;
-}
-
 // ============================================================================
 // Output Parsing
 // ============================================================================
-
 // Parse key=value output (one per line)
-export fn parse_env_output(output: string): object {
-    let result = {};
-    let lines = split_lines(output);
-
-    let i = 0;
-    while (i < lines.length) {
-        let line = lines[i];
-        let eq_idx = line.find("=");
-        if (eq_idx > 0) {
-            let key = line.slice(0, eq_idx);
-            let value = line.slice(eq_idx + 1, line.length);
-            result[key] = value;
-        }
-        i = i + 1;
-    }
-
-    return result;
-}
-
 // Parse whitespace-separated columns
-export fn parse_columns(line: string): array {
-    let columns: array = [];
-    let current = "";
-    let in_whitespace = true;
-
-    let i = 0;
-    while (i < line.length) {
-        let ch = line.char_at(i);
-        if (ch == ' ' || ch == '\t') {
-            if (!in_whitespace && current.length > 0) {
-                columns.push(current);
-                current = "";
-            }
-            in_whitespace = true;
-        } else {
-            current = current + ch;
-            in_whitespace = false;
-        }
-        i = i + 1;
-    }
-
-    if (current.length > 0) {
-        columns.push(current);
-    }
-
-    return columns;
-}
-
 // Parse table output (header + rows)
-export fn parse_table(output: string): array {
-    let lines = split_lines(output);
-    if (lines.length == 0) {
-        return [];
-    }
-
-    // First line is header
-    let headers = parse_columns(lines[0]);
-    let rows: array = [];
-
-    let i = 1;
-    while (i < lines.length) {
-        let columns = parse_columns(lines[i]);
-        let row = {};
-
-        let j = 0;
-        while (j < headers.length && j < columns.length) {
-            row[headers[j]] = columns[j];
-            j = j + 1;
-        }
-
-        if (row.keys().length > 0) {
-            rows.push(row);
-        }
-        i = i + 1;
-    }
-
-    return rows;
-}
-
+// First line is header
 // ============================================================================
 // Common Commands
 // ============================================================================
-
 // Get current working directory
-export fn pwd(): string {
-    return run_output("pwd");
-}
-
 // List directory contents
-export fn ls(path?: "."): array {
-    return run_lines("ls " + quote(path));
-}
-
 // Check if file exists
-export fn file_exists(path: string): bool {
-    return run("test -f " + quote(path));
-}
-
 // Check if directory exists
-export fn dir_exists(path: string): bool {
-    return run("test -d " + quote(path));
-}
-
 // Create directory (with parents)
-export fn mkdir(path: string): bool {
-    return run("mkdir -p " + quote(path));
-}
-
 // Remove file or directory
-export fn rm(path: string, recursive?: false): bool {
-    if (recursive) {
-        return run("rm -rf " + quote(path));
-    }
-    return run("rm -f " + quote(path));
-}
-
 // Copy file or directory
-export fn cp(src: string, dest: string, recursive?: false): bool {
-    if (recursive) {
-        return run("cp -r " + quote(src) + " " + quote(dest));
-    }
-    return run("cp " + quote(src) + " " + quote(dest));
-}
-
 // Move file or directory
-export fn mv(src: string, dest: string): bool {
-    return run("mv " + quote(src) + " " + quote(dest));
-}
-
 // ============================================================================
 // Subshell and Background
 // ============================================================================
-
 // Run command in subshell
-export fn subshell(command: string): string {
-    return "(" + command + ")";
-}
-
 // Build background command
-export fn background(command: string): string {
-    return command + " &";
-}
-
 // Build nohup command
-export fn nohup(command: string, output?: "/dev/null"): string {
-    return "nohup " + command + " > " + quote(output) + " 2>&1 &";
-}
-
 // Redirect stdout
-export fn redirect_stdout(command: string, file: string): string {
-    return command + " > " + quote(file);
-}
-
 // Redirect stderr
-export fn redirect_stderr(command: string, file: string): string {
-    return command + " 2> " + quote(file);
-}
-
 // Redirect both stdout and stderr
-export fn redirect_all(command: string, file: string): string {
-    return command + " > " + quote(file) + " 2>&1";
-}
-
 // ============================================================================
 // Built-in Wrappers
 // ============================================================================
-
 // Execute command and return result object {output, exit_code}
+export fn escape(s: string): string {
+	let result = "";
+	let i = 0;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		if (ch == '\\' || ch == '"' || ch == '\'' || ch == '`' || ch == '$' || ch == '!' || ch == '*' || ch == '?' || ch == '[' || ch == ']' || ch == '{' || ch == '}' || ch == '(' || ch == ')' || ch == '|' || ch == '&' || ch == ';' || ch == '<' || ch == '>' || ch == ' ' || ch == '\t' || ch == '\n' || ch == '#' || ch == '~') {
+			result = result + "\\" + ch;
+		} else {
+			result = result + ch;
+		}
+		i = i + 1;
+	}
+	return result;
+}
+export fn quote(s: string): string {
+	let result = "'";
+	let i = 0;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		if (ch == '\'') {
+			result = result + "'\"'\"'";
+		} else {
+			result = result + ch;
+		}
+		i = i + 1;
+	}
+	return result + "'";
+}
+export fn double_quote(s: string): string {
+	let result = "\"";
+	let i = 0;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		if (ch == '"' || ch == '\\' || ch == '$' || ch == '`' || ch == '!') {
+			result = result + "\\" + ch;
+		} else {
+			result = result + ch;
+		}
+		i = i + 1;
+	}
+	return result + "\"";
+}
+export fn build_command(parts): string {
+	if (typeof(parts) != "array") {
+		throw "build_command() requires array argument";
+	}
+	if (parts.length == 0) {
+		throw "build_command() requires at least one element";
+	}
+	let result = "";
+	let i = 0;
+	while (i < parts.length) {
+		if (i > 0) {
+			result = result + " ";
+		}
+		result = result + quote("" + parts[i]);
+		i = i + 1;
+	}
+	return result;
+}
+export fn and_then(commands): string {
+	return join_commands(commands, " && ");
+}
+export fn or_else(commands): string {
+	return join_commands(commands, " || ");
+}
+export fn sequential(commands): string {
+	return join_commands(commands, "; ");
+}
+export fn pipe(commands): string {
+	return join_commands(commands, " | ");
+}
+fn join_commands(commands, sep: string): string {
+	if (typeof(commands) != "array") {
+		throw "Expected array of commands";
+	}
+	let result = "";
+	let i = 0;
+	while (i < commands.length) {
+		if (i > 0) {
+			result = result + sep;
+		}
+		result = result + commands[i];
+		i = i + 1;
+	}
+	return result;
+}
+export fn run(command): bool {
+	let cmd = prepare_command(command);
+	try {
+		let result = exec_cmd(cmd);
+		return result["exit_code"] == 0;
+	} catch (e) {
+		return false;
+	}
+}
+export fn run_capture(command): object {
+	let cmd = prepare_command(command);
+	try {
+		let result = exec_cmd(cmd);
+		return { success: result["exit_code"] == 0, stdout: result["output"], stderr: "", code: result["exit_code"] };
+	} catch (e) {
+		return { success: false, stdout: "", stderr: "" + e, code: -1 };
+	}
+}
+export fn run_output(command): string {
+	let result = run_capture(command);
+	if (!result["success"]) {
+		throw "Command failed with code " + result["code"] + ": " + result["stderr"];
+	}
+	return result["stdout"];
+}
+export fn run_lines(command): array {
+	let output = run_output(command);
+	return split_lines(output);
+}
+fn prepare_command(command): string {
+	if (typeof(command) == "string") {
+		return command;
+	}
+	if (typeof(command) == "array") {
+		return build_command(command);
+	}
+	throw "Command must be string or array";
+}
+fn split_lines(s: string): array {
+	let lines: array = [];
+	let current = "";
+	let i = 0;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		if (ch == '\n') {
+			lines.push(current);
+			current = "";
+		} else if (ch == '\r') {
+} else {
+	current = current + ch;
+}
+i = i + 1;
+}
+if (current.length > 0) {
+lines.push(current);
+}
+return lines;
+}
+export fn env_or(name: string, default_val: string): string {
+	let val = getenv(name);
+	if (val == null || val == "") {
+		return default_val;
+	}
+	return val;
+}
+export fn has_env(name: string): bool {
+	let val = getenv(name);
+	return val != null && val != "";
+}
+export fn set_envs(vars) {
+	if (typeof(vars) != "object") {
+		throw "set_envs() requires object";
+	}
+	let var_keys = vars.keys();
+	let i = 0;
+	while (i < var_keys.length) {
+		let key = var_keys[i];
+		setenv(key, "" + vars[key]);
+		i = i + 1;
+	}
+}
+export fn which(command: string) {
+	let result = run_capture("which " + quote(command));
+	if (result["success"]) {
+		let output = result["stdout"];
+		if (output.length > 0 && output.char_at(output.length - 1) == '\n') {
+			output = output.slice(0, output.length - 1);
+		}
+		return output;
+	}
+	return null;
+}
+export fn command_exists(command: string): bool {
+	return which(command) != null;
+}
+export fn parse_env_output(output: string): object {
+	let result = {};
+	let lines = split_lines(output);
+	let i = 0;
+	while (i < lines.length) {
+		let line = lines[i];
+		let eq_idx = line.find("=");
+		if (eq_idx > 0) {
+			let key = line.slice(0, eq_idx);
+			let value = line.slice(eq_idx + 1, line.length);
+			result[key] = value;
+		}
+		i = i + 1;
+	}
+	return result;
+}
+export fn parse_columns(line: string): array {
+	let columns: array = [];
+	let current = "";
+	let in_whitespace = true;
+	let i = 0;
+	while (i < line.length) {
+		let ch = line.char_at(i);
+		if (ch == ' ' || ch == '\t') {
+			if (!in_whitespace && current.length > 0) {
+				columns.push(current);
+				current = "";
+			}
+			in_whitespace = true;
+		} else {
+			current = current + ch;
+			in_whitespace = false;
+		}
+		i = i + 1;
+	}
+	if (current.length > 0) {
+		columns.push(current);
+	}
+	return columns;
+}
+export fn parse_table(output: string): array {
+	let lines = split_lines(output);
+	if (lines.length == 0) {
+		return [];
+	}
+	let headers = parse_columns(lines[0]);
+	let rows: array = [];
+	let i = 1;
+	while (i < lines.length) {
+		let columns = parse_columns(lines[i]);
+		let row = {};
+		let j = 0;
+		while (j < headers.length && j < columns.length) {
+			row[headers[j]] = columns[j];
+			j = j + 1;
+		}
+		if (row.keys().length > 0) {
+			rows.push(row);
+		}
+		i = i + 1;
+	}
+	return rows;
+}
+export fn pwd(): string {
+	return run_output("pwd");
+}
+export fn ls(path?: "."): array {
+	return run_lines("ls " + quote(path));
+}
+export fn file_exists(path: string): bool {
+	return run("test -f " + quote(path));
+}
+export fn dir_exists(path: string): bool {
+	return run("test -d " + quote(path));
+}
+export fn mkdir(path: string): bool {
+	return run("mkdir -p " + quote(path));
+}
+export fn rm(path: string, recursive?: false): bool {
+	if (recursive) {
+		return run("rm -rf " + quote(path));
+	}
+	return run("rm -f " + quote(path));
+}
+export fn cp(src: string, dest: string, recursive?: false): bool {
+	if (recursive) {
+		return run("cp -r " + quote(src) + " " + quote(dest));
+	}
+	return run("cp " + quote(src) + " " + quote(dest));
+}
+export fn mv(src: string, dest: string): bool {
+	return run("mv " + quote(src) + " " + quote(dest));
+}
+export fn subshell(command: string): string {
+	return "(" + command + ")";
+}
+export fn background(command: string): string {
+	return command + " &";
+}
+export fn nohup(command: string, output?: "/dev/null"): string {
+	return "nohup " + command + " > " + quote(output) + " 2>&1 &";
+}
+export fn redirect_stdout(command: string, file: string): string {
+	return command + " > " + quote(file);
+}
+export fn redirect_stderr(command: string, file: string): string {
+	return command + " 2> " + quote(file);
+}
+export fn redirect_all(command: string, file: string): string {
+	return command + " > " + quote(file) + " 2>&1";
+}
 fn exec_cmd(cmd: string): object {
-    return __exec(cmd);
+return __exec(cmd);
 }
-
 fn getenv(name: string) {
-    return __getenv(name);
+return __getenv(name);
 }
-
 fn setenv(name: string, value: string) {
-    __setenv(name, value);
+__setenv(name, value);
 }
