@@ -182,6 +182,10 @@ let f = fn(x) { return x * 2; };  // anonymous/closure
 fn double(x: i32): i32 => x * 2;
 fn max(a: i32, b: i32): i32 => a > b ? a : b;
 let square = fn(x: i32): i32 => x * x;  // anonymous expression-bodied
+
+// Parameter modifiers
+fn swap(ref a: i32, ref b: i32) { let t = a; a = b; b = t; }  // pass-by-reference
+fn print_all(const items: array) { for (i in items) { print(i); } }  // immutable
 ```
 
 ### Named Arguments
@@ -338,6 +342,49 @@ fn get_city(const user: object) {
 The `const` modifier prevents any mutation of the parameter, including nested properties.
 This provides compile-time safety for functions that should not modify their inputs.
 
+### Ref Parameters (Pass-by-Reference)
+```hemlock
+// Ref parameter - caller's variable is modified directly
+fn increment(ref x: i32) {
+    x = x + 1;  // Modifies the original variable
+}
+
+let count = 10;
+increment(count);
+print(count);  // 11 - original was modified
+
+// Classic swap function
+fn swap(ref a: i32, ref b: i32) {
+    let temp = a;
+    a = b;
+    b = temp;
+}
+
+let x = 1;
+let y = 2;
+swap(x, y);
+print(x, y);  // 2 1
+
+// Mix ref and regular parameters
+fn add_to(ref target: i32, amount: i32) {
+    target = target + amount;
+}
+
+let total = 100;
+add_to(total, 50);
+print(total);  // 150
+```
+
+The `ref` modifier passes a reference to the caller's variable, allowing the function to
+modify it directly. Without `ref`, primitives are passed by value (copied). Use `ref` when
+you need to mutate the caller's state without returning a value.
+
+**Rules:**
+- `ref` parameters must be passed variables, not literals or expressions
+- Works with all types (primitives, arrays, objects)
+- Combine with type annotations: `ref x: i32`
+- Cannot combine with `const` (they're opposites)
+
 ### Method Signatures in Define
 ```hemlock
 // Define with method signatures (interface pattern)
@@ -429,6 +476,13 @@ raise(SIGUSR1);
 Template strings: `` `Hello ${name}!` ``
 
 **String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings without modifying the original. This allows in-place mutation when needed while keeping method chaining functional.
+
+**String length properties:**
+```hemlock
+let s = "hello 🚀";
+print(s.length);       // 7 (character/rune count)
+print(s.byte_length);  // 10 (byte count - emoji is 4 bytes UTF-8)
+```
 
 ## Array Methods (18)
 
@@ -797,6 +851,7 @@ make parity
 - **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
 - **Function type annotations** (`fn(i32): i32`) - first-class function types
 - **Const parameters** (`fn(const x: array)`) - deep immutability for parameters
+- **Ref parameters** (`fn(ref x: i32)`) - pass-by-reference for direct caller mutation
 - **Method signatures in define** (`fn method(): Type`) - interface-like contracts (comma-delimited)
 - **Self type** in method signatures - refers to the defining type
 - **Loop keyword** (`loop { }`) - cleaner infinite loops, replaces `while (true)`
