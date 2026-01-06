@@ -1,0 +1,55 @@
+// Test that spawn() deep copies arguments to prevent shared mutable state
+
+// Test 1: String mutation in spawned task should not affect parent
+async fn mutate_string(s: string) {
+    s[0] = 'X';
+    return s;
+}
+
+let original = "hello";
+let task = spawn(mutate_string, original);
+let mutated = join(task);
+
+print(original);  // Should still be "hello" (not mutated)
+print(mutated);   // Should be "Xello" (task's copy was mutated)
+
+// Test 2: Array mutation in spawned task should not affect parent
+async fn mutate_array(arr: array) {
+    arr[0] = 999;
+    return arr[0];
+}
+
+let arr = [1, 2, 3];
+let task2 = spawn(mutate_array, arr);
+let result = join(task2);
+
+print(arr[0]);    // Should still be 1 (not mutated)
+print(result);    // Should be 999 (task's copy was mutated)
+
+// Test 3: Object mutation in spawned task should not affect parent
+async fn mutate_object(obj: object) {
+    obj.value = 100;
+    return obj.value;
+}
+
+let obj = { value: 42 };
+let task3 = spawn(mutate_object, obj);
+let result3 = join(task3);
+
+print(obj.value);  // Should still be 42 (not mutated)
+print(result3);    // Should be 100 (task's copy was mutated)
+
+// Test 4: Nested structure deep copy
+async fn mutate_nested(data: object) {
+    data.inner.text[0] = 'Z';
+    return data.inner.text;
+}
+
+let nested = { inner: { text: "abc" } };
+let task4 = spawn(mutate_nested, nested);
+let result4 = join(task4);
+
+print(nested.inner.text);  // Should still be "abc" (not mutated)
+print(result4);            // Should be "Zbc" (task's copy was mutated)
+
+print("done");

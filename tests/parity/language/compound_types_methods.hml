@@ -3,12 +3,12 @@
 // 1. Basic compound type with methods
 define HasId {
     id: i32,
-    fn getId(): i32;
+    fn getId(): i32
 }
 
 define HasName {
     name: string,
-    fn getName(): string;
+    fn getName(): string
 }
 
 type Entity = HasId & HasName;
@@ -26,17 +26,17 @@ print(entity.getName());
 // 2. Three-way compound type
 define HasValue {
     value: i32,
-    fn getValue(): i32;
+    fn getValue(): i32
 }
 
 define HasLabel {
     label: string,
-    fn getLabel(): string;
+    fn getLabel(): string
 }
 
 define HasActive {
     active: bool,
-    fn isActive(): bool;
+    fn isActive(): bool
 }
 
 type Tagged = HasValue & HasLabel & HasActive;
@@ -65,11 +65,11 @@ describe(entity);
 // 4. Compound type with Self references
 define Comparable {
     val: i32,
-    fn compare(other: Self): i32;
+    fn compare(other: Self): i32
 }
 
 define Printable {
-    fn print_val(): void;
+    fn print_val(): void
 }
 
 type ComparablePrintable = Comparable & Printable;
@@ -92,7 +92,7 @@ print(cp1.compare(cp2));
 
 // 5. Compound type in return value
 define Maker {
-    fn make(): HasId & HasName;
+    fn make(): HasId & HasName
 }
 
 let maker: Maker = {

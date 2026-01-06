@@ -103,7 +103,8 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // Create task (atomically increment task ID for thread-safety)
     // NOTE: We keep closure_env for read access to builtins and global functions
     // Arguments are deep-copied above to prevent sharing mutable data
-    // Modifying parent scope variables from tasks is undefined behavior
+    // The closure environment is protected by a per-environment mutex, making
+    // concurrent reads safe. Writes to parent scope variables are also synchronized.
     int task_id = atomic_fetch_add(&next_task_id, 1);
     Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
@@ -273,6 +274,7 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         // Create task (atomically increment task ID for thread-safety)
         // NOTE: We keep closure_env for read access to builtins and global functions
         // Arguments are deep-copied above to prevent sharing mutable data
+        // The closure environment is protected by a per-environment mutex for thread-safety.
         int task_id = atomic_fetch_add(&next_task_id, 1);
         Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
 
@@ -404,7 +406,32 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
 
             pthread_mutex_lock(mutex);
 
-            // Check if channel has data
+            // Check for unbuffered channel with sender waiting (rendezvous pattern)
+            if (ch->capacity == 0 && ch->sender_waiting) {
+                // Get the value from sender
+                Value msg = *(ch->unbuffered_value);
+                *(ch->unbuffered_value) = val_null();
+                ch->sender_waiting = 0;
+
+                // Signal sender that value was received
+                pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
+                pthread_mutex_unlock(mutex);
+
+                // Create result object { channel, value }
+                Object *result = object_new(NULL, 2);
+                result->field_names[0] = strdup("channel");
+                result->field_values[0] = channels->elements[i];
+                value_retain(channels->elements[i]);
+                result->num_fields = 1;
+
+                result->field_names[1] = strdup("value");
+                result->field_values[1] = msg;
+                result->num_fields = 2;
+
+                return val_object(result);
+            }
+
+            // Check if buffered channel has data
             if (ch->count > 0) {
                 // Read the value
                 Value msg = ch->buffer[ch->head];

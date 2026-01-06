@@ -266,6 +266,16 @@ HmlValue hml_val_socket(HmlSocket *sock);
 void hml_retain(HmlValue *val);
 void hml_release(HmlValue *val);
 
+// ========== VALUE DEEP COPY (for thread isolation) ==========
+
+// Deep copy a value for passing to spawned tasks.
+// This ensures tasks don't share mutable state with the parent thread.
+// - Primitives: returned as-is (immutable)
+// - Strings, buffers, arrays, objects: deep copied
+// - Raw pointers (ptr): causes runtime error (use buffer or channel instead)
+// - Files, sockets, functions, tasks, channels: shared by reference (OS/coordination resources)
+HmlValue hml_value_deep_copy(HmlValue val);
+
 // ========== TYPE CHECKING ==========
 
 int hml_is_null(HmlValue val);

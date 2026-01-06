@@ -15,13 +15,25 @@
 
 // ========== STRING METHODS ==========
 
+// Count UTF-8 codepoints (characters) in a string
+static int utf8_count_codepoints(const char *data, int byte_length) {
+    int count = 0;
+    for (int i = 0; i < byte_length; i++) {
+        // Count bytes that are NOT continuation bytes (10xxxxxx)
+        if ((data[i] & 0xC0) != 0x80) {
+            count++;
+        }
+    }
+    return count;
+}
+
 HmlValue hml_string_length(HmlValue str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
         return hml_val_i32(0);
     }
     HmlString *s = str.as.as_string;
-    // For now, return byte length (UTF-8 codepoint counting can be added later)
-    return hml_val_i32(s->length);
+    // Return character (codepoint) count, not byte count
+    return hml_val_i32(utf8_count_codepoints(s->data, s->length));
 }
 
 HmlValue hml_string_byte_length(HmlValue str) {

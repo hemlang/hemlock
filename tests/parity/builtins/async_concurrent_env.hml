@@ -1,0 +1,53 @@
+// Test concurrent access to closure environment from multiple tasks
+// This test verifies that the environment mutex properly synchronizes access
+
+let counter = 0;
+let shared_data = "initial";
+
+// Multiple tasks reading from the same closure environment
+async fn reader(id: i32): string {
+    // Read shared_data multiple times to increase chance of race condition
+    let result = "";
+    for (let i = 0; i < 10; i++) {
+        result = shared_data;
+    }
+    return result;
+}
+
+// Spawn multiple reader tasks
+let t1 = spawn(reader, 1);
+let t2 = spawn(reader, 2);
+let t3 = spawn(reader, 3);
+let t4 = spawn(reader, 4);
+
+// All should return "initial" since we're just reading
+let r1 = join(t1);
+let r2 = join(t2);
+let r3 = join(t3);
+let r4 = join(t4);
+
+print(r1);
+print(r2);
+print(r3);
+print(r4);
+
+// Test reading numeric values concurrently
+let num = 42;
+
+async fn num_reader(): i32 {
+    let sum = 0;
+    for (let i = 0; i < 100; i++) {
+        sum = sum + num;
+    }
+    return sum;
+}
+
+let n1 = spawn(num_reader);
+let n2 = spawn(num_reader);
+let n3 = spawn(num_reader);
+
+print(join(n1));
+print(join(n2));
+print(join(n3));
+
+print("done");
