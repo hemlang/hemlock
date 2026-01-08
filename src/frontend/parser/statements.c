@@ -1,4 +1,72 @@
 #include "internal.h"
+#include "annotations.h"
+
+// ========== ANNOTATION PARSING ==========
+
+static void parse_annotation_arg_value(Parser *p, Annotation *a, const char *arg_name) {
+    if (match(p, TOK_STRING)) {
+        // String argument
+        annotation_add_arg_string(a, arg_name, p->previous.string_value);
+    } else if (match(p, TOK_NUMBER)) {
+        // Number argument
+        double value = p->previous.is_float ? p->previous.float_value : (double)p->previous.int_value;
+        annotation_add_arg_number(a, arg_name, value);
+    } else if (match(p, TOK_IDENT) || match(p, TOK_TRUE) || match(p, TOK_FALSE)) {
+        // Identifier argument (including true/false as identifiers)
+        char *ident = token_text(&p->previous);
+        annotation_add_arg_ident(a, arg_name, ident);
+        free(ident);
+    } else {
+        error(p, "Expect string, number, or identifier as annotation argument");
+    }
+}
+
+static Annotation *parse_annotation(Parser *p) {
+    consume(p, TOK_AT, "Expect '@'");
+
+    Token name_token = p->current;
+    char *name = consume_identifier_or_type_keyword(p, "Expect annotation name");
+
+    Annotation *a = annotation_new(name, name_token.line, name_token.column);
+    free(name);
+
+    // Optional arguments
+    if (match(p, TOK_LPAREN)) {
+        if (!check(p, TOK_RPAREN)) {
+            do {
+                // Check for named argument: name = value
+                if (check(p, TOK_IDENT) && p->next.type == TOK_EQUAL) {
+                    char *arg_name = consume_identifier_or_type_keyword(p, "Expect argument name");
+                    consume(p, TOK_EQUAL, "Expect '=' after argument name");
+                    parse_annotation_arg_value(p, a, arg_name);
+                    free(arg_name);
+                } else {
+                    // Positional argument
+                    parse_annotation_arg_value(p, a, NULL);
+                }
+            } while (match(p, TOK_COMMA));
+        }
+        consume(p, TOK_RPAREN, "Expect ')' after annotation arguments");
+    }
+
+    return a;
+}
+
+static Annotation **parse_annotations(Parser *p, int *count) {
+    Annotation **annotations = NULL;
+    *count = 0;
+    int capacity = 0;
+
+    while (check(p, TOK_AT)) {
+        if (*count >= capacity) {
+            capacity = capacity == 0 ? 4 : capacity * 2;
+            annotations = realloc(annotations, sizeof(Annotation*) * capacity);
+        }
+        annotations[(*count)++] = parse_annotation(p);
+    }
+
+    return annotations;
+}
 
 // ========== STATEMENT PARSING ==========
 
@@ -970,12 +1038,28 @@ Stmt* define_statement(Parser *p) {
 }
 
 Stmt* statement(Parser *p) {
+    // Parse annotations first
+    int annotation_count = 0;
+    Annotation **annotations = parse_annotations(p, &annotation_count);
+
     if (match(p, TOK_LET)) {
-        return let_statement(p);
+        Stmt *stmt = let_statement(p);
+        stmt->as.let.annotations = annotations;
+        stmt->as.let.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
+        return stmt;
     }
 
     if (match(p, TOK_CONST)) {
-        return const_statement(p);
+        Stmt *stmt = const_statement(p);
+        stmt->as.const_stmt.annotations = annotations;
+        stmt->as.const_stmt.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
+        return stmt;
     }
 
     // Type alias: type Name = Type; or type Name<T> = Type<T>;
@@ -1019,7 +1103,13 @@ Stmt* statement(Parser *p) {
 
     // Object type definition: define TypeName { ... }
     if (match(p, TOK_DEFINE)) {
-        return define_statement(p);
+        Stmt *stmt = define_statement(p);
+        stmt->as.define_object.annotations = annotations;
+        stmt->as.define_object.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
+        return stmt;
     }
 
     // Enum definition: enum EnumName { ... }
@@ -1060,6 +1150,11 @@ Stmt* statement(Parser *p) {
         consume(p, TOK_RBRACE, "Expect '}' after enum variants");
 
         Stmt *stmt = stmt_enum(name, variant_names, variant_values, num_variants);
+        stmt->as.enum_decl.annotations = annotations;
+        stmt->as.enum_decl.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         free(name);
         return stmt;
     }
@@ -1200,6 +1295,11 @@ Stmt* statement(Parser *p) {
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);
+        stmt->as.let.annotations = annotations;
+        stmt->as.let.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         free(name);
         return stmt;
     } else {
@@ -1209,6 +1309,16 @@ Stmt* statement(Parser *p) {
     }
 
 not_function:
+
+    // Check if annotations were provided but statement doesn't support them
+    if (annotation_count > 0) {
+        error(p, "Annotations are only valid on 'let', 'const', 'fn', 'define', or 'enum' declarations");
+        // Free the annotations
+        for (int i = 0; i < annotation_count; i++) {
+            annotation_free(annotations[i]);
+        }
+        free(annotations);
+    }
 
     if (match(p, TOK_IF)) {
         return if_statement(p);

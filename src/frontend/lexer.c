@@ -1043,6 +1043,7 @@ Token lexer_next(Lexer *lex) {
             return make_token(lex, TOK_DOT);
         case '[': return make_token(lex, TOK_LBRACKET);
         case ']': return make_token(lex, TOK_RBRACKET);
+        case '@': return make_token(lex, TOK_AT);
 
         case '?':
             // Check for ?. (optional chaining) or ?? (null coalescing) or ??= (null coalescing assignment)

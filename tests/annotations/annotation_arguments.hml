@@ -1,0 +1,15 @@
+// Annotation arguments test
+
+@deprecated("use v2")
+fn positional_arg() {
+    print("old");
+}
+
+@timeout(5000)
+fn numeric_arg() {
+    print("test");
+}
+
+positional_arg();
+numeric_arg();
+print("ok");

@@ -124,6 +124,7 @@ typedef enum {
     TOK_LBRACKET,
     TOK_RBRACKET,
     TOK_QUESTION,
+    TOK_AT,                  // @
 
     // New keywords (added at end to preserve enum values)
     TOK_TYPE,          // 'type' keyword for type aliases

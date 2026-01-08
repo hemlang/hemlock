@@ -1,0 +1,10 @@
+// Multiple annotations test
+
+@deprecated
+@inline
+@pure
+fn old_math(x: i32): i32 {
+    return x * 2;
+}
+
+print("ok");
