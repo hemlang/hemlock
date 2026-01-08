@@ -1,0 +1,7 @@
+// Deprecated constant
+
+@deprecated("constants should be lowercase")
+const OLD_CONSTANT = 999;
+
+print(OLD_CONSTANT);
+print("done");

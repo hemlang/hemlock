@@ -1,0 +1,10 @@
+// Deprecation with custom message
+
+@deprecated("use new_function instead")
+fn old_function() {
+    return 100;
+}
+
+let result = old_function();
+print(result);
+print("done");
