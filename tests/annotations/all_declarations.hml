@@ -1,0 +1,23 @@
+// Annotations on different declarations
+
+@deprecated
+fn deprecated_fn() {
+    print("fn");
+}
+
+@deprecated
+define OldPerson {
+    name: string
+}
+
+@deprecated
+enum OldColor { RED, GREEN, BLUE }
+
+@deprecated
+const OLD_CONSTANT = 42;
+
+@deprecated
+let old_variable = "old";
+
+deprecated_fn();
+print("ok");

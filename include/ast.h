@@ -7,6 +7,8 @@
 typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Type Type;
+typedef struct Annotation Annotation;
+typedef struct AnnotationArg AnnotationArg;
 
 // ========== EXPRESSION TYPES ==========
 
@@ -271,6 +273,35 @@ struct Type {
     int fn_is_async;                // 1 if async function type
 };
 
+// ========== ANNOTATION TYPES ==========
+
+typedef enum {
+    ANNOT_ARG_STRING,
+    ANNOT_ARG_NUMBER,
+    ANNOT_ARG_IDENT
+} AnnotationArgKind;
+
+struct AnnotationArg {
+    char *name;                 // NULL for positional, "since" for named
+    AnnotationArgKind kind;
+    union {
+        char *string_val;
+        double number_val;
+        char *ident_val;
+    } value;
+    int line;
+    int column;
+};
+
+struct Annotation {
+    char *name;                 // "safe", "deprecated", etc.
+    AnnotationArg *args;        // Optional arguments
+    int arg_count;
+    int arg_capacity;
+    int line;
+    int column;                 // Source location
+};
+
 // ========== STATEMENT TYPES ==========
 
 typedef enum {
@@ -309,11 +340,15 @@ struct Stmt {
             char *name;
             Type *type_annotation;
             Expr *value;
+            Annotation **annotations;
+            int annotation_count;
         } let;
         struct {
             char *name;
             Type *type_annotation;
             Expr *value;
+            Annotation **annotations;
+            int annotation_count;
         } const_stmt;
         Expr *expr;
         struct {
@@ -372,12 +407,16 @@ struct Stmt {
             int *method_optional;     // 1 if optional method
             Expr **method_defaults;   // Default implementation (NULL if signature only)
             int num_methods;
+            Annotation **annotations;
+            int annotation_count;
         } define_object;
         struct {
             char *name;               // Enum type name
             char **variant_names;     // Array of variant names
             Expr **variant_values;    // Array of values (NULL for auto)
             int num_variants;         // Number of variants
+            Annotation **annotations;
+            int annotation_count;
         } enum_decl;
         struct {
             Stmt *try_block;
@@ -521,5 +560,16 @@ Expr* expr_clone(const Expr *expr);
 // Cleanup
 void expr_free(Expr *expr);
 void stmt_free(Stmt *stmt);
+
+// Annotation helpers
+Annotation *annotation_new(const char *name, int line, int column);
+void annotation_add_arg_string(Annotation *a, const char *name, const char *value);
+void annotation_add_arg_number(Annotation *a, const char *name, double value);
+void annotation_add_arg_ident(Annotation *a, const char *name, const char *ident);
+void annotation_free(Annotation *a);
+int annotation_has(Annotation **annotations, int count, const char *name);
+Annotation *annotation_get(Annotation **annotations, int count, const char *name);
+const char *annotation_get_string_arg(Annotation *a, const char *name, const char *default_val);
+double annotation_get_number_arg(Annotation *a, const char *name, double default_val);
 
 #endif // HEMLOCK_AST_H

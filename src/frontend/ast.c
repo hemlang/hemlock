@@ -500,6 +500,8 @@ Stmt* stmt_let_typed(const char *name, Type *type_annotation, Expr *value) {
     stmt->as.let.name = strdup(name);
     stmt->as.let.type_annotation = type_annotation;  // Can be NULL
     stmt->as.let.value = value;
+    stmt->as.let.annotations = NULL;
+    stmt->as.let.annotation_count = 0;
     return stmt;
 }
 
@@ -515,6 +517,8 @@ Stmt* stmt_const_typed(const char *name, Type *type_annotation, Expr *value) {
     stmt->as.const_stmt.name = strdup(name);
     stmt->as.const_stmt.type_annotation = type_annotation;  // Can be NULL
     stmt->as.const_stmt.value = value;
+    stmt->as.const_stmt.annotations = NULL;
+    stmt->as.const_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -672,6 +676,8 @@ Stmt* stmt_define_object(const char *name, char **type_params, int num_type_para
     stmt->as.define_object.method_optional = method_optional;
     stmt->as.define_object.method_defaults = method_defaults;
     stmt->as.define_object.num_methods = num_methods;
+    stmt->as.define_object.annotations = NULL;
+    stmt->as.define_object.annotation_count = 0;
     return stmt;
 }
 
@@ -684,6 +690,8 @@ Stmt* stmt_enum(const char *name, char **variant_names, Expr **variant_values, i
     stmt->as.enum_decl.variant_names = variant_names;
     stmt->as.enum_decl.variant_values = variant_values;
     stmt->as.enum_decl.num_variants = num_variants;
+    stmt->as.enum_decl.annotations = NULL;
+    stmt->as.enum_decl.annotation_count = 0;
     return stmt;
 }
 
@@ -1248,11 +1256,19 @@ void stmt_free(Stmt *stmt) {
             free(stmt->as.let.name);
             type_free(stmt->as.let.type_annotation);
             expr_free(stmt->as.let.value);
+            for (int i = 0; i < stmt->as.let.annotation_count; i++) {
+                annotation_free(stmt->as.let.annotations[i]);
+            }
+            free(stmt->as.let.annotations);
             break;
         case STMT_CONST:
             free(stmt->as.const_stmt.name);
             type_free(stmt->as.const_stmt.type_annotation);
             expr_free(stmt->as.const_stmt.value);
+            for (int i = 0; i < stmt->as.const_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.const_stmt.annotations[i]);
+            }
+            free(stmt->as.const_stmt.annotations);
             break;
         case STMT_EXPR:
             expr_free(stmt->as.expr);
@@ -1338,6 +1354,10 @@ void stmt_free(Stmt *stmt) {
                 free(stmt->as.define_object.method_optional);
                 free(stmt->as.define_object.method_defaults);
             }
+            for (int i = 0; i < stmt->as.define_object.annotation_count; i++) {
+                annotation_free(stmt->as.define_object.annotations[i]);
+            }
+            free(stmt->as.define_object.annotations);
             break;
         case STMT_ENUM:
             free(stmt->as.enum_decl.name);
@@ -1351,6 +1371,10 @@ void stmt_free(Stmt *stmt) {
             if (stmt->as.enum_decl.variant_values) {
                 free(stmt->as.enum_decl.variant_values);
             }
+            for (int i = 0; i < stmt->as.enum_decl.annotation_count; i++) {
+                annotation_free(stmt->as.enum_decl.annotations[i]);
+            }
+            free(stmt->as.enum_decl.annotations);
             break;
         case STMT_TRY:
             stmt_free(stmt->as.try_stmt.try_block);
@@ -1433,4 +1457,131 @@ void stmt_free(Stmt *stmt) {
     }
 
     free(stmt);
+}
+
+// ========== ANNOTATION HELPERS ==========
+
+Annotation *annotation_new(const char *name, int line, int column) {
+    Annotation *a = malloc(sizeof(Annotation));
+    a->name = strdup(name);
+    a->args = NULL;
+    a->arg_count = 0;
+    a->arg_capacity = 0;
+    a->line = line;
+    a->column = column;
+    return a;
+}
+
+static void annotation_ensure_capacity(Annotation *a) {
+    if (a->arg_count >= a->arg_capacity) {
+        int new_capacity = a->arg_capacity == 0 ? 4 : a->arg_capacity * 2;
+        a->args = realloc(a->args, new_capacity * sizeof(AnnotationArg));
+        a->arg_capacity = new_capacity;
+    }
+}
+
+void annotation_add_arg_string(Annotation *a, const char *name, const char *value) {
+    annotation_ensure_capacity(a);
+    AnnotationArg *arg = &a->args[a->arg_count++];
+    arg->name = name ? strdup(name) : NULL;
+    arg->kind = ANNOT_ARG_STRING;
+    arg->value.string_val = strdup(value);
+    arg->line = a->line;
+    arg->column = a->column;
+}
+
+void annotation_add_arg_number(Annotation *a, const char *name, double value) {
+    annotation_ensure_capacity(a);
+    AnnotationArg *arg = &a->args[a->arg_count++];
+    arg->name = name ? strdup(name) : NULL;
+    arg->kind = ANNOT_ARG_NUMBER;
+    arg->value.number_val = value;
+    arg->line = a->line;
+    arg->column = a->column;
+}
+
+void annotation_add_arg_ident(Annotation *a, const char *name, const char *ident) {
+    annotation_ensure_capacity(a);
+    AnnotationArg *arg = &a->args[a->arg_count++];
+    arg->name = name ? strdup(name) : NULL;
+    arg->kind = ANNOT_ARG_IDENT;
+    arg->value.ident_val = strdup(ident);
+    arg->line = a->line;
+    arg->column = a->column;
+}
+
+void annotation_free(Annotation *a) {
+    if (!a) return;
+
+    free(a->name);
+    for (int i = 0; i < a->arg_count; i++) {
+        AnnotationArg *arg = &a->args[i];
+        if (arg->name) free(arg->name);
+
+        switch (arg->kind) {
+            case ANNOT_ARG_STRING:
+                free(arg->value.string_val);
+                break;
+            case ANNOT_ARG_IDENT:
+                free(arg->value.ident_val);
+                break;
+            case ANNOT_ARG_NUMBER:
+                // Nothing to free
+                break;
+        }
+    }
+    free(a->args);
+    free(a);
+}
+
+int annotation_has(Annotation **annotations, int count, const char *name) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(annotations[i]->name, name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+Annotation *annotation_get(Annotation **annotations, int count, const char *name) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(annotations[i]->name, name) == 0) {
+            return annotations[i];
+        }
+    }
+    return NULL;
+}
+
+const char *annotation_get_string_arg(Annotation *a, const char *name, const char *default_val) {
+    if (!a) return default_val;
+
+    for (int i = 0; i < a->arg_count; i++) {
+        AnnotationArg *arg = &a->args[i];
+        // Match either positional (name == NULL) or named argument
+        if ((name == NULL && arg->name == NULL) ||
+            (name != NULL && arg->name != NULL && strcmp(arg->name, name) == 0)) {
+            if (arg->kind == ANNOT_ARG_STRING) {
+                return arg->value.string_val;
+            }
+        }
+    }
+
+    return default_val;
+}
+
+double annotation_get_number_arg(Annotation *a, const char *name, double default_val) {
+    if (!a) return default_val;
+
+    for (int i = 0; i < a->arg_count; i++) {
+        AnnotationArg *arg = &a->args[i];
+        // Match either positional (name == NULL) or named argument
+        if ((name == NULL && arg->name == NULL) ||
+            (name != NULL && arg->name != NULL && strcmp(arg->name, name) == 0)) {
+            if (arg->kind == ANNOT_ARG_NUMBER) {
+                return arg->value.number_val;
+            }
+        }
+    }
+
+    return default_val;
 }
