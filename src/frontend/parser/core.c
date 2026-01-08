@@ -186,6 +186,7 @@ int is_identifier_or_type_keyword(TokenType type) {
         case TOK_ASYNC:     // 'async' for async functions
         case TOK_DEFER:     // 'defer' for deferred execution
         case TOK_OBJECT:    // 'object' type name
+        case TOK_CONST:     // 'const' can be used as annotation name (@const)
             return 1;
         default:
             return 0;

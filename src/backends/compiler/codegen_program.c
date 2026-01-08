@@ -10,7 +10,7 @@
 // ========== PROGRAM CODE GENERATION ==========
 
 // Helper: Emit GCC/Clang function attributes based on Hemlock annotations
-// This translates @inline, @noinline, @hot, @cold, @pure into __attribute__((...))
+// This translates @inline, @noinline, @hot, @cold, @pure, @const, @flatten into __attribute__((...))
 static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **annotations, int annotation_count) {
     if (!annotations || annotation_count == 0) {
         return;
@@ -31,6 +31,12 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
     }
     if (annotation_has(annotations, annotation_count, "pure")) {
         codegen_write(ctx, "__attribute__((pure)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "const")) {
+        codegen_write(ctx, "__attribute__((const)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "flatten")) {
+        codegen_write(ctx, "__attribute__((flatten)) ");
     }
 }
 

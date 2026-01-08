@@ -1,0 +1,28 @@
+// Test Phase 2: @const and @flatten annotations
+
+@const
+fn square(x: i32): i32 {
+    return x * x;
+}
+
+@const
+fn add_const(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+fn helper1(x: i32): i32 { return x + 1; }
+fn helper2(x: i32): i32 { return x * 2; }
+fn helper3(x: i32): i32 { return x - 1; }
+
+@flatten
+fn process(n: i32): i32 {
+    let a = helper1(n);
+    let b = helper2(a);
+    let c = helper3(b);
+    return c;
+}
+
+// Test the functions
+print(square(5));           // 25
+print(add_const(10, 20));   // 30
+print(process(10));         // 21

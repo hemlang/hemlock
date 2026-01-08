@@ -16,6 +16,8 @@ static const AnnotationSpec known_annotations[] = {
     {"cold",       ANNOT_TARGET_FN, 0, 0, 0},
     {"hot",        ANNOT_TARGET_FN, 0, 0, 0},
     {"pure",       ANNOT_TARGET_FN, 0, 0, 0},
+    {"const",      ANNOT_TARGET_FN, 0, 0, 0},
+    {"flatten",    ANNOT_TARGET_FN, 0, 0, 0},
 
     // Deprecation
     {"deprecated", ANNOT_TARGET_ALL, 1, 0, 2},
