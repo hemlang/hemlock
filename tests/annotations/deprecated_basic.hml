@@ -1,0 +1,7 @@
+// Basic deprecation test
+
+@deprecated
+let old_var = 42;
+
+print(old_var);
+print("done");

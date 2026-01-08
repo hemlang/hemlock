@@ -1,0 +1,13 @@
+// Multiple uses of deprecated items
+
+@deprecated("use v2")
+fn legacy() {
+    return "old";
+}
+
+// Should warn for each use
+legacy();
+legacy();
+let x = legacy();
+print(x);
+print("done");

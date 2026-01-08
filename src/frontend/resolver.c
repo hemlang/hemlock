@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "resolver.h"
+#include "annotations.h"
 
 /*
  * Create a new resolver scope.
@@ -18,6 +19,8 @@ static ResolverScope *scope_new(ResolverScope *parent) {
     scope->count = 0;
     scope->capacity = 8;
     scope->names = malloc(sizeof(char *) * scope->capacity);
+    scope->annotations = malloc(sizeof(Annotation **) * scope->capacity);
+    scope->annotation_counts = malloc(sizeof(int) * scope->capacity);
     scope->parent = parent;
     return scope;
 }
@@ -29,8 +32,11 @@ static void scope_free(ResolverScope *scope) {
     if (!scope) return;
     for (int i = 0; i < scope->count; i++) {
         free(scope->names[i]);
+        // Note: annotations are owned by AST nodes, don't free them here
     }
     free(scope->names);
+    free(scope->annotations);
+    free(scope->annotation_counts);
     free(scope);
 }
 
@@ -85,17 +91,22 @@ void resolver_exit_scope(ResolverContext *ctx) {
  * Define a variable in the current scope.
  * Returns the slot index.
  */
-int resolver_define(ResolverContext *ctx, const char *name) {
+int resolver_define(ResolverContext *ctx, const char *name, Annotation **annotations, int annotation_count) {
     ResolverScope *scope = ctx->current;
 
     // Grow if needed
     if (scope->count >= scope->capacity) {
         scope->capacity *= 2;
         scope->names = realloc(scope->names, sizeof(char *) * scope->capacity);
+        scope->annotations = realloc(scope->annotations, sizeof(Annotation **) * scope->capacity);
+        scope->annotation_counts = realloc(scope->annotation_counts, sizeof(int) * scope->capacity);
     }
 
     int slot = scope->count;
-    scope->names[scope->count++] = strdup(name);
+    scope->names[slot] = strdup(name);
+    scope->annotations[slot] = annotations;  // Store pointer to annotations (AST owns them)
+    scope->annotation_counts[slot] = annotation_count;
+    scope->count++;
     return slot;
 }
 
@@ -121,6 +132,31 @@ int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slo
         d++;
     }
 
+    return 0;  // Not found
+}
+
+/*
+ * Get annotations for a variable by name.
+ * Returns 1 if found (and sets annotations/count), 0 if not found.
+ */
+int resolver_get_annotations(ResolverContext *ctx, const char *name, Annotation ***annotations, int *count) {
+    ResolverScope *scope = ctx->current;
+
+    while (scope) {
+        // Search this scope
+        for (int i = 0; i < scope->count; i++) {
+            if (strcmp(scope->names[i], name) == 0) {
+                *annotations = scope->annotations[i];
+                *count = scope->annotation_counts[i];
+                return 1;
+            }
+        }
+        // Move to parent scope
+        scope = scope->parent;
+    }
+
+    *annotations = NULL;
+    *count = 0;
     return 0;  // Not found
 }
 
@@ -153,6 +189,17 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
                 } else {
                     // Variable is at global scope - fall back to hash lookup
                     expr->as.ident.resolved.is_resolved = 0;
+                }
+
+                // Check if the variable is deprecated
+                Annotation **annotations;
+                int annotation_count;
+                if (resolver_get_annotations(ctx, expr->as.ident.name, &annotations, &annotation_count)) {
+                    if (is_deprecated(annotations, annotation_count)) {
+                        const char *msg = get_deprecation_message(annotations, annotation_count);
+                        fprintf(stderr, "[line %d:%d] Warning: '%s' is deprecated: %s\n",
+                                expr->line, expr->column, expr->as.ident.name, msg);
+                    }
                 }
             } else {
                 // Variable not found - could be a builtin or global
@@ -231,14 +278,14 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
             // Enter a new scope for the function
             resolver_enter_scope(ctx);
 
-            // Define parameters (use param_names not params)
+            // Define parameters (use param_names not params) - no annotations for params
             for (int i = 0; i < expr->as.function.num_params; i++) {
-                resolver_define(ctx, expr->as.function.param_names[i]);
+                resolver_define(ctx, expr->as.function.param_names[i], NULL, 0);
             }
 
-            // Define rest parameter if present
+            // Define rest parameter if present - no annotations for params
             if (expr->as.function.rest_param) {
-                resolver_define(ctx, expr->as.function.rest_param);
+                resolver_define(ctx, expr->as.function.rest_param, NULL, 0);
             }
 
             // Resolve default parameter expressions
@@ -337,8 +384,8 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             if (stmt->as.let.value) {
                 resolve_expr_internal(ctx, stmt->as.let.value);
             }
-            // Then define the variable
-            resolver_define(ctx, stmt->as.let.name);
+            // Then define the variable (with annotations)
+            resolver_define(ctx, stmt->as.let.name, stmt->as.let.annotations, stmt->as.let.annotation_count);
             break;
         }
 
@@ -347,8 +394,8 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             if (stmt->as.const_stmt.value) {
                 resolve_expr_internal(ctx, stmt->as.const_stmt.value);
             }
-            // Then define the constant
-            resolver_define(ctx, stmt->as.const_stmt.name);
+            // Then define the constant (with annotations)
+            resolver_define(ctx, stmt->as.const_stmt.name, stmt->as.const_stmt.annotations, stmt->as.const_stmt.annotation_count);
             break;
         }
 
@@ -430,14 +477,14 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             // Enter inner scope for iterator variables and body (matches iter_env)
             resolver_enter_scope(ctx);
 
-            // Define the key variable if present
+            // Define the key variable if present - no annotations for loop vars
             if (stmt->as.for_in.key_var) {
-                resolver_define(ctx, stmt->as.for_in.key_var);
+                resolver_define(ctx, stmt->as.for_in.key_var, NULL, 0);
             }
 
-            // Define the value variable
+            // Define the value variable - no annotations for loop vars
             if (stmt->as.for_in.value_var) {
-                resolver_define(ctx, stmt->as.for_in.value_var);
+                resolver_define(ctx, stmt->as.for_in.value_var, NULL, 0);
             }
 
             // Resolve the body
@@ -487,7 +534,7 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
                 // Create scope for catch variable
                 resolver_enter_scope(ctx);
                 if (stmt->as.try_stmt.catch_param) {
-                    resolver_define(ctx, stmt->as.try_stmt.catch_param);
+                    resolver_define(ctx, stmt->as.try_stmt.catch_param, NULL, 0);
                 }
                 resolve_stmt_internal(ctx, stmt->as.try_stmt.catch_block);
                 resolver_exit_scope(ctx);

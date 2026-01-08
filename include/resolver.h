@@ -23,6 +23,8 @@
  */
 typedef struct ResolverScope {
     char **names;              // Variable names defined in this scope
+    Annotation ***annotations; // Annotations for each variable (parallel array)
+    int *annotation_counts;    // Number of annotations for each variable
     int count;                 // Number of variables
     int capacity;              // Allocated capacity
     struct ResolverScope *parent;  // Enclosing scope
@@ -60,7 +62,7 @@ void resolver_exit_scope(ResolverContext *ctx);
  * Define a variable in the current scope.
  * Returns the slot index for this variable.
  */
-int resolver_define(ResolverContext *ctx, const char *name);
+int resolver_define(ResolverContext *ctx, const char *name, Annotation **annotations, int annotation_count);
 
 /*
  * Look up a variable by name.
@@ -69,6 +71,12 @@ int resolver_define(ResolverContext *ctx, const char *name);
  * Returns 1 if found, 0 if not found.
  */
 int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slot);
+
+/*
+ * Get annotations for a variable by name.
+ * Returns annotations and count if found, NULL if not found.
+ */
+int resolver_get_annotations(ResolverContext *ctx, const char *name, Annotation ***annotations, int *count);
 
 /*
  * Resolve all variables in a program (array of statements).
