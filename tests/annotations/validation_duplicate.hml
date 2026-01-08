@@ -1,0 +1,9 @@
+// Test duplicate annotation warning
+
+@inline
+@inline
+fn double_inline() {
+    print("test");
+}
+
+double_inline();

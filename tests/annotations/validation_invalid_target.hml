@@ -1,0 +1,6 @@
+// Test invalid target error
+
+@inline
+let x = 42;
+
+print(x);

@@ -66,6 +66,7 @@ FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/*.c) $(wildcard $(SRC_DIR)/fronte
 # Frontend files for compiler (exclude module.c which has interpreter-specific code)
 FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/ast.c \
                          $(SRC_DIR)/frontend/ast_serialize.c \
+                         $(SRC_DIR)/frontend/annotations.c \
                          $(SRC_DIR)/frontend/lexer.c \
                          $(SRC_DIR)/frontend/optimizer.c \
                          $(SRC_DIR)/frontend/resolver.c \

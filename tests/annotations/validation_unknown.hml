@@ -1,0 +1,8 @@
+// Test unknown annotation warning
+
+@custom_marker
+fn handler() {
+    print("called");
+}
+
+handler();

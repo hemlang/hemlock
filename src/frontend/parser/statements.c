@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "annotations.h"
 
 // ========== ANNOTATION PARSING ==========
 
@@ -1045,6 +1046,9 @@ Stmt* statement(Parser *p) {
         Stmt *stmt = let_statement(p);
         stmt->as.let.annotations = annotations;
         stmt->as.let.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         return stmt;
     }
 
@@ -1052,6 +1056,9 @@ Stmt* statement(Parser *p) {
         Stmt *stmt = const_statement(p);
         stmt->as.const_stmt.annotations = annotations;
         stmt->as.const_stmt.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         return stmt;
     }
 
@@ -1099,6 +1106,9 @@ Stmt* statement(Parser *p) {
         Stmt *stmt = define_statement(p);
         stmt->as.define_object.annotations = annotations;
         stmt->as.define_object.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         return stmt;
     }
 
@@ -1142,6 +1152,9 @@ Stmt* statement(Parser *p) {
         Stmt *stmt = stmt_enum(name, variant_names, variant_values, num_variants);
         stmt->as.enum_decl.annotations = annotations;
         stmt->as.enum_decl.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         free(name);
         return stmt;
     }
@@ -1284,6 +1297,9 @@ Stmt* statement(Parser *p) {
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);
         stmt->as.let.annotations = annotations;
         stmt->as.let.annotation_count = annotation_count;
+        if (!validate_annotations(stmt)) {
+            p->had_error = 1;
+        }
         free(name);
         return stmt;
     } else {
