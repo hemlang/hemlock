@@ -1,0 +1,34 @@
+// Test Phase 3: @optimize(level) annotation
+
+@optimize("3")
+fn matrix_multiply(a: i32, b: i32): i32 {
+    // Simulate some intensive computation
+    let result = 0;
+    for (let i = 0; i < 10; i++) {
+        result = result + (a * b);
+    }
+    return result;
+}
+
+@optimize("s")
+fn rarely_called_error_handler(code: i32): string {
+    // Optimize for size, not speed
+    return "Error code: " + code;
+}
+
+@optimize("0")
+fn debug_function(x: i32): i32 {
+    // No optimization for debugging
+    return x + 1;
+}
+
+@optimize("fast")
+fn speed_critical(n: i32): i32 {
+    return n * n;
+}
+
+// Test the functions
+print(matrix_multiply(3, 4));       // 120
+print(rarely_called_error_handler(404));
+print(debug_function(10));          // 11
+print(speed_critical(7));           // 49

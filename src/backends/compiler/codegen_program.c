@@ -10,7 +10,7 @@
 // ========== PROGRAM CODE GENERATION ==========
 
 // Helper: Emit GCC/Clang function attributes based on Hemlock annotations
-// This translates @inline, @noinline, @hot, @cold, @pure, @const, @flatten into __attribute__((...))
+// This translates @inline, @noinline, @hot, @cold, @pure, @const, @flatten, @optimize into __attribute__((...))
 static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **annotations, int annotation_count) {
     if (!annotations || annotation_count == 0) {
         return;
@@ -37,6 +37,20 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
     }
     if (annotation_has(annotations, annotation_count, "flatten")) {
         codegen_write(ctx, "__attribute__((flatten)) ");
+    }
+
+    // Handle @optimize(level) - extract string argument
+    Annotation *opt = annotation_get(annotations, annotation_count, "optimize");
+    if (opt) {
+        const char *level = annotation_get_string_arg(opt, NULL, NULL);
+        if (level) {
+            // Validate optimization level (0, 1, 2, 3, s, fast)
+            if (strcmp(level, "0") == 0 || strcmp(level, "1") == 0 ||
+                strcmp(level, "2") == 0 || strcmp(level, "3") == 0 ||
+                strcmp(level, "s") == 0 || strcmp(level, "fast") == 0) {
+                codegen_write(ctx, "__attribute__((optimize(\"-O%s\"))) ", level);
+            }
+        }
     }
 }
 
