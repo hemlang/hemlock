@@ -845,7 +845,15 @@ make parity
 
 ## Version
 
-**v1.7.2** - Current release with:
+**v1.7.3** - Current release with:
+- **Compiler helper annotations** - 11 optimization annotations for GCC/Clang control:
+  - `@inline`, `@noinline` - function inlining control
+  - `@hot`, `@cold` - branch prediction hints
+  - `@pure`, `@const` - side-effect annotations
+  - `@flatten` - inline all calls within function
+  - `@optimize(level)` - per-function optimization level ("0", "1", "2", "3", "s", "fast")
+  - `@warn_unused` - warn on ignored return values
+  - `@section(name)` - custom ELF section placement (e.g., `@section(".text.hot")`)
 - **Expression-bodied functions** (`fn double(x): i32 => x * 2;`) - concise single-expression function syntax
 - **Single-line statements** - braceless `if`, `while`, `for` syntax (e.g., `if (x > 0) print(x);`)
 - **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
