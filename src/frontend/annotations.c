@@ -21,6 +21,11 @@ static const AnnotationSpec known_annotations[] = {
     {"optimize",   ANNOT_TARGET_FN, 1, 1, 1},  // Requires 1 argument (level)
     {"warn_unused", ANNOT_TARGET_FN, 0, 0, 0},  // Warn if return value is ignored
 
+    // Memory/FFI annotations
+    {"aligned",    ANNOT_TARGET_LET, 1, 1, 1},     // Requires 1 argument (alignment)
+    {"packed",     ANNOT_TARGET_DEFINE, 0, 0, 0},  // No struct padding
+    {"section",    ANNOT_TARGET_FN | ANNOT_TARGET_LET, 1, 1, 1},  // Custom ELF section
+
     // Deprecation
     {"deprecated", ANNOT_TARGET_ALL, 1, 0, 2},
 

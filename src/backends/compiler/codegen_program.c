@@ -55,6 +55,15 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
             }
         }
     }
+
+    // Handle @section(name) - place function in custom ELF section
+    Annotation *sec = annotation_get(annotations, annotation_count, "section");
+    if (sec) {
+        const char *section_name = annotation_get_string_arg(sec, NULL, NULL);
+        if (section_name) {
+            codegen_write(ctx, "__attribute__((section(\"%s\"))) ", section_name);
+        }
+    }
 }
 
 // Check if a statement is a function definition (let name = fn() {} or export fn name())

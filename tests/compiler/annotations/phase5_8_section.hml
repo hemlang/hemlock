@@ -1,0 +1,29 @@
+// Test: @section annotation for custom ELF sections
+
+@section(".text.hot")
+@hot
+fn critical_init(): void {
+    print("Critical initialization");
+}
+
+@section(".text.cold")
+@cold
+fn error_handler(): void {
+    print("Error occurred");
+}
+
+@section(".text.startup")
+fn early_init(): void {
+    print("Early startup");
+}
+
+// Regular function (no section)
+fn normal_func(): void {
+    print("Normal function");
+}
+
+// Test all functions
+critical_init();
+error_handler();
+early_init();
+normal_func();
