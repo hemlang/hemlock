@@ -38,6 +38,9 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
     if (annotation_has(annotations, annotation_count, "flatten")) {
         codegen_write(ctx, "__attribute__((flatten)) ");
     }
+    if (annotation_has(annotations, annotation_count, "warn_unused")) {
+        codegen_write(ctx, "__attribute__((warn_unused_result)) ");
+    }
 
     // Handle @optimize(level) - extract string argument
     Annotation *opt = annotation_get(annotations, annotation_count, "optimize");

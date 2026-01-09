@@ -19,6 +19,7 @@ static const AnnotationSpec known_annotations[] = {
     {"const",      ANNOT_TARGET_FN, 0, 0, 0},
     {"flatten",    ANNOT_TARGET_FN, 0, 0, 0},
     {"optimize",   ANNOT_TARGET_FN, 1, 1, 1},  // Requires 1 argument (level)
+    {"warn_unused", ANNOT_TARGET_FN, 0, 0, 0},  // Warn if return value is ignored
 
     // Deprecation
     {"deprecated", ANNOT_TARGET_ALL, 1, 0, 2},
