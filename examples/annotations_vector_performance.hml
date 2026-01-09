@@ -1,0 +1,85 @@
+// Example: High-Performance Vector Operations
+// Demonstrates @inline, @hot, @optimize, and @const annotations
+
+import { time_ms } from "@stdlib/time";
+
+// Pure mathematical functions marked as const (no side effects, no global reads)
+@const
+fn add_scalar(a: f64, b: f64): f64 => a + b;
+
+@const
+fn mul_scalar(a: f64, b: f64): f64 => a * b;
+
+// Hot path: frequently called in tight loops
+@inline
+@hot
+@optimize("3")
+fn dot_product_inner(a: buffer, b: buffer, idx: i32): f64 {
+    let ax = ptr_read_f64(a, idx * 8);
+    let bx = ptr_read_f64(b, idx * 8);
+    return mul_scalar(ax, bx);
+}
+
+// Main computation with aggressive optimization
+@hot
+@optimize("3")
+fn vector_dot_product(a: buffer, b: buffer, n: i32): f64 {
+    let result = 0.0;
+    for (let i = 0; i < n; i++) {
+        result = add_scalar(result, dot_product_inner(a, b, i));
+    }
+    return result;
+}
+
+// Baseline version without annotations for comparison
+fn vector_dot_product_baseline(a: buffer, b: buffer, n: i32): f64 {
+    let result = 0.0;
+    for (let i = 0; i < n; i++) {
+        let ax = ptr_read_f64(a, i * 8);
+        let bx = ptr_read_f64(b, i * 8);
+        result = result + (ax * bx);
+    }
+    return result;
+}
+
+// Initialize test vectors
+let n = 10000;
+let vec_a = buffer(n * 8);
+let vec_b = buffer(n * 8);
+
+for (let i = 0; i < n; i++) {
+    ptr_write_f64(vec_a, i * 8, i * 1.5);
+    ptr_write_f64(vec_b, i * 8, i * 2.0);
+}
+
+// Benchmark optimized version
+let iterations = 1000;
+let start = time_ms();
+for (let i = 0; i < iterations; i++) {
+    vector_dot_product(vec_a, vec_b, n);
+}
+let optimized_time = time_ms() - start;
+
+// Benchmark baseline
+start = time_ms();
+for (let i = 0; i < iterations; i++) {
+    vector_dot_product_baseline(vec_a, vec_b, n);
+}
+let baseline_time = time_ms() - start;
+
+print("=== Vector Dot Product Benchmark ===");
+print("Vector size: ", n, " elements");
+print("Iterations: ", iterations);
+print("");
+print("Optimized (@inline + @hot + @optimize): ", optimized_time, "ms");
+print("Baseline (no annotations): ", baseline_time, "ms");
+print("Speedup: ", (baseline_time / optimized_time), "x");
+
+// Verify correctness
+let result = vector_dot_product(vec_a, vec_b, n);
+print("");
+print("Result verification: ", result);
+
+// Cleanup
+free(vec_a);
+free(vec_b);

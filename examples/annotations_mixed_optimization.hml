@@ -1,0 +1,143 @@
+// Example: Mixed Optimization Levels
+// Demonstrates @optimize annotation with different levels for different needs
+
+import { time_ms } from "@stdlib/time";
+
+// Debug function - no optimization for easier debugging
+@optimize("0")
+fn debug_dump(label: string, ptr: ptr, size: i32): void {
+    print("[DEBUG]", label);
+    for (let i = 0; i < size; i++) {
+        let val = ptr_read_u8(ptr, i);
+        print("  [", i, "]:", val, "(0x", val, ")");
+    }
+}
+
+// Size-optimized error handler - called rarely, minimize code size
+@optimize("s")
+@cold
+fn format_error_report(code: i32, message: string, context: string): string {
+    let header = "==================== ERROR REPORT ====================";
+    let footer = "======================================================";
+    let timestamp = "Timestamp: [current time would go here]";
+    let error_line = "Error Code: " + code;
+    let msg_line = "Message: " + message;
+    let ctx_line = "Context: " + context;
+    let separator = "------------------------------------------------------";
+
+    return header + "\n" + timestamp + "\n" + separator + "\n" +
+           error_line + "\n" + msg_line + "\n" + ctx_line + "\n" + footer;
+}
+
+// Standard optimization - normal business logic
+@optimize("2")
+fn process_transaction(amount: i32, fee: i32): object {
+    let total = amount + fee;
+    let tax = (total * 8) / 100;  // 8% tax
+    let final_amount = total + tax;
+
+    return {
+        subtotal: amount,
+        fee: fee,
+        tax: tax,
+        total: final_amount
+    };
+}
+
+// Aggressive optimization - performance-critical computation
+@optimize("3")
+@hot
+fn matrix_multiply_row(a: buffer, b: buffer, row: i32, size: i32): i32 {
+    let sum = 0;
+    for (let i = 0; i < size; i++) {
+        let a_val = ptr_read_i32(a, (row * size + i) * 4);
+        let b_val = ptr_read_i32(b, i * 4);
+        sum = sum + (a_val * b_val);
+    }
+    return sum;
+}
+
+// Fast-math optimization - maximum speed, less precision checking
+@optimize("fast")
+@hot
+fn calculate_physics(x: f64, y: f64, dt: f64): object {
+    let velocity_x = x * dt;
+    let velocity_y = y * dt;
+    let acceleration = (velocity_x * velocity_x) + (velocity_y * velocity_y);
+
+    return {
+        vx: velocity_x,
+        vy: velocity_y,
+        accel: acceleration
+    };
+}
+
+// Demonstration
+print("=== Mixed Optimization Level Demo ===\n");
+
+// 1. Debug function (O0) - easy to debug, slow
+print("1. Debug Function (@optimize(\"0\"))");
+let test_data = buffer(4);
+ptr_write_u8(test_data, 0, 0xDE);
+ptr_write_u8(test_data, 1, 0xAD);
+ptr_write_u8(test_data, 2, 0xBE);
+ptr_write_u8(test_data, 3, 0xEF);
+debug_dump("Test Buffer", test_data, 4);
+print("");
+
+// 2. Size-optimized error handler (Os) - small code, rarely called
+print("2. Error Handler (@optimize(\"s\"))");
+let error_msg = format_error_report(404, "Resource not found", "API endpoint /users/123");
+print(error_msg);
+print("");
+
+// 3. Standard business logic (O2) - balanced
+print("3. Business Logic (@optimize(\"2\"))");
+let transaction = process_transaction(100, 5);
+print("Transaction processed:");
+print("  Subtotal:", transaction.subtotal);
+print("  Fee:", transaction.fee);
+print("  Tax:", transaction.tax);
+print("  Total:", transaction.total);
+print("");
+
+// 4. Performance-critical computation (O3) - maximum speed
+print("4. Matrix Computation (@optimize(\"3\"))");
+let matrix_a = buffer(16);  // 2x2 matrix
+let matrix_b = buffer(8);   // 2x1 vector
+for (let i = 0; i < 4; i++) {
+    ptr_write_i32(matrix_a, i * 4, i + 1);
+}
+ptr_write_i32(matrix_b, 0, 10);
+ptr_write_i32(matrix_b, 4, 20);
+
+let start = time_ms();
+let iterations = 10000;
+for (let i = 0; i < iterations; i++) {
+    matrix_multiply_row(matrix_a, matrix_b, 0, 2);
+}
+let elapsed = time_ms() - start;
+print("Matrix row multiply (", iterations, " iterations):", elapsed, "ms");
+print("");
+
+// 5. Fast-math physics (Ofast) - maximum speed, relaxed precision
+print("5. Physics Calculation (@optimize(\"fast\"))");
+let physics = calculate_physics(10.5, 20.3, 0.016);
+print("Physics step:");
+print("  Velocity X:", physics.vx);
+print("  Velocity Y:", physics.vy);
+print("  Acceleration:", physics.accel);
+print("");
+
+// Cleanup
+free(test_data);
+free(matrix_a);
+free(matrix_b);
+
+print("=== Optimization Strategy ===");
+print("@optimize(\"0\")    - Debug functions (easy to step through)");
+print("@optimize(\"s\")    - Error handlers (minimize code size)");
+print("@optimize(\"2\")    - Business logic (balanced speed/size)");
+print("@optimize(\"3\")    - Hot loops (maximum speed optimizations)");
+print("@optimize(\"fast\") - Math-heavy code (aggressive, less safe)");
+print("\nMix optimization levels within the same program!");

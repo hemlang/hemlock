@@ -1,0 +1,144 @@
+// Example: Simple Annotation Demo
+// Quick demonstration of all major annotations
+
+import { time_ms } from "@stdlib/time";
+
+print("=== Compiler Annotation Showcase ===\n");
+
+// ============ 1. @inline and @hot ============
+
+@inline
+@hot
+fn fast_compute(x: i32): i32 {
+    return (x * x) + (x * 2) - 5;
+}
+
+print("1. @inline @hot - Fast computation");
+let start = time_ms();
+let sum = 0;
+for (let i = 0; i < 1000; i++) {
+    sum = sum + fast_compute(i);
+}
+print("   Computed sum:", sum, "in", time_ms() - start, "ms");
+print("   (Inlined into loop, optimized for hot path)\n");
+
+// ============ 2. @cold and @noinline ============
+
+@cold
+@noinline
+fn error_handler(code: i32, msg: string): void {
+    eprint("[ERROR", code, "]", msg);
+    eprint("This function is rarely called");
+}
+
+print("2. @cold @noinline - Error handling");
+error_handler(404, "Resource not found");
+print("   (Optimized for size, never inlined)\n");
+
+// ============ 3. @const and @pure ============
+
+@const
+fn square(x: i32): i32 => x * x;
+
+@const
+fn add(a: i32, b: i32): i32 => a + b;
+
+let global_factor = 10;
+
+@pure
+fn scale(x: i32): i32 {
+    return x * global_factor;  // Can read globals
+}
+
+print("3. @const and @pure - Pure functions");
+print("   square(7) =", square(7), "(no side effects)");
+print("   add(10, 20) =", add(10, 20), "(no side effects)");
+print("   scale(5) =", scale(5), "(reads global:", global_factor, ")\n");
+
+// ============ 4. @optimize(level) ============
+
+@optimize("3")
+fn aggressive_optimize(n: i32): i32 {
+    let result = 0;
+    for (let i = 0; i < n; i++) {
+        result = result + (i * i);
+    }
+    return result;
+}
+
+@optimize("s")
+fn size_optimize(): string {
+    return "This function is optimized for small code size, not speed";
+}
+
+@optimize("0")
+fn no_optimize(x: i32): i32 {
+    return x + 1;  // No optimization - easy to debug
+}
+
+print("4. @optimize(level) - Per-function optimization");
+print("   @optimize(\"3\"):", aggressive_optimize(100));
+print("   @optimize(\"s\"):", size_optimize());
+print("   @optimize(\"0\"):", no_optimize(42), "\n");
+
+// ============ 5. @flatten ============
+
+@inline
+fn helper_a(x: i32): i32 => x + 5;
+
+@inline
+fn helper_b(x: i32): i32 => x * 2;
+
+@flatten
+fn pipeline(n: i32): i32 {
+    let a = helper_a(n);
+    return helper_b(a);  // All calls inlined
+}
+
+print("5. @flatten - Inline all calls");
+print("   pipeline(10) =", pipeline(10));
+print("   (helper_a and helper_b both inlined)\n");
+
+// ============ 6. @section ============
+
+@section(".text.hot")
+@hot
+fn critical_path(x: i32): i32 => x * x;
+
+@section(".text.cold")
+@cold
+fn rare_path(): void {
+    print("   Rarely executed code");
+}
+
+print("6. @section - Custom ELF sections");
+print("   critical_path(8) =", critical_path(8), "(in .text.hot)");
+rare_path();
+print("   (Improves cache locality)\n");
+
+// ============ 7. @warn_unused ============
+
+@warn_unused
+fn must_check(x: i32): bool {
+    return x > 0;
+}
+
+print("7. @warn_unused - Enforce error checking");
+let checked = must_check(42);
+print("   Result checked:", checked);
+print("   (Compiler warns if return value ignored)\n");
+
+// ============ Summary ============
+
+print("=== Annotation Reference ===");
+print("@inline      - Force function inlining");
+print("@noinline    - Prevent inlining");
+print("@hot         - Frequently executed (optimize for speed)");
+print("@cold        - Rarely executed (optimize for size)");
+print("@pure        - No side effects, can read globals");
+print("@const       - No side effects, no global reads");
+print("@flatten     - Inline ALL calls within function");
+print("@optimize(X) - Set optimization level (0,1,2,3,s,fast)");
+print("@section(S)  - Place in custom ELF section");
+print("@warn_unused - Warn if return value ignored");
+print("\nUse annotations to fine-tune GCC/Clang optimizations!");

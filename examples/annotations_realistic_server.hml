@@ -1,0 +1,258 @@
+// Example: Realistic HTTP Server Request Handler
+// Demonstrates practical annotation usage in a real-world scenario
+
+import { time_ms } from "@stdlib/time";
+import { HashMap } from "@stdlib/collections";
+
+// ============ Configuration & Setup (Cold Path) ============
+
+@section(".text.startup")
+@cold
+fn initialize_server(): object {
+    print("[STARTUP] Initializing server...");
+    print("[STARTUP] Loading configuration...");
+    print("[STARTUP] Opening database connections...");
+    return {
+        port: 8080,
+        max_connections: 100,
+        timeout: 30
+    };
+}
+
+@cold
+@optimize("s")
+fn format_startup_banner(config: object): string {
+    let banner = "================================\n";
+    banner = banner + "  HTTP Server v1.0\n";
+    banner = banner + "================================\n";
+    banner = banner + "Port: " + config.port + "\n";
+    banner = banner + "Max Connections: " + config.max_connections + "\n";
+    banner = banner + "Timeout: " + config.timeout + "s\n";
+    banner = banner + "================================";
+    return banner;
+}
+
+// ============ Request Validation (Hot Path) ============
+
+@const
+@inline
+fn is_valid_method(method: string): bool {
+    return method == "GET" || method == "POST" ||
+           method == "PUT" || method == "DELETE";
+}
+
+@const
+@inline
+fn is_valid_status_code(code: i32): bool {
+    return code >= 100 && code < 600;
+}
+
+@hot
+@inline
+fn validate_request(method: string, path: string): bool {
+    if (!is_valid_method(method)) {
+        return false;
+    }
+    if (path.length == 0 || !path.starts_with("/")) {
+        return false;
+    }
+    return true;
+}
+
+// ============ Request Processing (Hot Path) ============
+
+@const
+fn compute_hash(s: string): i32 {
+    let hash = 5381;
+    let bytes = s.to_bytes();
+    for (let i = 0; i < bytes.length; i++) {
+        let c = bytes[i];
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+    return hash;
+}
+
+@hot
+@optimize("3")
+@flatten
+fn route_request(method: string, path: string): object {
+    // All helper function calls will be inlined
+    let hash = compute_hash(path);
+    let valid = validate_request(method, path);
+
+    if (!valid) {
+        return { status: 400, handler: "error" };
+    }
+
+    // Simple routing based on path
+    if (path == "/") {
+        return { status: 200, handler: "index" };
+    } else if (path.starts_with("/api/")) {
+        return { status: 200, handler: "api" };
+    } else if (path.starts_with("/static/")) {
+        return { status: 200, handler: "static" };
+    } else {
+        return { status: 404, handler: "not_found" };
+    }
+}
+
+@hot
+@optimize("3")
+fn handle_request(request: object): object {
+    let start = time_ms();
+    let route = route_request(request.method, request.path);
+
+    let response = {
+        status: route.status,
+        handler: route.handler,
+        method: request.method,
+        path: request.path,
+        duration_ms: 0
+    };
+
+    response.duration_ms = time_ms() - start;
+    return response;
+}
+
+// ============ Error Handling (Cold Path) ============
+
+@warn_unused
+fn check_error_condition(response: object): bool {
+    return response.status >= 400;
+}
+
+@cold
+@optimize("s")
+@section(".text.cold")
+fn handle_error(response: object): void {
+    eprint("[ERROR] Request failed");
+    eprint("  Method:", response.method);
+    eprint("  Path:", response.path);
+    eprint("  Status:", response.status);
+    eprint("  Handler:", response.handler);
+
+    // In real server: log to file, notify monitoring, etc.
+}
+
+@cold
+@section(".text.cold")
+fn handle_panic(message: string): void {
+    eprint("=================================");
+    eprint("CRITICAL ERROR: Server Panic");
+    eprint("=================================");
+    eprint("Message:", message);
+    eprint("Stack trace: [not implemented]");
+    eprint("=================================");
+    panic(message);
+}
+
+// ============ Logging & Metrics (Normal Path) ============
+
+@pure
+fn format_response_log(response: object): string {
+    let status_str = "" + response.status;
+    let duration_str = "" + response.duration_ms;
+    return response.method + " " + response.path + " -> " +
+           status_str + " (" + duration_str + "ms)";
+}
+
+@warn_unused
+fn record_metrics(responses: array): object {
+    let total_requests = responses.length;
+    let total_time = 0;
+    let error_count = 0;
+
+    for (let i = 0; i < total_requests; i++) {
+        let resp = responses[i];
+        total_time = total_time + resp.duration_ms;
+        if (resp.status >= 400) {
+            error_count = error_count + 1;
+        }
+    }
+
+    return {
+        total_requests: total_requests,
+        avg_response_time: total_time / total_requests,
+        error_count: error_count,
+        error_rate: (error_count * 100) / total_requests
+    };
+}
+
+// ============ Main Server Loop Simulation ============
+
+print("=== HTTP Server with Annotations ===\n");
+
+// 1. Server startup (cold path)
+let config = initialize_server();
+print(format_startup_banner(config));
+print("");
+
+// 2. Simulate request handling (hot path)
+print("Processing requests...\n");
+
+let test_requests = [
+    { method: "GET", path: "/" },
+    { method: "GET", path: "/api/users" },
+    { method: "POST", path: "/api/users" },
+    { method: "GET", path: "/static/style.css" },
+    { method: "GET", path: "/not-found" },
+    { method: "INVALID", path: "/bad" },
+    { method: "GET", path: "" },  // Invalid path
+];
+
+let responses = [];
+
+for (let i = 0; i < test_requests.length; i++) {
+    let request = test_requests[i];
+    let response = handle_request(request);
+    responses.push(response);
+
+    // Log response
+    print(format_response_log(response));
+
+    // Check for errors (cold path)
+    if (check_error_condition(response)) {
+        handle_error(response);
+    }
+}
+
+print("");
+
+// 3. Metrics (normal path)
+print("=== Server Metrics ===");
+let metrics = record_metrics(responses);
+print("Total Requests:", metrics.total_requests);
+print("Avg Response Time:", metrics.avg_response_time, "ms");
+print("Error Count:", metrics.error_count);
+print("Error Rate:", metrics.error_rate, "%");
+print("");
+
+// 4. Performance test (hot path)
+print("=== Performance Test ===");
+let iterations = 10000;
+let start = time_ms();
+for (let i = 0; i < iterations; i++) {
+    handle_request({ method: "GET", path: "/api/data" });
+}
+let elapsed = time_ms() - start;
+let rps = (iterations * 1000) / elapsed;
+print("Processed", iterations, "requests in", elapsed, "ms");
+print("Throughput:", rps, "requests/second");
+print("");
+
+print("=== Annotation Strategy Used ===");
+print("STARTUP:");
+print("  @cold @section(\".text.startup\") - Runs once, minimize size");
+print("");
+print("HOT PATH (request handling):");
+print("  @hot @optimize(\"3\") @flatten - Maximum speed");
+print("  @const @inline - Pure helpers, aggressive inlining");
+print("");
+print("ERROR HANDLING:");
+print("  @cold @optimize(\"s\") @section(\".text.cold\") - Rare, minimize size");
+print("  @warn_unused - Ensure errors are checked");
+print("");
+print("LOGGING:");
+print("  @pure - Can read request data, no side effects");
+print("");
+print("RESULT: Hot paths optimized for speed, cold paths for size!");
