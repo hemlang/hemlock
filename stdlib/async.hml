@@ -57,30 +57,32 @@ export fn ThreadPool(num_workers: i32) {
 		// Send task to queue
 		work_queue.send({ id: task_id, func: task_fn, args: args_arr, result_ch });
 		// Return a Future object
-		return { id: task_id, get: fn() {
-			// Block until result is available
-			let result = result_ch.recv();
-			result_ch.close();
-			if (result.success) {
-				return result.value;
-			} else {
-				throw result.error;
-			}
-		}
-, get_timeout: fn(timeout_ms) {
-			// Check if result is ready (non-blocking)
-			let result = result_ch.recv_timeout(timeout_ms);
-			if (result == null) {
-				return null;  // Not ready yet
-			}
-			result_ch.close();
-			if (result.success) {
-				return result.value;
-			} else {
-				throw result.error;
-			}
-		}
- };
+		return {
+			id: task_id,
+			get: fn() {
+				// Block until result is available
+				let result = result_ch.recv();
+				result_ch.close();
+				if (result.success) {
+					return result.value;
+				} else {
+					throw result.error;
+				}
+			},
+			get_timeout: fn(timeout_ms) {
+				// Check if result is ready (non-blocking)
+				let result = result_ch.recv_timeout(timeout_ms);
+				if (result == null) {
+					return null;  // Not ready yet
+				}
+				result_ch.close();
+				if (result.success) {
+					return result.value;
+				} else {
+					throw result.error;
+				}
+			},
+		};
 	}
 	// Submit with one argument
 	fn submit1(task_fn, arg1) {
@@ -90,28 +92,30 @@ export fn ThreadPool(num_workers: i32) {
 		let result_ch = channel(1);
 		let task_id = next_task_id++;
 		work_queue.send({ id: task_id, func: task_fn, args: [arg1], result_ch });
-		return { id: task_id, get: fn() {
-			let result = result_ch.recv();
-			result_ch.close();
-			if (result.success) {
-				return result.value;
-			} else {
-				throw result.error;
-			}
-		}
-, get_timeout: fn(timeout_ms) {
-			let result = result_ch.recv_timeout(timeout_ms);
-			if (result == null) {
-				return null;
-			}
-			result_ch.close();
-			if (result.success) {
-				return result.value;
-			} else {
-				throw result.error;
-			}
-		}
- };
+		return {
+			id: task_id,
+			get: fn() {
+				let result = result_ch.recv();
+				result_ch.close();
+				if (result.success) {
+					return result.value;
+				} else {
+					throw result.error;
+				}
+			},
+			get_timeout: fn(timeout_ms) {
+				let result = result_ch.recv_timeout(timeout_ms);
+				if (result == null) {
+					return null;
+				}
+				result_ch.close();
+				if (result.success) {
+					return result.value;
+				} else {
+					throw result.error;
+				}
+			},
+		};
 	}
 	// Submit with two arguments
 	fn submit2(task_fn, arg1, arg2) {
@@ -121,28 +125,30 @@ export fn ThreadPool(num_workers: i32) {
 		let result_ch = channel(1);
 		let task_id = next_task_id++;
 		work_queue.send({ id: task_id, func: task_fn, args: [arg1, arg2], result_ch });
-		return { id: task_id, get: fn() {
-			let result = result_ch.recv();
-			result_ch.close();
-			if (result.success) {
-				return result.value;
-			} else {
-				throw result.error;
-			}
-		}
-, get_timeout: fn(timeout_ms) {
-			let result = result_ch.recv_timeout(timeout_ms);
-			if (result == null) {
-				return null;
-			}
-			result_ch.close();
-			if (result.success) {
-				return result.value;
-			} else {
-				throw result.error;
-			}
-		}
- };
+		return {
+			id: task_id,
+			get: fn() {
+				let result = result_ch.recv();
+				result_ch.close();
+				if (result.success) {
+					return result.value;
+				} else {
+					throw result.error;
+				}
+			},
+			get_timeout: fn(timeout_ms) {
+				let result = result_ch.recv_timeout(timeout_ms);
+				if (result == null) {
+					return null;
+				}
+				result_ch.close();
+				if (result.success) {
+					return result.value;
+				} else {
+					throw result.error;
+				}
+			},
+		};
 	}
 	// Shutdown the pool gracefully
 	fn shutdown() {

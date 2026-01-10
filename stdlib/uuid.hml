@@ -199,7 +199,8 @@ export fn is_valid(uuid): bool {
 	}
 
 	// Check hyphen positions
-	if (uuid.char_at(8) != '-' || uuid.char_at(13) != '-' || uuid.char_at(18) != '-' || uuid.char_at(23) != '-') {
+	if (uuid.char_at(8) != '-' || uuid.char_at(13) != '-' || uuid.char_at(18) != '-' ||
+		uuid.char_at(23) != '-') {
 		return false;
 	}
 

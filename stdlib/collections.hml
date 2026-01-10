@@ -51,7 +51,10 @@ export fn HashMap() {
 			}
 			return val;
 		}
-		if (value_type == "i64" || value_type == "u32" || value_type == "u64" || value_type == "i8" || value_type == "i16" || value_type == "u8" || value_type == "u16") {
+		if (value_type == "i64" || value_type == "u32" || value_type == "u64" || value_type == "i8" ||
+			value_type == "i16" ||
+			value_type == "u8" ||
+			value_type == "u16") {
 			// For other integer types, just convert to basic int
 			let val = key + 0;
 			if (val < 0) {
@@ -151,8 +154,7 @@ export fn HashMap() {
 				resize();
 			}
 			return null;
-		}
-,
+		},
 		get: fn(key) {
 			let idx = get_bucket_index(key);
 			let bucket = buckets[idx];
@@ -162,12 +164,10 @@ export fn HashMap() {
 				}
 			}
 			return null;
-		}
-,
+		},
 		get_or_default: fn(key, default_value) {
 			return self.get(key) ?? default_value;
-		}
-,
+		},
 		has: fn(key) {
 			let idx = get_bucket_index(key);
 			let bucket = buckets[idx];
@@ -177,8 +177,7 @@ export fn HashMap() {
 				}
 			}
 			return false;
-		}
-,
+		},
 		delete: fn(key) {
 			let idx = get_bucket_index(key);
 			let bucket = buckets[idx];
@@ -191,8 +190,7 @@ export fn HashMap() {
 				}
 			}
 			return false;
-		}
-,
+		},
 		clear: fn() {
 			buckets = [];
 			for (let i = 0; i < bucket_count; i++) {
@@ -201,8 +199,7 @@ export fn HashMap() {
 			item_count = 0;
 			self.size = 0;
 			return null;
-		}
-,
+		},
 		keys: fn() {
 			let result = [];
 			for (bucket in buckets) {
@@ -211,8 +208,7 @@ export fn HashMap() {
 				}
 			}
 			return result;
-		}
-,
+		},
 		values: fn() {
 			let result = [];
 			for (bucket in buckets) {
@@ -221,8 +217,7 @@ export fn HashMap() {
 				}
 			}
 			return result;
-		}
-,
+		},
 		entries: fn() {
 			let result = [];
 			for (bucket in buckets) {
@@ -231,8 +226,7 @@ export fn HashMap() {
 				}
 			}
 			return result;
-		}
-,
+		},
 		each: fn(callback) {
 			for (bucket in buckets) {
 				for (entry in bucket) {
@@ -240,8 +234,7 @@ export fn HashMap() {
 				}
 			}
 			return null;
-		}
-,
+		},
 	};
 }
 
@@ -296,8 +289,7 @@ export fn Queue() {
 			count++;
 			self.size = count;
 			return null;
-		}
-,
+		},
 		dequeue: fn() {
 
 			if (count == 0) {
@@ -310,21 +302,18 @@ export fn Queue() {
 			count--;
 			self.size = count;
 			return item;
-		}
-,
+		},
 		peek: fn() {
 
 			if (count == 0) {
 				return null;
 			}
 			return items[head];
-		}
-,
+		},
 		is_empty: fn() {
 
 			return count == 0;
-		}
-,
+		},
 		clear: fn() {
 
 			// Reset to initial state
@@ -337,8 +326,7 @@ export fn Queue() {
 			count = 0;
 			self.size = 0;
 			return null;
-		}
-,
+		},
 		to_array: fn() {
 
 			let result = [];
@@ -346,16 +334,14 @@ export fn Queue() {
 				result.push(items[(head + i) % capacity]);
 			}
 			return result;
-		}
-,
+		},
 		each: fn(callback) {
 
 			for (let i = 0; i < count; i++) {
 				callback(items[(head + i) % capacity], i);
 			}
 			return null;
-		}
-,
+		},
 	};
 }
 
@@ -373,8 +359,7 @@ export fn Stack() {
 			items.push(item);
 			self.size = items.length;
 			return null;
-		}
-,
+		},
 		pop: fn() {
 
 			if (items.length == 0) {
@@ -383,41 +368,35 @@ export fn Stack() {
 			let item = items.pop();
 			self.size = items.length;
 			return item;
-		}
-,
+		},
 		peek: fn() {
 
 			if (items.length == 0) {
 				return null;
 			}
 			return items.last();
-		}
-,
+		},
 		is_empty: fn() {
 
 			return items.length == 0;
-		}
-,
+		},
 		clear: fn() {
 
 			items = [];
 			self.size = 0;
 			return null;
-		}
-,
+		},
 		to_array: fn() {
 
 			return items.slice(0, items.length);
-		}
-,
+		},
 		each: fn(callback) {
 
 			for (let i = 0; i < items.length; i++) {
 				callback(items[i], i);
 			}
 			return null;
-		}
-,
+		},
 	};
 }
 
@@ -439,8 +418,7 @@ export fn Set() {
 				return true;
 			}
 			return false;
-		}
-,
+		},
 		delete: fn(item) {
 
 			if (map.delete(item)) {
@@ -448,25 +426,21 @@ export fn Set() {
 				return true;
 			}
 			return false;
-		}
-,
+		},
 		has: fn(item) {
 
 			return map.has(item);
-		}
-,
+		},
 		clear: fn() {
 
 			map.clear();
 			self.size = 0;
 			return null;
-		}
-,
+		},
 		values: fn() {
 
 			return map.keys();  // Keys are the set values
-		}
-,
+		},
 		union: fn(other_set) {
 
 			let result = Set();
@@ -477,8 +451,7 @@ export fn Set() {
 				result.add(val);
 			}
 			return result;
-		}
-,
+		},
 		intersection: fn(other_set) {
 
 			let result = Set();
@@ -488,8 +461,7 @@ export fn Set() {
 				}
 			}
 			return result;
-		}
-,
+		},
 		difference: fn(other_set) {
 
 			let result = Set();
@@ -499,8 +471,7 @@ export fn Set() {
 				}
 			}
 			return result;
-		}
-,
+		},
 		each: fn(callback) {
 
 			let my_values = map.keys();
@@ -508,8 +479,7 @@ export fn Set() {
 				callback(my_values[i], i);
 			}
 			return null;
-		}
-,
+		},
 	};
 }
 
@@ -570,8 +540,7 @@ export fn LinkedList() {
 			count++;
 			self.size = count;
 			return null;
-		}
-,
+		},
 		prepend: fn(value) {
 
 			let node = create_node(value);
@@ -588,8 +557,7 @@ export fn LinkedList() {
 			count++;
 			self.size = count;
 			return null;
-		}
-,
+		},
 		insert: fn(index, value) {
 
 			if (index < 0 || index > count) {
@@ -618,8 +586,7 @@ export fn LinkedList() {
 			count++;
 			self.size = count;
 			return null;
-		}
-,
+		},
 		remove: fn(index) {
 
 			if (index < 0 || index >= count) {
@@ -646,8 +613,7 @@ export fn LinkedList() {
 count--;
 self.size = count;
 return value;
-}
-,
+},
 get: fn(index) {
 
 let node = get_node(index);
@@ -655,8 +621,7 @@ if (node == null) {
 	throw "Index out of bounds";
 }
 return node.value;
-}
-,
+},
 set: fn(index, value) {
 
 let node = get_node(index);
@@ -665,8 +630,7 @@ if (node == null) {
 }
 node.value = value;
 return null;
-}
-,
+},
 index_of: fn(value) {
 
 let current = head;
@@ -679,13 +643,11 @@ while (current != null) {
 	i++;
 }
 return -1;
-}
-,
+},
 contains: fn(value) {
 
 return self.index_of(value) != -1;
-}
-,
+},
 clear: fn() {
 
 head = null;
@@ -693,13 +655,11 @@ tail = null;
 count = 0;
 self.size = 0;
 return null;
-}
-,
+},
 is_empty: fn() {
 
 return count == 0;
-}
-,
+},
 to_array: fn() {
 
 let result = [];
@@ -709,8 +669,7 @@ while (current != null) {
 	current = current.next;
 }
 return result;
-}
-,
+},
 reverse: fn() {
 
 if (head == null) {
@@ -732,8 +691,7 @@ head = tail;
 tail = temp;
 
 return null;
-}
-,
+},
 each: fn(callback) {
 
 let current = head;
@@ -744,8 +702,7 @@ while (current != null) {
 	i++;
 }
 return null;
-}
-,
+},
 };
 }
 
@@ -834,8 +791,7 @@ export fn LRUCache(capacity: i32) {
 			// Move to front (most recently used)
 			move_to_front(node);
 			return node["value"];
-		}
-,
+		},
 		set: fn(key, value) {
 
 			// Set value for key
@@ -862,14 +818,12 @@ export fn LRUCache(capacity: i32) {
 			}
 
 			return evicted;
-		}
-,
+		},
 		has: fn(key) {
 
 			// Check if key exists
 			return cache[key] != null;
-		}
-,
+		},
 		remove: fn(key) {
 
 			// Remove key from cache
@@ -882,8 +836,7 @@ export fn LRUCache(capacity: i32) {
 			cache[key] = null;
 			count--;
 			return node["value"];
-		}
-,
+		},
 		peek: fn(key) {
 
 			// Get value without updating access order (peek)
@@ -892,8 +845,7 @@ export fn LRUCache(capacity: i32) {
 				return null;
 			}
 			return node["value"];
-		}
-,
+		},
 		clear: fn() {
 
 			// Clear all items
@@ -901,32 +853,27 @@ export fn LRUCache(capacity: i32) {
 			tail = null;
 			cache = {};
 			count = 0;
-		}
-,
+		},
 		size: fn() {
 
 			// Get current size
 			return count;
-		}
-,
+		},
 		capacity: fn() {
 
 			// Get capacity
 			return max_capacity;
-		}
-,
+		},
 		is_empty: fn() {
 
 			// Check if cache is empty
 			return count == 0;
-		}
-,
+		},
 		is_full: fn() {
 
 			// Check if cache is full
 			return count >= max_capacity;
-		}
-,
+		},
 		keys: fn() {
 
 			// Get all keys in order (most recent first)
@@ -937,8 +884,7 @@ export fn LRUCache(capacity: i32) {
 				current = current["next"];
 			}
 			return result;
-		}
-,
+		},
 		values: fn() {
 
 			// Get all values in order (most recent first)
@@ -949,8 +895,7 @@ export fn LRUCache(capacity: i32) {
 				current = current["next"];
 			}
 			return result;
-		}
-,
+		},
 		entries: fn() {
 
 			// Get all entries in order (most recent first)
@@ -961,8 +906,7 @@ export fn LRUCache(capacity: i32) {
 				current = current["next"];
 			}
 			return result;
-		}
-,
+		},
 		most_recent: fn() {
 
 			// Get most recently used key
@@ -970,8 +914,7 @@ export fn LRUCache(capacity: i32) {
 				return null;
 			}
 			return head["key"];
-		}
-,
+		},
 		least_recent: fn() {
 
 			// Get least recently used key
@@ -979,8 +922,7 @@ export fn LRUCache(capacity: i32) {
 				return null;
 			}
 			return tail["key"];
-		}
-,
+		},
 		resize: fn(new_capacity: i32) {
 
 			// Resize the cache (evicts if new capacity is smaller)
@@ -998,8 +940,7 @@ export fn LRUCache(capacity: i32) {
 
 			max_capacity = new_capacity;
 			return evicted;
-		}
-,
+		},
 		each: fn(callback) {
 
 			// Iterate over all entries (most recent first)
@@ -1008,7 +949,6 @@ export fn LRUCache(capacity: i32) {
 				callback(current["key"], current["value"]);
 				current = current["next"];
 			}
-		}
-,
+		},
 	};
 }

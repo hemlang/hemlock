@@ -144,7 +144,12 @@ export fn assert_string(value, message?: "Expected string") {
 // Assert that value is a number (any numeric type)
 export fn assert_number(value, message?: "Expected number") {
 	let t = typeof(value);
-	if (t != "i32" && t != "i64" && t != "f32" && t != "f64" && t != "i8" && t != "i16" && t != "u8" && t != "u16" && t != "u32" && t != "u64" && t != "integer" && t != "number") {
+	if (t != "i32" && t != "i64" && t != "f32" && t != "f64" && t != "i8" && t != "i16" && t != "u8" && t !=
+		"u16" &&
+		t != "u32" &&
+		t != "u64" &&
+		t != "integer" &&
+		t != "number") {
 		throw message + ": got " + t;
 	}
 }
@@ -251,7 +256,11 @@ export fn assert_has_key(obj, key, message?: "Key not found") {
 // ============================================================================
 
 // Assert string starts with prefix
-export fn assert_starts_with(str: string, prefix: string, message?: "String does not start with prefix") {
+export fn assert_starts_with(
+	str: string,
+	prefix: string,
+	message?: "String does not start with prefix",
+) {
 	if (!str.starts_with(prefix)) {
 		throw message + ": '" + str + "' does not start with '" + prefix + "'";
 	}
@@ -318,7 +327,12 @@ export fn assert_no_throw(func, message?: "Unexpected exception") {
 // ============================================================================
 
 // Assert that two floats are approximately equal
-export fn assert_approx_eq(actual, expected, tolerance?: 0.0001, message?: "Values not approximately equal") {
+export fn assert_approx_eq(
+	actual,
+	expected,
+	tolerance?: 0.0001,
+	message?: "Values not approximately equal",
+) {
 	let diff = actual - expected;
 	if (diff < 0) {
 		diff = -diff;

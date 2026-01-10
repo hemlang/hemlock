@@ -278,7 +278,10 @@ export fn random_bool(probability?: 0.5): bool {
 // length: i32 - Length of string to generate
 // charset: string - Characters to use (default: alphanumeric)
 // Returns: string - Random string
-export fn random_string(length, charset?: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"): string {
+export fn random_string(
+	length,
+	charset?: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+): string {
 	if (length < 0) {
 		throw "random_string() length must be >= 0";
 	}

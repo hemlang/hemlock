@@ -203,7 +203,10 @@ export fn supports_color(): bool {
 	}
 
 	// Check for common color-capable terminal types
-	if (term.contains("color") || term.contains("xterm") || term.contains("screen") || term.contains("tmux") || term.contains("rxvt") || term.contains("linux")) {
+	if (term.contains("color") || term.contains("xterm") || term.contains("screen") ||
+		term.contains("tmux") ||
+		term.contains("rxvt") ||
+		term.contains("linux")) {
 		return true;
 	}
 
@@ -223,48 +226,49 @@ export fn ProgressBar(total: i32, width?: 40) {
 	let current = 0;
 	let bar_width = width;
 
-	return { update: fn(value: i32) {
-		// Update progress to a specific value
-		current = value;
-		if (current > total) {
-			current = total;
-		}
-		if (current < 0) {
-			current = 0;
-		}
-		self.render();
-		return null;
-	}
-, increment: fn() {
+	return {
+		update: fn(value: i32) {
+			// Update progress to a specific value
+			current = value;
+			if (current > total) {
+				current = total;
+			}
+			if (current < 0) {
+				current = 0;
+			}
+			self.render();
+			return null;
+		},
+		increment: fn() {
 
-		// Increment progress by 1
-		current = current + 1;
-		if (current > total) {
-			current = total;
-		}
-		self.render();
-		return null;
-	}
-, render: fn() {
+			// Increment progress by 1
+			current = current + 1;
+			if (current > total) {
+				current = total;
+			}
+			self.render();
+			return null;
+		},
+		render: fn() {
 
-		// Render the progress bar
-		let percent = 0;
-		if (total > 0) {
-			percent = current * 100 / total;
-		}
+			// Render the progress bar
+			let percent = 0;
+			if (total > 0) {
+				percent = current * 100 / total;
+			}
 
-		let filled = 0;
-		if (total > 0) {
-			filled = current * bar_width / total;
-		}
+			let filled = 0;
+			if (total > 0) {
+				filled = current * bar_width / total;
+			}
 
-		// Build the bar
-		let bar = "[";
-		let i = 0;
-		while (i < bar_width) {
-			if (i < filled) {
-				bar = bar + "=";
-			} else if (i == filled) {
+			// Build the bar
+			let bar = "[";
+			let i = 0;
+			while (i < bar_width) {
+				if (i < filled) {
+					bar = bar + "=";
+				} else if (i == filled) {
 	bar = bar + ">";
 } else {
 	bar = bar + " ";
@@ -285,16 +289,16 @@ if (decimal_pos >= 0) {
 // Print with carriage return to overwrite
 exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
 return null;
-}
-, finish: fn() {
+},
+finish: fn() {
 
 // Finish the progress bar
 current = total;
 self.render();
 print("");  // New line
 return null;
-}
- };
+},
+};
 }
 
 // Spinner animation
@@ -307,41 +311,42 @@ export fn Spinner(frames?: null) {
 	let frame_index = 0;
 	let is_running = false;
 
-	return { spin: fn() {
-		// Start the spinner (must be called in a loop manually)
-		let frame = spinner_frames[frame_index];
-		exec("printf '\r" + frame + " '");
+	return {
+		spin: fn() {
+			// Start the spinner (must be called in a loop manually)
+			let frame = spinner_frames[frame_index];
+			exec("printf '\r" + frame + " '");
 
-		frame_index = frame_index + 1;
-		if (frame_index >= spinner_frames.length) {
-			frame_index = 0;
-		}
-		return null;
-	}
-, finish: fn(message?: "") {
+			frame_index = frame_index + 1;
+			if (frame_index >= spinner_frames.length) {
+				frame_index = 0;
+			}
+			return null;
+		},
+		finish: fn(message?: "") {
 
-		// Finish the spinner
-		exec("printf '\r'");
-		if (message != "") {
-			print(message);
-		}
-		return null;
-	}
-, get_frame: fn() {
+			// Finish the spinner
+			exec("printf '\r'");
+			if (message != "") {
+				print(message);
+			}
+			return null;
+		},
+		get_frame: fn() {
 
-		// Get current frame (for manual control)
-		return spinner_frames[frame_index];
-	}
-, next: fn() {
+			// Get current frame (for manual control)
+			return spinner_frames[frame_index];
+		},
+		next: fn() {
 
-		// Advance to next frame (without printing)
-		frame_index = frame_index + 1;
-		if (frame_index >= spinner_frames.length) {
-			frame_index = 0;
-		}
-		return null;
-	}
- };
+			// Advance to next frame (without printing)
+			frame_index = frame_index + 1;
+			if (frame_index >= spinner_frames.length) {
+				frame_index = 0;
+			}
+			return null;
+		},
+	};
 }
 
 // Predefined spinner styles

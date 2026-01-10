@@ -35,103 +35,87 @@ export fn DateTime(timestamp?: null) {
 
 			// Format using strftime format string
 			return __strftime(fmt, self);
-		}
-,
+		},
 		to_string: fn(): string {
 
 			// Common format methods
 			return self.format("%Y-%m-%d %H:%M:%S");
-		}
-,
+		},
 		to_date_string: fn(): string {
 
 			return self.format("%Y-%m-%d");
-		}
-,
+		},
 		to_time_string: fn(): string {
 
 			return self.format("%H:%M:%S");
-		}
-,
+		},
 		to_iso_string: fn(): string {
 
 			let utc_components = __gmtime(self.timestamp);
 			return __strftime("%Y-%m-%dT%H:%M:%SZ", utc_components);
-		}
-,
+		},
 		add_days: fn(days: i32) {
 
 			// Date arithmetic - add days
 			let seconds_per_day = 86400;
 			let new_ts = self.timestamp + days * seconds_per_day;
 			return DateTime(new_ts);
-		}
-,
+		},
 		add_hours: fn(hours: i32) {
 
 			// Date arithmetic - add hours
 			let seconds_per_hour = 3600;
 			let new_ts = self.timestamp + hours * seconds_per_hour;
 			return DateTime(new_ts);
-		}
-,
+		},
 		add_minutes: fn(minutes: i32) {
 
 			// Date arithmetic - add minutes
 			let new_ts = self.timestamp + minutes * 60;
 			return DateTime(new_ts);
-		}
-,
+		},
 		add_seconds: fn(seconds: i32) {
 
 			// Date arithmetic - add seconds
 			let new_ts = self.timestamp + seconds;
 			return DateTime(new_ts);
-		}
-,
+		},
 		diff_days: fn(other) {
 
 			// Get difference in days
 			let diff_seconds = self.timestamp - other.timestamp;
 			return diff_seconds / 86400;
-		}
-,
+		},
 		diff_hours: fn(other) {
 
 			// Get difference in hours
 			let diff_seconds = self.timestamp - other.timestamp;
 			return diff_seconds / 3600;
-		}
-,
+		},
 		diff_minutes: fn(other) {
 
 			// Get difference in minutes
 			let diff_seconds = self.timestamp - other.timestamp;
 			return diff_seconds / 60;
-		}
-,
+		},
 		diff_seconds: fn(other) {
 
 			// Get difference in seconds
 			return self.timestamp - other.timestamp;
-		}
-,
+		},
 		is_after: fn(other) {
 
 			// Comparison methods
 			return self.timestamp > other.timestamp;
-		}
-,
+		},
 		is_before: fn(other) {
 
 			return self.timestamp < other.timestamp;
-		}
-,
+		},
 		is_equal: fn(other) {
 
 			return self.timestamp == other.timestamp;
-		}
-,
+		},
 		weekday_name: fn(): string {
 
 			// Get weekday name
@@ -145,8 +129,7 @@ export fn DateTime(timestamp?: null) {
 				"Saturday",
 			];
 			return names[self.weekday];
-		}
-,
+		},
 		month_name: fn(): string {
 
 			// Get month name
@@ -166,8 +149,7 @@ export fn DateTime(timestamp?: null) {
 				"December",
 			];
 			return names[self.month];
-		}
-,
+		},
 	};
 }
 
@@ -179,7 +161,14 @@ export fn now() {
 }
 
 // Create DateTime from date components (local time)
-export fn from_date(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
+export fn from_date(
+	year: i32,
+	month: i32,
+	day: i32,
+	hour?: 0,
+	minute?: 0,
+	second?: 0,
+) {
 	let components = {
 		year,
 		month,

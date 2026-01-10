@@ -11,19 +11,23 @@ fn TcpListener(address: string, port: i32) {
 	sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
 	sock.bind(address, port);
 	sock.listen(128);  // Default backlog of 128
-	return { _socket: sock, address, port, accept: fn() {
-		// accept() -> TcpStream
-		// Accept incoming connection and return TcpStream
-		let client_sock = self._socket.accept();
-		return _TcpStream_from_socket(client_sock);
-	}
-, close: fn() {
-		// close() -> null
-		// Close the listener socket
-		self._socket.close();
-		return null;
-	}
- };
+	return {
+		_socket: sock,
+		address,
+		port,
+		accept: fn() {
+			// accept() -> TcpStream
+			// Accept incoming connection and return TcpStream
+			let client_sock = self._socket.accept();
+			return _TcpStream_from_socket(client_sock);
+		},
+		close: fn() {
+			// close() -> null
+			// Close the listener socket
+			self._socket.close();
+			return null;
+		},
+	};
 }
 
 // ========== TCP CLIENT/CONNECTION (TcpStream) ==========
@@ -48,8 +52,7 @@ fn _TcpStream_from_socket(sock) {
 			// read(size: i32) -> buffer
 			// Read up to size bytes from stream
 			return self._socket.recv(size);
-		}
-,
+		},
 		read_all: fn() {
 
 			// read_all() -> buffer
@@ -88,8 +91,7 @@ fn _TcpStream_from_socket(sock) {
 			}
 			// Note: This is simplified - real implementation would handle offsets
 			return result;
-		}
-,
+		},
 		read_line: fn() {
 
 			// read_line() -> string
@@ -112,38 +114,33 @@ fn _TcpStream_from_socket(sock) {
 				}
 			}
 			return result;
-		}
-,
+		},
 		write: fn(data) {
 
 			// write(data: string | buffer) -> i32
 			// Write data to stream, returns bytes written
 			return self._socket.send(data);
-		}
-,
+		},
 		write_line: fn(line: string) {
 
 			// write_line(line: string) -> i32
 			// Write string followed by newline
 			return self._socket.send(line + "\n");
-		}
-,
+		},
 		set_timeout: fn(seconds) {
 
 			// set_timeout(seconds: f64) -> null
 			// Set read/write timeout
 			self._socket.set_timeout(seconds);
 			return null;
-		}
-,
+		},
 		close: fn() {
 
 			// close() -> null
 			// Close the stream
 			self._socket.close();
 			return null;
-		}
-,
+		},
 	};
 }
 
@@ -164,31 +161,27 @@ fn UdpSocket(address: string, port: i32) {
 			// send_to(dest_addr: string, dest_port: i32, data: string | buffer) -> i32
 			// Send datagram to destination, returns bytes sent
 			return self._socket.sendto(dest_addr, dest_port, data);
-		}
-,
+		},
 		recv_from: fn(size: i32) {
 
 			// recv_from(size: i32) -> { data: buffer, address: string, port: i32 }
 			// Receive datagram with source information
 			return self._socket.recvfrom(size);
-		}
-,
+		},
 		set_timeout: fn(seconds) {
 
 			// set_timeout(seconds: f64) -> null
 			// Set receive timeout
 			self._socket.set_timeout(seconds);
 			return null;
-		}
-,
+		},
 		close: fn() {
 
 			// close() -> null
 			// Close the socket
 			self._socket.close();
 			return null;
-		}
-,
+		},
 	};
 }
 
@@ -227,7 +220,10 @@ fn parse_address(addr_str: string) {
 	}
 
 	let host = addr_str.substr(0, colon_pos);
-	let port_str = addr_str.substr(colon_pos + 1, addr_str.length - colon_pos - 1);
+	let port_str = addr_str.substr(
+		colon_pos + 1,
+		addr_str.length - colon_pos - 1,
+	);
 
 	// Convert port string to integer (simplified - would need proper parsing)
 	// For now, return placeholder

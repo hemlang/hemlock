@@ -2,7 +2,21 @@
 // Demonstrates: arrays, string manipulation, terminal colors, animation with sleep
 import { rand } from "@stdlib/math";
 import { sleep } from "@stdlib/time";
-import { RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE, WHITE, RESET, BOLD, CLEAR_SCREEN, move_to, HIDE_CURSOR, SHOW_CURSOR } from "@stdlib/terminal";
+import {
+	RED,
+	GREEN,
+	YELLOW,
+	CYAN,
+	MAGENTA,
+	BLUE,
+	WHITE,
+	RESET,
+	BOLD,
+	CLEAR_SCREEN,
+	move_to,
+	HIDE_CURSOR,
+	SHOW_CURSOR,
+} from "@stdlib/terminal";
 
 // Tank dimensions
 let WIDTH = 50;

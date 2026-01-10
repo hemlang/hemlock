@@ -111,7 +111,11 @@ export fn Logger(config?: null) {
 			}
 		}
 		// For numbers, convert using string concatenation with empty string
-		if (t == "i32" || t == "i64" || t == "u32" || t == "u64" || t == "i8" || t == "i16" || t == "u8" || t == "u16" || t == "f32" || t == "f64") {
+		if (t == "i32" || t == "i64" || t == "u32" || t == "u64" || t == "i8" || t == "i16" || t ==
+			"u8" ||
+			t == "u16" ||
+			t == "f32" ||
+			t == "f64") {
 			// Convert number to string using string context
 			let str = "";
 			if (t == "i32") {
@@ -199,43 +203,37 @@ debug: fn(message, data?: null) {
 // debug(message, data?) - Log debug message
 log_message(DEBUG, value_to_log_string(message), data);
 return null;
-}
-,
+},
 info: fn(message, data?: null) {
 
 // info(message, data?) - Log info message
 log_message(INFO, value_to_log_string(message), data);
 return null;
-}
-,
+},
 warn: fn(message, data?: null) {
 
 // warn(message, data?) - Log warning message
 log_message(WARN, value_to_log_string(message), data);
 return null;
-}
-,
+},
 error: fn(message, data?: null) {
 
 // error(message, data?) - Log error message
 log_message(ERROR, value_to_log_string(message), data);
 return null;
-}
-,
+},
 log: fn(level: i32, message, data?: null) {
 
 // log(level, message, data?) - Log with explicit level
 log_message(level, value_to_log_string(message), data);
 return null;
-}
-,
+},
 set_level: fn(level: i32) {
 
 // set_level(level) - Change minimum log level
 min_level = level;
 return null;
-}
-,
+},
 close: fn() {
 
 // close() - Close file handle if using file output
@@ -248,8 +246,7 @@ if (file_handle != null) {
 }
 // Ignore close errors
 return null;
-}
-,
+},
 };
 }
 

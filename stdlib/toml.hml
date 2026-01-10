@@ -43,7 +43,8 @@ fn is_digit(ch): bool {
 
 fn is_hex_digit(ch): bool {
 	let code: i32 = ch;
-	return code >= 48 && code <= 57 || code >= 65 && code <= 70 || code >= 97 && code <= 102;
+	return code >= 48 && code <= 57 || code >= 65 && code <= 70 ||
+		code >= 97 && code <= 102;
 }
 
 fn is_alpha(ch): bool {

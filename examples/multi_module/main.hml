@@ -1,6 +1,5 @@
 // Multi-module example
 // Demonstrates importing from multiple local modules
-
 import { PI, square, cube, circle_area, factorial, is_even } from "./math_utils";
 import { repeat_string, reverse_string, is_palindrome } from "./string_utils";
 

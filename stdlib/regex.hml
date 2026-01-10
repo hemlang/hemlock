@@ -64,14 +64,12 @@ export fn compile(pattern: string, flags): object {
 				throw "Regex has been freed";
 			}
 			return __regex_test(self._preg, text, null);
-		}
-,
+		},
 		matches: fn(text: string): bool {
 
 			// Match string and return true/false
 			return self.test(text);
-		}
-,
+		},
 		find: fn(text: string): bool {
 
 			// Find first match in string (returns true if found)
@@ -79,8 +77,7 @@ export fn compile(pattern: string, flags): object {
 				throw "Regex has been freed";
 			}
 			return __regex_test(self._preg, text, null);
-		}
-,
+		},
 		match: fn(text: string, max_matches): array {
 
 			// Find all matches and return array of match objects
@@ -89,8 +86,7 @@ export fn compile(pattern: string, flags): object {
 				throw "Regex has been freed";
 			}
 			return __regex_match(self._preg, text, max_matches);
-		}
-,
+		},
 		replace: fn(text: string, replacement: string): string {
 
 			// Replace first match with replacement string
@@ -98,8 +94,7 @@ export fn compile(pattern: string, flags): object {
 				throw "Regex has been freed";
 			}
 			return __regex_replace(self._preg, text, replacement);
-		}
-,
+		},
 		replace_all: fn(text: string, replacement: string): string {
 
 			// Replace all matches with replacement string
@@ -107,8 +102,7 @@ export fn compile(pattern: string, flags): object {
 				throw "Regex has been freed";
 			}
 			return __regex_replace_all(self._preg, text, replacement);
-		}
-,
+		},
 		free: fn() {
 
 			// Free the compiled regex (must be called manually)
@@ -117,8 +111,7 @@ export fn compile(pattern: string, flags): object {
 				self._freed = true;
 			}
 			return null;
-		}
-,
+		},
 	};
 
 	return regex;

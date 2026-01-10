@@ -38,7 +38,8 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 		resp_ptr = __lws_http_get(url);
 	} else if (method == "POST") {
 	resp_ptr = __lws_http_post(url, body, content_type);
-} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" || method == "OPTIONS") {
+} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
+	method == "OPTIONS") {
 	// Use generic request function for other HTTP methods
 	resp_ptr = __lws_http_request(method, url, body, content_type);
 } else {
@@ -278,8 +279,7 @@ export fn HttpServer(host: string, port: i32) {
 			// Register a route handler
 			// handler(req) should return { status: i32, body: string, content_type?: string }
 			self._routes.push({ method, path, handler });
-		}
-,
+		},
 		handle_one: fn() {
 
 			// Handle a single request and return
@@ -299,8 +299,7 @@ export fn HttpServer(host: string, port: i32) {
 			// Send response
 			let response_str = self._build_response(response);
 			stream.write(response_str);
-		}
-,
+		},
 		serve: fn(count: i32) {
 
 			// Serve requests until count is reached (0 = infinite)
@@ -309,8 +308,7 @@ export fn HttpServer(host: string, port: i32) {
 				self.handle_one();
 				handled++;
 			}
-		}
-,
+		},
 		serve_async: fn(count: i32) {
 
 			// Serve requests in background (async)
@@ -319,14 +317,12 @@ export fn HttpServer(host: string, port: i32) {
 				srv.serve(count);
 			}
 );
-		}
-,
+		},
 		close: fn() {
 
 			// Close the server
 			self._listener.close();
-		}
-,
+		},
 		_parse_request: fn(request_str: string) {
 
 			// Internal: Parse HTTP request string into object
@@ -369,8 +365,7 @@ export fn HttpServer(host: string, port: i32) {
 			}
 
 			return { method, path, version, headers, body };
-		}
-,
+		},
 		_handle_request: fn(req) {
 
 			// Internal: Find route and call handler
@@ -386,8 +381,7 @@ export fn HttpServer(host: string, port: i32) {
 				body: `{"error": "Not Found", "path": "` + req.path + `"}`,
 				content_type: "application/json",
 			};
-		}
-,
+		},
 		_build_response: fn(response) {
 
 			// Internal: Build HTTP response string
@@ -422,8 +416,7 @@ resp = resp + "\r\n";
 resp = resp + body;
 
 return resp;
-}
-,
+},
 };
 }
 

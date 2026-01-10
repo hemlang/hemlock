@@ -40,7 +40,12 @@ fn stringify(value) {
 		return escape_json_string(value);
 	}
 
-	if (t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t == "u32" || t == "u64" || t == "f32" || t == "f64" || t == "integer" || t == "number") {
+	if (t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t == "u32" || t ==
+		"u64" ||
+		t == "f32" ||
+		t == "f64" ||
+		t == "integer" ||
+		t == "number") {
 		// Numbers - convert to string representation
 		return format_number(value);
 	}
@@ -109,7 +114,15 @@ fn format_value(value, depth: i32, indent_str: string): string {
 		return escape_json_string(value);
 	}
 
-	if (value_type == "i8" || value_type == "i16" || value_type == "i32" || value_type == "i64" || value_type == "u8" || value_type == "u16" || value_type == "u32" || value_type == "u64" || value_type == "f32" || value_type == "f64" || value_type == "integer" || value_type == "number") {
+	if (value_type == "i8" || value_type == "i16" || value_type == "i32" || value_type == "i64" ||
+		value_type == "u8" ||
+		value_type == "u16" ||
+		value_type == "u32" ||
+		value_type == "u64" ||
+		value_type == "f32" ||
+		value_type == "f64" ||
+		value_type == "integer" ||
+		value_type == "number") {
 		// Use stringify to convert number to string representation
 		return stringify(value);
 	}
@@ -469,7 +482,12 @@ return typeof(value) == "string";
 
 fn is_number(value): bool {
 let t = typeof(value);
-return t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t == "u32" || t == "u64" || t == "f32" || t == "f64" || t == "integer" || t == "number";
+return t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t == "u32" || t ==
+"u64" ||
+t == "f32" ||
+t == "f64" ||
+t == "integer" ||
+t == "number";
 }
 
 fn is_bool(value): bool {
