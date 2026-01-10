@@ -1180,6 +1180,11 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 } else if (i > 0) {
                     buf_append(&ctx->buf, ", ");
                 }
+                // Output named argument prefix if present
+                if (expr->as.call.arg_names && expr->as.call.arg_names[i]) {
+                    buf_append(&ctx->buf, expr->as.call.arg_names[i]);
+                    buf_append(&ctx->buf, ": ");
+                }
                 fmt_expr(ctx, expr->as.call.args[i]);
                 if (should_break) {
                     // Remove trailing newline if present (from function body)

@@ -1,0 +1,8 @@
+// Test named argument formatting
+fn create_user(name: string, age?: 18, active?: true) {
+	print(name);
+}
+
+create_user("Alice", age: 25, active: false);
+create_user(name: "Bob", age: 30);
+create_user(active: true, name: "Charlie", age: 21);
