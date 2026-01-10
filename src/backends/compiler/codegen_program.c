@@ -9,6 +9,63 @@
 
 // ========== PROGRAM CODE GENERATION ==========
 
+// Helper: Emit GCC/Clang function attributes based on Hemlock annotations
+// This translates @inline, @noinline, @hot, @cold, @pure, @const, @flatten, @optimize into __attribute__((...))
+static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **annotations, int annotation_count) {
+    if (!annotations || annotation_count == 0) {
+        return;
+    }
+
+    // Generate GCC/Clang attributes
+    if (has_inline_annotation(annotations, annotation_count)) {
+        codegen_write(ctx, "__attribute__((always_inline)) ");
+    }
+    if (has_noinline_annotation(annotations, annotation_count)) {
+        codegen_write(ctx, "__attribute__((noinline)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "cold")) {
+        codegen_write(ctx, "__attribute__((cold)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "hot")) {
+        codegen_write(ctx, "__attribute__((hot)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "pure")) {
+        codegen_write(ctx, "__attribute__((pure)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "const")) {
+        codegen_write(ctx, "__attribute__((const)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "flatten")) {
+        codegen_write(ctx, "__attribute__((flatten)) ");
+    }
+    if (annotation_has(annotations, annotation_count, "warn_unused")) {
+        codegen_write(ctx, "__attribute__((warn_unused_result)) ");
+    }
+
+    // Handle @optimize(level) - extract string argument
+    Annotation *opt = annotation_get(annotations, annotation_count, "optimize");
+    if (opt) {
+        const char *level = annotation_get_string_arg(opt, NULL, NULL);
+        if (level) {
+            // Validate optimization level (0, 1, 2, 3, s, fast)
+            if (strcmp(level, "0") == 0 || strcmp(level, "1") == 0 ||
+                strcmp(level, "2") == 0 || strcmp(level, "3") == 0 ||
+                strcmp(level, "s") == 0 || strcmp(level, "fast") == 0) {
+                codegen_write(ctx, "__attribute__((optimize(\"-O%s\"))) ", level);
+            }
+        }
+    }
+
+    // Handle @section(name) - place function in custom ELF section
+    Annotation *sec = annotation_get(annotations, annotation_count, "section");
+    if (sec) {
+        const char *section_name = annotation_get_string_arg(sec, NULL, NULL);
+        if (section_name) {
+            codegen_write(ctx, "__attribute__((section(\"%s\"))) ", section_name);
+        }
+    }
+}
+
 // Check if a statement is a function definition (let name = fn() {} or export fn name())
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
     // Direct let statement with function
@@ -33,7 +90,10 @@ int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
 }
 
 // Generate a top-level function declaration
-void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name) {
+void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count) {
+    // Emit GCC/Clang attributes based on annotations (@inline, @hot, etc.)
+    codegen_emit_function_attributes(ctx, annotations, annotation_count);
+
     // Generate function signature with closure env for uniform calling convention
     // Even named functions take HmlClosureEnv* as first param (unused, passed as NULL)
     codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
@@ -414,10 +474,24 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
         }
 
         if (name && func) {
+            // Extract annotations from the statement
+            Annotation **annotations = NULL;
+            int annotation_count = 0;
+            if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
+                Stmt *decl = stmt->as.export_stmt.declaration;
+                if (decl->type == STMT_LET) {
+                    annotations = decl->as.let.annotations;
+                    annotation_count = decl->as.let.annotation_count;
+                }
+            } else if (stmt->type == STMT_LET) {
+                annotations = stmt->as.let.annotations;
+                annotation_count = stmt->as.let.annotation_count;
+            }
+
             char mangled_fn[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled_fn, sizeof(mangled_fn), "%sfn_%s", module->module_prefix, name);
 
-            // Generate forward declaration
+            // Generate forward declaration (no attributes in forward decl)
             ctx->output = decl_buffer->stream;
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
@@ -432,8 +506,9 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             }
             codegen_write(ctx, ");\n");
 
-            // Generate implementation
+            // Generate implementation with attributes
             ctx->output = impl_buffer->stream;
+            codegen_emit_function_attributes(ctx, annotations, annotation_count);
             codegen_write(ctx, "HmlValue %s(HmlClosureEnv *_closure_env", mangled_fn);
             for (int j = 0; j < func->as.function.num_params; j++) {
                 char *safe_param = codegen_sanitize_ident(func->as.function.param_names[j]);
@@ -739,7 +814,18 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         char *name;
         Expr *func;
         if (is_function_def(stmts[i], &name, &func)) {
-            codegen_function_decl(ctx, func, name);
+            // Extract annotations from the statement
+            Annotation **annotations = NULL;
+            int annotation_count = 0;
+            if (stmts[i]->type == STMT_LET) {
+                annotations = stmts[i]->as.let.annotations;
+                annotation_count = stmts[i]->as.let.annotation_count;
+            } else if (stmts[i]->type == STMT_EXPORT && stmts[i]->as.export_stmt.is_declaration &&
+                       stmts[i]->as.export_stmt.declaration->type == STMT_LET) {
+                annotations = stmts[i]->as.export_stmt.declaration->as.let.annotations;
+                annotation_count = stmts[i]->as.export_stmt.declaration->as.let.annotation_count;
+            }
+            codegen_function_decl(ctx, func, name, annotations, annotation_count);
         }
     }
 

@@ -1,0 +1,26 @@
+// Test Phase 4: @warn_unused annotation
+
+@warn_unused
+fn allocate_memory(size: i32): ptr {
+    return alloc(size);
+}
+
+@warn_unused
+fn important_computation(x: i32): i32 {
+    return x * x + 10;
+}
+
+fn regular_function(x: i32): i32 {
+    return x + 1;
+}
+
+// Using return value - OK
+let p = allocate_memory(1024);
+let result = important_computation(5);
+let regular = regular_function(10);
+
+print(result);      // 35
+print(regular);     // 11
+
+// Clean up
+free(p);

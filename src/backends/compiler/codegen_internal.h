@@ -12,7 +12,9 @@
 #include "codegen.h"
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
+#include "../../include/annotations.h"
 #include "hemlock_limits.h"
+#include "../../../runtime/include/hemlock_runtime.h"
 #include "../../../runtime/include/hemlock_value.h"  // For HmlValueType enum
 #include <stdio.h>
 #include <stdlib.h>
@@ -186,7 +188,7 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure);
 // ========== FUNCTION GENERATION ==========
 
 // Generate a top-level function declaration
-void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name);
+void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count);
 
 // Check if a statement is a function definition
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out);

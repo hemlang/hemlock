@@ -1,0 +1,41 @@
+// Test Phase 1: Basic function annotations (@inline, @noinline, @hot, @cold, @pure)
+
+@inline
+fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+@noinline
+fn subtract(a: i32, b: i32): i32 {
+    return a - b;
+}
+
+@hot
+fn frequently_called(x: i32): i32 {
+    return x * 2;
+}
+
+@cold
+fn rarely_called(): void {
+    print("Error handling");
+}
+
+@pure
+fn pure_function(x: i32): i32 {
+    return x + 10;
+}
+
+// Test multiple annotations
+@inline
+@hot
+fn critical_path(n: i32): i32 {
+    return n * n;
+}
+
+// Call the functions
+print(add(10, 20));              // 30
+print(subtract(50, 30));         // 20
+print(frequently_called(5));     // 10
+rarely_called();                 // Error handling
+print(pure_function(5));         // 15
+print(critical_path(7));         // 49

@@ -1,0 +1,105 @@
+// Example: Hot/Cold Path Optimization
+// Demonstrates @hot, @cold, and @section annotations for code organization
+
+import { time_ms } from "@stdlib/time";
+
+// Critical initialization - runs once at startup
+// Place in special startup section for better locality
+@section(".text.startup")
+fn initialize_system(): void {
+    print("System initialized");
+}
+
+// Hot path: frequently called in tight loops
+// Compiler optimizes for speed and places in hot text section
+@section(".text.hot")
+@hot
+@inline
+fn fast_path_compute(x: i32): i32 {
+    return (x * x) + (x << 2) - (x >> 1);
+}
+
+// Normal path: moderate frequency
+fn normal_operation(n: i32): i32 {
+    let result = 0;
+    for (let i = 0; i < n; i++) {
+        result = result + fast_path_compute(i);
+    }
+    return result;
+}
+
+// Cold path: error handling, rarely executed
+// Optimize for size, not speed
+@section(".text.cold")
+@cold
+@optimize("s")
+fn handle_error(code: i32, message: string): void {
+    eprint("ERROR [", code, "]: ", message);
+    eprint("Stack trace would go here...");
+    eprint("Diagnostic information...");
+    eprint("Recovery suggestions...");
+}
+
+// Cold path: assertion failure handler
+@section(".text.cold")
+@cold
+fn assertion_failed(condition: string, file: string, line: i32): void {
+    handle_error(1, "Assertion failed: " + condition);
+    eprint("  at ", file, ":", line);
+    panic("Assertion failure");
+}
+
+// Hot path: validation check called millions of times
+@hot
+@inline
+fn validate_range(x: i32, min: i32, max: i32): bool {
+    if (x < min || x > max) {
+        // Cold path: error case
+        handle_error(2, "Value out of range");
+        return false;
+    }
+    return true;
+}
+
+// Main benchmark demonstrating hot/cold separation
+print("=== Hot/Cold Path Benchmark ===\n");
+
+// Initialize (cold path - runs once)
+initialize_system();
+
+// Hot path: tight loop executed many times
+let iterations = 10000;
+let start = time_ms();
+let sum = 0;
+for (let i = 0; i < iterations; i++) {
+    sum = sum + fast_path_compute(i);
+}
+let elapsed = time_ms() - start;
+
+print("Hot path computation:");
+print("  Iterations:", iterations);
+print("  Time:", elapsed, "ms");
+print("  Result:", sum);
+print("");
+
+// Normal path
+let normal_result = normal_operation(100);
+print("Normal operation result:", normal_result);
+print("");
+
+// Demonstrate cold path (error handling)
+print("Triggering cold path (error handler):");
+handle_error(99, "This is a demonstration error");
+print("");
+
+// Demonstrate validation (hot path with cold error case)
+print("Validation tests:");
+print("  Valid range:", validate_range(50, 0, 100));
+print("  Invalid range:", validate_range(150, 0, 100));
+
+print("\n=== Code Organization ===");
+print("@section(\".text.startup\"): initialize_system()");
+print("@section(\".text.hot\"): fast_path_compute() - tight loops");
+print("@section(\".text.cold\"): error handlers - rarely executed");
+print("\nBenefit: Better instruction cache locality");
+print("Hot code grouped together, cold code separated");

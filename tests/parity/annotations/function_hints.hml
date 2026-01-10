@@ -1,0 +1,40 @@
+// Parity test: Function optimization hints should not change behavior
+
+@inline
+fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+@noinline
+fn subtract(a: i32, b: i32): i32 {
+    return a - b;
+}
+
+@hot
+fn multiply(a: i32, b: i32): i32 {
+    return a * b;
+}
+
+@cold
+fn divide(a: i32, b: i32): i32 {
+    return divi(a, b);
+}
+
+@pure
+fn square(x: i32): i32 {
+    return x * x;
+}
+
+@inline
+@hot
+fn fast_add(x: i32, y: i32): i32 {
+    return x + y;
+}
+
+// All functions should produce same results regardless of hints
+print(add(10, 20));
+print(subtract(100, 30));
+print(multiply(5, 6));
+print(divide(20, 4));
+print(square(7));
+print(fast_add(15, 25));
