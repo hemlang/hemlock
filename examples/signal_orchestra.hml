@@ -1,29 +1,8 @@
 // Signal Orchestra - Musical signal handling demonstration
 // Demonstrates: signal(), raise(), multiple handlers, global state
-// Orchestra state
-// Current instrument for each signal
-// Handler for SIGUSR1 - plays the violin
-// Handler for SIGUSR2 - plays the trumpet
-// Setup the orchestra
-// Conduct a simple melody
-// Movement 1: Opening
-// Violin starts
-// Violin continues
-// Trumpet joins
-// Movement 2: The Call
-// Trumpet call
-// Violin response
-// Trumpet answer
-// Movement 3: Crescendo
-// Finale
-// Generate a performance report
-// Count notes per instrument
-// Show the melody as a sequence
-// Main performance
-// Setup
-// Perform
-// Report
 import { RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE, RESET, BOLD } from "@stdlib/terminal";
+
+// Orchestra state
 let notes_played = [];
 let instruments = {
 	violin: { color: YELLOW, symbol: "♪", sound: "La la la..." },
@@ -31,19 +10,27 @@ let instruments = {
 	drums: { color: GREEN, symbol: "♩", sound: "Boom boom!" },
 	flute: { color: CYAN, symbol: "♬", sound: "Tweet tweet!" },
 };
+
+// Current instrument for each signal
 let instrument_map = {};
+
+// Handler for SIGUSR1 - plays the violin
 fn play_violin(sig) {
 	let inst = instruments.violin;
 	let note = inst.color + inst.symbol + " Violin: " + inst.sound + RESET;
 	notes_played.push("violin");
 	print(note);
 }
+
+// Handler for SIGUSR2 - plays the trumpet
 fn play_trumpet(sig) {
 	let inst = instruments.trumpet;
 	let note = inst.color + inst.symbol + " Trumpet: " + inst.sound + RESET;
 	notes_played.push("trumpet");
 	print(note);
 }
+
+// Setup the orchestra
 fn setup_orchestra() {
 	print(CYAN + "Setting up the orchestra..." + RESET);
 	signal(SIGUSR1, play_violin);
@@ -53,19 +40,27 @@ fn setup_orchestra() {
 	print("  SIGUSR2 (" + SIGUSR2 + ") -> Trumpet");
 	print("");
 }
+
+// Conduct a simple melody
 fn conduct_melody() {
 	print(BOLD + "The conductor raises the baton..." + RESET);
 	print("");
+
+	// Movement 1: Opening
 	print(MAGENTA + "=== Movement 1: The Opening ===" + RESET);
-	raise(SIGUSR1);
-	raise(SIGUSR1);
-	raise(SIGUSR2);
+	raise(SIGUSR1);  // Violin starts
+	raise(SIGUSR1);  // Violin continues
+	raise(SIGUSR2);  // Trumpet joins
 	print("");
+
+	// Movement 2: The Call
 	print(MAGENTA + "=== Movement 2: The Call ===" + RESET);
-	raise(SIGUSR2);
-	raise(SIGUSR1);
-	raise(SIGUSR2);
+	raise(SIGUSR2);  // Trumpet call
+	raise(SIGUSR1);  // Violin response
+	raise(SIGUSR2);  // Trumpet answer
 	print("");
+
+	// Movement 3: Crescendo
 	print(MAGENTA + "=== Movement 3: The Crescendo ===" + RESET);
 	raise(SIGUSR1);
 	raise(SIGUSR2);
@@ -74,18 +69,25 @@ fn conduct_melody() {
 	raise(SIGUSR1);
 	raise(SIGUSR2);
 	print("");
+
+	// Finale
 	print(MAGENTA + "=== Finale ===" + RESET);
 	raise(SIGUSR1);
 	raise(SIGUSR2);
 	print("");
 }
+
+// Generate a performance report
 fn performance_report() {
 	print(CYAN + BOLD + "======================================" + RESET);
 	print(CYAN + BOLD + "        PERFORMANCE REPORT" + RESET);
 	print(CYAN + BOLD + "======================================" + RESET);
 	print("");
+
+	// Count notes per instrument
 	let violin_count = 0;
 	let trumpet_count = 0;
+
 	for (let i = 0; i < notes_played.length; i = i + 1) {
 		if (notes_played[i] == "violin") {
 			violin_count = violin_count + 1;
@@ -93,11 +95,14 @@ fn performance_report() {
 	trumpet_count = trumpet_count + 1;
 }
 }
+
 print("Total notes played: " + notes_played.length);
 print("");
 print(YELLOW + "  Violin:  " + violin_count + " notes" + RESET);
 print(RED + "  Trumpet: " + trumpet_count + " notes" + RESET);
 print("");
+
+// Show the melody as a sequence
 print("Melody sequence:");
 let sequence = "  ";
 for (let i = 0; i < notes_played.length; i = i + 1) {
@@ -112,8 +117,11 @@ if (i < notes_played.length - 1) {
 }
 print(sequence);
 print("");
+
 print(GREEN + "Standing ovation! Bravo!" + RESET);
 }
+
+// Main performance
 fn main() {
 print("");
 print(MAGENTA + BOLD + "======================================" + RESET);
@@ -121,12 +129,20 @@ print(MAGENTA + BOLD + "    THE SIGNAL ORCHESTRA" + RESET);
 print(MAGENTA + BOLD + "    A Musical Signal Handler Demo" + RESET);
 print(MAGENTA + BOLD + "======================================" + RESET);
 print("");
+
 print(CYAN + "In Hemlock, signals can trigger handler functions." + RESET);
 print(CYAN + "Tonight, we use them to conduct an orchestra!" + RESET);
 print("");
+
+// Setup
 setup_orchestra();
+
+// Perform
 conduct_melody();
+
+// Report
 performance_report();
+
 print("");
 print(CYAN + "Features demonstrated:" + RESET);
 print("  - signal() to register handlers");
@@ -135,6 +151,8 @@ print("  - SIGUSR1 and SIGUSR2 constants");
 print("  - Global state modification in handlers");
 print("  - Multiple handlers for different signals");
 print("");
+
 print(BLUE + "The curtain falls..." + RESET);
 }
+
 main();

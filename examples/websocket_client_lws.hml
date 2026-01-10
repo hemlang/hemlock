@@ -1,30 +1,38 @@
 // WebSocket Client Example (libwebsockets version)
 // Demonstrates @stdlib/websocket (production FFI implementation)
 // Requires: libwebsockets-dev and compiled lws_wrapper.so (make stdlib)
-// Send test message
-// Wait for echo (5 second timeout)
 import { WebSocket } from "@stdlib/websocket";
+
 print("=== Hemlock WebSocket Client (libwebsockets) ===");
 print("");
 print("Requirements:");
 print("  1. Install: sudo apt-get install libwebsockets-dev");
 print("  2. Compile: make stdlib");
 print("");
+
 try {
 	print("Connecting to ws://echo.websocket.org...");
+
 	let ws = WebSocket("ws://echo.websocket.org");
 	defer ws.close();
+
 	print("✓ Connected!");
 	print("");
+
+	// Send test message
 	print("Sending: 'Hello from Hemlock!'");
 	let sent = ws.send_text("Hello from Hemlock!");
+
 	if (sent) {
 		print("✓ Message sent");
 	} else {
 		print("✗ Failed to send");
 	}
+
+	// Wait for echo (5 second timeout)
 	print("Waiting for echo (5s timeout)...");
 	let msg = ws.recv(5000);
+
 	if (msg != null) {
 		print("✓ Received message!");
 		print("  Type: " + msg.type);
@@ -34,16 +42,20 @@ try {
 	} else {
 		print("✗ No response (timeout or connection closed)");
 	}
+
 	print("");
 	print("Sending another message...");
 	ws.send_text("Second message from Hemlock");
+
 	let msg2 = ws.recv(5000);
 	if (msg2 != null && msg2.type == "text") {
 		print("✓ Received: " + msg2.data);
 	}
+
 	print("");
 	print("Closing connection...");
 } catch (e) {
+
 	print("");
 	print("ERROR: " + e);
 	print("");
@@ -53,6 +65,7 @@ try {
 	print("  - Network connectivity issues");
 	print("  - echo.websocket.org is down");
 }
+
 print("");
 print("Done!");
 print("");

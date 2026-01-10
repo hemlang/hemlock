@@ -1,28 +1,25 @@
 // Hemlock Functions Demo
 // Showcases first-class functions, closures, and recursion
-// 1. Basic named function
-// 2. Function with type annotations
-// 3. Recursive function - factorial
-// 4. Closures - function that returns a function
-// 5. Anonymous functions as first-class values
-// 6. Higher-order functions - passing functions as arguments
-// 7. Lexical scoping
-// 8. Counter closure (stateful closure)
-// 9. Fibonacci with recursion
 print("=== Hemlock Functions Demo ===");
 print("");
+
+// 1. Basic named function
 print("1. Basic function:");
 fn add(a, b) {
 	return a + b;
 }
 print(add(5, 3));
 print("");
+
+// 2. Function with type annotations
 print("2. Typed function:");
 fn multiply(x: i32, y: i32): i32 {
 	return x * y;
 }
 print(multiply(7, 6));
 print("");
+
+// 3. Recursive function - factorial
 print("3. Recursion (factorial):");
 fn factorial(n: i32): i32 {
 	if (n <= 1) {
@@ -32,6 +29,8 @@ fn factorial(n: i32): i32 {
 }
 print(factorial(6));
 print("");
+
+// 4. Closures - function that returns a function
 print("4. Closures:");
 fn makeMultiplier(factor) {
 	return fn(x) {
@@ -44,18 +43,24 @@ let triple = makeMultiplier(3);
 print(double(5));
 print(triple(5));
 print("");
+
+// 5. Anonymous functions as first-class values
 print("5. Anonymous functions:");
 fn square(n) {
 	return n * n;
 }
 print(square(8));
 print("");
+
+// 6. Higher-order functions - passing functions as arguments
 print("6. Higher-order functions:");
 fn applyFn(func, value) {
 	return func(value);
 }
 print(applyFn(square, 9));
 print("");
+
+// 7. Lexical scoping
 print("7. Lexical scoping:");
 let message = 100;
 fn getMessage() {
@@ -63,6 +68,8 @@ fn getMessage() {
 }
 print(getMessage());
 print("");
+
+// 8. Counter closure (stateful closure)
 print("8. Counter closure:");
 fn makeCounter() {
 	let count = 0;
@@ -77,6 +84,8 @@ print(counter());
 print(counter());
 print(counter());
 print("");
+
+// 9. Fibonacci with recursion
 print("9. Fibonacci sequence:");
 fn fib(n) {
 	if (n <= 1) {
@@ -89,5 +98,6 @@ while (i < 10) {
 	print(fib(i));
 	i = i + 1;
 }
+
 print("");
 print("=== Demo Complete ===");
