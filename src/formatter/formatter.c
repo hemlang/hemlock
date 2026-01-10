@@ -310,7 +310,6 @@ static void extract_comments(const char *source, CommentList *list) {
 static void extract_blank_lines(const char *source, BlankLineList *list) {
     const char *p = source;
     int line = 1;
-    int line_start = 1;  // Track if we're at start of line
     int line_is_blank = 1;  // Track if current line is blank
 
     while (*p) {
@@ -320,17 +319,14 @@ static void extract_blank_lines(const char *source, BlankLineList *list) {
             }
             p++;
             line++;
-            line_start = 1;
             line_is_blank = 1;
         } else if (*p == ' ' || *p == '\t' || *p == '\r') {
             // Whitespace doesn't make line non-blank
             p++;
-            line_start = 0;
         } else {
             // Any other character makes line non-blank
             line_is_blank = 0;
             p++;
-            line_start = 0;
         }
     }
 }
