@@ -7,172 +7,61 @@
 // import { MessageQueue, Semaphore, SharedData } from "@stdlib/ipc";
 // let mq = MessageQueue("/tmp/my_queue");
 // mq.send("hello");
+import {
+	exists,
+	read_file,
+	write_file,
+	append_file,
+	remove_file,
+	make_dir,
+	list_dir,
+	is_dir,
+} from "@stdlib/fs";
+import { join } from "@stdlib/path";
+import { v4 } from "@stdlib/uuid";
+import { time_ms, sleep } from "@stdlib/time";
+
 // ============================================================================
 // Message Queue
 // ============================================================================
+
 // Create a file-based message queue
 // Parameters:
 // path: string - Directory path for the queue
 // Returns: MessageQueue object
-// Create queue directory if needed
-// Send a message to the queue
-// Parameters:
-// message: string - Message to send
-// Receive a message from the queue (blocking with timeout)
-// Parameters:
-// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
-// Returns: string|null - Message or null if timeout
-// List messages
-// Sort by name (which is timestamp-based)
-// Get first message
-// Check timeout
-// Sleep briefly before retry
-// Try to receive without blocking
-// Returns: string|null - Message or null if empty
-// Check if queue is empty
-// Returns: bool
-// Get number of messages in queue
-// Returns: i32
-// Clear all messages from the queue
-// Destroy the queue (remove directory)
-// Note: remove_dir might fail if not empty
-// Ignore - might have new messages
-// ============================================================================
-// Semaphore
-// ============================================================================
-// Create a file-based semaphore
-// Parameters:
-// path: string - File path for the semaphore
-// initial: i32 - Initial value (default: 1)
-// Returns: Semaphore object
-// Initialize semaphore file
-// Acquire the semaphore (decrement, block if zero)
-// Parameters:
-// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
-// Returns: bool - True if acquired, false if timeout
-// Try to decrement
-// Check timeout
-// Sleep briefly
-// Try to acquire without blocking
-// Returns: bool - True if acquired
-// Release the semaphore (increment)
-// Get current value
-// Returns: i32
-// Internal: Read value from file
-// Internal: Write value to file
-// ============================================================================
-// Mutex (Binary Semaphore)
-// ============================================================================
-// Create a file-based mutex
-// Parameters:
-// path: string - File path for the mutex
-// Returns: Mutex object
-// Lock the mutex
-// Parameters:
-// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
-// Returns: bool - True if locked, false if timeout
-// Try to lock without blocking
-// Returns: bool - True if locked
-// Unlock the mutex
-// Check if locked
-// Returns: bool
-// ============================================================================
-// Shared Data
-// ============================================================================
-// Create a shared data store (file-based key-value)
-// Parameters:
-// path: string - File path for the data
-// Returns: SharedData object
-// Initialize file if needed
-// Get a value
-// Parameters:
-// key: string - Key to get
-// Returns: value or null
-// Set a value
-// Parameters:
-// key: string - Key to set
-// value: any - Value to store
-// Delete a key
-// Parameters:
-// key: string - Key to delete
-// Can't delete properties, so set to null
-// Get all keys
-// Returns: array<string>
-// Note: Object iteration would be needed
-// This is a simplified implementation
-// Clear all data
-// Internal: Read data from file
-// Internal: Write data to file
-// ============================================================================
-// PID File
-// ============================================================================
-// Create a PID file for process identification
-// Parameters:
-// path: string - Path for the PID file
-// Returns: PidFile object
-// Create/write the PID file
-// Returns: bool - True if created, false if already exists
-// Check if process is still running
-// Already running
-// Stale PID file, overwrite
-// Read the PID from file
-// Returns: i32|null - PID or null if not exists
-// Remove the PID file
-// Check if the file's PID matches current process
-// Returns: bool
-// ============================================================================
-// Helper Functions
-// ============================================================================
-// Sort an array of strings
-// Simple bubble sort for small arrays
-// Parse integer from string
-// Check if a process is alive
-// Try to send signal 0 (no-op) to check if process exists
-// Re-export process functions for convenience
-// ============================================================================
-// Event File (simple notification)
-// ============================================================================
-// Create an event file for simple signaling between processes
-// Parameters:
-// path: string - Path for the event file
-// Returns: Event object
-// Set the event (signal)
-// Clear the event
-// Check if event is set
-// Returns: bool
-// Wait for the event to be set
-// Parameters:
-// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
-// Returns: bool - True if event was set, false if timeout
-// ============================================================================
-// Remove Directory Helper
-// ============================================================================
-// Import from fs for remove_dir
-// Use __remove_dir builtin
-import { exists, read_file, write_file, append_file, remove_file, make_dir, list_dir, is_dir } from "@stdlib/fs";
-import { join } from "@stdlib/path";
-import { v4 } from "@stdlib/uuid";
-import { time_ms, sleep } from "@stdlib/time";
 export fn MessageQueue(path): object {
+	// Create queue directory if needed
 	if (!exists(path)) {
 		make_dir(path);
 	}
+
 	return {
 		_path: path,
 		_read_idx: 0,
 		send: fn(message) {
+
+			// Send a message to the queue
+			// Parameters:
+			// message: string - Message to send
 			let id = v4();
 			let ts = time_ms();
 			let filename = ts + "_" + id + ".msg";
 			let filepath = join(self._path, filename);
 			write_file(filepath, message);
-		}
-,
+		},
 		recv: fn(timeout_ms?: 5000) {
+
+			// Receive a message from the queue (blocking with timeout)
+			// Parameters:
+			// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
+			// Returns: string|null - Message or null if timeout
 			let start = time_ms();
+
 			while (true) {
+				// List messages
 				let files = list_dir(self._path);
 				let msg_files: array = [];
+
 				let i = 0;
 				while (i < files.length) {
 					if (files[i].ends_with(".msg")) {
@@ -180,23 +69,34 @@ export fn MessageQueue(path): object {
 					}
 					i = i + 1;
 				}
+
+				// Sort by name (which is timestamp-based)
 				msg_files = sort_strings(msg_files);
+
+				// Get first message
 				if (msg_files.length > 0) {
 					let filepath = join(self._path, msg_files[0]);
 					let content = read_file(filepath);
 					remove_file(filepath);
 					return content;
 				}
+
+				// Check timeout
 				if (time_ms() - start > timeout_ms) {
 					return null;
 				}
+
+				// Sleep briefly before retry
 				sleep(0.01);
 			}
-		}
-,
+		},
 		try_recv: fn() {
+
+			// Try to receive without blocking
+			// Returns: string|null - Message or null if empty
 			let files = list_dir(self._path);
 			let msg_files: array = [];
+
 			let i = 0;
 			while (i < files.length) {
 				if (files[i].ends_with(".msg")) {
@@ -204,17 +104,21 @@ export fn MessageQueue(path): object {
 				}
 				i = i + 1;
 			}
+
 			if (msg_files.length == 0) {
 				return null;
 			}
+
 			msg_files = sort_strings(msg_files);
 			let filepath = join(self._path, msg_files[0]);
 			let content = read_file(filepath);
 			remove_file(filepath);
 			return content;
-		}
-,
+		},
 		is_empty: fn(): bool {
+
+			// Check if queue is empty
+			// Returns: bool
 			let files = list_dir(self._path);
 			let i = 0;
 			while (i < files.length) {
@@ -224,9 +128,11 @@ export fn MessageQueue(path): object {
 				i = i + 1;
 			}
 			return true;
-		}
-,
+		},
 		count: fn(): i32 {
+
+			// Get number of messages in queue
+			// Returns: i32
 			let files = list_dir(self._path);
 			let count = 0;
 			let i = 0;
@@ -237,9 +143,10 @@ export fn MessageQueue(path): object {
 				i = i + 1;
 			}
 			return count;
-		}
-,
+		},
 		clear: fn() {
+
+			// Clear all messages from the queue
 			let files = list_dir(self._path);
 			let i = 0;
 			while (i < files.length) {
@@ -249,103 +156,173 @@ export fn MessageQueue(path): object {
 				}
 				i = i + 1;
 			}
-		}
-,
+		},
 		destroy: fn() {
+
+			// Destroy the queue (remove directory)
 			self.clear();
+			// Note: remove_dir might fail if not empty
 			try {
 				remove_dir(self._path);
 			} catch (e) {
 			}
-		}
-,
+		},
 	};
 }
+// Ignore - might have new messages
+
+// ============================================================================
+// Semaphore
+// ============================================================================
+
+// Create a file-based semaphore
+// Parameters:
+// path: string - File path for the semaphore
+// initial: i32 - Initial value (default: 1)
+// Returns: Semaphore object
 export fn Semaphore(path, initial?: 1): object {
+	// Initialize semaphore file
 	if (!exists(path)) {
 		write_file(path, "" + initial);
 	}
+
 	return {
 		_path: path,
 		acquire: fn(timeout_ms?: 5000): bool {
+
+			// Acquire the semaphore (decrement, block if zero)
+			// Parameters:
+			// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
+			// Returns: bool - True if acquired, false if timeout
 			let start = time_ms();
+
 			while (true) {
+				// Try to decrement
 				let val = self._read_val();
 				if (val > 0) {
 					self._write_val(val - 1);
 					return true;
 				}
+
+				// Check timeout
 				if (time_ms() - start > timeout_ms) {
 					return false;
 				}
+
+				// Sleep briefly
 				sleep(0.01);
 			}
-		}
-,
+		},
 		try_acquire: fn(): bool {
+
+			// Try to acquire without blocking
+			// Returns: bool - True if acquired
 			let val = self._read_val();
 			if (val > 0) {
 				self._write_val(val - 1);
 				return true;
 			}
 			return false;
-		}
-,
+		},
 		release: fn() {
+
+			// Release the semaphore (increment)
 			let val = self._read_val();
 			self._write_val(val + 1);
-		}
-,
+		},
 		value: fn(): i32 {
+
+			// Get current value
+			// Returns: i32
 			return self._read_val();
-		}
-,
+		},
 		_read_val: fn(): i32 {
+
+			// Internal: Read value from file
 			let content = read_file(self._path);
 			return parse_int_str(content.trim());
-		}
-,
+		},
 		_write_val: fn(val) {
+
+			// Internal: Write value to file
 			write_file(self._path, "" + val);
-		}
-,
+		},
 	};
 }
+
+// ============================================================================
+// Mutex (Binary Semaphore)
+// ============================================================================
+
+// Create a file-based mutex
+// Parameters:
+// path: string - File path for the mutex
+// Returns: Mutex object
 export fn Mutex(path): object {
 	let sem = Semaphore(path, 1);
+
 	return {
 		_sem: sem,
 		lock: fn(timeout_ms?: 5000): bool {
+
+			// Lock the mutex
+			// Parameters:
+			// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
+			// Returns: bool - True if locked, false if timeout
 			return self._sem.acquire(timeout_ms);
-		}
-,
+		},
 		try_lock: fn(): bool {
+
+			// Try to lock without blocking
+			// Returns: bool - True if locked
 			return self._sem.try_acquire();
-		}
-,
+		},
 		unlock: fn() {
+
+			// Unlock the mutex
 			self._sem.release();
-		}
-,
+		},
 		is_locked: fn(): bool {
+
+			// Check if locked
+			// Returns: bool
 			return self._sem.value() == 0;
-		}
-,
+		},
 	};
 }
+
+// ============================================================================
+// Shared Data
+// ============================================================================
+
+// Create a shared data store (file-based key-value)
+// Parameters:
+// path: string - File path for the data
+// Returns: SharedData object
 export fn SharedData(path): object {
+	// Initialize file if needed
 	if (!exists(path)) {
 		write_file(path, "{}");
 	}
+
 	return {
 		_path: path,
 		_lock: Mutex(path + ".lock"),
 		get: fn(key) {
+
+			// Get a value
+			// Parameters:
+			// key: string - Key to get
+			// Returns: value or null
 			let data = self._read_data();
 			return data[key];
-		}
-,
+		},
 		set: fn(key, value) {
+
+			// Set a value
+			// Parameters:
+			// key: string - Key to set
+			// value: any - Value to store
 			self._lock.lock();
 			try {
 				let data = self._read_data();
@@ -356,12 +333,16 @@ export fn SharedData(path): object {
 				throw e;
 			}
 			self._lock.unlock();
-		}
-,
+		},
 		delete: fn(key) {
+
+			// Delete a key
+			// Parameters:
+			// key: string - Key to delete
 			self._lock.lock();
 			try {
 				let data = self._read_data();
+				// Can't delete properties, so set to null
 				data[key] = null;
 				self._write_data(data);
 			} catch (e) {
@@ -369,15 +350,20 @@ export fn SharedData(path): object {
 				throw e;
 			}
 			self._lock.unlock();
-		}
-,
+		},
 		keys: fn(): array {
+
+			// Get all keys
+			// Returns: array<string>
 			let data = self._read_data();
 			let result: array = [];
+			// Note: Object iteration would be needed
+			// This is a simplified implementation
 			return result;
-		}
-,
+		},
 		clear: fn() {
+
+			// Clear all data
 			self._lock.lock();
 			try {
 				self._write_data({});
@@ -386,60 +372,88 @@ export fn SharedData(path): object {
 				throw e;
 			}
 			self._lock.unlock();
-		}
-,
+		},
 		_read_data: fn(): object {
+
+			// Internal: Read data from file
 			let content = read_file(self._path);
 			return content.deserialize();
-		}
-,
+		},
 		_write_data: fn(data) {
+
+			// Internal: Write data to file
 			let content = data.serialize();
 			write_file(self._path, content);
-		}
-,
+		},
 	};
 }
+
+// ============================================================================
+// PID File
+// ============================================================================
+
+// Create a PID file for process identification
+// Parameters:
+// path: string - Path for the PID file
+// Returns: PidFile object
 export fn PidFile(path): object {
 	let pid = get_pid();
+
 	return {
 		_path: path,
 		_pid: pid,
 		create: fn(): bool {
+
+			// Create/write the PID file
+			// Returns: bool - True if created, false if already exists
 			if (exists(self._path)) {
+				// Check if process is still running
 				let existing = self.read();
 				if (existing != null && is_process_alive(existing)) {
-					return false;
+					return false;  // Already running
 				}
 			}
+			// Stale PID file, overwrite
 			write_file(self._path, "" + self._pid);
 			return true;
-		}
-,
+		},
 		read: fn() {
+
+			// Read the PID from file
+			// Returns: i32|null - PID or null if not exists
 			if (!exists(self._path)) {
 				return null;
 			}
 			let content = read_file(self._path);
 			return parse_int_str(content.trim());
-		}
-,
+		},
 		remove: fn() {
+
+			// Remove the PID file
 			if (exists(self._path)) {
 				remove_file(self._path);
 			}
-		}
-,
+		},
 		is_owner: fn(): bool {
+
+			// Check if the file's PID matches current process
+			// Returns: bool
 			let stored = self.read();
 			return stored == self._pid;
-		}
-,
+		},
 	};
 }
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Sort an array of strings
 fn sort_strings(arr): array {
+	// Simple bubble sort for small arrays
 	let result = arr.slice(0, arr.length);
 	let n = result.length;
+
 	let i = 0;
 	while (i < n - 1) {
 		let j = 0;
@@ -453,12 +467,18 @@ fn sort_strings(arr): array {
 		}
 		i = i + 1;
 	}
+
 	return result;
 }
+
+// Parse integer from string
 fn parse_int_str(s): i32 {
 	return i32(s);
 }
+
+// Check if a process is alive
 fn is_process_alive(pid): bool {
+	// Try to send signal 0 (no-op) to check if process exists
 	try {
 		kill(pid, 0);
 		return true;
@@ -466,33 +486,68 @@ fn is_process_alive(pid): bool {
 		return false;
 	}
 }
+
+// Re-export process functions for convenience
 import { get_pid, kill } from "@stdlib/process";
+
+// ============================================================================
+// Event File (simple notification)
+// ============================================================================
+
+// Create an event file for simple signaling between processes
+// Parameters:
+// path: string - Path for the event file
+// Returns: Event object
 export fn Event(path): object {
-	return { _path: path, set: fn() {
-		write_file(self._path, "" + time_ms());
-	}
-, clear: fn() {
-		if (exists(self._path)) {
-			remove_file(self._path);
-		}
-	}
-, is_set: fn(): bool {
-		return exists(self._path);
-	}
-, wait: fn(timeout_ms?: 5000): bool {
-		let start = time_ms();
-		while (true) {
+	return {
+		_path: path,
+		set: fn() {
+
+			// Set the event (signal)
+			write_file(self._path, "" + time_ms());
+		},
+		clear: fn() {
+
+			// Clear the event
 			if (exists(self._path)) {
-				return true;
+				remove_file(self._path);
 			}
-			if (time_ms() - start > timeout_ms) {
-				return false;
+		},
+		is_set: fn(): bool {
+
+			// Check if event is set
+			// Returns: bool
+			return exists(self._path);
+		},
+		wait: fn(timeout_ms?: 5000): bool {
+
+			// Wait for the event to be set
+			// Parameters:
+			// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
+			// Returns: bool - True if event was set, false if timeout
+			let start = time_ms();
+
+			while (true) {
+				if (exists(self._path)) {
+					return true;
+				}
+
+				if (time_ms() - start > timeout_ms) {
+					return false;
+				}
+
+				sleep(0.01);
 			}
-			sleep(0.01);
-		}
-	}
- };
+		},
+	};
 }
+
+// ============================================================================
+// Remove Directory Helper
+// ============================================================================
+
+// Import from fs for remove_dir
 fn remove_dir(path) {
+	// Use __remove_dir builtin
 	__remove_dir(path);
 }

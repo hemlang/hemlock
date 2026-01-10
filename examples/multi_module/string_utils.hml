@@ -9,6 +9,7 @@ export fn repeat_string(s, n) {
 	}
 	return result;
 }
+
 export fn reverse_string(s) {
 	let result = "";
 	let i = s.length - 1;
@@ -18,10 +19,12 @@ export fn reverse_string(s) {
 	}
 	return result;
 }
+
 export fn is_palindrome(s) {
 	let lower = s.to_lower();
 	return lower == reverse_string(lower);
 }
+
 export fn count_chars(s, target) {
 	let count = 0;
 	let i = 0;

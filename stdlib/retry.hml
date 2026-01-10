@@ -5,9 +5,12 @@
 // 
 // Usage:
 // import { retry, retry_with_backoff, exponential_backoff } from "@stdlib/retry";
+import { sleep } from "@stdlib/time";
+
 // ============================================================================
 // Backoff Strategies
 // ============================================================================
+
 // Calculate exponential backoff delay
 // Parameters:
 // attempt: i32 - Current attempt number (0-based)
@@ -15,6 +18,20 @@
 // max_delay: i32 - Maximum delay in milliseconds (default: 30000)
 // multiplier: f64 - Multiplier for each attempt (default: 2.0)
 // Returns: i32 - Delay in milliseconds
+export fn exponential_backoff(attempt, base_delay?: 100, max_delay?: 30000, multiplier?: 2): i32 {
+	let delay: f64 = base_delay;
+	for (let i = 0; i < attempt; i++) {
+		delay = delay * multiplier;
+	}
+
+	let result: i32 = delay;
+	if (result > max_delay) {
+		result = max_delay;
+	}
+
+	return result;
+}
+
 // Calculate linear backoff delay
 // Parameters:
 // attempt: i32 - Current attempt number (0-based)
@@ -22,26 +39,70 @@
 // increment: i32 - Delay increment per attempt (default: 1000)
 // max_delay: i32 - Maximum delay in milliseconds (default: 30000)
 // Returns: i32 - Delay in milliseconds
+export fn linear_backoff(attempt, base_delay?: 100, increment?: 1000, max_delay?: 30000): i32 {
+	let delay = base_delay + attempt * increment;
+	if (delay > max_delay) {
+		delay = max_delay;
+	}
+	return delay;
+}
+
 // Return constant delay (no backoff)
 // Parameters:
 // delay: i32 - Constant delay in milliseconds
 // Returns: function - Backoff function that always returns the same delay
+export fn constant_backoff(delay): i32 {
+	return delay;
+}
+
 // Add jitter to a delay to prevent thundering herd
 // Parameters:
 // delay: i32 - Base delay in milliseconds
 // jitter_factor: f64 - Jitter factor (0.0 to 1.0, default: 0.1)
 // Returns: i32 - Delay with random jitter
-// -jitter_range to +jitter_range
+export fn add_jitter(delay, jitter_factor?: 0.1): i32 {
+	let jitter_range: f64 = delay * jitter_factor;
+	let jitter: f64 = (rand() * 2 - 1) * jitter_range;  // -jitter_range to +jitter_range
+	let result: i32 = delay + jitter;
+	if (result < 0) {
+		result = 0;
+	}
+	return result;
+}
+
 // ============================================================================
 // Retry Functions
 // ============================================================================
+
 // Retry a function until it succeeds or max attempts reached
 // Parameters:
 // fn: function - Function to retry (should throw on failure)
 // max_attempts: i32 - Maximum number of attempts (default: 3)
 // Returns: any - Result of successful function call
 // Throws: Last error if all attempts fail
-// Note: Must capture result before returning to properly catch exceptions
+export fn retry(func, max_attempts?: 3) {
+	if (typeof(func) != "function") {
+		throw "retry() requires function argument";
+	}
+	if (max_attempts < 1) {
+		throw "retry() max_attempts must be >= 1";
+	}
+
+	let last_error = null;
+
+	for (let attempt = 0; attempt < max_attempts; attempt++) {
+		try {
+			// Note: Must capture result before returning to properly catch exceptions
+			let result = func();
+			return result;
+		} catch (e) {
+			last_error = e;
+		}
+	}
+
+	throw last_error;
+}
+
 // Retry with configurable backoff between attempts
 // Parameters:
 // fn: function - Function to retry (should throw on failure)
@@ -54,117 +115,20 @@
 // on_retry: function - Callback on retry (receives attempt, error, delay)
 // Returns: any - Result of successful function call
 // Throws: Last error if all attempts fail
-// Default options
-// Parse options
-// Note: Must capture result before returning to properly catch exceptions
-// If this was the last attempt, don't delay
-// Calculate delay
-// Call on_retry callback if provided
-// Wait before next attempt
-// Retry with linear backoff
-// Parameters:
-// fn: function - Function to retry
-// max_attempts: i32 - Maximum attempts (default: 3)
-// delay: i32 - Delay between attempts in ms (default: 1000)
-// Returns: any - Result of successful function call
-// Note: Must capture result before returning to properly catch exceptions
-// ============================================================================
-// Retry with Condition
-// ============================================================================
-// Retry only if error matches condition
-// Parameters:
-// fn: function - Function to retry
-// should_retry: function - Predicate to check if should retry (receives error)
-// max_attempts: i32 - Maximum attempts (default: 3)
-// delay: i32 - Delay between attempts in ms (default: 1000)
-// Returns: any - Result of successful function call
-// Note: Must capture result before returning to properly catch exceptions
-// Check if we should retry
-// ============================================================================
-// Retry Until
-// ============================================================================
-// Retry until a condition is met (for polling)
-// Parameters:
-// fn: function - Function to call repeatedly
-// condition: function - Predicate to check result (receives result)
-// options: object - Options:
-// max_attempts: i32 - Maximum attempts (default: 10)
-// delay: i32 - Delay between attempts in ms (default: 1000)
-// timeout: i32 - Total timeout in ms (default: null, no timeout)
-// Returns: any - Result that satisfied the condition
-// Throws: Error if condition never met
-// Default options
-// Check timeout
-// Ignore errors, keep polling
-// ============================================================================
-// Utility Functions
-// ============================================================================
-// Create a retry-wrapped version of a function
-// Parameters:
-// fn: function - Function to wrap
-// options: object - Retry options (same as retry_with_backoff)
-// Returns: function - New function that retries on failure
-// Helper for time_ms (imported from time module)
-// Helper for rand (imported from math module)
-import { sleep } from "@stdlib/time";
-export fn exponential_backoff(attempt, base_delay?: 100, max_delay?: 30000, multiplier?: 2): i32 {
-	let delay: f64 = base_delay;
-	for (let i = 0; i < attempt; i++) {
-		delay = delay * multiplier;
-	}
-	let result: i32 = delay;
-	if (result > max_delay) {
-		result = max_delay;
-	}
-	return result;
-}
-export fn linear_backoff(attempt, base_delay?: 100, increment?: 1000, max_delay?: 30000): i32 {
-	let delay = base_delay + attempt * increment;
-	if (delay > max_delay) {
-		delay = max_delay;
-	}
-	return delay;
-}
-export fn constant_backoff(delay): i32 {
-	return delay;
-}
-export fn add_jitter(delay, jitter_factor?: 0.1): i32 {
-	let jitter_range: f64 = delay * jitter_factor;
-	let jitter: f64 = (rand() * 2 - 1) * jitter_range;
-	let result: i32 = delay + jitter;
-	if (result < 0) {
-		result = 0;
-	}
-	return result;
-}
-export fn retry(func, max_attempts?: 3) {
-	if (typeof(func) != "function") {
-		throw "retry() requires function argument";
-	}
-	if (max_attempts < 1) {
-		throw "retry() max_attempts must be >= 1";
-	}
-	let last_error = null;
-	for (let attempt = 0; attempt < max_attempts; attempt++) {
-		try {
-			let result = func();
-			return result;
-		} catch (e) {
-			last_error = e;
-		}
-	}
-	throw last_error;
-}
 export fn retry_with_backoff(func, options?: null) {
 	if (typeof(func) != "function") {
 		throw "retry_with_backoff() requires function argument";
 	}
+
+	// Default options
 	let max_attempts = 3;
 	let base_delay = 100;
 	let max_delay = 30000;
 	let multiplier: f64 = 2;
 	let use_jitter = true;
 	let on_retry = null;
+
+	// Parse options
 	if (options != null && typeof(options) == "object") {
 		max_attempts = options["max_attempts"] ?? max_attempts;
 		base_delay = options["base_delay"] ?? base_delay;
@@ -173,20 +137,28 @@ export fn retry_with_backoff(func, options?: null) {
 		use_jitter = options["jitter"] ?? use_jitter;
 		on_retry = options["on_retry"] ?? on_retry;
 	}
+
 	if (max_attempts < 1) {
 		throw "retry_with_backoff() max_attempts must be >= 1";
 	}
+
 	let last_error = null;
 	let attempt = 0;
+
 	while (attempt < max_attempts) {
 		try {
+			// Note: Must capture result before returning to properly catch exceptions
 			let result = func();
 			return result;
 		} catch (e) {
 			last_error = e;
+
+			// If this was the last attempt, don't delay
 			if (attempt + 1 >= max_attempts) {
 				break;
 			}
+
+			// Calculate delay
 			let delay = exponential_backoff(
 				attempt,
 				base_delay,
@@ -196,15 +168,28 @@ export fn retry_with_backoff(func, options?: null) {
 			if (use_jitter) {
 				delay = add_jitter(delay, 0.1);
 			}
+
+			// Call on_retry callback if provided
 			if (on_retry != null) {
 				on_retry(attempt, e, delay);
 			}
+
+			// Wait before next attempt
 			sleep(delay);
+
 			attempt++;
 		}
 	}
+
 	throw last_error;
 }
+
+// Retry with linear backoff
+// Parameters:
+// fn: function - Function to retry
+// max_attempts: i32 - Maximum attempts (default: 3)
+// delay: i32 - Delay between attempts in ms (default: 1000)
+// Returns: any - Result of successful function call
 export fn retry_linear(func, max_attempts?: 3, delay?: 1000) {
 	if (typeof(func) != "function") {
 		throw "retry_linear() requires function argument";
@@ -212,23 +197,41 @@ export fn retry_linear(func, max_attempts?: 3, delay?: 1000) {
 	if (max_attempts < 1) {
 		throw "retry_linear() max_attempts must be >= 1";
 	}
+
 	let last_error = null;
 	let attempt = 0;
+
 	while (attempt < max_attempts) {
 		try {
+			// Note: Must capture result before returning to properly catch exceptions
 			let result = func();
 			return result;
 		} catch (e) {
 			last_error = e;
+
 			if (attempt + 1 >= max_attempts) {
 				break;
 			}
+
 			sleep(delay);
 			attempt++;
 		}
 	}
+
 	throw last_error;
 }
+
+// ============================================================================
+// Retry with Condition
+// ============================================================================
+
+// Retry only if error matches condition
+// Parameters:
+// fn: function - Function to retry
+// should_retry: function - Predicate to check if should retry (receives error)
+// max_attempts: i32 - Maximum attempts (default: 3)
+// delay: i32 - Delay between attempts in ms (default: 1000)
+// Returns: any - Result of successful function call
 export fn retry_if(func, should_retry, max_attempts?: 3, delay?: 1000) {
 	if (typeof(func) != "function") {
 		throw "retry_if() func must be function";
@@ -239,26 +242,49 @@ export fn retry_if(func, should_retry, max_attempts?: 3, delay?: 1000) {
 	if (max_attempts < 1) {
 		throw "retry_if() max_attempts must be >= 1";
 	}
+
 	let last_error = null;
 	let attempt = 0;
+
 	while (attempt < max_attempts) {
 		try {
+			// Note: Must capture result before returning to properly catch exceptions
 			let result = func();
 			return result;
 		} catch (e) {
 			last_error = e;
+
+			// Check if we should retry
 			if (!should_retry(e)) {
 				throw e;
 			}
+
 			if (attempt + 1 >= max_attempts) {
 				break;
 			}
+
 			sleep(delay);
 			attempt++;
 		}
 	}
+
 	throw last_error;
 }
+
+// ============================================================================
+// Retry Until
+// ============================================================================
+
+// Retry until a condition is met (for polling)
+// Parameters:
+// fn: function - Function to call repeatedly
+// condition: function - Predicate to check result (receives result)
+// options: object - Options:
+// max_attempts: i32 - Maximum attempts (default: 10)
+// delay: i32 - Delay between attempts in ms (default: 1000)
+// timeout: i32 - Total timeout in ms (default: null, no timeout)
+// Returns: any - Result that satisfied the condition
+// Throws: Error if condition never met
 export fn retry_until(func, condition, options?: null) {
 	if (typeof(func) != "function") {
 		throw "retry_until() func must be function";
@@ -266,50 +292,77 @@ export fn retry_until(func, condition, options?: null) {
 	if (typeof(condition) != "function") {
 		throw "retry_until() condition must be function";
 	}
+
+	// Default options
 	let max_attempts = 10;
 	let delay = 1000;
 	let timeout = -1;
+
 	if (options != null && typeof(options) == "object") {
 		max_attempts = options["max_attempts"] ?? max_attempts;
 		delay = options["delay"] ?? delay;
 		timeout = options["timeout"] ?? timeout;
 	}
+
 	let start_time = time_ms();
 	let attempt = 0;
+
 	while (attempt < max_attempts) {
+		// Check timeout
 		if (timeout > 0) {
 			let elapsed = time_ms() - start_time;
 			if (elapsed > timeout) {
 				throw "retry_until() timeout exceeded";
 			}
 		}
+
 		try {
 			let result = func();
+
 			if (condition(result)) {
 				return result;
 			}
 		} catch (e) {
 		}
+		// Ignore errors, keep polling
+
 		if (attempt + 1 >= max_attempts) {
 			break;
 		}
+
 		sleep(delay);
 		attempt++;
 	}
+
 	throw "retry_until() condition never met";
 }
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Create a retry-wrapped version of a function
+// Parameters:
+// fn: function - Function to wrap
+// options: object - Retry options (same as retry_with_backoff)
+// Returns: function - New function that retries on failure
 export fn with_retry(func, options?: null) {
 	if (typeof(func) != "function") {
 		throw "with_retry() requires function argument";
 	}
+
 	return fn() {
 		return retry_with_backoff(func, options);
 	}
 ;
 }
+
+// Helper for time_ms (imported from time module)
 fn time_ms(): i64 {
 	return __time_ms();
 }
+
+// Helper for rand (imported from math module)
 fn rand(): f64 {
 	return __rand();
 }

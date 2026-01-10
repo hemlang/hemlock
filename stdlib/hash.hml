@@ -5,102 +5,14 @@
 // 
 // Usage:
 // import { djb2, fnv1a, murmur3, sha256, sha512, md5, file_checksum } from "@stdlib/hash";
+
 // ============================================================================
 // NON-CRYPTOGRAPHIC HASH FUNCTIONS
 // ============================================================================
+
 // DJB2 Hash Algorithm
 // Fast, simple hash function with good distribution
 // Commonly used in hash tables (as seen in HashMap implementation)
-// h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
-// Mask to 32 bits to ensure proper wraparound
-// FNV-1a Hash Algorithm (32-bit version)
-// Fowler-Noll-Vo hash with good avalanche properties
-// Better distribution than DJB2 for certain data patterns
-// FNV-1a constants (32-bit)
-// 0x811c9dc5
-// 0x01000193
-// XOR with byte
-// Multiply by FNV prime, mask to 32 bits
-// MurmurHash3 (32-bit version, simplified)
-// Fast, non-cryptographic hash with excellent distribution
-// Widely used in production hash tables (Redis, Hadoop, etc.)
-// Constants (as u32)
-// 0xcc9e2d51
-// 0x1b873593
-// 0xe6546b64
-// Process 4-byte chunks
-// Read 4 bytes as little-endian u32
-// rotl32
-// rotl32
-// Process remaining bytes
-// Finalization mix
-// 0x85ebca6b
-// 0xc2b2ae35
-// ============================================================================
-// CRYPTOGRAPHIC HASH FUNCTIONS (built-in, using OpenSSL)
-// ============================================================================
-// SHA-256 hash (256-bit / 32-byte output)
-// Returns hexadecimal string representation
-// SHA-512 hash (512-bit / 64-byte output)
-// Returns hexadecimal string representation
-// MD5 hash (128-bit / 16-byte output)
-// WARNING: MD5 is cryptographically broken, use only for legacy compatibility
-// Returns hexadecimal string representation
-// ============================================================================
-// FILE CHECKSUM FUNCTIONS
-// ============================================================================
-// Compute hash of file contents
-// hash_fn: one of djb2, fnv1a, murmur3, sha256, sha512, md5
-// Open and read file
-// Compute hash
-// Convert to string
-// Convenience functions for specific file checksums
-// ============================================================================
-// HMAC (Hash-based Message Authentication Code)
-// ============================================================================
-// Helper: XOR a byte array with a repeated byte value
-// Helper: Convert hex string to byte array
-// Helper: Convert hex character to value
-// 0-9
-// a-f
-// A-F
-// Helper: Concatenate two byte arrays
-// HMAC-SHA256: Keyed-hash message authentication code using SHA-256
-// Parameters:
-// key: string - Secret key
-// message: string - Message to authenticate
-// Returns: string - HMAC as hexadecimal string (64 characters)
-// SHA-256 block size is 64 bytes
-// If key is longer than block size, hash it
-// Pad key to block size with zeros
-// Create inner and outer padded keys
-// Inner padding byte
-// Outer padding byte
-// Inner hash: H(i_key_pad || message)
-// Outer hash: H(o_key_pad || inner_hash)
-// HMAC-SHA512: Keyed-hash message authentication code using SHA-512
-// Parameters:
-// key: string - Secret key
-// message: string - Message to authenticate
-// Returns: string - HMAC as hexadecimal string (128 characters)
-// SHA-512 block size is 128 bytes
-// If key is longer than block size, hash it
-// Pad key to block size with zeros
-// Create inner and outer padded keys
-// Inner hash: H(i_key_pad || message)
-// Outer hash: H(o_key_pad || inner_hash)
-// HMAC-MD5: Keyed-hash message authentication code using MD5
-// WARNING: MD5 is cryptographically broken, use only for legacy compatibility
-// Parameters:
-// key: string - Secret key
-// message: string - Message to authenticate
-// Returns: string - HMAC as hexadecimal string (32 characters)
-// MD5 block size is 64 bytes
-// If key is longer than block size, hash it
-// Pad key to block size with zeros
-// Create inner and outer padded keys
-// Inner hash: H(i_key_pad || message)
-// Outer hash: H(o_key_pad || inner_hash)
 export fn djb2(input: string): u32 {
 	if (typeof(input) != "string") {
 		throw "djb2() requires string argument";
@@ -108,51 +20,77 @@ export fn djb2(input: string): u32 {
 	let h: u32 = 5381;
 	for (let i = 0; i < input.byte_length; i++) {
 		let byte_val = input.byte_at(i);
+		// h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
+		// Mask to 32 bits to ensure proper wraparound
 		h = (h << 5) + h + byte_val & 4294967295;
 	}
 	return h;
 }
+
+// FNV-1a Hash Algorithm (32-bit version)
+// Fowler-Noll-Vo hash with good avalanche properties
+// Better distribution than DJB2 for certain data patterns
 export fn fnv1a(input: string): u32 {
 	if (typeof(input) != "string") {
 		throw "fnv1a() requires string argument";
 	}
-	let FNV_OFFSET_BASIS: u32 = 2166136261;
-	let FNV_PRIME: u32 = 16777619;
+
+	// FNV-1a constants (32-bit)
+	let FNV_OFFSET_BASIS: u32 = 2166136261;  // 0x811c9dc5
+	let FNV_PRIME: u32 = 16777619;  // 0x01000193
+
 	let h: u32 = FNV_OFFSET_BASIS;
 	for (let i = 0; i < input.byte_length; i++) {
 		let byte_val = input.byte_at(i);
-		h = (h ^ byte_val) & 4294967295;
-		h = h * FNV_PRIME & 4294967295;
+		h = (h ^ byte_val) & 4294967295;  // XOR with byte
+		h = h * FNV_PRIME & 4294967295;  // Multiply by FNV prime, mask to 32 bits
 	}
+
 	return h;
 }
+
+// MurmurHash3 (32-bit version, simplified)
+// Fast, non-cryptographic hash with excellent distribution
+// Widely used in production hash tables (Redis, Hadoop, etc.)
 export fn murmur3(input: string, seed?: 0): u32 {
 	if (typeof(input) != "string") {
 		throw "murmur3() requires string argument";
 	}
+
 	let bytes = input.bytes();
 	let len = bytes.length;
 	let h: u32 = seed & 4294967295;
-	let c1: u32 = 3432918353;
-	let c2: u32 = 461845907;
+
+	// Constants (as u32)
+	let c1: u32 = 3432918353;  // 0xcc9e2d51
+	let c2: u32 = 461845907;  // 0x1b873593
 	let r1 = 15;
 	let r2 = 13;
 	let m: u32 = 5;
-	let n: u32 = 3864292196;
+	let n: u32 = 3864292196;  // 0xe6546b64
+
+	// Process 4-byte chunks
 	let i = 0;
 	let chunks = divi(len, 4);
 	let full_chunks: i32 = chunks;
+
 	for (let i = 0; i < full_chunks; i++) {
+		// Read 4 bytes as little-endian u32
 		let k: u32 = (bytes[i * 4] | bytes[i * 4 + 1] << 8 | bytes[i * 4 + 2] << 16 | bytes[i * 4 + 3] << 24) & 4294967295;
+
 		k = k * c1 & 4294967295;
-		k = (k << r1 | k >> 32 - r1 & 4294967295) & 4294967295;
+		k = (k << r1 | k >> 32 - r1 & 4294967295) & 4294967295;  // rotl32
 		k = k * c2 & 4294967295;
+
 		h = (h ^ k) & 4294967295;
-		h = (h << r2 | h >> 32 - r2 & 4294967295) & 4294967295;
+		h = (h << r2 | h >> 32 - r2 & 4294967295) & 4294967295;  // rotl32
 		h = h * m + n & 4294967295;
 	}
+
+	// Process remaining bytes
 	let k1: u32 = 0;
 	let tail_start = full_chunks * 4;
+
 	if (len % 4 == 3) {
 		k1 = (k1 ^ bytes[tail_start + 2] << 16) & 4294967295;
 	}
@@ -166,32 +104,56 @@ export fn murmur3(input: string, seed?: 0): u32 {
 		k1 = k1 * c2 & 4294967295;
 		h = (h ^ k1) & 4294967295;
 	}
+
+	// Finalization mix
 	h = (h ^ len) & 4294967295;
 	h = (h ^ h >> 16 & 4294967295) & 4294967295;
-	h = h * 2246822507 & 4294967295;
+	h = h * 2246822507 & 4294967295;  // 0x85ebca6b
 	h = (h ^ h >> 13 & 4294967295) & 4294967295;
-	h = h * 3266489909 & 4294967295;
+	h = h * 3266489909 & 4294967295;  // 0xc2b2ae35
 	h = (h ^ h >> 16 & 4294967295) & 4294967295;
+
 	return h;
 }
+
+// ============================================================================
+// CRYPTOGRAPHIC HASH FUNCTIONS (built-in, using OpenSSL)
+// ============================================================================
+
+// SHA-256 hash (256-bit / 32-byte output)
+// Returns hexadecimal string representation
 export fn sha256(input: string): string {
 	if (typeof(input) != "string") {
 		throw "sha256() requires string argument";
 	}
 	return __sha256(input);
 }
+
+// SHA-512 hash (512-bit / 64-byte output)
+// Returns hexadecimal string representation
 export fn sha512(input: string): string {
 	if (typeof(input) != "string") {
 		throw "sha512() requires string argument";
 	}
 	return __sha512(input);
 }
+
+// MD5 hash (128-bit / 16-byte output)
+// WARNING: MD5 is cryptographically broken, use only for legacy compatibility
+// Returns hexadecimal string representation
 export fn md5(input: string): string {
 	if (typeof(input) != "string") {
 		throw "md5() requires string argument";
 	}
 	return __md5(input);
 }
+
+// ============================================================================
+// FILE CHECKSUM FUNCTIONS
+// ============================================================================
+
+// Compute hash of file contents
+// hash_fn: one of djb2, fnv1a, murmur3, sha256, sha512, md5
 export fn file_checksum(path: string, hash_fn): string {
 	if (typeof(path) != "string") {
 		throw "file_checksum() requires string path";
@@ -199,30 +161,51 @@ export fn file_checksum(path: string, hash_fn): string {
 	if (typeof(hash_fn) != "function") {
 		throw "file_checksum() requires hash function as second argument";
 	}
+
+	// Open and read file
 	let file = open(path, "r");
 	defer file.close();
+
 	let content = file.read();
+
+	// Compute hash
 	let hash_result = hash_fn(content);
+
+	// Convert to string
 	return "" + hash_result;
 }
+
+// Convenience functions for specific file checksums
+
 export fn file_sha256(path: string): string {
 	return file_checksum(path, sha256);
 }
+
 export fn file_sha512(path: string): string {
 	return file_checksum(path, sha512);
 }
+
 export fn file_md5(path: string): string {
 	return file_checksum(path, md5);
 }
+
 export fn file_djb2(path: string): string {
 	return file_checksum(path, djb2);
 }
+
 export fn file_fnv1a(path: string): string {
 	return file_checksum(path, fnv1a);
 }
+
 export fn file_murmur3(path: string): string {
 	return file_checksum(path, murmur3);
 }
+
+// ============================================================================
+// HMAC (Hash-based Message Authentication Code)
+// ============================================================================
+
+// Helper: XOR a byte array with a repeated byte value
 fn xor_with_byte(data: array, byte_val: i32): array {
 	let result: array = [];
 	for (b in data) {
@@ -230,6 +213,8 @@ fn xor_with_byte(data: array, byte_val: i32): array {
 	}
 	return result;
 }
+
+// Helper: Convert hex string to byte array
 fn hex_to_bytes(hex: string): array {
 	let bytes: array = [];
 	for (let i = 0; i < hex.length; i = i + 2) {
@@ -239,19 +224,23 @@ fn hex_to_bytes(hex: string): array {
 	}
 	return bytes;
 }
+
+// Helper: Convert hex character to value
 fn hex_char_val(ch: rune): i32 {
 	let code: i32 = ch;
 	if (code >= 48 && code <= 57) {
-		return code - 48;
+		return code - 48;  // 0-9
 	}
 	if (code >= 97 && code <= 102) {
-		return code - 97 + 10;
+		return code - 97 + 10;  // a-f
 	}
 	if (code >= 65 && code <= 70) {
-		return code - 65 + 10;
+		return code - 65 + 10;  // A-F
 	}
 	return 0;
 }
+
+// Helper: Concatenate two byte arrays
 fn concat_bytes(a: array, b: array): array {
 	let result: array = [];
 	for (item in a) {
@@ -262,6 +251,12 @@ fn concat_bytes(a: array, b: array): array {
 	}
 	return result;
 }
+
+// HMAC-SHA256: Keyed-hash message authentication code using SHA-256
+// Parameters:
+// key: string - Secret key
+// message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (64 characters)
 export fn hmac_sha256(key: string, message: string): string {
 	if (typeof(key) != "string") {
 		throw "hmac_sha256() key must be string";
@@ -269,27 +264,47 @@ export fn hmac_sha256(key: string, message: string): string {
 	if (typeof(message) != "string") {
 		throw "hmac_sha256() message must be string";
 	}
+
+	// SHA-256 block size is 64 bytes
 	let block_size = 64;
 	let key_bytes = key.bytes();
+
+	// If key is longer than block size, hash it
 	if (key_bytes.length > block_size) {
 		let hashed_key = sha256(key);
 		key_bytes = hex_to_bytes(hashed_key);
 	}
+
+	// Pad key to block size with zeros
 	while (key_bytes.length < block_size) {
 		key_bytes.push(0);
 	}
-	let ipad = 54;
-	let opad = 92;
+
+	// Create inner and outer padded keys
+	let ipad = 54;  // Inner padding byte
+	let opad = 92;  // Outer padding byte
+
 	let i_key_pad = xor_with_byte(key_bytes, ipad);
 	let o_key_pad = xor_with_byte(key_bytes, opad);
+
+	// Inner hash: H(i_key_pad || message)
 	let inner_data = concat_bytes(i_key_pad, message.bytes());
 	let inner_str = __string_from_bytes(inner_data);
 	let inner_hash = sha256(inner_str);
+
+	// Outer hash: H(o_key_pad || inner_hash)
 	let inner_hash_bytes = hex_to_bytes(inner_hash);
 	let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
 	let outer_str = __string_from_bytes(outer_data);
+
 	return sha256(outer_str);
 }
+
+// HMAC-SHA512: Keyed-hash message authentication code using SHA-512
+// Parameters:
+// key: string - Secret key
+// message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (128 characters)
 export fn hmac_sha512(key: string, message: string): string {
 	if (typeof(key) != "string") {
 		throw "hmac_sha512() key must be string";
@@ -297,27 +312,48 @@ export fn hmac_sha512(key: string, message: string): string {
 	if (typeof(message) != "string") {
 		throw "hmac_sha512() message must be string";
 	}
+
+	// SHA-512 block size is 128 bytes
 	let block_size = 128;
 	let key_bytes = key.bytes();
+
+	// If key is longer than block size, hash it
 	if (key_bytes.length > block_size) {
 		let hashed_key = sha512(key);
 		key_bytes = hex_to_bytes(hashed_key);
 	}
+
+	// Pad key to block size with zeros
 	while (key_bytes.length < block_size) {
 		key_bytes.push(0);
 	}
+
+	// Create inner and outer padded keys
 	let ipad = 54;
 	let opad = 92;
+
 	let i_key_pad = xor_with_byte(key_bytes, ipad);
 	let o_key_pad = xor_with_byte(key_bytes, opad);
+
+	// Inner hash: H(i_key_pad || message)
 	let inner_data = concat_bytes(i_key_pad, message.bytes());
 	let inner_str = __string_from_bytes(inner_data);
 	let inner_hash = sha512(inner_str);
+
+	// Outer hash: H(o_key_pad || inner_hash)
 	let inner_hash_bytes = hex_to_bytes(inner_hash);
 	let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
 	let outer_str = __string_from_bytes(outer_data);
+
 	return sha512(outer_str);
 }
+
+// HMAC-MD5: Keyed-hash message authentication code using MD5
+// WARNING: MD5 is cryptographically broken, use only for legacy compatibility
+// Parameters:
+// key: string - Secret key
+// message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (32 characters)
 export fn hmac_md5(key: string, message: string): string {
 	if (typeof(key) != "string") {
 		throw "hmac_md5() key must be string";
@@ -325,24 +361,38 @@ export fn hmac_md5(key: string, message: string): string {
 	if (typeof(message) != "string") {
 		throw "hmac_md5() message must be string";
 	}
+
+	// MD5 block size is 64 bytes
 	let block_size = 64;
 	let key_bytes = key.bytes();
+
+	// If key is longer than block size, hash it
 	if (key_bytes.length > block_size) {
 		let hashed_key = md5(key);
 		key_bytes = hex_to_bytes(hashed_key);
 	}
+
+	// Pad key to block size with zeros
 	while (key_bytes.length < block_size) {
 		key_bytes.push(0);
 	}
+
+	// Create inner and outer padded keys
 	let ipad = 54;
 	let opad = 92;
+
 	let i_key_pad = xor_with_byte(key_bytes, ipad);
 	let o_key_pad = xor_with_byte(key_bytes, opad);
+
+	// Inner hash: H(i_key_pad || message)
 	let inner_data = concat_bytes(i_key_pad, message.bytes());
 	let inner_str = __string_from_bytes(inner_data);
 	let inner_hash = md5(inner_str);
+
+	// Outer hash: H(o_key_pad || inner_hash)
 	let inner_hash_bytes = hex_to_bytes(inner_hash);
 	let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
 	let outer_str = __string_from_bytes(outer_data);
+
 	return md5(outer_str);
 }

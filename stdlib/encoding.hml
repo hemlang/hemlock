@@ -5,192 +5,94 @@
 // 
 // Usage:
 // import { base64_encode, base64_decode, hex_encode, hex_decode, url_encode, url_decode } from "@stdlib/encoding";
+
 // ============================================================================
 // Base64 Encoding
 // ============================================================================
+
 // Base64 encoding table (standard Base64 alphabet)
-// Base64 padding character
-// Encode string to Base64
-// Convert string to bytes
-// Read 3 bytes (24 bits)
-// Convert to 4 Base64 characters (6 bits each)
-// Decode Base64 string to original string
-// Remove whitespace
-// Validate length (must be multiple of 4)
-// Build reverse lookup table
-// Convert rune to string for object key
-// Decode
-// Handle padding
-// First byte is always present
-// Declare variables for second/third byte processing
-// Second byte (if not padded)
-// Convert rune to string
-// Third byte (if not padded)
-// Re-compute c3_str if needed (when c3 was not padding)
-// Use different var name to avoid conflict
-// Convert bytes back to string using proper UTF-8 reconstruction
-// ============================================================================
-// Hexadecimal Encoding
-// ============================================================================
-// Hex characters
-// Encode string to hexadecimal
-// Decode hexadecimal string to original string
-// Remove whitespace
-// Validate length (must be even)
-// Convert to lowercase for easier parsing
-// Convert bytes back to string using proper UTF-8 reconstruction
-// Helper: Convert hex character to value (0-15)
-// 0-9 (48-57) -> 0-9
-// a-f (97-102) -> 10-15
-// A-F (65-70) -> 10-15 (support uppercase)
-// ============================================================================
-// URL Encoding (Percent Encoding)
-// ============================================================================
-// Helper: Convert byte/rune to single-character string
-// Check if character is safe for URLs (unreserved characters)
-// Convert rune to integer for comparison
-// A-Z (65-90)
-// a-z (97-122)
-// 0-9 (48-57)
-// Unreserved characters: - (45) _ (95) . (46) ~ (126)
-// Encode string for use in URLs (percent-encoding)
-// Safe character - add as-is
-// Space can be encoded as + or %20, we use +
-// Percent-encode the byte
-// Decode URL-encoded string (percent-decoding)
-// + decodes to space
-// Percent-encoded byte
-// Regular character
-// Convert bytes back to string using proper UTF-8 reconstruction
-// ============================================================================
-// Base32 Encoding (RFC 4648)
-// ============================================================================
-// Base32 encoding table (RFC 4648 standard alphabet)
-// Base32 padding character
-// Encode string to Base32
-// Parameters:
-// input: string - Input string to encode
-// Returns: string - Base32 encoded string
-// Read up to 5 bytes (40 bits) and convert to 8 Base32 characters (5 bits each)
-// Character 1: bits 0-4 of byte 1
-// Character 2: bits 5-7 of byte 1, bits 0-1 of byte 2
-// Character 3: bits 2-6 of byte 2
-// Character 4: bit 7 of byte 2, bits 0-3 of byte 3
-// Character 5: bits 4-7 of byte 3, bit 0 of byte 4
-// Character 6: bits 1-5 of byte 4
-// Character 7: bits 6-7 of byte 4, bits 0-2 of byte 5
-// Character 8: bits 3-7 of byte 5
-// Helper: Convert Base32 character to value (0-31)
-// A-Z (65-90) -> 0-25
-// a-z (97-122) -> 0-25 (case insensitive)
-// 2-7 (50-55) -> 26-31
-// Decode Base32 string to original string
-// Parameters:
-// input: string - Base32 encoded string
-// Returns: string - Decoded string
-// Remove whitespace
-// Validate length (must be multiple of 8)
-// Read 8 Base32 characters
-// Decode to up to 5 bytes
-// Byte 1: 5 bits from char1, 3 bits from char2
-// Byte 2: 2 bits from char2, 5 bits from char3, 1 bit from char4
-// Byte 3: 4 bits from char4, 4 bits from char5
-// Byte 4: 1 bit from char5, 5 bits from char6, 2 bits from char7
-// Byte 5: 3 bits from char7, 5 bits from char8
-// ============================================================================
-// Base58 Encoding (Bitcoin alphabet)
-// ============================================================================
-// Base58 alphabet (Bitcoin variant - no 0, O, I, l to avoid confusion)
-// Encode string to Base58
-// Parameters:
-// input: string - Input string to encode
-// Returns: string - Base58 encoded string
-// Count leading zeros (they become leading '1's in Base58)
-// Allocate enough space for result (worst case: input_len * 138/100 + 1)
-// Process each byte
-// Apply "b58 = b58 * 256 + carry"
-// Skip leading zeros in b58 result
-// Build result string
-// Add leading '1's for each leading zero byte
-// Add the rest
-// Helper: Convert Base58 character to value (0-57)
-// 1-9 (49-57) -> 0-8
-// A-H (65-72) -> 9-16
-// J-N (74-78) -> 17-21 (skip I)
-// P-Z (80-90) -> 22-32 (skip O)
-// a-k (97-107) -> 33-43
-// m-z (109-122) -> 44-57 (skip l)
-// Decode Base58 string to original string
-// Parameters:
-// input: string - Base58 encoded string
-// Returns: string - Decoded string
-// Count leading '1's (they become leading zero bytes)
-// Allocate enough space for result
-// Process each character
-// Apply "b256 = b256 * 58 + val"
-// Skip leading zeros in b256 result
-// Build result bytes
-// Add leading zeros for each leading '1'
-// Add the rest
-// ============================================================================
-// Export Note
-// ============================================================================
-// All functions are automatically exported when imported with:
-// import { function_name } from "@stdlib/encoding";
 let BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Base64 padding character
 let BASE64_PAD = '=';
+
+// Encode string to Base64
 fn base64_encode(input) {
 	if (typeof(input) != "string") {
 		throw "base64_encode() requires string argument";
 	}
+
+	// Convert string to bytes
 	let bytes = input.bytes();
 	let result = "";
+
 	for (let i = 0; i < bytes.length; i = i + 3) {
+		// Read 3 bytes (24 bits)
 		let b1 = bytes[i];
 		let b2: i32 = 0;
 		let b3: i32 = 0;
+
 		if (i + 1 < bytes.length) {
 			b2 = bytes[i + 1];
 		}
 		if (i + 2 < bytes.length) {
 			b3 = bytes[i + 2];
 		}
+
+		// Convert to 4 Base64 characters (6 bits each)
 		let idx1 = b1 >> 2 & 63;
 		let idx2 = (b1 & 3) << 4 | b2 >> 4 & 15;
 		let idx3 = (b2 & 15) << 2 | b3 >> 6 & 3;
 		let idx4 = b3 & 63;
+
 		result = result + BASE64_CHARS[idx1];
 		result = result + BASE64_CHARS[idx2];
+
 		if (i + 1 < bytes.length) {
 			result = result + BASE64_CHARS[idx3];
 		} else {
 			result = result + BASE64_PAD;
 		}
+
 		if (i + 2 < bytes.length) {
 			result = result + BASE64_CHARS[idx4];
 		} else {
 			result = result + BASE64_PAD;
 		}
 	}
+
 	return result;
 }
+
+// Decode Base64 string to original string
 fn base64_decode(input) {
 	if (typeof(input) != "string") {
 		throw "base64_decode() requires string argument";
 	}
-	let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all(
+
+	// Remove whitespace
+	let clean = input.replace_all(" ", "").replace_all(
+		"\n",
+		"",
+	).replace_all("\r", "").replace_all(
 		"\t",
 		"",
 	);
+
+	// Validate length (must be multiple of 4)
 	if (clean.length % 4 != 0) {
 		throw "Invalid Base64 string: length must be multiple of 4";
 	}
+
+	// Build reverse lookup table
 	let lookup = {};
 	for (let i = 0; i < BASE64_CHARS.length; i++) {
 		let ch = BASE64_CHARS[i];
-		let ch_str: string = ch;
+		let ch_str: string = ch;  // Convert rune to string for object key
 		lookup[ch_str] = i;
 	}
+
+	// Decode
 	let bytes = [];
 	let i = 0;
 	while (i < clean.length) {
@@ -198,22 +100,32 @@ fn base64_decode(input) {
 		let c2 = clean[i + 1];
 		let c3 = clean[i + 2];
 		let c4 = clean[i + 3];
+
+		// Handle padding
 		if (c1 == BASE64_PAD || c2 == BASE64_PAD) {
 			throw "Invalid Base64 string: unexpected padding";
 		}
+
 		let c1_str: string = c1;
 		let c2_str: string = c2;
 		let v1 = lookup[c1_str];
 		let v2 = lookup[c2_str];
+
 		if (v1 == null || v2 == null) {
 			throw "Invalid Base64 string: invalid character";
 		}
+
+		// First byte is always present
 		let b1 = (v1 << 2 | v2 >> 4) & 255;
 		bytes.push(b1);
+
+		// Declare variables for second/third byte processing
 		let v3 = null;
 		let v4 = null;
+
+		// Second byte (if not padded)
 		if (c3 != BASE64_PAD) {
-			let c3_str: string = c3;
+			let c3_str: string = c3;  // Convert rune to string
 			v3 = lookup[c3_str];
 			if (v3 == null) {
 				throw "Invalid Base64 string: invalid character";
@@ -221,8 +133,11 @@ fn base64_decode(input) {
 			let b2 = (v2 << 4 | v3 >> 2) & 255;
 			bytes.push(b2);
 		}
+
+		// Third byte (if not padded)
 		if (c4 != BASE64_PAD) {
-			let c3_str_3: string = c3;
+			// Re-compute c3_str if needed (when c3 was not padding)
+			let c3_str_3: string = c3;  // Use different var name to avoid conflict
 			let c4_str: string = c4;
 			if (v3 == null) {
 				v3 = lookup[c3_str_3];
@@ -234,155 +149,248 @@ fn base64_decode(input) {
 			let b3 = (v3 << 6 | v4) & 255;
 			bytes.push(b3);
 		}
+
 		i = i + 4;
 	}
+
+	// Convert bytes back to string using proper UTF-8 reconstruction
 	return __string_from_bytes(bytes);
 }
+
+// ============================================================================
+// Hexadecimal Encoding
+// ============================================================================
+
+// Hex characters
 let HEX_CHARS = "0123456789abcdef";
+
+// Encode string to hexadecimal
 fn hex_encode(input) {
 	if (typeof(input) != "string") {
 		throw "hex_encode() requires string argument";
 	}
+
 	let bytes = input.bytes();
 	let result = "";
+
 	for (b in bytes) {
 		let high = b >> 4 & 15;
 		let low = b & 15;
 		result = result + HEX_CHARS[high];
 		result = result + HEX_CHARS[low];
 	}
+
 	return result;
 }
+
+// Decode hexadecimal string to original string
 fn hex_decode(input) {
 	if (typeof(input) != "string") {
 		throw "hex_decode() requires string argument";
 	}
-	let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all(
+
+	// Remove whitespace
+	let clean = input.replace_all(" ", "").replace_all(
+		"\n",
+		"",
+	).replace_all("\r", "").replace_all(
 		"\t",
 		"",
 	);
+
+	// Validate length (must be even)
 	if (clean.length % 2 != 0) {
 		throw "Invalid hex string: length must be even";
 	}
+
+	// Convert to lowercase for easier parsing
 	clean = clean.to_lower();
+
 	let bytes = [];
 	for (let i = 0; i < clean.length; i = i + 2) {
 		let c1 = clean[i];
 		let c2 = clean[i + 1];
+
 		let v1 = hex_char_to_value(c1);
 		let v2 = hex_char_to_value(c2);
+
 		if (v1 == -1 || v2 == -1) {
 			throw "Invalid hex string: invalid character";
 		}
+
 		let byte_val = v1 << 4 | v2;
 		bytes.push(byte_val);
 	}
+
+	// Convert bytes back to string using proper UTF-8 reconstruction
 	return __string_from_bytes(bytes);
 }
+
+// Helper: Convert hex character to value (0-15)
 fn hex_char_to_value(ch: rune): i32 {
 	let code: i32 = ch;
+	// 0-9 (48-57) -> 0-9
 	if (code >= 48 && code <= 57) {
 		return code - 48;
 	}
+	// a-f (97-102) -> 10-15
 	if (code >= 97 && code <= 102) {
 		return code - 97 + 10;
 	}
+	// A-F (65-70) -> 10-15 (support uppercase)
 	if (code >= 65 && code <= 70) {
 		return code - 65 + 10;
 	}
 	return -1;
 }
+
+// ============================================================================
+// URL Encoding (Percent Encoding)
+// ============================================================================
+
+// Helper: Convert byte/rune to single-character string
 fn byte_to_string(b): string {
 	let r: rune = b;
 	return "" + r;
 }
+
+// Check if character is safe for URLs (unreserved characters)
 fn is_url_safe(ch: rune): bool {
+	// Convert rune to integer for comparison
 	let code: i32 = ch;
+
+	// A-Z (65-90)
 	if (code >= 65 && code <= 90) {
 		return true;
 	}
+	// a-z (97-122)
 	if (code >= 97 && code <= 122) {
 		return true;
 	}
+	// 0-9 (48-57)
 	if (code >= 48 && code <= 57) {
 		return true;
 	}
+	// Unreserved characters: - (45) _ (95) . (46) ~ (126)
 	if (code == 45 || code == 95 || code == 46 || code == 126) {
 		return true;
 	}
+
 	return false;
 }
+
+// Encode string for use in URLs (percent-encoding)
 fn url_encode(input) {
 	if (typeof(input) != "string") {
 		throw "url_encode() requires string argument";
 	}
+
 	let bytes = input.bytes();
 	let result = "";
+
 	let i = 0;
 	while (i < bytes.length) {
 		let b = bytes[i];
 		let ch: rune = b;
+
 		if (is_url_safe(ch)) {
+			// Safe character - add as-is
 			result = result + ch;
 		} else if (ch == ' ') {
+	// Space can be encoded as + or %20, we use +
 	result = result + '+';
 } else {
+	// Percent-encode the byte
 	let high = b >> 4 & 15;
 	let low = b & 15;
 	result = result + '%' + HEX_CHARS[high] + HEX_CHARS[low];
 }
+
 i = i + 1;
 }
+
 return result;
 }
+
+// Decode URL-encoded string (percent-decoding)
 fn url_decode(input) {
 if (typeof(input) != "string") {
 throw "url_decode() requires string argument";
 }
+
 let bytes = [];
 let i = 0;
+
 while (i < input.length) {
 let ch = input[i];
+
 if (ch == '+') {
+	// + decodes to space
 	bytes.push(32);
 	i = i + 1;
 } else if (ch == '%') {
+	// Percent-encoded byte
 	if (i + 2 >= input.length) {
 		throw "Invalid URL encoding: incomplete percent sequence";
 	}
+
 	let h1 = input[i + 1];
 	let h2 = input[i + 2];
+
 	let v1 = hex_char_to_value(h1);
 	let v2 = hex_char_to_value(h2);
+
 	if (v1 == -1 || v2 == -1) {
 		throw "Invalid URL encoding: invalid hex digits in percent sequence";
 	}
+
 	let byte_val = v1 << 4 | v2;
 	bytes.push(byte_val);
+
 	i = i + 3;
 } else {
+	// Regular character
 	let b: i32 = ch;
 	bytes.push(b);
 	i = i + 1;
 }
 }
+
+// Convert bytes back to string using proper UTF-8 reconstruction
 return __string_from_bytes(bytes);
 }
+
+// ============================================================================
+// Base32 Encoding (RFC 4648)
+// ============================================================================
+
+// Base32 encoding table (RFC 4648 standard alphabet)
 let BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+// Base32 padding character
 let BASE32_PAD = '=';
+
+// Encode string to Base32
+// Parameters:
+// input: string - Input string to encode
+// Returns: string - Base32 encoded string
 export fn base32_encode(input) {
 	if (typeof(input) != "string") {
 		throw "base32_encode() requires string argument";
 	}
+
 	let bytes = input.bytes();
 	let result = "";
+
 	let i = 0;
 	while (i < bytes.length) {
+		// Read up to 5 bytes (40 bits) and convert to 8 Base32 characters (5 bits each)
 		let b1 = bytes[i];
 		let b2: i32 = 0;
 		let b3: i32 = 0;
 		let b4: i32 = 0;
 		let b5: i32 = 0;
+
 		if (i + 1 < bytes.length) {
 			b2 = bytes[i + 1];
 		}
@@ -395,77 +403,115 @@ export fn base32_encode(input) {
 		if (i + 4 < bytes.length) {
 			b5 = bytes[i + 4];
 		}
+
+		// Character 1: bits 0-4 of byte 1
 		let idx1 = b1 >> 3 & 31;
 		result = result + BASE32_CHARS[idx1];
+
+		// Character 2: bits 5-7 of byte 1, bits 0-1 of byte 2
 		let idx2 = (b1 & 7) << 2 | b2 >> 6 & 3;
 		result = result + BASE32_CHARS[idx2];
+
+		// Character 3: bits 2-6 of byte 2
 		if (i + 1 < bytes.length) {
 			let idx3 = b2 >> 1 & 31;
 			result = result + BASE32_CHARS[idx3];
 		} else {
 			result = result + BASE32_PAD;
 		}
+
+		// Character 4: bit 7 of byte 2, bits 0-3 of byte 3
 		if (i + 1 < bytes.length) {
 			let idx4 = (b2 & 1) << 4 | b3 >> 4 & 15;
 			result = result + BASE32_CHARS[idx4];
 		} else {
 			result = result + BASE32_PAD;
 		}
+
+		// Character 5: bits 4-7 of byte 3, bit 0 of byte 4
 		if (i + 2 < bytes.length) {
 			let idx5 = (b3 & 15) << 1 | b4 >> 7 & 1;
 			result = result + BASE32_CHARS[idx5];
 		} else {
 			result = result + BASE32_PAD;
 		}
+
+		// Character 6: bits 1-5 of byte 4
 		if (i + 3 < bytes.length) {
 			let idx6 = b4 >> 2 & 31;
 			result = result + BASE32_CHARS[idx6];
 		} else {
 			result = result + BASE32_PAD;
 		}
+
+		// Character 7: bits 6-7 of byte 4, bits 0-2 of byte 5
 		if (i + 3 < bytes.length) {
 			let idx7 = (b4 & 3) << 3 | b5 >> 5 & 7;
 			result = result + BASE32_CHARS[idx7];
 		} else {
 			result = result + BASE32_PAD;
 		}
+
+		// Character 8: bits 3-7 of byte 5
 		if (i + 4 < bytes.length) {
 			let idx8 = b5 & 31;
 			result = result + BASE32_CHARS[idx8];
 		} else {
 			result = result + BASE32_PAD;
 		}
+
 		i = i + 5;
 	}
+
 	return result;
 }
+
+// Helper: Convert Base32 character to value (0-31)
 fn base32_char_to_value(ch: rune): i32 {
 let code: i32 = ch;
+// A-Z (65-90) -> 0-25
 if (code >= 65 && code <= 90) {
 return code - 65;
 }
+// a-z (97-122) -> 0-25 (case insensitive)
 if (code >= 97 && code <= 122) {
 return code - 97;
 }
+// 2-7 (50-55) -> 26-31
 if (code >= 50 && code <= 55) {
 return code - 50 + 26;
 }
 return -1;
 }
+
+// Decode Base32 string to original string
+// Parameters:
+// input: string - Base32 encoded string
+// Returns: string - Decoded string
 export fn base32_decode(input) {
 	if (typeof(input) != "string") {
 		throw "base32_decode() requires string argument";
 	}
-	let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all(
+
+	// Remove whitespace
+	let clean = input.replace_all(" ", "").replace_all(
+		"\n",
+		"",
+	).replace_all("\r", "").replace_all(
 		"\t",
 		"",
 	);
+
+	// Validate length (must be multiple of 8)
 	if (clean.length % 8 != 0) {
 		throw "Invalid Base32 string: length must be multiple of 8";
 	}
+
 	let bytes = [];
 	let i = 0;
+
 	while (i < clean.length) {
+		// Read 8 Base32 characters
 		let chars = [];
 		let j = 0;
 		while (j < 8) {
@@ -481,45 +527,74 @@ export fn base32_decode(input) {
 			}
 			j = j + 1;
 		}
+
+		// Decode to up to 5 bytes
+		// Byte 1: 5 bits from char1, 3 bits from char2
 		if (chars[0] >= 0 && chars[1] >= 0) {
 			let b1 = (chars[0] << 3 | chars[1] >> 2) & 255;
 			bytes.push(b1);
 		}
+
+		// Byte 2: 2 bits from char2, 5 bits from char3, 1 bit from char4
 		if (chars[2] >= 0 && chars[3] >= 0) {
 			let b2 = (chars[1] << 6 | chars[2] << 1 | chars[3] >> 4) & 255;
 			bytes.push(b2);
 		}
+
+		// Byte 3: 4 bits from char4, 4 bits from char5
 		if (chars[3] >= 0 && chars[4] >= 0) {
 			let b3 = (chars[3] << 4 | chars[4] >> 1) & 255;
 			bytes.push(b3);
 		}
+
+		// Byte 4: 1 bit from char5, 5 bits from char6, 2 bits from char7
 		if (chars[5] >= 0 && chars[6] >= 0) {
 			let b4 = (chars[4] << 7 | chars[5] << 2 | chars[6] >> 3) & 255;
 			bytes.push(b4);
 		}
+
+		// Byte 5: 3 bits from char7, 5 bits from char8
 		if (chars[6] >= 0 && chars[7] >= 0) {
 			let b5 = (chars[6] << 5 | chars[7]) & 255;
 			bytes.push(b5);
 		}
+
 		i = i + 8;
 	}
+
 	return __string_from_bytes(bytes);
 }
+
+// ============================================================================
+// Base58 Encoding (Bitcoin alphabet)
+// ============================================================================
+
+// Base58 alphabet (Bitcoin variant - no 0, O, I, l to avoid confusion)
 let BASE58_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+// Encode string to Base58
+// Parameters:
+// input: string - Input string to encode
+// Returns: string - Base58 encoded string
 export fn base58_encode(input) {
 	if (typeof(input) != "string") {
 		throw "base58_encode() requires string argument";
 	}
+
 	let bytes = input.bytes();
 	if (bytes.length == 0) {
 		return "";
 	}
+
+	// Count leading zeros (they become leading '1's in Base58)
 	let leading_zeros = 0;
 	let k = 0;
 	while (k < bytes.length && bytes[k] == 0) {
 		leading_zeros = leading_zeros + 1;
 		k = k + 1;
 	}
+
+	// Allocate enough space for result (worst case: input_len * 138/100 + 1)
 	let size = bytes.length * 2;
 	let b58: array = [];
 	let m = 0;
@@ -527,10 +602,14 @@ export fn base58_encode(input) {
 		b58.push(0);
 		m = m + 1;
 	}
+
+	// Process each byte
 	let i = 0;
 	while (i < bytes.length) {
 		let carry: i64 = bytes[i];
 		let j = 0;
+
+		// Apply "b58 = b58 * 256 + carry"
 		let idx = size - 1;
 		while (idx >= 0 && (carry != 0 || j < size)) {
 			carry = carry + b58[idx] * 256;
@@ -539,59 +618,87 @@ export fn base58_encode(input) {
 			idx = idx - 1;
 			j = j + 1;
 		}
+
 		i = i + 1;
 	}
+
+	// Skip leading zeros in b58 result
 	let start = 0;
 	while (start < size && b58[start] == 0) {
 		start = start + 1;
 	}
+
+	// Build result string
 	let result = "";
+
+	// Add leading '1's for each leading zero byte
 	let z = 0;
 	while (z < leading_zeros) {
 		result = result + "1";
 		z = z + 1;
 	}
+
+	// Add the rest
 	while (start < size) {
 		result = result + BASE58_CHARS[b58[start]];
 		start = start + 1;
 	}
+
 	return result;
 }
+
+// Helper: Convert Base58 character to value (0-57)
 fn base58_char_to_value(ch: rune): i32 {
 let code: i32 = ch;
+// 1-9 (49-57) -> 0-8
 if (code >= 49 && code <= 57) {
 return code - 49;
 }
+// A-H (65-72) -> 9-16
 if (code >= 65 && code <= 72) {
 return code - 65 + 9;
 }
+// J-N (74-78) -> 17-21 (skip I)
 if (code >= 74 && code <= 78) {
 return code - 74 + 17;
 }
+// P-Z (80-90) -> 22-32 (skip O)
 if (code >= 80 && code <= 90) {
 return code - 80 + 22;
 }
+// a-k (97-107) -> 33-43
 if (code >= 97 && code <= 107) {
 return code - 97 + 33;
 }
+// m-z (109-122) -> 44-57 (skip l)
 if (code >= 109 && code <= 122) {
 return code - 109 + 44;
 }
 return -1;
 }
+
+// Decode Base58 string to original string
+// Parameters:
+// input: string - Base58 encoded string
+// Returns: string - Decoded string
 export fn base58_decode(input) {
 	if (typeof(input) != "string") {
 		throw "base58_decode() requires string argument";
 	}
+
 	if (input.length == 0) {
 		return "";
 	}
+
+	// Count leading '1's (they become leading zero bytes)
 	let leading_ones = 0;
 	let k = 0;
 	while (k < input.length && input[k] == '1') {
 		leading_ones = leading_ones + 1;
 		k = k + 1;
 	}
+
+	// Allocate enough space for result
 	let size = input.length * 2;
 	let b256: array = [];
 	let m = 0;
@@ -599,6 +706,8 @@ export fn base58_decode(input) {
 		b256.push(0);
 		m = m + 1;
 	}
+
+	// Process each character
 	let i = 0;
 	while (i < input.length) {
 		let ch = input[i];
@@ -606,8 +715,11 @@ export fn base58_decode(input) {
 		if (val == -1) {
 			throw "Invalid Base58 string: invalid character";
 		}
+
 		let carry: i64 = val;
 		let j = 0;
+
+		// Apply "b256 = b256 * 58 + val"
 		let idx = size - 1;
 		while (idx >= 0 && (carry != 0 || j < size)) {
 			carry = carry + b256[idx] * 58;
@@ -616,21 +728,38 @@ export fn base58_decode(input) {
 			idx = idx - 1;
 			j = j + 1;
 		}
+
 		i = i + 1;
 	}
+
+	// Skip leading zeros in b256 result
 	let start = 0;
 	while (start < size && b256[start] == 0) {
 		start = start + 1;
 	}
+
+	// Build result bytes
 	let bytes = [];
+
+	// Add leading zeros for each leading '1'
 	let z = 0;
 	while (z < leading_ones) {
 		bytes.push(0);
 		z = z + 1;
 	}
+
+	// Add the rest
 	while (start < size) {
 		bytes.push(b256[start]);
 		start = start + 1;
 	}
+
 	return __string_from_bytes(bytes);
 }
+
+// ============================================================================
+// Export Note
+// ============================================================================
+
+// All functions are automatically exported when imported with:
+// import { function_name } from "@stdlib/encoding";

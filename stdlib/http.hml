@@ -1,35 +1,263 @@
 // @stdlib/http - HTTP client using libwebsockets (statically linked)
 // Production-ready HTTP/HTTPS client
 // Requires: libwebsockets-dev package (sudo apt-get install libwebsockets-dev)
+
 // Note: libwebsockets functions are now built into hemlock as __lws_* builtins
 // No FFI import needed - functions are available directly
+
 // ========== HTTP CLIENT IMPLEMENTATION ==========
-// Limit redirects to prevent infinite loops
-// Determine content type from headers or use default
-// Use generic request function for other HTTP methods
+fn http_request(method, url, body, headers) {
+	return http_request_with_redirects(
+		method,
+		url,
+		body,
+		headers,
+		0,
+	);
+}
+
+fn http_request_with_redirects(method, url, body, headers, redirect_count) {
+	// Limit redirects to prevent infinite loops
+	if (redirect_count > 10) {
+		throw "Too many redirects: " + url;
+	}
+
+	let resp_ptr = null;
+
+	// Determine content type from headers or use default
+	let content_type = "application/x-www-form-urlencoded";
+	if (headers != null && headers.length > 0) {
+		for (header in headers) {
+			if (header.starts_with("Content-Type:")) {
+				content_type = header.substr(14, header.length - 14).trim();
+			}
+		}
+	}
+
+	if (method == "GET") {
+		resp_ptr = __lws_http_get(url);
+	} else if (method == "POST") {
+	resp_ptr = __lws_http_post(url, body, content_type);
+} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
+	method == "OPTIONS") {
+	// Use generic request function for other HTTP methods
+	resp_ptr = __lws_http_request(method, url, body, content_type);
+} else {
+	throw "HTTP method not supported: " + method;
+}
+
+if (resp_ptr == null) {
+	throw "HTTP request failed: " + method + " " + url;
+}
+
 // Extract response data
+let status = __lws_response_status(resp_ptr);
+let redirect_url = __lws_response_redirect(resp_ptr);
+let response_body = __lws_response_body(resp_ptr);
+let response_headers = __lws_response_headers(resp_ptr);
+
 // Free C response structure
+__lws_response_free(resp_ptr);
+
 // Handle redirects (3xx status codes)
-// If redirect URL is relative, make it absolute
-// Extract scheme and host from original URL
-// Follow redirect (use GET for 301/302/303)
+if (status >= 300 && status < 400 && redirect_url != null) {
+	// If redirect URL is relative, make it absolute
+	if (redirect_url.starts_with("/")) {
+		// Extract scheme and host from original URL
+		let scheme_end = url.index_of("://");
+		if (scheme_end >= 0) {
+			let host_start = scheme_end + 3;
+			let host_end = url.index_of("/", host_start);
+			if (host_end < 0) {
+				host_end = url.length;
+			}
+			let base = url.substr(0, host_end);
+			redirect_url = base + redirect_url;
+		}
+	}
+	// Follow redirect (use GET for 301/302/303)
+	return http_request_with_redirects(
+		"GET",
+		redirect_url,
+		"",
+		headers,
+		redirect_count + 1,
+	);
+}
+
+return { status_code: status, headers: response_headers, body: response_body };
+}
+
 // ========== BINARY HTTP REQUEST (for file downloads) ==========
+
+fn http_request_binary(method, url, headers) {
+return http_request_binary_with_redirects(
+	method,
+	url,
+	headers,
+	0,
+);
+}
+
+fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 // Limit redirects to prevent infinite loops
+if (redirect_count > 10) {
+	throw "Too many redirects: " + url;
+}
+
+let resp_ptr = null;
+
+if (method == "GET") {
+	resp_ptr = __lws_http_get(url);
+} else {
+	throw "Binary download only supports GET method";
+}
+
+if (resp_ptr == null) {
+	throw "HTTP request failed: " + method + " " + url;
+}
+
 // Extract response data
+let status = __lws_response_status(resp_ptr);
+let redirect_url = __lws_response_redirect(resp_ptr);
+
 // Handle redirects (3xx status codes) BEFORE getting body
-// Free response before following redirect
-// If redirect URL is relative, make it absolute
-// Follow redirect
+if (status >= 300 && status < 400 && redirect_url != null) {
+	// Free response before following redirect
+	__lws_response_free(resp_ptr);
+
+	// If redirect URL is relative, make it absolute
+	if (redirect_url.starts_with("/")) {
+		let scheme_end = url.index_of("://");
+		if (scheme_end >= 0) {
+			let host_start = scheme_end + 3;
+			let host_end = url.index_of("/", host_start);
+			if (host_end < 0) {
+				host_end = url.length;
+			}
+			let base = url.substr(0, host_end);
+			redirect_url = base + redirect_url;
+		}
+	}
+	// Follow redirect
+	return http_request_binary_with_redirects(
+		"GET",
+		redirect_url,
+		headers,
+		redirect_count + 1,
+	);
+}
+
 // Get body as binary buffer (preserves null bytes)
+let response_body = __lws_response_body_binary(resp_ptr);
+let response_headers = __lws_response_headers(resp_ptr);
+
 // Free C response structure
+__lws_response_free(resp_ptr);
+
+return { status_code: status, headers: response_headers, body: response_body };
+}
+
 // ========== PUBLIC API ==========
+
+export fn get(url, headers) {
+	headers = headers ?? [];
+	return http_request("GET", url, "", headers);
+}
+
 // Get binary data (for file downloads - returns buffer instead of string)
+export fn get_binary(url, headers) {
+	headers = headers ?? [];
+	return http_request_binary("GET", url, headers);
+}
+
+export fn post(url, body, headers) {
+	body = body ?? "";
+	headers = headers ?? [];
+	return http_request("POST", url, body, headers);
+}
+
+export fn put(url, body, headers) {
+	body = body ?? "";
+	headers = headers ?? [];
+	return http_request("PUT", url, body, headers);
+}
+
+export fn delete(url, headers) {
+	headers = headers ?? [];
+	return http_request("DELETE", url, "", headers);
+}
+
+export fn request(method, url, body, headers) {
+	body = body ?? "";
+	headers = headers ?? [];
+	return http_request(method, url, body, headers);
+}
+
 // ========== CONVENIENCE FUNCTIONS ==========
-// Would need file write support
-// For now, just return success based on status
+
+export fn fetch(url) {
+	let response = get(url, null);
+	return response.body;
+}
+
+export fn post_json(url, data) {
+	let json = data.serialize();
+	let headers = ["Content-Type: application/json"];
+	return post(url, json, headers);
+}
+
+export fn get_json(url) {
+	let response = get(url, null);
+	return response.body.deserialize();
+}
+
+export fn download(url, output_path) {
+	let response = get(url, null);
+
+	// Would need file write support
+	// For now, just return success based on status
+	return response.status_code >= 200 && response.status_code < 300;
+}
+
 // ========== STATUS CODE HELPERS ==========
+
+export fn is_success(status_code) {
+	return status_code >= 200 && status_code < 300;
+}
+
+export fn is_redirect(status_code) {
+	return status_code >= 300 && status_code < 400;
+}
+
+export fn is_client_error(status_code) {
+	return status_code >= 400 && status_code < 500;
+}
+
+export fn is_server_error(status_code) {
+	return status_code >= 500 && status_code < 600;
+}
+
 // ========== URL HELPERS ==========
+
+export fn url_encode(str) {
+	let result = str;
+	result = result.replace_all(" ", "%20");
+	result = result.replace_all("!", "%21");
+	result = result.replace_all("#", "%23");
+	result = result.replace_all("$", "%24");
+	result = result.replace_all("&", "%26");
+	result = result.replace_all("'", "%27");
+	result = result.replace_all("(", "%28");
+	result = result.replace_all(")", "%29");
+	result = result.replace_all("+", "%2B");
+	return result;
+}
+
 // ========== HTTP SERVER ==========
+
+import { TcpListener } from "@stdlib/net";
+
 // HttpServer - Simple HTTP server for handling requests
 // Usage:
 // let server = HttpServer("127.0.0.1", 8080);
@@ -37,22 +265,161 @@
 // server.route("POST", "/api", fn(req) { return { status: 200, body: req.body }; });
 // server.serve(10);  // Handle 10 requests then stop
 // server.close();
-// Register a route handler
-// handler(req) should return { status: i32, body: string, content_type?: string }
-// Handle a single request and return
-// Read the request
-// Parse request
-// Find matching route
-// Send response
-// Serve requests until count is reached (0 = infinite)
-// Serve requests in background (async)
-// Close the server
-// Internal: Parse HTTP request string into object
-// Parse headers
-// Extract body
-// Internal: Find route and call handler
-// No route found - return 404
-// Internal: Build HTTP response string
+export fn HttpServer(host: string, port: i32) {
+	let listener = TcpListener(host, port);
+	let routes = [];
+
+	return {
+		host,
+		port,
+		_listener: listener,
+		_routes: routes,
+		route: fn(method: string, path: string, handler) {
+
+			// Register a route handler
+			// handler(req) should return { status: i32, body: string, content_type?: string }
+			self._routes.push({ method, path, handler });
+		},
+		handle_one: fn() {
+
+			// Handle a single request and return
+			let stream = self._listener.accept();
+			defer stream.close();
+
+			// Read the request
+			let request_buf = stream.read(8192);
+			let request_str = request_buf.to_string();
+
+			// Parse request
+			let req = self._parse_request(request_str);
+
+			// Find matching route
+			let response = self._handle_request(req);
+
+			// Send response
+			let response_str = self._build_response(response);
+			stream.write(response_str);
+		},
+		serve: fn(count: i32) {
+
+			// Serve requests until count is reached (0 = infinite)
+			let handled = 0;
+			while (count == 0 || handled < count) {
+				self.handle_one();
+				handled++;
+			}
+		},
+		serve_async: fn(count: i32) {
+
+			// Serve requests in background (async)
+			let srv = self;
+			return spawn(fn() {
+				srv.serve(count);
+			}
+);
+		},
+		close: fn() {
+
+			// Close the server
+			self._listener.close();
+		},
+		_parse_request: fn(request_str: string) {
+
+			// Internal: Parse HTTP request string into object
+			let lines = request_str.split("\r\n");
+			let first_line = lines[0];
+			let parts = first_line.split(" ");
+
+			let method = parts[0];
+			let path = parts[1];
+			let version = "HTTP/1.1";
+			if (parts.length > 2) {
+				version = parts[2];
+			}
+
+			// Parse headers
+			let headers = {};
+			let body_start = -1;
+			for (let i = 1; i < lines.length; i++) {
+				let line = lines[i];
+				if (line == "") {
+					body_start = i + 1;
+					break;
+				}
+				let colon = line.find(":");
+				if (colon > 0) {
+					let key = line.substr(0, colon).trim().to_lower();
+					let value = line.substr(colon + 1, line.length - colon - 1).trim();
+					headers[key] = value;
+				}
+			}
+
+			// Extract body
+			let body = "";
+			if (body_start > 0 && body_start < lines.length) {
+				let body_lines = [];
+				for (let j = body_start; j < lines.length; j++) {
+					body_lines.push(lines[j]);
+				}
+				body = body_lines.join("\r\n");
+			}
+
+			return { method, path, version, headers, body };
+		},
+		_handle_request: fn(req) {
+
+			// Internal: Find route and call handler
+			for (route in self._routes) {
+				if (route.method == req.method && route.path == req.path) {
+					return route.handler(req);
+				}
+			}
+
+			// No route found - return 404
+			return {
+				status: 404,
+				body: `{"error": "Not Found", "path": "` + req.path + `"}`,
+				content_type: "application/json",
+			};
+		},
+		_build_response: fn(response) {
+
+			// Internal: Build HTTP response string
+			let status = response.status ?? 200;
+			let body = response.body ?? "";
+			let content_type = response.content_type ?? "text/plain";
+
+			let status_text = "OK";
+			if (status == 201) {
+				status_text = "Created";
+			} else if (status == 204) {
+	status_text = "No Content";
+} else if (status == 400) {
+	status_text = "Bad Request";
+} else if (status == 401) {
+	status_text = "Unauthorized";
+} else if (status == 403) {
+	status_text = "Forbidden";
+} else if (status == 404) {
+	status_text = "Not Found";
+} else if (status == 405) {
+	status_text = "Method Not Allowed";
+} else if (status == 500) {
+	status_text = "Internal Server Error";
+}
+
+let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
+resp = resp + ("Content-Type: " + content_type + "\r\n");
+resp = resp + ("Content-Length: " + body.length + "\r\n");
+resp = resp + "Connection: close\r\n";
+resp = resp + "\r\n";
+resp = resp + body;
+
+return resp;
+},
+};
+}
+
 // ========== NOTES ==========
 // 
 // This module uses libwebsockets via FFI for production HTTP/HTTPS support.
@@ -75,309 +442,3 @@
 // - url_encode() only encodes common characters (not RFC 3986 compliant)
 // - HttpServer is single-threaded and handles one request at a time
 // 
-fn http_request(method, url, body, headers) {
-	return http_request_with_redirects(
-		method,
-		url,
-		body,
-		headers,
-		0,
-	);
-}
-fn http_request_with_redirects(method, url, body, headers, redirect_count) {
-	if (redirect_count > 10) {
-		throw "Too many redirects: " + url;
-	}
-	let resp_ptr = null;
-	let content_type = "application/x-www-form-urlencoded";
-	if (headers != null && headers.length > 0) {
-		for (header in headers) {
-			if (header.starts_with("Content-Type:")) {
-				content_type = header.substr(14, header.length - 14).trim();
-			}
-		}
-	}
-	if (method == "GET") {
-		resp_ptr = __lws_http_get(url);
-	} else if (method == "POST") {
-	resp_ptr = __lws_http_post(url, body, content_type);
-} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" || method == "OPTIONS") {
-	resp_ptr = __lws_http_request(method, url, body, content_type);
-} else {
-	throw "HTTP method not supported: " + method;
-}
-if (resp_ptr == null) {
-	throw "HTTP request failed: " + method + " " + url;
-}
-let status = __lws_response_status(resp_ptr);
-let redirect_url = __lws_response_redirect(resp_ptr);
-let response_body = __lws_response_body(resp_ptr);
-let response_headers = __lws_response_headers(resp_ptr);
-__lws_response_free(resp_ptr);
-if (status >= 300 && status < 400 && redirect_url != null) {
-	if (redirect_url.starts_with("/")) {
-		let scheme_end = url.index_of("://");
-		if (scheme_end >= 0) {
-			let host_start = scheme_end + 3;
-			let host_end = url.index_of("/", host_start);
-			if (host_end < 0) {
-				host_end = url.length;
-			}
-			let base = url.substr(0, host_end);
-			redirect_url = base + redirect_url;
-		}
-	}
-	return http_request_with_redirects(
-		"GET",
-		redirect_url,
-		"",
-		headers,
-		redirect_count + 1,
-	);
-}
-return { status_code: status, headers: response_headers, body: response_body };
-}
-fn http_request_binary(method, url, headers) {
-return http_request_binary_with_redirects(
-	method,
-	url,
-	headers,
-	0,
-);
-}
-fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
-if (redirect_count > 10) {
-	throw "Too many redirects: " + url;
-}
-let resp_ptr = null;
-if (method == "GET") {
-	resp_ptr = __lws_http_get(url);
-} else {
-	throw "Binary download only supports GET method";
-}
-if (resp_ptr == null) {
-	throw "HTTP request failed: " + method + " " + url;
-}
-let status = __lws_response_status(resp_ptr);
-let redirect_url = __lws_response_redirect(resp_ptr);
-if (status >= 300 && status < 400 && redirect_url != null) {
-	__lws_response_free(resp_ptr);
-	if (redirect_url.starts_with("/")) {
-		let scheme_end = url.index_of("://");
-		if (scheme_end >= 0) {
-			let host_start = scheme_end + 3;
-			let host_end = url.index_of("/", host_start);
-			if (host_end < 0) {
-				host_end = url.length;
-			}
-			let base = url.substr(0, host_end);
-			redirect_url = base + redirect_url;
-		}
-	}
-	return http_request_binary_with_redirects(
-		"GET",
-		redirect_url,
-		headers,
-		redirect_count + 1,
-	);
-}
-let response_body = __lws_response_body_binary(resp_ptr);
-let response_headers = __lws_response_headers(resp_ptr);
-__lws_response_free(resp_ptr);
-return { status_code: status, headers: response_headers, body: response_body };
-}
-export fn get(url, headers) {
-	headers = headers ?? [];
-	return http_request("GET", url, "", headers);
-}
-export fn get_binary(url, headers) {
-	headers = headers ?? [];
-	return http_request_binary("GET", url, headers);
-}
-export fn post(url, body, headers) {
-	body = body ?? "";
-	headers = headers ?? [];
-	return http_request("POST", url, body, headers);
-}
-export fn put(url, body, headers) {
-	body = body ?? "";
-	headers = headers ?? [];
-	return http_request("PUT", url, body, headers);
-}
-export fn delete(url, headers) {
-	headers = headers ?? [];
-	return http_request("DELETE", url, "", headers);
-}
-export fn request(method, url, body, headers) {
-	body = body ?? "";
-	headers = headers ?? [];
-	return http_request(method, url, body, headers);
-}
-export fn fetch(url) {
-	let response = get(url, null);
-	return response.body;
-}
-export fn post_json(url, data) {
-	let json = data.serialize();
-	let headers = ["Content-Type: application/json"];
-	return post(url, json, headers);
-}
-export fn get_json(url) {
-	let response = get(url, null);
-	return response.body.deserialize();
-}
-export fn download(url, output_path) {
-	let response = get(url, null);
-	return response.status_code >= 200 && response.status_code < 300;
-}
-export fn is_success(status_code) {
-	return status_code >= 200 && status_code < 300;
-}
-export fn is_redirect(status_code) {
-	return status_code >= 300 && status_code < 400;
-}
-export fn is_client_error(status_code) {
-	return status_code >= 400 && status_code < 500;
-}
-export fn is_server_error(status_code) {
-	return status_code >= 500 && status_code < 600;
-}
-export fn url_encode(str) {
-	let result = str;
-	result = result.replace_all(" ", "%20");
-	result = result.replace_all("!", "%21");
-	result = result.replace_all("#", "%23");
-	result = result.replace_all("$", "%24");
-	result = result.replace_all("&", "%26");
-	result = result.replace_all("'", "%27");
-	result = result.replace_all("(", "%28");
-	result = result.replace_all(")", "%29");
-	result = result.replace_all("+", "%2B");
-	return result;
-}
-import { TcpListener } from "@stdlib/net";
-export fn HttpServer(host: string, port: i32) {
-	let listener = TcpListener(host, port);
-	let routes = [];
-	return {
-		host,
-		port,
-		_listener: listener,
-		_routes: routes,
-		route: fn(method: string, path: string, handler) {
-			self._routes.push({ method, path, handler });
-		}
-,
-		handle_one: fn() {
-			let stream = self._listener.accept();
-			defer stream.close();
-			let request_buf = stream.read(8192);
-			let request_str = request_buf.to_string();
-			let req = self._parse_request(request_str);
-			let response = self._handle_request(req);
-			let response_str = self._build_response(response);
-			stream.write(response_str);
-		}
-,
-		serve: fn(count: i32) {
-			let handled = 0;
-			while (count == 0 || handled < count) {
-				self.handle_one();
-				handled++;
-			}
-		}
-,
-		serve_async: fn(count: i32) {
-			let srv = self;
-			return spawn(fn() {
-				srv.serve(count);
-			}
-);
-		}
-,
-		close: fn() {
-			self._listener.close();
-		}
-,
-		_parse_request: fn(request_str: string) {
-			let lines = request_str.split("\r\n");
-			let first_line = lines[0];
-			let parts = first_line.split(" ");
-			let method = parts[0];
-			let path = parts[1];
-			let version = "HTTP/1.1";
-			if (parts.length > 2) {
-				version = parts[2];
-			}
-			let headers = {};
-			let body_start = -1;
-			for (let i = 1; i < lines.length; i++) {
-				let line = lines[i];
-				if (line == "") {
-					body_start = i + 1;
-					break;
-				}
-				let colon = line.find(":");
-				if (colon > 0) {
-					let key = line.substr(0, colon).trim().to_lower();
-					let value = line.substr(colon + 1, line.length - colon - 1).trim();
-					headers[key] = value;
-				}
-			}
-			let body = "";
-			if (body_start > 0 && body_start < lines.length) {
-				let body_lines = [];
-				for (let j = body_start; j < lines.length; j++) {
-					body_lines.push(lines[j]);
-				}
-				body = body_lines.join("\r\n");
-			}
-			return { method, path, version, headers, body };
-		}
-,
-		_handle_request: fn(req) {
-			for (route in self._routes) {
-				if (route.method == req.method && route.path == req.path) {
-					return route.handler(req);
-				}
-			}
-			return {
-				status: 404,
-				body: `{"error": "Not Found", "path": "` + req.path + `"}`,
-				content_type: "application/json",
-			};
-		}
-,
-		_build_response: fn(response) {
-			let status = response.status ?? 200;
-			let body = response.body ?? "";
-			let content_type = response.content_type ?? "text/plain";
-			let status_text = "OK";
-			if (status == 201) {
-				status_text = "Created";
-			} else if (status == 204) {
-	status_text = "No Content";
-} else if (status == 400) {
-	status_text = "Bad Request";
-} else if (status == 401) {
-	status_text = "Unauthorized";
-} else if (status == 403) {
-	status_text = "Forbidden";
-} else if (status == 404) {
-	status_text = "Not Found";
-} else if (status == 405) {
-	status_text = "Method Not Allowed";
-} else if (status == 500) {
-	status_text = "Internal Server Error";
-}
-let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
-resp = resp + ("Content-Type: " + content_type + "\r\n");
-resp = resp + ("Content-Length: " + body.length + "\r\n");
-resp = resp + "Connection: close\r\n";
-resp = resp + "\r\n";
-resp = resp + body;
-return resp;
-}
-,
-};
-}

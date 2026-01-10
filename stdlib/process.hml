@@ -1,18 +1,22 @@
 // Hemlock Standard Library: Process Management
+
 // Process identification
-// Process control
-// Process creation
-// Command execution
 export let get_pid = __get_pid;
 export let getppid = __getppid;
 export let getuid = __getuid;
 export let geteuid = __geteuid;
 export let getgid = __getgid;
 export let getegid = __getegid;
+
+// Process control
 export let exit = __exit;
 export let kill = __kill;
 export let abort = __abort;
+
+// Process creation
 export let fork = __fork;
 export let wait = __wait;
 export let waitpid = __waitpid;
+
+// Command execution
 export let exec = __exec;

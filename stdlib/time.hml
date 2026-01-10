@@ -1,12 +1,11 @@
 // Hemlock Standard Library: Time & Date Operations
 // This module provides time measurement and delay functions
+
 // ========== TIME FUNCTIONS ==========
-// Current Unix timestamp (seconds since epoch) as i64
-// Current time in milliseconds as i64
-// CPU time used by process in seconds as f64
+export let now = __now;  // Current Unix timestamp (seconds since epoch) as i64
+export let time_ms = __time_ms;  // Current time in milliseconds as i64
+export let clock = __clock;  // CPU time used by process in seconds as f64
+
 // ========== DELAY FUNCTIONS ==========
-// Sleep for specified seconds (accepts f64 for sub-second precision)
-export let now = __now;
-export let time_ms = __time_ms;
-export let clock = __clock;
-export let sleep = __sleep;
+
+export let sleep = __sleep;  // Sleep for specified seconds (accepts f64 for sub-second precision)

@@ -1,70 +1,19 @@
 // Hemlock Standard Library: Terminal Operations
 // This module provides ANSI terminal control codes for colors, cursor positioning,
 // and terminal manipulation
-// ESC character constant (ASCII 27)
-// Helper function to create ANSI escape sequences at runtime
-// ========== ANSI COLOR CODES ==========
-// Text colors
-// Background colors
-// Text styles
-// Reset specific styles
-// ========== CURSOR CONTROL ==========
-// Move cursor to position (1-indexed)
-// Move cursor up by n lines
-// Move cursor down by n lines
-// Move cursor forward (right) by n columns
-// Move cursor backward (left) by n columns
-// Save cursor position
-// DEC save cursor
-// Restore cursor position
-// DEC restore cursor
-// Hide/show cursor
-// ========== SCREEN CONTROL ==========
-// Clear entire screen
-// Clear from cursor to end of screen
-// Clear from cursor to beginning of screen
-// Clear entire line
-// Clear from cursor to end of line
-// Clear from cursor to start of line
-// Scroll up by n lines
-// Scroll down by n lines
-// ========== COLOR HELPERS ==========
-// Wrap text with color
-// Wrap text with foreground and background color
-// RGB color support (24-bit true color)
-// 256-color palette support
-// ========== TERMINAL INFO ==========
-// Get terminal size using stty command
-// Parse terminal dimensions using type constructor
-// Check if terminal supports colors
-// Check for common color-capable terminal types
-// Check COLORTERM environment variable
-// ========== PROGRESS INDICATORS ==========
-// Progress bar with percentage
-// Update progress to a specific value
-// Increment progress by 1
-// Render the progress bar
-// Build the bar
-// Format percentage
-// Print with carriage return to overwrite
-// Finish the progress bar
-// New line
-// Spinner animation
-// Start the spinner (must be called in a loop manually)
-// Finish the spinner
-// Get current frame (for manual control)
-// Advance to next frame (without printing)
-// Predefined spinner styles
-// ========== UTILITY FUNCTIONS ==========
-// Clear screen and move cursor to top-left
-// Print text at specific position
-// Print colored text
-// Print styled text (bold, underline, etc.)
 import { getenv } from "@stdlib/env";
+
+// ESC character constant (ASCII 27)
 let ESC: rune = 27;
+
+// Helper function to create ANSI escape sequences at runtime
 fn esc(code: string) {
 	return ESC + "[" + code;
 }
+
+// ========== ANSI COLOR CODES ==========
+
+// Text colors
 export let BLACK = ESC + "[30m";
 export let RED = ESC + "[31m";
 export let GREEN = ESC + "[32m";
@@ -81,6 +30,8 @@ export let BRIGHT_BLUE = ESC + "[94m";
 export let BRIGHT_MAGENTA = ESC + "[95m";
 export let BRIGHT_CYAN = ESC + "[96m";
 export let BRIGHT_WHITE = ESC + "[97m";
+
+// Background colors
 export let BG_BLACK = ESC + "[40m";
 export let BG_RED = ESC + "[41m";
 export let BG_GREEN = ESC + "[42m";
@@ -97,6 +48,8 @@ export let BG_BRIGHT_BLUE = ESC + "[104m";
 export let BG_BRIGHT_MAGENTA = ESC + "[105m";
 export let BG_BRIGHT_CYAN = ESC + "[106m";
 export let BG_BRIGHT_WHITE = ESC + "[107m";
+
+// Text styles
 export let RESET = ESC + "[0m";
 export let BOLD = ESC + "[1m";
 export let DIM = ESC + "[2m";
@@ -106,133 +59,216 @@ export let BLINK = ESC + "[5m";
 export let REVERSE = ESC + "[7m";
 export let HIDDEN = ESC + "[8m";
 export let STRIKETHROUGH = ESC + "[9m";
+
+// Reset specific styles
 export let RESET_BOLD = ESC + "[22m";
 export let RESET_ITALIC = ESC + "[23m";
 export let RESET_UNDERLINE = ESC + "[24m";
 export let RESET_BLINK = ESC + "[25m";
 export let RESET_REVERSE = ESC + "[27m";
 export let RESET_HIDDEN = ESC + "[28m";
+
+// ========== CURSOR CONTROL ==========
+
+// Move cursor to position (1-indexed)
 export fn move_to(row: i32, col: i32): string {
 	return esc("" + row + ";" + ("" + col) + "H");
 }
+
+// Move cursor up by n lines
 export fn move_up(n: i32): string {
 	return esc("" + n + "A");
 }
+
+// Move cursor down by n lines
 export fn move_down(n: i32): string {
 	return esc("" + n + "B");
 }
+
+// Move cursor forward (right) by n columns
 export fn move_right(n: i32): string {
 	return esc("" + n + "C");
 }
+
+// Move cursor backward (left) by n columns
 export fn move_left(n: i32): string {
 	return esc("" + n + "D");
 }
+
+// Save cursor position
 export let SAVE_CURSOR = ESC + "[s";
-export let SAVE_CURSOR_DEC = ESC + "7";
+export let SAVE_CURSOR_DEC = ESC + "7";  // DEC save cursor
+
+// Restore cursor position
 export let RESTORE_CURSOR = ESC + "[u";
-export let RESTORE_CURSOR_DEC = ESC + "8";
+export let RESTORE_CURSOR_DEC = ESC + "8";  // DEC restore cursor
+
+// Hide/show cursor
 export let HIDE_CURSOR = ESC + "[?25l";
 export let SHOW_CURSOR = ESC + "[?25h";
+
+// ========== SCREEN CONTROL ==========
+
+// Clear entire screen
 export let CLEAR_SCREEN = ESC + "[2J";
+
+// Clear from cursor to end of screen
 export let CLEAR_TO_END = ESC + "[0J";
+
+// Clear from cursor to beginning of screen
 export let CLEAR_TO_START = ESC + "[1J";
+
+// Clear entire line
 export let CLEAR_LINE = ESC + "[2K";
+
+// Clear from cursor to end of line
 export let CLEAR_LINE_TO_END = ESC + "[0K";
+
+// Clear from cursor to start of line
 export let CLEAR_LINE_TO_START = ESC + "[1K";
+
+// Scroll up by n lines
 export fn scroll_up(n: i32): string {
 	return esc("" + n + "S");
 }
+
+// Scroll down by n lines
 export fn scroll_down(n: i32): string {
 	return esc("" + n + "T");
 }
+
+// ========== COLOR HELPERS ==========
+
+// Wrap text with color
 export fn color(text: string, code: string): string {
 	return code + text + RESET;
 }
+
+// Wrap text with foreground and background color
 export fn color_bg(text: string, fg: string, bg: string): string {
 	return fg + bg + text + RESET;
 }
+
+// RGB color support (24-bit true color)
 export fn rgb(r: i32, g: i32, b: i32): string {
 	return esc("38;2;" + ("" + r) + ";" + ("" + g) + ";" + ("" + b) + "m");
 }
+
 export fn bg_rgb(r: i32, g: i32, b: i32): string {
 	return esc("48;2;" + ("" + r) + ";" + ("" + g) + ";" + ("" + b) + "m");
 }
+
+// 256-color palette support
 export fn color_256(n: i32): string {
 	return esc("38;5;" + ("" + n) + "m");
 }
+
 export fn bg_color_256(n: i32): string {
 	return esc("48;5;" + ("" + n) + "m");
 }
+
+// ========== TERMINAL INFO ==========
+
+// Get terminal size using stty command
 export fn size() {
 	let result = exec("stty size 2>/dev/null || echo '24 80'");
 	if (result.exit_code != 0) {
 		return { rows: 24, cols: 80 };
 	}
+
 	let parts = result.output.trim().split(" ");
 	if (parts.length < 2) {
 		return { rows: 24, cols: 80 };
 	}
+
+	// Parse terminal dimensions using type constructor
 	let rows = i32(parts[0]);
 	let cols = i32(parts[1]);
+
 	if (rows == 0) {
 		rows = 24;
 	}
 	if (cols == 0) {
 		cols = 80;
 	}
+
 	return { rows, cols };
 }
+
+// Check if terminal supports colors
 export fn supports_color(): bool {
 	let term = getenv("TERM");
 	if (term == null) {
 		return false;
 	}
-	if (term.contains("color") || term.contains("xterm") || term.contains("screen") || term.contains("tmux") || term.contains("rxvt") || term.contains("linux")) {
+
+	// Check for common color-capable terminal types
+	if (term.contains("color") || term.contains("xterm") || term.contains("screen") ||
+		term.contains("tmux") ||
+		term.contains("rxvt") ||
+		term.contains("linux")) {
 		return true;
 	}
+
+	// Check COLORTERM environment variable
 	let colorterm = getenv("COLORTERM");
 	if (colorterm != null) {
 		return true;
 	}
+
 	return false;
 }
+
+// ========== PROGRESS INDICATORS ==========
+
+// Progress bar with percentage
 export fn ProgressBar(total: i32, width?: 40) {
 	let current = 0;
 	let bar_width = width;
-	return { update: fn(value: i32) {
-		current = value;
-		if (current > total) {
-			current = total;
-		}
-		if (current < 0) {
-			current = 0;
-		}
-		self.render();
-		return null;
-	}
-, increment: fn() {
-		current = current + 1;
-		if (current > total) {
-			current = total;
-		}
-		self.render();
-		return null;
-	}
-, render: fn() {
-		let percent = 0;
-		if (total > 0) {
-			percent = current * 100 / total;
-		}
-		let filled = 0;
-		if (total > 0) {
-			filled = current * bar_width / total;
-		}
-		let bar = "[";
-		let i = 0;
-		while (i < bar_width) {
-			if (i < filled) {
-				bar = bar + "=";
-			} else if (i == filled) {
+
+	return {
+		update: fn(value: i32) {
+			// Update progress to a specific value
+			current = value;
+			if (current > total) {
+				current = total;
+			}
+			if (current < 0) {
+				current = 0;
+			}
+			self.render();
+			return null;
+		},
+		increment: fn() {
+
+			// Increment progress by 1
+			current = current + 1;
+			if (current > total) {
+				current = total;
+			}
+			self.render();
+			return null;
+		},
+		render: fn() {
+
+			// Render the progress bar
+			let percent = 0;
+			if (total > 0) {
+				percent = current * 100 / total;
+			}
+
+			let filled = 0;
+			if (total > 0) {
+				filled = current * bar_width / total;
+			}
+
+			// Build the bar
+			let bar = "[";
+			let i = 0;
+			while (i < bar_width) {
+				if (i < filled) {
+					bar = bar + "=";
+				} else if (i == filled) {
 	bar = bar + ">";
 } else {
 	bar = bar + " ";
@@ -240,6 +276,8 @@ export fn ProgressBar(total: i32, width?: 40) {
 i = i + 1;
 }
 bar = bar + "]";
+
+// Format percentage
 let percent_str = "" + percent;
 if (percent_str.length < 5) {
 let decimal_pos = percent_str.find(".");
@@ -247,64 +285,87 @@ if (decimal_pos >= 0) {
 	percent_str = percent_str.substr(0, decimal_pos + 2);
 }
 }
+
+// Print with carriage return to overwrite
 exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
 return null;
-}
-, finish: fn() {
+},
+finish: fn() {
+
+// Finish the progress bar
 current = total;
 self.render();
-print("");
+print("");  // New line
 return null;
+},
+};
 }
- };
-}
+
+// Spinner animation
 export fn Spinner(frames?: null) {
 	let spinner_frames = frames;
 	if (spinner_frames == null) {
 		spinner_frames = ["|", "/", "-", "\\"];
 	}
+
 	let frame_index = 0;
 	let is_running = false;
-	return { spin: fn() {
-		let frame = spinner_frames[frame_index];
-		exec("printf '\r" + frame + " '");
-		frame_index = frame_index + 1;
-		if (frame_index >= spinner_frames.length) {
-			frame_index = 0;
-		}
-		return null;
-	}
-, finish: fn(message?: "") {
-		exec("printf '\r'");
-		if (message != "") {
-			print(message);
-		}
-		return null;
-	}
-, get_frame: fn() {
-		return spinner_frames[frame_index];
-	}
-, next: fn() {
-		frame_index = frame_index + 1;
-		if (frame_index >= spinner_frames.length) {
-			frame_index = 0;
-		}
-		return null;
-	}
- };
+
+	return {
+		spin: fn() {
+			// Start the spinner (must be called in a loop manually)
+			let frame = spinner_frames[frame_index];
+			exec("printf '\r" + frame + " '");
+
+			frame_index = frame_index + 1;
+			if (frame_index >= spinner_frames.length) {
+				frame_index = 0;
+			}
+			return null;
+		},
+		finish: fn(message?: "") {
+
+			// Finish the spinner
+			exec("printf '\r'");
+			if (message != "") {
+				print(message);
+			}
+			return null;
+		},
+		get_frame: fn() {
+
+			// Get current frame (for manual control)
+			return spinner_frames[frame_index];
+		},
+		next: fn() {
+
+			// Advance to next frame (without printing)
+			frame_index = frame_index + 1;
+			if (frame_index >= spinner_frames.length) {
+				frame_index = 0;
+			}
+			return null;
+		},
+	};
 }
+
+// Predefined spinner styles
 export fn SPINNER_DOTS() {
 	return ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 }
+
 export fn SPINNER_LINE() {
 	return ["|", "/", "-", "\\"];
 }
+
 export fn SPINNER_ARROW() {
 	return ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"];
 }
+
 export fn SPINNER_BOUNCE() {
 	return ["⠁", "⠂", "⠄", "⠂"];
 }
+
 export fn SPINNER_CLOCK() {
 	return [
 		"🕐",
@@ -321,18 +382,28 @@ export fn SPINNER_CLOCK() {
 		"🕛",
 	];
 }
+
+// ========== UTILITY FUNCTIONS ==========
+
+// Clear screen and move cursor to top-left
 export fn clear() {
 	exec("printf '" + CLEAR_SCREEN + move_to(1, 1) + "'");
 	return null;
 }
+
+// Print text at specific position
 export fn print_at(row: i32, col: i32, text: string) {
 	exec("printf '" + move_to(row, col) + text + "'");
 	return null;
 }
+
+// Print colored text
 export fn print_color(text: string, code: string) {
 	print(color(text, code));
 	return null;
 }
+
+// Print styled text (bold, underline, etc.)
 export fn print_styled(text: string, style: string) {
 	print(style + text + RESET);
 	return null;

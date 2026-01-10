@@ -4,10 +4,11 @@
 // 
 // This demonstrates accessing command-line arguments via the 'args' array.
 // args[0] is always the script name, args[1+] are the actual arguments.
-// Convert length to string for concatenation
 print("Hemlock Command-Line Arguments Demo");
 print("====================================");
 print("");
+
+// Convert length to string for concatenation
 let len_str = "";
 if (args.length == 0) {
 	len_str = "0";
@@ -33,6 +34,7 @@ if (args.length >= 6) {
 print("Total arguments: " + len_str);
 print("Script name: " + args[0]);
 print("");
+
 if (args.length == 1) {
 	print("No command-line arguments provided.");
 	print("Try running: ./hemlock examples/cli_args.hml arg1 arg2 arg3");

@@ -5,6 +5,29 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.4] - 2026-01-10
+
+### Added
+
+- **Function parameter line breaking** - Long parameter lists automatically break across multiple lines
+- **Binary expression line breaking** - Long logical/comparison chains break at operators
+- **Import statement line breaking** - Long import lists break with each item on its own line
+- **Method chain line breaking** - Long method chains can break before dots
+
+### Fixed
+
+- Trailing newlines at end of formatted files are now removed
+- Comma placement after function bodies in multiline structures is now correct
+- Expression length estimation is now more accurate for property access and other expression types
+
+## [1.7.3] - 2026-01-10
+
+### Fixed
+
+- Formatter now preserves blank lines between statements
+- Formatter now correctly associates comments with their adjacent code instead of moving them to the top
+- Parser now sets line numbers on all statement types for accurate source mapping
+
 ## [1.7.2] - 2026-01-06
 
 ### Fixed

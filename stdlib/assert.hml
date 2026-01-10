@@ -5,121 +5,61 @@
 // 
 // Usage:
 // import { assert, assert_eq, assert_ne, assert_throws } from "@stdlib/assert";
+
 // ============================================================================
 // Basic Assertions
 // ============================================================================
+
 // Assert that a condition is true
 // Parameters:
 // condition: bool - Condition to check
 // message: string - Optional error message
-// Assert that a condition is false
-// Assert that a value is truthy (not null, false, 0, or "")
-// Assert that a value is falsy (null, false, 0, or "")
-// ============================================================================
-// Equality Assertions
-// ============================================================================
-// Assert that two values are equal
-// Assert that two values are not equal
-// Assert that actual is strictly equal (same type and value)
-// ============================================================================
-// Comparison Assertions
-// ============================================================================
-// Assert that actual > expected
-// Assert that actual >= expected
-// Assert that actual < expected
-// Assert that actual <= expected
-// Assert that value is within range [min, max] (inclusive)
-// ============================================================================
-// Type Assertions
-// ============================================================================
-// Assert that value is of a specific type
-// Assert that value is null
-// Assert that value is not null
-// Assert that value is a string
-// Assert that value is a number (any numeric type)
-// Assert that value is a boolean
-// Assert that value is an array
-// Assert that value is an object
-// Assert that value is a function
-// ============================================================================
-// Collection Assertions
-// ============================================================================
-// Assert that array/string contains a value
-// Assert that array/string does not contain a value
-// Assert that array/string is empty
-// Assert that array/string is not empty
-// Assert array length
-// Assert that object has a key
-// ============================================================================
-// String Assertions
-// ============================================================================
-// Assert string starts with prefix
-// Assert string ends with suffix
-// Assert string matches regex pattern
-// Use built-in regex test
-// ============================================================================
-// Exception Assertions
-// ============================================================================
-// Assert that a function throws an error
-// Parameters:
-// fn: function - Function to call
-// expected_message: string - Optional message pattern to match
-// Exception was thrown - check message if specified
-// Success - exception was thrown as expected
-// Assert that a function does not throw
-// ============================================================================
-// Numeric Assertions
-// ============================================================================
-// Assert that two floats are approximately equal
-// Assert that value is NaN
-// NaN is the only value that is not equal to itself
-// Assert that value is not NaN
-// Assert that value is finite (not NaN or Infinity)
-// Assert that value is positive
-// Assert that value is negative
-// Assert that value is zero
-// ============================================================================
-// Array Assertions
-// ============================================================================
-// Assert arrays are equal (deep comparison)
-// Assert that array includes all expected values
-// ============================================================================
-// Helper Functions
-// ============================================================================
-// Deep equality comparison
-// Check if array contains value
-// Format value for error messages
-// Simple regex test (uses built-in)
 export fn assert(condition, message?: "Assertion failed") {
 	if (!condition) {
 		throw message;
 	}
 }
+
+// Assert that a condition is false
 export fn assert_false(condition, message?: "Expected false") {
 	if (condition) {
 		throw message;
 	}
 }
+
+// Assert that a value is truthy (not null, false, 0, or "")
 export fn assert_truthy(value, message?: "Expected truthy value") {
 	if (!value) {
 		throw message + ": got " + format_value(value);
 	}
 }
+
+// Assert that a value is falsy (null, false, 0, or "")
 export fn assert_falsy(value, message?: "Expected falsy value") {
 	if (value) {
 		throw message + ": got " + format_value(value);
 	}
 }
+
+// ============================================================================
+// Equality Assertions
+// ============================================================================
+
+// Assert that two values are equal
 export fn assert_eq(actual, expected, message?: "Values not equal") {
 	if (!deep_equals(actual, expected)) {
 		throw message + ": expected " + format_value(expected) + ", got " + format_value(actual);
 	}
 }
+
+// Assert that two values are not equal
 export fn assert_ne(actual, expected, message?: "Values should not be equal") {
 	if (deep_equals(actual, expected)) {
 		throw message + ": both are " + format_value(actual);
 	}
 }
+
+// Assert that actual is strictly equal (same type and value)
 export fn assert_strict_eq(actual, expected, message?: "Values not strictly equal") {
 	if (typeof(actual) != typeof(expected)) {
 		throw message + ": types differ - expected " + typeof(expected) + ", got " + typeof(actual);
@@ -128,80 +68,128 @@ export fn assert_strict_eq(actual, expected, message?: "Values not strictly equa
 		throw message + ": expected " + format_value(expected) + ", got " + format_value(actual);
 	}
 }
+
+// ============================================================================
+// Comparison Assertions
+// ============================================================================
+
+// Assert that actual > expected
 export fn assert_gt(actual, expected, message?: "Expected greater than") {
 	if (!actual > expected) {
 		throw message + ": " + format_value(actual) + " is not > " + format_value(expected);
 	}
 }
+
+// Assert that actual >= expected
 export fn assert_gte(actual, expected, message?: "Expected greater than or equal") {
 	if (!actual >= expected) {
 		throw message + ": " + format_value(actual) + " is not >= " + format_value(expected);
 	}
 }
+
+// Assert that actual < expected
 export fn assert_lt(actual, expected, message?: "Expected less than") {
 	if (!actual < expected) {
 		throw message + ": " + format_value(actual) + " is not < " + format_value(expected);
 	}
 }
+
+// Assert that actual <= expected
 export fn assert_lte(actual, expected, message?: "Expected less than or equal") {
 	if (!actual <= expected) {
 		throw message + ": " + format_value(actual) + " is not <= " + format_value(expected);
 	}
 }
+
+// Assert that value is within range [min, max] (inclusive)
 export fn assert_in_range(value, min_val, max_val, message?: "Value out of range") {
 	if (value < min_val || value > max_val) {
 		throw message + ": " + format_value(value) + " not in [" + min_val + ", " + max_val + "]";
 	}
 }
+
+// ============================================================================
+// Type Assertions
+// ============================================================================
+
+// Assert that value is of a specific type
 export fn assert_type(value, expected_type: string, message?: "Type mismatch") {
 	let actual_type = typeof(value);
 	if (actual_type != expected_type) {
 		throw message + ": expected " + expected_type + ", got " + actual_type;
 	}
 }
+
+// Assert that value is null
 export fn assert_null(value, message?: "Expected null") {
 	if (value != null) {
 		throw message + ": got " + format_value(value);
 	}
 }
+
+// Assert that value is not null
 export fn assert_not_null(value, message?: "Expected non-null") {
 	if (value == null) {
 		throw message;
 	}
 }
+
+// Assert that value is a string
 export fn assert_string(value, message?: "Expected string") {
 	if (typeof(value) != "string") {
 		throw message + ": got " + typeof(value);
 	}
 }
+
+// Assert that value is a number (any numeric type)
 export fn assert_number(value, message?: "Expected number") {
 	let t = typeof(value);
-	if (t != "i32" && t != "i64" && t != "f32" && t != "f64" && t != "i8" && t != "i16" && t != "u8" && t != "u16" && t != "u32" && t != "u64" && t != "integer" && t != "number") {
+	if (t != "i32" && t != "i64" && t != "f32" && t != "f64" && t != "i8" && t != "i16" && t != "u8" && t !=
+		"u16" &&
+		t != "u32" &&
+		t != "u64" &&
+		t != "integer" &&
+		t != "number") {
 		throw message + ": got " + t;
 	}
 }
+
+// Assert that value is a boolean
 export fn assert_bool(value, message?: "Expected boolean") {
 	if (typeof(value) != "bool") {
 		throw message + ": got " + typeof(value);
 	}
 }
+
+// Assert that value is an array
 export fn assert_array(value, message?: "Expected array") {
 	if (typeof(value) != "array") {
 		throw message + ": got " + typeof(value);
 	}
 }
+
+// Assert that value is an object
 export fn assert_object(value, message?: "Expected object") {
 	if (typeof(value) != "object") {
 		throw message + ": got " + typeof(value);
 	}
 }
+
+// Assert that value is a function
 export fn assert_function(value, message?: "Expected function") {
 	if (typeof(value) != "function") {
 		throw message + ": got " + typeof(value);
 	}
 }
+
+// ============================================================================
+// Collection Assertions
+// ============================================================================
+
+// Assert that array/string contains a value
 export fn assert_contains(collection, value, message?: "Value not found") {
 	let t = typeof(collection);
+
 	if (t == "string") {
 		if (!collection.contains(value)) {
 			throw message + ": " + format_value(value) + " not in string";
@@ -214,8 +202,11 @@ export fn assert_contains(collection, value, message?: "Value not found") {
 	throw "assert_contains requires string or array";
 }
 }
+
+// Assert that array/string does not contain a value
 export fn assert_not_contains(collection, value, message?: "Value should not be present") {
 	let t = typeof(collection);
+
 	if (t == "string") {
 		if (collection.contains(value)) {
 			throw message + ": found " + format_value(value);
@@ -228,21 +219,29 @@ export fn assert_not_contains(collection, value, message?: "Value should not be 
 	throw "assert_not_contains requires string or array";
 }
 }
+
+// Assert that array/string is empty
 export fn assert_empty(collection, message?: "Expected empty") {
 	if (collection.length != 0) {
 		throw message + ": length is " + collection.length;
 	}
 }
+
+// Assert that array/string is not empty
 export fn assert_not_empty(collection, message?: "Expected non-empty") {
 	if (collection.length == 0) {
 		throw message;
 	}
 }
+
+// Assert array length
 export fn assert_length(collection, expected: i32, message?: "Length mismatch") {
 	if (collection.length != expected) {
 		throw message + ": expected " + expected + ", got " + collection.length;
 	}
 }
+
+// Assert that object has a key
 export fn assert_has_key(obj, key, message?: "Key not found") {
 	if (typeof(obj) != "object") {
 		throw "assert_has_key requires object";
@@ -251,29 +250,55 @@ export fn assert_has_key(obj, key, message?: "Key not found") {
 		throw message + ": missing key '" + key + "'";
 	}
 }
-export fn assert_starts_with(str: string, prefix: string, message?: "String does not start with prefix") {
+
+// ============================================================================
+// String Assertions
+// ============================================================================
+
+// Assert string starts with prefix
+export fn assert_starts_with(
+	str: string,
+	prefix: string,
+	message?: "String does not start with prefix",
+) {
 	if (!str.starts_with(prefix)) {
 		throw message + ": '" + str + "' does not start with '" + prefix + "'";
 	}
 }
+
+// Assert string ends with suffix
 export fn assert_ends_with(str: string, suffix: string, message?: "String does not end with suffix") {
 	if (!str.ends_with(suffix)) {
 		throw message + ": '" + str + "' does not end with '" + suffix + "'";
 	}
 }
+
+// Assert string matches regex pattern
 export fn assert_matches(str: string, pattern: string, message?: "String does not match pattern") {
+	// Use built-in regex test
 	if (!regex_test(pattern, str)) {
 		throw message + ": '" + str + "' does not match '" + pattern + "'";
 	}
 }
+
+// ============================================================================
+// Exception Assertions
+// ============================================================================
+
+// Assert that a function throws an error
+// Parameters:
+// fn: function - Function to call
+// expected_message: string - Optional message pattern to match
 export fn assert_throws(func, expected_message?: null, message?: "Expected exception") {
 	if (typeof(func) != "function") {
 		throw "assert_throws requires function argument";
 	}
+
 	try {
 		let result = func();
 		throw message + ": no exception thrown";
 	} catch (e) {
+		// Exception was thrown - check message if specified
 		if (expected_message != null) {
 			let err_str = "" + e;
 			if (!err_str.contains(expected_message)) {
@@ -282,35 +307,58 @@ export fn assert_throws(func, expected_message?: null, message?: "Expected excep
 		}
 	}
 }
+// Success - exception was thrown as expected
+
+// Assert that a function does not throw
 export fn assert_no_throw(func, message?: "Unexpected exception") {
 	if (typeof(func) != "function") {
 		throw "assert_no_throw requires function argument";
 	}
+
 	try {
 		let result = func();
 	} catch (e) {
 		throw message + ": " + e;
 	}
 }
-export fn assert_approx_eq(actual, expected, tolerance?: 0.0001, message?: "Values not approximately equal") {
+
+// ============================================================================
+// Numeric Assertions
+// ============================================================================
+
+// Assert that two floats are approximately equal
+export fn assert_approx_eq(
+	actual,
+	expected,
+	tolerance?: 0.0001,
+	message?: "Values not approximately equal",
+) {
 	let diff = actual - expected;
 	if (diff < 0) {
 		diff = -diff;
 	}
+
 	if (diff > tolerance) {
 		throw message + ": " + actual + " differs from " + expected + " by " + diff;
 	}
 }
+
+// Assert that value is NaN
 export fn assert_nan(value, message?: "Expected NaN") {
+	// NaN is the only value that is not equal to itself
 	if (value == value) {
 		throw message + ": got " + value;
 	}
 }
+
+// Assert that value is not NaN
 export fn assert_not_nan(value, message?: "Expected non-NaN") {
 	if (value != value) {
 		throw message;
 	}
 }
+
+// Assert that value is finite (not NaN or Infinity)
 export fn assert_finite(value, message?: "Expected finite number") {
 	if (value != value) {
 		throw message + ": got NaN";
@@ -320,28 +368,42 @@ export fn assert_finite(value, message?: "Expected finite number") {
 		throw message + ": got Infinity";
 	}
 }
+
+// Assert that value is positive
 export fn assert_positive(value, message?: "Expected positive number") {
 	if (value <= 0) {
 		throw message + ": got " + value;
 	}
 }
+
+// Assert that value is negative
 export fn assert_negative(value, message?: "Expected negative number") {
 	if (value >= 0) {
 		throw message + ": got " + value;
 	}
 }
+
+// Assert that value is zero
 export fn assert_zero(value, message?: "Expected zero") {
 	if (value != 0) {
 		throw message + ": got " + value;
 	}
 }
+
+// ============================================================================
+// Array Assertions
+// ============================================================================
+
+// Assert arrays are equal (deep comparison)
 export fn assert_array_eq(actual, expected, message?: "Arrays not equal") {
 	if (typeof(actual) != "array" || typeof(expected) != "array") {
 		throw "assert_array_eq requires arrays";
 	}
+
 	if (actual.length != expected.length) {
 		throw message + ": lengths differ - expected " + expected.length + ", got " + actual.length;
 	}
+
 	let i = 0;
 	while (i < actual.length) {
 		if (!deep_equals(actual[i], expected[i])) {
@@ -350,10 +412,13 @@ export fn assert_array_eq(actual, expected, message?: "Arrays not equal") {
 		i = i + 1;
 	}
 }
+
+// Assert that array includes all expected values
 export fn assert_includes_all(arr, expected, message?: "Missing values") {
 	if (typeof(arr) != "array" || typeof(expected) != "array") {
 		throw "assert_includes_all requires arrays";
 	}
+
 	let i = 0;
 	while (i < expected.length) {
 		if (!array_contains(arr, expected[i])) {
@@ -362,12 +427,20 @@ export fn assert_includes_all(arr, expected, message?: "Missing values") {
 		i = i + 1;
 	}
 }
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Deep equality comparison
 fn deep_equals(a, b): bool {
 	let ta = typeof(a);
 	let tb = typeof(b);
+
 	if (ta != tb) {
 		return false;
 	}
+
 	if (ta == "array") {
 		if (a.length != b.length) {
 			return false;
@@ -381,12 +454,14 @@ fn deep_equals(a, b): bool {
 		}
 		return true;
 	}
+
 	if (ta == "object") {
 		let keys_a = a.keys();
 		let keys_b = b.keys();
 		if (keys_a.length != keys_b.length) {
 			return false;
 		}
+
 		let i = 0;
 		while (i < keys_a.length) {
 			let key = keys_a[i];
@@ -397,8 +472,11 @@ fn deep_equals(a, b): bool {
 		}
 		return true;
 	}
+
 	return a == b;
 }
+
+// Check if array contains value
 fn array_contains(arr, value): bool {
 	let i = 0;
 	while (i < arr.length) {
@@ -409,8 +487,11 @@ fn array_contains(arr, value): bool {
 	}
 	return false;
 }
+
+// Format value for error messages
 fn format_value(value): string {
 	let t = typeof(value);
+
 	if (t == "null") {
 		return "null";
 	}
@@ -426,8 +507,11 @@ fn format_value(value): string {
 	if (t == "object") {
 		return value.serialize();
 	}
+
 	return "" + value;
 }
+
+// Simple regex test (uses built-in)
 fn regex_test(pattern: string, str: string): bool {
 	return __regex_test(pattern, str);
 }
