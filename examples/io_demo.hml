@@ -1,40 +1,41 @@
 // Hemlock I/O System Demo
 // Demonstrates all I/O features in v0.1
-// 1. High-level convenience functions
-// 2. Binary operations (using file object methods)
-// 'H'
-// 'e'
-// 'l'
-// 'l'
-// 'o'
-// 3. Low-level file operations
-// 4. Standard streams
 import { read_file, write_file, append_file, exists, remove_file } from "@stdlib/fs";
+
 print("=== Hemlock I/O System Demo ===");
 print("");
+
+// 1. High-level convenience functions
 print("1. High-level file operations:");
 write_file("demo.txt", "Hello, Hemlock!\nThis is a test.\n");
 print("  Written to demo.txt");
+
 let content = read_file("demo.txt");
 print("  Read from demo.txt:");
 print("  " + content);
+
 append_file("demo.txt", "Appended line.\n");
 print("  Appended to demo.txt");
+
 if (exists("demo.txt")) {
 	print("  File exists: true");
 }
+
 print("");
+
+// 2. Binary operations (using file object methods)
 print("2. Binary file operations:");
 let buf = buffer(5);
-buf[0] = 72;
-buf[1] = 101;
-buf[2] = 108;
-buf[3] = 108;
-buf[4] = 111;
+buf[0] = 72;  // 'H'
+buf[1] = 101;  // 'e'
+buf[2] = 108;  // 'l'
+buf[3] = 108;  // 'l'
+buf[4] = 111;  // 'o'
 let binFile = open("demo.bin", "w");
 binFile.write_bytes(buf);
 binFile.close();
 print("  Written binary data");
+
 let binFileRead = open("demo.bin", "r");
 let data = binFileRead.read_bytes(5);
 binFileRead.close();
@@ -42,26 +43,38 @@ print("  Read binary data, length:");
 print(data.length);
 free(buf);
 free(data);
+
 print("");
+
+// 3. Low-level file operations
 print("3. Low-level file operations:");
 let f = open("demo.txt", "r");
 print("  Opened file:");
 print(f);
+
 let pos = f.tell();
 print("  Current position:");
 print(pos);
+
 let chunk = f.read(10);
 print("  Read chunk: " + chunk);
+
 f.seek(0);
 print("  Seeked to beginning");
+
 let line = f.read();
 print("  Read full content: " + line);
+
 f.close();
 print("  File closed");
+
 print("");
+
+// 4. Standard streams
 print("4. Standard streams:");
 eprint("This message goes to stderr");
 print("This message goes to stdout");
+
 print("");
 print("=== Demo Complete ===");
 print("(Temporary files: demo.txt, demo.bin)");

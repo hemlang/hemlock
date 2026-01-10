@@ -1,67 +1,25 @@
 // Hemlock Standard Library: Date & Time Operations
 // This module provides date/time formatting, parsing, and arithmetic
+
 // ========== CORE DATE/TIME FUNCTIONS ==========
+
 // Export low-level builtins for direct use
-// Convert Unix timestamp to local time components
-// Convert Unix timestamp to UTC components
-// Convert time components to Unix timestamp
-// Format date/time with strftime format string
+export let localtime = __localtime;  // Convert Unix timestamp to local time components
+export let gmtime = __gmtime;  // Convert Unix timestamp to UTC components
+export let mktime = __mktime;  // Convert time components to Unix timestamp
+export let strftime = __strftime;  // Format date/time with strftime format string
+
 // ========== DATETIME CLASS ==========
+
 // DateTime constructor - creates from Unix timestamp
-// Format using strftime format string
-// Common format methods
-// Date arithmetic - add days
-// Date arithmetic - add hours
-// Date arithmetic - add minutes
-// Date arithmetic - add seconds
-// Get difference in days
-// Get difference in hours
-// Get difference in minutes
-// Get difference in seconds
-// Comparison methods
-// Get weekday name
-// Get month name
-// ========== CONVENIENCE CONSTRUCTORS ==========
-// Create DateTime from current time
-// Create DateTime from date components (local time)
-// Create DateTime from UTC date components
-// Create local components, convert to timestamp, then adjust
-// Note: This is a simplified approach. Full UTC support would need timegm()
-// ========== PARSING FUNCTIONS ==========
-// Parse ISO 8601 date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
-// Check if it contains time component
-// Parse YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM:SSZ
-// Remove Z suffix if present
-// Parse date and time components using type constructor
-// Parse YYYY-MM-DD using type constructor
-// ========== FORMAT STRING REFERENCE ==========
-// Supported strftime format codes:
-// %Y - 4-digit year (e.g., 2025)
-// %y - 2-digit year (e.g., 25)
-// %m - Month as number (01-12)
-// %B - Full month name (e.g., January)
-// %b - Abbreviated month name (e.g., Jan)
-// %d - Day of month (01-31)
-// %H - Hour (00-23)
-// %I - Hour (01-12)
-// %M - Minute (00-59)
-// %S - Second (00-59)
-// %p - AM/PM
-// %A - Full weekday name (e.g., Monday)
-// %a - Abbreviated weekday name (e.g., Mon)
-// %w - Weekday as number (0-6, 0=Sunday)
-// %j - Day of year (001-366)
-// %% - Literal %
-export let localtime = __localtime;
-export let gmtime = __gmtime;
-export let mktime = __mktime;
-export let strftime = __strftime;
 export fn DateTime(timestamp?: null) {
 	let ts = timestamp;
 	if (ts == null) {
 		ts = __now();
 	}
+
 	let components = __localtime(ts);
+
 	return {
 		timestamp: ts,
 		year: components.year,
@@ -74,80 +32,109 @@ export fn DateTime(timestamp?: null) {
 		yearday: components.yearday,
 		isdst: components.isdst,
 		format: fn(fmt: string): string {
+
+			// Format using strftime format string
 			return __strftime(fmt, self);
 		}
 ,
 		to_string: fn(): string {
+
+			// Common format methods
 			return self.format("%Y-%m-%d %H:%M:%S");
 		}
 ,
 		to_date_string: fn(): string {
+
 			return self.format("%Y-%m-%d");
 		}
 ,
 		to_time_string: fn(): string {
+
 			return self.format("%H:%M:%S");
 		}
 ,
 		to_iso_string: fn(): string {
+
 			let utc_components = __gmtime(self.timestamp);
 			return __strftime("%Y-%m-%dT%H:%M:%SZ", utc_components);
 		}
 ,
 		add_days: fn(days: i32) {
+
+			// Date arithmetic - add days
 			let seconds_per_day = 86400;
 			let new_ts = self.timestamp + days * seconds_per_day;
 			return DateTime(new_ts);
 		}
 ,
 		add_hours: fn(hours: i32) {
+
+			// Date arithmetic - add hours
 			let seconds_per_hour = 3600;
 			let new_ts = self.timestamp + hours * seconds_per_hour;
 			return DateTime(new_ts);
 		}
 ,
 		add_minutes: fn(minutes: i32) {
+
+			// Date arithmetic - add minutes
 			let new_ts = self.timestamp + minutes * 60;
 			return DateTime(new_ts);
 		}
 ,
 		add_seconds: fn(seconds: i32) {
+
+			// Date arithmetic - add seconds
 			let new_ts = self.timestamp + seconds;
 			return DateTime(new_ts);
 		}
 ,
 		diff_days: fn(other) {
+
+			// Get difference in days
 			let diff_seconds = self.timestamp - other.timestamp;
 			return diff_seconds / 86400;
 		}
 ,
 		diff_hours: fn(other) {
+
+			// Get difference in hours
 			let diff_seconds = self.timestamp - other.timestamp;
 			return diff_seconds / 3600;
 		}
 ,
 		diff_minutes: fn(other) {
+
+			// Get difference in minutes
 			let diff_seconds = self.timestamp - other.timestamp;
 			return diff_seconds / 60;
 		}
 ,
 		diff_seconds: fn(other) {
+
+			// Get difference in seconds
 			return self.timestamp - other.timestamp;
 		}
 ,
 		is_after: fn(other) {
+
+			// Comparison methods
 			return self.timestamp > other.timestamp;
 		}
 ,
 		is_before: fn(other) {
+
 			return self.timestamp < other.timestamp;
 		}
 ,
 		is_equal: fn(other) {
+
 			return self.timestamp == other.timestamp;
 		}
 ,
 		weekday_name: fn(): string {
+
+			// Get weekday name
 			let names = [
 				"Sunday",
 				"Monday",
@@ -161,6 +148,8 @@ export fn DateTime(timestamp?: null) {
 		}
 ,
 		month_name: fn(): string {
+
+			// Get month name
 			let names = [
 				"",
 				"January",
@@ -181,9 +170,15 @@ export fn DateTime(timestamp?: null) {
 ,
 	};
 }
+
+// ========== CONVENIENCE CONSTRUCTORS ==========
+
+// Create DateTime from current time
 export fn now() {
 	return DateTime(__now());
 }
+
+// Create DateTime from date components (local time)
 export fn from_date(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
 	let components = {
 		year,
@@ -196,7 +191,11 @@ export fn from_date(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, secon
 	let timestamp = __mktime(components);
 	return DateTime(timestamp);
 }
+
+// Create DateTime from UTC date components
 export fn from_utc(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0) {
+	// Create local components, convert to timestamp, then adjust
+	// Note: This is a simplified approach. Full UTC support would need timegm()
 	let components = {
 		year,
 		month,
@@ -208,28 +207,62 @@ export fn from_utc(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second
 	let timestamp = __mktime(components);
 	return DateTime(timestamp);
 }
+
+// ========== PARSING FUNCTIONS ==========
+
+// Parse ISO 8601 date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
 export fn parse_iso(date_str: string) {
+	// Check if it contains time component
 	let has_time = date_str.contains("T");
+
 	if (has_time) {
+		// Parse YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM:SSZ
 		let parts = date_str.split("T");
 		let date_parts = parts[0].split("-");
 		let time_part = parts[1];
+
+		// Remove Z suffix if present
 		if (time_part.ends_with("Z")) {
 			time_part = time_part.slice(0, time_part.length - 1);
 		}
+
 		let time_parts = time_part.split(":");
+
+		// Parse date and time components using type constructor
 		let year = i32(date_parts[0]);
 		let month = i32(date_parts[1]);
 		let day = i32(date_parts[2]);
 		let hour = i32(time_parts[0]);
 		let minute = i32(time_parts[1]);
 		let second = i32(time_parts[2]);
+
 		return from_date(year, month, day, hour, minute, second);
 	} else {
+		// Parse YYYY-MM-DD using type constructor
 		let parts = date_str.split("-");
 		let year = i32(parts[0]);
 		let month = i32(parts[1]);
 		let day = i32(parts[2]);
+
 		return from_date(year, month, day, 0, 0, 0);
 	}
 }
+
+// ========== FORMAT STRING REFERENCE ==========
+// Supported strftime format codes:
+// %Y - 4-digit year (e.g., 2025)
+// %y - 2-digit year (e.g., 25)
+// %m - Month as number (01-12)
+// %B - Full month name (e.g., January)
+// %b - Abbreviated month name (e.g., Jan)
+// %d - Day of month (01-31)
+// %H - Hour (00-23)
+// %I - Hour (01-12)
+// %M - Minute (00-59)
+// %S - Second (00-59)
+// %p - AM/PM
+// %A - Full weekday name (e.g., Monday)
+// %a - Abbreviated weekday name (e.g., Mon)
+// %w - Weekday as number (0-6, 0=Sunday)
+// %j - Day of year (001-366)
+// %% - Literal %

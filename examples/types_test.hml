@@ -4,6 +4,7 @@ let c: u8 = 65;
 let d: f64 = 3.14159;
 let e: f64 = 2.71828;
 let f: i32 = 100;
+
 print(a);
 print(b);
 print(c);

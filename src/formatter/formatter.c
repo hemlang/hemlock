@@ -95,6 +95,35 @@ typedef struct {
     int next_idx;       // For iteration during formatting
 } CommentList;
 
+// Track blank lines in source
+typedef struct {
+    int *lines;         // Array of blank line numbers
+    int count;
+    int capacity;
+    int next_idx;       // For iteration during formatting
+} BlankLineList;
+
+static void blank_line_list_init(BlankLineList *list) {
+    list->capacity = 32;
+    list->lines = malloc(sizeof(int) * list->capacity);
+    list->count = 0;
+    list->next_idx = 0;
+}
+
+static void blank_line_list_free(BlankLineList *list) {
+    free(list->lines);
+    list->lines = NULL;
+    list->count = list->capacity = 0;
+}
+
+static void blank_line_list_add(BlankLineList *list, int line) {
+    if (list->count >= list->capacity) {
+        list->capacity *= 2;
+        list->lines = realloc(list->lines, sizeof(int) * list->capacity);
+    }
+    list->lines[list->count++] = line;
+}
+
 static void comment_list_init(CommentList *list) {
     list->capacity = 16;
     list->comments = malloc(sizeof(Comment) * list->capacity);
@@ -277,6 +306,52 @@ static void extract_comments(const char *source, CommentList *list) {
     }
 }
 
+// Extract blank lines from source
+static void extract_blank_lines(const char *source, BlankLineList *list) {
+    const char *p = source;
+    int line = 1;
+    int line_is_blank = 1;  // Track if current line is blank
+
+    while (*p) {
+        if (*p == '\n') {
+            if (line_is_blank) {
+                blank_line_list_add(list, line);
+            }
+            p++;
+            line++;
+            line_is_blank = 1;
+        } else if (*p == ' ' || *p == '\t' || *p == '\r') {
+            // Whitespace doesn't make line non-blank
+            p++;
+        } else {
+            // Any other character makes line non-blank
+            line_is_blank = 0;
+            p++;
+        }
+    }
+}
+
+// Check if there's a blank line in range (from_line, to_line)
+static int has_blank_line_between(BlankLineList *list, int from_line, int to_line) {
+    if (!list) return 0;
+    for (int i = list->next_idx; i < list->count; i++) {
+        int bl = list->lines[i];
+        if (bl >= to_line) break;
+        if (bl > from_line && bl < to_line) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Advance blank line index past a given line
+static void advance_blank_lines_past(BlankLineList *list, int line) {
+    if (!list) return;
+    while (list->next_idx < list->count && list->lines[list->next_idx] <= line) {
+        list->next_idx++;
+    }
+}
+
 // ========== FORMATTER CONTEXT ==========
 
 struct FmtCtx {
@@ -284,20 +359,31 @@ struct FmtCtx {
     int indent;
     int column;          // Current column position (for line width tracking)
     CommentList *comments;  // Extracted comments
+    BlankLineList *blank_lines;  // Extracted blank lines
     int output_line;     // Current output line (1-based)
+    int last_source_line;  // Last source line processed (for comment association)
 };
 
 // Output any leading comments for a given source line
+// Only outputs comments between last_source_line and source_line
 static void fmt_leading_comments(FmtCtx *ctx, int source_line) {
     if (!ctx->comments) return;
+
+    int first_item = 1;  // Track if this is first item to be output
+    int last_output_line = ctx->last_source_line;  // Track source line of last output item
 
     while (ctx->comments->next_idx < ctx->comments->count) {
         Comment *c = &ctx->comments->comments[ctx->comments->next_idx];
 
         // Only output comments that are:
-        // 1. Before or on this line
+        // 1. After last_source_line and before or on source_line
         // 2. Not trailing comments (those go after code)
         if (c->line > source_line) break;
+        if (c->line <= ctx->last_source_line) {
+            // Comment is from before our window - skip it
+            ctx->comments->next_idx++;
+            continue;
+        }
         if (c->is_trailing) {
             if (c->line == source_line) {
                 // Trailing comment for this statement - let fmt_trailing_comment handle it
@@ -306,6 +392,14 @@ static void fmt_leading_comments(FmtCtx *ctx, int source_line) {
             // Trailing comment from an earlier line - skip it
             ctx->comments->next_idx++;
             continue;
+        }
+
+        // Check if we need a blank line before this comment
+        if (!first_item || ctx->last_source_line > 0) {
+            if (has_blank_line_between(ctx->blank_lines, last_output_line, c->line)) {
+                fmt_newline(ctx);
+                ctx->output_line++;
+            }
         }
 
         fmt_indent(ctx);
@@ -319,8 +413,27 @@ static void fmt_leading_comments(FmtCtx *ctx, int source_line) {
         }
         fmt_newline(ctx);
         ctx->output_line++;
+        last_output_line = c->line;
+        first_item = 0;
         ctx->comments->next_idx++;
     }
+
+    // Check if we need a blank line before the statement itself
+    if (ctx->last_source_line > 0 && source_line > ctx->last_source_line) {
+        int check_from = (last_output_line > ctx->last_source_line) ? last_output_line : ctx->last_source_line;
+        if (has_blank_line_between(ctx->blank_lines, check_from, source_line)) {
+            // Only add blank line if we haven't just added one
+            // Check if the last char in buffer is already a double newline
+            if (ctx->buf.len < 2 ||
+                !(ctx->buf.data[ctx->buf.len - 1] == '\n' && ctx->buf.data[ctx->buf.len - 2] == '\n')) {
+                fmt_newline(ctx);
+                ctx->output_line++;
+            }
+        }
+    }
+
+    // Advance blank line tracker
+    advance_blank_lines_past(ctx->blank_lines, source_line);
 }
 
 // Output trailing comment for a given source line (if any)
@@ -1700,11 +1813,52 @@ static int write_file(const char *path, const char *content) {
     return 0;
 }
 
+// Helper to find the end line of a statement (approximate)
+static int stmt_end_line(Stmt *stmt) {
+    if (!stmt) return 0;
+    // For most statements, use the starting line
+    // For blocks, try to get a rough end line by looking at last statement
+    if (stmt->type == STMT_BLOCK && stmt->as.block.count > 0) {
+        Stmt *last = stmt->as.block.statements[stmt->as.block.count - 1];
+        return stmt_end_line(last);
+    }
+    // For if statements with else, track the else branch
+    if (stmt->type == STMT_IF && stmt->as.if_stmt.else_branch) {
+        return stmt_end_line(stmt->as.if_stmt.else_branch);
+    }
+    // For while/for/loop, track the body
+    if (stmt->type == STMT_WHILE && stmt->as.while_stmt.body) {
+        return stmt_end_line(stmt->as.while_stmt.body);
+    }
+    if (stmt->type == STMT_LOOP && stmt->as.loop_stmt.body) {
+        return stmt_end_line(stmt->as.loop_stmt.body);
+    }
+    if (stmt->type == STMT_FOR && stmt->as.for_loop.body) {
+        return stmt_end_line(stmt->as.for_loop.body);
+    }
+    if (stmt->type == STMT_FOR_IN && stmt->as.for_in.body) {
+        return stmt_end_line(stmt->as.for_in.body);
+    }
+    // For function declarations with body
+    if (stmt->type == STMT_LET && stmt->as.let.value &&
+        stmt->as.let.value->type == EXPR_FUNCTION &&
+        stmt->as.let.value->as.function.body) {
+        return stmt_end_line(stmt->as.let.value->as.function.body);
+    }
+    // Default: use line + some offset for single-line statements
+    return stmt->line;
+}
+
 char *format_source(const char *source) {
     // Extract comments before parsing (lexer discards them)
     CommentList comments;
     comment_list_init(&comments);
     extract_comments(source, &comments);
+
+    // Extract blank lines for preservation
+    BlankLineList blank_lines;
+    blank_line_list_init(&blank_lines);
+    extract_blank_lines(source, &blank_lines);
 
     // Parse
     Lexer lexer;
@@ -1719,6 +1873,7 @@ char *format_source(const char *source) {
     if (parser.had_error) {
         fprintf(stderr, "Format failed: parse errors\n");
         comment_list_free(&comments);
+        blank_line_list_free(&blank_lines);
         return NULL;
     }
 
@@ -1728,7 +1883,9 @@ char *format_source(const char *source) {
     ctx.indent = 0;
     ctx.column = 0;
     ctx.comments = &comments;
+    ctx.blank_lines = &blank_lines;
     ctx.output_line = 1;
+    ctx.last_source_line = 0;
 
     // Check if we have statement line numbers (parser may set them to 0)
     int have_line_info = 0;
@@ -1767,12 +1924,24 @@ char *format_source(const char *source) {
         // Output trailing comments after this statement
         if (have_line_info && statements[i]->line > 0) {
             fmt_trailing_comment(&ctx, statements[i]->line);
+            // Update last_source_line to track where we are
+            ctx.last_source_line = stmt_end_line(statements[i]);
         }
     }
 
     // Output any remaining comments at end of file
     while (comments.next_idx < comments.count) {
         Comment *c = &comments.comments[comments.next_idx];
+
+        // Check for blank line before this remaining comment
+        if (ctx.last_source_line > 0 &&
+            has_blank_line_between(&blank_lines, ctx.last_source_line, c->line)) {
+            if (ctx.buf.len < 2 ||
+                !(ctx.buf.data[ctx.buf.len - 1] == '\n' && ctx.buf.data[ctx.buf.len - 2] == '\n')) {
+                fmt_newline(&ctx);
+            }
+        }
+
         comments.next_idx++;
         fmt_indent(&ctx);
         if (c->type == COMMENT_LINE) {
@@ -1784,6 +1953,7 @@ char *format_source(const char *source) {
             buf_append(&ctx.buf, " */");
         }
         fmt_newline(&ctx);
+        ctx.last_source_line = c->line;
     }
 
     // Cleanup AST
@@ -1792,8 +1962,9 @@ char *format_source(const char *source) {
     }
     free(statements);
 
-    // Cleanup comments
+    // Cleanup comments and blank lines
     comment_list_free(&comments);
+    blank_line_list_free(&blank_lines);
 
     // Transfer ownership of buffer
     char *result = ctx.buf.data;

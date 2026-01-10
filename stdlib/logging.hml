@@ -1,8 +1,15 @@
 // @stdlib/logging - Logging module with levels, filtering, and structured logging
 // Provides comprehensive logging facilities for Hemlock applications
+
 // ========== LOG LEVELS ==========
 // Log level constants (lower number = more verbose)
+export let DEBUG = 0;
+export let INFO = 1;
+export let WARN = 2;
+export let ERROR = 3;
+
 // ========== LOGGER FACTORY ==========
+
 // Logger(config?: object) -> Logger object
 // Create a logger with optional configuration
 // 
@@ -15,53 +22,15 @@
 // Example:
 // let logger = Logger({ output: "app.log", level: WARN });
 // logger.warn("Something went wrong");
-// Default configuration
-// Parse configuration if provided
-// Open file if output is not stdout
-// Append mode
-// Fallback to stdout
-// Helper: Convert log level to string
-// Helper: Format timestamp (Unix timestamp to ISO-like format)
-// For now, just return the Unix timestamp as string
-// A full implementation would convert to ISO 8601 format
-// Helper: Convert value to string safely
-// Try to serialize as JSON
-// For numbers, convert using string concatenation with empty string
-// Convert number to string using string context
-// For other numeric types, use generic approach
-// For other types, return type name
-// Helper: Format structured data (key-value pairs)
-// Try to serialize as JSON
-// Core logging function
-// Filter by log level
-// Build the log message
-// Replace placeholders
-// Get current timestamp
-// Add structured data if provided
-// Output the log
-// Fallback to stdout
-// Return the logger object
-// debug(message, data?) - Log debug message
-// info(message, data?) - Log info message
-// warn(message, data?) - Log warning message
-// error(message, data?) - Log error message
-// log(level, message, data?) - Log with explicit level
-// set_level(level) - Change minimum log level
-// close() - Close file handle if using file output
-// Ignore close errors
-// ========== DEFAULT LOGGER ==========
-// Create a default logger instance for convenience
-// Export convenience functions that use the default logger
-export let DEBUG = 0;
-export let INFO = 1;
-export let WARN = 2;
-export let ERROR = 3;
 export fn Logger(config?: null) {
+	// Default configuration
 	let output_target = "stdout";
 	let min_level = INFO;
 	let format_string = "{timestamp} [{level}] {message}";
 	let include_timestamp = true;
 	let file_handle = null;
+
+	// Parse configuration if provided
 	if (config != null && typeof(config) == "object") {
 		if (config.has("output") && config.output != null) {
 			output_target = config.output;
@@ -76,14 +45,18 @@ export fn Logger(config?: null) {
 			include_timestamp = config.include_timestamp;
 		}
 	}
+
+	// Open file if output is not stdout
 	if (output_target != "stdout") {
 		try {
-			file_handle = open(output_target, "a");
+			file_handle = open(output_target, "a");  // Append mode
 		} catch (e) {
 			print("Failed to open log file: " + e);
-			output_target = "stdout";
+			output_target = "stdout";  // Fallback to stdout
 		}
 	}
+
+	// Helper: Convert log level to string
 	fn level_to_string(level: i32): string {
 		if (level == DEBUG) {
 			return "DEBUG";
@@ -99,9 +72,15 @@ export fn Logger(config?: null) {
 		}
 		return "UNKNOWN";
 	}
+
+	// Helper: Format timestamp (Unix timestamp to ISO-like format)
 	fn format_timestamp(ts: i64): string {
+		// For now, just return the Unix timestamp as string
+		// A full implementation would convert to ISO 8601 format
 		return typeof(ts);
 	}
+
+	// Helper: Convert value to string safely
 	fn value_to_log_string(val): string {
 		let t = typeof(val);
 		if (t == "string") {
@@ -117,6 +96,7 @@ export fn Logger(config?: null) {
 			return "false";
 		}
 		if (t == "object") {
+			// Try to serialize as JSON
 			try {
 				return val.serialize();
 			} catch (e) {
@@ -130,7 +110,9 @@ export fn Logger(config?: null) {
 				return "[array]";
 			}
 		}
+		// For numbers, convert using string concatenation with empty string
 		if (t == "i32" || t == "i64" || t == "u32" || t == "u64" || t == "i8" || t == "i16" || t == "u8" || t == "u16" || t == "f32" || t == "f64") {
+			// Convert number to string using string context
 			let str = "";
 			if (t == "i32") {
 				let num: i32 = val;
@@ -139,40 +121,58 @@ export fn Logger(config?: null) {
 	let num: f64 = val;
 	str = str + num;
 } else {
+	// For other numeric types, use generic approach
 	str = str + val;
 }
 return str;
 }
+// For other types, return type name
 return "[" + t + "]";
 }
+
+// Helper: Format structured data (key-value pairs)
 fn format_structured(data): string {
 if (data == null || typeof(data) != "object") {
 return "";
 }
+
+// Try to serialize as JSON
 try {
 return " " + data.serialize();
 } catch (e) {
 return " [structured data]";
 }
 }
+
+// Core logging function
 fn log_message(level: i32, message: string, data?: null) {
+// Filter by log level
 if (level < min_level) {
 return null;
 }
+
+// Build the log message
 let log_line = format_string;
+
+// Replace placeholders
 if (include_timestamp) {
-let ts = __now();
+let ts = __now();  // Get current timestamp
 let ts_str = format_timestamp(ts);
 log_line = log_line.replace("{timestamp}", ts_str);
 } else {
 log_line = log_line.replace("{timestamp} ", "");
 log_line = log_line.replace("{timestamp}", "");
 }
+
 log_line = log_line.replace("{level}", level_to_string(level));
 log_line = log_line.replace("{message}", message);
+
+// Add structured data if provided
 if (data != null) {
 log_line = log_line + format_structured(data);
 }
+
+// Output the log
 if (output_target == "stdout") {
 print(log_line);
 } else {
@@ -181,47 +181,64 @@ if (file_handle != null) {
 		file_handle.write(log_line + "\n");
 	} catch (e) {
 		print("Failed to write to log file: " + e);
-		print(log_line);
+		print(log_line);  // Fallback to stdout
 	}
 }
 }
+
 return null;
 }
+
+// Return the logger object
 return {
 output: output_target,
 level: min_level,
 format: format_string,
 debug: fn(message, data?: null) {
+
+// debug(message, data?) - Log debug message
 log_message(DEBUG, value_to_log_string(message), data);
 return null;
 }
 ,
 info: fn(message, data?: null) {
+
+// info(message, data?) - Log info message
 log_message(INFO, value_to_log_string(message), data);
 return null;
 }
 ,
 warn: fn(message, data?: null) {
+
+// warn(message, data?) - Log warning message
 log_message(WARN, value_to_log_string(message), data);
 return null;
 }
 ,
 error: fn(message, data?: null) {
+
+// error(message, data?) - Log error message
 log_message(ERROR, value_to_log_string(message), data);
 return null;
 }
 ,
 log: fn(level: i32, message, data?: null) {
+
+// log(level, message, data?) - Log with explicit level
 log_message(level, value_to_log_string(message), data);
 return null;
 }
 ,
 set_level: fn(level: i32) {
+
+// set_level(level) - Change minimum log level
 min_level = level;
 return null;
 }
 ,
 close: fn() {
+
+// close() - Close file handle if using file output
 if (file_handle != null) {
 	try {
 		file_handle.close();
@@ -229,28 +246,39 @@ if (file_handle != null) {
 	} catch (e) {
 	}
 }
+// Ignore close errors
 return null;
 }
 ,
 };
 }
+
+// ========== DEFAULT LOGGER ==========
+
+// Create a default logger instance for convenience
 export let default_logger = Logger();
+
+// Export convenience functions that use the default logger
 export fn debug(message, data?: null) {
 	default_logger.debug(message, data);
 	return null;
 }
+
 export fn info(message, data?: null) {
 	default_logger.info(message, data);
 	return null;
 }
+
 export fn warn(message, data?: null) {
 	default_logger.warn(message, data);
 	return null;
 }
+
 export fn error(message, data?: null) {
 	default_logger.error(message, data);
 	return null;
 }
+
 export fn log(level: i32, message, data?: null) {
 	default_logger.log(level, message, data);
 	return null;

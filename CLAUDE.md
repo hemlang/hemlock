@@ -845,7 +845,7 @@ make parity
 
 ## Version
 
-**v1.7.2** - Current release with:
+**v1.7.3** - Current release with:
 - **Expression-bodied functions** (`fn double(x): i32 => x * 2;`) - concise single-expression function syntax
 - **Single-line statements** - braceless `if`, `while`, `for` syntax (e.g., `if (x > 0) print(x);`)
 - **Type aliases** (`type Name = Type;`) - named shortcuts for complex types

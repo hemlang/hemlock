@@ -1037,10 +1037,23 @@ Stmt* define_statement(Parser *p) {
     return stmt;
 }
 
+// Helper macro to set line number and return
+#define RETURN_STMT(s) do { Stmt *_s = (s); _s->line = stmt_start_line; _s->column = stmt_start_column; return _s; } while(0)
+
 Stmt* statement(Parser *p) {
-    // Parse annotations first
+    // Save the starting line/column for this statement
+    int stmt_start_line = p->current.line;
+    int stmt_start_column = p->current.column;
+
+    // Parse annotations first (they come before the actual statement)
     int annotation_count = 0;
     Annotation **annotations = parse_annotations(p, &annotation_count);
+
+    // After parsing annotations, the keyword line might be more accurate
+    if (annotation_count > 0) {
+        stmt_start_line = p->current.line;
+        stmt_start_column = p->current.column;
+    }
 
     if (match(p, TOK_LET)) {
         Stmt *stmt = let_statement(p);
@@ -1049,7 +1062,7 @@ Stmt* statement(Parser *p) {
         if (!validate_annotations(stmt)) {
             p->had_error = 1;
         }
-        return stmt;
+        RETURN_STMT(stmt);
     }
 
     if (match(p, TOK_CONST)) {
@@ -1059,7 +1072,7 @@ Stmt* statement(Parser *p) {
         if (!validate_annotations(stmt)) {
             p->had_error = 1;
         }
-        return stmt;
+        RETURN_STMT(stmt);
     }
 
     // Type alias: type Name = Type; or type Name<T> = Type<T>;
@@ -1098,7 +1111,7 @@ Stmt* statement(Parser *p) {
 
         Stmt *stmt = stmt_type_alias(name, type_params, num_type_params, aliased_type);
         free(name);
-        return stmt;
+        RETURN_STMT(stmt);
     }
 
     // Object type definition: define TypeName { ... }
@@ -1109,7 +1122,7 @@ Stmt* statement(Parser *p) {
         if (!validate_annotations(stmt)) {
             p->had_error = 1;
         }
-        return stmt;
+        RETURN_STMT(stmt);
     }
 
     // Enum definition: enum EnumName { ... }
@@ -1156,7 +1169,7 @@ Stmt* statement(Parser *p) {
             p->had_error = 1;
         }
         free(name);
-        return stmt;
+        RETURN_STMT(stmt);
     }
 
     // Named function: fn name(...) { ... } or async fn name(...) { ... }
@@ -1301,11 +1314,11 @@ Stmt* statement(Parser *p) {
             p->had_error = 1;
         }
         free(name);
-        return stmt;
+        RETURN_STMT(stmt);
     } else {
         // Anonymous function at statement level - error
         error(p, "Unexpected anonymous function (did you mean to assign it?)");
-        return stmt_expr(expr_number(0));
+        RETURN_STMT(stmt_expr(expr_number(0)));
     }
 
 not_function:
@@ -1321,7 +1334,7 @@ not_function:
     }
 
     if (match(p, TOK_IF)) {
-        return if_statement(p);
+        RETURN_STMT(if_statement(p));
     }
 
     // Check for labeled loop: identifier: while/for/loop
@@ -1345,15 +1358,15 @@ not_function:
                 if (match(p, TOK_WHILE)) {
                     Stmt *stmt = while_statement_with_label(p, label);
                     free(label);
-                    return stmt;
+                    RETURN_STMT(stmt);
                 } else if (match(p, TOK_LOOP)) {
                     Stmt *stmt = loop_statement_with_label(p, label);
                     free(label);
-                    return stmt;
+                    RETURN_STMT(stmt);
                 } else if (match(p, TOK_FOR)) {
                     Stmt *stmt = for_statement_with_label(p, label);
                     free(label);
-                    return stmt;
+                    RETURN_STMT(stmt);
                 }
                 free(label);
             }
@@ -1369,15 +1382,15 @@ not_function:
     }
 
     if (match(p, TOK_WHILE)) {
-        return while_statement(p);
+        RETURN_STMT(while_statement(p));
     }
 
     if (match(p, TOK_LOOP)) {
-        return loop_statement(p);
+        RETURN_STMT(loop_statement(p));
     }
 
     if (match(p, TOK_FOR)) {
-        return for_statement(p);
+        RETURN_STMT(for_statement(p));
     }
 
     if (match(p, TOK_BREAK)) {
@@ -1388,10 +1401,10 @@ not_function:
             consume(p, TOK_SEMICOLON, "Expect ';' after 'break'");
             Stmt *stmt = stmt_break_labeled(label);
             free(label);
-            return stmt;
+            RETURN_STMT(stmt);
         }
         consume(p, TOK_SEMICOLON, "Expect ';' after 'break'");
-        return stmt_break();
+        RETURN_STMT(stmt_break());
     }
 
     if (match(p, TOK_CONTINUE)) {
@@ -1402,14 +1415,14 @@ not_function:
             consume(p, TOK_SEMICOLON, "Expect ';' after 'continue'");
             Stmt *stmt = stmt_continue_labeled(label);
             free(label);
-            return stmt;
+            RETURN_STMT(stmt);
         }
         consume(p, TOK_SEMICOLON, "Expect ';' after 'continue'");
-        return stmt_continue();
+        RETURN_STMT(stmt_continue());
     }
 
     if (match(p, TOK_RETURN)) {
-        return return_statement(p);
+        RETURN_STMT(return_statement(p));
     }
 
     if (match(p, TOK_TRY)) {
@@ -1441,47 +1454,44 @@ not_function:
             error(p, "Try statement must have either 'catch' or 'finally' block");
         }
 
-        return stmt_try(try_block, catch_param, catch_block, finally_block);
+        RETURN_STMT(stmt_try(try_block, catch_param, catch_block, finally_block));
     }
 
     if (match(p, TOK_THROW)) {
-        int throw_line = p->previous.line;  // Save line of 'throw' for stack trace
-        int throw_column = p->previous.column;
         Expr *value = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after throw statement");
-        Stmt *stmt = stmt_throw(value);
-        stmt->line = throw_line;  // Set line number for stack trace
-        stmt->column = throw_column;
-        return stmt;
+        RETURN_STMT(stmt_throw(value));
     }
 
     if (match(p, TOK_DEFER)) {
         Expr *call = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after defer statement");
-        return stmt_defer(call);
+        RETURN_STMT(stmt_defer(call));
     }
 
     if (match(p, TOK_SWITCH)) {
-        return switch_statement(p);
+        RETURN_STMT(switch_statement(p));
     }
 
     if (match(p, TOK_IMPORT)) {
-        return import_statement(p);
+        RETURN_STMT(import_statement(p));
     }
 
     if (match(p, TOK_EXPORT)) {
-        return export_statement(p);
+        RETURN_STMT(export_statement(p));
     }
 
     if (match(p, TOK_EXTERN)) {
-        return extern_fn_statement(p);
+        RETURN_STMT(extern_fn_statement(p));
     }
 
     // Bare block statement
     if (match(p, TOK_LBRACE)) {
-        return block_statement(p);
+        RETURN_STMT(block_statement(p));
     }
 
-    return expression_statement(p);
+    RETURN_STMT(expression_statement(p));
 }
+
+#undef RETURN_STMT
 

@@ -5,81 +5,21 @@
 // Usage:
 // import { parse, stringify, parse_row, stringify_row } from "@stdlib/csv";
 // let data = parse(csv_text);
+
 // ============================================================================
 // CSV Parsing
 // ============================================================================
+
 // Parse a CSV string into an array of rows (each row is an array of strings)
 // Parameters:
 // text: string - CSV text to parse
 // options: object - Optional { delimiter?: ",", quote?: "\"", skip_header?: false }
 // Returns: array<array<string>> - Array of rows
-// Get options
-// Inside quoted field
-// Check for escaped quote (double quote)
-// End of quoted field
-// Outside quoted field
-// End of field
-// End of row
-// Handle CRLF
-// Skip the \n, will be handled next iteration
-// End of row
-// Handle last field/row
-// Skip header if requested
-// Parse CSV with headers - returns array of objects
-// Parameters:
-// text: string - CSV text to parse
-// options: object - Optional { delimiter?: ",", quote?: "\"" }
-// Returns: array<object> - Array of objects with header keys
-// Parse a single CSV row
-// Parameters:
-// line: string - Single CSV line
-// options: object - Optional { delimiter?: ",", quote?: "\"" }
-// Returns: array<string> - Array of field values
-// ============================================================================
-// CSV Generation
-// ============================================================================
-// Convert an array of rows to CSV string
-// Parameters:
-// rows: array<array<string>> - Array of rows
-// options: object - Optional { delimiter?: ",", quote?: "\"", line_ending?: "\n" }
-// Returns: string - CSV text
-// Get options
-// Convert an array of objects to CSV string
-// Parameters:
-// objects: array<object> - Array of objects
-// headers: array<string> - Column headers (also used as object keys)
-// options: object - Optional { delimiter?: ",", quote?: "\"", line_ending?: "\n" }
-// Returns: string - CSV text
-// Get options
-// Build rows array
-// Convert a single row to CSV line
-// Parameters:
-// row: array<string> - Array of field values
-// options: object - Optional { delimiter?: ",", quote?: "\"" }
-// Returns: string - CSV line
-// Get options
-// Check if field needs quoting
-// Escape quotes by doubling them
-// ============================================================================
-// Utility Functions
-// ============================================================================
-// Get column from CSV data
-// Parameters:
-// rows: array<array<string>> - CSV data
-// index: i32 - Column index
-// Returns: array<string> - Column values
-// Get row count
-// Parameters:
-// rows: array<array<string>> - CSV data
-// Returns: i32 - Number of rows
-// Get column count (from first row)
-// Parameters:
-// rows: array<array<string>> - CSV data
-// Returns: i32 - Number of columns
 export fn parse(text, options?: null): array {
 	if (typeof(text) != "string") {
 		throw "parse() requires string argument";
 	}
+	// Get options
 	let delimiter = ",";
 	let quote = "\"";
 	let skip_header = false;
@@ -105,31 +45,39 @@ export fn parse(text, options?: null): array {
 	while (i < text.length) {
 		let c = text.substr(i, 1);
 		if (in_quotes) {
+			// Inside quoted field
 			if (c == quote) {
+				// Check for escaped quote (double quote)
 				if (i + 1 < text.length && text.substr(i + 1, 1) == quote) {
 					current_field = current_field + quote;
 					i = i + 2;
 					continue;
 				}
+				// End of quoted field
 				in_quotes = false;
 			} else {
 				current_field = current_field + c;
 			}
 		} else {
+			// Outside quoted field
 			if (c == quote) {
 				in_quotes = true;
 			} else if (c == delimiter) {
+	// End of field
 	current_row.push(current_field);
 	current_field = "";
 } else if (c == "\n") {
+	// End of row
 	current_row.push(current_field);
 	current_field = "";
 	rows.push(current_row);
 	current_row = [];
 } else if (c == "\r") {
+	// Handle CRLF
 	if (i + 1 < text.length && text.substr(i + 1, 1) == "\n") {
-		i++;
+		i++;  // Skip the \n, will be handled next iteration
 	}
+	// End of row
 	current_row.push(current_field);
 	current_field = "";
 	rows.push(current_row);
@@ -140,56 +88,92 @@ export fn parse(text, options?: null): array {
 }
 i++;
 }
+// Handle last field/row
 if (current_field.length > 0 || current_row.length > 0) {
 current_row.push(current_field);
 rows.push(current_row);
 }
+// Skip header if requested
 if (skip_header && rows.length > 0) {
 rows = rows.slice(1, rows.length);
 }
 return rows;
 }
+
+// Parse CSV with headers - returns array of objects
+// Parameters:
+// text: string - CSV text to parse
+// options: object - Optional { delimiter?: ",", quote?: "\"" }
+// Returns: array<object> - Array of objects with header keys
 export fn parse_objects(text, options?: null): array {
 	if (typeof(text) != "string") {
 		throw "parse_objects() requires string argument";
 	}
+
 	let rows = parse(text, options);
+
 	if (rows.length == 0) {
 		return [];
 	}
+
 	let headers = rows[0];
 	let result: array = [];
+
 	for (let i = 1; i < rows.length; i++) {
 		let row = rows[i];
 		let obj = {};
+
 		for (let j = 0; j < headers.length && j < row.length; j++) {
 			obj[headers[j]] = row[j];
 		}
+
 		result.push(obj);
 	}
+
 	return result;
 }
+
+// Parse a single CSV row
+// Parameters:
+// line: string - Single CSV line
+// options: object - Optional { delimiter?: ",", quote?: "\"" }
+// Returns: array<string> - Array of field values
 export fn parse_row(line, options?: null): array {
 	if (typeof(line) != "string") {
 		throw "parse_row() requires string argument";
 	}
+
 	let rows = parse(line, options);
 	if (rows.length > 0) {
 		return rows[0];
 	}
 	return [];
 }
+
+// ============================================================================
+// CSV Generation
+// ============================================================================
+
+// Convert an array of rows to CSV string
+// Parameters:
+// rows: array<array<string>> - Array of rows
+// options: object - Optional { delimiter?: ",", quote?: "\"", line_ending?: "\n" }
+// Returns: string - CSV text
 export fn stringify(rows, options?: null): string {
 	if (typeof(rows) != "array") {
 		throw "stringify() requires array argument";
 	}
+
+	// Get options
 	let delimiter = ",";
 	let quote = "\"";
 	let line_ending = "\n";
+
 	if (options != null && typeof(options) == "object") {
 		let opt_delim = options["delimiter"];
 		let opt_quote = options["quote"];
 		let opt_ending = options["line_ending"];
+
 		if (opt_delim != null && typeof(opt_delim) == "string") {
 			delimiter = opt_delim;
 		}
@@ -200,19 +184,31 @@ export fn stringify(rows, options?: null): string {
 			line_ending = opt_ending;
 		}
 	}
+
 	let result = "";
+
 	for (let i = 0; i < rows.length; i++) {
 		let row = rows[i];
 		if (typeof(row) != "array") {
 			throw "stringify() rows must contain arrays";
 		}
+
 		result = result + stringify_row(row, options);
+
 		if (i < rows.length - 1) {
 			result = result + line_ending;
 		}
 	}
+
 	return result;
 }
+
+// Convert an array of objects to CSV string
+// Parameters:
+// objects: array<object> - Array of objects
+// headers: array<string> - Column headers (also used as object keys)
+// options: object - Optional { delimiter?: ",", quote?: "\"", line_ending?: "\n" }
+// Returns: string - CSV text
 export fn stringify_objects(objects, headers, options?: null): string {
 	if (typeof(objects) != "array") {
 		throw "stringify_objects() requires array argument";
@@ -220,6 +216,8 @@ export fn stringify_objects(objects, headers, options?: null): string {
 	if (typeof(headers) != "array") {
 		throw "stringify_objects() headers must be array";
 	}
+
+	// Get options
 	let line_ending = "\n";
 	if (options != null && typeof(options) == "object") {
 		let opt_ending = options["line_ending"];
@@ -227,27 +225,43 @@ export fn stringify_objects(objects, headers, options?: null): string {
 			line_ending = opt_ending;
 		}
 	}
+
+	// Build rows array
 	let rows: array = [];
 	rows.push(headers);
+
 	for (obj in objects) {
 		let row: array = [];
+
 		for (key in headers) {
 			let value = obj[key];
 			row.push(value != null ? "" + value : "");
 		}
+
 		rows.push(row);
 	}
+
 	return stringify(rows, options);
 }
+
+// Convert a single row to CSV line
+// Parameters:
+// row: array<string> - Array of field values
+// options: object - Optional { delimiter?: ",", quote?: "\"" }
+// Returns: string - CSV line
 export fn stringify_row(row, options?: null): string {
 	if (typeof(row) != "array") {
 		throw "stringify_row() requires array argument";
 	}
+
+	// Get options
 	let delimiter = ",";
 	let quote = "\"";
+
 	if (options != null && typeof(options) == "object") {
 		let opt_delim = options["delimiter"];
 		let opt_quote = options["quote"];
+
 		if (opt_delim != null && typeof(opt_delim) == "string") {
 			delimiter = opt_delim;
 		}
@@ -255,27 +269,47 @@ export fn stringify_row(row, options?: null): string {
 			quote = opt_quote;
 		}
 	}
+
 	let result = "";
+
 	for (let i = 0; i < row.length; i++) {
 		let field = "" + row[i];
+
+		// Check if field needs quoting
 		let needs_quote = field.contains(delimiter) || field.contains(quote) || field.contains("\n") || field.contains("\r");
+
 		if (needs_quote) {
+			// Escape quotes by doubling them
 			let escaped = field.replace_all(quote, quote + quote);
 			result = result + (quote + escaped + quote);
 		} else {
 			result = result + field;
 		}
+
 		if (i < row.length - 1) {
 			result = result + delimiter;
 		}
 	}
+
 	return result;
 }
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Get column from CSV data
+// Parameters:
+// rows: array<array<string>> - CSV data
+// index: i32 - Column index
+// Returns: array<string> - Column values
 export fn get_column(rows, index): array {
 	if (typeof(rows) != "array") {
 		throw "get_column() requires array argument";
 	}
+
 	let result: array = [];
+
 	for (row in rows) {
 		if (typeof(row) == "array" && index < row.length) {
 			result.push(row[index]);
@@ -283,14 +317,25 @@ export fn get_column(rows, index): array {
 			result.push("");
 		}
 	}
+
 	return result;
 }
+
+// Get row count
+// Parameters:
+// rows: array<array<string>> - CSV data
+// Returns: i32 - Number of rows
 export fn row_count(rows): i32 {
 	if (typeof(rows) != "array") {
 		throw "row_count() requires array argument";
 	}
 	return rows.length;
 }
+
+// Get column count (from first row)
+// Parameters:
+// rows: array<array<string>> - CSV data
+// Returns: i32 - Number of columns
 export fn column_count(rows): i32 {
 	if (typeof(rows) != "array") {
 		throw "column_count() requires array argument";
