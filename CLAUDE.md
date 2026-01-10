@@ -845,7 +845,7 @@ make parity
 
 ## Version
 
-**v1.7.4** - Current release with:
+**v1.7.5** - Current release with:
 - **Compiler helper annotations** - 11 optimization annotations for GCC/Clang control:
   - `@inline`, `@noinline` - function inlining control
   - `@hot`, `@cold` - branch prediction hints

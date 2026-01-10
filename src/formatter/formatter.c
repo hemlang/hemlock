@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include "formatter.h"
 #include "lexer.h"
 #include "parser.h"
@@ -362,6 +363,7 @@ struct FmtCtx {
     BlankLineList *blank_lines;  // Extracted blank lines
     int output_line;     // Current output line (1-based)
     int last_source_line;  // Last source line processed (for comment association)
+    bool is_else_if;     // Skip leading indent for else-if (follows "else " on same line)
 };
 
 // Output any leading comments for a given source line
@@ -1489,7 +1491,12 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
             break;
 
         case STMT_IF:
-            fmt_indent(ctx);
+            // Skip leading indent for else-if (follows "else " on same line)
+            if (ctx->is_else_if) {
+                ctx->is_else_if = false;
+            } else {
+                fmt_indent(ctx);
+            }
             buf_append(&ctx->buf, "if (");
             fmt_expr(ctx, stmt->as.if_stmt.condition);
             buf_append(&ctx->buf, ") ");
@@ -1514,8 +1521,8 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 }
                 buf_append(&ctx->buf, " else ");
                 if (stmt->as.if_stmt.else_branch->type == STMT_IF) {
-                    // else if - don't add braces
-                    ctx->indent = 0;  // Reset for else if
+                    // else if - don't add braces, skip leading indent
+                    ctx->is_else_if = true;
                     fmt_stmt(ctx, stmt->as.if_stmt.else_branch);
                 } else if (stmt->as.if_stmt.else_branch->type == STMT_BLOCK) {
                     fmt_stmt(ctx, stmt->as.if_stmt.else_branch);
@@ -2113,6 +2120,7 @@ char *format_source(const char *source) {
     ctx.blank_lines = &blank_lines;
     ctx.output_line = 1;
     ctx.last_source_line = 0;
+    ctx.is_else_if = false;
 
     // Check if we have statement line numbers (parser may set them to 0)
     int have_line_info = 0;

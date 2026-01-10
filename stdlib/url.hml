@@ -603,17 +603,17 @@ export fn decode_component(str): string {
 			bytes.push(byte_val);
 			i = i + 3;
 		} else if (ch == '+') {
-	// + decodes to space in query strings
-	bytes.push(32);
-	i = i + 1;
-} else {
-	let code: i32 = ch;
-	bytes.push(code);
-	i = i + 1;
-}
-}
+			// + decodes to space in query strings
+			bytes.push(32);
+			i = i + 1;
+		} else {
+			let code: i32 = ch;
+			bytes.push(code);
+			i = i + 1;
+		}
+	}
 
-return __string_from_bytes(bytes);
+	return __string_from_bytes(bytes);
 }
 
 // Helper: Convert hex character to value
@@ -781,22 +781,22 @@ fn normalize_path(path): string {
 				result.push("");
 			}
 		} else if (seg == "..") {
-	// Go up one level
-	if (result.length > 0 && result[result.length - 1] != "") {
-		result.pop();
+			// Go up one level
+			if (result.length > 0 && result[result.length - 1] != "") {
+				result.pop();
+			}
+		} else {
+			result.push(seg);
+		}
+
+		i = i + 1;
 	}
-} else {
-	result.push(seg);
-}
 
-i = i + 1;
-}
-
-let joined = result.join("/");
-if (joined == "") {
-return "/";
-}
-return joined;
+	let joined = result.join("/");
+	if (joined == "") {
+		return "/";
+	}
+	return joined;
 }
 
 // ============================================================================

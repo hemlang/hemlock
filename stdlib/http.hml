@@ -37,125 +37,125 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	if (method == "GET") {
 		resp_ptr = __lws_http_get(url);
 	} else if (method == "POST") {
-	resp_ptr = __lws_http_post(url, body, content_type);
-} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
-	method == "OPTIONS") {
-	// Use generic request function for other HTTP methods
-	resp_ptr = __lws_http_request(method, url, body, content_type);
-} else {
-	throw "HTTP method not supported: " + method;
-}
-
-if (resp_ptr == null) {
-	throw "HTTP request failed: " + method + " " + url;
-}
-
-// Extract response data
-let status = __lws_response_status(resp_ptr);
-let redirect_url = __lws_response_redirect(resp_ptr);
-let response_body = __lws_response_body(resp_ptr);
-let response_headers = __lws_response_headers(resp_ptr);
-
-// Free C response structure
-__lws_response_free(resp_ptr);
-
-// Handle redirects (3xx status codes)
-if (status >= 300 && status < 400 && redirect_url != null) {
-	// If redirect URL is relative, make it absolute
-	if (redirect_url.starts_with("/")) {
-		// Extract scheme and host from original URL
-		let scheme_end = url.index_of("://");
-		if (scheme_end >= 0) {
-			let host_start = scheme_end + 3;
-			let host_end = url.index_of("/", host_start);
-			if (host_end < 0) {
-				host_end = url.length;
-			}
-			let base = url.substr(0, host_end);
-			redirect_url = base + redirect_url;
-		}
+		resp_ptr = __lws_http_post(url, body, content_type);
+	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
+		method == "OPTIONS") {
+		// Use generic request function for other HTTP methods
+		resp_ptr = __lws_http_request(method, url, body, content_type);
+	} else {
+		throw "HTTP method not supported: " + method;
 	}
-	// Follow redirect (use GET for 301/302/303)
-	return http_request_with_redirects(
-		"GET",
-		redirect_url,
-		"",
-		headers,
-		redirect_count + 1,
-	);
-}
 
-return { status_code: status, headers: response_headers, body: response_body };
+	if (resp_ptr == null) {
+		throw "HTTP request failed: " + method + " " + url;
+	}
+
+	// Extract response data
+	let status = __lws_response_status(resp_ptr);
+	let redirect_url = __lws_response_redirect(resp_ptr);
+	let response_body = __lws_response_body(resp_ptr);
+	let response_headers = __lws_response_headers(resp_ptr);
+
+	// Free C response structure
+	__lws_response_free(resp_ptr);
+
+	// Handle redirects (3xx status codes)
+	if (status >= 300 && status < 400 && redirect_url != null) {
+		// If redirect URL is relative, make it absolute
+		if (redirect_url.starts_with("/")) {
+			// Extract scheme and host from original URL
+			let scheme_end = url.index_of("://");
+			if (scheme_end >= 0) {
+				let host_start = scheme_end + 3;
+				let host_end = url.index_of("/", host_start);
+				if (host_end < 0) {
+					host_end = url.length;
+				}
+				let base = url.substr(0, host_end);
+				redirect_url = base + redirect_url;
+			}
+		}
+		// Follow redirect (use GET for 301/302/303)
+		return http_request_with_redirects(
+			"GET",
+			redirect_url,
+			"",
+			headers,
+			redirect_count + 1,
+		);
+	}
+
+	return { status_code: status, headers: response_headers, body: response_body };
 }
 
 // ========== BINARY HTTP REQUEST (for file downloads) ==========
 
 fn http_request_binary(method, url, headers) {
-return http_request_binary_with_redirects(
-	method,
-	url,
-	headers,
-	0,
-);
-}
-
-fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
-// Limit redirects to prevent infinite loops
-if (redirect_count > 10) {
-	throw "Too many redirects: " + url;
-}
-
-let resp_ptr = null;
-
-if (method == "GET") {
-	resp_ptr = __lws_http_get(url);
-} else {
-	throw "Binary download only supports GET method";
-}
-
-if (resp_ptr == null) {
-	throw "HTTP request failed: " + method + " " + url;
-}
-
-// Extract response data
-let status = __lws_response_status(resp_ptr);
-let redirect_url = __lws_response_redirect(resp_ptr);
-
-// Handle redirects (3xx status codes) BEFORE getting body
-if (status >= 300 && status < 400 && redirect_url != null) {
-	// Free response before following redirect
-	__lws_response_free(resp_ptr);
-
-	// If redirect URL is relative, make it absolute
-	if (redirect_url.starts_with("/")) {
-		let scheme_end = url.index_of("://");
-		if (scheme_end >= 0) {
-			let host_start = scheme_end + 3;
-			let host_end = url.index_of("/", host_start);
-			if (host_end < 0) {
-				host_end = url.length;
-			}
-			let base = url.substr(0, host_end);
-			redirect_url = base + redirect_url;
-		}
-	}
-	// Follow redirect
 	return http_request_binary_with_redirects(
-		"GET",
-		redirect_url,
+		method,
+		url,
 		headers,
-		redirect_count + 1,
+		0,
 	);
 }
 
-// Get body as binary buffer (preserves null bytes)
-let response_body = __lws_response_body_binary(resp_ptr);
-let response_headers = __lws_response_headers(resp_ptr);
+fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
+	// Limit redirects to prevent infinite loops
+	if (redirect_count > 10) {
+		throw "Too many redirects: " + url;
+	}
 
-// Free C response structure
-__lws_response_free(resp_ptr);
+	let resp_ptr = null;
 
-return { status_code: status, headers: response_headers, body: response_body };
+	if (method == "GET") {
+		resp_ptr = __lws_http_get(url);
+	} else {
+		throw "Binary download only supports GET method";
+	}
+
+	if (resp_ptr == null) {
+		throw "HTTP request failed: " + method + " " + url;
+	}
+
+	// Extract response data
+	let status = __lws_response_status(resp_ptr);
+	let redirect_url = __lws_response_redirect(resp_ptr);
+
+	// Handle redirects (3xx status codes) BEFORE getting body
+	if (status >= 300 && status < 400 && redirect_url != null) {
+		// Free response before following redirect
+		__lws_response_free(resp_ptr);
+
+		// If redirect URL is relative, make it absolute
+		if (redirect_url.starts_with("/")) {
+			let scheme_end = url.index_of("://");
+			if (scheme_end >= 0) {
+				let host_start = scheme_end + 3;
+				let host_end = url.index_of("/", host_start);
+				if (host_end < 0) {
+					host_end = url.length;
+				}
+				let base = url.substr(0, host_end);
+				redirect_url = base + redirect_url;
+			}
+		}
+		// Follow redirect
+		return http_request_binary_with_redirects(
+			"GET",
+			redirect_url,
+			headers,
+			redirect_count + 1,
+		);
+	}
+
+	// Get body as binary buffer (preserves null bytes)
+	let response_body = __lws_response_body_binary(resp_ptr);
+	let response_headers = __lws_response_headers(resp_ptr);
+
+	// Free C response structure
+	__lws_response_free(resp_ptr);
+
+	return { status_code: status, headers: response_headers, body: response_body };
 }
 
 // ========== PUBLIC API ==========
@@ -393,31 +393,31 @@ export fn HttpServer(host: string, port: i32) {
 			if (status == 201) {
 				status_text = "Created";
 			} else if (status == 204) {
-	status_text = "No Content";
-} else if (status == 400) {
-	status_text = "Bad Request";
-} else if (status == 401) {
-	status_text = "Unauthorized";
-} else if (status == 403) {
-	status_text = "Forbidden";
-} else if (status == 404) {
-	status_text = "Not Found";
-} else if (status == 405) {
-	status_text = "Method Not Allowed";
-} else if (status == 500) {
-	status_text = "Internal Server Error";
-}
+				status_text = "No Content";
+			} else if (status == 400) {
+				status_text = "Bad Request";
+			} else if (status == 401) {
+				status_text = "Unauthorized";
+			} else if (status == 403) {
+				status_text = "Forbidden";
+			} else if (status == 404) {
+				status_text = "Not Found";
+			} else if (status == 405) {
+				status_text = "Method Not Allowed";
+			} else if (status == 500) {
+				status_text = "Internal Server Error";
+			}
 
-let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
-resp = resp + ("Content-Type: " + content_type + "\r\n");
-resp = resp + ("Content-Length: " + body.length + "\r\n");
-resp = resp + "Connection: close\r\n";
-resp = resp + "\r\n";
-resp = resp + body;
+			let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
+			resp = resp + ("Content-Type: " + content_type + "\r\n");
+			resp = resp + ("Content-Length: " + body.length + "\r\n");
+			resp = resp + "Connection: close\r\n";
+			resp = resp + "\r\n";
+			resp = resp + body;
 
-return resp;
-},
-};
+			return resp;
+		},
+	};
 }
 
 // ========== NOTES ==========

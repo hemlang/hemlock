@@ -73,32 +73,32 @@ export fn WebSocket(url: string) {
 			if (msg_type == WS_MSG_TEXT) {
 				message = { type: "text", data: __lws_msg_text(msg_ptr) };
 			} else if (msg_type == WS_MSG_BINARY) {
-	// Get binary data pointer and length
-	let bin_len = __lws_msg_len(msg_ptr);
-	// Would need to convert to buffer - for now just report length
-	message = { type: "binary", data: "binary data (" + bin_len + " bytes)" };
-} else if (msg_type == WS_MSG_PING) {
-	message = { type: "ping" };
-} else if (msg_type == WS_MSG_PONG) {
-	message = { type: "pong" };
-} else if (msg_type == WS_MSG_CLOSE) {
-	message = { type: "close" };
-	self.closed = true;
-} else {
-	message = { type: "unknown" };
-}
+				// Get binary data pointer and length
+				let bin_len = __lws_msg_len(msg_ptr);
+				// Would need to convert to buffer - for now just report length
+				message = { type: "binary", data: "binary data (" + bin_len + " bytes)" };
+			} else if (msg_type == WS_MSG_PING) {
+				message = { type: "ping" };
+			} else if (msg_type == WS_MSG_PONG) {
+				message = { type: "pong" };
+			} else if (msg_type == WS_MSG_CLOSE) {
+				message = { type: "close" };
+				self.closed = true;
+			} else {
+				message = { type: "unknown" };
+			}
 
-__lws_msg_free(msg_ptr);
-return message;
-},
-close: fn() {
+			__lws_msg_free(msg_ptr);
+			return message;
+		},
+		close: fn() {
 
-if (!self.closed) {
-	__lws_ws_close(self.handle);
-	self.closed = true;
-}
-},
-};
+			if (!self.closed) {
+				__lws_ws_close(self.handle);
+				self.closed = true;
+			}
+		},
+	};
 }
 
 // ========== WEBSOCKET SERVER ==========
@@ -169,39 +169,39 @@ export fn WebSocketServer(host: string, port: i32) {
 					if (msg_type == WS_MSG_TEXT) {
 						message = { type: "text", data: __lws_msg_text(msg_ptr) };
 					} else if (msg_type == WS_MSG_BINARY) {
-	let bin_len = __lws_msg_len(msg_ptr);
-	message = { type: "binary", data: "binary data (" + bin_len + " bytes)" };
-} else if (msg_type == WS_MSG_PING) {
-	message = { type: "ping" };
-} else if (msg_type == WS_MSG_PONG) {
-	message = { type: "pong" };
-} else if (msg_type == WS_MSG_CLOSE) {
-	message = { type: "close" };
-	self.closed = true;
-} else {
-	message = { type: "unknown" };
-}
+						let bin_len = __lws_msg_len(msg_ptr);
+						message = { type: "binary", data: "binary data (" + bin_len + " bytes)" };
+					} else if (msg_type == WS_MSG_PING) {
+						message = { type: "ping" };
+					} else if (msg_type == WS_MSG_PONG) {
+						message = { type: "pong" };
+					} else if (msg_type == WS_MSG_CLOSE) {
+						message = { type: "close" };
+						self.closed = true;
+					} else {
+						message = { type: "unknown" };
+					}
 
-__lws_msg_free(msg_ptr);
-return message;
-},
-close: fn() {
+					__lws_msg_free(msg_ptr);
+					return message;
+				},
+				close: fn() {
 
-if (!self.closed) {
-	__lws_ws_close(self.handle);
-	self.closed = true;
-}
-},
-};
-},
-close: fn() {
+					if (!self.closed) {
+						__lws_ws_close(self.handle);
+						self.closed = true;
+					}
+				},
+			};
+		},
+		close: fn() {
 
-if (!self.closed) {
-__lws_ws_server_close(self.handle);
-self.closed = true;
-}
-},
-};
+			if (!self.closed) {
+				__lws_ws_server_close(self.handle);
+				self.closed = true;
+			}
+		},
+	};
 }
 
 // ========== UTILITY FUNCTIONS ==========

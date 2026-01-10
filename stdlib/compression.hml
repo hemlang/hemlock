@@ -159,74 +159,74 @@ fn octal_to_int(s) {
 			let digit: i32 = code - 48;
 			result = result * 8 + digit;
 		} else if (ch == ' ' || ch == '\x00') {
-} else {
-	// Skip padding
-	break;
-}
-i = i + 1;
-}
-return result;
+		} else {
+			// Skip padding
+			break;
+		}
+		i = i + 1;
+	}
+	return result;
 }
 
 // Helper: Convert integer to octal string with padding
 fn int_to_octal(val, width) {
-if (val == 0) {
-let result = "0";
-while (result.length < width - 1) {
-	result = "0" + result;
-}
-return result;
-}
+	if (val == 0) {
+		let result = "0";
+		while (result.length < width - 1) {
+			result = "0" + result;
+		}
+		return result;
+	}
 
-let result = "";
-let v = val;
-while (v > 0) {
-let digit = v % 8;
-// Convert digit to character by adding '0'
-let ch: rune = 48 + digit;  // 48 is ASCII '0'
-result = ch + result;
-v = divi(v, 8);
-}
+	let result = "";
+	let v = val;
+	while (v > 0) {
+		let digit = v % 8;
+		// Convert digit to character by adding '0'
+		let ch: rune = 48 + digit;  // 48 is ASCII '0'
+		result = ch + result;
+		v = divi(v, 8);
+	}
 
-// Pad with zeros
-while (result.length < width - 1) {
-result = "0" + result;
-}
+	// Pad with zeros
+	while (result.length < width - 1) {
+		result = "0" + result;
+	}
 
-return result;
+	return result;
 }
 
 // Helper: Extract null-terminated string from buffer
 fn extract_string(buf, offset, max_len) {
-let result = "";
-let i = 0;
-while (i < max_len) {
-let byte_val = buf[offset + i];
-if (byte_val == 0) {
-	break;
-}
-let ch: rune = byte_val;
-result = result + ch;
-i = i + 1;
-}
-return result;
+	let result = "";
+	let i = 0;
+	while (i < max_len) {
+		let byte_val = buf[offset + i];
+		if (byte_val == 0) {
+			break;
+		}
+		let ch: rune = byte_val;
+		result = result + ch;
+		i = i + 1;
+	}
+	return result;
 }
 
 // Calculate tar header checksum
 fn tar_checksum(header) {
-let BLOCK_SIZE = 512;
-let sum: i32 = 0;
-let i = 0;
-while (i < BLOCK_SIZE) {
-// For checksum calculation, treat checksum field (offset 148-155) as spaces
-if (i >= 148 && i < 156) {
-	sum = sum + 32;  // ' '
-} else {
-	sum = sum + header[i];
-}
-i = i + 1;
-}
-return sum;
+	let BLOCK_SIZE = 512;
+	let sum: i32 = 0;
+	let i = 0;
+	while (i < BLOCK_SIZE) {
+		// For checksum calculation, treat checksum field (offset 148-155) as spaces
+		if (i >= 148 && i < 156) {
+			sum = sum + 32;  // ' '
+		} else {
+			sum = sum + header[i];
+		}
+		i = i + 1;
+	}
+	return sum;
 }
 
 // Create a TarWriter for building tar archives
@@ -569,14 +569,14 @@ export fn TarReader(data) {
 
 // Helper: Convert string to buffer
 fn string_to_buffer(s: string): buffer {
-let bytes = s.bytes();
-let buf = buffer(bytes.length);
-let i = 0;
-while (i < bytes.length) {
-buf[i] = bytes[i];
-i = i + 1;
-}
-return buf;
+	let bytes = s.bytes();
+	let buf = buffer(bytes.length);
+	let i = 0;
+	while (i < bytes.length) {
+		buf[i] = bytes[i];
+		i = i + 1;
+	}
+	return buf;
 }
 
 // Compress a file to gzip format

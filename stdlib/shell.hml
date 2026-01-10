@@ -244,19 +244,19 @@ fn split_lines(s: string): array {
 			lines.push(current);
 			current = "";
 		} else if (ch == '\r') {
-} else {
-	// Skip carriage return
-	current = current + ch;
-}
-i = i + 1;
-}
+		} else {
+			// Skip carriage return
+			current = current + ch;
+		}
+		i = i + 1;
+	}
 
-// Add last line if not empty
-if (current.length > 0) {
-lines.push(current);
-}
+	// Add last line if not empty
+	if (current.length > 0) {
+		lines.push(current);
+	}
 
-return lines;
+	return lines;
 }
 
 // ============================================================================
@@ -490,13 +490,13 @@ export fn redirect_all(command: string, file: string): string {
 
 // Execute command and return result object {output, exit_code}
 fn exec_cmd(cmd: string): object {
-return __exec(cmd);
+	return __exec(cmd);
 }
 
 fn getenv(name: string) {
-return __getenv(name);
+	return __getenv(name);
 }
 
 fn setenv(name: string, value: string) {
-__setenv(name, value);
+	__setenv(name, value);
 }

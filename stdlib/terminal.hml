@@ -269,36 +269,36 @@ export fn ProgressBar(total: i32, width?: 40) {
 				if (i < filled) {
 					bar = bar + "=";
 				} else if (i == filled) {
-	bar = bar + ">";
-} else {
-	bar = bar + " ";
-}
-i = i + 1;
-}
-bar = bar + "]";
+					bar = bar + ">";
+				} else {
+					bar = bar + " ";
+				}
+				i = i + 1;
+			}
+			bar = bar + "]";
 
-// Format percentage
-let percent_str = "" + percent;
-if (percent_str.length < 5) {
-let decimal_pos = percent_str.find(".");
-if (decimal_pos >= 0) {
-	percent_str = percent_str.substr(0, decimal_pos + 2);
-}
-}
+			// Format percentage
+			let percent_str = "" + percent;
+			if (percent_str.length < 5) {
+				let decimal_pos = percent_str.find(".");
+				if (decimal_pos >= 0) {
+					percent_str = percent_str.substr(0, decimal_pos + 2);
+				}
+			}
 
-// Print with carriage return to overwrite
-exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
-return null;
-},
-finish: fn() {
+			// Print with carriage return to overwrite
+			exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
+			return null;
+		},
+		finish: fn() {
 
-// Finish the progress bar
-current = total;
-self.render();
-print("");  // New line
-return null;
-},
-};
+			// Finish the progress bar
+			current = total;
+			self.render();
+			print("");  // New line
+			return null;
+		},
+	};
 }
 
 // Spinner animation

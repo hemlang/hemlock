@@ -195,359 +195,355 @@ fn lexer_read_basic_string(lex): string {
 				result = result + "\n";
 				lexer_advance(lex);
 			} else if (escape == 't') {
-	result = result + "\t";
-	lexer_advance(lex);
-} else if (escape == 'r') {
-	result = result + "\r";
-	lexer_advance(lex);
-} else if (escape == '\\') {
-	result = result + "\\";
-	lexer_advance(lex);
-} else if (escape == '"') {
-	result = result + "\"";
-	lexer_advance(lex);
-} else if (escape == 'b') {
-	// Backspace (ASCII 8)
-	let bs: rune = 8;
-	result = result + bs;
-	lexer_advance(lex);
-} else if (escape == 'f') {
-	// Form feed (ASCII 12)
-	let ff: rune = 12;
-	result = result + ff;
-	lexer_advance(lex);
-} else if (escape == 'u') {
-	// \uXXXX - 4 hex digits
-	lexer_advance(lex);  // consume 'u'
-	let codepoint = parse_unicode_escape(lex, 4);
-	result = result + codepoint_to_utf8(codepoint);
-} else if (escape == 'U') {
-	// \UXXXXXXXX - 8 hex digits
-	lexer_advance(lex);  // consume 'U'
-	let codepoint = parse_unicode_escape(lex, 8);
-	result = result + codepoint_to_utf8(codepoint);
-} else {
-	throw lexer_error(lex, "invalid escape sequence");
-}
-} else {
-result = result + ch;
-lexer_advance(lex);
-}
-}
+				result = result + "\t";
+				lexer_advance(lex);
+			} else if (escape == 'r') {
+				result = result + "\r";
+				lexer_advance(lex);
+			} else if (escape == '\\') {
+				result = result + "\\";
+				lexer_advance(lex);
+			} else if (escape == '"') {
+				result = result + "\"";
+				lexer_advance(lex);
+			} else if (escape == 'b') {
+				// Backspace (ASCII 8)
+				let bs: rune = 8;
+				result = result + bs;
+				lexer_advance(lex);
+			} else if (escape == 'f') {
+				// Form feed (ASCII 12)
+				let ff: rune = 12;
+				result = result + ff;
+				lexer_advance(lex);
+			} else if (escape == 'u') {
+				// \uXXXX - 4 hex digits
+				lexer_advance(lex);  // consume 'u'
+				let codepoint = parse_unicode_escape(lex, 4);
+				result = result + codepoint_to_utf8(codepoint);
+			} else if (escape == 'U') {
+				// \UXXXXXXXX - 8 hex digits
+				lexer_advance(lex);  // consume 'U'
+				let codepoint = parse_unicode_escape(lex, 8);
+				result = result + codepoint_to_utf8(codepoint);
+			} else {
+				throw lexer_error(lex, "invalid escape sequence");
+			}
+		} else {
+			result = result + ch;
+			lexer_advance(lex);
+		}
+	}
 
-if (lexer_peek(lex) != '"') {
-throw lexer_error(lex, "unterminated string");
-}
-lexer_advance(lex);
-return result;
+	if (lexer_peek(lex) != '"') {
+		throw lexer_error(lex, "unterminated string");
+	}
+	lexer_advance(lex);
+	return result;
 }
 
 fn lexer_read_literal_string(lex): string {
-lexer_advance(lex);
-let result = "";
+	lexer_advance(lex);
+	let result = "";
 
-while (lexer_peek(lex) != '\'' && lexer_peek(lex) != '\x00') {
-let ch = lexer_peek(lex);
-if (is_newline(ch)) {
-throw lexer_error(lex, "newline in literal string");
-}
-result = result + ch;
-lexer_advance(lex);
-}
+	while (lexer_peek(lex) != '\'' && lexer_peek(lex) != '\x00') {
+		let ch = lexer_peek(lex);
+		if (is_newline(ch)) {
+			throw lexer_error(lex, "newline in literal string");
+		}
+		result = result + ch;
+		lexer_advance(lex);
+	}
 
-if (lexer_peek(lex) != '\'') {
-throw lexer_error(lex, "unterminated string");
-}
-lexer_advance(lex);
-return result;
+	if (lexer_peek(lex) != '\'') {
+		throw lexer_error(lex, "unterminated string");
+	}
+	lexer_advance(lex);
+	return result;
 }
 
 fn lexer_read_multiline_basic_string(lex): string {
-lexer_advance(lex);
-lexer_advance(lex);
-lexer_advance(lex);
-
-if (lexer_peek(lex) == '\n') {
-lexer_advance(lex);
-} else if (lexer_peek(lex) == '\r' && lexer_peek_n(lex, 1) == '\n') {
 	lexer_advance(lex);
 	lexer_advance(lex);
-}
+	lexer_advance(lex);
 
-let result = "";
-while (true) {
-	if (lexer_peek(lex) == '\x00') {
-		throw lexer_error(lex, "unterminated multiline string");
-	}
-	if (lexer_peek(lex) == '"' && lexer_peek_n(lex, 1) == '"' && lexer_peek_n(
-		lex,
-		2,
-	) == '"') {
+	if (lexer_peek(lex) == '\n') {
+		lexer_advance(lex);
+	} else if (lexer_peek(lex) == '\r' && lexer_peek_n(lex, 1) == '\n') {
 		lexer_advance(lex);
 		lexer_advance(lex);
-		lexer_advance(lex);
-		break;
 	}
 
-	let ch = lexer_peek(lex);
-	if (ch == '\\') {
-		lexer_advance(lex);
-		let escape = lexer_peek(lex);
-		if (escape == '\n' || escape == '\r') {
-			while (is_whitespace(lexer_peek(lex)) || is_newline(lexer_peek(lex))) {
+	let result = "";
+	while (true) {
+		if (lexer_peek(lex) == '\x00') {
+			throw lexer_error(lex, "unterminated multiline string");
+		}
+		if (lexer_peek(lex) == '"' && lexer_peek_n(lex, 1) == '"' &&
+			lexer_peek_n(lex, 2) == '"') {
+			lexer_advance(lex);
+			lexer_advance(lex);
+			lexer_advance(lex);
+			break;
+		}
+
+		let ch = lexer_peek(lex);
+		if (ch == '\\') {
+			lexer_advance(lex);
+			let escape = lexer_peek(lex);
+			if (escape == '\n' || escape == '\r') {
+				while (is_whitespace(lexer_peek(lex)) || is_newline(lexer_peek(lex))) {
+					lexer_advance(lex);
+				}
+			} else if (escape == 'n') {
+				result = result + "\n";
 				lexer_advance(lex);
+			} else if (escape == 't') {
+				result = result + "\t";
+				lexer_advance(lex);
+			} else if (escape == 'r') {
+				result = result + "\r";
+				lexer_advance(lex);
+			} else if (escape == '\\') {
+				result = result + "\\";
+				lexer_advance(lex);
+			} else if (escape == '"') {
+				result = result + "\"";
+				lexer_advance(lex);
+			} else if (escape == 'b') {
+				// Backspace (ASCII 8)
+				let bs: rune = 8;
+				result = result + bs;
+				lexer_advance(lex);
+			} else if (escape == 'f') {
+				// Form feed (ASCII 12)
+				let ff: rune = 12;
+				result = result + ff;
+				lexer_advance(lex);
+			} else if (escape == 'u') {
+				// \uXXXX - 4 hex digits
+				lexer_advance(lex);
+				let codepoint = parse_unicode_escape(lex, 4);
+				result = result + codepoint_to_utf8(codepoint);
+			} else if (escape == 'U') {
+				// \UXXXXXXXX - 8 hex digits
+				lexer_advance(lex);
+				let codepoint = parse_unicode_escape(lex, 8);
+				result = result + codepoint_to_utf8(codepoint);
+			} else {
+				throw lexer_error(lex, "invalid escape sequence");
 			}
-		} else if (escape == 'n') {
-	result = result + "\n";
-	lexer_advance(lex);
-} else if (escape == 't') {
-	result = result + "\t";
-	lexer_advance(lex);
-} else if (escape == 'r') {
-	result = result + "\r";
-	lexer_advance(lex);
-} else if (escape == '\\') {
-	result = result + "\\";
-	lexer_advance(lex);
-} else if (escape == '"') {
-	result = result + "\"";
-	lexer_advance(lex);
-} else if (escape == 'b') {
-	// Backspace (ASCII 8)
-	let bs: rune = 8;
-	result = result + bs;
-	lexer_advance(lex);
-} else if (escape == 'f') {
-	// Form feed (ASCII 12)
-	let ff: rune = 12;
-	result = result + ff;
-	lexer_advance(lex);
-} else if (escape == 'u') {
-	// \uXXXX - 4 hex digits
-	lexer_advance(lex);
-	let codepoint = parse_unicode_escape(lex, 4);
-	result = result + codepoint_to_utf8(codepoint);
-} else if (escape == 'U') {
-	// \UXXXXXXXX - 8 hex digits
-	lexer_advance(lex);
-	let codepoint = parse_unicode_escape(lex, 8);
-	result = result + codepoint_to_utf8(codepoint);
-} else {
-	throw lexer_error(lex, "invalid escape sequence");
-}
-} else {
-result = result + ch;
-lexer_advance(lex);
-}
-}
-return result;
+		} else {
+			result = result + ch;
+			lexer_advance(lex);
+		}
+	}
+	return result;
 }
 
 fn lexer_read_multiline_literal_string(lex): string {
-lexer_advance(lex);
-lexer_advance(lex);
-lexer_advance(lex);
+	lexer_advance(lex);
+	lexer_advance(lex);
+	lexer_advance(lex);
 
-if (lexer_peek(lex) == '\n') {
-lexer_advance(lex);
-} else if (lexer_peek(lex) == '\r' && lexer_peek_n(lex, 1) == '\n') {
-	lexer_advance(lex);
-	lexer_advance(lex);
-}
+	if (lexer_peek(lex) == '\n') {
+		lexer_advance(lex);
+	} else if (lexer_peek(lex) == '\r' && lexer_peek_n(lex, 1) == '\n') {
+		lexer_advance(lex);
+		lexer_advance(lex);
+	}
 
-let result = "";
-while (true) {
-	if (lexer_peek(lex) == '\x00') {
-		throw lexer_error(lex, "unterminated multiline string");
+	let result = "";
+	while (true) {
+		if (lexer_peek(lex) == '\x00') {
+			throw lexer_error(lex, "unterminated multiline string");
+		}
+		if (lexer_peek(lex) == '\'' && lexer_peek_n(lex, 1) == '\'' &&
+			lexer_peek_n(lex, 2) == '\'') {
+			lexer_advance(lex);
+			lexer_advance(lex);
+			lexer_advance(lex);
+			break;
+		}
+		result = result + lexer_peek(lex);
+		lexer_advance(lex);
 	}
-	if (lexer_peek(lex) == '\'' && lexer_peek_n(lex, 1) == '\'' && lexer_peek_n(
-		lex,
-		2,
-	) == '\'') {
-		lexer_advance(lex);
-		lexer_advance(lex);
-		lexer_advance(lex);
-		break;
-	}
-	result = result + lexer_peek(lex);
-	lexer_advance(lex);
-}
-return result;
+	return result;
 }
 
 fn lexer_read_number(lex): object {
-let start = lex["pos"];
-let is_float = false;
-let is_hex = false;
-let is_oct = false;
-let is_bin = false;
+	let start = lex["pos"];
+	let is_float = false;
+	let is_hex = false;
+	let is_oct = false;
+	let is_bin = false;
 
-if (lexer_peek(lex) == '+' || lexer_peek(lex) == '-') {
-	lexer_advance(lex);
-}
-
-if (lexer_peek(lex) == '0') {
-	let next = lexer_peek_n(lex, 1);
-	if (next == 'x' || next == 'X') {
-		is_hex = true;
-		lexer_advance(lex);
-		lexer_advance(lex);
-	} else if (next == 'o' || next == 'O') {
-	is_oct = true;
-	lexer_advance(lex);
-	lexer_advance(lex);
-} else if (next == 'b' || next == 'B') {
-	is_bin = true;
-	lexer_advance(lex);
-	lexer_advance(lex);
-}
-}
-
-if (is_hex) {
-while (is_hex_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
-	lexer_advance(lex);
-}
-} else if (is_oct) {
-	while (lexer_peek(lex) >= '0' && lexer_peek(lex) <= '7' || lexer_peek(lex) == '_') {
-		lexer_advance(lex);
-	}
-} else if (is_bin) {
-	while (lexer_peek(lex) == '0' || lexer_peek(lex) == '1' || lexer_peek(lex) == '_') {
-		lexer_advance(lex);
-	}
-} else {
-	while (is_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
+	if (lexer_peek(lex) == '+' || lexer_peek(lex) == '-') {
 		lexer_advance(lex);
 	}
 
-	if (lexer_peek(lex) == '.' && is_digit(lexer_peek_n(lex, 1))) {
-		is_float = true;
-		lexer_advance(lex);
+	if (lexer_peek(lex) == '0') {
+		let next = lexer_peek_n(lex, 1);
+		if (next == 'x' || next == 'X') {
+			is_hex = true;
+			lexer_advance(lex);
+			lexer_advance(lex);
+		} else if (next == 'o' || next == 'O') {
+			is_oct = true;
+			lexer_advance(lex);
+			lexer_advance(lex);
+		} else if (next == 'b' || next == 'B') {
+			is_bin = true;
+			lexer_advance(lex);
+			lexer_advance(lex);
+		}
+	}
+
+	if (is_hex) {
+		while (is_hex_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
+			lexer_advance(lex);
+		}
+	} else if (is_oct) {
+		while (lexer_peek(lex) >= '0' && lexer_peek(lex) <= '7' || lexer_peek(lex) == '_') {
+			lexer_advance(lex);
+		}
+	} else if (is_bin) {
+		while (lexer_peek(lex) == '0' || lexer_peek(lex) == '1' || lexer_peek(lex) == '_') {
+			lexer_advance(lex);
+		}
+	} else {
 		while (is_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
 			lexer_advance(lex);
 		}
+
+		if (lexer_peek(lex) == '.' && is_digit(lexer_peek_n(lex, 1))) {
+			is_float = true;
+			lexer_advance(lex);
+			while (is_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
+				lexer_advance(lex);
+			}
+		}
+
+		if (lexer_peek(lex) == 'e' || lexer_peek(lex) == 'E') {
+			is_float = true;
+			lexer_advance(lex);
+			if (lexer_peek(lex) == '+' || lexer_peek(lex) == '-') {
+				lexer_advance(lex);
+			}
+			while (is_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
+				lexer_advance(lex);
+			}
+		}
 	}
 
-	if (lexer_peek(lex) == 'e' || lexer_peek(lex) == 'E') {
-		is_float = true;
-		lexer_advance(lex);
-		if (lexer_peek(lex) == '+' || lexer_peek(lex) == '-') {
-			lexer_advance(lex);
-		}
-		while (is_digit(lexer_peek(lex)) || lexer_peek(lex) == '_') {
-			lexer_advance(lex);
-		}
+	let num_str = lex["input"].slice(start, lex["pos"]);
+	num_str = num_str.replace_all("_", "");
+
+	if (is_float) {
+		return { kind: TOK_FLOAT, value: parse_float(num_str) };
+	} else if (is_hex) {
+		return { kind: TOK_INTEGER, value: parse_int(num_str, 16) };
+	} else if (is_oct) {
+		return { kind: TOK_INTEGER, value: parse_int(num_str, 8) };
+	} else if (is_bin) {
+		return { kind: TOK_INTEGER, value: parse_int(num_str, 2) };
+	} else {
+		return { kind: TOK_INTEGER, value: parse_int(num_str, 10) };
 	}
-}
-
-let num_str = lex["input"].slice(start, lex["pos"]);
-num_str = num_str.replace_all("_", "");
-
-if (is_float) {
-	return { kind: TOK_FLOAT, value: parse_float(num_str) };
-} else if (is_hex) {
-	return { kind: TOK_INTEGER, value: parse_int(num_str, 16) };
-} else if (is_oct) {
-	return { kind: TOK_INTEGER, value: parse_int(num_str, 8) };
-} else if (is_bin) {
-	return { kind: TOK_INTEGER, value: parse_int(num_str, 2) };
-} else {
-	return { kind: TOK_INTEGER, value: parse_int(num_str, 10) };
-}
 }
 
 fn lexer_read_bare_key(lex): string {
-let result = "";
-while (is_bare_key_char(lexer_peek(lex))) {
-	result = result + lexer_peek(lex);
-	lexer_advance(lex);
-}
-return result;
+	let result = "";
+	while (is_bare_key_char(lexer_peek(lex))) {
+		result = result + lexer_peek(lex);
+		lexer_advance(lex);
+	}
+	return result;
 }
 
 fn lexer_next_token(lex): object {
-lexer_skip_whitespace(lex);
-lexer_skip_comment(lex);
+	lexer_skip_whitespace(lex);
+	lexer_skip_comment(lex);
 
-let ch = lexer_peek(lex);
+	let ch = lexer_peek(lex);
 
-if (ch == '\x00') {
-	return { kind: TOK_EOF };
-}
+	if (ch == '\x00') {
+		return { kind: TOK_EOF };
+	}
 
-if (is_newline(ch)) {
-	lexer_advance(lex);
-	if (ch == '\r' && lexer_peek(lex) == '\n') {
+	if (is_newline(ch)) {
 		lexer_advance(lex);
+		if (ch == '\r' && lexer_peek(lex) == '\n') {
+			lexer_advance(lex);
+		}
+		return { kind: TOK_NEWLINE };
 	}
-	return { kind: TOK_NEWLINE };
-}
 
-if (ch == '[') {
-	lexer_advance(lex);
-	return { kind: TOK_LBRACKET };
-}
-if (ch == ']') {
-	lexer_advance(lex);
-	return { kind: TOK_RBRACKET };
-}
-if (ch == '{') {
-	lexer_advance(lex);
-	return { kind: TOK_LBRACE };
-}
-if (ch == '}') {
-	lexer_advance(lex);
-	return { kind: TOK_RBRACE };
-}
-if (ch == '=') {
-	lexer_advance(lex);
-	return { kind: TOK_EQUALS };
-}
-if (ch == '.') {
-	lexer_advance(lex);
-	return { kind: TOK_DOT };
-}
-if (ch == ',') {
-	lexer_advance(lex);
-	return { kind: TOK_COMMA };
-}
+	if (ch == '[') {
+		lexer_advance(lex);
+		return { kind: TOK_LBRACKET };
+	}
+	if (ch == ']') {
+		lexer_advance(lex);
+		return { kind: TOK_RBRACKET };
+	}
+	if (ch == '{') {
+		lexer_advance(lex);
+		return { kind: TOK_LBRACE };
+	}
+	if (ch == '}') {
+		lexer_advance(lex);
+		return { kind: TOK_RBRACE };
+	}
+	if (ch == '=') {
+		lexer_advance(lex);
+		return { kind: TOK_EQUALS };
+	}
+	if (ch == '.') {
+		lexer_advance(lex);
+		return { kind: TOK_DOT };
+	}
+	if (ch == ',') {
+		lexer_advance(lex);
+		return { kind: TOK_COMMA };
+	}
 
-if (ch == '"') {
-	if (lexer_peek_n(lex, 1) == '"' && lexer_peek_n(lex, 2) == '"') {
-		return { kind: TOK_STRING, value: lexer_read_multiline_basic_string(lex) };
+	if (ch == '"') {
+		if (lexer_peek_n(lex, 1) == '"' && lexer_peek_n(lex, 2) == '"') {
+			return { kind: TOK_STRING, value: lexer_read_multiline_basic_string(lex) };
+		}
+		return { kind: TOK_STRING, value: lexer_read_basic_string(lex) };
 	}
-	return { kind: TOK_STRING, value: lexer_read_basic_string(lex) };
-}
 
-if (ch == '\'') {
-	if (lexer_peek_n(lex, 1) == '\'' && lexer_peek_n(lex, 2) == '\'') {
-		return { kind: TOK_STRING, value: lexer_read_multiline_literal_string(lex) };
+	if (ch == '\'') {
+		if (lexer_peek_n(lex, 1) == '\'' && lexer_peek_n(lex, 2) == '\'') {
+			return { kind: TOK_STRING, value: lexer_read_multiline_literal_string(lex) };
+		}
+		return { kind: TOK_STRING, value: lexer_read_literal_string(lex) };
 	}
-	return { kind: TOK_STRING, value: lexer_read_literal_string(lex) };
-}
 
-if (is_digit(ch) || (ch == '+' || ch == '-') && is_digit(lexer_peek_n(lex, 1))) {
-	return lexer_read_number(lex);
-}
+	if (is_digit(ch) || (ch == '+' || ch == '-') && is_digit(lexer_peek_n(lex, 1))) {
+		return lexer_read_number(lex);
+	}
 
-if (is_bare_key_char(ch)) {
-	let key = lexer_read_bare_key(lex);
-	if (key == "true") {
-		return { kind: TOK_BOOL, value: true };
+	if (is_bare_key_char(ch)) {
+		let key = lexer_read_bare_key(lex);
+		if (key == "true") {
+			return { kind: TOK_BOOL, value: true };
+		}
+		if (key == "false") {
+			return { kind: TOK_BOOL, value: false };
+		}
+		if (key == "inf") {
+			return { kind: TOK_FLOAT, value: 1 / 0 };
+		}
+		if (key == "nan") {
+			return { kind: TOK_FLOAT, value: 0 / 0 };
+		}
+		return { kind: TOK_KEY, value: key };
 	}
-	if (key == "false") {
-		return { kind: TOK_BOOL, value: false };
-	}
-	if (key == "inf") {
-		return { kind: TOK_FLOAT, value: 1 / 0 };
-	}
-	if (key == "nan") {
-		return { kind: TOK_FLOAT, value: 0 / 0 };
-	}
-	return { kind: TOK_KEY, value: key };
-}
 
-throw lexer_error(lex, "unexpected character: " + ch);
+	throw lexer_error(lex, "unexpected character: " + ch);
 }
 
 // ============================================================================
@@ -555,239 +551,248 @@ throw lexer_error(lex, "unexpected character: " + ch);
 // ============================================================================
 
 fn create_parser(input: string): object {
-let lex = create_lexer(input);
-return { lexer: lex, current: lexer_next_token(lex), result: {} };
+	let lex = create_lexer(input);
+	return { lexer: lex, current: lexer_next_token(lex), result: {} };
 }
 
 fn parser_error(parser, msg): string {
-return lexer_error(parser["lexer"], msg);
+	return lexer_error(parser["lexer"], msg);
 }
 
 fn parser_current(parser): object {
-return parser["current"];
+	return parser["current"];
 }
 
 fn parser_advance(parser): object {
-let tok = parser["current"];
-parser["current"] = lexer_next_token(parser["lexer"]);
-return tok;
+	let tok = parser["current"];
+	parser["current"] = lexer_next_token(parser["lexer"]);
+	return tok;
 }
 
 fn parser_expect(parser, tok_type): object {
-let tok = parser["current"];
-if (tok["kind"] != tok_type) {
-	throw parser_error(parser, "expected " + tok_type + ", got " + tok["kind"]);
-}
-parser_advance(parser);
-return tok;
+	let tok = parser["current"];
+	if (tok["kind"] != tok_type) {
+		throw parser_error(parser, "expected " + tok_type + ", got " + tok["kind"]);
+	}
+	parser_advance(parser);
+	return tok;
 }
 
 fn parser_skip_newlines(parser) {
-while (parser_current(parser)["kind"] == TOK_NEWLINE) {
-	parser_advance(parser);
-}
+	while (parser_current(parser)["kind"] == TOK_NEWLINE) {
+		parser_advance(parser);
+	}
 }
 
 fn parser_read_key(parser): array {
-let result: array = [];
+	let result: array = [];
 
-let tok = parser_current(parser);
-if (tok["kind"] == TOK_KEY) {
-	result.push(tok["value"]);
-	parser_advance(parser);
-} else if (tok["kind"] == TOK_STRING) {
-	result.push(tok["value"]);
-	parser_advance(parser);
-} else {
-	throw parser_error(parser, "expected key");
-}
-
-while (parser_current(parser)["kind"] == TOK_DOT) {
-	parser_advance(parser);
-	tok = parser_current(parser);
+	let tok = parser_current(parser);
 	if (tok["kind"] == TOK_KEY) {
 		result.push(tok["value"]);
 		parser_advance(parser);
 	} else if (tok["kind"] == TOK_STRING) {
-	result.push(tok["value"]);
-	parser_advance(parser);
-} else {
-	throw parser_error(parser, "expected key after dot");
-}
-}
+		result.push(tok["value"]);
+		parser_advance(parser);
+	} else {
+		throw parser_error(parser, "expected key");
+	}
 
-return result;
+	while (parser_current(parser)["kind"] == TOK_DOT) {
+		parser_advance(parser);
+		tok = parser_current(parser);
+		if (tok["kind"] == TOK_KEY) {
+			result.push(tok["value"]);
+			parser_advance(parser);
+		} else if (tok["kind"] == TOK_STRING) {
+			result.push(tok["value"]);
+			parser_advance(parser);
+		} else {
+			throw parser_error(parser, "expected key after dot");
+		}
+	}
+
+	return result;
 }
 
 fn parser_read_value(parser) {
-let tok = parser_current(parser);
+	let tok = parser_current(parser);
 
-if (tok["kind"] == TOK_STRING) {
-parser_advance(parser);
-return tok["value"];
-}
-if (tok["kind"] == TOK_INTEGER) {
-parser_advance(parser);
-return tok["value"];
-}
-if (tok["kind"] == TOK_FLOAT) {
-parser_advance(parser);
-return tok["value"];
-}
-if (tok["kind"] == TOK_BOOL) {
-parser_advance(parser);
-return tok["value"];
-}
-if (tok["kind"] == TOK_LBRACKET) {
-return parser_read_array(parser);
-}
-if (tok["kind"] == TOK_LBRACE) {
-return parser_read_inline_table(parser);
-}
+	if (tok["kind"] == TOK_STRING) {
+		parser_advance(parser);
+		return tok["value"];
+	}
+	if (tok["kind"] == TOK_INTEGER) {
+		parser_advance(parser);
+		return tok["value"];
+	}
+	if (tok["kind"] == TOK_FLOAT) {
+		parser_advance(parser);
+		return tok["value"];
+	}
+	if (tok["kind"] == TOK_BOOL) {
+		parser_advance(parser);
+		return tok["value"];
+	}
+	if (tok["kind"] == TOK_LBRACKET) {
+		return parser_read_array(parser);
+	}
+	if (tok["kind"] == TOK_LBRACE) {
+		return parser_read_inline_table(parser);
+	}
 
-throw parser_error(parser, "expected value, got " + tok["kind"]);
+	throw parser_error(parser, "expected value, got " + tok["kind"]);
 }
 
 fn parser_read_array(parser): array {
-parser_expect(parser, TOK_LBRACKET);
-let arr: array = [];
+	parser_expect(parser, TOK_LBRACKET);
+	let arr: array = [];
 
-parser_skip_newlines(parser);
-
-while (parser_current(parser)["kind"] != TOK_RBRACKET) {
-arr.push(parser_read_value(parser));
-parser_skip_newlines(parser);
-if (parser_current(parser)["kind"] == TOK_COMMA) {
-	parser_advance(parser);
 	parser_skip_newlines(parser);
-} else {
-	break;
-}
-}
 
-parser_expect(parser, TOK_RBRACKET);
-return arr;
+	while (parser_current(parser)["kind"] != TOK_RBRACKET) {
+		arr.push(parser_read_value(parser));
+		parser_skip_newlines(parser);
+		if (parser_current(parser)["kind"] == TOK_COMMA) {
+			parser_advance(parser);
+			parser_skip_newlines(parser);
+		} else {
+			break;
+		}
+	}
+
+	parser_expect(parser, TOK_RBRACKET);
+	return arr;
 }
 
 fn parser_read_inline_table(parser): object {
-parser_expect(parser, TOK_LBRACE);
-let table = {};
+	parser_expect(parser, TOK_LBRACE);
+	let table = {};
 
-if (parser_current(parser)["kind"] != TOK_RBRACE) {
-while (true) {
-	let key_parts = parser_read_key(parser);
-	parser_expect(parser, TOK_EQUALS);
-	let value = parser_read_value(parser);
-	set_nested(table, key_parts, value);
+	if (parser_current(parser)["kind"] != TOK_RBRACE) {
+		while (true) {
+			let key_parts = parser_read_key(parser);
+			parser_expect(parser, TOK_EQUALS);
+			let value = parser_read_value(parser);
+			set_nested(table, key_parts, value);
 
-	if (parser_current(parser)["kind"] == TOK_COMMA) {
-		parser_advance(parser);
-	} else {
-		break;
+			if (parser_current(parser)["kind"] == TOK_COMMA) {
+				parser_advance(parser);
+			} else {
+				break;
+			}
+		}
 	}
-}
-}
 
-parser_expect(parser, TOK_RBRACE);
-return table;
+	parser_expect(parser, TOK_RBRACE);
+	return table;
 }
 
 fn set_nested(obj, key_parts, value) {
-let current = obj;
-let i = 0;
-while (i < key_parts.length - 1) {
-let key = key_parts[i];
-if (current[key] == null) {
-	current[key] = {};
-}
-current = current[key];
-i = i + 1;
-}
-current[key_parts[key_parts.length - 1]] = value;
+	let current = obj;
+	let i = 0;
+	while (i < key_parts.length - 1) {
+		let key = key_parts[i];
+		if (current[key] == null) {
+			current[key] = {};
+		}
+		current = current[key];
+		i = i + 1;
+	}
+	current[key_parts[key_parts.length - 1]] = value;
 }
 
 fn get_or_create_table(obj, key_parts): object {
-let current = obj;
-let i = 0;
-while (i < key_parts.length) {
-let key = key_parts[i];
-if (current[key] == null) {
-	current[key] = {};
-} else if (typeof(current[key]) != "object") {
-	throw "cannot redefine key as table";
-}
-current = current[key];
-i = i + 1;
-}
-return current;
+	let current = obj;
+	let i = 0;
+	while (i < key_parts.length) {
+		let key = key_parts[i];
+		if (current[key] == null) {
+			current[key] = {};
+		} else if (typeof(current[key]) != "object") {
+			throw "cannot redefine key as table";
+		}
+		current = current[key];
+		i = i + 1;
+	}
+	return current;
 }
 
 fn get_or_create_array_table(obj, key_parts): object {
-let current = obj;
-let i = 0;
-while (i < key_parts.length - 1) {
-let key = key_parts[i];
-if (current[key] == null) {
-	current[key] = {};
-}
-current = current[key];
-i = i + 1;
-}
+	let current = obj;
+	let i = 0;
+	while (i < key_parts.length - 1) {
+		let key = key_parts[i];
+		if (current[key] == null) {
+			current[key] = {};
+		}
+		current = current[key];
+		i = i + 1;
+	}
 
-let last_key = key_parts[key_parts.length - 1];
-if (current[last_key] == null) {
-current[last_key] = [];
-}
+	let last_key = key_parts[key_parts.length - 1];
+	if (current[last_key] == null) {
+		current[last_key] = [];
+	}
 
-if (typeof(current[last_key]) != "array") {
-throw "cannot redefine key as array of tables";
-}
+	if (typeof(current[last_key]) != "array") {
+		throw "cannot redefine key as array of tables";
+	}
 
-let new_table = {};
-current[last_key].push(new_table);
-return new_table;
+	let new_table = {};
+	current[last_key].push(new_table);
+	return new_table;
 }
 
 fn parser_parse(parser): object {
-let result = parser["result"];
-let current_table = result;
+	let result = parser["result"];
+	let current_table = result;
 
-while (parser_current(parser)["kind"] != TOK_EOF) {
-parser_skip_newlines(parser);
+	while (parser_current(parser)["kind"] != TOK_EOF) {
+		parser_skip_newlines(parser);
 
-if (parser_current(parser)["kind"] == TOK_EOF) {
-	break;
-}
+		if (parser_current(parser)["kind"] == TOK_EOF) {
+			break;
+		}
 
-if (parser_current(parser)["kind"] == TOK_LBRACKET) {
-	parser_advance(parser);
+		if (parser_current(parser)["kind"] == TOK_LBRACKET) {
+			parser_advance(parser);
 
-	if (parser_current(parser)["kind"] == TOK_LBRACKET) {
-		parser_advance(parser);
-		let key_parts = parser_read_key(parser);
-		parser_expect(parser, TOK_RBRACKET);
-		parser_expect(parser, TOK_RBRACKET);
-		current_table = get_or_create_array_table(result, key_parts);
-	} else {
-		let key_parts = parser_read_key(parser);
-		parser_expect(parser, TOK_RBRACKET);
-		current_table = get_or_create_table(result, key_parts);
+			if (parser_current(parser)["kind"] == TOK_LBRACKET) {
+				parser_advance(parser);
+				let key_parts = parser_read_key(parser);
+				parser_expect(parser, TOK_RBRACKET);
+				parser_expect(parser, TOK_RBRACKET);
+				current_table = get_or_create_array_table(
+					result,
+					key_parts,
+				);
+			} else {
+				let key_parts = parser_read_key(parser);
+				parser_expect(parser, TOK_RBRACKET);
+				current_table = get_or_create_table(result, key_parts);
+			}
+		} else if (parser_current(parser)["kind"] == TOK_KEY ||
+			parser_current(parser)["kind"] == TOK_STRING) {
+			let key_parts = parser_read_key(parser);
+			parser_expect(parser, TOK_EQUALS);
+			let value = parser_read_value(parser);
+			set_nested(current_table, key_parts, value);
+		} else if (parser_current(parser)["kind"] != TOK_NEWLINE &&
+			parser_current(parser)["kind"] != TOK_EOF) {
+			throw parser_error(
+				parser,
+				"unexpected token: " + parser_current(parser)["kind"],
+			);
+		}
+
+		if (parser_current(parser)["kind"] != TOK_NEWLINE && parser_current(parser)["kind"] !=
+			TOK_EOF) {
+			throw parser_error(parser, "expected newline after statement");
+		}
 	}
-} else if (parser_current(parser)["kind"] == TOK_KEY || parser_current(parser)["kind"] == TOK_STRING) {
-	let key_parts = parser_read_key(parser);
-	parser_expect(parser, TOK_EQUALS);
-	let value = parser_read_value(parser);
-	set_nested(current_table, key_parts, value);
-} else if (parser_current(parser)["kind"] != TOK_NEWLINE && parser_current(parser)["kind"] != TOK_EOF) {
-	throw parser_error(parser, "unexpected token: " + parser_current(parser)["kind"]);
-}
 
-if (parser_current(parser)["kind"] != TOK_NEWLINE && parser_current(parser)["kind"] != TOK_EOF) {
-	throw parser_error(parser, "expected newline after statement");
-}
-}
-
-return result;
+	return result;
 }
 
 // ============================================================================
@@ -795,173 +800,173 @@ return result;
 // ============================================================================
 
 fn stringify_value(value, indent): string {
-if (value == null) {
-return "null";
-}
+	if (value == null) {
+		return "null";
+	}
 
-let t = typeof(value);
+	let t = typeof(value);
 
-if (t == "string") {
-return stringify_string(value);
-}
-if (t == "i32" || t == "i64" || t == "integer") {
-return "" + value;
-}
-if (t == "f32" || t == "f64" || t == "number" || t == "float") {
-return "" + value;
-}
-if (t == "bool") {
-return value ? "true" : "false";
-}
-if (t == "array") {
-return stringify_array(value, indent);
-}
-if (t == "object") {
-return stringify_inline_table(value);
-}
+	if (t == "string") {
+		return stringify_string(value);
+	}
+	if (t == "i32" || t == "i64" || t == "integer") {
+		return "" + value;
+	}
+	if (t == "f32" || t == "f64" || t == "number" || t == "float") {
+		return "" + value;
+	}
+	if (t == "bool") {
+		return value ? "true" : "false";
+	}
+	if (t == "array") {
+		return stringify_array(value, indent);
+	}
+	if (t == "object") {
+		return stringify_inline_table(value);
+	}
 
-return "\"" + value + "\"";
+	return "\"" + value + "\"";
 }
 
 fn stringify_string(s): string {
-let result = "\"";
-let i = 0;
-while (i < s.length) {
-let ch = s.char_at(i);
-if (ch == '"') {
-	result = result + "\\\"";
-} else if (ch == '\\') {
-	result = result + "\\\\";
-} else if (ch == '\n') {
-	result = result + "\\n";
-} else if (ch == '\r') {
-	result = result + "\\r";
-} else if (ch == '\t') {
-	result = result + "\\t";
-} else {
-	result = result + ch;
-}
-i = i + 1;
-}
-return result + "\"";
+	let result = "\"";
+	let i = 0;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		if (ch == '"') {
+			result = result + "\\\"";
+		} else if (ch == '\\') {
+			result = result + "\\\\";
+		} else if (ch == '\n') {
+			result = result + "\\n";
+		} else if (ch == '\r') {
+			result = result + "\\r";
+		} else if (ch == '\t') {
+			result = result + "\\t";
+		} else {
+			result = result + ch;
+		}
+		i = i + 1;
+	}
+	return result + "\"";
 }
 
 fn stringify_array(arr, indent): string {
-if (arr.length == 0) {
-return "[]";
-}
-
-let all_primitive = true;
-let i = 0;
-while (i < arr.length) {
-let t = typeof(arr[i]);
-if (t == "array" || t == "object") {
-	all_primitive = false;
-	break;
-}
-i = i + 1;
-}
-
-if (all_primitive && arr.length <= 5) {
-let result = "[";
-i = 0;
-while (i < arr.length) {
-	if (i > 0) {
-		result = result + ", ";
+	if (arr.length == 0) {
+		return "[]";
 	}
-	result = result + stringify_value(arr[i], indent);
-	i = i + 1;
-}
-return result + "]";
-} else {
-let result = "[\n";
-let next_indent = indent + "  ";
-i = 0;
-while (i < arr.length) {
-	result = result + next_indent + stringify_value(arr[i], next_indent);
-	if (i < arr.length - 1) {
-		result = result + ",";
+
+	let all_primitive = true;
+	let i = 0;
+	while (i < arr.length) {
+		let t = typeof(arr[i]);
+		if (t == "array" || t == "object") {
+			all_primitive = false;
+			break;
+		}
+		i = i + 1;
 	}
-	result = result + "\n";
-	i = i + 1;
-}
-return result + indent + "]";
-}
+
+	if (all_primitive && arr.length <= 5) {
+		let result = "[";
+		i = 0;
+		while (i < arr.length) {
+			if (i > 0) {
+				result = result + ", ";
+			}
+			result = result + stringify_value(arr[i], indent);
+			i = i + 1;
+		}
+		return result + "]";
+	} else {
+		let result = "[\n";
+		let next_indent = indent + "  ";
+		i = 0;
+		while (i < arr.length) {
+			result = result + next_indent + stringify_value(arr[i], next_indent);
+			if (i < arr.length - 1) {
+				result = result + ",";
+			}
+			result = result + "\n";
+			i = i + 1;
+		}
+		return result + indent + "]";
+	}
 }
 
 fn stringify_inline_table(obj): string {
-let result = "{ ";
-let obj_keys = obj.keys();
-let i = 0;
-while (i < obj_keys.length) {
-if (i > 0) {
-	result = result + ", ";
-}
-let key = obj_keys[i];
-result = result + key + " = " + stringify_value(obj[key], "");
-i = i + 1;
-}
-return result + " }";
+	let result = "{ ";
+	let obj_keys = obj.keys();
+	let i = 0;
+	while (i < obj_keys.length) {
+		if (i > 0) {
+			result = result + ", ";
+		}
+		let key = obj_keys[i];
+		result = result + key + " = " + stringify_value(obj[key], "");
+		i = i + 1;
+	}
+	return result + " }";
 }
 
 fn has_nested_tables(arr): bool {
-let i = 0;
-while (i < arr.length) {
-if (typeof(arr[i]) == "object") {
-	return true;
-}
-i = i + 1;
-}
-return false;
+	let i = 0;
+	while (i < arr.length) {
+		if (typeof(arr[i]) == "object") {
+			return true;
+		}
+		i = i + 1;
+	}
+	return false;
 }
 
 fn stringify_table(obj, prefix): string {
-let result = "";
-let obj_keys = obj.keys();
+	let result = "";
+	let obj_keys = obj.keys();
 
-// Simple values first
-let i = 0;
-while (i < obj_keys.length) {
-let key = obj_keys[i];
-let value = obj[key];
-let t = typeof(value);
-if (t != "object" && (t != "array" || !has_nested_tables(value))) {
-	result = result + key + " = " + stringify_value(value, "") + "\n";
-}
-i = i + 1;
-}
-
-// Nested tables
-i = 0;
-while (i < obj_keys.length) {
-let key = obj_keys[i];
-let value = obj[key];
-if (typeof(value) == "object") {
-	let new_prefix = prefix == "" ? key : prefix + "." + key;
-	result = result + "\n[" + new_prefix + "]\n";
-	result = result + stringify_table(value, new_prefix);
-}
-i = i + 1;
-}
-
-// Arrays of tables
-i = 0;
-while (i < obj_keys.length) {
-let key = obj_keys[i];
-let value = obj[key];
-if (typeof(value) == "array" && has_nested_tables(value)) {
-	let new_prefix = prefix == "" ? key : prefix + "." + key;
-	let j = 0;
-	while (j < value.length) {
-		result = result + "\n[[" + new_prefix + "]]\n";
-		result = result + stringify_table(value[j], new_prefix);
-		j = j + 1;
+	// Simple values first
+	let i = 0;
+	while (i < obj_keys.length) {
+		let key = obj_keys[i];
+		let value = obj[key];
+		let t = typeof(value);
+		if (t != "object" && (t != "array" || !has_nested_tables(value))) {
+			result = result + key + " = " + stringify_value(value, "") + "\n";
+		}
+		i = i + 1;
 	}
-}
-i = i + 1;
-}
 
-return result;
+	// Nested tables
+	i = 0;
+	while (i < obj_keys.length) {
+		let key = obj_keys[i];
+		let value = obj[key];
+		if (typeof(value) == "object") {
+			let new_prefix = prefix == "" ? key : prefix + "." + key;
+			result = result + "\n[" + new_prefix + "]\n";
+			result = result + stringify_table(value, new_prefix);
+		}
+		i = i + 1;
+	}
+
+	// Arrays of tables
+	i = 0;
+	while (i < obj_keys.length) {
+		let key = obj_keys[i];
+		let value = obj[key];
+		if (typeof(value) == "array" && has_nested_tables(value)) {
+			let new_prefix = prefix == "" ? key : prefix + "." + key;
+			let j = 0;
+			while (j < value.length) {
+				result = result + "\n[[" + new_prefix + "]]\n";
+				result = result + stringify_table(value[j], new_prefix);
+				j = j + 1;
+			}
+		}
+		i = i + 1;
+	}
+
+	return result;
 }
 
 // ============================================================================
@@ -1024,58 +1029,58 @@ export fn set(obj, path: string, value) {
 
 // Helper to parse numbers
 fn parse_int(s: string, base: i32): i64 {
-// For base 10, use deserialize
-if (base == 10) {
-return s.deserialize();
-}
-
-// For other bases, parse manually
-let result: i64 = 0;
-let negative = false;
-let i = 0;
-let code_0: i32 = '0';
-let code_a: i32 = 'a';
-let code_A: i32 = 'A';
-
-// Handle sign
-if (s.length > 0 && s.char_at(0) == '-') {
-negative = true;
-i = 1;
-} else if (s.length > 0 && s.char_at(0) == '+') {
-	i = 1;
-}
-
-// Skip base prefix (0x, 0o, 0b)
-if (i + 1 < s.length && s.char_at(i) == '0') {
-	let next = s.char_at(i + 1);
-	if (next == 'x' || next == 'X' || next == 'o' || next == 'O' || next == 'b' || next == 'B') {
-		i = i + 2;
+	// For base 10, use deserialize
+	if (base == 10) {
+		return s.deserialize();
 	}
-}
 
-while (i < s.length) {
-	let ch = s.char_at(i);
-	let code: i32 = ch;
-	let digit: i32 = 0;
+	// For other bases, parse manually
+	let result: i64 = 0;
+	let negative = false;
+	let i = 0;
+	let code_0: i32 = '0';
+	let code_a: i32 = 'a';
+	let code_A: i32 = 'A';
 
-	if (code >= code_0 && code <= code_0 + 9) {
-		digit = code - code_0;
-	} else if (code >= code_a && code <= code_a + 5) {
-	digit = code - code_a + 10;
-} else if (code >= code_A && code <= code_A + 5) {
-	digit = code - code_A + 10;
-}
+	// Handle sign
+	if (s.length > 0 && s.char_at(0) == '-') {
+		negative = true;
+		i = 1;
+	} else if (s.length > 0 && s.char_at(0) == '+') {
+		i = 1;
+	}
 
-result = result * base + digit;
-i = i + 1;
-}
+	// Skip base prefix (0x, 0o, 0b)
+	if (i + 1 < s.length && s.char_at(i) == '0') {
+		let next = s.char_at(i + 1);
+		if (next == 'x' || next == 'X' || next == 'o' || next == 'O' || next == 'b' || next == 'B') {
+			i = i + 2;
+		}
+	}
 
-if (negative) {
-result = -result;
-}
-return result;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		let code: i32 = ch;
+		let digit: i32 = 0;
+
+		if (code >= code_0 && code <= code_0 + 9) {
+			digit = code - code_0;
+		} else if (code >= code_a && code <= code_a + 5) {
+			digit = code - code_a + 10;
+		} else if (code >= code_A && code <= code_A + 5) {
+			digit = code - code_A + 10;
+		}
+
+		result = result * base + digit;
+		i = i + 1;
+	}
+
+	if (negative) {
+		result = -result;
+	}
+	return result;
 }
 
 fn parse_float(s: string): f64 {
-return s.deserialize();
+	return s.deserialize();
 }

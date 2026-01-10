@@ -1,6 +1,5 @@
 // Example: Pure Functional Programming
 // Demonstrates @const, @pure, and @flatten annotations
-
 import { time_ms } from "@stdlib/time";
 
 // Global state for demonstrating @pure vs @const
@@ -8,76 +7,73 @@ let global_multiplier = 2;
 
 // @const: Strictest - no side effects, no global reads
 // Result depends ONLY on parameters
-@const
-fn add(a: i32, b: i32): i32 => a + b;
-
-@const
-fn multiply(a: i32, b: i32): i32 => a * b;
-
-@const
-fn square(x: i32): i32 => x * x;
-
+fn add(a: i32, b: i32): i32 {
+	return a + b;
+}
+fn multiply(a: i32, b: i32): i32 {
+	return a * b;
+}
+fn square(x: i32): i32 {
+	return x * x;
+}
 // @pure: Can read globals, but no side effects or I/O
 // Result is deterministic given same params + global state
-@pure
 fn scale(x: i32): i32 {
-    return x * global_multiplier;  // OK: reads global
+	return x * global_multiplier;  // OK: reads global
 }
 
 // Regular function: can have side effects
 fn log_and_compute(x: i32): i32 {
-    print("Computing:", x);  // Side effect!
-    return x * 2;
+	print("Computing:", x);  // Side effect!
+	return x * 2;
 }
 
 // Helper functions for @flatten demo
-@inline
-fn helper1(x: i32): i32 => x + 10;
-
-@inline
-fn helper2(x: i32): i32 => x * 2;
-
-@inline
-fn helper3(x: i32): i32 => x - 5;
-
+fn helper1(x: i32): i32 {
+	return x + 10;
+}
+fn helper2(x: i32): i32 {
+	return x * 2;
+}
+fn helper3(x: i32): i32 {
+	return x - 5;
+}
 // @flatten: Inline ALL function calls within this function
 // Compiler will inline helper1, helper2, helper3 calls
-@flatten
 fn process_pipeline(n: i32): i32 {
-    let a = helper1(n);
-    let b = helper2(a);
-    return helper3(b);
+	let a = helper1(n);
+	let b = helper2(a);
+	return helper3(b);
 }
 
 // Without @flatten for comparison
 fn process_pipeline_normal(n: i32): i32 {
-    let a = helper1(n);
-    let b = helper2(a);
-    return helper3(b);
+	let a = helper1(n);
+	let b = helper2(a);
+	return helper3(b);
 }
 
 // Complex example: combining annotations
-@const
-@inline
 fn distance_squared(x1: i32, y1: i32, x2: i32, y2: i32): i32 {
-    let dx = x2 - x1;
-    let dy = y2 - y1;
-    return add(multiply(dx, dx), multiply(dy, dy));
+	let dx = x2 - x1;
+	let dy = y2 - y1;
+	return add(
+		multiply(dx, dx),
+		multiply(dy, dy),
+	);
 }
 
 // @flatten with @const helpers - maximum optimization
-@flatten
-@hot
 fn compute_distances(points: buffer, count: i32): i32 {
-    let total = 0;
-    for (let i = 0; i < count - 1; i++) {
-        let x1 = ptr_read_i32(points, i * 8);
-        let y1 = ptr_read_i32(points, i * 8 + 4);
-        let x2 = ptr_read_i32(points, (i + 1) * 8);
-        let y2 = ptr_read_i32(points, (i + 1) * 8 + 4);
-        total = total + distance_squared(x1, y1, x2, y2);
-    }
-    return total;
+	let total = 0;
+	for (let i = 0; i < count - 1; i++) {
+		let x1 = ptr_read_i32(points, i * 8);
+		let y1 = ptr_read_i32(points, i * 8 + 4);
+		let x2 = ptr_read_i32(points, (i + 1) * 8);
+		let y2 = ptr_read_i32(points, (i + 1) * 8 + 4);
+		total = total + distance_squared(x1, y1, x2, y2);
+	}
+	return total;
 }
 
 // Demonstration
@@ -121,31 +117,31 @@ let iterations = 100000;
 
 let start = time_ms();
 for (let i = 0; i < iterations; i++) {
-    process_pipeline(i);
+	process_pipeline(i);
 }
 let flatten_time = time_ms() - start;
 
 start = time_ms();
 for (let i = 0; i < iterations; i++) {
-    process_pipeline_normal(i);
+	process_pipeline_normal(i);
 }
 let normal_time = time_ms() - start;
 
 print("   @flatten version:", flatten_time, "ms");
 print("   Normal version:", normal_time, "ms");
 if (flatten_time < normal_time) {
-    print("   Speedup:", (normal_time / flatten_time), "x");
+	print("   Speedup:", normal_time / flatten_time, "x");
 }
 print("");
 
 // 6. Complex example: distance computation
 print("6. Complex Example: Point Distances");
 let points = buffer(32);  // 4 points (x,y pairs)
-ptr_write_i32(points, 0, 0);    // point 0: (0, 0)
+ptr_write_i32(points, 0, 0);  // point 0: (0, 0)
 ptr_write_i32(points, 4, 0);
-ptr_write_i32(points, 8, 3);    // point 1: (3, 4)
+ptr_write_i32(points, 8, 3);  // point 1: (3, 4)
 ptr_write_i32(points, 12, 4);
-ptr_write_i32(points, 16, 6);   // point 2: (6, 8)
+ptr_write_i32(points, 16, 6);  // point 2: (6, 8)
 ptr_write_i32(points, 20, 8);
 ptr_write_i32(points, 24, 10);  // point 3: (10, 10)
 ptr_write_i32(points, 28, 10);

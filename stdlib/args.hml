@@ -100,27 +100,27 @@ export fn parse(argv, options?: null): object {
 					j = j + 1;
 				}
 			} else if (is_in_array(opt_char, string_opts) && i + 1 < argv.length) {
-	// Short option expecting value
-	options_arr.push({ name: opt_char, value: argv[i + 1] });
-	i = i + 1;
-} else {
-	// Single short flag
-	flags_arr.push(opt_char);
-}
-i = i + 1;
-continue;
-}
-// Positional argument
-positionals_arr.push(arg);
-i = i + 1;
-}
-return {
-script: script_name,
-flags: flags_arr,
-options: options_arr,
-positionals: positionals_arr,
-_raw: argv,
-};
+				// Short option expecting value
+				options_arr.push({ name: opt_char, value: argv[i + 1] });
+				i = i + 1;
+			} else {
+				// Single short flag
+				flags_arr.push(opt_char);
+			}
+			i = i + 1;
+			continue;
+		}
+		// Positional argument
+		positionals_arr.push(arg);
+		i = i + 1;
+	}
+	return {
+		script: script_name,
+		flags: flags_arr,
+		options: options_arr,
+		positionals: positionals_arr,
+		_raw: argv,
+	};
 }
 
 // Helper: Check if value is in array

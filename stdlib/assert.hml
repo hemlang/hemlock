@@ -195,12 +195,12 @@ export fn assert_contains(collection, value, message?: "Value not found") {
 			throw message + ": " + format_value(value) + " not in string";
 		}
 	} else if (t == "array") {
-	if (!array_contains(collection, value)) {
-		throw message + ": " + format_value(value) + " not in array";
+		if (!array_contains(collection, value)) {
+			throw message + ": " + format_value(value) + " not in array";
+		}
+	} else {
+		throw "assert_contains requires string or array";
 	}
-} else {
-	throw "assert_contains requires string or array";
-}
 }
 
 // Assert that array/string does not contain a value
@@ -212,12 +212,12 @@ export fn assert_not_contains(collection, value, message?: "Value should not be 
 			throw message + ": found " + format_value(value);
 		}
 	} else if (t == "array") {
-	if (array_contains(collection, value)) {
-		throw message + ": found " + format_value(value);
+		if (array_contains(collection, value)) {
+			throw message + ": found " + format_value(value);
+		}
+	} else {
+		throw "assert_not_contains requires string or array";
 	}
-} else {
-	throw "assert_not_contains requires string or array";
-}
 }
 
 // Assert that array/string is empty
