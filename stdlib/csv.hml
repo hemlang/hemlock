@@ -63,41 +63,41 @@ export fn parse(text, options?: null): array {
 			if (c == quote) {
 				in_quotes = true;
 			} else if (c == delimiter) {
-	// End of field
-	current_row.push(current_field);
-	current_field = "";
-} else if (c == "\n") {
-	// End of row
-	current_row.push(current_field);
-	current_field = "";
-	rows.push(current_row);
-	current_row = [];
-} else if (c == "\r") {
-	// Handle CRLF
-	if (i + 1 < text.length && text.substr(i + 1, 1) == "\n") {
-		i++;  // Skip the \n, will be handled next iteration
+				// End of field
+				current_row.push(current_field);
+				current_field = "";
+			} else if (c == "\n") {
+				// End of row
+				current_row.push(current_field);
+				current_field = "";
+				rows.push(current_row);
+				current_row = [];
+			} else if (c == "\r") {
+				// Handle CRLF
+				if (i + 1 < text.length && text.substr(i + 1, 1) == "\n") {
+					i++;  // Skip the \n, will be handled next iteration
+				}
+				// End of row
+				current_row.push(current_field);
+				current_field = "";
+				rows.push(current_row);
+				current_row = [];
+			} else {
+				current_field = current_field + c;
+			}
+		}
+		i++;
 	}
-	// End of row
-	current_row.push(current_field);
-	current_field = "";
-	rows.push(current_row);
-	current_row = [];
-} else {
-	current_field = current_field + c;
-}
-}
-i++;
-}
-// Handle last field/row
-if (current_field.length > 0 || current_row.length > 0) {
-current_row.push(current_field);
-rows.push(current_row);
-}
-// Skip header if requested
-if (skip_header && rows.length > 0) {
-rows = rows.slice(1, rows.length);
-}
-return rows;
+	// Handle last field/row
+	if (current_field.length > 0 || current_row.length > 0) {
+		current_row.push(current_field);
+		rows.push(current_row);
+	}
+	// Skip header if requested
+	if (skip_header && rows.length > 0) {
+		rows = rows.slice(1, rows.length);
+	}
+	return rows;
 }
 
 // Parse CSV with headers - returns array of objects

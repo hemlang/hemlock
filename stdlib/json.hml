@@ -204,66 +204,66 @@ fn escape_json_string(s: string): string {
 		if (ch == '"') {
 			result = result + "\\\"";
 		} else if (ch == '\\') {
-	result = result + "\\\\";
-} else if (ch == '\n') {
-	result = result + "\\n";
-} else if (ch == '\r') {
-	result = result + "\\r";
-} else if (ch == '\t') {
-	result = result + "\\t";
-} else {
-	// Concatenate rune with string (rune is automatically converted)
-	result = result + ("" + ch);
-}
-}
+			result = result + "\\\\";
+		} else if (ch == '\n') {
+			result = result + "\\n";
+		} else if (ch == '\r') {
+			result = result + "\\r";
+		} else if (ch == '\t') {
+			result = result + "\\t";
+		} else {
+			// Concatenate rune with string (rune is automatically converted)
+			result = result + ("" + ch);
+		}
+	}
 
-result = result + "\"";
-return result;
+	result = result + "\"";
+	return result;
 }
 
 // Internal: Repeat string n times
 fn repeat_string(s: string, count: i32): string {
-let result = "";
-for (let i = 0; i < count; i++) {
-result = result + s;
-}
-return result;
+	let result = "";
+	for (let i = 0; i < count; i++) {
+		result = result + s;
+	}
+	return result;
 }
 
 // Internal: Get object keys
 fn object_keys(obj) {
-return obj.keys();
+	return obj.keys();
 }
 
 // Pretty print JSON with indentation
 // indent can be: number of spaces (i32) or string (e.g., "\t")
 fn pretty(value, indent?: null) {
-let indent_str = "  ";  // Default: 2 spaces
+	let indent_str = "  ";  // Default: 2 spaces
 
-if (indent != null) {
-if (typeof(indent) == "i32" || typeof(indent) == "integer") {
-	// Number of spaces
-	indent_str = repeat_string(" ", indent);
-} else if (typeof(indent) == "string") {
-	// Custom string (e.g., "\t")
-	indent_str = indent;
-} else {
-	throw "indent must be i32 (spaces) or string";
-}
-}
+	if (indent != null) {
+		if (typeof(indent) == "i32" || typeof(indent) == "integer") {
+			// Number of spaces
+			indent_str = repeat_string(" ", indent);
+		} else if (typeof(indent) == "string") {
+			// Custom string (e.g., "\t")
+			indent_str = indent;
+		} else {
+			throw "indent must be i32 (spaces) or string";
+		}
+	}
 
-return format_value(value, 0, indent_str);
+	return format_value(value, 0, indent_str);
 }
 
 // Pretty print JSON to file
 fn pretty_file(path: string, value, indent?: null) {
-let formatted = pretty(value, indent);
+	let formatted = pretty(value, indent);
 
-let f = open(path, "w");
-defer f.close();
+	let f = open(path, "w");
+	defer f.close();
 
-f.write(formatted);
-return null;
+	f.write(formatted);
+	return null;
 }
 
 // ============================================================================
@@ -272,171 +272,171 @@ return null;
 
 // Internal: Check if string is numeric (array index)
 fn is_numeric(s: string): bool {
-if (s.length == 0) {
-return false;
-}
+	if (s.length == 0) {
+		return false;
+	}
 
-for (let i = 0; i < s.length; i++) {
-let ch = s[i];
-if (ch < '0' || ch > '9') {
-	return false;
-}
-}
+	for (let i = 0; i < s.length; i++) {
+		let ch = s[i];
+		if (ch < '0' || ch > '9') {
+			return false;
+		}
+	}
 
-return true;
+	return true;
 }
 
 // Internal: Parse string to integer
 fn parse_int(s: string): i32 {
-return i32(s);
+	return i32(s);
 }
 
 // Get value by path (dot notation)
 // Example: get(obj, "user.address.city")
 // Example: get(obj, "items.0") for array index
 fn get(obj, path: string, default_val?: null) {
-if (path.length == 0) {
-return obj;
-}
-
-let parts = path.split(".");
-let current = obj;
-
-for (let i = 0; i < parts.length; i++) {
-if (current == null) {
-	return default_val ?? null;
-}
-
-let part = parts[i];
-
-// Handle array indices (numeric parts)
-if (is_numeric(part)) {
-	if (typeof(current) != "array") {
-		return default_val ?? null;
+	if (path.length == 0) {
+		return obj;
 	}
 
-	let idx = parse_int(part);
-	if (idx < 0 || idx >= current.length) {
-		return default_val ?? null;
+	let parts = path.split(".");
+	let current = obj;
+
+	for (let i = 0; i < parts.length; i++) {
+		if (current == null) {
+			return default_val ?? null;
+		}
+
+		let part = parts[i];
+
+		// Handle array indices (numeric parts)
+		if (is_numeric(part)) {
+			if (typeof(current) != "array") {
+				return default_val ?? null;
+			}
+
+			let idx = parse_int(part);
+			if (idx < 0 || idx >= current.length) {
+				return default_val ?? null;
+			}
+
+			current = current[idx];
+		} else {
+			// Object property access
+			if (typeof(current) != "object") {
+				return default_val ?? null;
+			}
+
+			current = current[part];
+		}
 	}
 
-	current = current[idx];
-} else {
-	// Object property access
-	if (typeof(current) != "object") {
-		return default_val ?? null;
-	}
-
-	current = current[part];
-}
-}
-
-return current ?? default_val ?? null;
+	return current ?? default_val ?? null;
 }
 
 // Set value by path (dot notation)
 // Modifies object in-place
 fn set(obj, path: string, value) {
-if (path.length == 0) {
-throw "Cannot set empty path";
-}
+	if (path.length == 0) {
+		throw "Cannot set empty path";
+	}
 
-let parts = path.split(".");
-let current = obj;
+	let parts = path.split(".");
+	let current = obj;
 
-// Navigate to parent
-for (let i = 0; i < parts.length - 1; i++) {
-let part = parts[i];
+	// Navigate to parent
+	for (let i = 0; i < parts.length - 1; i++) {
+		let part = parts[i];
 
-if (is_numeric(part)) {
-	let idx = parse_int(part);
-	current = current[idx];
-} else {
-	current = current[part];
-}
+		if (is_numeric(part)) {
+			let idx = parse_int(part);
+			current = current[idx];
+		} else {
+			current = current[part];
+		}
 
-if (current == null) {
-	throw "Path does not exist: " + path;
-}
-}
+		if (current == null) {
+			throw "Path does not exist: " + path;
+		}
+	}
 
-// Set final value
-let last_part = parts[parts.length - 1];
+	// Set final value
+	let last_part = parts[parts.length - 1];
 
-if (is_numeric(last_part)) {
-let idx = parse_int(last_part);
-current[idx] = value;
-} else {
-current[last_part] = value;
-}
+	if (is_numeric(last_part)) {
+		let idx = parse_int(last_part);
+		current[idx] = value;
+	} else {
+		current[last_part] = value;
+	}
 
-return null;
+	return null;
 }
 
 // Check if path exists
 fn has(obj, path: string): bool {
-let sentinel = {};  // Unique object as sentinel
-let result = get(obj, path, sentinel);
-return result != sentinel;
+	let sentinel = {};  // Unique object as sentinel
+	let result = get(obj, path, sentinel);
+	return result != sentinel;
 }
 
 // Delete value by path (dot notation)
 // Example: delete(obj, "user.address.city")
 // Returns true if the property was deleted, false if not found
 fn delete(obj, path: string): bool {
-if (path.length == 0) {
-return false;
-}
-
-let parts = path.split(".");
-let current = obj;
-
-// Navigate to parent of the property to delete
-for (let i = 0; i < parts.length - 1; i++) {
-if (current == null) {
-	return false;
-}
-
-let part = parts[i];
-
-if (is_numeric(part)) {
-	if (typeof(current) != "array") {
+	if (path.length == 0) {
 		return false;
 	}
-	let idx = parse_int(part);
-	if (idx < 0 || idx >= current.length) {
-		return false;
-	}
-	current = current[idx];
-} else {
-	if (typeof(current) != "object") {
-		return false;
-	}
-	current = current[part];
-}
-}
 
-// Delete the final property
-let last_part = parts[parts.length - 1];
+	let parts = path.split(".");
+	let current = obj;
 
-if (is_numeric(last_part)) {
-// Array element - use remove method
-if (typeof(current) != "array") {
-	return false;
-}
-let idx = parse_int(last_part);
-if (idx < 0 || idx >= current.length) {
-	return false;
-}
-current.remove(idx);
-return true;
-} else {
-// Object property - use delete method
-if (typeof(current) != "object") {
-	return false;
-}
-return current.delete(last_part);
-}
+	// Navigate to parent of the property to delete
+	for (let i = 0; i < parts.length - 1; i++) {
+		if (current == null) {
+			return false;
+		}
+
+		let part = parts[i];
+
+		if (is_numeric(part)) {
+			if (typeof(current) != "array") {
+				return false;
+			}
+			let idx = parse_int(part);
+			if (idx < 0 || idx >= current.length) {
+				return false;
+			}
+			current = current[idx];
+		} else {
+			if (typeof(current) != "object") {
+				return false;
+			}
+			current = current[part];
+		}
+	}
+
+	// Delete the final property
+	let last_part = parts[parts.length - 1];
+
+	if (is_numeric(last_part)) {
+		// Array element - use remove method
+		if (typeof(current) != "array") {
+			return false;
+		}
+		let idx = parse_int(last_part);
+		if (idx < 0 || idx >= current.length) {
+			return false;
+		}
+		current.remove(idx);
+		return true;
+	} else {
+		// Object property - use delete method
+		if (typeof(current) != "object") {
+			return false;
+		}
+		return current.delete(last_part);
+	}
 }
 
 // ============================================================================
@@ -445,22 +445,22 @@ return current.delete(last_part);
 
 // Check if string is valid JSON (lightweight check)
 fn is_valid(json_str: string): bool {
-try {
-parse(json_str);
-return true;
-} catch (e) {
-return false;
-}
+	try {
+		parse(json_str);
+		return true;
+	} catch (e) {
+		return false;
+	}
 }
 
 // Validate JSON and return detailed result
 fn validate(json_str: string) {
-try {
-parse(json_str);
-return { valid: true, message: "Valid JSON", line: 0 };
-} catch (e) {
-return { valid: false, message: typeof(e), line: -1 };
-}
+	try {
+		parse(json_str);
+		return { valid: true, message: "Valid JSON", line: 0 };
+	} catch (e) {
+		return { valid: false, message: typeof(e), line: -1 };
+	}
 }
 
 // ============================================================================
@@ -468,45 +468,46 @@ return { valid: false, message: typeof(e), line: -1 };
 // ============================================================================
 
 fn is_object(value): bool {
-let t = typeof(value);
-return t == "object";
+	let t = typeof(value);
+	return t == "object";
 }
 
 fn is_array(value): bool {
-return typeof(value) == "array";
+	return typeof(value) == "array";
 }
 
 fn is_string(value): bool {
-return typeof(value) == "string";
+	return typeof(value) == "string";
 }
 
 fn is_number(value): bool {
-let t = typeof(value);
-return t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t == "u32" || t ==
-"u64" ||
-t == "f32" ||
-t == "f64" ||
-t == "integer" ||
-t == "number";
+	let t = typeof(value);
+	return t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t ==
+		"u32" ||
+		t == "u64" ||
+		t == "f32" ||
+		t == "f64" ||
+		t == "integer" ||
+		t == "number";
 }
 
 fn is_bool(value): bool {
-return typeof(value) == "bool";
+	return typeof(value) == "bool";
 }
 
 fn is_null(value): bool {
-return typeof(value) == "null";
+	return typeof(value) == "null";
 }
 
 // Get JSON type as string
 fn type_of(value): string {
-let t = typeof(value);
+	let t = typeof(value);
 
-if (is_number(value)) {
-return "number";
-}
+	if (is_number(value)) {
+		return "number";
+	}
 
-return t;
+	return t;
 }
 
 // ============================================================================
@@ -515,33 +516,33 @@ return t;
 
 // Deep clone value (creates independent copy)
 fn clone(value) {
-// Use serialize/deserialize for deep copy
-return parse(stringify(value));
+	// Use serialize/deserialize for deep copy
+	return parse(stringify(value));
 }
 
 // Deep merge objects (combines nested objects)
 fn merge(base, update) {
-if (!is_object(base) || !is_object(update)) {
-return update;
-}
+	if (!is_object(base) || !is_object(update)) {
+		return update;
+	}
 
-let result = clone(base);
+	let result = clone(base);
 
-// Note: Need object_keys() builtin to iterate
-// For now, this is a placeholder
-throw "merge() requires object iteration support";
+	// Note: Need object_keys() builtin to iterate
+	// For now, this is a placeholder
+	throw "merge() requires object iteration support";
 
-return result;
+	return result;
 }
 
 // Shallow merge (replaces nested objects)
 fn patch(base, update) {
-if (!is_object(base) || !is_object(update)) {
-return update;
-}
+	if (!is_object(base) || !is_object(update)) {
+		return update;
+	}
 
-// Note: Need object_keys() builtin
-throw "patch() requires object iteration support";
+	// Note: Need object_keys() builtin
+	throw "patch() requires object iteration support";
 }
 
 // ============================================================================
@@ -550,39 +551,39 @@ throw "patch() requires object iteration support";
 
 // Deep equality check
 fn equals(a, b): bool {
-let type_a = typeof(a);
-let type_b = typeof(b);
+	let type_a = typeof(a);
+	let type_b = typeof(b);
 
-if (type_a != type_b) {
-return false;
-}
-
-// Primitives
-if (type_a == "null" || type_a == "bool" || type_a == "string" || is_number(a)) {
-return a == b;
-}
-
-// Arrays
-if (type_a == "array") {
-if (a.length != b.length) {
-	return false;
-}
-
-for (let i = 0; i < a.length; i++) {
-	if (!equals(a[i], b[i])) {
+	if (type_a != type_b) {
 		return false;
 	}
-}
 
-return true;
-}
+	// Primitives
+	if (type_a == "null" || type_a == "bool" || type_a == "string" || is_number(a)) {
+		return a == b;
+	}
 
-// Objects - need object iteration
-if (type_a == "object") {
-throw "equals() for objects requires object iteration support";
-}
+	// Arrays
+	if (type_a == "array") {
+		if (a.length != b.length) {
+			return false;
+		}
 
-return false;
+		for (let i = 0; i < a.length; i++) {
+			if (!equals(a[i], b[i])) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	// Objects - need object iteration
+	if (type_a == "object") {
+		throw "equals() for objects requires object iteration support";
+	}
+
+	return false;
 }
 
 // ============================================================================

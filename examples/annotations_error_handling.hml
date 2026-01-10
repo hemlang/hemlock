@@ -2,34 +2,31 @@
 // Demonstrates @warn_unused annotation for catching ignored return values
 
 // Allocation functions should warn if return value is ignored
-@warn_unused
 fn safe_alloc(size: i32): ptr {
-    let p = alloc(size);
-    if (p == ptr_null()) {
-        panic("Allocation failed");
-    }
-    return p;
+	let p = alloc(size);
+	if (p == ptr_null()) {
+		panic("Allocation failed");
+	}
+	return p;
 }
 
 // File operations should warn if error checking is skipped
-@warn_unused
 fn try_open(path: string): object {
-    try {
-        let f = open(path, "r");
-        return { success: true, file: f };
-    } catch (e) {
-        return { success: false, error: e };
-    }
+	try {
+		let f = open(path, "r");
+		return { success: true, file: f };
+	} catch (e) {
+		return { success: false, error: e };
+	}
 }
 
 // Important computations that should not be silently ignored
-@warn_unused
 fn validate_checksum(data: buffer, size: i32): bool {
-    let sum = 0;
-    for (let i = 0; i < size; i++) {
-        sum = sum + ptr_read_u8(data, i);
-    }
-    return (sum % 256) == 0;
+	let sum = 0;
+	for (let i = 0; i < size; i++) {
+		sum = sum + ptr_read_u8(data, i);
+	}
+	return sum % 256 == 0;
 }
 
 // OK: Return value used
@@ -40,16 +37,16 @@ print("Allocated and wrote value:", ptr_deref_i32(memory));
 // OK: Return value checked
 let result = try_open("test.txt");
 if (result.success) {
-    print("File opened successfully");
-    result.file.close();
+	print("File opened successfully");
+	result.file.close();
 } else {
-    print("Failed to open file:", result.error);
+	print("Failed to open file:", result.error);
 }
 
 // OK: Validation result used
 let data = buffer(16);
 for (let i = 0; i < 16; i++) {
-    ptr_write_u8(data, i, i * 10);
+	ptr_write_u8(data, i, i * 10);
 }
 let valid = validate_checksum(data, 16);
 print("Checksum valid:", valid);

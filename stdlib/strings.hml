@@ -351,20 +351,20 @@ export fn snake_case(str): string {
 			result = result + to_lower_rune(c);
 			prev_was_sep = false;
 		} else if (is_alpha_rune(c) || is_digit_rune(c)) {
-	result = result + to_lower_rune(c);
-	prev_was_sep = false;
-} else {
-	// Skip non-alphanumeric characters
-	prev_was_sep = true;
-}
-}
+			result = result + to_lower_rune(c);
+			prev_was_sep = false;
+		} else {
+			// Skip non-alphanumeric characters
+			prev_was_sep = true;
+		}
+	}
 
-// Remove trailing underscore if present
-while (result.length > 0 && result.ends_with("_")) {
-result = result.slice(0, result.length - 1);
-}
+	// Remove trailing underscore if present
+	while (result.length > 0 && result.ends_with("_")) {
+		result = result.slice(0, result.length - 1);
+	}
 
-return result;
+	return result;
 }
 
 // Convert string to camelCase
@@ -401,20 +401,20 @@ export fn camel_case(str): string {
 				result = result + to_lower_rune(c);
 				first_char = false;
 			} else if (capitalize_next) {
-	result = result + to_upper_rune(c);
-	capitalize_next = false;
-} else {
-	result = result + to_lower_rune(c);
-}
-} else if (is_digit_rune(c)) {
-	result = result + c;
-	capitalize_next = true;  // Next alpha after digit is capitalized
-	first_char = false;
-}
-}
-// Skip other characters
+				result = result + to_upper_rune(c);
+				capitalize_next = false;
+			} else {
+				result = result + to_lower_rune(c);
+			}
+		} else if (is_digit_rune(c)) {
+			result = result + c;
+			capitalize_next = true;  // Next alpha after digit is capitalized
+			first_char = false;
+		}
+	}
+	// Skip other characters
 
-return result;
+	return result;
 }
 
 // Convert string to PascalCase (UpperCamelCase)
@@ -453,13 +453,13 @@ export fn pascal_case(str): string {
 				result = result + to_lower_rune(c);
 			}
 		} else if (is_digit_rune(c)) {
-	result = result + c;
-	capitalize_next = true;  // Next alpha after digit is capitalized
-}
-}
-// Skip other characters
+			result = result + c;
+			capitalize_next = true;  // Next alpha after digit is capitalized
+		}
+	}
+	// Skip other characters
 
-return result;
+	return result;
 }
 
 // Convert string to kebab-case
@@ -501,19 +501,19 @@ export fn kebab_case(str): string {
 			result = result + to_lower_rune(c);
 			prev_was_sep = false;
 		} else if (is_alpha_rune(c) || is_digit_rune(c)) {
-	result = result + to_lower_rune(c);
-	prev_was_sep = false;
-} else {
-	prev_was_sep = true;
-}
-}
+			result = result + to_lower_rune(c);
+			prev_was_sep = false;
+		} else {
+			prev_was_sep = true;
+		}
+	}
 
-// Remove trailing dash if present
-while (result.length > 0 && result.ends_with("-")) {
-result = result.slice(0, result.length - 1);
-}
+	// Remove trailing dash if present
+	while (result.length > 0 && result.ends_with("-")) {
+		result = result.slice(0, result.length - 1);
+	}
 
-return result;
+	return result;
 }
 
 // ============================================================================
@@ -550,21 +550,21 @@ export fn slugify(str): string {
 			result = result + to_lower_rune(c);
 			prev_was_hyphen = false;
 		} else if (c == ' ' || c == '-' || c == '_' || c == '\t') {
-	// Separator becomes hyphen (but avoid duplicates)
-	if (!prev_was_hyphen && result.length > 0) {
-		result = result + "-";
+			// Separator becomes hyphen (but avoid duplicates)
+			if (!prev_was_hyphen && result.length > 0) {
+				result = result + "-";
+			}
+			prev_was_hyphen = true;
+		}
 	}
-	prev_was_hyphen = true;
-}
-}
-// Skip all other characters (including non-ASCII)
+	// Skip all other characters (including non-ASCII)
 
-// Remove trailing hyphen if present
-while (result.length > 0 && result.ends_with("-")) {
-result = result.slice(0, result.length - 1);
-}
+	// Remove trailing hyphen if present
+	while (result.length > 0 && result.ends_with("-")) {
+		result = result.slice(0, result.length - 1);
+	}
 
-return result;
+	return result;
 }
 
 // ============================================================================

@@ -69,89 +69,89 @@ fn match_pattern(pattern, text, pi, ti): bool {
 			return false;
 		} else if (p_char == '?') {
 
-	// ? matches exactly one character (not /)
-	if (ti >= text.length) {
-		return false;
-	}
-	if (text.char_at(ti) == '/') {
-		return false;
-	}
-	pi = pi + 1;
-	ti = ti + 1;
-} else if (p_char == '[') {
-
-	// Character class
-	if (ti >= text.length) {
-		return false;
-	}
-
-	let t_char = text.char_at(ti);
-	let negate = false;
-	pi = pi + 1;
-
-	if (pi < pattern.length && pattern.char_at(pi) == '!') {
-		negate = true;
-		pi = pi + 1;
-	}
-
-	let matched = false;
-	let prev_char = null;
-
-	while (pi < pattern.length && pattern.char_at(pi) != ']') {
-		let c = pattern.char_at(pi);
-
-		// Check for range
-		if (c == '-' && prev_char != null && pi + 1 < pattern.length &&
-			pattern.char_at(pi + 1) != ']') {
+			// ? matches exactly one character (not /)
+			if (ti >= text.length) {
+				return false;
+			}
+			if (text.char_at(ti) == '/') {
+				return false;
+			}
 			pi = pi + 1;
-			let end_char = pattern.char_at(pi);
-			let prev_code: i32 = prev_char;
-			let end_code: i32 = end_char;
-			let t_code: i32 = t_char;
+			ti = ti + 1;
+		} else if (p_char == '[') {
 
-			if (t_code >= prev_code && t_code <= end_code) {
-				matched = true;
+			// Character class
+			if (ti >= text.length) {
+				return false;
 			}
+
+			let t_char = text.char_at(ti);
+			let negate = false;
+			pi = pi + 1;
+
+			if (pi < pattern.length && pattern.char_at(pi) == '!') {
+				negate = true;
+				pi = pi + 1;
+			}
+
+			let matched = false;
+			let prev_char = null;
+
+			while (pi < pattern.length && pattern.char_at(pi) != ']') {
+				let c = pattern.char_at(pi);
+
+				// Check for range
+				if (c == '-' && prev_char != null && pi + 1 < pattern.length &&
+					pattern.char_at(pi + 1) != ']') {
+					pi = pi + 1;
+					let end_char = pattern.char_at(pi);
+					let prev_code: i32 = prev_char;
+					let end_code: i32 = end_char;
+					let t_code: i32 = t_char;
+
+					if (t_code >= prev_code && t_code <= end_code) {
+						matched = true;
+					}
+				} else {
+					if (c == t_char) {
+						matched = true;
+					}
+					prev_char = c;
+				}
+
+				pi = pi + 1;
+			}
+
+			// Skip closing ]
+			if (pi < pattern.length) {
+				pi = pi + 1;
+			}
+
+			if (negate) {
+				matched = !matched;
+			}
+
+			if (!matched) {
+				return false;
+			}
+
+			ti = ti + 1;
 		} else {
-			if (c == t_char) {
-				matched = true;
+
+			// Regular character - must match exactly
+			if (ti >= text.length) {
+				return false;
 			}
-			prev_char = c;
+			if (text.char_at(ti) != p_char) {
+				return false;
+			}
+			pi = pi + 1;
+			ti = ti + 1;
 		}
-
-		pi = pi + 1;
 	}
 
-	// Skip closing ]
-	if (pi < pattern.length) {
-		pi = pi + 1;
-	}
-
-	if (negate) {
-		matched = !matched;
-	}
-
-	if (!matched) {
-		return false;
-	}
-
-	ti = ti + 1;
-} else {
-
-	// Regular character - must match exactly
-	if (ti >= text.length) {
-		return false;
-	}
-	if (text.char_at(ti) != p_char) {
-		return false;
-	}
-	pi = pi + 1;
-	ti = ti + 1;
-}
-}
-
-// Pattern exhausted - text must also be exhausted
-return ti >= text.length;
+	// Pattern exhausted - text must also be exhausted
+	return ti >= text.length;
 }
 
 // ============================================================================
@@ -177,44 +177,44 @@ export fn match_path(pattern, path): bool {
 
 // Match path segments recursively
 fn match_parts(pattern_parts, path_parts, pi, ti): bool {
-while (pi < pattern_parts.length) {
-let p_part = pattern_parts[pi];
+	while (pi < pattern_parts.length) {
+		let p_part = pattern_parts[pi];
 
-if (p_part == "**") {
-	// ** matches zero or more directories
-	pi = pi + 1;
+		if (p_part == "**") {
+			// ** matches zero or more directories
+			pi = pi + 1;
 
-	// Handle trailing **
-	if (pi >= pattern_parts.length) {
-		return true;  // ** at end matches anything
-	}
+			// Handle trailing **
+			if (pi >= pattern_parts.length) {
+				return true;  // ** at end matches anything
+			}
 
-	// Try matching with different amounts consumed by **
-	while (ti <= path_parts.length) {
-		if (match_parts(pattern_parts, path_parts, pi, ti)) {
-			return true;
+			// Try matching with different amounts consumed by **
+			while (ti <= path_parts.length) {
+				if (match_parts(pattern_parts, path_parts, pi, ti)) {
+					return true;
+				}
+				ti = ti + 1;
+			}
+			return false;
+		} else {
+
+			// Regular segment - must match
+			if (ti >= path_parts.length) {
+				return false;
+			}
+
+			if (!match(p_part, path_parts[ti])) {
+				return false;
+			}
+
+			pi = pi + 1;
+			ti = ti + 1;
 		}
-		ti = ti + 1;
-	}
-	return false;
-} else {
-
-	// Regular segment - must match
-	if (ti >= path_parts.length) {
-		return false;
 	}
 
-	if (!match(p_part, path_parts[ti])) {
-		return false;
-	}
-
-	pi = pi + 1;
-	ti = ti + 1;
-}
-}
-
-// Pattern exhausted - path must also be exhausted
-return ti >= path_parts.length;
+	// Pattern exhausted - path must also be exhausted
+	return ti >= path_parts.length;
 }
 
 // ============================================================================
@@ -251,90 +251,53 @@ export fn glob(pattern, base_dir?: "."): array {
 
 // Recursive glob helper
 fn glob_recurse(dir, pattern, prefix, results) {
-// Try to list directory contents
-let entries: array = [];
-try {
-entries = list_dir(dir);
-} catch (e) {
-// Directory not accessible, skip
-return;
-}
-
-// Check if pattern has ** at the start
-let has_globstar = pattern.starts_with("**/");
-
-// Get first segment of pattern
-let slash_idx = pattern.find("/");
-let first_part = "";
-let rest_pattern = "";
-
-if (slash_idx >= 0) {
-first_part = pattern.slice(0, slash_idx);
-rest_pattern = pattern.slice(slash_idx + 1, pattern.length);
-} else {
-first_part = pattern;
-rest_pattern = "";
-}
-
-// Iterate through directory entries
-let i = 0;
-while (i < entries.length) {
-let entry = entries[i];
-let entry_path = "";
-if (dir == ".") {
-	entry_path = entry;
-} else if (dir == "/") {
-	entry_path = "/" + entry;
-} else {
-	entry_path = dir + "/" + entry;
-}
-
-let result_path = "";
-if (prefix == "") {
-	result_path = entry;
-} else {
-	result_path = prefix + "/" + entry;
-}
-
-if (first_part == "**") {
-	// ** - match zero or more directories
-	let is_directory = false;
+	// Try to list directory contents
+	let entries: array = [];
 	try {
-		is_directory = is_dir(entry_path);
+		entries = list_dir(dir);
 	} catch (e) {
-		// Skip inaccessible entries
-		i = i + 1;
-		continue;
+		// Directory not accessible, skip
+		return;
 	}
 
-	if (rest_pattern == "") {
-		// ** at end - match everything
-		results.push(result_path);
-		if (is_directory) {
-			glob_recurse(entry_path, "**", result_path, results);
-		}
+	// Check if pattern has ** at the start
+	let has_globstar = pattern.starts_with("**/");
+
+	// Get first segment of pattern
+	let slash_idx = pattern.find("/");
+	let first_part = "";
+	let rest_pattern = "";
+
+	if (slash_idx >= 0) {
+		first_part = pattern.slice(0, slash_idx);
+		rest_pattern = pattern.slice(slash_idx + 1, pattern.length);
 	} else {
-		// Try matching rest with current entry
-		if (match_path(rest_pattern, entry)) {
-			results.push(result_path);
+		first_part = pattern;
+		rest_pattern = "";
+	}
+
+	// Iterate through directory entries
+	let i = 0;
+	while (i < entries.length) {
+		let entry = entries[i];
+		let entry_path = "";
+		if (dir == ".") {
+			entry_path = entry;
+		} else if (dir == "/") {
+			entry_path = "/" + entry;
+		} else {
+			entry_path = dir + "/" + entry;
 		}
 
-		// If directory, continue recursing with **
-		if (is_directory) {
-			// Try matching with ** continuing
-			glob_recurse(entry_path, pattern, result_path, results);
-			// Also try matching without ** (consume it)
-			glob_recurse(entry_path, rest_pattern, result_path, results);
-		}
-	}
-} else {
-	// Regular pattern segment
-	if (match(first_part, entry)) {
-		if (rest_pattern == "") {
-			// End of pattern - this is a match
-			results.push(result_path);
+		let result_path = "";
+		if (prefix == "") {
+			result_path = entry;
 		} else {
-			// More pattern to match - must be directory
+			result_path = prefix + "/" + entry;
+		}
+
+		if (first_part == "**") {
+			// ** - match zero or more directories
 			let is_directory = false;
 			try {
 				is_directory = is_dir(entry_path);
@@ -344,15 +307,52 @@ if (first_part == "**") {
 				continue;
 			}
 
-			if (is_directory) {
-				glob_recurse(entry_path, rest_pattern, result_path, results);
+			if (rest_pattern == "") {
+				// ** at end - match everything
+				results.push(result_path);
+				if (is_directory) {
+					glob_recurse(entry_path, "**", result_path, results);
+				}
+			} else {
+				// Try matching rest with current entry
+				if (match_path(rest_pattern, entry)) {
+					results.push(result_path);
+				}
+
+				// If directory, continue recursing with **
+				if (is_directory) {
+					// Try matching with ** continuing
+					glob_recurse(entry_path, pattern, result_path, results);
+					// Also try matching without ** (consume it)
+					glob_recurse(entry_path, rest_pattern, result_path, results);
+				}
+			}
+		} else {
+			// Regular pattern segment
+			if (match(first_part, entry)) {
+				if (rest_pattern == "") {
+					// End of pattern - this is a match
+					results.push(result_path);
+				} else {
+					// More pattern to match - must be directory
+					let is_directory = false;
+					try {
+						is_directory = is_dir(entry_path);
+					} catch (e) {
+						// Skip inaccessible entries
+						i = i + 1;
+						continue;
+					}
+
+					if (is_directory) {
+						glob_recurse(entry_path, rest_pattern, result_path, results);
+					}
+				}
 			}
 		}
-	}
-}
 
-i = i + 1;
-}
+		i = i + 1;
+	}
 }
 
 // ============================================================================
@@ -460,33 +460,34 @@ export fn translate(pattern): string {
 			}
 			result = result + "[^/]*";
 		} else if (c == '?') {
-	result = result + "[^/]";
-} else if (c == '[') {
-	// Character class - pass through mostly as-is
-	result = result + "[";
-	i = i + 1;
-	if (i < pattern.length && pattern.char_at(i) == '!') {
-		result = result + "^";
+			result = result + "[^/]";
+		} else if (c == '[') {
+			// Character class - pass through mostly as-is
+			result = result + "[";
+			i = i + 1;
+			if (i < pattern.length && pattern.char_at(i) == '!') {
+				result = result + "^";
+				i = i + 1;
+			}
+			while (i < pattern.length && pattern.char_at(i) != ']') {
+				result = result + pattern.char_at(i);
+				i = i + 1;
+			}
+			result = result + "]";
+		} else if (c == '.' || c == '(' || c == ')' || c == '+' || c == '|' || c == '^' || c == '$' || c ==
+			'@' ||
+			c == '{' ||
+			c == '}' ||
+			c == '\\') {
+			// Escape regex special characters
+			result = result + "\\" + c;
+		} else {
+			result = result + c;
+		}
+
 		i = i + 1;
 	}
-	while (i < pattern.length && pattern.char_at(i) != ']') {
-		result = result + pattern.char_at(i);
-		i = i + 1;
-	}
-	result = result + "]";
-} else if (c == '.' || c == '(' || c == ')' || c == '+' || c == '|' || c == '^' || c == '$' || c ==
-	'@' || c == '{' ||
-	c == '}' ||
-	c == '\\') {
-	// Escape regex special characters
-	result = result + "\\" + c;
-} else {
-	result = result + c;
-}
 
-i = i + 1;
-}
-
-result = result + "$";
-return result;
+	result = result + "$";
+	return result;
 }

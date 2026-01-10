@@ -162,26 +162,26 @@ export fn parse(uuid): object {
 	if ((byte8 & 192) == 128) {
 		variant = "RFC4122";
 	} else if ((byte8 & 128) == 0) {
-	variant = "NCS";
-} else if ((byte8 & 224) == 192) {
-	variant = "Microsoft";
-} else if ((byte8 & 224) == 224) {
-	variant = "Future";
-}
+		variant = "NCS";
+	} else if ((byte8 & 224) == 192) {
+		variant = "Microsoft";
+	} else if ((byte8 & 224) == 224) {
+		variant = "Future";
+	}
 
-// Extract timestamp for v7
-let timestamp: i64 = 0;
-if (version == 7) {
-	let b0: i64 = bytes[0];
-	let b1: i64 = bytes[1];
-	let b2: i64 = bytes[2];
-	let b3: i64 = bytes[3];
-	let b4: i64 = bytes[4];
-	let b5: i64 = bytes[5];
-	timestamp = b0 << 40 | b1 << 32 | b2 << 24 | b3 << 16 | b4 << 8 | b5;
-}
+	// Extract timestamp for v7
+	let timestamp: i64 = 0;
+	if (version == 7) {
+		let b0: i64 = bytes[0];
+		let b1: i64 = bytes[1];
+		let b2: i64 = bytes[2];
+		let b3: i64 = bytes[3];
+		let b4: i64 = bytes[4];
+		let b5: i64 = bytes[5];
+		timestamp = b0 << 40 | b1 << 32 | b2 << 24 | b3 << 16 | b4 << 8 | b5;
+	}
 
-return { version, variant, bytes, timestamp };
+	return { version, variant, bytes, timestamp };
 }
 
 // Check if a string is a valid UUID

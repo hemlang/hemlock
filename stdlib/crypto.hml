@@ -784,24 +784,24 @@ export fn hex_to_buffer(hex) {
 		if (high_code >= 48 && high_code <= 57) {
 			high = high_code - 48;
 		} else if (high_code >= 97 && high_code <= 102) {
-	high = high_code - 97 + 10;
-} else if (high_code >= 65 && high_code <= 70) {
-	high = high_code - 65 + 10;
-}
+			high = high_code - 97 + 10;
+		} else if (high_code >= 65 && high_code <= 70) {
+			high = high_code - 65 + 10;
+		}
 
-// Low nibble
-if (low_code >= 48 && low_code <= 57) {
-	low = low_code - 48;
-} else if (low_code >= 97 && low_code <= 102) {
-	low = low_code - 97 + 10;
-} else if (low_code >= 65 && low_code <= 70) {
-	low = low_code - 65 + 10;
-}
+		// Low nibble
+		if (low_code >= 48 && low_code <= 57) {
+			low = low_code - 48;
+		} else if (low_code >= 97 && low_code <= 102) {
+			low = low_code - 97 + 10;
+		} else if (low_code >= 65 && low_code <= 70) {
+			low = low_code - 65 + 10;
+		}
 
-let byte_val: u8 = high << 4 | low;
-buf[i] = byte_val;
-i = i + 1;
-}
+		let byte_val: u8 = high << 4 | low;
+		buf[i] = byte_val;
+		i = i + 1;
+	}
 
-return buf;
+	return buf;
 }

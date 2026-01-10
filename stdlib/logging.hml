@@ -122,132 +122,132 @@ export fn Logger(config?: null) {
 				let num: i32 = val;
 				str = str + num;
 			} else if (t == "f64") {
-	let num: f64 = val;
-	str = str + num;
-} else {
-	// For other numeric types, use generic approach
-	str = str + val;
-}
-return str;
-}
-// For other types, return type name
-return "[" + t + "]";
-}
-
-// Helper: Format structured data (key-value pairs)
-fn format_structured(data): string {
-if (data == null || typeof(data) != "object") {
-return "";
-}
-
-// Try to serialize as JSON
-try {
-return " " + data.serialize();
-} catch (e) {
-return " [structured data]";
-}
-}
-
-// Core logging function
-fn log_message(level: i32, message: string, data?: null) {
-// Filter by log level
-if (level < min_level) {
-return null;
-}
-
-// Build the log message
-let log_line = format_string;
-
-// Replace placeholders
-if (include_timestamp) {
-let ts = __now();  // Get current timestamp
-let ts_str = format_timestamp(ts);
-log_line = log_line.replace("{timestamp}", ts_str);
-} else {
-log_line = log_line.replace("{timestamp} ", "");
-log_line = log_line.replace("{timestamp}", "");
-}
-
-log_line = log_line.replace("{level}", level_to_string(level));
-log_line = log_line.replace("{message}", message);
-
-// Add structured data if provided
-if (data != null) {
-log_line = log_line + format_structured(data);
-}
-
-// Output the log
-if (output_target == "stdout") {
-print(log_line);
-} else {
-if (file_handle != null) {
-	try {
-		file_handle.write(log_line + "\n");
-	} catch (e) {
-		print("Failed to write to log file: " + e);
-		print(log_line);  // Fallback to stdout
+				let num: f64 = val;
+				str = str + num;
+			} else {
+				// For other numeric types, use generic approach
+				str = str + val;
+			}
+			return str;
+		}
+		// For other types, return type name
+		return "[" + t + "]";
 	}
-}
-}
 
-return null;
-}
+	// Helper: Format structured data (key-value pairs)
+	fn format_structured(data): string {
+		if (data == null || typeof(data) != "object") {
+			return "";
+		}
 
-// Return the logger object
-return {
-output: output_target,
-level: min_level,
-format: format_string,
-debug: fn(message, data?: null) {
-
-// debug(message, data?) - Log debug message
-log_message(DEBUG, value_to_log_string(message), data);
-return null;
-},
-info: fn(message, data?: null) {
-
-// info(message, data?) - Log info message
-log_message(INFO, value_to_log_string(message), data);
-return null;
-},
-warn: fn(message, data?: null) {
-
-// warn(message, data?) - Log warning message
-log_message(WARN, value_to_log_string(message), data);
-return null;
-},
-error: fn(message, data?: null) {
-
-// error(message, data?) - Log error message
-log_message(ERROR, value_to_log_string(message), data);
-return null;
-},
-log: fn(level: i32, message, data?: null) {
-
-// log(level, message, data?) - Log with explicit level
-log_message(level, value_to_log_string(message), data);
-return null;
-},
-set_level: fn(level: i32) {
-
-// set_level(level) - Change minimum log level
-min_level = level;
-return null;
-},
-close: fn() {
-
-// close() - Close file handle if using file output
-if (file_handle != null) {
-	try {
-		file_handle.close();
-		file_handle = null;
-	} catch (e) {
+		// Try to serialize as JSON
+		try {
+			return " " + data.serialize();
+		} catch (e) {
+			return " [structured data]";
+		}
 	}
-}
-// Ignore close errors
-return null;
-},
-};
+
+	// Core logging function
+	fn log_message(level: i32, message: string, data?: null) {
+		// Filter by log level
+		if (level < min_level) {
+			return null;
+		}
+
+		// Build the log message
+		let log_line = format_string;
+
+		// Replace placeholders
+		if (include_timestamp) {
+			let ts = __now();  // Get current timestamp
+			let ts_str = format_timestamp(ts);
+			log_line = log_line.replace("{timestamp}", ts_str);
+		} else {
+			log_line = log_line.replace("{timestamp} ", "");
+			log_line = log_line.replace("{timestamp}", "");
+		}
+
+		log_line = log_line.replace("{level}", level_to_string(level));
+		log_line = log_line.replace("{message}", message);
+
+		// Add structured data if provided
+		if (data != null) {
+			log_line = log_line + format_structured(data);
+		}
+
+		// Output the log
+		if (output_target == "stdout") {
+			print(log_line);
+		} else {
+			if (file_handle != null) {
+				try {
+					file_handle.write(log_line + "\n");
+				} catch (e) {
+					print("Failed to write to log file: " + e);
+					print(log_line);  // Fallback to stdout
+				}
+			}
+		}
+
+		return null;
+	}
+
+	// Return the logger object
+	return {
+		output: output_target,
+		level: min_level,
+		format: format_string,
+		debug: fn(message, data?: null) {
+
+			// debug(message, data?) - Log debug message
+			log_message(DEBUG, value_to_log_string(message), data);
+			return null;
+		},
+		info: fn(message, data?: null) {
+
+			// info(message, data?) - Log info message
+			log_message(INFO, value_to_log_string(message), data);
+			return null;
+		},
+		warn: fn(message, data?: null) {
+
+			// warn(message, data?) - Log warning message
+			log_message(WARN, value_to_log_string(message), data);
+			return null;
+		},
+		error: fn(message, data?: null) {
+
+			// error(message, data?) - Log error message
+			log_message(ERROR, value_to_log_string(message), data);
+			return null;
+		},
+		log: fn(level: i32, message, data?: null) {
+
+			// log(level, message, data?) - Log with explicit level
+			log_message(level, value_to_log_string(message), data);
+			return null;
+		},
+		set_level: fn(level: i32) {
+
+			// set_level(level) - Change minimum log level
+			min_level = level;
+			return null;
+		},
+		close: fn() {
+
+			// close() - Close file handle if using file output
+			if (file_handle != null) {
+				try {
+					file_handle.close();
+					file_handle = null;
+				} catch (e) {
+				}
+			}
+			// Ignore close errors
+			return null;
+		},
+	};
 }
 
 // ========== DEFAULT LOGGER ==========

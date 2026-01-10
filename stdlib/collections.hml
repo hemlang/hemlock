@@ -600,110 +600,110 @@ export fn LinkedList() {
 				head = null;
 				tail = null;
 			} else if (node == head) {
-	head = node.next;
-	head.prev = null;
-} else if (node == tail) {
-	tail = node.prev;
-	tail.next = null;
-} else {
-	node.prev.next = node.next;
-	node.next.prev = node.prev;
-}
+				head = node.next;
+				head.prev = null;
+			} else if (node == tail) {
+				tail = node.prev;
+				tail.next = null;
+			} else {
+				node.prev.next = node.next;
+				node.next.prev = node.prev;
+			}
 
-count--;
-self.size = count;
-return value;
-},
-get: fn(index) {
+			count--;
+			self.size = count;
+			return value;
+		},
+		get: fn(index) {
 
-let node = get_node(index);
-if (node == null) {
-	throw "Index out of bounds";
-}
-return node.value;
-},
-set: fn(index, value) {
+			let node = get_node(index);
+			if (node == null) {
+				throw "Index out of bounds";
+			}
+			return node.value;
+		},
+		set: fn(index, value) {
 
-let node = get_node(index);
-if (node == null) {
-	throw "Index out of bounds";
-}
-node.value = value;
-return null;
-},
-index_of: fn(value) {
+			let node = get_node(index);
+			if (node == null) {
+				throw "Index out of bounds";
+			}
+			node.value = value;
+			return null;
+		},
+		index_of: fn(value) {
 
-let current = head;
-let i = 0;
-while (current != null) {
-	if (current.value == value) {
-		return i;
-	}
-	current = current.next;
-	i++;
-}
-return -1;
-},
-contains: fn(value) {
+			let current = head;
+			let i = 0;
+			while (current != null) {
+				if (current.value == value) {
+					return i;
+				}
+				current = current.next;
+				i++;
+			}
+			return -1;
+		},
+		contains: fn(value) {
 
-return self.index_of(value) != -1;
-},
-clear: fn() {
+			return self.index_of(value) != -1;
+		},
+		clear: fn() {
 
-head = null;
-tail = null;
-count = 0;
-self.size = 0;
-return null;
-},
-is_empty: fn() {
+			head = null;
+			tail = null;
+			count = 0;
+			self.size = 0;
+			return null;
+		},
+		is_empty: fn() {
 
-return count == 0;
-},
-to_array: fn() {
+			return count == 0;
+		},
+		to_array: fn() {
 
-let result = [];
-let current = head;
-while (current != null) {
-	result.push(current.value);
-	current = current.next;
-}
-return result;
-},
-reverse: fn() {
+			let result = [];
+			let current = head;
+			while (current != null) {
+				result.push(current.value);
+				current = current.next;
+			}
+			return result;
+		},
+		reverse: fn() {
 
-if (head == null) {
-	return null;
-}
+			if (head == null) {
+				return null;
+			}
 
-let current = head;
-let temp = null;
+			let current = head;
+			let temp = null;
 
-while (current != null) {
-	temp = current.prev;
-	current.prev = current.next;
-	current.next = temp;
-	current = current.prev;
-}
+			while (current != null) {
+				temp = current.prev;
+				current.prev = current.next;
+				current.next = temp;
+				current = current.prev;
+			}
 
-temp = head;
-head = tail;
-tail = temp;
+			temp = head;
+			head = tail;
+			tail = temp;
 
-return null;
-},
-each: fn(callback) {
+			return null;
+		},
+		each: fn(callback) {
 
-let current = head;
-let i = 0;
-while (current != null) {
-	callback(current.value, i);
-	current = current.next;
-	i++;
-}
-return null;
-},
-};
+			let current = head;
+			let i = 0;
+			while (current != null) {
+				callback(current.value, i);
+				current = current.next;
+				i++;
+			}
+			return null;
+		},
+	};
 }
 
 // ========== LRU CACHE ==========

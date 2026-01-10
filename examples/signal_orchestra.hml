@@ -92,67 +92,67 @@ fn performance_report() {
 		if (notes_played[i] == "violin") {
 			violin_count = violin_count + 1;
 		} else if (notes_played[i] == "trumpet") {
-	trumpet_count = trumpet_count + 1;
-}
-}
+			trumpet_count = trumpet_count + 1;
+		}
+	}
 
-print("Total notes played: " + notes_played.length);
-print("");
-print(YELLOW + "  Violin:  " + violin_count + " notes" + RESET);
-print(RED + "  Trumpet: " + trumpet_count + " notes" + RESET);
-print("");
+	print("Total notes played: " + notes_played.length);
+	print("");
+	print(YELLOW + "  Violin:  " + violin_count + " notes" + RESET);
+	print(RED + "  Trumpet: " + trumpet_count + " notes" + RESET);
+	print("");
 
-// Show the melody as a sequence
-print("Melody sequence:");
-let sequence = "  ";
-for (let i = 0; i < notes_played.length; i = i + 1) {
-if (notes_played[i] == "violin") {
-	sequence = sequence + YELLOW + "V" + RESET;
-} else if (notes_played[i] == "trumpet") {
-	sequence = sequence + RED + "T" + RESET;
-}
-if (i < notes_played.length - 1) {
-	sequence = sequence + "-";
-}
-}
-print(sequence);
-print("");
+	// Show the melody as a sequence
+	print("Melody sequence:");
+	let sequence = "  ";
+	for (let i = 0; i < notes_played.length; i = i + 1) {
+		if (notes_played[i] == "violin") {
+			sequence = sequence + YELLOW + "V" + RESET;
+		} else if (notes_played[i] == "trumpet") {
+			sequence = sequence + RED + "T" + RESET;
+		}
+		if (i < notes_played.length - 1) {
+			sequence = sequence + "-";
+		}
+	}
+	print(sequence);
+	print("");
 
-print(GREEN + "Standing ovation! Bravo!" + RESET);
+	print(GREEN + "Standing ovation! Bravo!" + RESET);
 }
 
 // Main performance
 fn main() {
-print("");
-print(MAGENTA + BOLD + "======================================" + RESET);
-print(MAGENTA + BOLD + "    THE SIGNAL ORCHESTRA" + RESET);
-print(MAGENTA + BOLD + "    A Musical Signal Handler Demo" + RESET);
-print(MAGENTA + BOLD + "======================================" + RESET);
-print("");
+	print("");
+	print(MAGENTA + BOLD + "======================================" + RESET);
+	print(MAGENTA + BOLD + "    THE SIGNAL ORCHESTRA" + RESET);
+	print(MAGENTA + BOLD + "    A Musical Signal Handler Demo" + RESET);
+	print(MAGENTA + BOLD + "======================================" + RESET);
+	print("");
 
-print(CYAN + "In Hemlock, signals can trigger handler functions." + RESET);
-print(CYAN + "Tonight, we use them to conduct an orchestra!" + RESET);
-print("");
+	print(CYAN + "In Hemlock, signals can trigger handler functions." + RESET);
+	print(CYAN + "Tonight, we use them to conduct an orchestra!" + RESET);
+	print("");
 
-// Setup
-setup_orchestra();
+	// Setup
+	setup_orchestra();
 
-// Perform
-conduct_melody();
+	// Perform
+	conduct_melody();
 
-// Report
-performance_report();
+	// Report
+	performance_report();
 
-print("");
-print(CYAN + "Features demonstrated:" + RESET);
-print("  - signal() to register handlers");
-print("  - raise() to send signals");
-print("  - SIGUSR1 and SIGUSR2 constants");
-print("  - Global state modification in handlers");
-print("  - Multiple handlers for different signals");
-print("");
+	print("");
+	print(CYAN + "Features demonstrated:" + RESET);
+	print("  - signal() to register handlers");
+	print("  - raise() to send signals");
+	print("  - SIGUSR1 and SIGUSR2 constants");
+	print("  - Global state modification in handlers");
+	print("  - Multiple handlers for different signals");
+	print("");
 
-print(BLUE + "The curtain falls..." + RESET);
+	print(BLUE + "The curtain falls..." + RESET);
 }
 
 main();

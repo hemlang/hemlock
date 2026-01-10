@@ -33,7 +33,8 @@ HmlValue hml_get_args(void);
 #define HML_SANDBOX_RESTRICT_PROCESS     0x0004
 #define HML_SANDBOX_RESTRICT_FILE_WRITE  0x0008
 #define HML_SANDBOX_RESTRICT_FILE_READ   0x0010
-#define HML_SANDBOX_RESTRICT_ALL         0x001F
+#define HML_SANDBOX_RESTRICT_SIGNALS     0x0020
+#define HML_SANDBOX_RESTRICT_ALL         0x003F
 
 // Initialize sandbox mode (call after hml_runtime_init)
 void hml_sandbox_init(int flags, const char *root_path);

@@ -297,67 +297,67 @@ fn url_encode(input) {
 			// Safe character - add as-is
 			result = result + ch;
 		} else if (ch == ' ') {
-	// Space can be encoded as + or %20, we use +
-	result = result + '+';
-} else {
-	// Percent-encode the byte
-	let high = b >> 4 & 15;
-	let low = b & 15;
-	result = result + '%' + HEX_CHARS[high] + HEX_CHARS[low];
-}
+			// Space can be encoded as + or %20, we use +
+			result = result + '+';
+		} else {
+			// Percent-encode the byte
+			let high = b >> 4 & 15;
+			let low = b & 15;
+			result = result + '%' + HEX_CHARS[high] + HEX_CHARS[low];
+		}
 
-i = i + 1;
-}
+		i = i + 1;
+	}
 
-return result;
+	return result;
 }
 
 // Decode URL-encoded string (percent-decoding)
 fn url_decode(input) {
-if (typeof(input) != "string") {
-throw "url_decode() requires string argument";
-}
-
-let bytes = [];
-let i = 0;
-
-while (i < input.length) {
-let ch = input[i];
-
-if (ch == '+') {
-	// + decodes to space
-	bytes.push(32);
-	i = i + 1;
-} else if (ch == '%') {
-	// Percent-encoded byte
-	if (i + 2 >= input.length) {
-		throw "Invalid URL encoding: incomplete percent sequence";
+	if (typeof(input) != "string") {
+		throw "url_decode() requires string argument";
 	}
 
-	let h1 = input[i + 1];
-	let h2 = input[i + 2];
+	let bytes = [];
+	let i = 0;
 
-	let v1 = hex_char_to_value(h1);
-	let v2 = hex_char_to_value(h2);
+	while (i < input.length) {
+		let ch = input[i];
 
-	if (v1 == -1 || v2 == -1) {
-		throw "Invalid URL encoding: invalid hex digits in percent sequence";
+		if (ch == '+') {
+			// + decodes to space
+			bytes.push(32);
+			i = i + 1;
+		} else if (ch == '%') {
+			// Percent-encoded byte
+			if (i + 2 >= input.length) {
+				throw "Invalid URL encoding: incomplete percent sequence";
+			}
+
+			let h1 = input[i + 1];
+			let h2 = input[i + 2];
+
+			let v1 = hex_char_to_value(h1);
+			let v2 = hex_char_to_value(h2);
+
+			if (v1 == -1 || v2 == -1) {
+				throw "Invalid URL encoding: invalid hex digits in percent sequence";
+			}
+
+			let byte_val = v1 << 4 | v2;
+			bytes.push(byte_val);
+
+			i = i + 3;
+		} else {
+			// Regular character
+			let b: i32 = ch;
+			bytes.push(b);
+			i = i + 1;
+		}
 	}
 
-	let byte_val = v1 << 4 | v2;
-	bytes.push(byte_val);
-
-	i = i + 3;
-} else {
-	// Regular character
-	let b: i32 = ch;
-	bytes.push(b);
-	i = i + 1;
-}
-}
-
-// Convert bytes back to string using proper UTF-8 reconstruction
-return __string_from_bytes(bytes);
+	// Convert bytes back to string using proper UTF-8 reconstruction
+	return __string_from_bytes(bytes);
 }
 
 // ============================================================================
@@ -468,20 +468,20 @@ export fn base32_encode(input) {
 
 // Helper: Convert Base32 character to value (0-31)
 fn base32_char_to_value(ch: rune): i32 {
-let code: i32 = ch;
-// A-Z (65-90) -> 0-25
-if (code >= 65 && code <= 90) {
-return code - 65;
-}
-// a-z (97-122) -> 0-25 (case insensitive)
-if (code >= 97 && code <= 122) {
-return code - 97;
-}
-// 2-7 (50-55) -> 26-31
-if (code >= 50 && code <= 55) {
-return code - 50 + 26;
-}
-return -1;
+	let code: i32 = ch;
+	// A-Z (65-90) -> 0-25
+	if (code >= 65 && code <= 90) {
+		return code - 65;
+	}
+	// a-z (97-122) -> 0-25 (case insensitive)
+	if (code >= 97 && code <= 122) {
+		return code - 97;
+	}
+	// 2-7 (50-55) -> 26-31
+	if (code >= 50 && code <= 55) {
+		return code - 50 + 26;
+	}
+	return -1;
 }
 
 // Decode Base32 string to original string
@@ -649,32 +649,32 @@ export fn base58_encode(input) {
 
 // Helper: Convert Base58 character to value (0-57)
 fn base58_char_to_value(ch: rune): i32 {
-let code: i32 = ch;
-// 1-9 (49-57) -> 0-8
-if (code >= 49 && code <= 57) {
-return code - 49;
-}
-// A-H (65-72) -> 9-16
-if (code >= 65 && code <= 72) {
-return code - 65 + 9;
-}
-// J-N (74-78) -> 17-21 (skip I)
-if (code >= 74 && code <= 78) {
-return code - 74 + 17;
-}
-// P-Z (80-90) -> 22-32 (skip O)
-if (code >= 80 && code <= 90) {
-return code - 80 + 22;
-}
-// a-k (97-107) -> 33-43
-if (code >= 97 && code <= 107) {
-return code - 97 + 33;
-}
-// m-z (109-122) -> 44-57 (skip l)
-if (code >= 109 && code <= 122) {
-return code - 109 + 44;
-}
-return -1;
+	let code: i32 = ch;
+	// 1-9 (49-57) -> 0-8
+	if (code >= 49 && code <= 57) {
+		return code - 49;
+	}
+	// A-H (65-72) -> 9-16
+	if (code >= 65 && code <= 72) {
+		return code - 65 + 9;
+	}
+	// J-N (74-78) -> 17-21 (skip I)
+	if (code >= 74 && code <= 78) {
+		return code - 74 + 17;
+	}
+	// P-Z (80-90) -> 22-32 (skip O)
+	if (code >= 80 && code <= 90) {
+		return code - 80 + 22;
+	}
+	// a-k (97-107) -> 33-43
+	if (code >= 97 && code <= 107) {
+		return code - 97 + 33;
+	}
+	// m-z (109-122) -> 44-57 (skip l)
+	if (code >= 109 && code <= 122) {
+		return code - 109 + 44;
+	}
+	return -1;
 }
 
 // Decode Base58 string to original string
