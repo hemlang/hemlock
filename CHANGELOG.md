@@ -5,6 +5,14 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-01-10
+
+### Fixed
+
+- Formatter now preserves blank lines between statements
+- Formatter now correctly associates comments with their adjacent code instead of moving them to the top
+- Parser now sets line numbers on all statement types for accurate source mapping
+
 ## [1.7.2] - 2026-01-06
 
 ### Fixed
