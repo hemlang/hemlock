@@ -276,7 +276,8 @@ export fn stringify_row(row, options?: null): string {
 		let field = "" + row[i];
 
 		// Check if field needs quoting
-		let needs_quote = field.contains(delimiter) || field.contains(quote) || field.contains("\n") || field.contains("\r");
+		let needs_quote = field.contains(delimiter) || field.contains(quote) || field.contains("\n") ||
+			field.contains("\r");
 
 		if (needs_quote) {
 			// Escape quotes by doubling them

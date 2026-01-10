@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 7
-#define HEMLOCK_VERSION_PATCH 3
+#define HEMLOCK_VERSION_PATCH 4
 
-#define HEMLOCK_VERSION "1.7.3"
+#define HEMLOCK_VERSION "1.7.4"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.7.4 - Formatter improvements: function parameter, binary expr, import, and method chain line breaking
  *   1.7.3 - Fix formatter comment and blank line preservation
  *   1.7.2 - Maintenance release
  *   1.7.1 - Single-line if/while/for statements (braceless syntax)

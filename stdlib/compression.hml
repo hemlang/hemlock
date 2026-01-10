@@ -239,204 +239,205 @@ export fn TarWriter() {
 
 	let entries: array = [];
 
-	return { add_file: fn(name: string, content: string, mode?: 420) {
-		// Add a file to the archive
-		// 420 = 0644 octal
-		let entry: TarEntry = {
-			name,
-			content,
-			size: content.byte_length,
-			mode,
-			mtime: 0,
-			entry_type: '0',
-		};
-		entries.push(entry);
-		return null;
-	}
-, add_directory: fn(name: string, mode?: 493) {
+	return {
+		add_file: fn(name: string, content: string, mode?: 420) {
+			// Add a file to the archive
+			// 420 = 0644 octal
+			let entry: TarEntry = {
+				name,
+				content,
+				size: content.byte_length,
+				mode,
+				mtime: 0,
+				entry_type: '0',
+			};
+			entries.push(entry);
+			return null;
+		},
+		add_directory: fn(name: string, mode?: 493) {
 
-		// Add a directory to the archive
-		// 493 = 0755 octal
-		let dir_name = name;
-		if (!name.ends_with("/")) {
-			dir_name = name + "/";
-		}
-		let entry: TarEntry = {
-			name: dir_name,
-			content: "",
-			size: 0,
-			mode,
-			mtime: 0,
-			entry_type: '5',
-		};
-		entries.push(entry);
-		return null;
-	}
-, build: fn() {
-
-		// Build the tar archive and return as buffer
-		// Calculate total size
-		let total_size: i64 = 0;
-		let i = 0;
-		while (i < entries.length) {
-			let entry: TarEntry = entries[i];
-			total_size = total_size + BLOCK_SIZE;  // Header
-			// Round content up to block size
-			let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
-			total_size = total_size + content_blocks * BLOCK_SIZE;
-			i = i + 1;
-		}
-		// Add two empty blocks at end
-		total_size = total_size + BLOCK_SIZE * 2;
-
-		// Allocate output buffer
-		let output = buffer(total_size);
-		let offset: i64 = 0;
-
-		// Write each entry
-		i = 0;
-		while (i < entries.length) {
-			let entry: TarEntry = entries[i];
-
-			// Create header block (512 bytes)
-			let header = buffer(BLOCK_SIZE);
-			let h: i64 = 0;
-			while (h < BLOCK_SIZE) {
-				header[h] = 0;
-				h = h + 1;
+			// Add a directory to the archive
+			// 493 = 0755 octal
+			let dir_name = name;
+			if (!name.ends_with("/")) {
+				dir_name = name + "/";
 			}
+			let entry: TarEntry = {
+				name: dir_name,
+				content: "",
+				size: 0,
+				mode,
+				mtime: 0,
+				entry_type: '5',
+			};
+			entries.push(entry);
+			return null;
+		},
+		build: fn() {
 
-			// Name (offset 0, 100 bytes)
-			let name_bytes = entry.name.bytes();
-			let j = 0;
-			while (j < name_bytes.length && j < NAME_SIZE) {
-				header[j] = name_bytes[j];
-				j = j + 1;
+			// Build the tar archive and return as buffer
+			// Calculate total size
+			let total_size: i64 = 0;
+			let i = 0;
+			while (i < entries.length) {
+				let entry: TarEntry = entries[i];
+				total_size = total_size + BLOCK_SIZE;  // Header
+				// Round content up to block size
+				let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
+				total_size = total_size + content_blocks * BLOCK_SIZE;
+				i = i + 1;
 			}
+			// Add two empty blocks at end
+			total_size = total_size + BLOCK_SIZE * 2;
 
-			// Mode (offset 100, 8 bytes) - octal string
-			let mode_str = int_to_octal(entry.mode, MODE_SIZE);
-			let mode_bytes = mode_str.bytes();
-			j = 0;
-			while (j < mode_bytes.length && j < MODE_SIZE - 1) {
-				header[100 + j] = mode_bytes[j];
-				j = j + 1;
-			}
+			// Allocate output buffer
+			let output = buffer(total_size);
+			let offset: i64 = 0;
 
-			// UID (offset 108, 8 bytes) - "0000000\0"
-			header[108] = 48;
-			header[109] = 48;
-			header[110] = 48;
-			header[111] = 48;
-			header[112] = 48;
-			header[113] = 48;
-			header[114] = 48;
+			// Write each entry
+			i = 0;
+			while (i < entries.length) {
+				let entry: TarEntry = entries[i];
 
-			// GID (offset 116, 8 bytes) - "0000000\0"
-			header[116] = 48;
-			header[117] = 48;
-			header[118] = 48;
-			header[119] = 48;
-			header[120] = 48;
-			header[121] = 48;
-			header[122] = 48;
+				// Create header block (512 bytes)
+				let header = buffer(BLOCK_SIZE);
+				let h: i64 = 0;
+				while (h < BLOCK_SIZE) {
+					header[h] = 0;
+					h = h + 1;
+				}
 
-			// Size (offset 124, 12 bytes) - octal string
-			let size_str = int_to_octal(entry.size, SIZE_SIZE);
-			let size_bytes = size_str.bytes();
-			j = 0;
-			while (j < size_bytes.length && j < SIZE_SIZE - 1) {
-				header[124 + j] = size_bytes[j];
-				j = j + 1;
-			}
-
-			// Mtime (offset 136, 12 bytes) - "00000000000\0"
-			header[136] = 48;
-			header[137] = 48;
-			header[138] = 48;
-			header[139] = 48;
-			header[140] = 48;
-			header[141] = 48;
-			header[142] = 48;
-			header[143] = 48;
-			header[144] = 48;
-			header[145] = 48;
-			header[146] = 48;
-
-			// Checksum placeholder (offset 148, 8 bytes) - spaces for calculation
-			header[148] = 32;
-			header[149] = 32;
-			header[150] = 32;
-			header[151] = 32;
-			header[152] = 32;
-			header[153] = 32;
-			header[154] = 32;
-			header[155] = 32;
-
-			// Typeflag (offset 156, 1 byte)
-			let type_val: i32 = entry.entry_type;
-			header[156] = type_val;
-
-			// Linkname (offset 157, 100 bytes) - empty
-
-			// Magic (offset 257, 6 bytes) - "ustar\0"
-			header[257] = 117;
-			header[258] = 115;
-			header[259] = 116;
-			header[260] = 97;
-			header[261] = 114;
-			header[262] = 0;
-
-			// Version (offset 263, 2 bytes) - "00"
-			header[263] = 48;
-			header[264] = 48;
-
-			// Calculate and set checksum
-			let checksum = tar_checksum(header);
-			let checksum_str = int_to_octal(checksum, 7);
-			let checksum_bytes = checksum_str.bytes();
-			j = 0;
-			while (j < checksum_bytes.length && j < 6) {
-				header[148 + j] = checksum_bytes[j];
-				j = j + 1;
-			}
-			header[154] = 0;  // null terminator
-			header[155] = 32;  // space
-
-			// Copy header to output
-			j = 0;
-			while (j < BLOCK_SIZE) {
-				output[offset + j] = header[j];
-				j = j + 1;
-			}
-			offset = offset + BLOCK_SIZE;
-
-			// Copy content
-			if (entry.size > 0) {
-				let content_bytes = entry.content.bytes();
-				j = 0;
-				while (j < content_bytes.length) {
-					output[offset + j] = content_bytes[j];
+				// Name (offset 0, 100 bytes)
+				let name_bytes = entry.name.bytes();
+				let j = 0;
+				while (j < name_bytes.length && j < NAME_SIZE) {
+					header[j] = name_bytes[j];
 					j = j + 1;
 				}
-				// Pad to block boundary
-				let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
-				offset = offset + content_blocks * BLOCK_SIZE;
+
+				// Mode (offset 100, 8 bytes) - octal string
+				let mode_str = int_to_octal(entry.mode, MODE_SIZE);
+				let mode_bytes = mode_str.bytes();
+				j = 0;
+				while (j < mode_bytes.length && j < MODE_SIZE - 1) {
+					header[100 + j] = mode_bytes[j];
+					j = j + 1;
+				}
+
+				// UID (offset 108, 8 bytes) - "0000000\0"
+				header[108] = 48;
+				header[109] = 48;
+				header[110] = 48;
+				header[111] = 48;
+				header[112] = 48;
+				header[113] = 48;
+				header[114] = 48;
+
+				// GID (offset 116, 8 bytes) - "0000000\0"
+				header[116] = 48;
+				header[117] = 48;
+				header[118] = 48;
+				header[119] = 48;
+				header[120] = 48;
+				header[121] = 48;
+				header[122] = 48;
+
+				// Size (offset 124, 12 bytes) - octal string
+				let size_str = int_to_octal(entry.size, SIZE_SIZE);
+				let size_bytes = size_str.bytes();
+				j = 0;
+				while (j < size_bytes.length && j < SIZE_SIZE - 1) {
+					header[124 + j] = size_bytes[j];
+					j = j + 1;
+				}
+
+				// Mtime (offset 136, 12 bytes) - "00000000000\0"
+				header[136] = 48;
+				header[137] = 48;
+				header[138] = 48;
+				header[139] = 48;
+				header[140] = 48;
+				header[141] = 48;
+				header[142] = 48;
+				header[143] = 48;
+				header[144] = 48;
+				header[145] = 48;
+				header[146] = 48;
+
+				// Checksum placeholder (offset 148, 8 bytes) - spaces for calculation
+				header[148] = 32;
+				header[149] = 32;
+				header[150] = 32;
+				header[151] = 32;
+				header[152] = 32;
+				header[153] = 32;
+				header[154] = 32;
+				header[155] = 32;
+
+				// Typeflag (offset 156, 1 byte)
+				let type_val: i32 = entry.entry_type;
+				header[156] = type_val;
+
+				// Linkname (offset 157, 100 bytes) - empty
+
+				// Magic (offset 257, 6 bytes) - "ustar\0"
+				header[257] = 117;
+				header[258] = 115;
+				header[259] = 116;
+				header[260] = 97;
+				header[261] = 114;
+				header[262] = 0;
+
+				// Version (offset 263, 2 bytes) - "00"
+				header[263] = 48;
+				header[264] = 48;
+
+				// Calculate and set checksum
+				let checksum = tar_checksum(header);
+				let checksum_str = int_to_octal(checksum, 7);
+				let checksum_bytes = checksum_str.bytes();
+				j = 0;
+				while (j < checksum_bytes.length && j < 6) {
+					header[148 + j] = checksum_bytes[j];
+					j = j + 1;
+				}
+				header[154] = 0;  // null terminator
+				header[155] = 32;  // space
+
+				// Copy header to output
+				j = 0;
+				while (j < BLOCK_SIZE) {
+					output[offset + j] = header[j];
+					j = j + 1;
+				}
+				offset = offset + BLOCK_SIZE;
+
+				// Copy content
+				if (entry.size > 0) {
+					let content_bytes = entry.content.bytes();
+					j = 0;
+					while (j < content_bytes.length) {
+						output[offset + j] = content_bytes[j];
+						j = j + 1;
+					}
+					// Pad to block boundary
+					let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
+					offset = offset + content_blocks * BLOCK_SIZE;
+				}
+
+				i = i + 1;
 			}
 
-			i = i + 1;
-		}
+			// Two empty blocks at end (already zeroed from buffer init)
 
-		// Two empty blocks at end (already zeroed from buffer init)
+			return output;
+		},
+		count: fn() {
 
-		return output;
-	}
-, count: fn() {
-
-		// Get number of entries
-		return entries.length;
-	}
- };
+			// Get number of entries
+			return entries.length;
+		},
+	};
 }
 
 // Create a TarReader for reading tar archives
@@ -515,14 +516,12 @@ export fn TarReader(data) {
 		entries: fn() {
 			// Get all entries
 			return entries;
-		}
-,
+		},
 		count: fn() {
 
 			// Get number of entries
 			return entries.length;
-		}
-,
+		},
 		get: fn(name: string) {
 
 			// Get entry by name
@@ -535,8 +534,7 @@ export fn TarReader(data) {
 				i = i + 1;
 			}
 			return null;
-		}
-,
+		},
 		list: fn() {
 
 			// List all file names
@@ -548,8 +546,7 @@ export fn TarReader(data) {
 				i = i + 1;
 			}
 			return names;
-		}
-,
+		},
 		contains: fn(name: string) {
 
 			// Check if archive contains entry
@@ -562,8 +559,7 @@ export fn TarReader(data) {
 				i = i + 1;
 			}
 			return false;
-		}
-,
+		},
 	};
 }
 

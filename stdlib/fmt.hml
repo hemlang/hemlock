@@ -246,7 +246,8 @@ export fn sprintf(template, args): string {
 // Convert value to integer
 fn to_int(val): i64 {
 	let t = typeof(val);
-	if (t == "i32" || t == "i64" || t == "i16" || t == "i8" || t == "u32" || t == "u64" || t == "u16" || t == "u8") {
+	if (t == "i32" || t == "i64" || t == "i16" || t == "i8" || t == "u32" || t == "u64" || t == "u16" || t ==
+		"u8") {
 		let result: i64 = val;
 		return result;
 	}

@@ -545,7 +545,8 @@ export fn slugify(str): string {
 		let code: i32 = c;
 
 		// Check if alphanumeric (a-z, A-Z, 0-9)
-		if (code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 48 && code <= 57) {
+		if (code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
+			code >= 48 && code <= 57) {
 			result = result + to_lower_rune(c);
 			prev_was_hyphen = false;
 		} else if (c == ' ' || c == '-' || c == '_' || c == '\t') {

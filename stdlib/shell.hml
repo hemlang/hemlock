@@ -20,7 +20,24 @@ export fn escape(s: string): string {
 	while (i < s.length) {
 		let ch = s.char_at(i);
 		// Characters that need escaping in shell
-		if (ch == '\\' || ch == '"' || ch == '\'' || ch == '`' || ch == '$' || ch == '!' || ch == '*' || ch == '?' || ch == '[' || ch == ']' || ch == '{' || ch == '}' || ch == '(' || ch == ')' || ch == '|' || ch == '&' || ch == ';' || ch == '<' || ch == '>' || ch == ' ' || ch == '\t' || ch == '\n' || ch == '#' || ch == '~') {
+		if (ch == '\\' || ch == '"' || ch == '\'' || ch == '`' || ch == '$' || ch == '!' || ch == '*' || ch ==
+			'?' ||
+			ch == '[' ||
+			ch == ']' ||
+			ch == '{' ||
+			ch == '}' ||
+			ch == '(' ||
+			ch == ')' ||
+			ch == '|' ||
+			ch == '&' ||
+			ch == ';' ||
+			ch == '<' ||
+			ch == '>' ||
+			ch == ' ' ||
+			ch == '\t' ||
+			ch == '\n' ||
+			ch == '#' ||
+			ch == '~') {
 			result = result + "\\" + ch;
 		} else {
 			result = result + ch;
@@ -175,7 +192,12 @@ export fn run_capture(command): object {
 	let cmd = prepare_command(command);
 	try {
 		let result = exec_cmd(cmd);
-		return { success: result["exit_code"] == 0, stdout: result["output"], stderr: "", code: result["exit_code"] };
+		return {
+			success: result["exit_code"] == 0,
+			stdout: result["output"],
+			stderr: "",
+			code: result["exit_code"],
+		};
 	} catch (e) {
 		return { success: false, stdout: "", stderr: "" + e, code: -1 };
 	}

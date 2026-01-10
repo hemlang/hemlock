@@ -7,7 +7,16 @@
 // import { MessageQueue, Semaphore, SharedData } from "@stdlib/ipc";
 // let mq = MessageQueue("/tmp/my_queue");
 // mq.send("hello");
-import { exists, read_file, write_file, append_file, remove_file, make_dir, list_dir, is_dir } from "@stdlib/fs";
+import {
+	exists,
+	read_file,
+	write_file,
+	append_file,
+	remove_file,
+	make_dir,
+	list_dir,
+	is_dir,
+} from "@stdlib/fs";
 import { join } from "@stdlib/path";
 import { v4 } from "@stdlib/uuid";
 import { time_ms, sleep } from "@stdlib/time";
@@ -39,8 +48,7 @@ export fn MessageQueue(path): object {
 			let filename = ts + "_" + id + ".msg";
 			let filepath = join(self._path, filename);
 			write_file(filepath, message);
-		}
-,
+		},
 		recv: fn(timeout_ms?: 5000) {
 
 			// Receive a message from the queue (blocking with timeout)
@@ -81,8 +89,7 @@ export fn MessageQueue(path): object {
 				// Sleep briefly before retry
 				sleep(0.01);
 			}
-		}
-,
+		},
 		try_recv: fn() {
 
 			// Try to receive without blocking
@@ -107,8 +114,7 @@ export fn MessageQueue(path): object {
 			let content = read_file(filepath);
 			remove_file(filepath);
 			return content;
-		}
-,
+		},
 		is_empty: fn(): bool {
 
 			// Check if queue is empty
@@ -122,8 +128,7 @@ export fn MessageQueue(path): object {
 				i = i + 1;
 			}
 			return true;
-		}
-,
+		},
 		count: fn(): i32 {
 
 			// Get number of messages in queue
@@ -138,8 +143,7 @@ export fn MessageQueue(path): object {
 				i = i + 1;
 			}
 			return count;
-		}
-,
+		},
 		clear: fn() {
 
 			// Clear all messages from the queue
@@ -152,8 +156,7 @@ export fn MessageQueue(path): object {
 				}
 				i = i + 1;
 			}
-		}
-,
+		},
 		destroy: fn() {
 
 			// Destroy the queue (remove directory)
@@ -163,8 +166,7 @@ export fn MessageQueue(path): object {
 				remove_dir(self._path);
 			} catch (e) {
 			}
-		}
-,
+		},
 	};
 }
 // Ignore - might have new messages
@@ -210,8 +212,7 @@ export fn Semaphore(path, initial?: 1): object {
 				// Sleep briefly
 				sleep(0.01);
 			}
-		}
-,
+		},
 		try_acquire: fn(): bool {
 
 			// Try to acquire without blocking
@@ -222,35 +223,30 @@ export fn Semaphore(path, initial?: 1): object {
 				return true;
 			}
 			return false;
-		}
-,
+		},
 		release: fn() {
 
 			// Release the semaphore (increment)
 			let val = self._read_val();
 			self._write_val(val + 1);
-		}
-,
+		},
 		value: fn(): i32 {
 
 			// Get current value
 			// Returns: i32
 			return self._read_val();
-		}
-,
+		},
 		_read_val: fn(): i32 {
 
 			// Internal: Read value from file
 			let content = read_file(self._path);
 			return parse_int_str(content.trim());
-		}
-,
+		},
 		_write_val: fn(val) {
 
 			// Internal: Write value to file
 			write_file(self._path, "" + val);
-		}
-,
+		},
 	};
 }
 
@@ -274,28 +270,24 @@ export fn Mutex(path): object {
 			// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
 			// Returns: bool - True if locked, false if timeout
 			return self._sem.acquire(timeout_ms);
-		}
-,
+		},
 		try_lock: fn(): bool {
 
 			// Try to lock without blocking
 			// Returns: bool - True if locked
 			return self._sem.try_acquire();
-		}
-,
+		},
 		unlock: fn() {
 
 			// Unlock the mutex
 			self._sem.release();
-		}
-,
+		},
 		is_locked: fn(): bool {
 
 			// Check if locked
 			// Returns: bool
 			return self._sem.value() == 0;
-		}
-,
+		},
 	};
 }
 
@@ -324,8 +316,7 @@ export fn SharedData(path): object {
 			// Returns: value or null
 			let data = self._read_data();
 			return data[key];
-		}
-,
+		},
 		set: fn(key, value) {
 
 			// Set a value
@@ -342,8 +333,7 @@ export fn SharedData(path): object {
 				throw e;
 			}
 			self._lock.unlock();
-		}
-,
+		},
 		delete: fn(key) {
 
 			// Delete a key
@@ -360,8 +350,7 @@ export fn SharedData(path): object {
 				throw e;
 			}
 			self._lock.unlock();
-		}
-,
+		},
 		keys: fn(): array {
 
 			// Get all keys
@@ -371,8 +360,7 @@ export fn SharedData(path): object {
 			// Note: Object iteration would be needed
 			// This is a simplified implementation
 			return result;
-		}
-,
+		},
 		clear: fn() {
 
 			// Clear all data
@@ -384,22 +372,19 @@ export fn SharedData(path): object {
 				throw e;
 			}
 			self._lock.unlock();
-		}
-,
+		},
 		_read_data: fn(): object {
 
 			// Internal: Read data from file
 			let content = read_file(self._path);
 			return content.deserialize();
-		}
-,
+		},
 		_write_data: fn(data) {
 
 			// Internal: Write data to file
 			let content = data.serialize();
 			write_file(self._path, content);
-		}
-,
+		},
 	};
 }
 
@@ -431,8 +416,7 @@ export fn PidFile(path): object {
 			// Stale PID file, overwrite
 			write_file(self._path, "" + self._pid);
 			return true;
-		}
-,
+		},
 		read: fn() {
 
 			// Read the PID from file
@@ -442,24 +426,21 @@ export fn PidFile(path): object {
 			}
 			let content = read_file(self._path);
 			return parse_int_str(content.trim());
-		}
-,
+		},
 		remove: fn() {
 
 			// Remove the PID file
 			if (exists(self._path)) {
 				remove_file(self._path);
 			}
-		}
-,
+		},
 		is_owner: fn(): bool {
 
 			// Check if the file's PID matches current process
 			// Returns: bool
 			let stored = self.read();
 			return stored == self._pid;
-		}
-,
+		},
 	};
 }
 
@@ -518,45 +499,47 @@ import { get_pid, kill } from "@stdlib/process";
 // path: string - Path for the event file
 // Returns: Event object
 export fn Event(path): object {
-	return { _path: path, set: fn() {
+	return {
+		_path: path,
+		set: fn() {
 
-		// Set the event (signal)
-		write_file(self._path, "" + time_ms());
-	}
-, clear: fn() {
+			// Set the event (signal)
+			write_file(self._path, "" + time_ms());
+		},
+		clear: fn() {
 
-		// Clear the event
-		if (exists(self._path)) {
-			remove_file(self._path);
-		}
-	}
-, is_set: fn(): bool {
-
-		// Check if event is set
-		// Returns: bool
-		return exists(self._path);
-	}
-, wait: fn(timeout_ms?: 5000): bool {
-
-		// Wait for the event to be set
-		// Parameters:
-		// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
-		// Returns: bool - True if event was set, false if timeout
-		let start = time_ms();
-
-		while (true) {
+			// Clear the event
 			if (exists(self._path)) {
-				return true;
+				remove_file(self._path);
 			}
+		},
+		is_set: fn(): bool {
 
-			if (time_ms() - start > timeout_ms) {
-				return false;
+			// Check if event is set
+			// Returns: bool
+			return exists(self._path);
+		},
+		wait: fn(timeout_ms?: 5000): bool {
+
+			// Wait for the event to be set
+			// Parameters:
+			// timeout_ms: i32 - Timeout in milliseconds (default: 5000)
+			// Returns: bool - True if event was set, false if timeout
+			let start = time_ms();
+
+			while (true) {
+				if (exists(self._path)) {
+					return true;
+				}
+
+				if (time_ms() - start > timeout_ms) {
+					return false;
+				}
+
+				sleep(0.01);
 			}
-
-			sleep(0.01);
-		}
-	}
- };
+		},
+	};
 }
 
 // ============================================================================

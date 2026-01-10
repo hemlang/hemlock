@@ -42,8 +42,7 @@ export fn WebSocket(url: string) {
 			}
 			let result = __lws_ws_send_text(self.handle, data);
 			return result == 0;
-		}
-,
+		},
 		send_binary: fn(data: buffer): bool {
 
 			if (self.closed) {
@@ -51,8 +50,7 @@ export fn WebSocket(url: string) {
 			}
 			let result = __lws_ws_send_binary(self.handle, data);
 			return result == 0;
-		}
-,
+		},
 		recv: fn(timeout_ms: i32) {
 
 			if (self.closed) {
@@ -92,16 +90,14 @@ export fn WebSocket(url: string) {
 
 __lws_msg_free(msg_ptr);
 return message;
-}
-,
+},
 close: fn() {
 
 if (!self.closed) {
 	__lws_ws_close(self.handle);
 	self.closed = true;
 }
-}
-,
+},
 };
 }
 
@@ -145,8 +141,7 @@ export fn WebSocketServer(host: string, port: i32) {
 						throw "Cannot send on closed WebSocket";
 					}
 					return __lws_ws_send_text(self.handle, data) == 0;
-				}
-,
+				},
 				send_binary: fn(data: buffer): bool {
 
 					if (self.closed) {
@@ -154,8 +149,7 @@ export fn WebSocketServer(host: string, port: i32) {
 					}
 					// Note: send_binary not yet implemented in builtins - use send_text
 					return __lws_ws_send_text(self.handle, data) == 0;
-				}
-,
+				},
 				recv: fn(timeout_ms: i32) {
 
 					// Same as client recv
@@ -190,27 +184,23 @@ export fn WebSocketServer(host: string, port: i32) {
 
 __lws_msg_free(msg_ptr);
 return message;
-}
-,
+},
 close: fn() {
 
 if (!self.closed) {
 	__lws_ws_close(self.handle);
 	self.closed = true;
 }
-}
-,
+},
 };
-}
-,
+},
 close: fn() {
 
 if (!self.closed) {
 __lws_ws_server_close(self.handle);
 self.closed = true;
 }
-}
-,
+},
 };
 }
 

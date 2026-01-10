@@ -569,6 +569,23 @@ static int estimate_expr_len(Expr *expr) {
             }
             return len;
         }
+        case EXPR_GET_PROPERTY:
+            return estimate_expr_len(expr->as.get_property.object) + 1 +
+                   (expr->as.get_property.property ? (int)strlen(expr->as.get_property.property) : 0);
+        case EXPR_SET_PROPERTY:
+            return estimate_expr_len(expr->as.set_property.object) + 1 +
+                   (expr->as.set_property.property ? (int)strlen(expr->as.set_property.property) : 0) +
+                   3 + estimate_expr_len(expr->as.set_property.value);
+        case EXPR_INDEX:
+            return estimate_expr_len(expr->as.index.object) + 2 +
+                   estimate_expr_len(expr->as.index.index);
+        case EXPR_TERNARY:
+            return estimate_expr_len(expr->as.ternary.condition) + 3 +
+                   estimate_expr_len(expr->as.ternary.true_expr) + 3 +
+                   estimate_expr_len(expr->as.ternary.false_expr);
+        case EXPR_ASSIGN:
+            return (expr->as.assign.name ? (int)strlen(expr->as.assign.name) : 0) + 3 +
+                   estimate_expr_len(expr->as.assign.value);
         default:
             return 10;  // Default estimate for complex expressions
     }
@@ -606,6 +623,137 @@ static int count_complex_elements(Expr **elements, int num_elements) {
         }
     }
     return count;
+}
+
+// Forward declaration for type length estimation
+static int estimate_type_len(Type *type);
+
+// Estimate the length of a type annotation
+static int estimate_type_len(Type *type) {
+    if (!type) return 0;
+    switch (type->kind) {
+        case TYPE_I8: return 2;
+        case TYPE_I16: return 3;
+        case TYPE_I32: return 3;
+        case TYPE_I64: return 3;
+        case TYPE_U8: return 2;
+        case TYPE_U16: return 3;
+        case TYPE_U32: return 3;
+        case TYPE_U64: return 3;
+        case TYPE_F32: return 3;
+        case TYPE_F64: return 3;
+        case TYPE_BOOL: return 4;
+        case TYPE_STRING: return 6;
+        case TYPE_RUNE: return 4;
+        case TYPE_PTR: return 3;
+        case TYPE_BUFFER: return 6;
+        case TYPE_ARRAY:
+            return 5 + (type->element_type ? 2 + estimate_type_len(type->element_type) : 0);
+        case TYPE_NULL: return 4;
+        case TYPE_CUSTOM_OBJECT:
+            return type->type_name ? (int)strlen(type->type_name) : 0;
+        case TYPE_GENERIC_OBJECT: return 6;
+        case TYPE_ENUM:
+            return type->type_name ? (int)strlen(type->type_name) : 0;
+        case TYPE_VOID: return 4;
+        case TYPE_INFER: return 0;
+        case TYPE_PARAM:
+            return type->type_name ? (int)strlen(type->type_name) : 0;
+        case TYPE_SELF: return 4;
+        case TYPE_COMPOUND: {
+            int len = 0;
+            for (int i = 0; i < type->num_compound_types; i++) {
+                if (i > 0) len += 3;  // " & "
+                len += estimate_type_len(type->compound_types[i]);
+            }
+            return len;
+        }
+        case TYPE_FUNCTION: {
+            int len = type->fn_is_async ? 9 : 3;  // "async fn(" or "fn("
+            for (int i = 0; i < type->fn_num_params; i++) {
+                if (i > 0) len += 2;
+                if (type->fn_param_types && type->fn_param_types[i]) {
+                    len += estimate_type_len(type->fn_param_types[i]);
+                }
+            }
+            len += 1;  // ")"
+            if (type->fn_return_type && type->fn_return_type->kind != TYPE_VOID) {
+                len += 2 + estimate_type_len(type->fn_return_type);
+            }
+            return len;
+        }
+        default: return 5;
+    }
+}
+
+// Estimate the length of function parameters
+static int estimate_fn_params_len(Expr *fn) {
+    if (!fn || fn->type != EXPR_FUNCTION) return 0;
+    int len = 2;  // "()"
+    for (int i = 0; i < fn->as.function.num_params; i++) {
+        if (i > 0) len += 2;  // ", "
+        if (fn->as.function.param_is_ref && fn->as.function.param_is_ref[i]) {
+            len += 4;  // "ref "
+        }
+        if (fn->as.function.param_names[i]) {
+            len += strlen(fn->as.function.param_names[i]);
+        }
+        if (fn->as.function.param_types && fn->as.function.param_types[i] &&
+            fn->as.function.param_types[i]->kind != TYPE_INFER) {
+            len += 2;  // ": "
+            len += estimate_type_len(fn->as.function.param_types[i]);
+            if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+                len += 1;  // "?"
+                len += 3 + estimate_expr_len(fn->as.function.param_defaults[i]);  // " = expr"
+            }
+        } else if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+            len += 3 + estimate_expr_len(fn->as.function.param_defaults[i]);  // "?: expr"
+        }
+    }
+    if (fn->as.function.rest_param) {
+        if (fn->as.function.num_params > 0) len += 2;
+        len += 3 + strlen(fn->as.function.rest_param);  // "...name"
+        if (fn->as.function.rest_param_type) {
+            len += 2 + estimate_type_len(fn->as.function.rest_param_type);
+        }
+    }
+    return len;
+}
+
+// Estimate total import statement length
+static int estimate_import_len(Stmt *stmt) {
+    if (!stmt || stmt->type != STMT_IMPORT) return 0;
+    int len = 17;  // "import {  } from \"\";"
+    len += strlen(stmt->as.import_stmt.module_path);
+    for (int i = 0; i < stmt->as.import_stmt.num_imports; i++) {
+        if (i > 0) len += 2;  // ", "
+        len += strlen(stmt->as.import_stmt.import_names[i]);
+        if (stmt->as.import_stmt.import_aliases && stmt->as.import_stmt.import_aliases[i]) {
+            len += 4 + strlen(stmt->as.import_stmt.import_aliases[i]);  // " as alias"
+        }
+    }
+    return len;
+}
+
+// Count depth of chained method calls (obj.method().method2().method3())
+static int count_method_chain_depth(Expr *expr) {
+    int depth = 0;
+    while (expr) {
+        if (expr->type == EXPR_CALL) {
+            Expr *func = expr->as.call.func;
+            if (func && func->type == EXPR_GET_PROPERTY) {
+                depth++;
+                expr = func->as.get_property.object;
+            } else {
+                break;
+            }
+        } else if (expr->type == EXPR_GET_PROPERTY) {
+            expr = expr->as.get_property.object;
+        } else {
+            break;
+        }
+    }
+    return depth;
 }
 
 // ========== TYPE FORMATTING ==========
@@ -699,6 +847,93 @@ static void fmt_type(FmtCtx *ctx, Type *type) {
 
     if (type->nullable) {
         buf_append_char(&ctx->buf, '?');
+    }
+}
+
+// ========== FUNCTION PARAMETER FORMATTING ==========
+
+// Format function parameters with optional line breaking
+// fn_name is optional (NULL for anonymous functions)
+// prefix is "fn " for regular or "async fn " for async
+static void fmt_fn_params(FmtCtx *ctx, Expr *fn, const char *fn_name, const char *prefix) {
+    if (!fn || fn->type != EXPR_FUNCTION) return;
+
+    buf_append(&ctx->buf, prefix);
+    if (fn_name) {
+        buf_append(&ctx->buf, fn_name);
+    }
+
+    update_column(ctx);
+    int params_len = estimate_fn_params_len(fn);
+    int should_break = (ctx->column + params_len > FMT_MAX_LINE_WIDTH) &&
+                       (fn->as.function.num_params > 1);
+
+    buf_append_char(&ctx->buf, '(');
+    if (should_break) {
+        fmt_newline(ctx);
+        ctx->indent++;
+    }
+
+    for (int i = 0; i < fn->as.function.num_params; i++) {
+        if (should_break) {
+            fmt_indent(ctx);
+        } else if (i > 0) {
+            buf_append(&ctx->buf, ", ");
+        }
+        if (fn->as.function.param_is_ref && fn->as.function.param_is_ref[i]) {
+            buf_append(&ctx->buf, "ref ");
+        }
+        buf_append(&ctx->buf, fn->as.function.param_names[i]);
+        if (fn->as.function.param_types && fn->as.function.param_types[i] &&
+            fn->as.function.param_types[i]->kind != TYPE_INFER) {
+            if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+                buf_append(&ctx->buf, "?");
+            }
+            buf_append(&ctx->buf, ": ");
+            fmt_type(ctx, fn->as.function.param_types[i]);
+        } else if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+            buf_append(&ctx->buf, "?: ");
+            fmt_expr(ctx, fn->as.function.param_defaults[i]);
+        }
+        if (fn->as.function.param_types && fn->as.function.param_types[i] &&
+            fn->as.function.param_types[i]->kind != TYPE_INFER &&
+            fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
+            buf_append(&ctx->buf, " = ");
+            fmt_expr(ctx, fn->as.function.param_defaults[i]);
+        }
+        if (should_break) {
+            buf_append(&ctx->buf, ",");
+            fmt_newline(ctx);
+        }
+    }
+
+    if (fn->as.function.rest_param) {
+        if (should_break) {
+            fmt_indent(ctx);
+        } else if (fn->as.function.num_params > 0) {
+            buf_append(&ctx->buf, ", ");
+        }
+        buf_append(&ctx->buf, "...");
+        buf_append(&ctx->buf, fn->as.function.rest_param);
+        if (fn->as.function.rest_param_type) {
+            buf_append(&ctx->buf, ": ");
+            fmt_type(ctx, fn->as.function.rest_param_type);
+        }
+        if (should_break) {
+            buf_append(&ctx->buf, ",");
+            fmt_newline(ctx);
+        }
+    }
+
+    if (should_break) {
+        ctx->indent--;
+        fmt_indent(ctx);
+    }
+    buf_append_char(&ctx->buf, ')');
+
+    if (fn->as.function.return_type && fn->as.function.return_type->kind != TYPE_INFER) {
+        buf_append(&ctx->buf, ": ");
+        fmt_type(ctx, fn->as.function.return_type);
     }
 }
 
@@ -873,13 +1108,31 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             int left_parens = needs_parens(expr, expr->as.binary.left, 0);
             int right_parens = needs_parens(expr, expr->as.binary.right, 1);
 
+            update_column(ctx);
+            int total_len = estimate_expr_len(expr);
+            // Break if expression is too long (only for logical/comparison operators)
+            BinaryOp op = expr->as.binary.op;
+            int is_breakable_op = (op == OP_AND || op == OP_OR ||
+                                   op == OP_EQUAL || op == OP_NOT_EQUAL ||
+                                   op == OP_LESS || op == OP_LESS_EQUAL ||
+                                   op == OP_GREATER || op == OP_GREATER_EQUAL);
+            int should_break = is_breakable_op &&
+                               (ctx->column + total_len > FMT_MAX_LINE_WIDTH);
+
             if (left_parens) buf_append_char(&ctx->buf, '(');
             fmt_expr(ctx, expr->as.binary.left);
             if (left_parens) buf_append_char(&ctx->buf, ')');
 
             buf_append_char(&ctx->buf, ' ');
             buf_append(&ctx->buf, binary_op_str(expr->as.binary.op));
-            buf_append_char(&ctx->buf, ' ');
+            if (should_break) {
+                fmt_newline(ctx);
+                ctx->indent++;
+                fmt_indent(ctx);
+                ctx->indent--;
+            } else {
+                buf_append_char(&ctx->buf, ' ');
+            }
 
             if (right_parens) buf_append_char(&ctx->buf, '(');
             fmt_expr(ctx, expr->as.binary.right);
@@ -950,11 +1203,25 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             fmt_expr(ctx, expr->as.assign.value);
             break;
 
-        case EXPR_GET_PROPERTY:
+        case EXPR_GET_PROPERTY: {
+            // Check if this is part of a method chain that's too long
+            update_column(ctx);
+            int total_len = estimate_expr_len(expr);
+            int chain_depth = count_method_chain_depth(expr);
+            int should_break = (chain_depth >= 2) &&
+                               (ctx->column + total_len > FMT_MAX_LINE_WIDTH);
+
             fmt_expr(ctx, expr->as.get_property.object);
+            if (should_break) {
+                fmt_newline(ctx);
+                ctx->indent++;
+                fmt_indent(ctx);
+                ctx->indent--;
+            }
             buf_append_char(&ctx->buf, '.');
             buf_append(&ctx->buf, expr->as.get_property.property);
             break;
+        }
 
         case EXPR_SET_PROPERTY:
             fmt_expr(ctx, expr->as.set_property.object);
@@ -980,48 +1247,8 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             break;
 
         case EXPR_FUNCTION: {
-            if (expr->as.function.is_async) {
-                buf_append(&ctx->buf, "async ");
-            }
-            buf_append(&ctx->buf, "fn(");
-            for (int i = 0; i < expr->as.function.num_params; i++) {
-                if (i > 0) buf_append(&ctx->buf, ", ");
-                if (expr->as.function.param_is_ref && expr->as.function.param_is_ref[i]) {
-                    buf_append(&ctx->buf, "ref ");
-                }
-                buf_append(&ctx->buf, expr->as.function.param_names[i]);
-                if (expr->as.function.param_types && expr->as.function.param_types[i] &&
-                    expr->as.function.param_types[i]->kind != TYPE_INFER) {
-                    if (expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
-                        buf_append(&ctx->buf, "?");
-                    }
-                    buf_append(&ctx->buf, ": ");
-                    fmt_type(ctx, expr->as.function.param_types[i]);
-                } else if (expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
-                    buf_append(&ctx->buf, "?: ");
-                    fmt_expr(ctx, expr->as.function.param_defaults[i]);
-                }
-                if (expr->as.function.param_types && expr->as.function.param_types[i] &&
-                    expr->as.function.param_types[i]->kind != TYPE_INFER &&
-                    expr->as.function.param_defaults && expr->as.function.param_defaults[i]) {
-                    buf_append(&ctx->buf, " = ");
-                    fmt_expr(ctx, expr->as.function.param_defaults[i]);
-                }
-            }
-            if (expr->as.function.rest_param) {
-                if (expr->as.function.num_params > 0) buf_append(&ctx->buf, ", ");
-                buf_append(&ctx->buf, "...");
-                buf_append(&ctx->buf, expr->as.function.rest_param);
-                if (expr->as.function.rest_param_type) {
-                    buf_append(&ctx->buf, ": ");
-                    fmt_type(ctx, expr->as.function.rest_param_type);
-                }
-            }
-            buf_append_char(&ctx->buf, ')');
-            if (expr->as.function.return_type && expr->as.function.return_type->kind != TYPE_INFER) {
-                buf_append(&ctx->buf, ": ");
-                fmt_type(ctx, expr->as.function.return_type);
-            }
+            const char *prefix = expr->as.function.is_async ? "async fn" : "fn";
+            fmt_fn_params(ctx, expr, NULL, prefix);
             buf_append(&ctx->buf, " ");
             fmt_stmt(ctx, expr->as.function.body);
             break;
@@ -1217,50 +1444,8 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
             // Check if this is a named function declaration (fn name(...) { ... })
             if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
                 Expr *fn = stmt->as.let.value;
-                if (fn->as.function.is_async) {
-                    buf_append(&ctx->buf, "async ");
-                }
-                buf_append(&ctx->buf, "fn ");
-                buf_append(&ctx->buf, stmt->as.let.name);
-                buf_append_char(&ctx->buf, '(');
-                for (int i = 0; i < fn->as.function.num_params; i++) {
-                    if (i > 0) buf_append(&ctx->buf, ", ");
-                    if (fn->as.function.param_is_ref && fn->as.function.param_is_ref[i]) {
-                        buf_append(&ctx->buf, "ref ");
-                    }
-                    buf_append(&ctx->buf, fn->as.function.param_names[i]);
-                    if (fn->as.function.param_types && fn->as.function.param_types[i] &&
-                        fn->as.function.param_types[i]->kind != TYPE_INFER) {
-                        if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                            buf_append(&ctx->buf, "?");
-                        }
-                        buf_append(&ctx->buf, ": ");
-                        fmt_type(ctx, fn->as.function.param_types[i]);
-                    } else if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                        buf_append(&ctx->buf, "?: ");
-                        fmt_expr(ctx, fn->as.function.param_defaults[i]);
-                    }
-                    if (fn->as.function.param_types && fn->as.function.param_types[i] &&
-                        fn->as.function.param_types[i]->kind != TYPE_INFER &&
-                        fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                        buf_append(&ctx->buf, " = ");
-                        fmt_expr(ctx, fn->as.function.param_defaults[i]);
-                    }
-                }
-                if (fn->as.function.rest_param) {
-                    if (fn->as.function.num_params > 0) buf_append(&ctx->buf, ", ");
-                    buf_append(&ctx->buf, "...");
-                    buf_append(&ctx->buf, fn->as.function.rest_param);
-                    if (fn->as.function.rest_param_type) {
-                        buf_append(&ctx->buf, ": ");
-                        fmt_type(ctx, fn->as.function.rest_param_type);
-                    }
-                }
-                buf_append_char(&ctx->buf, ')');
-                if (fn->as.function.return_type && fn->as.function.return_type->kind != TYPE_INFER) {
-                    buf_append(&ctx->buf, ": ");
-                    fmt_type(ctx, fn->as.function.return_type);
-                }
+                const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
+                fmt_fn_params(ctx, fn, stmt->as.let.name, prefix);
                 buf_append(&ctx->buf, " ");
                 fmt_stmt(ctx, fn->as.function.body);
                 // No semicolon after function body
@@ -1657,16 +1842,40 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 buf_append(&ctx->buf, "import * as ");
                 buf_append(&ctx->buf, stmt->as.import_stmt.namespace_name);
             } else {
-                buf_append(&ctx->buf, "import { ");
+                int import_len = estimate_import_len(stmt);
+                int should_break = (import_len > FMT_MAX_LINE_WIDTH) &&
+                                   (stmt->as.import_stmt.num_imports > 2);
+
+                buf_append(&ctx->buf, "import {");
+                if (should_break) {
+                    fmt_newline(ctx);
+                    ctx->indent++;
+                } else {
+                    buf_append_char(&ctx->buf, ' ');
+                }
                 for (int i = 0; i < stmt->as.import_stmt.num_imports; i++) {
-                    if (i > 0) buf_append(&ctx->buf, ", ");
+                    if (should_break) {
+                        fmt_indent(ctx);
+                    } else if (i > 0) {
+                        buf_append(&ctx->buf, ", ");
+                    }
                     buf_append(&ctx->buf, stmt->as.import_stmt.import_names[i]);
                     if (stmt->as.import_stmt.import_aliases && stmt->as.import_stmt.import_aliases[i]) {
                         buf_append(&ctx->buf, " as ");
                         buf_append(&ctx->buf, stmt->as.import_stmt.import_aliases[i]);
                     }
+                    if (should_break) {
+                        buf_append(&ctx->buf, ",");
+                        fmt_newline(ctx);
+                    }
                 }
-                buf_append(&ctx->buf, " }");
+                if (should_break) {
+                    ctx->indent--;
+                    fmt_indent(ctx);
+                    buf_append_char(&ctx->buf, '}');
+                } else {
+                    buf_append(&ctx->buf, " }");
+                }
             }
             buf_append(&ctx->buf, " from \"");
             buf_append(&ctx->buf, stmt->as.import_stmt.module_path);
@@ -1687,50 +1896,8 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                     decl->as.let.value->type == EXPR_FUNCTION) {
                     // export fn name(...) { }
                     Expr *fn = decl->as.let.value;
-                    if (fn->as.function.is_async) {
-                        buf_append(&ctx->buf, "async ");
-                    }
-                    buf_append(&ctx->buf, "fn ");
-                    buf_append(&ctx->buf, decl->as.let.name);
-                    buf_append_char(&ctx->buf, '(');
-                    for (int i = 0; i < fn->as.function.num_params; i++) {
-                        if (i > 0) buf_append(&ctx->buf, ", ");
-                        if (fn->as.function.param_is_ref && fn->as.function.param_is_ref[i]) {
-                            buf_append(&ctx->buf, "ref ");
-                        }
-                        buf_append(&ctx->buf, fn->as.function.param_names[i]);
-                        if (fn->as.function.param_types && fn->as.function.param_types[i] &&
-                            fn->as.function.param_types[i]->kind != TYPE_INFER) {
-                            if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                                buf_append(&ctx->buf, "?");
-                            }
-                            buf_append(&ctx->buf, ": ");
-                            fmt_type(ctx, fn->as.function.param_types[i]);
-                        } else if (fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                            buf_append(&ctx->buf, "?: ");
-                            fmt_expr(ctx, fn->as.function.param_defaults[i]);
-                        }
-                        if (fn->as.function.param_types && fn->as.function.param_types[i] &&
-                            fn->as.function.param_types[i]->kind != TYPE_INFER &&
-                            fn->as.function.param_defaults && fn->as.function.param_defaults[i]) {
-                            buf_append(&ctx->buf, " = ");
-                            fmt_expr(ctx, fn->as.function.param_defaults[i]);
-                        }
-                    }
-                    if (fn->as.function.rest_param) {
-                        if (fn->as.function.num_params > 0) buf_append(&ctx->buf, ", ");
-                        buf_append(&ctx->buf, "...");
-                        buf_append(&ctx->buf, fn->as.function.rest_param);
-                        if (fn->as.function.rest_param_type) {
-                            buf_append(&ctx->buf, ": ");
-                            fmt_type(ctx, fn->as.function.rest_param_type);
-                        }
-                    }
-                    buf_append_char(&ctx->buf, ')');
-                    if (fn->as.function.return_type && fn->as.function.return_type->kind != TYPE_INFER) {
-                        buf_append(&ctx->buf, ": ");
-                        fmt_type(ctx, fn->as.function.return_type);
-                    }
+                    const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
+                    fmt_fn_params(ctx, fn, decl->as.let.name, prefix);
                     buf_append(&ctx->buf, " ");
                     fmt_stmt(ctx, fn->as.function.body);
                 } else {

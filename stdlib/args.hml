@@ -350,15 +350,13 @@ export fn ArgParser(name, description?: "") {
 			// Set version string
 			config_version = v;
 			return self;
-		}
-,
+		},
 		flag: fn(short, long, desc?: "") {
 
 			// Add a boolean flag
 			config_flags.push({ short, long, description: desc });
 			return self;
-		}
-,
+		},
 		option: fn(short, long, desc?: "", default_val?: null) {
 
 			// Add an option that takes a value
@@ -369,15 +367,13 @@ export fn ArgParser(name, description?: "") {
 				default_value: default_val,
 			});
 			return self;
-		}
-,
+		},
 		positional: fn(pname, desc?: "", required?: true) {
 
 			// Add a positional argument
 			config_positionals.push({ name: pname, description: desc, required });
 			return self;
-		}
-,
+		},
 		parse_args: fn(argv) {
 
 			// Parse arguments and return result
@@ -439,14 +435,12 @@ export fn ArgParser(name, description?: "") {
 
 			parsed.valid = true;
 			return parsed;
-		}
-,
+		},
 		help: fn(): string {
 
 			// Generate help text
 			return build_help();
-		}
-,
+		},
 	};
 }
 

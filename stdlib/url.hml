@@ -70,7 +70,8 @@ export fn parse(url): object {
 
 	// If we have a scheme that uses authority (http, https, ftp, etc.)
 	// extract the authority part (userinfo@host:port)
-	if (scheme == "http" || scheme == "https" || scheme == "ftp" || scheme == "ws" || scheme == "wss" || scheme == "") {
+	if (scheme == "http" || scheme == "https" || scheme == "ftp" || scheme == "ws" || scheme == "wss" ||
+		scheme == "") {
 		// Find path start
 		idx = remaining.find("/");
 		let authority = "";
@@ -106,7 +107,10 @@ export fn parse(url): object {
 			if (close_bracket >= 0) {
 				// IPv6 address
 				host = authority.slice(0, close_bracket + 1);
-				let after_bracket = authority.slice(close_bracket + 1, authority.length);
+				let after_bracket = authority.slice(
+					close_bracket + 1,
+					authority.length,
+				);
 				if (after_bracket.starts_with(":")) {
 					port = after_bracket.slice(1, after_bracket.length);
 				}
@@ -159,7 +163,11 @@ fn is_valid_scheme(s): bool {
 			}
 		} else {
 			// Subsequent characters can be letter, digit, +, -, .
-			if (!code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 48 && code <= 57 || code == 43 || code == 45 || code == 46) {
+			if (!code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
+				code >= 48 && code <= 57 ||
+				code == 43 ||
+				code == 45 ||
+				code == 46) {
 				return false;
 			}
 		}
@@ -537,7 +545,12 @@ export fn encode_component(str): string {
 		let code: i32 = b;
 
 		// Unreserved characters: A-Z, a-z, 0-9, -, _, ., ~
-		if (code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 48 && code <= 57 || code == 45 || code == 95 || code == 46 || code == 126) {
+		if (code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
+			code >= 48 && code <= 57 ||
+			code == 45 ||
+			code == 95 ||
+			code == 46 ||
+			code == 126) {
 			let ch: rune = b;
 			result = result + ch;
 		} else {

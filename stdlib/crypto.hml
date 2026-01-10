@@ -662,7 +662,13 @@ export fn rsa_verify(data, signature, keypair) {
 
 	// Initialize verification
 	let md = EVP_sha256();
-	let result = EVP_DigestVerifyInit(md_ctx, null, md, null, keypair.public_key);
+	let result = EVP_DigestVerifyInit(
+		md_ctx,
+		null,
+		md,
+		null,
+		keypair.public_key,
+	);
 	if (result != 1) {
 		free(data_ptr);
 		free(sig_ptr);

@@ -71,7 +71,10 @@ fn base64_decode(input) {
 	}
 
 	// Remove whitespace
-	let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all(
+	let clean = input.replace_all(" ", "").replace_all(
+		"\n",
+		"",
+	).replace_all("\r", "").replace_all(
 		"\t",
 		"",
 	);
@@ -187,7 +190,10 @@ fn hex_decode(input) {
 	}
 
 	// Remove whitespace
-	let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all(
+	let clean = input.replace_all(" ", "").replace_all(
+		"\n",
+		"",
+	).replace_all("\r", "").replace_all(
 		"\t",
 		"",
 	);
@@ -488,7 +494,10 @@ export fn base32_decode(input) {
 	}
 
 	// Remove whitespace
-	let clean = input.replace_all(" ", "").replace_all("\n", "").replace_all("\r", "").replace_all(
+	let clean = input.replace_all(" ", "").replace_all(
+		"\n",
+		"",
+	).replace_all("\r", "").replace_all(
 		"\t",
 		"",
 	);

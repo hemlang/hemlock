@@ -101,7 +101,8 @@ fn match_pattern(pattern, text, pi, ti): bool {
 		let c = pattern.char_at(pi);
 
 		// Check for range
-		if (c == '-' && prev_char != null && pi + 1 < pattern.length && pattern.char_at(pi + 1) != ']') {
+		if (c == '-' && prev_char != null && pi + 1 < pattern.length &&
+			pattern.char_at(pi + 1) != ']') {
 			pi = pi + 1;
 			let end_char = pattern.char_at(pi);
 			let prev_code: i32 = prev_char;
@@ -473,7 +474,10 @@ export fn translate(pattern): string {
 		i = i + 1;
 	}
 	result = result + "]";
-} else if (c == '.' || c == '(' || c == ')' || c == '+' || c == '|' || c == '^' || c == '$' || c == '@' || c == '{' || c == '}' || c == '\\') {
+} else if (c == '.' || c == '(' || c == ')' || c == '+' || c == '|' || c == '^' || c == '$' || c ==
+	'@' || c == '{' ||
+	c == '}' ||
+	c == '\\') {
 	// Escape regex special characters
 	result = result + "\\" + c;
 } else {
