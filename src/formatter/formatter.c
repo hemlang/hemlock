@@ -574,6 +574,40 @@ static int estimate_expr_len(Expr *expr) {
     }
 }
 
+// Check if an expression is "complex" enough to warrant multiline formatting
+// Returns 1 if the expression is a function call with arguments, nested array/object, etc.
+static int expr_is_complex(Expr *expr) {
+    if (!expr) return 0;
+    switch (expr->type) {
+        case EXPR_CALL:
+            // Calls with arguments are complex
+            return expr->as.call.num_args > 0;
+        case EXPR_ARRAY_LITERAL:
+            // Non-empty arrays are complex
+            return expr->as.array_literal.num_elements > 0;
+        case EXPR_OBJECT_LITERAL:
+            // Non-empty objects are complex
+            return expr->as.object_literal.num_fields > 0;
+        case EXPR_FUNCTION:
+            return 1;
+        case EXPR_TERNARY:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// Count how many elements in an expression list are complex
+static int count_complex_elements(Expr **elements, int num_elements) {
+    int count = 0;
+    for (int i = 0; i < num_elements; i++) {
+        if (expr_is_complex(elements[i])) {
+            count++;
+        }
+    }
+    return count;
+}
+
 // ========== TYPE FORMATTING ==========
 
 static void fmt_type(FmtCtx *ctx, Type *type) {
@@ -874,8 +908,11 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             fmt_expr(ctx, expr->as.call.func);
             update_column(ctx);
             int total_len = estimate_expr_len(expr);
-            int should_break = (ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
-                               (expr->as.call.num_args > 1);
+            int num_complex = count_complex_elements(expr->as.call.args, expr->as.call.num_args);
+            // Break if: (line too long AND multiple args) OR (2+ complex args)
+            int should_break = ((ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
+                               (expr->as.call.num_args > 1)) ||
+                               (num_complex >= 2);
 
             buf_append(&ctx->buf, "(");
             if (should_break) {
@@ -890,6 +927,11 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 }
                 fmt_expr(ctx, expr->as.call.args[i]);
                 if (should_break) {
+                    // Remove trailing newline if present (from function body)
+                    if (ctx->buf.len > 0 && ctx->buf.data[ctx->buf.len - 1] == '\n') {
+                        ctx->buf.len--;
+                        ctx->buf.data[ctx->buf.len] = '\0';
+                    }
                     buf_append(&ctx->buf, ",");  // Always add trailing comma in multiline
                     fmt_newline(ctx);
                 }
@@ -988,8 +1030,12 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
         case EXPR_ARRAY_LITERAL: {
             update_column(ctx);
             int total_len = estimate_expr_len(expr);
-            int should_break = (ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
-                               (expr->as.array_literal.num_elements > 1);
+            int num_complex = count_complex_elements(expr->as.array_literal.elements,
+                                                     expr->as.array_literal.num_elements);
+            // Break if: (line too long AND multiple elements) OR (2+ complex elements)
+            int should_break = ((ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
+                               (expr->as.array_literal.num_elements > 1)) ||
+                               (num_complex >= 2);
 
             buf_append(&ctx->buf, "[");
             if (should_break) {
@@ -1004,6 +1050,11 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 }
                 fmt_expr(ctx, expr->as.array_literal.elements[i]);
                 if (should_break) {
+                    // Remove trailing newline if present (from function body)
+                    if (ctx->buf.len > 0 && ctx->buf.data[ctx->buf.len - 1] == '\n') {
+                        ctx->buf.len--;
+                        ctx->buf.data[ctx->buf.len] = '\0';
+                    }
                     buf_append(&ctx->buf, ",");  // Always add trailing comma in multiline
                     fmt_newline(ctx);
                 }
@@ -1019,8 +1070,12 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
         case EXPR_OBJECT_LITERAL: {
             update_column(ctx);
             int total_len = estimate_expr_len(expr);
-            int should_break = (ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
-                               (expr->as.object_literal.num_fields > 1);
+            int num_complex = count_complex_elements(expr->as.object_literal.field_values,
+                                                     expr->as.object_literal.num_fields);
+            // Break if: (line too long AND multiple fields) OR (2+ complex values)
+            int should_break = ((ctx->column + total_len > FMT_MAX_LINE_WIDTH) &&
+                               (expr->as.object_literal.num_fields > 1)) ||
+                               (num_complex >= 2);
 
             buf_append(&ctx->buf, "{");
             if (expr->as.object_literal.num_fields == 0) {
@@ -1062,6 +1117,11 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                     }
                 }
                 if (should_break) {
+                    // Remove trailing newline if present (from function body)
+                    if (ctx->buf.len > 0 && ctx->buf.data[ctx->buf.len - 1] == '\n') {
+                        ctx->buf.len--;
+                        ctx->buf.data[ctx->buf.len] = '\0';
+                    }
                     buf_append(&ctx->buf, ",");  // Always add trailing comma in multiline
                     fmt_newline(ctx);
                 }
@@ -1965,6 +2025,12 @@ char *format_source(const char *source) {
     // Cleanup comments and blank lines
     comment_list_free(&comments);
     blank_line_list_free(&blank_lines);
+
+    // Remove trailing newline at end of file
+    while (ctx.buf.len > 0 && ctx.buf.data[ctx.buf.len - 1] == '\n') {
+        ctx.buf.len--;
+        ctx.buf.data[ctx.buf.len] = '\0';
+    }
 
     // Transfer ownership of buffer
     char *result = ctx.buf.data;
