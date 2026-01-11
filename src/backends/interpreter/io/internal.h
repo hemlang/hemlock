@@ -27,7 +27,7 @@ typedef struct {
 // Serialization functions
 void serialize_visited_init(SerializeVisitedSet *set);
 int serialize_visited_contains(SerializeVisitedSet *set, Object *obj);
-void serialize_visited_add(SerializeVisitedSet *set, Object *obj);
+int serialize_visited_add(SerializeVisitedSet *set, Object *obj);  // Returns 1 on success, 0 on alloc failure
 void serialize_visited_free(SerializeVisitedSet *set);
 char* escape_json_string(const char *str);
 char* serialize_value(Value val, SerializeVisitedSet *visited, ExecutionContext *ctx);

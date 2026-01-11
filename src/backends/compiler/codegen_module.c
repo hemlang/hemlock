@@ -82,8 +82,24 @@ void module_add_export(CompiledModule *module, const char *name, const char *man
         }
         module->exports = new_exports;
     }
-    module->exports[module->num_exports].name = strdup(name);
-    module->exports[module->num_exports].mangled_name = strdup(mangled_name);
+
+    // Allocate name first
+    char *name_copy = strdup(name);
+    if (!name_copy) {
+        fprintf(stderr, "Compiler error: Memory allocation failed for export name\n");
+        return;
+    }
+
+    // Allocate mangled_name
+    char *mangled_copy = strdup(mangled_name);
+    if (!mangled_copy) {
+        free(name_copy);  // Clean up previous allocation
+        fprintf(stderr, "Compiler error: Memory allocation failed for export mangled name\n");
+        return;
+    }
+
+    module->exports[module->num_exports].name = name_copy;
+    module->exports[module->num_exports].mangled_name = mangled_copy;
     module->exports[module->num_exports].is_function = is_function;
     module->exports[module->num_exports].num_params = num_params;
     module->num_exports++;
@@ -107,9 +123,32 @@ void module_add_import(CompiledModule *module, const char *local_name, const cha
         }
         module->imports = new_imports;
     }
-    module->imports[module->num_imports].local_name = strdup(local_name);
-    module->imports[module->num_imports].original_name = strdup(original_name);
-    module->imports[module->num_imports].module_prefix = strdup(module_prefix);
+
+    // Allocate all strings, cleaning up on failure
+    char *local_copy = strdup(local_name);
+    if (!local_copy) {
+        fprintf(stderr, "Compiler error: Memory allocation failed for import local name\n");
+        return;
+    }
+
+    char *original_copy = strdup(original_name);
+    if (!original_copy) {
+        free(local_copy);
+        fprintf(stderr, "Compiler error: Memory allocation failed for import original name\n");
+        return;
+    }
+
+    char *prefix_copy = strdup(module_prefix);
+    if (!prefix_copy) {
+        free(local_copy);
+        free(original_copy);
+        fprintf(stderr, "Compiler error: Memory allocation failed for import module prefix\n");
+        return;
+    }
+
+    module->imports[module->num_imports].local_name = local_copy;
+    module->imports[module->num_imports].original_name = original_copy;
+    module->imports[module->num_imports].module_prefix = prefix_copy;
     module->imports[module->num_imports].is_function = is_function;
     module->imports[module->num_imports].num_params = num_params;
     module->imports[module->num_imports].is_extern = is_extern;

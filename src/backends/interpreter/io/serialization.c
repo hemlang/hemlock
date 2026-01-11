@@ -33,7 +33,8 @@ static inline void jbuf_init(JsonBuffer *buf, size_t initial_capacity) {
     buf->len = 0;
 }
 
-static inline void jbuf_ensure(JsonBuffer *buf, size_t additional) {
+// Returns 1 on success, 0 on allocation failure
+static inline int jbuf_ensure(JsonBuffer *buf, size_t additional) {
     size_t needed = buf->len + additional;
     if (needed > buf->capacity) {
         // Grow by at least 2x or to fit needed
@@ -41,27 +42,33 @@ static inline void jbuf_ensure(JsonBuffer *buf, size_t additional) {
         if (new_cap < needed) new_cap = needed;
         char *new_data = realloc(buf->data, new_cap);
         if (!new_data) {
-            // Allocation failed - leave buffer unchanged
-            return;
+            // Allocation failed - signal error to caller
+            return 0;
         }
         buf->data = new_data;
         buf->capacity = new_cap;
     }
+    return 1;
 }
 
-static inline void jbuf_append_char(JsonBuffer *buf, char c) {
-    jbuf_ensure(buf, 1);
+// Returns 1 on success, 0 on allocation failure
+static inline int jbuf_append_char(JsonBuffer *buf, char c) {
+    if (!jbuf_ensure(buf, 1)) return 0;
     buf->data[buf->len++] = c;
+    return 1;
 }
 
-static inline void jbuf_append_str(JsonBuffer *buf, const char *s, size_t len) {
-    jbuf_ensure(buf, len);
+// Returns 1 on success, 0 on allocation failure
+static inline int jbuf_append_str(JsonBuffer *buf, const char *s, size_t len) {
+    if (!jbuf_ensure(buf, len)) return 0;
     memcpy(buf->data + buf->len, s, len);
     buf->len += len;
+    return 1;
 }
 
 // Fast integer to string - write directly to buffer
-static inline void jbuf_append_i64(JsonBuffer *buf, int64_t val) {
+// Returns 1 on success, 0 on allocation failure
+static inline int jbuf_append_i64(JsonBuffer *buf, int64_t val) {
     char tmp[24];
     char *p = tmp + sizeof(tmp);
     int negative = val < 0;
@@ -74,10 +81,11 @@ static inline void jbuf_append_i64(JsonBuffer *buf, int64_t val) {
 
     if (negative) *--p = '-';
 
-    jbuf_append_str(buf, p, (tmp + sizeof(tmp)) - p);
+    return jbuf_append_str(buf, p, (tmp + sizeof(tmp)) - p);
 }
 
-static inline void jbuf_append_u64(JsonBuffer *buf, uint64_t val) {
+// Returns 1 on success, 0 on allocation failure
+static inline int jbuf_append_u64(JsonBuffer *buf, uint64_t val) {
     char tmp[24];
     char *p = tmp + sizeof(tmp);
 
@@ -86,15 +94,16 @@ static inline void jbuf_append_u64(JsonBuffer *buf, uint64_t val) {
         val /= 10;
     } while (val > 0);
 
-    jbuf_append_str(buf, p, (tmp + sizeof(tmp)) - p);
+    return jbuf_append_str(buf, p, (tmp + sizeof(tmp)) - p);
 }
 
 // Append escaped JSON string directly to buffer (single pass)
-static inline void jbuf_append_escaped_string(JsonBuffer *buf, const char *str, size_t str_len) {
-    jbuf_append_char(buf, '"');
+// Returns 1 on success, 0 on allocation failure
+static inline int jbuf_append_escaped_string(JsonBuffer *buf, const char *str, size_t str_len) {
+    if (!jbuf_append_char(buf, '"')) return 0;
 
     // Reserve worst-case space (every char escaped = 2x)
-    jbuf_ensure(buf, str_len * 2);
+    if (!jbuf_ensure(buf, str_len * 2)) return 0;
 
     const char *end = str + str_len;
     while (str < end) {
@@ -111,7 +120,7 @@ static inline void jbuf_append_escaped_string(JsonBuffer *buf, const char *str, 
                 // Control characters (0x00-0x1F) need \uXXXX encoding
                 if (c < 0x20) {
                     static const char hex[] = "0123456789abcdef";
-                    jbuf_ensure(buf, 6);
+                    if (!jbuf_ensure(buf, 6)) return 0;
                     buf->data[buf->len++] = '\\';
                     buf->data[buf->len++] = 'u';
                     buf->data[buf->len++] = '0';
@@ -125,65 +134,66 @@ static inline void jbuf_append_escaped_string(JsonBuffer *buf, const char *str, 
         }
     }
 
-    jbuf_append_char(buf, '"');
+    return jbuf_append_char(buf, '"');
 }
 
 // Forward declaration for recursive serialization
 static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *visited, ExecutionContext *ctx);
 
 // Recursive serialization that writes directly to buffer
+// Returns 1 on success, 0 on error (exception thrown or allocation failure)
 static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *visited, ExecutionContext *ctx) {
     char tmp[32];
 
     switch (val.type) {
         case VAL_I8:
-            jbuf_append_i64(buf, val.as.as_i8);
+            if (!jbuf_append_i64(buf, val.as.as_i8)) goto alloc_fail;
             return 1;
         case VAL_I16:
-            jbuf_append_i64(buf, val.as.as_i16);
+            if (!jbuf_append_i64(buf, val.as.as_i16)) goto alloc_fail;
             return 1;
         case VAL_I32:
-            jbuf_append_i64(buf, val.as.as_i32);
+            if (!jbuf_append_i64(buf, val.as.as_i32)) goto alloc_fail;
             return 1;
         case VAL_I64:
-            jbuf_append_i64(buf, val.as.as_i64);
+            if (!jbuf_append_i64(buf, val.as.as_i64)) goto alloc_fail;
             return 1;
         case VAL_U8:
-            jbuf_append_u64(buf, val.as.as_u8);
+            if (!jbuf_append_u64(buf, val.as.as_u8)) goto alloc_fail;
             return 1;
         case VAL_U16:
-            jbuf_append_u64(buf, val.as.as_u16);
+            if (!jbuf_append_u64(buf, val.as.as_u16)) goto alloc_fail;
             return 1;
         case VAL_U32:
-            jbuf_append_u64(buf, val.as.as_u32);
+            if (!jbuf_append_u64(buf, val.as.as_u32)) goto alloc_fail;
             return 1;
         case VAL_U64:
-            jbuf_append_u64(buf, val.as.as_u64);
+            if (!jbuf_append_u64(buf, val.as.as_u64)) goto alloc_fail;
             return 1;
         case VAL_F32: {
             int len = snprintf(tmp, sizeof(tmp), "%g", val.as.as_f32);
-            jbuf_append_str(buf, tmp, len);
+            if (!jbuf_append_str(buf, tmp, len)) goto alloc_fail;
             return 1;
         }
         case VAL_F64: {
             int len = snprintf(tmp, sizeof(tmp), "%g", val.as.as_f64);
-            jbuf_append_str(buf, tmp, len);
+            if (!jbuf_append_str(buf, tmp, len)) goto alloc_fail;
             return 1;
         }
         case VAL_BOOL:
             if (val.as.as_bool) {
-                jbuf_append_str(buf, "true", 4);
+                if (!jbuf_append_str(buf, "true", 4)) goto alloc_fail;
             } else {
-                jbuf_append_str(buf, "false", 5);
+                if (!jbuf_append_str(buf, "false", 5)) goto alloc_fail;
             }
             return 1;
         case VAL_STRING: {
             String *s = val.as.as_string;
-            jbuf_append_escaped_string(buf, s->data, s->length);
+            if (!jbuf_append_escaped_string(buf, s->data, s->length)) goto alloc_fail;
             return 1;
         }
         case VAL_NULL:
-            jbuf_append_str(buf, "null", 4);
+            if (!jbuf_append_str(buf, "null", 4)) goto alloc_fail;
             return 1;
         case VAL_OBJECT: {
             Object *obj = val.as.as_object;
@@ -193,17 +203,19 @@ static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *
                 throw_runtime_error(ctx, "serialize() detected circular reference");
                 return 0;
             }
-            serialize_visited_add(visited, obj);
+            if (!serialize_visited_add(visited, obj)) goto alloc_fail;
 
-            jbuf_append_char(buf, '{');
+            if (!jbuf_append_char(buf, '{')) goto alloc_fail;
 
             for (int i = 0; i < obj->num_fields; i++) {
-                if (i > 0) jbuf_append_char(buf, ',');
+                if (i > 0) {
+                    if (!jbuf_append_char(buf, ',')) goto alloc_fail;
+                }
 
                 // Field name (escaped)
                 const char *name = obj->field_names[i];
-                jbuf_append_escaped_string(buf, name, strlen(name));
-                jbuf_append_char(buf, ':');
+                if (!jbuf_append_escaped_string(buf, name, strlen(name))) goto alloc_fail;
+                if (!jbuf_append_char(buf, ':')) goto alloc_fail;
 
                 // Field value
                 if (!serialize_to_buffer(obj->field_values[i], buf, visited, ctx)) {
@@ -211,7 +223,7 @@ static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *
                 }
             }
 
-            jbuf_append_char(buf, '}');
+            if (!jbuf_append_char(buf, '}')) goto alloc_fail;
             return 1;
         }
         case VAL_ARRAY: {
@@ -222,25 +234,31 @@ static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *
                 throw_runtime_error(ctx, "serialize() detected circular reference");
                 return 0;
             }
-            serialize_visited_add(visited, (Object*)arr);
+            if (!serialize_visited_add(visited, (Object*)arr)) goto alloc_fail;
 
-            jbuf_append_char(buf, '[');
+            if (!jbuf_append_char(buf, '[')) goto alloc_fail;
 
             for (int i = 0; i < arr->length; i++) {
-                if (i > 0) jbuf_append_char(buf, ',');
+                if (i > 0) {
+                    if (!jbuf_append_char(buf, ',')) goto alloc_fail;
+                }
 
                 if (!serialize_to_buffer(arr->elements[i], buf, visited, ctx)) {
                     return 0;
                 }
             }
 
-            jbuf_append_char(buf, ']');
+            if (!jbuf_append_char(buf, ']')) goto alloc_fail;
             return 1;
         }
         default:
             throw_runtime_error(ctx, "Cannot serialize value of this type");
             return 0;
     }
+
+alloc_fail:
+    throw_runtime_error(ctx, "Memory allocation failed during serialization");
+    return 0;
 }
 
 // ========== SERIALIZATION VISITED SET ==========
@@ -260,16 +278,19 @@ int serialize_visited_contains(SerializeVisitedSet *set, Object *obj) {
     return 0;
 }
 
-void serialize_visited_add(SerializeVisitedSet *set, Object *obj) {
+// Returns 1 on success, 0 on allocation failure
+int serialize_visited_add(SerializeVisitedSet *set, Object *obj) {
     if (set->count >= set->capacity) {
-        set->capacity *= 2;
-        Object **new_visited = realloc(set->visited, sizeof(Object*) * set->capacity);
+        int new_capacity = set->capacity * 2;
+        Object **new_visited = realloc(set->visited, sizeof(Object*) * new_capacity);
         if (!new_visited) {
-            return;  // Keep original data on allocation failure
+            return 0;  // Allocation failure
         }
         set->visited = new_visited;
+        set->capacity = new_capacity;
     }
     set->visited[set->count++] = obj;
+    return 1;
 }
 
 void serialize_visited_free(SerializeVisitedSet *set) {
@@ -670,7 +691,8 @@ Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
         // Parse element value
         Value element = json_parse_value(p, ctx);
         if (ctx->exception_state.is_throwing) {
-            // Error already set, just return
+            // Error already set, free array and return
+            array_free(arr);
             return val_null();
         }
         array_push(arr, element);
@@ -681,13 +703,13 @@ Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
         if (p->input[p->pos] == ',') {
             p->pos++;
         } else if (p->input[p->pos] != ']') {
-            // Note: arr will be cleaned up by value system when error is thrown
+            array_free(arr);
             return throw_runtime_error(ctx, "Expected ',' or ']' in JSON array");
         }
     }
 
     if (p->input[p->pos] != ']') {
-        // Note: arr will be cleaned up by value system when error is thrown
+        array_free(arr);
         return throw_runtime_error(ctx, "Unterminated array in JSON");
     }
     p->pos++;  // skip closing bracket
