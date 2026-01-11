@@ -39,7 +39,12 @@ static inline void jbuf_ensure(JsonBuffer *buf, size_t additional) {
         // Grow by at least 2x or to fit needed
         size_t new_cap = buf->capacity * 2;
         if (new_cap < needed) new_cap = needed;
-        buf->data = realloc(buf->data, new_cap);
+        char *new_data = realloc(buf->data, new_cap);
+        if (!new_data) {
+            // Allocation failed - leave buffer unchanged
+            return;
+        }
+        buf->data = new_data;
         buf->capacity = new_cap;
     }
 }

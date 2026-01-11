@@ -1,6 +1,7 @@
 #include "ast.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // ========== EXPRESSION CONSTRUCTORS ==========
 
@@ -1475,7 +1476,12 @@ Annotation *annotation_new(const char *name, int line, int column) {
 static void annotation_ensure_capacity(Annotation *a) {
     if (a->arg_count >= a->arg_capacity) {
         int new_capacity = a->arg_capacity == 0 ? 4 : a->arg_capacity * 2;
-        a->args = realloc(a->args, new_capacity * sizeof(AnnotationArg));
+        AnnotationArg *new_args = realloc(a->args, new_capacity * sizeof(AnnotationArg));
+        if (!new_args) {
+            fprintf(stderr, "annotation_ensure_capacity: realloc failed\n");
+            return;
+        }
+        a->args = new_args;
         a->arg_capacity = new_capacity;
     }
 }

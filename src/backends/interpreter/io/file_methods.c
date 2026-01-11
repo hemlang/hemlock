@@ -75,6 +75,11 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                 while (1) {
                     // Ensure we have room to read
                     if (total_read + 4096 > capacity) {
+                        // Check for overflow before doubling
+                        if (capacity > SIZE_MAX / 2) {
+                            free(buffer);
+                            return throw_runtime_error(ctx, "File too large to read into memory");
+                        }
                         capacity *= 2;
                         char *new_buffer = realloc(buffer, capacity);
                         if (!new_buffer) {
