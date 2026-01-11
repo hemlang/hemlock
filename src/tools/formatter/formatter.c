@@ -3,9 +3,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
-#include "frontend/formatter.h"
-#include "frontend/lexer.h"
-#include "frontend/parser.h"
+#include "frontend.h"
 
 // ========== STRING BUFFER ==========
 
@@ -2246,6 +2244,22 @@ static char *read_file(const char *path) {
     return buffer;
 }
 
+static char *resolve_format_path(const char *path) {
+    ModuleResolution *resolver = module_resolution_new(NULL, NULL);
+    if (!resolver) {
+        return strdup(path);
+    }
+
+    char *resolved = resolve_module_path(resolver, NULL, path);
+    module_resolution_free(resolver);
+
+    if (!resolved) {
+        return strdup(path);
+    }
+
+    return resolved;
+}
+
 // Write string to file
 static int write_file(const char *path, const char *content) {
     FILE *file = fopen(path, "wb");
@@ -2442,8 +2456,10 @@ char *format_source(const char *source) {
 }
 
 int format_file(const char *path) {
-    char *source = read_file(path);
+    char *resolved_path = resolve_format_path(path);
+    char *source = read_file(resolved_path);
     if (source == NULL) {
+        free(resolved_path);
         return 1;
     }
 
@@ -2451,24 +2467,29 @@ int format_file(const char *path) {
     free(source);
 
     if (formatted == NULL) {
+        free(resolved_path);
         return 1;
     }
 
-    int result = write_file(path, formatted);
+    int result = write_file(resolved_path, formatted);
     free(formatted);
+    free(resolved_path);
 
     return result;
 }
 
 int format_check(const char *path) {
-    char *source = read_file(path);
+    char *resolved_path = resolve_format_path(path);
+    char *source = read_file(resolved_path);
     if (source == NULL) {
+        free(resolved_path);
         return -1;
     }
 
     char *formatted = format_source(source);
     if (formatted == NULL) {
         free(source);
+        free(resolved_path);
         return -1;
     }
 
@@ -2476,6 +2497,7 @@ int format_check(const char *path) {
 
     free(source);
     free(formatted);
+    free(resolved_path);
 
     return result;
 }

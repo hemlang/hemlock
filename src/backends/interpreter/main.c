@@ -7,8 +7,8 @@
 #include "frontend.h"
 #include "interpreter.h"
 #include "interpreter/internal.h"
-#include "lsp/lsp.h"
-#include "bundler/bundler.h"
+#include "tools/lsp/lsp.h"
+#include "tools/bundler/bundler.h"
 #include "version.h"
 #include "profiler/profiler.h"
 

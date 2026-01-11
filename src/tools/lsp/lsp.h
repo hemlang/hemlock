@@ -22,6 +22,7 @@ typedef struct LSPDocument LSPDocument;
 typedef struct LSPPosition LSPPosition;
 typedef struct LSPRange LSPRange;
 typedef struct LSPDiagnostic LSPDiagnostic;
+typedef struct ModuleResolution ModuleResolution;
 
 /*
  * LSP Position (0-based line and character)
@@ -105,6 +106,7 @@ struct LSPServer {
     // Workspace
     char *root_uri;         // Workspace root
     char *root_path;        // Workspace root as path
+    ModuleResolution *resolver; // Shared module resolution context
 };
 
 /*
@@ -138,7 +140,7 @@ LSPDocument *lsp_document_find(LSPServer *server, const char *uri);
 /*
  * Parse document and collect diagnostics
  */
-void lsp_document_parse(LSPDocument *doc);
+void lsp_document_parse(LSPServer *server, LSPDocument *doc);
 
 /*
  * Clear diagnostics for a document

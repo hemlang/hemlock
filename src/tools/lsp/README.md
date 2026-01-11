@@ -14,7 +14,7 @@ This directory contains the LSP server implementation for Hemlock, providing IDE
 ## Architecture
 
 ```
-src/lsp/
+src/tools/lsp/
 ├── lsp.h          # Main LSP server types and lifecycle
 ├── lsp.c          # Server implementation, document management
 ├── protocol.h     # JSON-RPC 2.0 protocol types

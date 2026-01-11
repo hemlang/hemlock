@@ -15,7 +15,7 @@
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
 #include "codegen.h"
-#include "type_check.h"
+#include "compiler/type_check.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__

@@ -13,7 +13,7 @@
 #define HEMLOCK_BUNDLER_H
 
 #include "frontend/ast.h"
-#include "../include/modules.h"
+#include "modules.h"
 #include <stdint.h>
 
 // ========== TREE SHAKING STRUCTURES ==========

@@ -7,7 +7,7 @@
 #include "protocol.h"
 
 #include "frontend.h"
-#include "../../include/version.h"
+#include "version.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -246,6 +246,8 @@ JSONValue *handle_initialize(LSPServer *server, JSONValue *params) {
     if (root_path) {
         server->root_path = strdup(root_path);
     }
+    module_resolution_free(server->resolver);
+    server->resolver = module_resolution_new(server->root_path, NULL);
 
     // Build server capabilities response
     JSONValue *result = json_object();
@@ -326,7 +328,7 @@ void handle_did_open(LSPServer *server, JSONValue *params) {
     LSPDocument *doc = lsp_document_open(server, uri, text, version);
 
     // Parse and collect diagnostics
-    lsp_document_parse(doc);
+    lsp_document_parse(server, doc);
 
     // Publish diagnostics
     lsp_publish_diagnostics(server, doc);
@@ -359,7 +361,7 @@ void handle_did_change(LSPServer *server, JSONValue *params) {
     lsp_document_update(doc, text, version);
 
     // Re-parse and collect diagnostics
-    lsp_document_parse(doc);
+    lsp_document_parse(server, doc);
 
     // Publish diagnostics
     lsp_publish_diagnostics(server, doc);

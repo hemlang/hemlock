@@ -7,7 +7,7 @@
 #include "handlers.h"
 
 #include "frontend.h"
-#include "../backends/compiler/type_check.h"
+#include "tools/type_check.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +32,7 @@ LSPServer *lsp_server_create(void) {
     server->documents = NULL;
     server->root_uri = NULL;
     server->root_path = NULL;
+    server->resolver = module_resolution_new(NULL, NULL);
     return server;
 }
 
@@ -68,6 +69,7 @@ void lsp_server_free(LSPServer *server) {
 
     free(server->root_uri);
     free(server->root_path);
+    module_resolution_free(server->resolver);
     free(server);
 }
 
@@ -183,7 +185,36 @@ void lsp_document_add_diagnostic(LSPDocument *doc, LSPRange range,
 
 // This function is called by parser errors
 // We need to hook into the parser's error reporting
-void lsp_document_parse(LSPDocument *doc) {
+static char *lsp_uri_to_path(const char *uri) {
+    if (!uri) {
+        return NULL;
+    }
+    if (strncmp(uri, "file://", 7) == 0) {
+        return strdup(uri + 7);
+    }
+    return strdup(uri);
+}
+
+static char *lsp_resolve_document_path(LSPServer *server, const char *uri) {
+    char *path = lsp_uri_to_path(uri);
+    if (!path) {
+        return NULL;
+    }
+    if (!server || !server->resolver) {
+        return path;
+    }
+
+    char *resolved = resolve_module_path(server->resolver, NULL, path);
+    free(path);
+
+    if (!resolved) {
+        return strdup(uri);
+    }
+
+    return resolved;
+}
+
+void lsp_document_parse(LSPServer *server, LSPDocument *doc) {
     lsp_document_clear_diagnostics(doc);
     lsp_document_free_ast(doc);
 
@@ -245,8 +276,11 @@ void lsp_document_parse(LSPDocument *doc) {
 
     // Run type checking if parsing succeeded
     if (doc->ast_valid && statements && stmt_count > 0) {
+        char *document_path = lsp_resolve_document_path(server, doc->uri);
+        const char *type_check_path = document_path ? document_path : doc->uri;
+
         // Create type check context
-        TypeCheckContext *type_ctx = type_check_new(doc->uri);
+        TypeCheckContext *type_ctx = type_check_new(type_check_path);
 
         // Enable error collection mode for LSP
         type_check_enable_collection(type_ctx, doc->content);
@@ -275,6 +309,7 @@ void lsp_document_parse(LSPDocument *doc) {
 
         // Clean up type checker
         type_check_free(type_ctx);
+        free(document_path);
     }
 }
 

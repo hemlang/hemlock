@@ -65,9 +65,7 @@ MODULES_SRCS = $(wildcard $(SRC_DIR)/modules/*.c)
 FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/lexer/*.c) \
                 $(wildcard $(SRC_DIR)/frontend/parser/*.c) \
                 $(wildcard $(SRC_DIR)/frontend/resolver/*.c) \
-                $(wildcard $(SRC_DIR)/frontend/optimizer/*.c) \
-                $(wildcard $(SRC_DIR)/frontend/formatter/*.c) \
-                $(MODULES_SRCS)
+                $(wildcard $(SRC_DIR)/frontend/optimizer/*.c)
 
 # Frontend files for compiler (exclude module.c which has interpreter-specific code)
 FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/lexer/lexer.c \
@@ -83,13 +81,24 @@ INTERP_SRCS = $(wildcard $(SRC_DIR)/backends/interpreter/*.c) \
               $(wildcard $(SRC_DIR)/backends/interpreter/runtime/*.c) \
               $(wildcard $(SRC_DIR)/backends/interpreter/profiler/*.c)
 
-# Other components (LSP, bundler, formatter, and type checker for LSP integration)
-OTHER_SRCS = $(wildcard $(SRC_DIR)/lsp/*.c) $(wildcard $(SRC_DIR)/bundler/*.c) \
-             $(SRC_DIR)/backends/compiler/type_check.c
+# Tooling components
+TOOL_SRCS = $(wildcard $(SRC_DIR)/tools/lsp/*.c) \
+            $(wildcard $(SRC_DIR)/tools/bundler/*.c) \
+            $(wildcard $(SRC_DIR)/tools/formatter/*.c)
 
-# All interpreter sources
-SRCS = $(FRONTEND_SRCS) $(INTERP_SRCS) $(OTHER_SRCS)
-OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+# Shared compiler utilities (used by LSP)
+TYPECHECK_SRCS = $(SRC_DIR)/backends/compiler/type_check.c
+
+COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS)
+SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
+
+COMMON_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMMON_SRCS))
+TOOL_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(TOOL_SRCS))
+INTERP_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(INTERP_SRCS))
+
+LIBCOMMON = $(BUILD_DIR)/libcommon.a
+LIBTOOLS = $(BUILD_DIR)/libtools.a
+
 TARGET = hemlock
 
 # Build directories
@@ -99,16 +108,16 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/frontend/parser \
              $(BUILD_DIR)/frontend/resolver \
              $(BUILD_DIR)/frontend/optimizer \
-             $(BUILD_DIR)/frontend/formatter \
              $(BUILD_DIR)/backends/interpreter \
              $(BUILD_DIR)/backends/interpreter/builtins \
              $(BUILD_DIR)/backends/interpreter/io \
              $(BUILD_DIR)/backends/interpreter/runtime \
              $(BUILD_DIR)/backends/interpreter/profiler \
              $(BUILD_DIR)/backends/compiler \
-             $(BUILD_DIR)/lsp \
-             $(BUILD_DIR)/bundler \
-             $(BUILD_DIR)/formatter \
+             $(BUILD_DIR)/tools \
+             $(BUILD_DIR)/tools/lsp \
+             $(BUILD_DIR)/tools/bundler \
+             $(BUILD_DIR)/tools/formatter \
              $(BUILD_DIR)/modules
 
 all: $(BUILD_DIRS) $(TARGET) compiler
@@ -116,8 +125,14 @@ all: $(BUILD_DIRS) $(TARGET) compiler
 $(BUILD_DIRS):
 	mkdir -p $@
 
-$(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
+$(LIBCOMMON): $(COMMON_OBJS)
+	ar rcs $@ $^
+
+$(LIBTOOLS): $(TOOL_OBJS)
+	ar rcs $@ $^
+
+$(TARGET): $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
+	$(CC) $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON) -o $(TARGET) $(LDFLAGS)
 
 # Special rule for ffi.c - compile with -O0 to work around an optimizer bug
 # that causes infinite loops when FFI functions are called from Hemlock code
@@ -479,15 +494,15 @@ RELEASE_BUILD_DIRS = $(RELEASE_BUILD_DIR) \
                      $(RELEASE_BUILD_DIR)/frontend/parser \
                      $(RELEASE_BUILD_DIR)/frontend/resolver \
                      $(RELEASE_BUILD_DIR)/frontend/optimizer \
-                     $(RELEASE_BUILD_DIR)/frontend/formatter \
                      $(RELEASE_BUILD_DIR)/backends/interpreter \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/builtins \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/io \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/runtime \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/profiler \
-                     $(RELEASE_BUILD_DIR)/lsp \
-                     $(RELEASE_BUILD_DIR)/bundler \
-                     $(RELEASE_BUILD_DIR)/formatter
+                     $(RELEASE_BUILD_DIR)/tools \
+                     $(RELEASE_BUILD_DIR)/tools/lsp \
+                     $(RELEASE_BUILD_DIR)/tools/bundler \
+                     $(RELEASE_BUILD_DIR)/tools/formatter
 
 # Build optimized, stripped binary for distribution
 release: $(RELEASE_BUILD_DIRS) $(RELEASE_BUILD_DIR)/hemlock
@@ -578,16 +593,16 @@ STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
                     $(STATIC_BUILD_DIR)/frontend/parser \
                     $(STATIC_BUILD_DIR)/frontend/resolver \
                     $(STATIC_BUILD_DIR)/frontend/optimizer \
-                    $(STATIC_BUILD_DIR)/frontend/formatter \
                     $(STATIC_BUILD_DIR)/backends/interpreter \
                     $(STATIC_BUILD_DIR)/backends/interpreter/builtins \
                     $(STATIC_BUILD_DIR)/backends/interpreter/io \
                     $(STATIC_BUILD_DIR)/backends/interpreter/runtime \
                     $(STATIC_BUILD_DIR)/backends/interpreter/profiler \
                     $(STATIC_BUILD_DIR)/backends/compiler \
-                    $(STATIC_BUILD_DIR)/lsp \
-                    $(STATIC_BUILD_DIR)/bundler \
-                    $(STATIC_BUILD_DIR)/formatter
+                    $(STATIC_BUILD_DIR)/tools \
+                    $(STATIC_BUILD_DIR)/tools/lsp \
+                    $(STATIC_BUILD_DIR)/tools/bundler \
+                    $(STATIC_BUILD_DIR)/tools/formatter
 
 .PHONY: release-static release-static-compiler release-static-clean
 
