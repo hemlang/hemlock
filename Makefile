@@ -3,7 +3,7 @@ CC = gcc
 ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -458,7 +458,7 @@ test-all: test test-compiler parity test-bundler test-lsp
 ifeq ($(shell uname),Darwin)
     RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 else
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
 endif
 
 # Add the same conditional flags as regular build
