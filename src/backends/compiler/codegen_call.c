@@ -2388,6 +2388,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
 
                 // Bind arguments to parameter names and register their types
+                int consumed_checkpoint = codegen_consumed_checkpoint(ctx);
                 int num_params = func_ast->as.function.num_params;
                 for (int i = 0; i < num_params; i++) {
                     // Infer argument type for type specialization
@@ -2408,13 +2409,30 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
 
                 // Generate the inlined expression
-                char *inline_result = codegen_expr(ctx, return_expr);
+                char *inline_result = NULL;
+                int returned_param_index = -1;
+                if (return_expr->type == EXPR_IDENT) {
+                    for (int i = 0; i < num_params; i++) {
+                        if (strcmp(return_expr->as.ident.name, func_ast->as.function.param_names[i]) == 0) {
+                            returned_param_index = i;
+                            break;
+                        }
+                    }
+                }
+                if (returned_param_index >= 0) {
+                    inline_result = codegen_sanitize_ident(func_ast->as.function.param_names[returned_param_index]);
+                    codegen_mark_temp_consumed(ctx, inline_result);
+                } else {
+                    inline_result = codegen_expr(ctx, return_expr);
+                }
                 codegen_writeln(ctx, "%s = %s;", result, inline_result);
 
                 // Release parameter bindings (primitives will be skipped)
                 for (int i = 0; i < num_params; i++) {
                     char *param_name = codegen_sanitize_ident(func_ast->as.function.param_names[i]);
-                    codegen_writeln(ctx, "hml_release_if_needed(&%s);", param_name);
+                    if (!codegen_is_temp_consumed(ctx, param_name)) {
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", param_name);
+                    }
                     codegen_remove_local(ctx, func_ast->as.function.param_names[i]);
                     free(param_name);
                 }
@@ -2430,6 +2448,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                codegen_restore_consumed(ctx, consumed_checkpoint);
 
                 return result;
             }
