@@ -308,6 +308,8 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
                 array_push(rest_arr, arg);
             }
             env_set(call_env, fn->rest_param, val_array(rest_arr), ctx);
+            // Release caller's reference - env now owns the array
+            array_release(rest_arr);
         }
 
         // Execute function body

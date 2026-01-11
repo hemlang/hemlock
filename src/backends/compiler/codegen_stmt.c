@@ -8,6 +8,15 @@
 
 // ========== STATEMENT CODE GENERATION ==========
 
+static char *codegen_emit_condition_bool(CodegenContext *ctx, Expr *condition) {
+    char *cond_val = codegen_expr(ctx, condition);
+    char *cond_bool = codegen_temp(ctx);
+    codegen_writeln(ctx, "int %s = hml_to_bool(%s);", cond_bool, cond_val);
+    codegen_writeln(ctx, "hml_release(&%s);", cond_val);
+    free(cond_val);
+    return cond_bool;
+}
+
 void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
     switch (stmt->type) {
         case STMT_LET: {
@@ -264,8 +273,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 break;
             }
 
-            char *cond = codegen_expr(ctx, stmt->as.if_stmt.condition);
-            codegen_writeln(ctx, "if (hml_to_bool(%s)) {", cond);
+            char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.if_stmt.condition);
+            codegen_writeln(ctx, "if (%s) {", cond_bool);
             codegen_indent_inc(ctx);
             codegen_stmt(ctx, stmt->as.if_stmt.then_branch);
             codegen_indent_dec(ctx);
@@ -276,8 +285,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_dec(ctx);
             }
             codegen_writeln(ctx, "}");
-            codegen_writeln(ctx, "hml_release(&%s);", cond);
-            free(cond);
+            free(cond_bool);
             break;
         }
 
@@ -300,9 +308,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "%s:;", continue_label);
             }
 
-            char *cond = codegen_expr(ctx, stmt->as.while_stmt.condition);
-            codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
-            codegen_writeln(ctx, "hml_release(&%s);", cond);
+            char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.while_stmt.condition);
+            codegen_writeln(ctx, "if (!%s) { break; }", cond_bool);
             codegen_stmt(ctx, stmt->as.while_stmt.body);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
@@ -315,7 +322,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             ctx->loop_depth--;
-            free(cond);
+            free(cond_bool);
             break;
         }
 
@@ -529,10 +536,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_inc(ctx);
                 // Condition
                 if (stmt->as.for_loop.condition) {
-                    char *cond = codegen_expr(ctx, stmt->as.for_loop.condition);
-                    codegen_writeln(ctx, "if (!hml_to_bool(%s)) { hml_release(&%s); break; }", cond, cond);
-                    codegen_writeln(ctx, "hml_release(&%s);", cond);
-                    free(cond);
+                    char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.for_loop.condition);
+                    codegen_writeln(ctx, "if (!%s) { break; }", cond_bool);
+                    free(cond_bool);
                 }
                 // Body
                 codegen_stmt(ctx, stmt->as.for_loop.body);

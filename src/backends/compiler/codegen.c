@@ -36,6 +36,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->local_vars = NULL;
     ctx->num_locals = 0;
     ctx->local_capacity = 0;
+    ctx->consumed_temps = NULL;
+    ctx->num_consumed_temps = 0;
+    ctx->consumed_temps_capacity = 0;
     ctx->current_scope = NULL;
     ctx->closures = NULL;
     ctx->func_params = NULL;
@@ -187,6 +190,14 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->const_vars[i]);
             }
             free(ctx->const_vars);
+        }
+
+        // Free consumed temp tracking
+        if (ctx->consumed_temps) {
+            for (int i = 0; i < ctx->num_consumed_temps; i++) {
+                free(ctx->consumed_temps[i]);
+            }
+            free(ctx->consumed_temps);
         }
 
         // Free try-finally tracking arrays
@@ -404,6 +415,59 @@ int codegen_is_const(CodegenContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+// Consumed temp tracking (avoid double-release when values are moved)
+void codegen_mark_temp_consumed(CodegenContext *ctx, const char *name) {
+    if (!name) {
+        return;
+    }
+    for (int i = 0; i < ctx->num_consumed_temps; i++) {
+        if (strcmp(ctx->consumed_temps[i], name) == 0) {
+            return;
+        }
+    }
+    if (ctx->num_consumed_temps >= ctx->consumed_temps_capacity) {
+        int new_cap = safe_double_capacity(ctx->consumed_temps_capacity, 8);
+        if (new_cap < 0) {
+            fprintf(stderr, "Codegen error: Consumed temp capacity overflow\n");
+            exit(1);
+        }
+        char **new_temps = realloc(ctx->consumed_temps, (size_t)new_cap * sizeof(char*));
+        if (!new_temps) {
+            fprintf(stderr, "Codegen error: Failed to expand consumed temp storage\n");
+            exit(1);
+        }
+        ctx->consumed_temps = new_temps;
+        ctx->consumed_temps_capacity = new_cap;
+    }
+    ctx->consumed_temps[ctx->num_consumed_temps++] = strdup(name);
+}
+
+int codegen_is_temp_consumed(CodegenContext *ctx, const char *name) {
+    if (!name) {
+        return 0;
+    }
+    for (int i = 0; i < ctx->num_consumed_temps; i++) {
+        if (strcmp(ctx->consumed_temps[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int codegen_consumed_checkpoint(CodegenContext *ctx) {
+    return ctx->num_consumed_temps;
+}
+
+void codegen_restore_consumed(CodegenContext *ctx, int checkpoint) {
+    if (checkpoint < 0 || checkpoint > ctx->num_consumed_temps) {
+        return;
+    }
+    for (int i = checkpoint; i < ctx->num_consumed_temps; i++) {
+        free(ctx->consumed_temps[i]);
+    }
+    ctx->num_consumed_temps = checkpoint;
 }
 
 // Try-finally context tracking (for return/break to jump to finally first)
@@ -1439,4 +1503,3 @@ void membuf_free(MemBuffer *buf) {
     }
     free(buf);
 }
-

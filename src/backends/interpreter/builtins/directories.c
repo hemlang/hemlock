@@ -133,11 +133,14 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
-        array_push(entries, val_string(entry->d_name));
+        Value str_val = val_string(entry->d_name);
+        array_push(entries, str_val);
+        value_release(str_val);  // array_push retains, so release our reference
     }
 
     closedir(dir);
     free(cpath);
+    // Ownership of array transfers to caller via return value
     return val_array(entries);
 }
 

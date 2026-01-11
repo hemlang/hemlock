@@ -463,13 +463,16 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                     char *char_str = malloc(2);
                     if (char_str == NULL) {
                         // Clean up already allocated array elements
-                        VALUE_RELEASE(val_array(result));
+                        array_release(result);
                         return throw_runtime_error(ctx, "split() out of memory");
                     }
                     char_str[0] = str->data[i];
                     char_str[1] = '\0';
-                    array_push(result, val_string_take(char_str, 1, 2));
+                    Value str_val = val_string_take(char_str, 1, 2);
+                    array_push(result, str_val);
+                    value_release(str_val);  // array_push retains, release our reference
                 }
+                // Ownership of array transfers to caller via return value
                 return val_array(result);
             }
 
@@ -481,12 +484,14 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                     int len = i - start;
                     char *part = malloc(len + 1);
                     if (part == NULL) {
-                        VALUE_RELEASE(val_array(result));
+                        array_release(result);
                         return throw_runtime_error(ctx, "split() out of memory");
                     }
                     memcpy(part, str->data + start, len);
                     part[len] = '\0';
-                    array_push(result, val_string_take(part, len, len + 1));
+                    Value str_val = val_string_take(part, len, len + 1);
+                    array_push(result, str_val);
+                    value_release(str_val);  // array_push retains, release our reference
                     i += delim->length - 1;  // Skip past delimiter
                     start = i + 1;
                 }
@@ -496,13 +501,16 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             int len = str->length - start;
             char *part = malloc(len + 1);
             if (part == NULL) {
-                VALUE_RELEASE(val_array(result));
+                array_release(result);
                 return throw_runtime_error(ctx, "split() out of memory");
             }
             memcpy(part, str->data + start, len);
             part[len] = '\0';
-            array_push(result, val_string_take(part, len, len + 1));
+            Value str_val = val_string_take(part, len, len + 1);
+            array_push(result, str_val);
+            value_release(str_val);  // array_push retains, release our reference
 
+            // Ownership of array transfers to caller via return value
             return val_array(result);
         }
         // starts_with(prefix) - check if string starts with prefix

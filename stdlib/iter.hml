@@ -1,7 +1,7 @@
 // @stdlib/iter - Iterator and sequence utilities
-// 
+//
 // Provides common iteration patterns and array transformation utilities.
-// 
+//
 // Usage:
 // import { range, enumerate, zip, chunk, take, drop } from "@stdlib/iter";
 // import { flatten, unique, group_by, partition } from "@stdlib/iter";
@@ -61,16 +61,12 @@ export fn frange(start, end, step): array {
 	let result: array = [];
 
 	if (step > 0) {
-		let i: f64 = start;
-		while (i < end) {
+		for (let i: f64 = start; i < end; i = i + step) {
 			result.push(i);
-			i = i + step;
 		}
 	} else {
-		let i: f64 = start;
-		while (i > end) {
+		for (let i: f64 = start; i > end; i = i + step) {
 			result.push(i);
-			i = i + step;
 		}
 	}
 

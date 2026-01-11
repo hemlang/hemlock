@@ -377,7 +377,11 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     // Register command-line arguments as 'args' array
     Array *args_array = array_new();
     for (int i = 0; i < argc; i++) {
-        array_push(args_array, val_string(argv[i]));
+        Value str_val = val_string(argv[i]);
+        array_push(args_array, str_val);
+        value_release(str_val);  // array_push retains, so release our reference
     }
     env_set(env, "args", val_array(args_array), ctx);
+    // Release caller's reference - env now owns the array
+    array_release(args_array);
 }

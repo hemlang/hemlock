@@ -1629,6 +1629,19 @@ not_function:
             }
         }
         // Not a labeled loop, restore state
+        // Free any string_value in tokens that are NEW (not from saved state)
+        // We may have consumed 1-2 tokens during look-ahead; free their string_value if allocated
+        if (p->current.string_value &&
+            p->current.string_value != saved_current.string_value &&
+            p->current.string_value != saved_next.string_value) {
+            free(p->current.string_value);
+        }
+        if (p->next.string_value &&
+            p->next.string_value != saved_current.string_value &&
+            p->next.string_value != saved_next.string_value &&
+            p->next.string_value != p->current.string_value) {  // Don't double-free if same
+            free(p->next.string_value);
+        }
         p->current = saved_current;
         p->previous = saved_previous;
         p->next = saved_next;

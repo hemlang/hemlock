@@ -1,7 +1,7 @@
 // @stdlib/csv - CSV parsing and generation
-// 
+//
 // Provides functions for reading and writing CSV (Comma-Separated Values) data.
-// 
+//
 // Usage:
 // import { parse, stringify, parse_row, stringify_row } from "@stdlib/csv";
 // let data = parse(csv_text);
