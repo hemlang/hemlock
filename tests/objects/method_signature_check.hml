@@ -1,0 +1,92 @@
+// Test: Method signature type checking in define blocks
+
+// Define a type with method signatures
+define Comparable {
+    value: i32,
+    fn compare(other: i32): i32
+}
+
+// Test 1: Valid method signature - should pass
+let valid: Comparable = {
+    value: 10,
+    compare: fn(other: i32): i32 { return self.value - other; }
+};
+print("Test 1 passed: valid method signature");
+
+// Test 2: Method with no explicit types (dynamic) - should pass
+define Processor {
+    fn process(x): i32
+}
+
+let dynamic_params: Processor = {
+    process: fn(x): i32 { return x * 2; }
+};
+print("Test 2 passed: dynamic parameter types");
+
+// Test 3: Return type checking
+define Stringifier {
+    fn stringify(): string
+}
+
+let stringifier: Stringifier = {
+    stringify: fn(): string { return "hello"; }
+};
+print("Test 3 passed: return type checking");
+
+// Test 4: Async method signature
+define AsyncWorker {
+    fn work(): i32
+}
+
+// Note: async flag is checked - async function can implement non-async signature
+// but non-async cannot implement async signature
+
+// Test 5: Multiple methods
+define Calculator {
+    fn add(a: i32, b: i32): i32,
+    fn subtract(a: i32, b: i32): i32
+}
+
+let calc: Calculator = {
+    add: fn(a: i32, b: i32): i32 { return a + b; },
+    subtract: fn(a: i32, b: i32): i32 { return a - b; }
+};
+print("Test 5 passed: multiple method signatures");
+
+// Test 6: Optional method
+define OptionalMethods {
+    fn required(): i32,
+    fn optional?(): string
+}
+
+let only_required: OptionalMethods = {
+    required: fn(): i32 { return 42; }
+};
+print("Test 6 passed: optional method not provided");
+
+// Test 7: Self type in method signature
+define Cloneable {
+    value: i32,
+    fn clone(): Self
+}
+
+let cloneable: Cloneable = {
+    value: 100,
+    clone: fn(): Cloneable { return { value: self.value, clone: self.clone }; }
+};
+print("Test 7 passed: Self type in return");
+
+// Test 8: Numeric type compatibility (coercion allowed)
+define NumericHandler {
+    fn handle(n: i64): f64
+}
+
+// i32 and f32 should be compatible with i64 and f64 respectively
+let numeric: NumericHandler = {
+    handle: fn(n: i32): f32 { return n; }
+};
+print("Test 8 passed: numeric type compatibility");
+
+// All tests passed
+print("");
+print("All method signature tests passed!");

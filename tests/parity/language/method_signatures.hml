@@ -32,3 +32,37 @@ let b: Comparable = {
 };
 
 print(a.compare(b));  // Should print 5
+
+// Multiple method signatures with explicit types
+define Calculator {
+    fn add(a: i32, b: i32): i32,
+    fn subtract(a: i32, b: i32): i32
+}
+
+let calc: Calculator = {
+    add: fn(a: i32, b: i32): i32 { return a + b; },
+    subtract: fn(a: i32, b: i32): i32 { return a - b; }
+};
+print(calc.add(10, 5));
+print(calc.subtract(10, 5));
+
+// Optional method
+define WithOptional {
+    fn required(): i32,
+    fn optional?(): string
+}
+
+let only_req: WithOptional = {
+    required: fn(): i32 { return 42; }
+};
+print(only_req.required());
+
+// Numeric type compatibility (coercion allowed)
+define NumericHandler {
+    fn handle(n: i64): f64
+}
+
+let num: NumericHandler = {
+    handle: fn(n: i32): f32 { return n * 1.5; }
+};
+print(num.handle(10));
