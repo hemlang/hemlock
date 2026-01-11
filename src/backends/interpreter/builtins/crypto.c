@@ -131,10 +131,27 @@ Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ct
     // Create result object with private_key and public_key
     // Both point to the same EVP_PKEY* (the key contains both private and public parts)
     Object *obj = object_new(NULL, 2);
+    if (!obj) {
+        EVP_PKEY_free(pkey);
+        runtime_error(ctx, "__ecdsa_generate_key() memory allocation failed");
+        return val_null();
+    }
     obj->field_names[0] = strdup("private_key");
+    if (!obj->field_names[0]) {
+        EVP_PKEY_free(pkey);
+        object_free(obj);
+        runtime_error(ctx, "__ecdsa_generate_key() memory allocation failed");
+        return val_null();
+    }
     obj->field_values[0] = val_ptr(pkey);
     obj->num_fields++;
     obj->field_names[1] = strdup("public_key");
+    if (!obj->field_names[1]) {
+        EVP_PKEY_free(pkey);
+        object_free(obj);
+        runtime_error(ctx, "__ecdsa_generate_key() memory allocation failed");
+        return val_null();
+    }
     obj->field_values[1] = val_ptr(pkey);
     obj->num_fields++;
 

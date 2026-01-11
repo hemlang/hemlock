@@ -247,17 +247,21 @@ Expr* primary(Parser *p) {
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
             // Grow arrays if needed
             if (num_fields >= capacity) {
-                capacity *= 2;
-                char **new_field_names = realloc(field_names, sizeof(char*) * capacity);
-                Expr **new_field_values = realloc(field_values, sizeof(Expr*) * capacity);
-                if (!new_field_names || !new_field_values) {
-                    if (new_field_names) field_names = new_field_names;
-                    if (new_field_values) field_values = new_field_values;
+                int new_capacity = capacity * 2;
+                char **new_field_names = realloc(field_names, sizeof(char*) * new_capacity);
+                if (!new_field_names) {
                     error(p, "Memory allocation failed for object literal");
                     break;
                 }
                 field_names = new_field_names;
+
+                Expr **new_field_values = realloc(field_values, sizeof(Expr*) * new_capacity);
+                if (!new_field_values) {
+                    error(p, "Memory allocation failed for object literal");
+                    break;
+                }
                 field_values = new_field_values;
+                capacity = new_capacity;
             }
 
             // Check for spread operator: ...expr

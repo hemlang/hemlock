@@ -150,6 +150,11 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
 
                     if (headers_len > 0) {
                         resp->headers = strndup(headers_buf, headers_len);
+                        if (!resp->headers) {
+                            resp->failed = 1;
+                            resp->complete = 1;
+                            return -1;
+                        }
                     }
                 }
 
@@ -160,6 +165,11 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                     if (loc_len > 0) {
                         location[loc_len] = '\0';
                         resp->redirect_url = strdup(location);
+                        if (!resp->redirect_url) {
+                            resp->failed = 1;
+                            resp->complete = 1;
+                            return -1;
+                        }
                         // Mark as complete - we'll handle redirect at hemlock layer
                         resp->complete = 1;
                     }
@@ -399,7 +409,9 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
-        free(resp->body);
+        if (resp->body) free(resp->body);
+        if (resp->headers) free(resp->headers);
+        if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -530,7 +542,9 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
-        free(resp->body);
+        if (resp->body) free(resp->body);
+        if (resp->headers) free(resp->headers);
+        if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -663,7 +677,9 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
-        free(resp->body);
+        if (resp->body) free(resp->body);
+        if (resp->headers) free(resp->headers);
+        if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -1330,6 +1346,13 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     }
     ws->handle = conn;
     ws->url = strdup(url);
+    if (!ws->url) {
+        ws_connection_close(conn);
+        free(ws);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket URL");
+        return val_null();
+    }
     ws->host = NULL;
     ws->port = port;
     ws->closed = 0;
@@ -1693,6 +1716,13 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     ws->handle = server;
     ws->url = NULL;
     ws->host = strdup(host);
+    if (!ws->host) {
+        ws_server_close_internal(server);
+        free(ws);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket host string");
+        return val_null();
+    }
     ws->port = port;
     ws->closed = 0;
     ws->is_server = 1;
@@ -1752,7 +1782,15 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
             }
             ws->handle = conn;
             ws->url = NULL;
-            ws->host = server_ws && server_ws->host ? strdup(server_ws->host) : NULL;
+            ws->host = NULL;
+            if (server_ws && server_ws->host) {
+                ws->host = strdup(server_ws->host);
+                if (!ws->host) {
+                    ws_connection_close(conn);
+                    free(ws);
+                    return val_null();
+                }
+            }
             ws->port = server ? server->port : 0;
             ws->closed = 0;
             ws->is_server = 0;  // This is a client connection accepted by server
