@@ -31,6 +31,13 @@ static int is_const_bool(Expr *expr) {
 }
 
 /*
+ * Check if an expression is a constant null.
+ */
+static int is_const_null(Expr *expr) {
+    return expr && expr->type == EXPR_NULL;
+}
+
+/*
  * Check if an expression is a constant integer (not float).
  */
 static int is_const_int(Expr *expr) {
@@ -42,6 +49,30 @@ static int is_const_int(Expr *expr) {
  */
 static int is_const_string(Expr *expr) {
     return expr && expr->type == EXPR_STRING;
+}
+
+/*
+ * Determine truthiness for constant expressions (bool, number, or null).
+ * Returns 1 if the expression is a constant and populates truthy; 0 otherwise.
+ */
+static int get_const_truthiness(Expr *expr, int *truthy) {
+    if (is_const_bool(expr)) {
+        *truthy = expr->as.boolean != 0;
+        return 1;
+    }
+    if (is_const_number(expr)) {
+        if (expr->as.number.is_float) {
+            *truthy = expr->as.number.float_value != 0.0;
+        } else {
+            *truthy = expr->as.number.int_value != 0;
+        }
+        return 1;
+    }
+    if (is_const_null(expr)) {
+        *truthy = 0;
+        return 1;
+    }
+    return 0;
 }
 
 /*
@@ -708,6 +739,29 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
 
         case STMT_IF:
             stmt->as.if_stmt.condition = optimize_expr_internal(stmt->as.if_stmt.condition, stats);
+            {
+                int truthy = 0;
+                if (get_const_truthiness(stmt->as.if_stmt.condition, &truthy)) {
+                    Stmt *selected = truthy ? stmt->as.if_stmt.then_branch : stmt->as.if_stmt.else_branch;
+                    Stmt *discarded = truthy ? stmt->as.if_stmt.else_branch : stmt->as.if_stmt.then_branch;
+                    stats->dead_code_eliminated++;
+                    expr_free(stmt->as.if_stmt.condition);
+                    if (discarded) {
+                        stmt_free(discarded);
+                    }
+                    if (selected) {
+                        optimize_stmt_internal(selected, stats);
+                        Stmt replacement = *selected;
+                        free(selected);
+                        *stmt = replacement;
+                    } else {
+                        stmt->type = STMT_BLOCK;
+                        stmt->as.block.statements = NULL;
+                        stmt->as.block.count = 0;
+                    }
+                    return;
+                }
+            }
             optimize_stmt_internal(stmt->as.if_stmt.then_branch, stats);
             if (stmt->as.if_stmt.else_branch) {
                 optimize_stmt_internal(stmt->as.if_stmt.else_branch, stats);
@@ -716,6 +770,19 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
 
         case STMT_WHILE:
             stmt->as.while_stmt.condition = optimize_expr_internal(stmt->as.while_stmt.condition, stats);
+            {
+                int truthy = 0;
+                if (get_const_truthiness(stmt->as.while_stmt.condition, &truthy) && !truthy) {
+                    stats->dead_code_eliminated++;
+                    expr_free(stmt->as.while_stmt.condition);
+                    stmt_free(stmt->as.while_stmt.body);
+                    free(stmt->as.while_stmt.label);
+                    stmt->type = STMT_BLOCK;
+                    stmt->as.block.statements = NULL;
+                    stmt->as.block.count = 0;
+                    return;
+                }
+            }
             optimize_stmt_internal(stmt->as.while_stmt.body, stats);
             break;
 
@@ -824,7 +891,7 @@ void optimize_stmt(Stmt *stmt, OptimizationStats *stats) {
  * Public API: Optimize all statements in a program.
  */
 OptimizationStats optimize_program(Stmt **statements, int count) {
-    OptimizationStats stats = {0, 0, 0};
+    OptimizationStats stats = {0, 0, 0, 0};
 
     for (int i = 0; i < count; i++) {
         optimize_stmt_internal(statements[i], &stats);
