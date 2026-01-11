@@ -1,0 +1,21 @@
+// Hex literals
+let hex = 0xDEADBEEF;
+let hex_lower = 0xabcdef;
+
+// Binary literals
+let bin = 0b10101010;
+let bin_upper = 0B1111;
+
+// Octal literals
+let oct = 0o755;
+let oct_upper = 0O644;
+
+// Numeric separators
+let million = 1_000_000;
+let hex_sep = 0xFF_FF_FF;
+let bin_sep = 0b1111_0000;
+
+// Regular numbers (no special format)
+let plain = 42;
+let negative = -123;
+let float_num = 3.14159;

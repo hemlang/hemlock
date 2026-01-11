@@ -353,6 +353,96 @@ static void advance_blank_lines_past(BlankLineList *list, int line) {
     }
 }
 
+// ========== ORIGINAL LITERAL PRESERVATION ==========
+
+// Map (line, col) -> original source text for literals
+// This allows preserving hex/binary/octal formats and numeric separators
+
+typedef struct {
+    int line;
+    int col;
+    char *text;  // Original source text (e.g., "0xDEADBEEF", "1_000_000")
+} LiteralSpan;
+
+typedef struct {
+    LiteralSpan *spans;
+    int count;
+    int capacity;
+} LiteralMap;
+
+static void literal_map_init(LiteralMap *map) {
+    map->capacity = 64;
+    map->spans = malloc(map->capacity * sizeof(LiteralSpan));
+    map->count = 0;
+}
+
+static void literal_map_free(LiteralMap *map) {
+    for (int i = 0; i < map->count; i++) {
+        free(map->spans[i].text);
+    }
+    free(map->spans);
+    map->spans = NULL;
+    map->count = map->capacity = 0;
+}
+
+static void literal_map_add(LiteralMap *map, int line, int col, const char *text) {
+    if (map->count >= map->capacity) {
+        map->capacity *= 2;
+        map->spans = realloc(map->spans, map->capacity * sizeof(LiteralSpan));
+    }
+    map->spans[map->count].line = line;
+    map->spans[map->count].col = col;
+    map->spans[map->count].text = strdup(text);
+    map->count++;
+}
+
+static const char *literal_map_lookup(LiteralMap *map, int line, int col) {
+    if (!map) return NULL;
+    for (int i = 0; i < map->count; i++) {
+        if (map->spans[i].line == line && map->spans[i].col == col) {
+            return map->spans[i].text;
+        }
+    }
+    return NULL;
+}
+
+// Extract number literals from source using the lexer (ensures line/col match AST)
+static void extract_literals(const char *source, LiteralMap *map) {
+    if (!source || !map) return;
+
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    while (1) {
+        Token tok = lexer_next(&lexer);
+        if (tok.type == TOK_EOF) break;
+
+        if (tok.type == TOK_NUMBER) {
+            // Check if this literal has special formatting worth preserving
+            // (hex/bin/oct prefix or underscores)
+            int has_prefix = (tok.length > 1 && tok.start[0] == '0' &&
+                             (tok.start[1] == 'x' || tok.start[1] == 'X' ||
+                              tok.start[1] == 'b' || tok.start[1] == 'B' ||
+                              tok.start[1] == 'o' || tok.start[1] == 'O'));
+            int has_underscore = (memchr(tok.start, '_', tok.length) != NULL);
+
+            if (has_prefix || has_underscore) {
+                // Copy the original text
+                char *text = malloc(tok.length + 1);
+                memcpy(text, tok.start, tok.length);
+                text[tok.length] = '\0';
+                literal_map_add(map, tok.line, tok.column, text);
+                free(text);
+            }
+        }
+
+        // Free string tokens (they allocate memory)
+        if (tok.type == TOK_STRING && tok.string_value) {
+            free(tok.string_value);
+        }
+    }
+}
+
 // ========== FORMATTER CONTEXT ==========
 
 struct FmtCtx {
@@ -361,6 +451,7 @@ struct FmtCtx {
     int column;          // Current column position (for line width tracking)
     CommentList *comments;  // Extracted comments
     BlankLineList *blank_lines;  // Extracted blank lines
+    LiteralMap *literals;  // Original literal text map
     int output_line;     // Current output line (1-based)
     int last_source_line;  // Last source line processed (for comment association)
     bool is_else_if;     // Skip leading indent for else-if (follows "else " on same line)
@@ -1131,13 +1222,18 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
     if (!expr) return;
 
     switch (expr->type) {
-        case EXPR_NUMBER:
-            if (expr->as.number.is_float) {
+        case EXPR_NUMBER: {
+            // Try to use original literal text (preserves hex/bin/oct and separators)
+            const char *original = literal_map_lookup(ctx->literals, expr->line, expr->column);
+            if (original) {
+                buf_append(&ctx->buf, original);
+            } else if (expr->as.number.is_float) {
                 buf_printf(&ctx->buf, "%g", expr->as.number.float_value);
             } else {
                 buf_printf(&ctx->buf, "%ld", (long)expr->as.number.int_value);
             }
             break;
+        }
 
         case EXPR_BOOL:
             buf_append(&ctx->buf, expr->as.boolean ? "true" : "false");
@@ -2198,6 +2294,11 @@ char *format_source(const char *source) {
     blank_line_list_init(&blank_lines);
     extract_blank_lines(source, &blank_lines);
 
+    // Extract original literal text (preserves hex/bin/oct and separators)
+    LiteralMap literals;
+    literal_map_init(&literals);
+    extract_literals(source, &literals);
+
     // Parse
     Lexer lexer;
     lexer_init(&lexer, source);
@@ -2212,6 +2313,7 @@ char *format_source(const char *source) {
         fprintf(stderr, "Format failed: parse errors\n");
         comment_list_free(&comments);
         blank_line_list_free(&blank_lines);
+        literal_map_free(&literals);
         return NULL;
     }
 
@@ -2222,6 +2324,7 @@ char *format_source(const char *source) {
     ctx.column = 0;
     ctx.comments = &comments;
     ctx.blank_lines = &blank_lines;
+    ctx.literals = &literals;
     ctx.output_line = 1;
     ctx.last_source_line = 0;
     ctx.is_else_if = false;
@@ -2301,9 +2404,10 @@ char *format_source(const char *source) {
     }
     free(statements);
 
-    // Cleanup comments and blank lines
+    // Cleanup comments, blank lines, and literal map
     comment_list_free(&comments);
     blank_line_list_free(&blank_lines);
+    literal_map_free(&literals);
 
     // Remove trailing newline at end of file
     while (ctx.buf.len > 0 && ctx.buf.data[ctx.buf.len - 1] == '\n') {
