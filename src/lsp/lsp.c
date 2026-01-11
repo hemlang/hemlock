@@ -6,9 +6,7 @@
 #include "protocol.h"
 #include "handlers.h"
 
-#include "../../include/lexer.h"
-#include "../../include/parser.h"
-#include "../../include/ast.h"
+#include "frontend.h"
 #include "../backends/compiler/type_check.h"
 
 #include <stdlib.h>

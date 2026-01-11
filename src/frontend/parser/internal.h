@@ -1,7 +1,7 @@
 #ifndef HEMLOCK_PARSER_INTERNAL_H
 #define HEMLOCK_PARSER_INTERNAL_H
 
-#include "parser.h"
+#include "frontend/parser.h"
 #include "hemlock_limits.h"
 #include <stdio.h>
 #include <stdlib.h>

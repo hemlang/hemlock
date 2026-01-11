@@ -10,7 +10,7 @@
 #ifndef HEMLOCK_OPTIMIZER_H
 #define HEMLOCK_OPTIMIZER_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 
 /*
  * Optimization statistics for reporting.

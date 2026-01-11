@@ -6,9 +6,7 @@
 
 #define _XOPEN_SOURCE 500
 #include "bundler.h"
-#include "../include/parser.h"
-#include "../include/lexer.h"
-#include "../include/ast_serialize.h"
+#include "frontend.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

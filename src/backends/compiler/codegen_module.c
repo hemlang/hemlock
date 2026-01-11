@@ -8,8 +8,8 @@
 
 // ========== MODULE COMPILATION ==========
 
-ModuleCache* module_cache_new(const char *main_file_path) {
-    ModuleCache *cache = malloc(sizeof(ModuleCache));
+CompilerModuleCache* compiler_module_cache_new(const char *main_file_path) {
+    CompilerModuleCache *cache = malloc(sizeof(CompilerModuleCache));
     cache->modules = NULL;
     cache->module_counter = 0;
 
@@ -30,7 +30,7 @@ ModuleCache* module_cache_new(const char *main_file_path) {
     return cache;
 }
 
-void module_cache_free(ModuleCache *cache) {
+void compiler_module_cache_free(CompilerModuleCache *cache) {
     if (!cache) return;
 
     CompiledModule *mod = cache->modules;
@@ -69,7 +69,7 @@ void module_cache_free(ModuleCache *cache) {
     free(cache);
 }
 
-CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path) {
+CompiledModule* module_get_cached(CompilerModuleCache *cache, const char *absolute_path) {
     return (CompiledModule *)module_cache_map_get(&cache->cache_map, absolute_path);
 }
 
@@ -148,13 +148,13 @@ int module_is_extern_fn(CompiledModule *module, const char *name) {
     return 0;
 }
 
-char* module_gen_prefix(ModuleCache *cache) {
+char* module_gen_prefix(CompilerModuleCache *cache) {
     char *prefix = malloc(32);
     snprintf(prefix, 32, "_mod%d_", cache->module_counter++);
     return prefix;
 }
 
-void codegen_set_module_cache(CodegenContext *ctx, ModuleCache *cache) {
+void codegen_set_module_cache(CodegenContext *ctx, CompilerModuleCache *cache) {
     ctx->module_cache = cache;
 }
 
@@ -198,12 +198,12 @@ Stmt** parse_module_file(const char *path, int *stmt_count) {
 }
 
 CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
-    ModuleCache *cache = ctx->module_cache;
+    CompilerModuleCache *cache = ctx->module_cache;
 
     // Check if already compiled
     CompiledModule *cached = module_get_cached(cache, absolute_path);
     if (cached) {
-        if (cached->state == MOD_LOADING) {
+        if (cached->state == CMOD_LOADING) {
             fprintf(stderr, "Error: Circular dependency detected when compiling '%s'\n", absolute_path);
             return NULL;
         }
@@ -214,7 +214,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     CompiledModule *module = malloc(sizeof(CompiledModule));
     module->absolute_path = strdup(absolute_path);
     module->module_prefix = module_gen_prefix(cache);
-    module->state = MOD_LOADING;
+    module->state = CMOD_LOADING;
     module->exports = NULL;
     module->num_exports = 0;
     module->export_capacity = 0;
@@ -237,7 +237,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     // Parse the module
     module->statements = parse_module_file(absolute_path, &module->num_statements);
     if (!module->statements) {
-        module->state = MOD_UNLOADED;
+        module->state = CMOD_UNLOADED;
         return NULL;
     }
 
@@ -377,6 +377,6 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
         }
     }
 
-    module->state = MOD_LOADED;
+    module->state = CMOD_LOADED;
     return module;
 }

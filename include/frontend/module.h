@@ -1,7 +1,7 @@
 #ifndef HEMLOCK_MODULE_H
 #define HEMLOCK_MODULE_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 #include "interpreter.h"
 #include "modules.h"
 

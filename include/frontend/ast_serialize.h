@@ -1,7 +1,7 @@
 #ifndef HEMLOCK_AST_SERIALIZE_H
 #define HEMLOCK_AST_SERIALIZE_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 #include <stdint.h>
 #include <stdio.h>
 

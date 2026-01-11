@@ -1,4 +1,4 @@
-#include "ast.h"
+#include "frontend/ast.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

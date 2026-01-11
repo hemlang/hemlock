@@ -7,7 +7,7 @@
 #ifndef HEMLOCK_CODEGEN_H
 #define HEMLOCK_CODEGEN_H
 
-#include "../../include/ast.h"
+#include "frontend/ast.h"
 #include "../../include/modules.h"
 #include "type_check.h"
 #include <stdio.h>
@@ -16,7 +16,7 @@
 typedef struct ClosureInfo ClosureInfo;
 typedef struct DeferEntry DeferEntry;
 typedef struct CompiledModule CompiledModule;
-typedef struct ModuleCache ModuleCache;
+typedef struct CompilerModuleCache CompilerModuleCache;
 
 // Deferred expression entry for LIFO execution
 struct DeferEntry {
@@ -48,10 +48,10 @@ typedef struct Scope {
 
 // Module loading state (for circular dependency detection)
 typedef enum {
-    MOD_UNLOADED,
-    MOD_LOADING,
-    MOD_LOADED
-} ModuleState;
+    CMOD_UNLOADED,
+    CMOD_LOADING,
+    CMOD_LOADED
+} CompilerModuleState;
 
 // Exported symbol from a module
 typedef struct {
@@ -75,7 +75,7 @@ typedef struct {
 struct CompiledModule {
     char *absolute_path;        // Resolved absolute path (cache key)
     char *module_prefix;        // Unique prefix for this module's symbols
-    ModuleState state;          // Loading state for cycle detection
+    CompilerModuleState state;  // Loading state for cycle detection
     Stmt **statements;          // Parsed AST
     int num_statements;
     ExportedSymbol *exports;    // Exported symbols
@@ -88,7 +88,7 @@ struct CompiledModule {
 };
 
 // Module cache for tracking all compiled modules
-struct ModuleCache {
+struct CompilerModuleCache {
     CompiledModule *modules;    // Linked list of modules
     ModuleResolution *resolver; // Shared module resolution context
     ModuleCacheMap cache_map;   // Shared module cache
@@ -139,7 +139,7 @@ typedef struct {
     int last_closure_num_captured; // Number of captured variables
 
     // Module support
-    ModuleCache *module_cache;          // Cache of compiled modules
+    CompilerModuleCache *module_cache;  // Cache of compiled modules
     CompiledModule *current_module;     // Module currently being compiled (NULL for main)
 
     // Main file top-level variables (to add prefix and avoid C name conflicts)
@@ -363,16 +363,16 @@ const char* codegen_get_labeled_continue(CodegenContext *ctx, const char *label)
 // ========== MODULE COMPILATION ==========
 
 // Initialize module cache
-ModuleCache* module_cache_new(const char *main_file_path);
+CompilerModuleCache* compiler_module_cache_new(const char *main_file_path);
 
 // Free module cache
-void module_cache_free(ModuleCache *cache);
+void compiler_module_cache_free(CompilerModuleCache *cache);
 
 // Compile a module (recursively compiles dependencies)
 CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path);
 
 // Get a cached module by path
-CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path);
+CompiledModule* module_get_cached(CompilerModuleCache *cache, const char *absolute_path);
 
 // Add an export to a module
 // is_function: 1 if this is a function, 0 otherwise
@@ -383,9 +383,9 @@ void module_add_export(CompiledModule *module, const char *name, const char *man
 ExportedSymbol* module_find_export(CompiledModule *module, const char *name);
 
 // Generate unique module prefix
-char* module_gen_prefix(ModuleCache *cache);
+char* module_gen_prefix(CompilerModuleCache *cache);
 
 // Set the module cache for a codegen context
-void codegen_set_module_cache(CodegenContext *ctx, ModuleCache *cache);
+void codegen_set_module_cache(CodegenContext *ctx, CompilerModuleCache *cache);
 
 #endif // HEMLOCK_CODEGEN_H

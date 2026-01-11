@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "optimizer.h"
+#include "frontend/optimizer.h"
 
 /* Forward declarations */
 static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats);
@@ -967,7 +967,7 @@ void optimize_stmt(Stmt *stmt, OptimizationStats *stats) {
  * Public API: Optimize all statements in a program.
  */
 OptimizationStats optimize_program(Stmt **statements, int count) {
-    OptimizationStats stats = {0, 0, 0, 0};
+    OptimizationStats stats = {0, 0, 0, 0, 0};
 
     for (int i = 0; i < count; i++) {
         optimize_stmt_internal(statements[i], &stats);

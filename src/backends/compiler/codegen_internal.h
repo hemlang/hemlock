@@ -10,9 +10,7 @@
 
 #define _GNU_SOURCE
 #include "codegen.h"
-#include "../../include/lexer.h"
-#include "../../include/parser.h"
-#include "../../include/annotations.h"
+#include "frontend.h"
 #include "hemlock_limits.h"
 #include "../../../runtime/include/hemlock_runtime.h"
 #include "../../../runtime/include/hemlock_value.h"  // For HmlValueType enum

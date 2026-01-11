@@ -15,7 +15,7 @@
 #ifndef HEMLOCK_RESOLVER_H
 #define HEMLOCK_RESOLVER_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 
 /*
  * Compile-time scope for variable tracking during resolution.

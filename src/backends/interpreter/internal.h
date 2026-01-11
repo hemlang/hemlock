@@ -2,7 +2,7 @@
 #define HEMLOCK_INTERPRETER_INTERNAL_H
 
 #include "interpreter.h"
-#include "ast.h"
+#include "frontend/ast.h"
 #include "hemlock_limits.h"
 #include <stdint.h>
 
