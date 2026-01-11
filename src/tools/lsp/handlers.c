@@ -82,6 +82,10 @@ static void symbol_table_add_def(SymbolTable *st, const char *name, int line, in
         st->def_capacity = new_cap;
     }
     st->defs[st->def_count].name = strdup(name);
+    if (!st->defs[st->def_count].name) {
+        fprintf(stderr, "LSP error: Failed to allocate symbol name\n");
+        return;
+    }
     st->defs[st->def_count].def_line = line;
     st->defs[st->def_count].def_col = col;
     st->defs[st->def_count].def_length = length > 0 ? length : (int)strlen(name);
@@ -101,6 +105,10 @@ static void symbol_table_add_usage(SymbolTable *st, const char *name, int line, 
         st->usage_capacity = new_cap;
     }
     st->usages[st->usage_count].name = strdup(name);
+    if (!st->usages[st->usage_count].name) {
+        fprintf(stderr, "LSP error: Failed to allocate symbol usage name\n");
+        return;
+    }
     st->usages[st->usage_count].line = line;
     st->usages[st->usage_count].col = col;
     st->usages[st->usage_count].length = length > 0 ? length : (int)strlen(name);
@@ -240,11 +248,17 @@ JSONValue *handle_initialize(LSPServer *server, JSONValue *params) {
     const char *root_uri = json_object_get_string(params, "rootUri");
     if (root_uri) {
         server->root_uri = strdup(root_uri);
+        if (!server->root_uri) {
+            fprintf(stderr, "LSP error: Failed to allocate root_uri\n");
+        }
     }
 
     const char *root_path = json_object_get_string(params, "rootPath");
     if (root_path) {
         server->root_path = strdup(root_path);
+        if (!server->root_path) {
+            fprintf(stderr, "LSP error: Failed to allocate root_path\n");
+        }
     }
     module_resolution_free(server->resolver);
     server->resolver = module_resolution_new(server->root_path, NULL);

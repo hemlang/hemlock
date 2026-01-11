@@ -1147,6 +1147,7 @@ Token lexer_next(Lexer *lex) {
 
 char* token_text(Token *token) {
     char *text = malloc(token->length + 1);
+    if (!text) return NULL;
     memcpy(text, token->start, token->length);
     text[token->length] = '\0';
     return text;

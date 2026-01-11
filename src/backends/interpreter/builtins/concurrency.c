@@ -48,7 +48,9 @@ static void* task_thread_wrapper(void* arg) {
     // Store result and mark as completed (thread-safe)
     pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
     task->result = malloc(sizeof(Value));
-    *task->result = result;
+    if (task->result) {
+        *task->result = result;
+    }
     task->state = TASK_COMPLETED;
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
 
@@ -94,6 +96,10 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (task_num_args > 0) {
         task_args = malloc(sizeof(Value) * task_num_args);
+        if (!task_args) {
+            fprintf(stderr, "Runtime error: Memory allocation failed in spawn()\n");
+            exit(1);
+        }
         for (int i = 0; i < task_num_args; i++) {
             // Deep copy each argument for thread isolation
             task_args[i] = value_deep_copy(args[i + 1]);
@@ -265,6 +271,10 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
 
         if (task_num_args > 0) {
             task_args = malloc(sizeof(Value) * task_num_args);
+            if (!task_args) {
+                runtime_error(ctx, "Memory allocation failed in detach()");
+                return val_null();
+            }
             for (int i = 0; i < task_num_args; i++) {
                 // Deep copy each argument for thread isolation
                 task_args[i] = value_deep_copy(args[i + 1]);

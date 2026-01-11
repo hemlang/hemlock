@@ -532,6 +532,12 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 
     int index = env->count;
     env->names[index] = strdup(name);
+    if (!env->names[index]) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define");
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
     VALUE_RETAIN(value);  // Retain the value
     env->values[index] = value;
     env->is_const[index] = is_const;
@@ -703,6 +709,12 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
 
     int index = env->count;
     env->names[index] = strdup(name);
+    if (!env->names[index]) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_set");
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
     VALUE_RETAIN(value);  // Retain the value
     env->values[index] = value;
     env->is_const[index] = 0;  // Always mutable for implicit variables

@@ -758,6 +758,12 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
             return val_null();
         }
         buf->data = malloc(1);
+        if (!buf->data) {
+            free(buf);
+            ctx->exception_state.is_throwing = 1;
+            ctx->exception_state.exception_value = val_string("Memory allocation failed");
+            return val_null();
+        }
         buf->length = 0;
         buf->capacity = 1;
         buf->ref_count = 1;
