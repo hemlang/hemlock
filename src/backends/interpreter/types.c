@@ -679,21 +679,30 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                 if (obj->num_fields >= obj->capacity) {
                     int new_capacity = obj->capacity * 2;
                     char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                    Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                    if (!new_names || !new_values) {
-                        // If one succeeded, we need to update anyway to avoid losing the pointer
-                        if (new_names) obj->field_names = new_names;
-                        if (new_values) obj->field_values = new_values;
+                    if (!new_names) {
                         free_substituted_type(substituted_field_type, field_type);
-                        fprintf(stderr, "Runtime error: Failed to expand object fields\n");
+                        fprintf(stderr, "Runtime error: Failed to expand object field names\n");
                         exit(1);
                     }
                     obj->field_names = new_names;
+
+                    Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                    if (!new_values) {
+                        free_substituted_type(substituted_field_type, field_type);
+                        fprintf(stderr, "Runtime error: Failed to expand object field values\n");
+                        exit(1);
+                    }
                     obj->field_values = new_values;
                     obj->capacity = new_capacity;
                 }
 
-                obj->field_names[obj->num_fields] = strdup(field_name);
+                char *name_copy = strdup(field_name);
+                if (!name_copy) {
+                    free_substituted_type(substituted_field_type, field_type);
+                    fprintf(stderr, "Runtime error: Failed to allocate field name\n");
+                    exit(1);
+                }
+                obj->field_names[obj->num_fields] = name_copy;
                 if (object_type->field_defaults[i]) {
                     obj->field_values[obj->num_fields] = eval_expr(object_type->field_defaults[i], env, ctx);
                 } else {
@@ -743,19 +752,27 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                     if (obj->num_fields >= obj->capacity) {
                         int new_capacity = obj->capacity * 2;
                         char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                        Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                        if (!new_names || !new_values) {
-                            if (new_names) obj->field_names = new_names;
-                            if (new_values) obj->field_values = new_values;
-                            fprintf(stderr, "Runtime error: Failed to expand object fields for method\n");
+                        if (!new_names) {
+                            fprintf(stderr, "Runtime error: Failed to expand object field names for method\n");
                             exit(1);
                         }
                         obj->field_names = new_names;
+
+                        Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                        if (!new_values) {
+                            fprintf(stderr, "Runtime error: Failed to expand object field values for method\n");
+                            exit(1);
+                        }
                         obj->field_values = new_values;
                         obj->capacity = new_capacity;
                     }
 
-                    obj->field_names[obj->num_fields] = strdup(method_name);
+                    char *name_copy = strdup(method_name);
+                    if (!name_copy) {
+                        fprintf(stderr, "Runtime error: Failed to allocate method name\n");
+                        exit(1);
+                    }
+                    obj->field_names[obj->num_fields] = name_copy;
                     obj->field_values[obj->num_fields] = eval_expr(object_type->method_defaults[i], env, ctx);
                     obj->num_fields++;
                 }

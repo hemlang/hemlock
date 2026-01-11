@@ -105,16 +105,24 @@ void json_object_set(JSONValue *obj, const char *key, JSONValue *value) {
     // Add new key
     if (o->count >= o->capacity) {
         int new_capacity = o->capacity == 0 ? 8 : o->capacity * 2;
+        // Allocate keys first
         char **new_keys = realloc(o->keys, new_capacity * sizeof(char *));
-        JSONValue **new_values = realloc(o->values, new_capacity * sizeof(JSONValue *));
-        if (!new_keys || !new_values) {
-            fprintf(stderr, "json_object_set: realloc failed\n");
-            // Restore on partial failure
-            if (new_keys) o->keys = new_keys;
-            if (new_values) o->values = new_values;
+        if (!new_keys) {
+            fprintf(stderr, "json_object_set: realloc failed for keys\n");
+            json_free(value);  // Free the value since we can't store it
             return;
         }
         o->keys = new_keys;
+
+        // Now allocate values
+        JSONValue **new_values = realloc(o->values, new_capacity * sizeof(JSONValue *));
+        if (!new_values) {
+            fprintf(stderr, "json_object_set: realloc failed for values\n");
+            // Keys were expanded but values weren't - this is still a consistent state
+            // because capacity hasn't been updated yet. The extra key slots are unused.
+            json_free(value);  // Free the value since we can't store it
+            return;
+        }
         o->values = new_values;
         o->capacity = new_capacity;
     }

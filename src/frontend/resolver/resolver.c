@@ -97,16 +97,32 @@ int resolver_define(ResolverContext *ctx, const char *name, Annotation **annotat
     // Grow if needed
     if (scope->count >= scope->capacity) {
         int new_capacity = scope->capacity * 2;
+
+        // Allocate all three arrays first, only update scope if all succeed
         char **new_names = realloc(scope->names, sizeof(char *) * new_capacity);
-        Annotation ***new_annotations = realloc(scope->annotations, sizeof(Annotation **) * new_capacity);
-        int *new_annotation_counts = realloc(scope->annotation_counts, sizeof(int) * new_capacity);
-        if (!new_names || !new_annotations || !new_annotation_counts) {
-            if (new_names) scope->names = new_names;
-            if (new_annotations) scope->annotations = new_annotations;
-            if (new_annotation_counts) scope->annotation_counts = new_annotation_counts;
-            fprintf(stderr, "Resolver error: Memory allocation failed\n");
+        if (!new_names) {
+            fprintf(stderr, "Resolver error: Memory allocation failed for names\n");
             return -1;
         }
+
+        Annotation ***new_annotations = realloc(scope->annotations, sizeof(Annotation **) * new_capacity);
+        if (!new_annotations) {
+            // new_names succeeded but new_annotations failed
+            // new_names is now the valid pointer (realloc moved it), so assign it back
+            scope->names = new_names;
+            fprintf(stderr, "Resolver error: Memory allocation failed for annotations\n");
+            return -1;
+        }
+
+        int *new_annotation_counts = realloc(scope->annotation_counts, sizeof(int) * new_capacity);
+        if (!new_annotation_counts) {
+            // new_names and new_annotations succeeded, assign them back
+            scope->names = new_names;
+            scope->annotations = new_annotations;
+            fprintf(stderr, "Resolver error: Memory allocation failed for annotation counts\n");
+            return -1;
+        }
+
         scope->names = new_names;
         scope->annotations = new_annotations;
         scope->annotation_counts = new_annotation_counts;
@@ -114,7 +130,12 @@ int resolver_define(ResolverContext *ctx, const char *name, Annotation **annotat
     }
 
     int slot = scope->count;
-    scope->names[slot] = strdup(name);
+    char *name_copy = strdup(name);
+    if (!name_copy) {
+        fprintf(stderr, "Resolver error: Memory allocation failed for variable name\n");
+        return -1;
+    }
+    scope->names[slot] = name_copy;
     scope->annotations[slot] = annotations;  // Store pointer to annotations (AST owns them)
     scope->annotation_counts[slot] = annotation_count;
     scope->count++;
