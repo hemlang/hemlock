@@ -138,14 +138,35 @@ Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
 
             // Set fields
             match->field_names[0] = strdup("start");
+            if (!match->field_names[0]) {
+                if (matched) free(matched);
+                object_free(match);
+                free(pmatch);
+                array_free(result);
+                return val_null();
+            }
             match->field_values[0] = val_i32((int32_t)pmatch[i].rm_so);
             match->num_fields++;
 
             match->field_names[1] = strdup("end");
+            if (!match->field_names[1]) {
+                if (matched) free(matched);
+                object_free(match);
+                free(pmatch);
+                array_free(result);
+                return val_null();
+            }
             match->field_values[1] = val_i32((int32_t)pmatch[i].rm_eo);
             match->num_fields++;
 
             match->field_names[2] = strdup("text");
+            if (!match->field_names[2]) {
+                if (matched) free(matched);
+                object_free(match);
+                free(pmatch);
+                array_free(result);
+                return val_null();
+            }
             match->field_values[2] = matched ? val_string(matched) : val_null();
             match->num_fields++;
 

@@ -381,15 +381,39 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
 
         // Create result object
         Object *result = object_new(NULL, 3);
+        if (!result) {
+            free(output_buffer);
+            free(stderr_buffer);
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            exit(1);
+        }
         result->field_names[0] = strdup("output");
+        if (!result->field_names[0]) {
+            free(output_buffer);
+            free(stderr_buffer);
+            object_free(result);
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            exit(1);
+        }
         result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
         result->num_fields++;
 
         result->field_names[1] = strdup("stderr");
+        if (!result->field_names[1]) {
+            free(stderr_buffer);
+            object_free(result);
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            exit(1);
+        }
         result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
         result->num_fields++;
 
         result->field_names[2] = strdup("exit_code");
+        if (!result->field_names[2]) {
+            object_free(result);
+            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+            exit(1);
+        }
         result->field_values[2] = val_i32(exit_code);
         result->num_fields++;
 
@@ -493,15 +517,36 @@ done_warning:
     // Create result object with output, stderr, and exit_code
     // Note: popen() can't capture stderr separately, so we return empty string for it
     Object *result = object_new(NULL, 3);
+    if (!result) {
+        free(output_buffer);
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        exit(1);
+    }
     result->field_names[0] = strdup("output");
+    if (!result->field_names[0]) {
+        free(output_buffer);
+        object_free(result);
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
 
     result->field_names[1] = strdup("stderr");
+    if (!result->field_names[1]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[1] = val_string("");
     result->num_fields++;
 
     result->field_names[2] = strdup("exit_code");
+    if (!result->field_names[2]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[2] = val_i32(exit_code);
     result->num_fields++;
 
@@ -750,15 +795,39 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Create result object
     Object *result = object_new(NULL, 3);
+    if (!result) {
+        free(output_buffer);
+        free(stderr_buffer);
+        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        exit(1);
+    }
     result->field_names[0] = strdup("output");
+    if (!result->field_names[0]) {
+        free(output_buffer);
+        free(stderr_buffer);
+        object_free(result);
+        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
 
     result->field_names[1] = strdup("stderr");
+    if (!result->field_names[1]) {
+        free(stderr_buffer);
+        object_free(result);
+        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
     result->num_fields++;
 
     result->field_names[2] = strdup("exit_code");
+    if (!result->field_names[2]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[2] = val_i32(exit_code);
     result->num_fields++;
 
@@ -890,11 +959,25 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Create result object with pid and status
     Object *result = object_new(NULL, 2);
+    if (!result) {
+        fprintf(stderr, "Runtime error: wait() memory allocation failed\n");
+        exit(1);
+    }
     result->field_names[0] = strdup("pid");
+    if (!result->field_names[0]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: wait() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[0] = val_i32((int32_t)pid);
     result->num_fields++;
 
     result->field_names[1] = strdup("status");
+    if (!result->field_names[1]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: wait() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[1] = val_i32(status);
     result->num_fields++;
 
@@ -930,11 +1013,25 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Create result object with pid and status
     Object *result = object_new(NULL, 2);
+    if (!result) {
+        fprintf(stderr, "Runtime error: waitpid() memory allocation failed\n");
+        exit(1);
+    }
     result->field_names[0] = strdup("pid");
+    if (!result->field_names[0]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: waitpid() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[0] = val_i32((int32_t)result_pid);
     result->num_fields++;
 
     result->field_names[1] = strdup("status");
+    if (!result->field_names[1]) {
+        object_free(result);
+        fprintf(stderr, "Runtime error: waitpid() memory allocation failed\n");
+        exit(1);
+    }
     result->field_values[1] = val_i32(status);
     result->num_fields++;
 

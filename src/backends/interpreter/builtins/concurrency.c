@@ -419,12 +419,26 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
 
                 // Create result object { channel, value }
                 Object *result = object_new(NULL, 2);
+                if (!result) {
+                    value_release(msg);
+                    return val_null();
+                }
                 result->field_names[0] = strdup("channel");
+                if (!result->field_names[0]) {
+                    value_release(msg);
+                    object_free(result);
+                    return val_null();
+                }
                 result->field_values[0] = channels->elements[i];
                 value_retain(channels->elements[i]);
                 result->num_fields = 1;
 
                 result->field_names[1] = strdup("value");
+                if (!result->field_names[1]) {
+                    value_release(msg);
+                    object_free(result);
+                    return val_null();
+                }
                 result->field_values[1] = msg;
                 result->num_fields = 2;
 
@@ -444,12 +458,26 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
 
                 // Create result object { channel, value }
                 Object *result = object_new(NULL, 2);
+                if (!result) {
+                    value_release(msg);
+                    return val_null();
+                }
                 result->field_names[0] = strdup("channel");
+                if (!result->field_names[0]) {
+                    value_release(msg);
+                    object_free(result);
+                    return val_null();
+                }
                 result->field_values[0] = channels->elements[i];
                 value_retain(channels->elements[i]);
                 result->num_fields = 1;
 
                 result->field_names[1] = strdup("value");
+                if (!result->field_names[1]) {
+                    value_release(msg);
+                    object_free(result);
+                    return val_null();
+                }
                 result->field_values[1] = msg;
                 result->num_fields = 2;
 
@@ -461,12 +489,23 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 pthread_mutex_unlock(mutex);
                 // Return null for this closed channel
                 Object *result = object_new(NULL, 2);
+                if (!result) {
+                    return val_null();
+                }
                 result->field_names[0] = strdup("channel");
+                if (!result->field_names[0]) {
+                    object_free(result);
+                    return val_null();
+                }
                 result->field_values[0] = channels->elements[i];
                 value_retain(channels->elements[i]);
                 result->num_fields = 1;
 
                 result->field_names[1] = strdup("value");
+                if (!result->field_names[1]) {
+                    object_free(result);
+                    return val_null();
+                }
                 result->field_values[1] = val_null();
                 result->num_fields = 2;
 
