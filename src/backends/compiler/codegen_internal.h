@@ -62,6 +62,7 @@ typedef struct {
     int has_defers;           // Saved ctx->has_defers
     CompiledModule *module;   // Saved ctx->current_module (for closures)
     ClosureInfo *closure;     // Saved ctx->current_closure
+    Scope *scope;             // Saved ctx->current_scope
     char *tail_call_func_name;  // Saved tail call optimization state
     char *tail_call_label;
     Expr *tail_call_func_expr;
