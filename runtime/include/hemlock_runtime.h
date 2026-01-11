@@ -639,6 +639,19 @@ HmlTypeDef* hml_lookup_type(const char *name);
 // Returns the object with optional fields filled in, or exits on type error
 HmlValue hml_validate_object_type(HmlValue obj, const char *type_name);
 
+// ========== ENUM TYPE DEFINITIONS ==========
+
+// Register an enum type with its valid variant values
+void hml_register_enum(const char *name, const int32_t *variant_values, int num_variants);
+
+// Lookup an enum type definition by name
+// Returns pointer to variant values array and sets *num_variants, or NULL if not found
+const int32_t* hml_lookup_enum(const char *name, int *num_variants);
+
+// Validate an i32 value against an enum type definition
+// Returns the value if valid, or exits on error
+HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name);
+
 // ========== CLOSURE SUPPORT ==========
 
 // Closure environment structure

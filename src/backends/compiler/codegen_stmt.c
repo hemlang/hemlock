@@ -142,8 +142,20 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 } else if (stmt->as.let.type_annotation &&
                     stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                     stmt->as.let.type_annotation->type_name) {
-                    codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
-                                  safe_name, value, stmt->as.let.type_annotation->type_name);
+                    // Check if this is an enum type (use enum validation) or object type
+                    int is_enum = 0;
+                    if (ctx->type_ctx) {
+                        EnumDef *enum_def = type_check_lookup_enum(ctx->type_ctx,
+                            stmt->as.let.type_annotation->type_name);
+                        is_enum = (enum_def != NULL);
+                    }
+                    if (is_enum) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_validate_enum_value(%s, \"%s\");",
+                                      safe_name, value, stmt->as.let.type_annotation->type_name);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_validate_object_type(%s, \"%s\");",
+                                      safe_name, value, stmt->as.let.type_annotation->type_name);
+                    }
                 } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
                     // Compound type: validate against each constituent type
@@ -1190,6 +1202,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             codegen_writeln(ctx, "%s = hml_val_object();", enum_name);
 
+            // Track variant values for registration
+            int *variant_values = malloc(sizeof(int) * stmt->as.enum_decl.num_variants);
             int next_value = 0;
             for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
                 char *variant_name = stmt->as.enum_decl.variant_names[i];
@@ -1205,16 +1219,42 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // For simplicity, assume explicit values are integer literals
                     Expr *value_expr = stmt->as.enum_decl.variant_values[i];
                     if (value_expr->type == EXPR_NUMBER && !value_expr->as.number.is_float) {
-                        next_value = (int)value_expr->as.number.int_value + 1;
+                        variant_values[i] = (int)value_expr->as.number.int_value;
+                        next_value = variant_values[i] + 1;
+                    } else {
+                        // Non-literal value, use auto-increment
+                        variant_values[i] = next_value;
+                        next_value++;
                     }
                     free(val);
                 } else {
                     // Auto-incrementing value
                     codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", hml_val_i32(%d));",
                                   enum_name, variant_name, next_value);
+                    variant_values[i] = next_value;
                     next_value++;
                 }
             }
+
+            // Register the enum type with its valid variant values
+            codegen_writeln(ctx, "{");
+            ctx->indent++;
+            codegen_writeln(ctx, "static const int32_t _enum_values_%s[] = {", raw_enum_name);
+            ctx->indent++;
+            for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
+                if (i < stmt->as.enum_decl.num_variants - 1) {
+                    codegen_writeln(ctx, "%d,", variant_values[i]);
+                } else {
+                    codegen_writeln(ctx, "%d", variant_values[i]);
+                }
+            }
+            ctx->indent--;
+            codegen_writeln(ctx, "};");
+            codegen_writeln(ctx, "hml_register_enum(\"%s\", _enum_values_%s, %d);",
+                          raw_enum_name, raw_enum_name, stmt->as.enum_decl.num_variants);
+            ctx->indent--;
+            codegen_writeln(ctx, "}");
+            free(variant_values);
 
             // Add enum as local variable (using raw name for lookup)
             codegen_add_local(ctx, raw_enum_name);

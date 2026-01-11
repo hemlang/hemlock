@@ -4488,6 +4488,14 @@ HmlTypeDef* hml_lookup_type(const char *name) {
 }
 
 HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
+    // First check if this is actually an enum type - if so, delegate to enum validation
+    int num_variants = 0;
+    const int32_t *enum_values = hml_lookup_enum(type_name, &num_variants);
+    if (enum_values) {
+        // This is an enum type - delegate to enum validation
+        return hml_validate_enum_value(obj, type_name);
+    }
+
     if (obj.type != HML_VAL_OBJECT) {
         fprintf(stderr, "Error: Expected object for type '%s', got %s\n",
                 type_name, hml_typeof(obj));
@@ -4562,6 +4570,84 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
     o->type_name = strdup(type_name);
 
     return obj;
+}
+
+// ========== ENUM TYPE REGISTRY ==========
+
+typedef struct {
+    char *name;
+    int32_t *variant_values;
+    int num_variants;
+} HmlEnumDef;
+
+static HmlEnumDef g_enum_registry[256];
+static int g_enum_count = 0;
+
+void hml_register_enum(const char *name, const int32_t *variant_values, int num_variants) {
+    if (g_enum_count >= 256) {
+        fprintf(stderr, "Error: Too many enum types registered\n");
+        exit(1);
+    }
+
+    // Check if already registered (update if so)
+    for (int i = 0; i < g_enum_count; i++) {
+        if (strcmp(g_enum_registry[i].name, name) == 0) {
+            // Update existing
+            free(g_enum_registry[i].variant_values);
+            g_enum_registry[i].variant_values = malloc(sizeof(int32_t) * num_variants);
+            memcpy(g_enum_registry[i].variant_values, variant_values, sizeof(int32_t) * num_variants);
+            g_enum_registry[i].num_variants = num_variants;
+            return;
+        }
+    }
+
+    // Register new
+    g_enum_registry[g_enum_count].name = strdup(name);
+    g_enum_registry[g_enum_count].variant_values = malloc(sizeof(int32_t) * num_variants);
+    memcpy(g_enum_registry[g_enum_count].variant_values, variant_values, sizeof(int32_t) * num_variants);
+    g_enum_registry[g_enum_count].num_variants = num_variants;
+    g_enum_count++;
+}
+
+const int32_t* hml_lookup_enum(const char *name, int *num_variants) {
+    for (int i = 0; i < g_enum_count; i++) {
+        if (strcmp(g_enum_registry[i].name, name) == 0) {
+            if (num_variants) {
+                *num_variants = g_enum_registry[i].num_variants;
+            }
+            return g_enum_registry[i].variant_values;
+        }
+    }
+    return NULL;
+}
+
+HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name) {
+    // Enum values must be i32
+    if (val.type != HML_VAL_I32) {
+        fprintf(stderr, "Runtime error: Expected enum value (i32) for type '%s', got %s\n",
+                enum_name, hml_typeof(val));
+        exit(1);
+    }
+
+    int num_variants = 0;
+    const int32_t *variant_values = hml_lookup_enum(enum_name, &num_variants);
+
+    if (!variant_values) {
+        fprintf(stderr, "Runtime error: Unknown enum type '%s'\n", enum_name);
+        exit(1);
+    }
+
+    // Check if value is one of the valid variants
+    int32_t value = val.as.as_i32;
+    for (int i = 0; i < num_variants; i++) {
+        if (variant_values[i] == value) {
+            return val;  // Valid variant
+        }
+    }
+
+    fprintf(stderr, "Runtime error: Value %d is not a valid variant of enum '%s'\n",
+            value, enum_name);
+    exit(1);
 }
 
 // FFI (Foreign Function Interface) operations moved to builtins_ffi.c

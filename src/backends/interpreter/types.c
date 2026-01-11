@@ -1096,7 +1096,20 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                         target_type->type_name);
                 exit(1);
             }
-            // Optionally validate that the value is a valid variant (future enhancement)
+            // Validate that the value is one of the valid enum variants
+            int32_t val = value.as.as_i32;
+            int is_valid_variant = 0;
+            for (int i = 0; i < enum_type->num_variants; i++) {
+                if (enum_type->variant_values[i] == val) {
+                    is_valid_variant = 1;
+                    break;
+                }
+            }
+            if (!is_valid_variant) {
+                fprintf(stderr, "Runtime error: Value %d is not a valid variant of enum '%s'\n",
+                        val, enum_type->name);
+                exit(1);
+            }
             return value;
         }
 
