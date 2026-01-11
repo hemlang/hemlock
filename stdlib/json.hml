@@ -1,8 +1,8 @@
 // @stdlib/json - Comprehensive JSON manipulation library
-// 
+//
 // Provides parsing, serialization, formatting, validation, querying,
 // and manipulation of JSON data.
-// 
+//
 // Usage:
 // import { parse, stringify, pretty, get, set } from "@stdlib/json";
 

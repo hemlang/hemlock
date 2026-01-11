@@ -421,24 +421,24 @@ export fn HttpServer(host: string, port: i32) {
 }
 
 // ========== NOTES ==========
-// 
+//
 // This module uses libwebsockets via FFI for production HTTP/HTTPS support.
-// 
+//
 // Features:
 // - Native HTTP and HTTPS support
 // - SSL/TLS via libwebsockets
 // - No dependency on curl binary
 // - Production performance
 // - Simple HTTP server for testing and lightweight use cases
-// 
+//
 // Requirements:
 // - libwebsockets-dev package installed
 // - Compiled lws_wrapper.so (run: make stdlib)
-// 
+//
 // Current limitations:
 // - Custom headers partially supported (Content-Type works)
 // - Response headers not yet parsed (returns empty string)
 // - download() only checks status, doesn't write to file (needs file I/O)
 // - url_encode() only encodes common characters (not RFC 3986 compliant)
 // - HttpServer is single-threaded and handles one request at a time
-// 
+//

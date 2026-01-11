@@ -1,8 +1,8 @@
 // @stdlib/encoding - Data encoding and decoding utilities
-// 
+//
 // Provides Base64, hexadecimal, and URL encoding/decoding for
 // data interchange and network protocols.
-// 
+//
 // Usage:
 // import { base64_encode, base64_decode, hex_encode, hex_decode, url_encode, url_decode } from "@stdlib/encoding";
 

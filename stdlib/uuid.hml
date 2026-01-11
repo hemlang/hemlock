@@ -1,8 +1,8 @@
 // @stdlib/uuid - UUID generation and parsing
-// 
+//
 // Provides functions for generating and working with UUIDs (Universally Unique Identifiers).
 // Supports UUID v4 (random) and UUID v7 (time-ordered).
-// 
+//
 // Usage:
 // import { v4, v7, parse, is_valid } from "@stdlib/uuid";
 // let id = v4();  // "550e8400-e29b-41d4-a716-446655440000"
