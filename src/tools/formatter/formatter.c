@@ -3,9 +3,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
-#include "frontend/formatter.h"
-#include "frontend/lexer.h"
-#include "frontend/parser.h"
+#include "frontend.h"
 
 // ========== STRING BUFFER ==========
 
@@ -2246,6 +2244,17 @@ static char *read_file(const char *path) {
     return buffer;
 }
 
+static char *resolve_format_path(const char *path) {
+    // Don't use module resolution - it adds .hml extension
+    // Just resolve to absolute path if possible
+    char *absolute = realpath(path, NULL);
+    if (absolute) {
+        return absolute;
+    }
+    // If realpath fails, just use the original path
+    return strdup(path);
+}
+
 // Write string to file
 static int write_file(const char *path, const char *content) {
     FILE *file = fopen(path, "wb");
@@ -2428,11 +2437,12 @@ char *format_source(const char *source) {
     blank_line_list_free(&blank_lines);
     literal_map_free(&literals);
 
-    // Remove trailing newline at end of file
+    // Ensure exactly one trailing newline at end of file (POSIX convention)
     while (ctx.buf.len > 0 && ctx.buf.data[ctx.buf.len - 1] == '\n') {
         ctx.buf.len--;
         ctx.buf.data[ctx.buf.len] = '\0';
     }
+    buf_append_char(&ctx.buf, '\n');
 
     // Transfer ownership of buffer
     char *result = ctx.buf.data;
@@ -2442,8 +2452,10 @@ char *format_source(const char *source) {
 }
 
 int format_file(const char *path) {
-    char *source = read_file(path);
+    char *resolved_path = resolve_format_path(path);
+    char *source = read_file(resolved_path);
     if (source == NULL) {
+        free(resolved_path);
         return 1;
     }
 
@@ -2451,24 +2463,29 @@ int format_file(const char *path) {
     free(source);
 
     if (formatted == NULL) {
+        free(resolved_path);
         return 1;
     }
 
-    int result = write_file(path, formatted);
+    int result = write_file(resolved_path, formatted);
     free(formatted);
+    free(resolved_path);
 
     return result;
 }
 
 int format_check(const char *path) {
-    char *source = read_file(path);
+    char *resolved_path = resolve_format_path(path);
+    char *source = read_file(resolved_path);
     if (source == NULL) {
+        free(resolved_path);
         return -1;
     }
 
     char *formatted = format_source(source);
     if (formatted == NULL) {
         free(source);
+        free(resolved_path);
         return -1;
     }
 
@@ -2476,6 +2493,7 @@ int format_check(const char *path) {
 
     free(source);
     free(formatted);
+    free(resolved_path);
 
     return result;
 }

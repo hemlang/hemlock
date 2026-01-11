@@ -633,8 +633,9 @@ hemlock/
 │   ├── backends/
 │   │   ├── interpreter/  # hemlock: tree-walking interpreter
 │   │   └── compiler/     # hemlockc: C code generator
-│   ├── lsp/              # Language Server Protocol
-│   └── bundler/          # Bundle/package tools
+│   ├── tools/
+│   │   ├── lsp/          # Language Server Protocol
+│   │   └── bundler/      # Bundle/package tools
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
 ├── stdlib/               # Standard library (39 modules)
 │   └── docs/             # Module documentation
@@ -759,8 +760,9 @@ hemlock/
 │   │   └── compiler/       # hemlockc: C code generator
 │   │       ├── main.c
 │   │       └── codegen/
-│   ├── lsp/                # Language server
-│   └── bundler/            # Bundle/package tools
+│   ├── tools/
+│   │   ├── lsp/            # Language server
+│   │   └── bundler/        # Bundle/package tools
 ├── runtime/                # libhemlock_runtime.a for compiled programs
 ├── stdlib/                 # Shared standard library
 └── tests/

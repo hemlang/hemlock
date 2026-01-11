@@ -9,7 +9,7 @@
 
 #include "frontend/ast.h"
 #include "../../include/modules.h"
-#include "type_check.h"
+#include "compiler/type_check.h"
 #include <stdio.h>
 
 // Forward declaration for closure info

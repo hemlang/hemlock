@@ -4,7 +4,7 @@
  * Implementation of static type analysis for the Hemlock compiler.
  */
 
-#include "type_check.h"
+#include "compiler/type_check.h"
 #include "../../include/builtins_registry.h"
 #include <stdio.h>
 #include <stdlib.h>

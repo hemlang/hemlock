@@ -41,8 +41,9 @@ hemlock/
 │   │       ├── codegen_expr.c # Expression codegen
 │   │       ├── codegen_stmt.c # Statement codegen
 │   │       └── ...
-│   ├── lsp/                   # Language Server Protocol
-│   └── bundler/               # Bundle/package tools
+│   ├── tools/
+│   │   ├── lsp/               # Language Server Protocol
+│   │   └── bundler/           # Bundle/package tools
 ├── runtime/                   # libhemlock_runtime.a (for compiled programs)
 ├── stdlib/                    # Standard library (39 modules)
 │   └── docs/                  # Module documentation

@@ -2,8 +2,10 @@
 #define HEMLOCK_MODULE_H
 
 #include "frontend/ast.h"
-#include "interpreter.h"
 #include "modules.h"
+
+typedef struct ExecutionContext ExecutionContext;
+typedef struct Environment Environment;
 
 // Forward declarations
 typedef struct Module Module;
