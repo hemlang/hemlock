@@ -74,8 +74,14 @@ static void symbol_table_free(SymbolTable *st) {
 
 static void symbol_table_add_def(SymbolTable *st, const char *name, int line, int col, int length, SymbolKind kind) {
     if (st->def_count >= st->def_capacity) {
-        st->def_capacity = st->def_capacity == 0 ? 16 : st->def_capacity * 2;
-        st->defs = realloc(st->defs, st->def_capacity * sizeof(SymbolDef));
+        int new_cap = st->def_capacity == 0 ? 16 : st->def_capacity * 2;
+        SymbolDef *new_defs = realloc(st->defs, new_cap * sizeof(SymbolDef));
+        if (!new_defs) {
+            fprintf(stderr, "LSP error: Failed to expand symbol definitions\n");
+            return;
+        }
+        st->defs = new_defs;
+        st->def_capacity = new_cap;
     }
     st->defs[st->def_count].name = strdup(name);
     st->defs[st->def_count].def_line = line;
@@ -87,8 +93,14 @@ static void symbol_table_add_def(SymbolTable *st, const char *name, int line, in
 
 static void symbol_table_add_usage(SymbolTable *st, const char *name, int line, int col, int length) {
     if (st->usage_count >= st->usage_capacity) {
-        st->usage_capacity = st->usage_capacity == 0 ? 32 : st->usage_capacity * 2;
-        st->usages = realloc(st->usages, st->usage_capacity * sizeof(SymbolUsage));
+        int new_cap = st->usage_capacity == 0 ? 32 : st->usage_capacity * 2;
+        SymbolUsage *new_usages = realloc(st->usages, new_cap * sizeof(SymbolUsage));
+        if (!new_usages) {
+            fprintf(stderr, "LSP error: Failed to expand symbol usages\n");
+            return;
+        }
+        st->usages = new_usages;
+        st->usage_capacity = new_cap;
     }
     st->usages[st->usage_count].name = strdup(name);
     st->usages[st->usage_count].line = line;

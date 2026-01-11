@@ -161,9 +161,15 @@ void lsp_document_clear_diagnostics(LSPDocument *doc) {
 void lsp_document_add_diagnostic(LSPDocument *doc, LSPRange range,
                                   LSPDiagnosticSeverity severity,
                                   const char *message) {
-    doc->diagnostic_count++;
-    doc->diagnostics = realloc(doc->diagnostics,
-                               doc->diagnostic_count * sizeof(LSPDiagnostic));
+    int new_count = doc->diagnostic_count + 1;
+    LSPDiagnostic *new_diagnostics = realloc(doc->diagnostics,
+                                              new_count * sizeof(LSPDiagnostic));
+    if (!new_diagnostics) {
+        fprintf(stderr, "LSP error: Failed to expand diagnostics array\n");
+        return;  // Skip this diagnostic rather than crash
+    }
+    doc->diagnostics = new_diagnostics;
+    doc->diagnostic_count = new_count;
 
     LSPDiagnostic *diag = &doc->diagnostics[doc->diagnostic_count - 1];
     diag->range = range;
