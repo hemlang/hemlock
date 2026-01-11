@@ -2,7 +2,7 @@
 // Provides both HTTP and WebSocket functionality as static builtins
 // Compiles with stubs if libwebsockets.h is not available
 
-#define _DEFAULT_SOURCE  // For usleep()
+// _DEFAULT_SOURCE is now defined globally in Makefile for usleep() and similar
 
 #include "internal.h"
 #include <stdatomic.h>
