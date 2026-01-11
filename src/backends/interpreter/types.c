@@ -543,6 +543,102 @@ static int types_compatible(Type *expected, Type *actual) {
     return 0;
 }
 
+// Validate a function value against a function type annotation
+// Returns 1 if valid, 0 if invalid
+// Populates error_msg with details (caller should not free - static buffer)
+static int type_matches_function_signature(Type *expected_type, Function *func,
+                                           const char **error_msg) {
+    static char error_buffer[512];
+    const size_t sig_bufsize = 256;
+    char expected_sig[256];
+    char actual_sig[256];
+
+    *error_msg = NULL;
+
+    if (!expected_type || expected_type->kind != TYPE_FUNCTION || !func) {
+        return 1;
+    }
+
+    Type actual_type = {0};
+    actual_type.kind = TYPE_FUNCTION;
+    actual_type.fn_param_types = func->param_types;
+    actual_type.fn_num_params = func->num_params;
+    actual_type.fn_return_type = func->return_type;
+    actual_type.fn_is_async = func->is_async;
+    actual_type.fn_rest_param_type = func->rest_param_type;
+
+    snprintf(expected_sig, sig_bufsize, "%s", type_to_string(expected_type));
+    snprintf(actual_sig, sig_bufsize, "%s", type_to_string(&actual_type));
+
+    if (expected_type->fn_is_async && !func->is_async) {
+        snprintf(error_buffer, sizeof(error_buffer),
+                 "Function signature mismatch (expected %s, got %s)",
+                 expected_sig, actual_sig);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    if (expected_type->fn_num_params != func->num_params) {
+        snprintf(error_buffer, sizeof(error_buffer),
+                 "Function signature mismatch (expected %s, got %s)",
+                 expected_sig, actual_sig);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    if ((expected_type->fn_rest_param_type != NULL) != (func->rest_param_type != NULL)) {
+        snprintf(error_buffer, sizeof(error_buffer),
+                 "Function signature mismatch (expected %s, got %s)",
+                 expected_sig, actual_sig);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    if (expected_type->fn_rest_param_type &&
+        !types_compatible(expected_type->fn_rest_param_type, func->rest_param_type)) {
+        snprintf(error_buffer, sizeof(error_buffer),
+                 "Function signature mismatch (expected %s, got %s)",
+                 expected_sig, actual_sig);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    for (int i = 0; i < expected_type->fn_num_params; i++) {
+        Type *expected_param = expected_type->fn_param_types
+            ? expected_type->fn_param_types[i]
+            : NULL;
+        Type *actual_param = func->param_types ? func->param_types[i] : NULL;
+
+        if (!types_compatible(expected_param, actual_param)) {
+            snprintf(error_buffer, sizeof(error_buffer),
+                     "Function signature mismatch (expected %s, got %s)",
+                     expected_sig, actual_sig);
+            *error_msg = error_buffer;
+            return 0;
+        }
+    }
+
+    if (expected_type->fn_return_type == NULL) {
+        if (func->return_type &&
+            func->return_type->kind != TYPE_VOID &&
+            func->return_type->kind != TYPE_INFER) {
+            snprintf(error_buffer, sizeof(error_buffer),
+                     "Function signature mismatch (expected %s, got %s)",
+                     expected_sig, actual_sig);
+            *error_msg = error_buffer;
+            return 0;
+        }
+    } else if (!types_compatible(expected_type->fn_return_type, func->return_type)) {
+        snprintf(error_buffer, sizeof(error_buffer),
+                 "Function signature mismatch (expected %s, got %s)",
+                 expected_sig, actual_sig);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    return 1;
+}
+
 // ========== METHOD SIGNATURE VALIDATION ==========
 
 // Validate a function value against an expected method signature type
@@ -1096,7 +1192,12 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     // Handle function types early - just verify it's a function
     if (kind == TYPE_FUNCTION) {
         if (value.type == VAL_FUNCTION) {
-            return value;  // TODO: Could validate parameter/return types
+            const char *error_msg = NULL;
+            if (!type_matches_function_signature(target_type, value.as.as_function, &error_msg)) {
+                fprintf(stderr, "Runtime error: %s\n", error_msg);
+                exit(1);
+            }
+            return value;
         }
         fprintf(stderr, "Runtime error: Expected function value\n");
         exit(1);

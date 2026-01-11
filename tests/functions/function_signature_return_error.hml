@@ -1,0 +1,2 @@
+// Test function signature return type mismatch
+let wrong_return: fn(i32): i32 = fn(a: i32): string { return "oops"; };
