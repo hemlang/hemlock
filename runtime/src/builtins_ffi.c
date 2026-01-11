@@ -1009,8 +1009,16 @@ HmlFFICallback* hml_ffi_callback_create(HmlValue fn, HmlFFIType *param_types, in
     // Track the callback
     pthread_mutex_lock(&g_callback_mutex);
     if (g_num_callbacks >= g_callbacks_capacity) {
-        g_callbacks_capacity = g_callbacks_capacity == 0 ? 8 : g_callbacks_capacity * 2;
-        g_callbacks = realloc(g_callbacks, sizeof(HmlFFICallback*) * g_callbacks_capacity);
+        int new_capacity = g_callbacks_capacity == 0 ? 8 : g_callbacks_capacity * 2;
+        HmlFFICallback **new_callbacks = realloc(g_callbacks, sizeof(HmlFFICallback*) * new_capacity);
+        if (!new_callbacks) {
+            pthread_mutex_unlock(&g_callback_mutex);
+            ffi_closure_free(cb->closure);
+            free(cb);
+            hml_runtime_error("Out of memory expanding FFI callback array");
+        }
+        g_callbacks = new_callbacks;
+        g_callbacks_capacity = new_capacity;
     }
     g_callbacks[g_num_callbacks++] = cb;
     pthread_mutex_unlock(&g_callback_mutex);
