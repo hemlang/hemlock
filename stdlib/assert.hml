@@ -1,8 +1,8 @@
 // @stdlib/assert - Assertion and runtime verification utilities
-// 
+//
 // Provides assertion functions for testing and defensive programming.
 // All assertions throw an error when the condition is not met.
-// 
+//
 // Usage:
 // import { assert, assert_eq, assert_ne, assert_throws } from "@stdlib/assert";
 

@@ -1,8 +1,8 @@
 // @stdlib/args - Command-line argument parsing
-// 
+//
 // Provides utilities for parsing command-line arguments, including flags,
 // options with values, and positional arguments.
-// 
+//
 // Usage:
 // import { parse, has_flag, get_option, get_positionals } from "@stdlib/args";
 // let parsed = parse(args);
@@ -125,12 +125,10 @@ export fn parse(argv, options?: null): object {
 
 // Helper: Check if value is in array
 fn is_in_array(value, arr): bool {
-	let i = 0;
-	while (i < arr.length) {
-		if (arr[i] == value) {
+	for (item in arr) {
+		if (item == value) {
 			return true;
 		}
-		i = i + 1;
 	}
 	return false;
 }

@@ -247,34 +247,34 @@ export fn parse_ws_url(url: string) {
 }
 
 // ========== USAGE EXAMPLES ==========
-// 
+//
 // // Client
 // let ws = WebSocket("ws://echo.websocket.org");
 // defer ws.close();
-// 
+//
 // ws.send_text("Hello!");
 // let msg = ws.recv();
-// 
+//
 // if (msg.type == "text") {
 // print("Received: " + msg.data);
 // }
-// 
+//
 // // Server
 // let server = WebSocketServer("0.0.0.0", 8080);
 // defer server.close();
-// 
+//
 // while (true) {
 // let conn = server.accept();
 // spawn(handle_client, conn);
 // }
-// 
+//
 // async fn handle_client(conn) {
 // defer conn.close();
-// 
+//
 // while (true) {
 // let msg = conn.recv();
 // if (msg == null) { break; }
-// 
+//
 // if (msg.type == "text") {
 // conn.send_text("Echo: " + msg.data);
 // }

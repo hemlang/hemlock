@@ -1,8 +1,8 @@
 // @stdlib/ipc - Inter-Process Communication
-// 
+//
 // Provides facilities for communication between processes.
 // Uses file-based mechanisms for simplicity and portability.
-// 
+//
 // Usage:
 // import { MessageQueue, Semaphore, SharedData } from "@stdlib/ipc";
 // let mq = MessageQueue("/tmp/my_queue");

@@ -1,19 +1,19 @@
 // @stdlib/sqlite - SQLite database interface via FFI
-// 
+//
 // Provides SQLite3 database operations:
 // - Database connection management (open, close)
 // - SQL execution with parameter binding
 // - Query execution with result iteration
 // - Transaction support (begin, commit, rollback)
 // - Prepared statements for efficiency and security
-// 
+//
 // System Requirements:
 // - SQLite3 libsqlite3.so (usually pre-installed on Linux)
 // - On Debian/Ubuntu: sudo apt-get install libsqlite3-dev
-// 
+//
 // Usage:
 // import { Database, open_db } from "@stdlib/sqlite";
-// 
+//
 // let db = open_db("mydata.db");
 // db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
 // db.exec("INSERT INTO users (name) VALUES (?)", ["Alice"]);

@@ -1,15 +1,15 @@
 // @stdlib/crypto - Cryptographic functions via OpenSSL FFI
-// 
+//
 // Provides secure cryptographic operations:
 // - Secure random bytes generation (RAND_bytes)
 // - AES-256-CBC encryption/decryption
 // - RSA signing and verification
 // - ECDSA signing and verification
-// 
+//
 // System Requirements:
 // - OpenSSL libcrypto.so.3 (same as @stdlib/hash)
 // - On Debian/Ubuntu: sudo apt-get install libssl-dev
-// 
+//
 // Usage:
 // import { random_bytes, aes_encrypt, aes_decrypt } from "@stdlib/crypto";
 // import { rsa_generate_key, rsa_sign, rsa_verify } from "@stdlib/crypto";

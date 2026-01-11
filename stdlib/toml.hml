@@ -1,8 +1,8 @@
 // @stdlib/toml - TOML Parser and Serializer
-// 
+//
 // Provides parsing and serialization for TOML (Tom's Obvious, Minimal Language),
 // a popular configuration file format.
-// 
+//
 // Usage:
 // import { parse, stringify, parse_file } from "@stdlib/toml";
 

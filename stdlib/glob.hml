@@ -1,8 +1,8 @@
 // @stdlib/glob - Glob pattern matching and file finding
-// 
+//
 // Provides functions for matching file paths against glob patterns
 // and finding files in the filesystem.
-// 
+//
 // Usage:
 // import { glob, match } from "@stdlib/glob";
 // let files = glob("src/**/*.hml");

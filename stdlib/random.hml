@@ -1,8 +1,8 @@
 // @stdlib/random - Random number and selection utilities
-// 
+//
 // Provides common random operations beyond the basic rand() function.
 // Uses the built-in random number generator (seedable via seed()).
-// 
+//
 // Usage:
 // import { shuffle, choice, sample, randint, randf } from "@stdlib/random";
 // import { weighted_choice, coin_flip, dice } from "@stdlib/random";
