@@ -1613,6 +1613,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                     if (new_values) obj->field_values = new_values;
                                     VALUE_RELEASE(spread_val);
                                     runtime_error(ctx, "Failed to expand object fields");
+                                    return val_null();
                                 }
                                 obj->field_names = new_names;
                                 obj->field_values = new_values;
@@ -1653,6 +1654,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 if (new_values) obj->field_values = new_values;
                                 VALUE_RELEASE(field_val);
                                 runtime_error(ctx, "Failed to expand object fields");
+                                return val_null();
                             }
                             obj->field_names = new_names;
                             obj->field_values = new_values;
@@ -1757,6 +1759,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Index must be an integer");
+                    return val_null();
                 }
                 int32_t index = value_to_int(index_val);
 
@@ -1771,6 +1774,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Can only use ++ on array elements");
+                    return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 // Object property: ++obj.field
@@ -1779,6 +1783,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (object.type != VAL_OBJECT) {
                     VALUE_RELEASE(object);
                     runtime_error(ctx, "Can only increment object properties");
+                    return val_null();
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
@@ -1816,6 +1821,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Index must be an integer");
+                    return val_null();
                 }
                 int32_t index = value_to_int(index_val);
 
@@ -1830,6 +1836,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Can only use -- on array elements");
+                    return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
@@ -1837,6 +1844,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (object.type != VAL_OBJECT) {
                     VALUE_RELEASE(object);
                     runtime_error(ctx, "Can only decrement object properties");
+                    return val_null();
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
@@ -1850,6 +1858,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);
+                return val_null();
             } else {
                 runtime_error(ctx, "Invalid operand for --");
             }
@@ -1874,6 +1883,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Index must be an integer");
+                    return val_null();
                 }
                 int32_t index = value_to_int(index_val);
 
@@ -1888,6 +1898,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Can only use ++ on array elements");
+                    return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
@@ -1895,6 +1906,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (object.type != VAL_OBJECT) {
                     VALUE_RELEASE(object);
                     runtime_error(ctx, "Can only increment object properties");
+                    return val_null();
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
@@ -1909,6 +1921,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);
+                return val_null();
             } else {
                 runtime_error(ctx, "Invalid operand for ++");
             }
@@ -1933,6 +1946,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Index must be an integer");
+                    return val_null();
                 }
                 int32_t index = value_to_int(index_val);
 
@@ -1947,6 +1961,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Can only use -- on array elements");
+                    return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
@@ -1954,6 +1969,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (object.type != VAL_OBJECT) {
                     VALUE_RELEASE(object);
                     runtime_error(ctx, "Can only decrement object properties");
+                    return val_null();
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
@@ -1968,6 +1984,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);
+                return val_null();
             } else {
                 runtime_error(ctx, "Invalid operand for --");
             }
@@ -2059,13 +2076,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     } else if (strcmp(property, "byte_length") == 0) {
                         result = val_i32(str->length);
                     } else {
+                        VALUE_RELEASE(object_val);
                         runtime_error(ctx, "Unknown property '%s' for string", property);
+                        return val_null();
                     }
                 } else if (object_val.type == VAL_ARRAY) {
                     if (strcmp(property, "length") == 0) {
                         result = val_i32(object_val.as.as_array->length);
                     } else {
+                        VALUE_RELEASE(object_val);
                         runtime_error(ctx, "Unknown property '%s' for array", property);
+                        return val_null();
                     }
                 } else if (object_val.type == VAL_BUFFER) {
                     if (strcmp(property, "length") == 0) {
@@ -2073,7 +2094,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     } else if (strcmp(property, "capacity") == 0) {
                         result = val_i32(object_val.as.as_buffer->capacity);
                     } else {
+                        VALUE_RELEASE(object_val);
                         runtime_error(ctx, "Unknown property '%s' for buffer", property);
+                        return val_null();
                     }
                 } else if (object_val.type == VAL_FILE) {
                     FileHandle *f = object_val.as.as_file;
@@ -2084,7 +2107,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     } else if (strcmp(property, "closed") == 0) {
                         result = val_bool(f->closed);
                     } else {
+                        VALUE_RELEASE(object_val);
                         runtime_error(ctx, "Unknown property '%s' for file", property);
+                        return val_null();
                     }
                 } else if (object_val.type == VAL_OBJECT) {
                     Object *obj = object_val.as.as_object;
@@ -2100,7 +2125,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(object_val);
                     return val_null();
                 } else {
+                    VALUE_RELEASE(object_val);
                     runtime_error(ctx, "Cannot access property on non-object value");
+                    return val_null();
                 }
 
                 VALUE_RELEASE(object_val);
@@ -2170,7 +2197,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Value index_val = eval_expr(expr->as.optional_chain.index, env, ctx);
 
                 if (!is_integer(index_val)) {
+                    VALUE_RELEASE(object_val);
+                    VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Index must be an integer");
+                    return val_null();
                 }
 
                 int32_t index = value_to_int(index_val);
@@ -2189,7 +2219,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                     // Check bounds using character count (not byte count)
                     if (index < 0 || index >= str->char_length) {
+                        VALUE_RELEASE(object_val);
+                        VALUE_RELEASE(index_val);
                         runtime_error(ctx, "String index out of bounds");
+                        return val_null();
                     }
 
                     // Find byte offset of the i-th codepoint
@@ -2203,12 +2236,18 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     Buffer *buf = object_val.as.as_buffer;
 
                     if (index < 0 || index >= buf->length) {
+                        VALUE_RELEASE(object_val);
+                        VALUE_RELEASE(index_val);
                         runtime_error(ctx, "Buffer index out of bounds");
+                        return val_null();
                     }
 
                     result = val_u8(((unsigned char *)buf->data)[index]);
                 } else {
+                    VALUE_RELEASE(object_val);
+                    VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Cannot index non-array/non-string/non-buffer value");
+                    return val_null();
                 }
 
                 VALUE_RELEASE(object_val);
