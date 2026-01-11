@@ -8,6 +8,7 @@
  */
 
 #include "codegen_expr_internal.h"
+#include "../../../runtime/include/hemlock_value.h"
 
 // Forward declaration for recursive calls
 char* codegen_expr(CodegenContext *ctx, Expr *expr);

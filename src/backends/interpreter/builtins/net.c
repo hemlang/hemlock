@@ -13,7 +13,7 @@
 
 // ========== SOCKET BUILTINS ==========
 
-// Note: SocketHandle is defined in interpreter.h
+// Note: SocketHandle is defined in runtime/types.h
 
 // ========== RUNTIME ERROR HELPER ==========
 

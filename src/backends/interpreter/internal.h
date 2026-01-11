@@ -2,6 +2,7 @@
 #define HEMLOCK_INTERPRETER_INTERNAL_H
 
 #include "interpreter.h"
+#include "runtime/memory.h"
 #include "frontend/ast.h"
 #include "hemlock_limits.h"
 #include <stdint.h>
@@ -171,87 +172,14 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 
 // ========== VALUES (values.c) ==========
 
-// Value constructors
-Value val_i8(int8_t value);
-Value val_i16(int16_t value);
-Value val_i32(int32_t value);
-Value val_i64(int64_t value);
-Value val_u8(uint8_t value);
-Value val_u16(uint16_t value);
-Value val_u32(uint32_t value);
-Value val_u64(uint64_t value);
-Value val_f32(float value);
-Value val_f64(double value);
-Value val_int(int value);
-Value val_float(double value);
-Value val_bool(int value);
-Value val_rune(uint32_t codepoint);
-Value val_ptr(void *ptr);
-Value val_type(TypeKind kind);
-Value val_function(Function *fn);
-Value val_null(void);
-
 // String operations
 String* string_new(const char *cstr);
-String* string_copy(String *str);
-String* string_concat(String *a, String *b);
-void string_free(String *str);
-Value val_string(const char *str);
-Value val_string_take(char *data, int length, int capacity);
-
-// Buffer operations
-Value val_buffer(int size);
-void buffer_free(Buffer *buf);
-
-// Array operations
-Array* array_new(void);
-void array_free(Array *arr);
-void array_push(Array *arr, Value val);
-Value array_pop(Array *arr);
-Value array_get(Array *arr, int index, ExecutionContext *ctx);
-void array_set(Array *arr, int index, Value val, ExecutionContext *ctx);
-Value val_array(Array *arr);
-
-// Object operations
-Object* object_new(char *type_name, int initial_capacity);
-void object_free(Object *obj);
-Value val_object(Object *obj);
 int object_lookup_field(Object *obj, const char *name);  // O(1) field lookup using hash table
 int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash);  // With pre-computed hash
 int object_validate_ic(Object *obj, int cached_idx, const char *name);  // Validate IC cache entry
 
-// Function operations
-void function_free(Function *fn);
-void function_retain(Function *fn);
-void function_release(Function *fn);
-
-// File operations
-Value val_file(FileHandle *file);
-void file_free(FileHandle *file);
-
-// Socket operations
-Value val_socket(SocketHandle *sock);
-void socket_free(SocketHandle *sock);
-
-// WebSocket operations
-Value val_websocket(WebSocketHandle *ws);
-void websocket_free(WebSocketHandle *ws);
-void websocket_retain(WebSocketHandle *ws);
-void websocket_release(WebSocketHandle *ws);
-
 // Value cleanup and reference counting
 void value_free(Value val);
-void value_retain(Value val);
-void value_release(Value val);
-
-// Reference operations (for pass-by-reference parameters)
-Reference* reference_new_variable(Environment *env, const char *name);
-Reference* reference_new_array_index(Array *array, int index);
-Reference* reference_new_object_property(Object *object, const char *property);
-void reference_free(Reference *ref);
-Value ref_deref(Reference *ref, ExecutionContext *ctx);
-void ref_assign(Reference *ref, Value value, ExecutionContext *ctx);
-Value val_ref(Reference *ref);
 
 // Fast path macro: check if type needs refcounting before calling
 // Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL, REF
