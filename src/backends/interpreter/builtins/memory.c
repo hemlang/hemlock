@@ -109,9 +109,8 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         buf->data = NULL;
         buf->length = 0;
         buf->capacity = 0;
-        // Note: We don't free(buf) here - the struct must remain accessible so cleanup
-        // can check the freed flag. The struct will leak, but this is manual memory
-        // management and the user has explicitly freed the buffer's data.
+        // Note: We don't free(buf) here - the struct remains until ref_count reaches zero
+        // so runtime cleanup can safely detect manual frees.
         return val_null();
     } else if (args[0].type == VAL_OBJECT) {
         Object *obj = args[0].as.as_object;
@@ -137,7 +136,8 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         obj->type_name = NULL;
         obj->num_fields = 0;
         obj->capacity = 0;
-        // Note: We don't free(obj) here - struct must remain for freed flag check
+        // Note: We don't free(obj) here - struct remains until ref_count reaches zero
+        // so runtime cleanup can safely detect manual frees.
         return val_null();
     } else if (args[0].type == VAL_ARRAY) {
         Array *arr = args[0].as.as_array;
@@ -158,7 +158,8 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         arr->elements = NULL;
         arr->length = 0;
         arr->capacity = 0;
-        // Note: We don't free(arr) here - struct must remain for freed flag check
+        // Note: We don't free(arr) here - struct remains until ref_count reaches zero
+        // so runtime cleanup can safely detect manual frees.
         return val_null();
     } else if (args[0].type == VAL_NULL) {
         // free(null) is a safe no-op (like C's free(NULL))
