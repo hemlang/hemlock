@@ -5207,6 +5207,22 @@ typedef struct {
     char *headers;
 } hml_http_response_t;
 
+static void hml_lws_response_destroy(hml_http_response_t *resp) {
+    if (!resp) {
+        return;
+    }
+    if (resp->body) {
+        free(resp->body);
+    }
+    if (resp->redirect_url) {
+        free(resp->redirect_url);
+    }
+    if (resp->headers) {
+        free(resp->headers);
+    }
+    free(resp);
+}
+
 // HTTP callback
 static int hml_http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                              void *user, void *in, size_t len) {
@@ -5461,8 +5477,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to create libwebsockets context");
     }
 
@@ -5493,8 +5508,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(context);
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to connect");
     }
 
@@ -5506,8 +5520,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("HTTP request failed or timed out");
     }
 
@@ -5558,8 +5571,7 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to create libwebsockets context");
     }
 
@@ -5589,8 +5601,7 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(context);
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to connect");
     }
 
@@ -5602,8 +5613,7 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("HTTP request failed or timed out");
     }
 
@@ -5656,8 +5666,7 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to create libwebsockets context");
     }
 
@@ -5684,8 +5693,7 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(context);
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to connect");
     }
 
@@ -5697,8 +5705,7 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
-        free(resp->body);
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("HTTP request failed or timed out");
     }
 
@@ -5742,12 +5749,7 @@ HmlValue hml_lws_response_headers(HmlValue resp_val) {
 HmlValue hml_lws_response_free(HmlValue resp_val) {
     if (resp_val.type == HML_VAL_PTR) {
         hml_http_response_t *resp = (hml_http_response_t *)resp_val.as.as_ptr;
-        if (resp) {
-            if (resp->body) free(resp->body);
-            if (resp->redirect_url) free(resp->redirect_url);
-            if (resp->headers) free(resp->headers);
-            free(resp);
-        }
+        hml_lws_response_destroy(resp);
     }
     return hml_val_null();
 }
