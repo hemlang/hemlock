@@ -1044,8 +1044,20 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 } else if (stmt->as.let.type_annotation &&
                     stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                     stmt->as.let.type_annotation->type_name) {
-                    codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
-                                  stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                    // Check if this is an enum type (use enum validation) or object type
+                    int is_enum = 0;
+                    if (ctx->type_ctx) {
+                        EnumDef *enum_def = type_check_lookup_enum(ctx->type_ctx,
+                            stmt->as.let.type_annotation->type_name);
+                        is_enum = (enum_def != NULL);
+                    }
+                    if (is_enum) {
+                        codegen_writeln(ctx, "_main_%s = hml_validate_enum_value(%s, \"%s\");",
+                                      stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                    } else {
+                        codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
+                                      stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                    }
                 } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
                     // Compound type: validate against each constituent type

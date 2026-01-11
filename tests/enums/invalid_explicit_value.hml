@@ -1,0 +1,12 @@
+// Test that invalid enum values are rejected even with explicit values
+
+enum Status {
+    OK = 0,
+    ERROR = 1,
+    PENDING = 100
+}
+
+// This should fail - 50 is not a valid Status variant
+// (it's between ERROR=1 and PENDING=100, but that doesn't make it valid)
+let s: Status = 50;
+print(s);

@@ -1,0 +1,11 @@
+// Test that invalid enum values are rejected at runtime
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+// This should fail - 999 is not a valid Color variant
+let color: Color = 999;
+print(color);
