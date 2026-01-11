@@ -70,10 +70,7 @@ FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/lexer/*.c) \
                 $(MODULES_SRCS)
 
 # Frontend files for compiler (exclude module.c which has interpreter-specific code)
-FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/parser/ast.c \
-                         $(SRC_DIR)/frontend/parser/ast_serialize.c \
-                         $(SRC_DIR)/frontend/parser/annotations.c \
-                         $(SRC_DIR)/frontend/lexer/lexer.c \
+FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/lexer/lexer.c \
                          $(SRC_DIR)/frontend/optimizer/optimizer.c \
                          $(SRC_DIR)/frontend/resolver/resolver.c \
                          $(filter-out $(SRC_DIR)/frontend/parser/module.c, $(wildcard $(SRC_DIR)/frontend/parser/*.c)) \

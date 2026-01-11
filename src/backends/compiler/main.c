@@ -686,7 +686,7 @@ int main(int argc, char **argv) {
     }
 
     // Initialize module cache for import support
-    ModuleCache *module_cache = module_cache_new(opts.input_file);
+    CompilerModuleCache *module_cache = compiler_module_cache_new(opts.input_file);
 
     CodegenContext *ctx = codegen_new(output);
     codegen_set_module_cache(ctx, module_cache);
@@ -718,7 +718,7 @@ int main(int argc, char **argv) {
 
     codegen_free(ctx);
     if (type_ctx) type_check_free(type_ctx);
-    module_cache_free(module_cache);
+    compiler_module_cache_free(module_cache);
     fclose(output);
 
     // If there were errors, cleanup and exit
