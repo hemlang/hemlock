@@ -1,0 +1,13 @@
+// Test: Method signature type checking errors
+// This test checks that invalid method signatures are properly rejected
+// Each test should produce a runtime error
+
+// Test: Wrong return type
+define WrongReturn {
+    fn getValue(): i32
+}
+
+let wrong_return: WrongReturn = {
+    getValue: fn(): string { return "not an int"; }
+};
+print("ERROR: Should have failed - wrong return type");

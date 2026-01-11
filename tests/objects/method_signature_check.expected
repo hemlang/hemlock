@@ -1,0 +1,9 @@
+Test 1 passed: valid method signature
+Test 2 passed: dynamic parameter types
+Test 3 passed: return type checking
+Test 5 passed: multiple method signatures
+Test 6 passed: optional method not provided
+Test 7 passed: Self type in return
+Test 8 passed: numeric type compatibility
+
+All method signature tests passed!

@@ -360,6 +360,269 @@ static void free_substituted_type(Type *type, Type *original) {
 // Forward declaration for convert_to_type (needed for recursive type checking)
 Value convert_to_type(Value value, Type *target_type, Environment *env, ExecutionContext *ctx);
 
+// ========== TYPE STRING FORMATTING ==========
+
+// Format a Type to a human-readable string (uses rotating buffers for multiple calls)
+static const char* type_to_string(Type *type) {
+    #define TYPE_STR_BUFFERS 4
+    #define TYPE_STR_BUFSIZE 256
+    static char buffers[TYPE_STR_BUFFERS][TYPE_STR_BUFSIZE];
+    static int buf_index = 0;
+
+    char *buffer = buffers[buf_index];
+    buf_index = (buf_index + 1) % TYPE_STR_BUFFERS;
+
+    if (!type) return "any";
+
+    switch (type->kind) {
+        case TYPE_I8: return "i8";
+        case TYPE_I16: return "i16";
+        case TYPE_I32: return "i32";
+        case TYPE_I64: return "i64";
+        case TYPE_U8: return "u8";
+        case TYPE_U16: return "u16";
+        case TYPE_U32: return "u32";
+        case TYPE_U64: return "u64";
+        case TYPE_F32: return "f32";
+        case TYPE_F64: return "f64";
+        case TYPE_BOOL: return "bool";
+        case TYPE_STRING: return "string";
+        case TYPE_RUNE: return "rune";
+        case TYPE_PTR: return "ptr";
+        case TYPE_BUFFER: return "buffer";
+        case TYPE_NULL: return "null";
+        case TYPE_VOID: return "void";
+        case TYPE_INFER: return "any";
+        case TYPE_SELF: return "Self";
+        case TYPE_ARRAY:
+            if (type->element_type) {
+                snprintf(buffer, TYPE_STR_BUFSIZE, "array<%s>", type_to_string(type->element_type));
+            } else {
+                return "array";
+            }
+            return buffer;
+        case TYPE_CUSTOM_OBJECT:
+        case TYPE_GENERIC_OBJECT:
+            if (type->type_name) {
+                return type->type_name;
+            }
+            return "object";
+        case TYPE_FUNCTION: {
+            char *pos = buffer;
+            int remaining = TYPE_STR_BUFSIZE;
+            int written;
+            if (type->fn_is_async) {
+                written = snprintf(pos, remaining, "async fn(");
+            } else {
+                written = snprintf(pos, remaining, "fn(");
+            }
+            pos += written;
+            remaining -= written;
+            for (int i = 0; i < type->fn_num_params && remaining > 0; i++) {
+                if (i > 0) {
+                    written = snprintf(pos, remaining, ", ");
+                    pos += written;
+                    remaining -= written;
+                }
+                const char *param_type_str = type->fn_param_types && type->fn_param_types[i]
+                    ? type_to_string(type->fn_param_types[i])
+                    : "any";
+                written = snprintf(pos, remaining, "%s", param_type_str);
+                pos += written;
+                remaining -= written;
+            }
+            if (remaining > 0) {
+                if (type->fn_return_type) {
+                    snprintf(pos, remaining, "): %s", type_to_string(type->fn_return_type));
+                } else {
+                    snprintf(pos, remaining, "): void");
+                }
+            }
+            return buffer;
+        }
+        case TYPE_PARAM:
+            return type->type_name ? type->type_name : "T";
+        case TYPE_COMPOUND:
+            if (type->num_compound_types > 0) {
+                char *pos = buffer;
+                int remaining = TYPE_STR_BUFSIZE;
+                for (int i = 0; i < type->num_compound_types && remaining > 0; i++) {
+                    int written;
+                    if (i > 0) {
+                        written = snprintf(pos, remaining, " & ");
+                        pos += written;
+                        remaining -= written;
+                    }
+                    written = snprintf(pos, remaining, "%s", type_to_string(type->compound_types[i]));
+                    pos += written;
+                    remaining -= written;
+                }
+                return buffer;
+            }
+            return "unknown";
+        case TYPE_ENUM:
+            return type->type_name ? type->type_name : "enum";
+        default:
+            return "unknown";
+    }
+}
+
+// ========== TYPE COMPATIBILITY CHECKING ==========
+
+// Check if a TypeKind represents a numeric type
+static int is_numeric_type_kind(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8: case TYPE_I16: case TYPE_I32: case TYPE_I64:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+        case TYPE_F32: case TYPE_F64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// Check if two types are compatible for method signature validation
+// This is permissive: allows numeric coercion and treats NULL/INFER as "any"
+static int types_compatible(Type *expected, Type *actual) {
+    if (!expected || !actual) return 1;  // Missing type = any
+    if (expected->kind == TYPE_INFER || actual->kind == TYPE_INFER) return 1;
+
+    // Self type is compatible with any object (resolved at runtime)
+    if (expected->kind == TYPE_SELF || actual->kind == TYPE_SELF) return 1;
+
+    // Self type represented as TYPE_CUSTOM_OBJECT with type_name "Self"
+    if (expected->kind == TYPE_CUSTOM_OBJECT && expected->type_name &&
+        strcmp(expected->type_name, "Self") == 0) return 1;
+    if (actual->kind == TYPE_CUSTOM_OBJECT && actual->type_name &&
+        strcmp(actual->type_name, "Self") == 0) return 1;
+
+    // Same kind is always compatible
+    if (expected->kind == actual->kind) {
+        // For custom objects, check name matches
+        if (expected->kind == TYPE_CUSTOM_OBJECT) {
+            if (expected->type_name && actual->type_name) {
+                return strcmp(expected->type_name, actual->type_name) == 0;
+            }
+            return 1;  // No name = any object
+        }
+        // For arrays, check element types
+        if (expected->kind == TYPE_ARRAY) {
+            return types_compatible(expected->element_type, actual->element_type);
+        }
+        // For functions, check signatures
+        if (expected->kind == TYPE_FUNCTION) {
+            // Check async flag
+            if (expected->fn_is_async != actual->fn_is_async) return 0;
+            // Check parameter count
+            if (expected->fn_num_params != actual->fn_num_params) return 0;
+            // Check parameter types
+            for (int i = 0; i < expected->fn_num_params; i++) {
+                if (!types_compatible(expected->fn_param_types[i], actual->fn_param_types[i])) {
+                    return 0;
+                }
+            }
+            // Check return type
+            return types_compatible(expected->fn_return_type, actual->fn_return_type);
+        }
+        return 1;
+    }
+
+    // Numeric types are compatible with each other (coercion allowed)
+    if (is_numeric_type_kind(expected->kind) && is_numeric_type_kind(actual->kind)) {
+        return 1;
+    }
+
+    // Generic object accepts any object
+    if (expected->kind == TYPE_GENERIC_OBJECT && actual->kind == TYPE_CUSTOM_OBJECT) {
+        return 1;
+    }
+    if (expected->kind == TYPE_CUSTOM_OBJECT && actual->kind == TYPE_GENERIC_OBJECT) {
+        return 1;
+    }
+
+    return 0;
+}
+
+// ========== METHOD SIGNATURE VALIDATION ==========
+
+// Validate a function value against an expected method signature type
+// Returns 1 if valid, 0 if invalid
+// Populates error_msg with details on mismatch (caller should not free - static buffer)
+static int validate_method_signature(Function *func, Type *expected_type,
+                                      const char *method_name, const char *type_name,
+                                      const char **error_msg) {
+    static char error_buffer[512];
+    *error_msg = NULL;
+
+    if (!expected_type || expected_type->kind != TYPE_FUNCTION) {
+        return 1;  // No signature constraint or not a function type
+    }
+
+    // Check async flag
+    if (expected_type->fn_is_async && !func->is_async) {
+        snprintf(error_buffer, sizeof(error_buffer),
+            "Method '%s' in type '%s' must be async", method_name, type_name);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    // Check parameter count
+    // Required parameters in signature must be present in function
+    int expected_required = expected_type->fn_num_params;
+    for (int i = 0; i < expected_type->fn_num_params; i++) {
+        if (expected_type->fn_param_optional && expected_type->fn_param_optional[i]) {
+            expected_required--;
+        }
+    }
+
+    int actual_required = func->num_params;
+    for (int i = 0; i < func->num_params; i++) {
+        if (func->param_defaults && func->param_defaults[i]) {
+            actual_required--;
+        }
+    }
+
+    // Function must accept at least as many parameters as required by signature
+    if (func->num_params < expected_required) {
+        snprintf(error_buffer, sizeof(error_buffer),
+            "Method '%s' in type '%s' requires at least %d parameter(s), got %d",
+            method_name, type_name, expected_required, func->num_params);
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    // Check parameter types for matching positions
+    int params_to_check = expected_type->fn_num_params < func->num_params
+        ? expected_type->fn_num_params : func->num_params;
+    for (int i = 0; i < params_to_check; i++) {
+        Type *expected_param = expected_type->fn_param_types ? expected_type->fn_param_types[i] : NULL;
+        Type *actual_param = func->param_types ? func->param_types[i] : NULL;
+
+        if (!types_compatible(expected_param, actual_param)) {
+            snprintf(error_buffer, sizeof(error_buffer),
+                "Method '%s' in type '%s': parameter %d type mismatch (expected %s, got %s)",
+                method_name, type_name, i + 1,
+                type_to_string(expected_param), type_to_string(actual_param));
+            *error_msg = error_buffer;
+            return 0;
+        }
+    }
+
+    // Check return type
+    Type *expected_return = expected_type->fn_return_type;
+    Type *actual_return = func->return_type;
+    if (!types_compatible(expected_return, actual_return)) {
+        snprintf(error_buffer, sizeof(error_buffer),
+            "Method '%s' in type '%s': return type mismatch (expected %s, got %s)",
+            method_name, type_name,
+            type_to_string(expected_return), type_to_string(actual_return));
+        *error_msg = error_buffer;
+        return 0;
+    }
+
+    return 1;
+}
+
 // Check if an object matches a type definition with type arguments (for generics)
 // type_args: array of Type* to substitute for type parameters (NULL for non-generic types)
 // num_type_args: number of type arguments
@@ -510,7 +773,31 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                         method_name, object_type->name);
                 exit(1);
             }
-            // TODO: Could validate parameter/return types against method_types[i]
+
+            // Validate method signature against expected type
+            Type *method_type = object_type->method_types[i];
+
+            // Handle type parameter substitution for generic types
+            Type *substituted_method_type = method_type;
+            if (method_type && object_type->num_type_params > 0 && type_args) {
+                substituted_method_type = substitute_type_params(
+                    method_type, object_type->type_params, type_args, num_type_args);
+            }
+
+            if (substituted_method_type && substituted_method_type->kind == TYPE_FUNCTION) {
+                Function *func = method_value.as.as_function;
+                const char *error_msg;
+                if (!validate_method_signature(func, substituted_method_type,
+                                                method_name, object_type->name, &error_msg)) {
+                    // Free substituted type before error exit
+                    free_substituted_type(substituted_method_type, method_type);
+                    fprintf(stderr, "Runtime error: %s\n", error_msg);
+                    exit(1);
+                }
+            }
+
+            // Free substituted type if it was newly allocated
+            free_substituted_type(substituted_method_type, method_type);
         }
     }
 
