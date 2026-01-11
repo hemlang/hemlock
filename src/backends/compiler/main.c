@@ -116,6 +116,46 @@ static char* get_self_dir(void) {
     return path;
 }
 
+static const char* get_temp_dir(void) {
+    const char *env_dir = NULL;
+    const char *env_vars[] = {"TMPDIR", "TEMP", "TMP"};
+
+    for (size_t i = 0; i < sizeof(env_vars) / sizeof(env_vars[0]); i++) {
+        env_dir = getenv(env_vars[i]);
+        if (env_dir && env_dir[0] && access(env_dir, W_OK) == 0) {
+            return env_dir;
+        }
+    }
+
+#ifdef P_tmpdir
+    if (access(P_tmpdir, W_OK) == 0) {
+        return P_tmpdir;
+    }
+#endif
+
+    return "/tmp";
+}
+
+static char* make_temp_c_filename(void) {
+    const char *temp_dir = get_temp_dir();
+    char template_path[PATH_MAX];
+    size_t dir_len = strlen(temp_dir);
+    const char *slash = (dir_len > 0 && temp_dir[dir_len - 1] == '/') ? "" : "/";
+
+    if (snprintf(template_path, sizeof(template_path),
+                 "%s%shemlock_XXXXXX.c", temp_dir, slash) >= (int)sizeof(template_path)) {
+        return NULL;
+    }
+
+    int fd = mkstemps(template_path, 2);
+    if (fd < 0) {
+        return NULL;
+    }
+    close(fd);
+
+    return strdup(template_path);
+}
+
 // Standard install locations for runtime library
 #ifndef HEMLOCK_LIBDIR
 #define HEMLOCK_LIBDIR "/usr/local/lib/hemlock"
@@ -646,28 +686,12 @@ int main(int argc, char **argv) {
         }
     } else {
         // Generate temp file
-        c_file = strdup("/tmp/hemlock_XXXXXX");
-        int fd = mkstemp(c_file);
-        if (fd < 0) {
+        c_file = make_temp_c_filename();
+        if (!c_file) {
             fprintf(stderr, "Error: Could not create temporary file\n");
-            free(c_file);
             free(source);
             return 1;
         }
-        close(fd);
-        // Rename to add .c extension
-        size_t name_len = strlen(c_file) + 3;
-        char *new_name = malloc(name_len);
-        if (!new_name) {
-            fprintf(stderr, "Error: Failed to allocate temporary filename\n");
-            free(c_file);
-            free(source);
-            return 1;
-        }
-        snprintf(new_name, name_len, "%s.c", c_file);
-        rename(c_file, new_name);
-        free(c_file);
-        c_file = new_name;
         c_file_allocated = 1;
     }
 
