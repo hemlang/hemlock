@@ -1181,6 +1181,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->has_defers = ctx->has_defers;
     state->module = ctx->current_module;
     state->closure = ctx->current_closure;
+    state->scope = ctx->current_scope;
     state->tail_call_func_name = ctx->tail_call_func_name;
     state->tail_call_label = ctx->tail_call_label;
     state->tail_call_func_expr = ctx->tail_call_func_expr;
@@ -1189,6 +1190,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->defer_stack = NULL;
     ctx->in_function = 1;
     ctx->has_defers = 0;
+    ctx->current_scope = NULL;  // Fresh scope for new function
     ctx->last_closure_env_id = -1;
     ctx->tail_call_func_name = NULL;
     ctx->tail_call_label = NULL;
@@ -1212,6 +1214,13 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->has_defers = state->has_defers;
     ctx->current_module = state->module;
     ctx->current_closure = state->closure;
+    // Free any scopes created during the function (they should already be freed by block statements)
+    while (ctx->current_scope) {
+        Scope *old = ctx->current_scope;
+        ctx->current_scope = old->parent;
+        scope_free(old);
+    }
+    ctx->current_scope = state->scope;
     // Free any allocated tail call labels
     free(ctx->tail_call_label);
     ctx->tail_call_func_name = state->tail_call_func_name;

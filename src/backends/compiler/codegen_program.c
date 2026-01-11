@@ -197,12 +197,16 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_indent_inc(ctx);
 
     // Save state and initialize for closure body
-    // Note: num_locals is NOT reset to 0 here. New locals are added on top of the outer scope's
-    // locals, and funcgen_restore_state will clean them up when we exit the closure.
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
     ctx->current_module = closure->source_module;
     ctx->current_closure = closure;
+
+    // For closures from modules, reset num_locals to 0 so they don't see main file locals.
+    // Main file closures keep outer scope locals visible.
+    if (closure->source_module) {
+        ctx->num_locals = 0;
+    }
 
     // Add parameters as locals
     funcgen_add_params(ctx, func);
@@ -238,17 +242,25 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         }
 
         if (!is_module_export) {
-            int env_index = closure->shared_env_indices ? closure->shared_env_indices[i] : i;
-
-            if (env_index == -1) {
-                if (codegen_is_main_var(ctx, var_name)) {
-                    codegen_writeln(ctx, "HmlValue %s = _main_%s;", safe_var, var_name);
-                } else {
-                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, safe_var);
-                }
+            // Check if this is an import from main file
+            ImportBinding *import = codegen_find_main_import(ctx, var_name);
+            if (import) {
+                // Use the module-prefixed imported symbol directly
+                codegen_writeln(ctx, "HmlValue %s = %s%s;", safe_var,
+                              import->module_prefix, import->original_name);
             } else {
-                codegen_writeln(ctx, "HmlValue %s = hml_closure_env_get(_closure_env, %d);",
-                              safe_var, env_index);
+                int env_index = closure->shared_env_indices ? closure->shared_env_indices[i] : i;
+
+                if (env_index == -1) {
+                    if (codegen_is_main_var(ctx, var_name)) {
+                        codegen_writeln(ctx, "HmlValue %s = _main_%s;", safe_var, var_name);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, safe_var);
+                    }
+                } else {
+                    codegen_writeln(ctx, "HmlValue %s = hml_closure_env_get(_closure_env, %d);",
+                                  safe_var, env_index);
+                }
             }
         }
         codegen_add_local(ctx, var_name);
