@@ -582,9 +582,11 @@ int main(int argc, char **argv) {
         printf("Optimizing AST...\n");
     }
     OptimizationStats opt_stats = optimize_program(statements, stmt_count);
-    if (opts.verbose && (opt_stats.constants_folded > 0 || opt_stats.booleans_simplified > 0 || opt_stats.strength_reductions > 0)) {
-        printf("  Folded %d constants, simplified %d booleans, %d strength reductions\n",
-               opt_stats.constants_folded, opt_stats.booleans_simplified, opt_stats.strength_reductions);
+    if (opts.verbose && (opt_stats.constants_folded > 0 || opt_stats.literals_folded > 0 ||
+                         opt_stats.booleans_simplified > 0 || opt_stats.strength_reductions > 0)) {
+        printf("  Folded %d constants (%d literals), simplified %d booleans, %d strength reductions\n",
+               opt_stats.constants_folded, opt_stats.literals_folded,
+               opt_stats.booleans_simplified, opt_stats.strength_reductions);
     }
 
     // Type check (if enabled - on by default)
