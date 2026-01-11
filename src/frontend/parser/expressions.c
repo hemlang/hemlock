@@ -236,14 +236,28 @@ Expr* primary(Parser *p) {
         int capacity = 32;
         char **field_names = malloc(sizeof(char*) * capacity);
         Expr **field_values = malloc(sizeof(Expr*) * capacity);
+        if (!field_names || !field_values) {
+            free(field_names);
+            free(field_values);
+            error(p, "Memory allocation failed for object literal");
+            return expr_object_literal(NULL, NULL, 0);
+        }
         int num_fields = 0;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
             // Grow arrays if needed
             if (num_fields >= capacity) {
                 capacity *= 2;
-                field_names = realloc(field_names, sizeof(char*) * capacity);
-                field_values = realloc(field_values, sizeof(Expr*) * capacity);
+                char **new_field_names = realloc(field_names, sizeof(char*) * capacity);
+                Expr **new_field_values = realloc(field_values, sizeof(Expr*) * capacity);
+                if (!new_field_names || !new_field_values) {
+                    if (new_field_names) field_names = new_field_names;
+                    if (new_field_values) field_values = new_field_values;
+                    error(p, "Memory allocation failed for object literal");
+                    break;
+                }
+                field_names = new_field_names;
+                field_values = new_field_values;
             }
 
             // Check for spread operator: ...expr
@@ -279,6 +293,10 @@ Expr* primary(Parser *p) {
     if (match(p, TOK_LBRACKET)) {
         int capacity = 64;
         Expr **elements = malloc(sizeof(Expr*) * capacity);
+        if (!elements) {
+            error(p, "Memory allocation failed for array literal");
+            return expr_array_literal(NULL, 0);
+        }
         int num_elements = 0;
 
         if (!check(p, TOK_RBRACKET)) {
@@ -288,7 +306,12 @@ Expr* primary(Parser *p) {
                 // Grow array if needed
                 if (num_elements >= capacity) {
                     capacity *= 2;
-                    elements = realloc(elements, sizeof(Expr*) * capacity);
+                    Expr **new_elements = realloc(elements, sizeof(Expr*) * capacity);
+                    if (!new_elements) {
+                        error(p, "Memory allocation failed for array literal");
+                        break;
+                    }
+                    elements = new_elements;
                 }
                 elements[num_elements++] = expression(p);
             } while (match(p, TOK_COMMA));
@@ -313,6 +336,15 @@ parse_fn_expr:
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
     int *param_is_const = malloc(sizeof(int) * param_capacity);
+    if (!param_names || !param_types || !param_defaults || !param_is_ref || !param_is_const) {
+        free(param_names);
+        free(param_types);
+        free(param_defaults);
+        free(param_is_ref);
+        free(param_is_const);
+        error(p, "Memory allocation failed for function parameters");
+        return expr_function(is_async_fn, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, stmt_block(NULL, 0));
+    }
     int num_params = 0;
     int seen_optional = 0;  // Track if we've seen an optional parameter
     char *rest_param = NULL;
@@ -347,12 +379,27 @@ parse_fn_expr:
 
             // Grow arrays if needed
             if (num_params >= param_capacity) {
-                param_capacity *= 2;
-                param_names = realloc(param_names, sizeof(char*) * param_capacity);
-                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
-                param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
-                param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
-                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+                int new_capacity = param_capacity * 2;
+                char **new_param_names = realloc(param_names, sizeof(char*) * new_capacity);
+                Type **new_param_types = realloc(param_types, sizeof(Type*) * new_capacity);
+                Expr **new_param_defaults = realloc(param_defaults, sizeof(Expr*) * new_capacity);
+                int *new_param_is_ref = realloc(param_is_ref, sizeof(int) * new_capacity);
+                int *new_param_is_const = realloc(param_is_const, sizeof(int) * new_capacity);
+                if (!new_param_names || !new_param_types || !new_param_defaults || !new_param_is_ref || !new_param_is_const) {
+                    if (new_param_names) param_names = new_param_names;
+                    if (new_param_types) param_types = new_param_types;
+                    if (new_param_defaults) param_defaults = new_param_defaults;
+                    if (new_param_is_ref) param_is_ref = new_param_is_ref;
+                    if (new_param_is_const) param_is_const = new_param_is_const;
+                    error(p, "Memory allocation failed for function parameters");
+                    break;
+                }
+                param_names = new_param_names;
+                param_types = new_param_types;
+                param_defaults = new_param_defaults;
+                param_is_ref = new_param_is_ref;
+                param_is_const = new_param_is_const;
+                param_capacity = new_capacity;
             }
 
             // Check for const keyword (immutable parameter)
