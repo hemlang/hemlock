@@ -936,7 +936,9 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             res_obj->field_values[1] = val_i32(pfds[i].revents);
             res_obj->num_fields = 2;
 
-            array_push(result_arr, val_object(res_obj));
+            Value obj_val = val_object(res_obj);
+            array_push(result_arr, obj_val);
+            value_release(obj_val);  // array_push retains, so release our reference
         }
     }
 
@@ -947,5 +949,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     free(pfds);
     free(original_fds);
 
+    // Ownership of array transfers to caller via return value
     return val_array(result_arr);
 }

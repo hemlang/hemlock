@@ -750,9 +750,12 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         // Create array of keys
         Array *keys_array = array_new();
         for (int i = 0; i < obj->num_fields; i++) {
-            array_push(keys_array, val_string(obj->field_names[i]));
+            Value key_val = val_string(obj->field_names[i]);
+            array_push(keys_array, key_val);
+            value_release(key_val);  // array_push retains, so release our reference
         }
 
+        // Ownership of array transfers to caller via return value
         return val_array(keys_array);
     }
 
