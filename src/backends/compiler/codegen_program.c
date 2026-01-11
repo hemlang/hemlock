@@ -197,9 +197,10 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_indent_inc(ctx);
 
     // Save state and initialize for closure body
+    // Note: num_locals is NOT reset to 0 here. New locals are added on top of the outer scope's
+    // locals, and funcgen_restore_state will clean them up when we exit the closure.
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
-    ctx->num_locals = 0;  // Closures have their own isolated scope
     ctx->current_module = closure->source_module;
     ctx->current_closure = closure;
 

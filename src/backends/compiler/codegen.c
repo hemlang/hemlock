@@ -1134,6 +1134,15 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     codegen_defer_clear(ctx);
     ctx->defer_stack = state->defer_stack;
+
+    // Free any locals added during the nested scope before restoring num_locals
+    // This prevents memory leaks and ensures the outer scope's locals aren't corrupted
+    for (int i = state->num_locals; i < ctx->num_locals; i++) {
+        if (ctx->local_vars[i]) {
+            free(ctx->local_vars[i]);
+            ctx->local_vars[i] = NULL;
+        }
+    }
     ctx->num_locals = state->num_locals;
     ctx->in_function = state->in_function;
     ctx->has_defers = state->has_defers;
