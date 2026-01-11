@@ -47,14 +47,23 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
             // Accumulate response body
             if (resp->body_len + len >= resp->body_capacity) {
-                resp->body_capacity = (resp->body_len + len + 1) * 2;
-                char *new_body = realloc(resp->body, resp->body_capacity);
+                // Check for overflow before calculating new capacity
+                size_t needed = resp->body_len + len + 1;
+                if (needed < resp->body_len || needed > SIZE_MAX / 2) {
+                    // Overflow detected - body too large
+                    resp->failed = 1;
+                    resp->complete = 1;
+                    return -1;
+                }
+                size_t new_capacity = needed * 2;
+                char *new_body = realloc(resp->body, new_capacity);
                 if (!new_body) {
                     resp->failed = 1;
                     resp->complete = 1;
                     return -1;
                 }
                 resp->body = new_body;
+                resp->body_capacity = new_capacity;
             }
             memcpy(resp->body + resp->body_len, in, len);
             resp->body_len += len;
