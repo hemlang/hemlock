@@ -266,14 +266,13 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
         for (int i = 0; i < num_params; i++) {
             if (type_params[i] && strcmp(type->type_name, type_params[i]) == 0) {
                 // Found matching type parameter - return a copy of the type argument
-                Type *result = malloc(sizeof(Type));
+                // Use calloc to zero-initialize all fields
+                Type *result = calloc(1, sizeof(Type));
                 result->kind = type_args[i]->kind;
                 result->type_name = type_args[i]->type_name ? strdup(type_args[i]->type_name) : NULL;
                 result->element_type = type_args[i]->element_type ?
                     substitute_type_params(type_args[i]->element_type, type_params, type_args, num_params) : NULL;
                 result->nullable = type_args[i]->nullable;
-                result->type_args = NULL;
-                result->num_type_args = 0;
                 // Copy type_args if present
                 if (type_args[i]->num_type_args > 0) {
                     result->type_args = malloc(sizeof(Type*) * type_args[i]->num_type_args);
@@ -292,13 +291,11 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
     if (type->kind == TYPE_ARRAY && type->element_type) {
         Type *new_element = substitute_type_params(type->element_type, type_params, type_args, num_params);
         if (new_element != type->element_type) {
-            Type *result = malloc(sizeof(Type));
+            // Use calloc to zero-initialize all fields
+            Type *result = calloc(1, sizeof(Type));
             result->kind = TYPE_ARRAY;
-            result->type_name = NULL;
             result->element_type = new_element;
             result->nullable = type->nullable;
-            result->type_args = NULL;
-            result->num_type_args = 0;
             return result;
         }
     }
@@ -314,10 +311,10 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
             }
         }
         if (any_changed) {
-            Type *result = malloc(sizeof(Type));
+            // Use calloc to zero-initialize all fields
+            Type *result = calloc(1, sizeof(Type));
             result->kind = TYPE_CUSTOM_OBJECT;
             result->type_name = type->type_name ? strdup(type->type_name) : NULL;
-            result->element_type = NULL;
             result->nullable = type->nullable;
             result->type_args = new_args;
             result->num_type_args = type->num_type_args;
@@ -337,6 +334,7 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
 }
 
 // Free a substituted type (deep free)
+// Only frees memory that was newly allocated during substitution
 static void free_substituted_type(Type *type, Type *original) {
     if (type && type != original) {
         // This is a newly allocated type, free it
@@ -347,7 +345,11 @@ static void free_substituted_type(Type *type, Type *original) {
         }
         if (type->type_args) {
             for (int i = 0; i < type->num_type_args; i++) {
-                free_substituted_type(type->type_args[i], NULL);
+                // Only free type_args[i] if it differs from the original's type_args[i]
+                // This handles the case where some type_args were substituted and some weren't
+                Type *original_arg = (original && original->type_args && i < original->num_type_args)
+                                     ? original->type_args[i] : NULL;
+                free_substituted_type(type->type_args[i], original_arg);
             }
             free(type->type_args);
         }
@@ -814,8 +816,30 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         // Not an enum, try type alias
         TypeAlias *alias = lookup_type_alias(target_type->type_name);
         if (alias) {
-            // Recursively check against the aliased type
-            // TODO: Handle generic type aliases with type argument substitution
+            // Handle generic type aliases with type argument substitution
+            if (alias->num_type_params > 0) {
+                // Generic type alias - verify type arguments and substitute
+                if (target_type->num_type_args != alias->num_type_params) {
+                    fprintf(stderr, "Runtime error: Type alias '%s' expects %d type argument(s), got %d\n",
+                            alias->name, alias->num_type_params, target_type->num_type_args);
+                    exit(1);
+                }
+
+                // Substitute type parameters in the aliased type with actual type arguments
+                Type *substituted = substitute_type_params(alias->aliased_type,
+                                                          alias->type_params,
+                                                          target_type->type_args,
+                                                          alias->num_type_params);
+
+                // Recursively check against the substituted type
+                Value result = convert_to_type(value, substituted, env, ctx);
+
+                // Free the substituted type if it was newly allocated
+                free_substituted_type(substituted, alias->aliased_type);
+
+                return result;
+            }
+            // Non-generic alias - just resolve directly
             return convert_to_type(value, alias->aliased_type, env, ctx);
         }
 

@@ -1320,9 +1320,19 @@ Stmt* statement(Parser *p) {
             consume(p, TOK_GREATER, "Expect '>' after type parameters");
         }
 
+        // Set type parameters in parser scope for aliased type parsing
+        char **old_type_params = p->type_params;
+        int old_num_type_params = p->num_type_params;
+        p->type_params = type_params;
+        p->num_type_params = num_type_params;
+
         consume(p, TOK_EQUAL, "Expect '=' after type alias name");
 
         Type *aliased_type = parse_type(p);
+
+        // Restore old type parameters
+        p->type_params = old_type_params;
+        p->num_type_params = old_num_type_params;
 
         consume(p, TOK_SEMICOLON, "Expect ';' after type alias");
 

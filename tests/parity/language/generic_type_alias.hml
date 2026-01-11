@@ -1,0 +1,65 @@
+// Test generic type aliases
+
+// Define a generic type using 'define'
+define Wrapper<T> {
+    value: T
+}
+
+// 1. Simple generic type alias referencing a defined type
+type IntWrapper = Wrapper<i32>;
+let iw: IntWrapper = { value: 42 };
+print(iw.value);
+
+type StrWrapper = Wrapper<string>;
+let sw: StrWrapper = { value: "hello" };
+print(sw.value);
+
+// 2. Generic type alias that re-exports a generic type
+define Container<T> {
+    data: T,
+    count: i32
+}
+
+type Box<T> = Container<T>;
+
+let intBox: Box<i32> = { data: 100, count: 1 };
+print(intBox.data);
+print(intBox.count);
+
+let strBox: Box<string> = { data: "test", count: 2 };
+print(strBox.data);
+print(strBox.count);
+
+// 3. Generic type alias with multiple type parameters
+define Pair<K, V> {
+    key: K,
+    value: V
+}
+
+type Entry<K, V> = Pair<K, V>;
+
+let e1: Entry<string, i32> = { key: "age", value: 25 };
+print(e1.key);
+print(e1.value);
+
+let e2: Entry<i32, string> = { key: 42, value: "answer" };
+print(e2.key);
+print(e2.value);
+
+// 4. Partially specialized generic type alias
+type StringMap<V> = Pair<string, V>;
+
+let sm: StringMap<i32> = { key: "count", value: 99 };
+print(sm.key);
+print(sm.value);
+
+// 5. Nested generic type with alias
+define Node<T> {
+    val: T
+}
+
+type IntNode = Node<i32>;
+let n: IntNode = { val: 123 };
+print(n.val);
+
+print("All generic type alias tests passed!");
