@@ -2398,7 +2398,15 @@ HmlValue hml_talloc(HmlValue type_name, HmlValue count) {
         hml_runtime_error("talloc() type '%s' has no known size", type_name.as.as_string->data);
     }
 
-    size_t total_size = (size_t)elem_size * (size_t)n;
+    // Check for integer overflow before multiplication
+    size_t safe_elem_size = (size_t)elem_size;
+    size_t safe_count = (size_t)n;
+    if (safe_count > 0 && safe_elem_size > SIZE_MAX / safe_count) {
+        hml_runtime_error("talloc() overflow: %s * %d would exceed maximum allocation size",
+                         type_name.as.as_string->data, n);
+    }
+
+    size_t total_size = safe_elem_size * safe_count;
     void *ptr = malloc(total_size);
     if (!ptr) {
         return hml_val_null();

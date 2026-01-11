@@ -335,8 +335,32 @@ HmlValue hml_string_replace_all(HmlValue str, HmlValue old, HmlValue new_str) {
         return str;
     }
 
-    int new_len = s->length - (count * o->length) + (count * n->length);
+    // Calculate new length with overflow checking
+    // new_len = s->length - (count * o->length) + (count * n->length)
+    // Simplified: new_len = s->length + count * (n->length - o->length)
+    size_t base_len = (size_t)s->length;
+    int len_diff = n->length - o->length;  // Can be negative
+    size_t new_len;
+
+    if (len_diff >= 0) {
+        // Result is larger - check for overflow
+        size_t add_amount = (size_t)count * (size_t)len_diff;
+        if (add_amount / (size_t)count != (size_t)len_diff ||
+            base_len > SIZE_MAX - add_amount ||
+            base_len + add_amount > INT_MAX) {
+            hml_runtime_error("String replace_all overflow: result too large");
+        }
+        new_len = base_len + add_amount;
+    } else {
+        // Result is smaller - no overflow possible
+        size_t sub_amount = (size_t)count * (size_t)(-len_diff);
+        new_len = base_len - sub_amount;
+    }
+
     char *result = malloc(new_len + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string replace_all");
+    }
     int result_pos = 0;
 
     for (int i = 0; i < s->length; ) {
@@ -350,7 +374,7 @@ HmlValue hml_string_replace_all(HmlValue str, HmlValue old, HmlValue new_str) {
     }
     result[new_len] = '\0';
 
-    return hml_val_string_owned(result, new_len, new_len + 1);
+    return hml_val_string_owned(result, (int)new_len, (int)new_len + 1);
 }
 
 HmlValue hml_string_repeat(HmlValue str, HmlValue count) {
@@ -361,14 +385,28 @@ HmlValue hml_string_repeat(HmlValue str, HmlValue count) {
     int32_t n = hml_to_i32(count);
     if (n <= 0) return hml_val_string("");
 
-    int new_len = s->length * n;
+    // Check for integer overflow: new_len = s->length * n
+    // Use size_t for safe multiplication
+    size_t str_len = (size_t)s->length;
+    size_t repeat_count = (size_t)n;
+    if (str_len > 0 && repeat_count > SIZE_MAX / str_len) {
+        hml_runtime_error("String repeat overflow: result too large");
+    }
+    size_t new_len = str_len * repeat_count;
+    if (new_len > INT_MAX) {
+        hml_runtime_error("String repeat overflow: result too large");
+    }
+
     char *result = malloc(new_len + 1);
-    for (int i = 0; i < n; i++) {
-        memcpy(result + i * s->length, s->data, s->length);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string repeat");
+    }
+    for (size_t i = 0; i < repeat_count; i++) {
+        memcpy(result + i * str_len, s->data, str_len);
     }
     result[new_len] = '\0';
 
-    return hml_val_string_owned(result, new_len, new_len + 1);
+    return hml_val_string_owned(result, (int)new_len, (int)new_len + 1);
 }
 
 // OPTIMIZATION: Concatenate 3 strings in a single allocation

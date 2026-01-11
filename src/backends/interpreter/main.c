@@ -82,6 +82,11 @@ static void run_source(const char *source, int argc, char **argv, int stack_dept
 
     if (parser.had_error) {
         fprintf(stderr, "Parse failed!\n");
+        // Free any partially parsed statements before exiting
+        for (int i = 0; i < stmt_count; i++) {
+            stmt_free(statements[i]);
+        }
+        free(statements);
         exit(1);
     }
 
@@ -382,6 +387,11 @@ static int compile_file(const char *input_path, const char *output_path, int deb
 
     if (parser.had_error) {
         fprintf(stderr, "Compilation failed: parse errors in '%s'\n", input_path);
+        // Free any partially parsed statements
+        for (int i = 0; i < stmt_count; i++) {
+            stmt_free(statements[i]);
+        }
+        free(statements);
         free(source);
         return 1;
     }

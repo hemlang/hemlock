@@ -56,7 +56,14 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
 
             if (brace_count != 0) {
                 error(p, "Unclosed ${...} in string interpolation");
+                // Cleanup all allocated memory before returning
                 free(current_string);
+                for (int i = 0; i < num_parts; i++) {
+                    free(string_parts[i]);
+                    // Note: expr_parts[i] will be cleaned by AST system
+                }
+                free(string_parts);
+                free(expr_parts);
                 return expr_string("");
             }
 
@@ -81,9 +88,33 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
 
             num_parts++;
             if (num_parts >= capacity) {
-                capacity *= 2;
-                string_parts = realloc(string_parts, sizeof(char*) * capacity);
-                expr_parts = realloc(expr_parts, sizeof(Expr*) * capacity);
+                int new_capacity = capacity * 2;
+                char **new_string_parts = realloc(string_parts, sizeof(char*) * new_capacity);
+                if (!new_string_parts) {
+                    error(p, "Memory allocation failed in string interpolation");
+                    free(current_string);
+                    for (int i = 0; i < num_parts; i++) {
+                        free(string_parts[i]);
+                    }
+                    free(string_parts);
+                    free(expr_parts);
+                    return expr_string("");
+                }
+                string_parts = new_string_parts;
+
+                Expr **new_expr_parts = realloc(expr_parts, sizeof(Expr*) * new_capacity);
+                if (!new_expr_parts) {
+                    error(p, "Memory allocation failed in string interpolation");
+                    free(current_string);
+                    for (int i = 0; i < num_parts; i++) {
+                        free(string_parts[i]);
+                    }
+                    free(string_parts);
+                    free(expr_parts);
+                    return expr_string("");
+                }
+                expr_parts = new_expr_parts;
+                capacity = new_capacity;
             }
 
             ptr++;  // Skip closing }
@@ -91,7 +122,19 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
             // Regular character
             if (str_len >= str_capacity - 1) {
                 str_capacity *= 2;
-                current_string = realloc(current_string, str_capacity);
+                char *new_string = realloc(current_string, str_capacity);
+                if (!new_string) {
+                    error(p, "Memory allocation failed in string interpolation");
+                    // Cleanup and return
+                    free(current_string);
+                    for (int i = 0; i < num_parts; i++) {
+                        free(string_parts[i]);
+                    }
+                    free(string_parts);
+                    free(expr_parts);
+                    return expr_string("");
+                }
+                current_string = new_string;
             }
             current_string[str_len++] = *ptr;
             ptr++;
