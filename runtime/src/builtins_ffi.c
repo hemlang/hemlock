@@ -909,6 +909,10 @@ static void hml_ffi_callback_handler(ffi_cif *cif, void *ret, void **args, void 
     HmlValue *hemlock_args = NULL;
     if (cb->num_params > 0) {
         hemlock_args = malloc(cb->num_params * sizeof(HmlValue));
+        if (!hemlock_args) {
+            pthread_mutex_unlock(&g_callback_mutex);
+            hml_runtime_error("Failed to allocate FFI callback arguments");
+        }
         for (int i = 0; i < cb->num_params; i++) {
             hemlock_args[i] = hml_ffi_ptr_to_value(args[i], cb->param_types[i]);
         }
@@ -955,6 +959,11 @@ HmlFFICallback* hml_ffi_callback_create(HmlValue fn, HmlFFIType *param_types, in
     cb->param_types = NULL;
     if (num_params > 0) {
         cb->param_types = malloc(sizeof(HmlFFIType) * num_params);
+        if (!cb->param_types) {
+            hml_release(&cb->hemlock_fn);
+            free(cb);
+            hml_runtime_error("Failed to allocate FFI callback param types");
+        }
         for (int i = 0; i < num_params; i++) {
             cb->param_types[i] = param_types[i];
         }
@@ -964,6 +973,12 @@ HmlFFICallback* hml_ffi_callback_create(HmlValue fn, HmlFFIType *param_types, in
     cb->arg_types = NULL;
     if (num_params > 0) {
         cb->arg_types = malloc(sizeof(ffi_type*) * num_params);
+        if (!cb->arg_types) {
+            hml_release(&cb->hemlock_fn);
+            free(cb->param_types);
+            free(cb);
+            hml_runtime_error("Failed to allocate FFI callback arg types");
+        }
         for (int i = 0; i < num_params; i++) {
             cb->arg_types[i] = hml_ffi_type_to_ffi(param_types[i]);
         }
@@ -1014,6 +1029,9 @@ HmlFFICallback* hml_ffi_callback_create(HmlValue fn, HmlFFIType *param_types, in
         if (!new_callbacks) {
             pthread_mutex_unlock(&g_callback_mutex);
             ffi_closure_free(cb->closure);
+            hml_release(&cb->hemlock_fn);
+            free(cb->param_types);
+            free(cb->arg_types);
             free(cb);
             hml_runtime_error("Out of memory expanding FFI callback array");
         }
@@ -1132,6 +1150,9 @@ HmlValue hml_builtin_callback(HmlClosureEnv *env, HmlValue fn, HmlValue param_ty
     HmlFFIType *types = NULL;
     if (num_params > 0) {
         types = malloc(sizeof(HmlFFIType) * num_params);
+        if (!types) {
+            hml_runtime_error("callback() failed to allocate parameter types");
+        }
         for (int i = 0; i < num_params; i++) {
             HmlValue type_val = params_arr->elements[i];
             if (type_val.type != HML_VAL_STRING || !type_val.as.as_string) {
