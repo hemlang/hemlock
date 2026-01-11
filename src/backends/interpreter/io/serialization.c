@@ -358,6 +358,24 @@ void json_skip_whitespace(JSONParser *p) {
     p->pos = s - p->input;
 }
 
+static int json_hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int json_parse_hex4(const char *s, uint32_t *out) {
+    uint32_t value = 0;
+    for (int i = 0; i < 4; i++) {
+        int digit = json_hex_value(s[i]);
+        if (digit < 0) return 0;
+        value = (value << 4) | (uint32_t)digit;
+    }
+    *out = value;
+    return 1;
+}
+
 // Optimized string parsing - scan first to get length, handle escapes efficiently
 Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
     if (p->input[p->pos] != '"') {
@@ -413,35 +431,60 @@ Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
                 case '\\': *out++ = '\\'; break;
                 case '/': *out++ = '/'; break;
                 case 'u': {
-                    // Unicode escape \uXXXX - simplified handling
-                    s++;
-                    if (s[0] && s[1] && s[2] && s[3]) {
-                        // Parse 4 hex digits
-                        int codepoint = 0;
-                        for (int i = 0; i < 4; i++) {
-                            char c = s[i];
-                            codepoint <<= 4;
-                            if (c >= '0' && c <= '9') codepoint |= c - '0';
-                            else if (c >= 'a' && c <= 'f') codepoint |= c - 'a' + 10;
-                            else if (c >= 'A' && c <= 'F') codepoint |= c - 'A' + 10;
+                    const char *hex_start = s + 1;
+                    if (!hex_start[0] || !hex_start[1] || !hex_start[2] || !hex_start[3]) {
+                        free(buf);
+                        return throw_runtime_error(ctx, "Invalid Unicode escape in JSON string");
+                    }
+
+                    uint32_t codepoint = 0;
+                    if (!json_parse_hex4(hex_start, &codepoint)) {
+                        free(buf);
+                        return throw_runtime_error(ctx, "Invalid Unicode escape in JSON string");
+                    }
+
+                    if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+                        const char *pair_start = hex_start + 4;
+                        if (pair_start[0] != '\\' || pair_start[1] != 'u') {
+                            free(buf);
+                            return throw_runtime_error(ctx, "Invalid Unicode surrogate pair in JSON string");
                         }
-                        // Simple ASCII range only for now
-                        if (codepoint < 128) {
-                            *out++ = (char)codepoint;
-                        } else {
-                            // UTF-8 encode
-                            if (codepoint < 0x80) {
-                                *out++ = codepoint;
-                            } else if (codepoint < 0x800) {
-                                *out++ = 0xC0 | (codepoint >> 6);
-                                *out++ = 0x80 | (codepoint & 0x3F);
-                            } else {
-                                *out++ = 0xE0 | (codepoint >> 12);
-                                *out++ = 0x80 | ((codepoint >> 6) & 0x3F);
-                                *out++ = 0x80 | (codepoint & 0x3F);
-                            }
+
+                        uint32_t low_surrogate = 0;
+                        if (!pair_start[2] || !pair_start[3] || !pair_start[4] || !pair_start[5] ||
+                            !json_parse_hex4(pair_start + 2, &low_surrogate) ||
+                            low_surrogate < 0xDC00 || low_surrogate > 0xDFFF) {
+                            free(buf);
+                            return throw_runtime_error(ctx, "Invalid Unicode surrogate pair in JSON string");
                         }
-                        s += 3;  // +1 more at end of loop
+
+                        codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low_surrogate - 0xDC00);
+                        s = pair_start + 5;
+                    } else {
+                        if (codepoint >= 0xDC00 && codepoint <= 0xDFFF) {
+                            free(buf);
+                            return throw_runtime_error(ctx, "Invalid Unicode surrogate pair in JSON string");
+                        }
+                        s = hex_start + 3;
+                    }
+
+                    if (codepoint <= 0x7F) {
+                        *out++ = (char)codepoint;
+                    } else if (codepoint <= 0x7FF) {
+                        *out++ = (char)(0xC0 | (codepoint >> 6));
+                        *out++ = (char)(0x80 | (codepoint & 0x3F));
+                    } else if (codepoint <= 0xFFFF) {
+                        *out++ = (char)(0xE0 | (codepoint >> 12));
+                        *out++ = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+                        *out++ = (char)(0x80 | (codepoint & 0x3F));
+                    } else if (codepoint <= 0x10FFFF) {
+                        *out++ = (char)(0xF0 | (codepoint >> 18));
+                        *out++ = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+                        *out++ = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+                        *out++ = (char)(0x80 | (codepoint & 0x3F));
+                    } else {
+                        free(buf);
+                        return throw_runtime_error(ctx, "Invalid Unicode code point in JSON string");
                     }
                     break;
                 }
