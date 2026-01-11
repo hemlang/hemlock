@@ -104,6 +104,12 @@ void codegen_remove_shadow(CodegenContext *ctx, const char *name);
 void codegen_add_const(CodegenContext *ctx, const char *name);
 int codegen_is_const(CodegenContext *ctx, const char *name);
 
+// Consumed temporary tracking (avoid double-release when values are moved)
+void codegen_mark_temp_consumed(CodegenContext *ctx, const char *name);
+int codegen_is_temp_consumed(CodegenContext *ctx, const char *name);
+int codegen_consumed_checkpoint(CodegenContext *ctx);
+void codegen_restore_consumed(CodegenContext *ctx, int checkpoint);
+
 // Try-finally context tracking
 void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
                               const char *return_value_var, const char *has_return_var);
