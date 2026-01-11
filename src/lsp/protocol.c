@@ -72,8 +72,14 @@ void json_array_push(JSONValue *arr, JSONValue *item) {
 
     JSONArray *a = arr->as.array;
     if (a->count >= a->capacity) {
-        a->capacity = a->capacity == 0 ? 8 : a->capacity * 2;
-        a->items = realloc(a->items, a->capacity * sizeof(JSONValue *));
+        int new_capacity = a->capacity == 0 ? 8 : a->capacity * 2;
+        JSONValue **new_items = realloc(a->items, new_capacity * sizeof(JSONValue *));
+        if (!new_items) {
+            fprintf(stderr, "json_array_push: realloc failed\n");
+            return;
+        }
+        a->items = new_items;
+        a->capacity = new_capacity;
     }
     a->items[a->count++] = item;
 }
@@ -98,9 +104,19 @@ void json_object_set(JSONValue *obj, const char *key, JSONValue *value) {
 
     // Add new key
     if (o->count >= o->capacity) {
-        o->capacity = o->capacity == 0 ? 8 : o->capacity * 2;
-        o->keys = realloc(o->keys, o->capacity * sizeof(char *));
-        o->values = realloc(o->values, o->capacity * sizeof(JSONValue *));
+        int new_capacity = o->capacity == 0 ? 8 : o->capacity * 2;
+        char **new_keys = realloc(o->keys, new_capacity * sizeof(char *));
+        JSONValue **new_values = realloc(o->values, new_capacity * sizeof(JSONValue *));
+        if (!new_keys || !new_values) {
+            fprintf(stderr, "json_object_set: realloc failed\n");
+            // Restore on partial failure
+            if (new_keys) o->keys = new_keys;
+            if (new_values) o->values = new_values;
+            return;
+        }
+        o->keys = new_keys;
+        o->values = new_values;
+        o->capacity = new_capacity;
     }
     o->keys[o->count] = strdup(key);
     o->values[o->count] = value;
