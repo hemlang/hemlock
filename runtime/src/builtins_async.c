@@ -81,8 +81,20 @@ static void* task_thread_wrapper(void* arg) {
     void *fn_ptr = fn->fn_ptr;
     void *closure_env = fn->closure_env;
 
-    // Call function with arguments using libffi (supports unlimited arguments)
-    HmlValue result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
+    // Prefer direct call dispatcher for common arities; fall back to libffi for large signatures.
+    int can_use_direct_call = 0;
+    if (fn->has_rest_param) {
+        can_use_direct_call = (fn->num_params + 1) <= 8;
+    } else {
+        can_use_direct_call = fn->num_params <= 8;
+    }
+
+    HmlValue result;
+    if (can_use_direct_call) {
+        result = hml_call_function(task->function, task->args, task->num_args);
+    } else {
+        result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
+    }
 
     // Store result and mark as completed
     pthread_mutex_lock((pthread_mutex_t*)task->mutex);
@@ -831,4 +843,3 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
     free(original_fds);
     return result_arr;
 }
-

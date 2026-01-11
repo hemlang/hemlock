@@ -1181,17 +1181,9 @@ static Type* parse_function_type(Parser *p) {
             }
 
             if (num_params >= param_capacity) {
-                param_capacity *= 2;
-                Type **new_param_types = realloc(param_types, sizeof(Type*) * param_capacity);
-                char **new_param_names = realloc(param_names, sizeof(char*) * param_capacity);
-                int *new_param_optional = realloc(param_optional, sizeof(int) * param_capacity);
-                int *new_param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
-                if (!new_param_types || !new_param_names || !new_param_optional || !new_param_is_const) {
-                    // On failure, free successfully allocated new buffers and return with what we have
-                    if (new_param_types && new_param_types != param_types) free(new_param_types);
-                    if (new_param_names && new_param_names != param_names) free(new_param_names);
-                    if (new_param_optional && new_param_optional != param_optional) free(new_param_optional);
-                    if (new_param_is_const && new_param_is_const != param_is_const) free(new_param_is_const);
+                int new_capacity = param_capacity * 2;
+                Type **new_param_types = realloc(param_types, sizeof(Type*) * new_capacity);
+                if (!new_param_types) {
                     free(param_types);
                     free(param_names);
                     free(param_optional);
@@ -1199,9 +1191,37 @@ static Type* parse_function_type(Parser *p) {
                     return type_new(TYPE_INFER);
                 }
                 param_types = new_param_types;
+
+                char **new_param_names = realloc(param_names, sizeof(char*) * new_capacity);
+                if (!new_param_names) {
+                    free(param_types);
+                    free(param_names);
+                    free(param_optional);
+                    free(param_is_const);
+                    return type_new(TYPE_INFER);
+                }
                 param_names = new_param_names;
+
+                int *new_param_optional = realloc(param_optional, sizeof(int) * new_capacity);
+                if (!new_param_optional) {
+                    free(param_types);
+                    free(param_names);
+                    free(param_optional);
+                    free(param_is_const);
+                    return type_new(TYPE_INFER);
+                }
                 param_optional = new_param_optional;
+
+                int *new_param_is_const = realloc(param_is_const, sizeof(int) * new_capacity);
+                if (!new_param_is_const) {
+                    free(param_types);
+                    free(param_names);
+                    free(param_optional);
+                    free(param_is_const);
+                    return type_new(TYPE_INFER);
+                }
                 param_is_const = new_param_is_const;
+                param_capacity = new_capacity;
             }
 
             // Check for const modifier
