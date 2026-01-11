@@ -333,7 +333,7 @@ static Expr *try_short_circuit(BinaryOp op, Expr *left, Expr *right, Optimizatio
  */
 static Expr *try_strength_reduce(BinaryOp op, Expr *left, Expr *right, int line, OptimizationStats *stats) {
     /* Only for integer operations - both operands must be constant integers */
-    if (op == OP_MUL && is_const_int(left) && is_const_int(right)) {
+    if ((op == OP_MUL || op == OP_DIV) && is_const_int(left) && is_const_int(right)) {
         int64_t val = right->as.number.int_value;
         /* Check if power of 2 */
         if (val > 0 && (val & (val - 1)) == 0) {
@@ -345,15 +345,19 @@ static Expr *try_strength_reduce(BinaryOp op, Expr *left, Expr *right, int line,
                 shift++;
             }
             /* x * (2^n) → x << n */
+            /* x / (2^n) → x >> n (right shift is arithmetic for signed types) */
             Expr *shift_expr = make_int_expr(shift, line);
             Expr *result = malloc(sizeof(Expr));
             result->type = EXPR_BINARY;
             result->line = line;
-            result->as.binary.op = OP_BIT_LSHIFT;
+            result->as.binary.op = (op == OP_MUL) ? OP_BIT_LSHIFT : OP_BIT_RSHIFT;
             result->as.binary.left = left;
             result->as.binary.right = shift_expr;
             stats->strength_reductions++;
             return result;
+        }
+        if (op == OP_DIV) {
+            return NULL;
         }
         /* Check left side for power of 2: 2 * x → x << 1 */
         val = left->as.number.int_value;
