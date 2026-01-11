@@ -28,11 +28,23 @@ Type* parse_type(Parser *p);
 static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
     char **string_parts = malloc(sizeof(char*) * 32);  // Array of string literals
     Expr **expr_parts = malloc(sizeof(Expr*) * 32);    // Array of expressions
+    if (!string_parts || !expr_parts) {
+        free(string_parts);
+        free(expr_parts);
+        error(p, "Memory allocation failed in string interpolation");
+        return expr_string("");
+    }
     int num_parts = 0;
     int capacity = 32;
 
     const char *ptr = str_content;
     char *current_string = malloc(1024);
+    if (!current_string) {
+        free(string_parts);
+        free(expr_parts);
+        error(p, "Memory allocation failed in string interpolation");
+        return expr_string("");
+    }
     int str_len = 0;
     int str_capacity = 1024;
 
@@ -42,6 +54,16 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
             // Save current string part
             current_string[str_len] = '\0';
             string_parts[num_parts] = strdup(current_string);
+            if (!string_parts[num_parts]) {
+                error(p, "Memory allocation failed in string interpolation");
+                free(current_string);
+                for (int i = 0; i < num_parts; i++) {
+                    free(string_parts[i]);
+                }
+                free(string_parts);
+                free(expr_parts);
+                return expr_string("");
+            }
             str_len = 0;
 
             // Find matching }
@@ -58,7 +80,7 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
                 error(p, "Unclosed ${...} in string interpolation");
                 // Cleanup all allocated memory before returning
                 free(current_string);
-                for (int i = 0; i < num_parts; i++) {
+                for (int i = 0; i <= num_parts; i++) {
                     free(string_parts[i]);
                     // Note: expr_parts[i] will be cleaned by AST system
                 }
@@ -70,6 +92,16 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
             // Extract expression text
             int expr_len = ptr - expr_start;
             char *expr_text = malloc(expr_len + 1);
+            if (!expr_text) {
+                error(p, "Memory allocation failed in string interpolation");
+                free(current_string);
+                for (int i = 0; i <= num_parts; i++) {
+                    free(string_parts[i]);
+                }
+                free(string_parts);
+                free(expr_parts);
+                return expr_string("");
+            }
             memcpy(expr_text, expr_start, expr_len);
             expr_text[expr_len] = '\0';
 

@@ -280,13 +280,28 @@ ModuleResolution* module_resolution_new(const char *current_dir, const char *mai
             resolver->current_dir = strdup(".");
         }
     }
+    if (!resolver->current_dir) {
+        free(resolver);
+        return NULL;
+    }
 
     if (main_file_path) {
         char *path_copy = strdup(main_file_path);
+        if (!path_copy) {
+            free(resolver->current_dir);
+            free(resolver);
+            return NULL;
+        }
         char *dir = dirname(path_copy);
         resolver->main_file_dir = realpath(dir, NULL);
         if (!resolver->main_file_dir) {
             resolver->main_file_dir = strdup(dir);
+            if (!resolver->main_file_dir) {
+                free(path_copy);
+                free(resolver->current_dir);
+                free(resolver);
+                return NULL;
+            }
         }
         free(path_copy);
     } else {
@@ -555,7 +570,14 @@ void module_dependency_graph_add(ModuleDependencyGraph *graph, const char *impor
         graph->capacity = new_capacity;
     }
     graph->edges[graph->count].importer_path = strdup(importer_path);
+    if (!graph->edges[graph->count].importer_path) {
+        return;  // Allocation failed
+    }
     graph->edges[graph->count].resolved_path = strdup(resolved_path);
+    if (!graph->edges[graph->count].resolved_path) {
+        free(graph->edges[graph->count].importer_path);
+        return;  // Allocation failed
+    }
     graph->count++;
 }
 

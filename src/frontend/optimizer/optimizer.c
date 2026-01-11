@@ -322,6 +322,7 @@ static Expr *try_fold_string_concat(BinaryOp op, Expr *left, Expr *right, int li
     size_t left_len = strlen(left->as.string);
     size_t right_len = strlen(right->as.string);
     char *new_str = malloc(left_len + right_len + 1);
+    if (!new_str) return NULL;  // Allocation failed, skip optimization
     strcpy(new_str, left->as.string);
     strcat(new_str, right->as.string);
 
@@ -401,6 +402,7 @@ static Expr *try_fold_string_interpolation(Expr *expr, OptimizationStats *stats)
     total_len += strlen(expr->as.string_interpolation.string_parts[expr->as.string_interpolation.num_parts]);
 
     char *buffer = malloc(total_len + 1);
+    if (!buffer) return NULL;  // Allocation failed, skip optimization
     char *cursor = buffer;
     for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
         size_t part_len = strlen(expr->as.string_interpolation.string_parts[i]);

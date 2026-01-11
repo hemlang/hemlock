@@ -1235,6 +1235,12 @@ uint8_t* ast_serialize(Stmt **statements, int stmt_count, uint16_t flags, size_t
 
     // Create new buffer for final output
     ctx.buffer = malloc(INITIAL_BUFFER_SIZE);
+    if (!ctx.buffer) {
+        fprintf(stderr, "Error: Failed to allocate serialization output buffer\n");
+        free(ast_data);
+        *out_size = 0;
+        return NULL;
+    }
     ctx.buffer_size = 0;
     ctx.buffer_capacity = INITIAL_BUFFER_SIZE;
 
