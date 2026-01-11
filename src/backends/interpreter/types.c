@@ -20,8 +20,14 @@ void init_object_types(void) {
 void register_object_type(ObjectType *type) {
     init_object_types();
     if (object_types.count >= object_types.capacity) {
-        object_types.capacity *= 2;
-        object_types.types = realloc(object_types.types, sizeof(ObjectType*) * object_types.capacity);
+        int new_capacity = object_types.capacity * 2;
+        ObjectType **new_types = realloc(object_types.types, sizeof(ObjectType*) * new_capacity);
+        if (!new_types) {
+            fprintf(stderr, "Fatal: Failed to expand object type registry\n");
+            exit(1);
+        }
+        object_types.types = new_types;
+        object_types.capacity = new_capacity;
     }
     object_types.types[object_types.count++] = type;
 }
@@ -111,8 +117,14 @@ void init_enum_types(void) {
 void register_enum_type(EnumType *type) {
     init_enum_types();
     if (enum_types.count >= enum_types.capacity) {
-        enum_types.capacity *= 2;
-        enum_types.types = realloc(enum_types.types, sizeof(EnumType*) * enum_types.capacity);
+        int new_capacity = enum_types.capacity * 2;
+        EnumType **new_types = realloc(enum_types.types, sizeof(EnumType*) * new_capacity);
+        if (!new_types) {
+            fprintf(stderr, "Fatal: Failed to expand enum type registry\n");
+            exit(1);
+        }
+        enum_types.types = new_types;
+        enum_types.capacity = new_capacity;
     }
     enum_types.types[enum_types.count++] = type;
 }
@@ -179,8 +191,14 @@ void init_type_aliases(void) {
 void register_type_alias(TypeAlias *alias) {
     init_type_aliases();
     if (type_aliases.count >= type_aliases.capacity) {
-        type_aliases.capacity *= 2;
-        type_aliases.aliases = realloc(type_aliases.aliases, sizeof(TypeAlias*) * type_aliases.capacity);
+        int new_capacity = type_aliases.capacity * 2;
+        TypeAlias **new_aliases = realloc(type_aliases.aliases, sizeof(TypeAlias*) * new_capacity);
+        if (!new_aliases) {
+            fprintf(stderr, "Fatal: Failed to expand type alias registry\n");
+            exit(1);
+        }
+        type_aliases.aliases = new_aliases;
+        type_aliases.capacity = new_capacity;
     }
     type_aliases.aliases[type_aliases.count++] = alias;
 }
@@ -394,9 +412,20 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
             if (field_optional) {
                 // Add field with default value or null
                 if (obj->num_fields >= obj->capacity) {
-                    obj->capacity *= 2;
-                    obj->field_names = realloc(obj->field_names, sizeof(char*) * obj->capacity);
-                    obj->field_values = realloc(obj->field_values, sizeof(Value) * obj->capacity);
+                    int new_capacity = obj->capacity * 2;
+                    char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                    Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                    if (!new_names || !new_values) {
+                        // If one succeeded, we need to update anyway to avoid losing the pointer
+                        if (new_names) obj->field_names = new_names;
+                        if (new_values) obj->field_values = new_values;
+                        free_substituted_type(substituted_field_type, field_type);
+                        fprintf(stderr, "Runtime error: Failed to expand object fields\n");
+                        exit(1);
+                    }
+                    obj->field_names = new_names;
+                    obj->field_values = new_values;
+                    obj->capacity = new_capacity;
                 }
 
                 obj->field_names[obj->num_fields] = strdup(field_name);
@@ -447,9 +476,18 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                 if (object_type->method_defaults[i]) {
                     // Add method with default implementation
                     if (obj->num_fields >= obj->capacity) {
-                        obj->capacity *= 2;
-                        obj->field_names = realloc(obj->field_names, sizeof(char*) * obj->capacity);
-                        obj->field_values = realloc(obj->field_values, sizeof(Value) * obj->capacity);
+                        int new_capacity = obj->capacity * 2;
+                        char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                        Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                        if (!new_names || !new_values) {
+                            if (new_names) obj->field_names = new_names;
+                            if (new_values) obj->field_values = new_values;
+                            fprintf(stderr, "Runtime error: Failed to expand object fields for method\n");
+                            exit(1);
+                        }
+                        obj->field_names = new_names;
+                        obj->field_values = new_values;
+                        obj->capacity = new_capacity;
                     }
 
                     obj->field_names[obj->num_fields] = strdup(method_name);

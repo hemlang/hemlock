@@ -1273,9 +1273,17 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     obj->hash_table = NULL;
                     obj->hash_capacity = 0;
                 }
-                obj->num_fields++;
-                obj->field_names = realloc(obj->field_names, obj->num_fields * sizeof(char *));
-                obj->field_values = realloc(obj->field_values, obj->num_fields * sizeof(Value));
+                int new_num_fields = obj->num_fields + 1;
+                char **new_names = realloc(obj->field_names, new_num_fields * sizeof(char *));
+                Value *new_values = realloc(obj->field_values, new_num_fields * sizeof(Value));
+                if (!new_names || !new_values) {
+                    if (new_names) obj->field_names = new_names;
+                    if (new_values) obj->field_values = new_values;
+                    runtime_error(ctx, "Failed to expand object fields");
+                }
+                obj->field_names = new_names;
+                obj->field_values = new_values;
+                obj->num_fields = new_num_fields;
                 obj->field_names[obj->num_fields - 1] = strdup(key);
                 obj->field_values[obj->num_fields - 1] = value;
                 VALUE_RETAIN(value);
@@ -1598,8 +1606,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             // Add new field - grow if needed
                             if (obj->num_fields >= obj->capacity) {
                                 int new_capacity = obj->capacity * 2;
-                                obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                                obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                                char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                                Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                                if (!new_names || !new_values) {
+                                    if (new_names) obj->field_names = new_names;
+                                    if (new_values) obj->field_values = new_values;
+                                    VALUE_RELEASE(spread_val);
+                                    runtime_error(ctx, "Failed to expand object fields");
+                                }
+                                obj->field_names = new_names;
+                                obj->field_values = new_values;
                                 obj->capacity = new_capacity;
                             }
                             obj->field_names[obj->num_fields] = strdup(spread_obj->field_names[j]);
@@ -1630,8 +1646,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         // Add new field - grow if needed
                         if (obj->num_fields >= obj->capacity) {
                             int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
-                            obj->field_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                            obj->field_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                            char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
+                            Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
+                            if (!new_names || !new_values) {
+                                if (new_names) obj->field_names = new_names;
+                                if (new_values) obj->field_values = new_values;
+                                VALUE_RELEASE(field_val);
+                                runtime_error(ctx, "Failed to expand object fields");
+                            }
+                            obj->field_names = new_names;
+                            obj->field_values = new_values;
                             obj->capacity = new_capacity;
                         }
                         obj->field_names[obj->num_fields] = strdup(expr->as.object_literal.field_names[i]);

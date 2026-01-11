@@ -578,8 +578,14 @@ static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list) {
         }
         // Add to list
         if (list->count >= list->capacity) {
-            list->capacity = list->capacity == 0 ? 16 : list->capacity * 2;
-            list->stmts = realloc(list->stmts, list->capacity * sizeof(Stmt*));
+            int new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
+            Stmt **new_stmts = realloc(list->stmts, new_cap * sizeof(Stmt*));
+            if (!new_stmts) {
+                fprintf(stderr, "Codegen error: Failed to expand extern fn list\n");
+                exit(1);
+            }
+            list->stmts = new_stmts;
+            list->capacity = new_cap;
         }
         list->stmts[list->count++] = stmt;
         return;
@@ -635,8 +641,14 @@ static int ffi_struct_list_contains(FFIStructList *list, const char *name) {
 static void ffi_struct_list_add(FFIStructList *list, const char *name, Stmt *define_stmt) {
     if (ffi_struct_list_contains(list, name)) return;
     if (list->count >= list->capacity) {
-        list->capacity = list->capacity == 0 ? 8 : list->capacity * 2;
-        list->structs = realloc(list->structs, list->capacity * sizeof(FFIStructInfo));
+        int new_cap = list->capacity == 0 ? 8 : list->capacity * 2;
+        FFIStructInfo *new_structs = realloc(list->structs, new_cap * sizeof(FFIStructInfo));
+        if (!new_structs) {
+            fprintf(stderr, "Codegen error: Failed to expand FFI struct list\n");
+            exit(1);
+        }
+        list->structs = new_structs;
+        list->capacity = new_cap;
     }
     list->structs[list->count].name = strdup(name);
     list->structs[list->count].define_stmt = define_stmt;
@@ -1163,8 +1175,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     })
     #define ADD_STATIC_DECLARED(name) do { \
         if (num_declared_statics >= declared_statics_capacity) { \
-            declared_statics_capacity = declared_statics_capacity == 0 ? 16 : declared_statics_capacity * 2; \
-            declared_statics = realloc(declared_statics, declared_statics_capacity * sizeof(char*)); \
+            int _new_cap = declared_statics_capacity == 0 ? 16 : declared_statics_capacity * 2; \
+            char **_new_statics = realloc(declared_statics, _new_cap * sizeof(char*)); \
+            if (!_new_statics) { fprintf(stderr, "Codegen error: Failed to expand statics list\n"); exit(1); } \
+            declared_statics = _new_statics; \
+            declared_statics_capacity = _new_cap; \
         } \
         declared_statics[num_declared_statics++] = strdup(name); \
     } while(0)

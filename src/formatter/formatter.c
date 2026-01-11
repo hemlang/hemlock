@@ -31,10 +31,17 @@ static void buf_free(StrBuf *buf) {
 
 static void buf_grow(StrBuf *buf, size_t needed) {
     if (buf->len + needed + 1 > buf->cap) {
-        while (buf->len + needed + 1 > buf->cap) {
-            buf->cap *= 2;
+        size_t new_cap = buf->cap;
+        while (buf->len + needed + 1 > new_cap) {
+            new_cap *= 2;
         }
-        buf->data = realloc(buf->data, buf->cap);
+        char *new_data = realloc(buf->data, new_cap);
+        if (!new_data) {
+            fprintf(stderr, "Formatter error: Failed to expand buffer\n");
+            exit(1);
+        }
+        buf->data = new_data;
+        buf->cap = new_cap;
     }
 }
 

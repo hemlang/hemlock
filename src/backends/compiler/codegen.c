@@ -308,7 +308,12 @@ void codegen_add_local(CodegenContext *ctx, const char *name) {
             fprintf(stderr, "Codegen error: Local variable capacity overflow\n");
             exit(1);
         }
-        ctx->local_vars = realloc(ctx->local_vars, (size_t)new_cap * sizeof(char*));
+        char **new_vars = realloc(ctx->local_vars, (size_t)new_cap * sizeof(char*));
+        if (!new_vars) {
+            fprintf(stderr, "Codegen error: Failed to expand local variable storage\n");
+            exit(1);
+        }
+        ctx->local_vars = new_vars;
         ctx->local_capacity = new_cap;
     }
     ctx->local_vars[ctx->num_locals++] = strdup(name);
@@ -344,7 +349,12 @@ void codegen_remove_local(CodegenContext *ctx, const char *name) {
 void codegen_add_shadow(CodegenContext *ctx, const char *name) {
     if (ctx->num_shadow_vars >= ctx->shadow_vars_capacity) {
         int new_cap = (ctx->shadow_vars_capacity == 0) ? 8 : ctx->shadow_vars_capacity * 2;
-        ctx->shadow_vars = realloc(ctx->shadow_vars, new_cap * sizeof(char*));
+        char **new_vars = realloc(ctx->shadow_vars, new_cap * sizeof(char*));
+        if (!new_vars) {
+            fprintf(stderr, "Codegen error: Failed to expand shadow variable storage\n");
+            exit(1);
+        }
+        ctx->shadow_vars = new_vars;
         ctx->shadow_vars_capacity = new_cap;
     }
     ctx->shadow_vars[ctx->num_shadow_vars++] = strdup(name);
@@ -376,7 +386,12 @@ void codegen_remove_shadow(CodegenContext *ctx, const char *name) {
 void codegen_add_const(CodegenContext *ctx, const char *name) {
     if (ctx->num_const_vars >= ctx->const_vars_capacity) {
         int new_cap = (ctx->const_vars_capacity == 0) ? 8 : ctx->const_vars_capacity * 2;
-        ctx->const_vars = realloc(ctx->const_vars, new_cap * sizeof(char*));
+        char **new_vars = realloc(ctx->const_vars, new_cap * sizeof(char*));
+        if (!new_vars) {
+            fprintf(stderr, "Codegen error: Failed to expand const variable storage\n");
+            exit(1);
+        }
+        ctx->const_vars = new_vars;
         ctx->const_vars_capacity = new_cap;
     }
     ctx->const_vars[ctx->num_const_vars++] = strdup(name);
@@ -396,9 +411,20 @@ void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
                               const char *return_value_var, const char *has_return_var) {
     if (ctx->try_finally_depth >= ctx->try_finally_capacity) {
         int new_cap = (ctx->try_finally_capacity == 0) ? 4 : ctx->try_finally_capacity * 2;
-        ctx->finally_labels = realloc(ctx->finally_labels, new_cap * sizeof(char*));
-        ctx->return_value_vars = realloc(ctx->return_value_vars, new_cap * sizeof(char*));
-        ctx->has_return_vars = realloc(ctx->has_return_vars, new_cap * sizeof(char*));
+        char **new_labels = realloc(ctx->finally_labels, new_cap * sizeof(char*));
+        char **new_return_vars = realloc(ctx->return_value_vars, new_cap * sizeof(char*));
+        char **new_has_vars = realloc(ctx->has_return_vars, new_cap * sizeof(char*));
+        if (!new_labels || !new_return_vars || !new_has_vars) {
+            // Update pointers for any successful allocations to avoid losing memory
+            if (new_labels) ctx->finally_labels = new_labels;
+            if (new_return_vars) ctx->return_value_vars = new_return_vars;
+            if (new_has_vars) ctx->has_return_vars = new_has_vars;
+            fprintf(stderr, "Codegen error: Failed to expand try-finally storage\n");
+            exit(1);
+        }
+        ctx->finally_labels = new_labels;
+        ctx->return_value_vars = new_return_vars;
+        ctx->has_return_vars = new_has_vars;
         ctx->try_finally_capacity = new_cap;
     }
     ctx->finally_labels[ctx->try_finally_depth] = strdup(finally_label);
@@ -443,7 +469,12 @@ const char* codegen_get_has_return_var(CodegenContext *ctx) {
 void codegen_push_switch(CodegenContext *ctx, const char *end_label) {
     if (ctx->switch_depth >= ctx->switch_end_capacity) {
         int new_cap = (ctx->switch_end_capacity == 0) ? 4 : ctx->switch_end_capacity * 2;
-        ctx->switch_end_labels = realloc(ctx->switch_end_labels, new_cap * sizeof(char*));
+        char **new_labels = realloc(ctx->switch_end_labels, new_cap * sizeof(char*));
+        if (!new_labels) {
+            fprintf(stderr, "Codegen error: Failed to expand switch label storage\n");
+            exit(1);
+        }
+        ctx->switch_end_labels = new_labels;
         ctx->switch_end_capacity = new_cap;
     }
     ctx->switch_end_labels[ctx->switch_depth] = strdup(end_label);
@@ -469,7 +500,12 @@ const char* codegen_get_switch_end_label(CodegenContext *ctx) {
 void codegen_push_for_continue(CodegenContext *ctx, const char *continue_label) {
     if (ctx->for_continue_depth >= ctx->for_continue_capacity) {
         int new_cap = (ctx->for_continue_capacity == 0) ? 4 : ctx->for_continue_capacity * 2;
-        ctx->for_continue_labels = realloc(ctx->for_continue_labels, new_cap * sizeof(char*));
+        char **new_labels = realloc(ctx->for_continue_labels, new_cap * sizeof(char*));
+        if (!new_labels) {
+            fprintf(stderr, "Codegen error: Failed to expand for-continue storage\n");
+            exit(1);
+        }
+        ctx->for_continue_labels = new_labels;
         ctx->for_continue_capacity = new_cap;
     }
     ctx->for_continue_labels[ctx->for_continue_depth] = strdup(continue_label);
@@ -495,9 +531,19 @@ const char* codegen_get_for_continue_label(CodegenContext *ctx) {
 void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char *break_label, const char *continue_label) {
     if (ctx->loop_label_depth >= ctx->loop_label_capacity) {
         int new_cap = (ctx->loop_label_capacity == 0) ? 4 : ctx->loop_label_capacity * 2;
-        ctx->loop_labels = realloc(ctx->loop_labels, new_cap * sizeof(char*));
-        ctx->loop_break_labels = realloc(ctx->loop_break_labels, new_cap * sizeof(char*));
-        ctx->loop_continue_labels = realloc(ctx->loop_continue_labels, new_cap * sizeof(char*));
+        char **new_labels = realloc(ctx->loop_labels, new_cap * sizeof(char*));
+        char **new_break = realloc(ctx->loop_break_labels, new_cap * sizeof(char*));
+        char **new_continue = realloc(ctx->loop_continue_labels, new_cap * sizeof(char*));
+        if (!new_labels || !new_break || !new_continue) {
+            if (new_labels) ctx->loop_labels = new_labels;
+            if (new_break) ctx->loop_break_labels = new_break;
+            if (new_continue) ctx->loop_continue_labels = new_continue;
+            fprintf(stderr, "Codegen error: Failed to expand loop label storage\n");
+            exit(1);
+        }
+        ctx->loop_labels = new_labels;
+        ctx->loop_break_labels = new_break;
+        ctx->loop_continue_labels = new_continue;
         ctx->loop_label_capacity = new_cap;
     }
     ctx->loop_labels[ctx->loop_label_depth] = strdup(label);
@@ -544,7 +590,12 @@ void codegen_add_main_var(CodegenContext *ctx, const char *name) {
     }
     if (ctx->num_main_vars >= ctx->main_vars_capacity) {
         int new_cap = (ctx->main_vars_capacity == 0) ? 16 : ctx->main_vars_capacity * 2;
-        ctx->main_vars = realloc(ctx->main_vars, new_cap * sizeof(char*));
+        char **new_vars = realloc(ctx->main_vars, new_cap * sizeof(char*));
+        if (!new_vars) {
+            fprintf(stderr, "Codegen error: Failed to expand main variable storage\n");
+            exit(1);
+        }
+        ctx->main_vars = new_vars;
         ctx->main_vars_capacity = new_cap;
     }
     ctx->main_vars[ctx->num_main_vars++] = strdup(name);
@@ -671,12 +722,29 @@ static int is_function_inlinable(Expr *func) {
 void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params, int has_rest, int *param_is_ref, Expr *func_ast) {
     if (ctx->num_main_funcs >= ctx->main_funcs_capacity) {
         int new_cap = (ctx->main_funcs_capacity == 0) ? 16 : ctx->main_funcs_capacity * 2;
-        ctx->main_funcs = realloc(ctx->main_funcs, new_cap * sizeof(char*));
-        ctx->main_func_params = realloc(ctx->main_func_params, new_cap * sizeof(int));
-        ctx->main_func_has_rest = realloc(ctx->main_func_has_rest, new_cap * sizeof(int));
-        ctx->main_func_param_is_ref = realloc(ctx->main_func_param_is_ref, new_cap * sizeof(int*));
-        ctx->main_func_ast = realloc(ctx->main_func_ast, new_cap * sizeof(Expr*));
-        ctx->main_func_inlinable = realloc(ctx->main_func_inlinable, new_cap * sizeof(int));
+        char **new_funcs = realloc(ctx->main_funcs, new_cap * sizeof(char*));
+        int *new_params = realloc(ctx->main_func_params, new_cap * sizeof(int));
+        int *new_has_rest = realloc(ctx->main_func_has_rest, new_cap * sizeof(int));
+        int **new_param_is_ref = realloc(ctx->main_func_param_is_ref, new_cap * sizeof(int*));
+        Expr **new_ast = realloc(ctx->main_func_ast, new_cap * sizeof(Expr*));
+        int *new_inlinable = realloc(ctx->main_func_inlinable, new_cap * sizeof(int));
+        if (!new_funcs || !new_params || !new_has_rest || !new_param_is_ref || !new_ast || !new_inlinable) {
+            // Update any successful allocations to avoid losing pointers
+            if (new_funcs) ctx->main_funcs = new_funcs;
+            if (new_params) ctx->main_func_params = new_params;
+            if (new_has_rest) ctx->main_func_has_rest = new_has_rest;
+            if (new_param_is_ref) ctx->main_func_param_is_ref = new_param_is_ref;
+            if (new_ast) ctx->main_func_ast = new_ast;
+            if (new_inlinable) ctx->main_func_inlinable = new_inlinable;
+            fprintf(stderr, "Codegen error: Failed to expand main function storage\n");
+            exit(1);
+        }
+        ctx->main_funcs = new_funcs;
+        ctx->main_func_params = new_params;
+        ctx->main_func_has_rest = new_has_rest;
+        ctx->main_func_param_is_ref = new_param_is_ref;
+        ctx->main_func_ast = new_ast;
+        ctx->main_func_inlinable = new_inlinable;
         ctx->main_funcs_capacity = new_cap;
     }
     ctx->main_funcs[ctx->num_main_funcs] = strdup(name);
@@ -755,7 +823,12 @@ int codegen_is_main_func_inlinable(CodegenContext *ctx, const char *name) {
 void codegen_add_main_import(CodegenContext *ctx, const char *local_name, const char *original_name, const char *module_prefix, int is_function, int num_params, int is_extern) {
     if (ctx->num_main_imports >= ctx->main_imports_capacity) {
         int new_cap = (ctx->main_imports_capacity == 0) ? 16 : ctx->main_imports_capacity * 2;
-        ctx->main_imports = realloc(ctx->main_imports, new_cap * sizeof(ImportBinding));
+        ImportBinding *new_imports = realloc(ctx->main_imports, new_cap * sizeof(ImportBinding));
+        if (!new_imports) {
+            fprintf(stderr, "Codegen error: Failed to expand main import storage\n");
+            exit(1);
+        }
+        ctx->main_imports = new_imports;
         ctx->main_imports_capacity = new_cap;
     }
     ImportBinding *binding = &ctx->main_imports[ctx->num_main_imports++];
@@ -962,7 +1035,12 @@ void scope_add_var(Scope *scope, const char *name) {
     // Expand if needed
     if (scope->num_vars >= scope->capacity) {
         int new_cap = (scope->capacity == 0) ? 8 : scope->capacity * 2;
-        scope->vars = realloc(scope->vars, new_cap * sizeof(char*));
+        char **new_vars = realloc(scope->vars, new_cap * sizeof(char*));
+        if (!new_vars) {
+            fprintf(stderr, "Codegen error: Failed to expand scope variable storage\n");
+            exit(1);
+        }
+        scope->vars = new_vars;
         scope->capacity = new_cap;
     }
 
