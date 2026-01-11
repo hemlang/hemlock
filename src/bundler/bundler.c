@@ -849,7 +849,11 @@ static int collect_exports(BundledModule *module) {
                 if (name) {
                     if (module->num_exports >= capacity) {
                         capacity *= 2;
-                        module->export_names = realloc(module->export_names, sizeof(char*) * capacity);
+                        char **new_export_names = realloc(module->export_names, sizeof(char*) * capacity);
+                        if (!new_export_names) {
+                            return -1;  // Allocation failure
+                        }
+                        module->export_names = new_export_names;
                     }
                     module->export_names[module->num_exports++] = strdup(name);
                 }
@@ -862,7 +866,11 @@ static int collect_exports(BundledModule *module) {
 
                     if (module->num_exports >= capacity) {
                         capacity *= 2;
-                        module->export_names = realloc(module->export_names, sizeof(char*) * capacity);
+                        char **new_export_names = realloc(module->export_names, sizeof(char*) * capacity);
+                        if (!new_export_names) {
+                            return -1;  // Allocation failure
+                        }
+                        module->export_names = new_export_names;
                     }
                     module->export_names[module->num_exports++] = strdup(name);
                 }
@@ -882,7 +890,11 @@ static int should_include_stmt(Bundle *bundle, Stmt *stmt);
 static void add_flattened_stmt(Bundle *bundle, Stmt *stmt) {
     if (bundle->num_statements >= bundle->stmt_capacity) {
         bundle->stmt_capacity = bundle->stmt_capacity ? bundle->stmt_capacity * 2 : 64;
-        bundle->statements = realloc(bundle->statements, sizeof(Stmt*) * bundle->stmt_capacity);
+        Stmt **new_statements = realloc(bundle->statements, sizeof(Stmt*) * bundle->stmt_capacity);
+        if (!new_statements) {
+            return;  // Keep original data on allocation failure
+        }
+        bundle->statements = new_statements;
     }
     bundle->statements[bundle->num_statements++] = stmt;
 }

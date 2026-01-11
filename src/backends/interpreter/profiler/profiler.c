@@ -145,12 +145,13 @@ static int find_or_create_function(ProfilerState *state, const char *name,
     // Not found - create new entry
     if (state->function_count >= state->function_capacity) {
         state->function_capacity *= 2;
-        state->functions = realloc(state->functions,
+        FunctionStats *new_functions = realloc(state->functions,
                                    state->function_capacity * sizeof(FunctionStats));
-        if (!state->functions) {
+        if (!new_functions) {
             fprintf(stderr, "Fatal: Failed to grow profiler function table\n");
             exit(1);
         }
+        state->functions = new_functions;
     }
 
     idx = state->function_count++;
@@ -187,8 +188,12 @@ void profiler_enter_function(ProfilerState *state, const char *name,
     // Push onto timing stack
     if (state->timing_stack_depth >= state->timing_stack_capacity) {
         state->timing_stack_capacity *= 2;
-        state->timing_stack = realloc(state->timing_stack,
+        void *new_timing_stack = realloc(state->timing_stack,
                                       state->timing_stack_capacity * sizeof(*state->timing_stack));
+        if (!new_timing_stack) {
+            return;  // Keep original data on allocation failure
+        }
+        state->timing_stack = new_timing_stack;
     }
     state->timing_stack[state->timing_stack_depth].function_idx = fn_idx;
     state->timing_stack[state->timing_stack_depth].entry_time_ns = now;
@@ -198,8 +203,12 @@ void profiler_enter_function(ProfilerState *state, const char *name,
     // Push onto call stack for flamegraph
     if (state->call_stack.depth >= state->call_stack.capacity) {
         state->call_stack.capacity *= 2;
-        state->call_stack.stack_indices = realloc(state->call_stack.stack_indices,
+        int *new_stack_indices = realloc(state->call_stack.stack_indices,
                                                    state->call_stack.capacity * sizeof(int));
+        if (!new_stack_indices) {
+            return;  // Keep original data on allocation failure
+        }
+        state->call_stack.stack_indices = new_stack_indices;
     }
     state->call_stack.stack_indices[state->call_stack.depth++] = fn_idx;
 }
@@ -257,8 +266,12 @@ static int find_or_create_alloc_site(ProfilerState *state, const char *source_fi
     // Create new entry
     if (state->alloc_site_count >= state->alloc_site_capacity) {
         state->alloc_site_capacity *= 2;
-        state->alloc_sites = realloc(state->alloc_sites,
+        AllocSite *new_alloc_sites = realloc(state->alloc_sites,
                                       state->alloc_site_capacity * sizeof(AllocSite));
+        if (!new_alloc_sites) {
+            return -1;  // Return error on allocation failure
+        }
+        state->alloc_sites = new_alloc_sites;
     }
 
     idx = state->alloc_site_count++;
@@ -322,8 +335,12 @@ void profiler_track_ptr(ProfilerState *state, void *ptr, uint64_t size,
     // Grow array if needed
     if (state->ptr_size_count >= state->ptr_size_capacity) {
         state->ptr_size_capacity *= 2;
-        state->ptr_sizes = realloc(state->ptr_sizes,
+        void *new_ptr_sizes = realloc(state->ptr_sizes,
                                    state->ptr_size_capacity * sizeof(*state->ptr_sizes));
+        if (!new_ptr_sizes) {
+            return;  // Keep original data on allocation failure
+        }
+        state->ptr_sizes = new_ptr_sizes;
     }
 
     // Find the allocation site for this location

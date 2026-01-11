@@ -250,7 +250,11 @@ Stmt** parse_program(Parser *parser, int *stmt_count) {
         // Grow array if needed
         if (*stmt_count >= capacity) {
             capacity *= 2;
-            statements = realloc(statements, sizeof(Stmt*) * capacity);
+            Stmt **new_statements = realloc(statements, sizeof(Stmt*) * capacity);
+            if (!new_statements) {
+                return statements;  // Return what we have on allocation failure
+            }
+            statements = new_statements;
         }
         statements[(*stmt_count)++] = statement(parser);
     }
