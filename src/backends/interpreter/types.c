@@ -770,8 +770,244 @@ static const char* type_kind_to_string(TypeKind kind) {
         case TYPE_BUFFER: return "buffer";
         case TYPE_ARRAY: return "array";
         case TYPE_NULL: return "null";
+        case TYPE_GENERIC_OBJECT: return "object";
+        case TYPE_FUNCTION: return "function";
+        case TYPE_INFER: return "any";
         default: return "unknown";
     }
+}
+
+// Forward declaration for recursive type compatibility
+static int types_compatible(Type *expected, Type *actual);
+
+// Helper to format a Type as a string (for error messages)
+// Returns a malloc'd string that caller must free
+static char* format_type(Type *type) {
+    if (!type) {
+        return strdup("any");
+    }
+
+    switch (type->kind) {
+        case TYPE_FUNCTION: {
+            // Calculate required buffer size
+            size_t len = 3;  // "fn("
+            if (type->fn_is_async) {
+                len += 6;  // "async "
+            }
+            for (int i = 0; i < type->fn_num_params; i++) {
+                if (i > 0) len += 2;  // ", "
+                if (type->fn_param_types && type->fn_param_types[i]) {
+                    char *param_str = format_type(type->fn_param_types[i]);
+                    len += strlen(param_str);
+                    free(param_str);
+                } else {
+                    len += 3;  // "any"
+                }
+            }
+            len += 1;  // ")"
+            if (type->fn_return_type) {
+                char *ret_str = format_type(type->fn_return_type);
+                len += 2 + strlen(ret_str);  // ": type"
+                free(ret_str);
+            }
+            len += 1;  // null terminator
+
+            char *result = malloc(len + 16);  // extra buffer for safety
+            char *p = result;
+
+            if (type->fn_is_async) {
+                p += sprintf(p, "async ");
+            }
+            p += sprintf(p, "fn(");
+            for (int i = 0; i < type->fn_num_params; i++) {
+                if (i > 0) {
+                    p += sprintf(p, ", ");
+                }
+                if (type->fn_param_types && type->fn_param_types[i]) {
+                    char *param_str = format_type(type->fn_param_types[i]);
+                    p += sprintf(p, "%s", param_str);
+                    free(param_str);
+                } else {
+                    p += sprintf(p, "any");
+                }
+            }
+            p += sprintf(p, ")");
+            if (type->fn_return_type) {
+                char *ret_str = format_type(type->fn_return_type);
+                p += sprintf(p, ": %s", ret_str);
+                free(ret_str);
+            }
+            return result;
+        }
+
+        case TYPE_ARRAY:
+            if (type->element_type) {
+                char *elem_str = format_type(type->element_type);
+                char *result = malloc(strlen(elem_str) + 10);
+                sprintf(result, "array<%s>", elem_str);
+                free(elem_str);
+                return result;
+            }
+            return strdup("array");
+
+        case TYPE_CUSTOM_OBJECT:
+            if (type->type_name) {
+                return strdup(type->type_name);
+            }
+            return strdup("object");
+
+        default:
+            return strdup(type_kind_to_string(type->kind));
+    }
+}
+
+// Check if two types are compatible for function signature matching
+// Returns 1 if compatible, 0 if not
+static int types_compatible(Type *expected, Type *actual) {
+    // If expected is unspecified (NULL/infer), any actual type is compatible
+    if (!expected || expected->kind == TYPE_INFER) {
+        return 1;
+    }
+
+    // If actual is unspecified, it's compatible (untyped code is dynamic)
+    if (!actual || actual->kind == TYPE_INFER) {
+        return 1;
+    }
+
+    // For function types, recursively check signatures
+    if (expected->kind == TYPE_FUNCTION && actual->kind == TYPE_FUNCTION) {
+        // Check async flag
+        if (expected->fn_is_async != actual->fn_is_async) {
+            return 0;
+        }
+
+        // Check parameter count
+        if (expected->fn_num_params != actual->fn_num_params) {
+            return 0;
+        }
+
+        // Check each parameter type
+        for (int i = 0; i < expected->fn_num_params; i++) {
+            Type *exp_param = expected->fn_param_types ? expected->fn_param_types[i] : NULL;
+            Type *act_param = actual->fn_param_types ? actual->fn_param_types[i] : NULL;
+            if (!types_compatible(exp_param, act_param)) {
+                return 0;
+            }
+        }
+
+        // Check return type
+        if (!types_compatible(expected->fn_return_type, actual->fn_return_type)) {
+            return 0;
+        }
+
+        return 1;
+    }
+
+    // For array types, check element type compatibility
+    if (expected->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY) {
+        return types_compatible(expected->element_type, actual->element_type);
+    }
+
+    // For custom object types, check by name
+    if (expected->kind == TYPE_CUSTOM_OBJECT && actual->kind == TYPE_CUSTOM_OBJECT) {
+        if (expected->type_name && actual->type_name) {
+            return strcmp(expected->type_name, actual->type_name) == 0;
+        }
+        return 1;  // If either has no name, be permissive
+    }
+
+    // For primitive types, they must match exactly or be in the same numeric family
+    if (expected->kind == actual->kind) {
+        return 1;
+    }
+
+    // Allow numeric type conversions (signed/unsigned/float within families)
+    if (is_numeric_type(expected->kind) && is_numeric_type(actual->kind)) {
+        return 1;  // Numeric types are compatible with each other
+    }
+
+    return 0;
+}
+
+// Validate that a function value matches a function type annotation
+// Returns NULL if valid, or an error message string (caller must free) if invalid
+static char* validate_function_signature(Type *expected_type, Function *fn) {
+    // Check async flag
+    if (expected_type->fn_is_async && !fn->is_async) {
+        return strdup("expected async function but got non-async function");
+    }
+    if (!expected_type->fn_is_async && fn->is_async) {
+        return strdup("expected non-async function but got async function");
+    }
+
+    // Check parameter count
+    // The function must have at least as many parameters as expected
+    // (extra parameters are OK if the function has defaults for them)
+    int expected_params = expected_type->fn_num_params;
+    int actual_params = fn->num_params;
+
+    // Count required parameters in function (those without defaults)
+    int fn_required = 0;
+    for (int i = 0; i < actual_params; i++) {
+        if (!fn->param_defaults || !fn->param_defaults[i]) {
+            fn_required++;
+        }
+    }
+
+    // Count optional parameters in expected type
+    int expected_required = 0;
+    for (int i = 0; i < expected_params; i++) {
+        if (!expected_type->fn_param_optional || !expected_type->fn_param_optional[i]) {
+            expected_required++;
+        }
+    }
+
+    // Function must be able to accept the expected number of arguments
+    if (actual_params < expected_required) {
+        char *msg = malloc(128);
+        sprintf(msg, "expected function with at least %d parameter(s) but got %d",
+                expected_required, actual_params);
+        return msg;
+    }
+
+    // If expected type specifies more params than function has, that's an error
+    // (unless function has rest params)
+    if (expected_params > actual_params && !fn->rest_param) {
+        char *msg = malloc(128);
+        sprintf(msg, "expected function with %d parameter(s) but got %d",
+                expected_params, actual_params);
+        return msg;
+    }
+
+    // Check parameter types for matching positions
+    int params_to_check = expected_params < actual_params ? expected_params : actual_params;
+    for (int i = 0; i < params_to_check; i++) {
+        Type *expected_param = expected_type->fn_param_types ? expected_type->fn_param_types[i] : NULL;
+        Type *actual_param = fn->param_types ? fn->param_types[i] : NULL;
+
+        if (!types_compatible(expected_param, actual_param)) {
+            char *exp_str = format_type(expected_param);
+            char *act_str = format_type(actual_param);
+            char *msg = malloc(256);
+            sprintf(msg, "parameter %d: expected %s but got %s", i + 1, exp_str, act_str);
+            free(exp_str);
+            free(act_str);
+            return msg;
+        }
+    }
+
+    // Check return type
+    if (!types_compatible(expected_type->fn_return_type, fn->return_type)) {
+        char *exp_str = format_type(expected_type->fn_return_type);
+        char *act_str = format_type(fn->return_type);
+        char *msg = malloc(256);
+        sprintf(msg, "return type: expected %s but got %s", exp_str, act_str);
+        free(exp_str);
+        free(act_str);
+        return msg;
+    }
+
+    return NULL;  // Valid
 }
 
 // Helper to convert a value to a target type
@@ -787,13 +1023,26 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     TypeKind kind = target_type->kind;
 
-    // Handle function types early - just verify it's a function
+    // Handle function types early - validate signature
     if (kind == TYPE_FUNCTION) {
-        if (value.type == VAL_FUNCTION) {
-            return value;  // TODO: Could validate parameter/return types
+        if (value.type != VAL_FUNCTION) {
+            fprintf(stderr, "Runtime error: Expected function value\n");
+            exit(1);
         }
-        fprintf(stderr, "Runtime error: Expected function value\n");
-        exit(1);
+
+        // Validate function signature
+        Function *fn = value.as.as_function;
+        char *error = validate_function_signature(target_type, fn);
+        if (error) {
+            char *expected_str = format_type(target_type);
+            fprintf(stderr, "Runtime error: Function signature mismatch: %s\n", error);
+            fprintf(stderr, "  Expected: %s\n", expected_str);
+            free(expected_str);
+            free(error);
+            exit(1);
+        }
+
+        return value;
     }
 
     // Handle object and enum types (both use TYPE_CUSTOM_OBJECT at parse time)
@@ -1174,12 +1423,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             exit(1);
 
         case TYPE_FUNCTION:
-            // Function types are used for type annotations on callbacks
-            // At runtime, we just verify it's a function
-            if (value.type == VAL_FUNCTION) {
-                return value;
-            }
-            fprintf(stderr, "Runtime error: Expected function value\n");
+            // Function types are handled earlier in this function (with signature validation)
+            fprintf(stderr, "Runtime error: Internal error - function type not handled properly\n");
             exit(1);
 
         case TYPE_SELF:
