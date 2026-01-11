@@ -33,7 +33,11 @@ void hml_array_push(HmlValue arr, HmlValue val) {
     // Grow if needed
     if (a->length >= a->capacity) {
         int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
-        a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        if (!new_elements) {
+            hml_runtime_error("Out of memory expanding array");
+        }
+        a->elements = new_elements;
         a->capacity = new_cap;
     }
 
@@ -82,7 +86,11 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
         // Grow capacity if needed
         if (a->length >= a->capacity) {
             int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
-            a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+            HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+            if (!new_elements) {
+                hml_runtime_error("Out of memory expanding array");
+            }
+            a->elements = new_elements;
             a->capacity = new_cap;
         }
         a->elements[a->length] = hml_val_null();
@@ -152,7 +160,11 @@ void hml_array_unshift(HmlValue arr, HmlValue val) {
     // Grow if needed
     if (a->length >= a->capacity) {
         int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
-        a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        if (!new_elements) {
+            hml_runtime_error("Out of memory expanding array");
+        }
+        a->elements = new_elements;
         a->capacity = new_cap;
     }
 
@@ -186,7 +198,11 @@ void hml_array_insert(HmlValue arr, HmlValue index, HmlValue val) {
     // Grow if needed
     if (a->length >= a->capacity) {
         int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
-        a->elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
+        if (!new_elements) {
+            hml_runtime_error("Out of memory expanding array");
+        }
+        a->elements = new_elements;
         a->capacity = new_cap;
     }
 
