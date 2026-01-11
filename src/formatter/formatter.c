@@ -353,6 +353,96 @@ static void advance_blank_lines_past(BlankLineList *list, int line) {
     }
 }
 
+// ========== ORIGINAL LITERAL PRESERVATION ==========
+
+// Map (line, col) -> original source text for literals
+// This allows preserving hex/binary/octal formats and numeric separators
+
+typedef struct {
+    int line;
+    int col;
+    char *text;  // Original source text (e.g., "0xDEADBEEF", "1_000_000")
+} LiteralSpan;
+
+typedef struct {
+    LiteralSpan *spans;
+    int count;
+    int capacity;
+} LiteralMap;
+
+static void literal_map_init(LiteralMap *map) {
+    map->capacity = 64;
+    map->spans = malloc(map->capacity * sizeof(LiteralSpan));
+    map->count = 0;
+}
+
+static void literal_map_free(LiteralMap *map) {
+    for (int i = 0; i < map->count; i++) {
+        free(map->spans[i].text);
+    }
+    free(map->spans);
+    map->spans = NULL;
+    map->count = map->capacity = 0;
+}
+
+static void literal_map_add(LiteralMap *map, int line, int col, const char *text) {
+    if (map->count >= map->capacity) {
+        map->capacity *= 2;
+        map->spans = realloc(map->spans, map->capacity * sizeof(LiteralSpan));
+    }
+    map->spans[map->count].line = line;
+    map->spans[map->count].col = col;
+    map->spans[map->count].text = strdup(text);
+    map->count++;
+}
+
+static const char *literal_map_lookup(LiteralMap *map, int line, int col) {
+    if (!map) return NULL;
+    for (int i = 0; i < map->count; i++) {
+        if (map->spans[i].line == line && map->spans[i].col == col) {
+            return map->spans[i].text;
+        }
+    }
+    return NULL;
+}
+
+// Extract number literals from source using the lexer (ensures line/col match AST)
+static void extract_literals(const char *source, LiteralMap *map) {
+    if (!source || !map) return;
+
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    while (1) {
+        Token tok = lexer_next(&lexer);
+        if (tok.type == TOK_EOF) break;
+
+        if (tok.type == TOK_NUMBER) {
+            // Check if this literal has special formatting worth preserving
+            // (hex/bin/oct prefix or underscores)
+            int has_prefix = (tok.length > 1 && tok.start[0] == '0' &&
+                             (tok.start[1] == 'x' || tok.start[1] == 'X' ||
+                              tok.start[1] == 'b' || tok.start[1] == 'B' ||
+                              tok.start[1] == 'o' || tok.start[1] == 'O'));
+            int has_underscore = (memchr(tok.start, '_', tok.length) != NULL);
+
+            if (has_prefix || has_underscore) {
+                // Copy the original text
+                char *text = malloc(tok.length + 1);
+                memcpy(text, tok.start, tok.length);
+                text[tok.length] = '\0';
+                literal_map_add(map, tok.line, tok.column, text);
+                free(text);
+            }
+        }
+
+        // Free string tokens (they allocate memory)
+        if (tok.type == TOK_STRING && tok.string_value) {
+            free(tok.string_value);
+        }
+    }
+}
+
 // ========== FORMATTER CONTEXT ==========
 
 struct FmtCtx {
@@ -361,6 +451,7 @@ struct FmtCtx {
     int column;          // Current column position (for line width tracking)
     CommentList *comments;  // Extracted comments
     BlankLineList *blank_lines;  // Extracted blank lines
+    LiteralMap *literals;  // Original literal text map
     int output_line;     // Current output line (1-based)
     int last_source_line;  // Last source line processed (for comment association)
     bool is_else_if;     // Skip leading indent for else-if (follows "else " on same line)
@@ -679,7 +770,7 @@ static int estimate_type_len(Type *type) {
                 }
             }
             len += 1;  // ")"
-            if (type->fn_return_type && type->fn_return_type->kind != TYPE_VOID) {
+            if (type->fn_return_type && type->fn_return_type->kind != TYPE_INFER) {
                 len += 2 + estimate_type_len(type->fn_return_type);
             }
             return len;
@@ -840,7 +931,8 @@ static void fmt_type(FmtCtx *ctx, Type *type) {
                 }
             }
             buf_append_char(&ctx->buf, ')');
-            if (type->fn_return_type && type->fn_return_type->kind != TYPE_VOID) {
+            // Output return type (including void - it was explicitly specified)
+            if (type->fn_return_type && type->fn_return_type->kind != TYPE_INFER) {
                 buf_append(&ctx->buf, ": ");
                 fmt_type(ctx, type->fn_return_type);
             }
@@ -849,6 +941,55 @@ static void fmt_type(FmtCtx *ctx, Type *type) {
 
     if (type->nullable) {
         buf_append_char(&ctx->buf, '?');
+    }
+}
+
+// ========== ANNOTATION FORMATTING ==========
+
+// Forward declaration
+#include "ast.h"
+
+// Format annotations (e.g., @inline, @hot, @optimize("3"))
+static void fmt_annotations(FmtCtx *ctx, Annotation **annotations, int count) {
+    if (!annotations || count == 0) return;
+
+    for (int i = 0; i < count; i++) {
+        Annotation *a = annotations[i];
+        if (!a) continue;
+
+        fmt_indent(ctx);
+        buf_append_char(&ctx->buf, '@');
+        buf_append(&ctx->buf, a->name);
+
+        // Format arguments if present
+        if (a->args && a->arg_count > 0) {
+            buf_append_char(&ctx->buf, '(');
+            for (int j = 0; j < a->arg_count; j++) {
+                if (j > 0) buf_append(&ctx->buf, ", ");
+                AnnotationArg *arg = &a->args[j];
+                // Named argument
+                if (arg->name) {
+                    buf_append(&ctx->buf, arg->name);
+                    buf_append(&ctx->buf, ": ");
+                }
+                // Value
+                switch (arg->kind) {
+                    case ANNOT_ARG_STRING:
+                        buf_append_char(&ctx->buf, '"');
+                        buf_append(&ctx->buf, arg->value.string_val);
+                        buf_append_char(&ctx->buf, '"');
+                        break;
+                    case ANNOT_ARG_NUMBER:
+                        buf_printf(&ctx->buf, "%g", arg->value.number_val);
+                        break;
+                    case ANNOT_ARG_IDENT:
+                        buf_append(&ctx->buf, arg->value.ident_val);
+                        break;
+                }
+            }
+            buf_append_char(&ctx->buf, ')');
+        }
+        fmt_newline(ctx);
     }
 }
 
@@ -884,6 +1025,9 @@ static void fmt_fn_params(FmtCtx *ctx, Expr *fn, const char *fn_name, const char
         }
         if (fn->as.function.param_is_ref && fn->as.function.param_is_ref[i]) {
             buf_append(&ctx->buf, "ref ");
+        }
+        if (fn->as.function.param_is_const && fn->as.function.param_is_const[i]) {
+            buf_append(&ctx->buf, "const ");
         }
         buf_append(&ctx->buf, fn->as.function.param_names[i]);
         if (fn->as.function.param_types && fn->as.function.param_types[i] &&
@@ -1078,13 +1222,18 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
     if (!expr) return;
 
     switch (expr->type) {
-        case EXPR_NUMBER:
-            if (expr->as.number.is_float) {
+        case EXPR_NUMBER: {
+            // Try to use original literal text (preserves hex/bin/oct and separators)
+            const char *original = literal_map_lookup(ctx->literals, expr->line, expr->column);
+            if (original) {
+                buf_append(&ctx->buf, original);
+            } else if (expr->as.number.is_float) {
                 buf_printf(&ctx->buf, "%g", expr->as.number.float_value);
             } else {
                 buf_printf(&ctx->buf, "%ld", (long)expr->as.number.int_value);
             }
             break;
+        }
 
         case EXPR_BOOL:
             buf_append(&ctx->buf, expr->as.boolean ? "true" : "false");
@@ -1179,6 +1328,11 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
                     fmt_indent(ctx);
                 } else if (i > 0) {
                     buf_append(&ctx->buf, ", ");
+                }
+                // Output named argument prefix if present
+                if (expr->as.call.arg_names && expr->as.call.arg_names[i]) {
+                    buf_append(&ctx->buf, expr->as.call.arg_names[i]);
+                    buf_append(&ctx->buf, ": ");
                 }
                 fmt_expr(ctx, expr->as.call.args[i]);
                 if (should_break) {
@@ -1442,9 +1596,11 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
 
     switch (stmt->type) {
         case STMT_LET:
-            fmt_indent(ctx);
             // Check if this is a named function declaration (fn name(...) { ... })
             if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
+                // Output annotations before the function
+                fmt_annotations(ctx, stmt->as.let.annotations, stmt->as.let.annotation_count);
+                fmt_indent(ctx);
                 Expr *fn = stmt->as.let.value;
                 const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
                 fmt_fn_params(ctx, fn, stmt->as.let.name, prefix);
@@ -1452,6 +1608,7 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 fmt_stmt(ctx, fn->as.function.body);
                 // No semicolon after function body
             } else {
+                fmt_indent(ctx);
                 buf_append(&ctx->buf, "let ");
                 buf_append(&ctx->buf, stmt->as.let.name);
                 if (stmt->as.let.type_annotation && stmt->as.let.type_annotation->kind != TYPE_INFER) {
@@ -1716,9 +1873,19 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
             fmt_indent(ctx);
             buf_append(&ctx->buf, "define ");
             buf_append(&ctx->buf, stmt->as.define_object.name);
+            // Type parameters
+            if (stmt->as.define_object.num_type_params > 0) {
+                buf_append_char(&ctx->buf, '<');
+                for (int i = 0; i < stmt->as.define_object.num_type_params; i++) {
+                    if (i > 0) buf_append(&ctx->buf, ", ");
+                    buf_append(&ctx->buf, stmt->as.define_object.type_params[i]);
+                }
+                buf_append_char(&ctx->buf, '>');
+            }
             buf_append(&ctx->buf, " {");
             fmt_newline(ctx);
             ctx->indent++;
+            // Fields
             for (int i = 0; i < stmt->as.define_object.num_fields; i++) {
                 fmt_indent(ctx);
                 buf_append(&ctx->buf, stmt->as.define_object.field_names[i]);
@@ -1734,6 +1901,39 @@ static void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                     fmt_expr(ctx, stmt->as.define_object.field_defaults[i]);
                 }
                 buf_append_char(&ctx->buf, ',');  // Always add trailing comma
+                fmt_newline(ctx);
+            }
+            // Method signatures
+            for (int i = 0; i < stmt->as.define_object.num_methods; i++) {
+                fmt_indent(ctx);
+                buf_append(&ctx->buf, "fn ");
+                buf_append(&ctx->buf, stmt->as.define_object.method_names[i]);
+                if (stmt->as.define_object.method_optional && stmt->as.define_object.method_optional[i]) {
+                    buf_append_char(&ctx->buf, '?');
+                }
+                // Format method type (function signature)
+                if (stmt->as.define_object.method_types && stmt->as.define_object.method_types[i]) {
+                    Type *mt = stmt->as.define_object.method_types[i];
+                    if (mt->kind == TYPE_FUNCTION) {
+                        buf_append_char(&ctx->buf, '(');
+                        for (int j = 0; j < mt->fn_num_params; j++) {
+                            if (j > 0) buf_append(&ctx->buf, ", ");
+                            if (mt->fn_param_names && mt->fn_param_names[j]) {
+                                buf_append(&ctx->buf, mt->fn_param_names[j]);
+                                buf_append(&ctx->buf, ": ");
+                            }
+                            if (mt->fn_param_types && mt->fn_param_types[j]) {
+                                fmt_type(ctx, mt->fn_param_types[j]);
+                            }
+                        }
+                        buf_append_char(&ctx->buf, ')');
+                        if (mt->fn_return_type && mt->fn_return_type->kind != TYPE_INFER) {
+                            buf_append(&ctx->buf, ": ");
+                            fmt_type(ctx, mt->fn_return_type);
+                        }
+                    }
+                }
+                buf_append_char(&ctx->buf, ',');
                 fmt_newline(ctx);
             }
             ctx->indent--;
@@ -2094,6 +2294,11 @@ char *format_source(const char *source) {
     blank_line_list_init(&blank_lines);
     extract_blank_lines(source, &blank_lines);
 
+    // Extract original literal text (preserves hex/bin/oct and separators)
+    LiteralMap literals;
+    literal_map_init(&literals);
+    extract_literals(source, &literals);
+
     // Parse
     Lexer lexer;
     lexer_init(&lexer, source);
@@ -2108,6 +2313,7 @@ char *format_source(const char *source) {
         fprintf(stderr, "Format failed: parse errors\n");
         comment_list_free(&comments);
         blank_line_list_free(&blank_lines);
+        literal_map_free(&literals);
         return NULL;
     }
 
@@ -2118,6 +2324,7 @@ char *format_source(const char *source) {
     ctx.column = 0;
     ctx.comments = &comments;
     ctx.blank_lines = &blank_lines;
+    ctx.literals = &literals;
     ctx.output_line = 1;
     ctx.last_source_line = 0;
     ctx.is_else_if = false;
@@ -2197,9 +2404,10 @@ char *format_source(const char *source) {
     }
     free(statements);
 
-    // Cleanup comments and blank lines
+    // Cleanup comments, blank lines, and literal map
     comment_list_free(&comments);
     blank_line_list_free(&blank_lines);
+    literal_map_free(&literals);
 
     // Remove trailing newline at end of file
     while (ctx.buf.len > 0 && ctx.buf.data[ctx.buf.len - 1] == '\n') {

@@ -122,11 +122,16 @@ Expr* primary(Parser *p) {
     }
 
     if (match(p, TOK_NUMBER)) {
+        Expr *expr;
         if (p->previous.is_float) {
-            return expr_number_float(p->previous.float_value);
+            expr = expr_number_float(p->previous.float_value);
         } else {
-            return expr_number_int(p->previous.int_value);
+            expr = expr_number_int(p->previous.int_value);
         }
+        // Preserve source location for formatter literal preservation
+        expr->line = p->previous.line;
+        expr->column = p->previous.column;
+        return expr;
     }
 
     if (match(p, TOK_STRING)) {
