@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include "resolver.h"
-#include "annotations.h"
+#include "frontend/resolver.h"
+#include "frontend/annotations.h"
 
 /*
  * Create a new resolver scope.

@@ -62,16 +62,21 @@ endif
 # ========== SOURCE FILES (New Structure) ==========
 # Frontend: shared lexer, parser, AST, and modules
 MODULES_SRCS = $(wildcard $(SRC_DIR)/modules/*.c)
-FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/*.c) $(wildcard $(SRC_DIR)/frontend/parser/*.c) $(MODULES_SRCS)
+FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/lexer/*.c) \
+                $(wildcard $(SRC_DIR)/frontend/parser/*.c) \
+                $(wildcard $(SRC_DIR)/frontend/resolver/*.c) \
+                $(wildcard $(SRC_DIR)/frontend/optimizer/*.c) \
+                $(wildcard $(SRC_DIR)/frontend/formatter/*.c) \
+                $(MODULES_SRCS)
 
 # Frontend files for compiler (exclude module.c which has interpreter-specific code)
-FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/ast.c \
-                         $(SRC_DIR)/frontend/ast_serialize.c \
-                         $(SRC_DIR)/frontend/annotations.c \
-                         $(SRC_DIR)/frontend/lexer.c \
-                         $(SRC_DIR)/frontend/optimizer.c \
-                         $(SRC_DIR)/frontend/resolver.c \
-                         $(wildcard $(SRC_DIR)/frontend/parser/*.c) \
+FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/parser/ast.c \
+                         $(SRC_DIR)/frontend/parser/ast_serialize.c \
+                         $(SRC_DIR)/frontend/parser/annotations.c \
+                         $(SRC_DIR)/frontend/lexer/lexer.c \
+                         $(SRC_DIR)/frontend/optimizer/optimizer.c \
+                         $(SRC_DIR)/frontend/resolver/resolver.c \
+                         $(filter-out $(SRC_DIR)/frontend/parser/module.c, $(wildcard $(SRC_DIR)/frontend/parser/*.c)) \
                          $(MODULES_SRCS)
 
 # Interpreter backend
@@ -83,7 +88,6 @@ INTERP_SRCS = $(wildcard $(SRC_DIR)/backends/interpreter/*.c) \
 
 # Other components (LSP, bundler, formatter, and type checker for LSP integration)
 OTHER_SRCS = $(wildcard $(SRC_DIR)/lsp/*.c) $(wildcard $(SRC_DIR)/bundler/*.c) \
-             $(wildcard $(SRC_DIR)/formatter/*.c) \
              $(SRC_DIR)/backends/compiler/type_check.c
 
 # All interpreter sources
@@ -94,7 +98,11 @@ TARGET = hemlock
 # Build directories
 BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/frontend \
+             $(BUILD_DIR)/frontend/lexer \
              $(BUILD_DIR)/frontend/parser \
+             $(BUILD_DIR)/frontend/resolver \
+             $(BUILD_DIR)/frontend/optimizer \
+             $(BUILD_DIR)/frontend/formatter \
              $(BUILD_DIR)/backends/interpreter \
              $(BUILD_DIR)/backends/interpreter/builtins \
              $(BUILD_DIR)/backends/interpreter/io \
@@ -470,7 +478,11 @@ RELEASE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(RELEASE_BUILD_DIR)/%.o,$(SRCS))
 # Release build directories
 RELEASE_BUILD_DIRS = $(RELEASE_BUILD_DIR) \
                      $(RELEASE_BUILD_DIR)/frontend \
+                     $(RELEASE_BUILD_DIR)/frontend/lexer \
                      $(RELEASE_BUILD_DIR)/frontend/parser \
+                     $(RELEASE_BUILD_DIR)/frontend/resolver \
+                     $(RELEASE_BUILD_DIR)/frontend/optimizer \
+                     $(RELEASE_BUILD_DIR)/frontend/formatter \
                      $(RELEASE_BUILD_DIR)/backends/interpreter \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/builtins \
                      $(RELEASE_BUILD_DIR)/backends/interpreter/io \
@@ -565,7 +577,11 @@ STATIC_OBJS = $(patsubst $(SRC_DIR)/%.c,$(STATIC_BUILD_DIR)/%.o,$(SRCS))
 # Static build directories
 STATIC_BUILD_DIRS = $(STATIC_BUILD_DIR) \
                     $(STATIC_BUILD_DIR)/frontend \
+                    $(STATIC_BUILD_DIR)/frontend/lexer \
                     $(STATIC_BUILD_DIR)/frontend/parser \
+                    $(STATIC_BUILD_DIR)/frontend/resolver \
+                    $(STATIC_BUILD_DIR)/frontend/optimizer \
+                    $(STATIC_BUILD_DIR)/frontend/formatter \
                     $(STATIC_BUILD_DIR)/backends/interpreter \
                     $(STATIC_BUILD_DIR)/backends/interpreter/builtins \
                     $(STATIC_BUILD_DIR)/backends/interpreter/io \

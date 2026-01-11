@@ -8,7 +8,7 @@
 #ifndef HEMLOCK_TYPE_CHECK_H
 #define HEMLOCK_TYPE_CHECK_H
 
-#include "../../include/ast.h"
+#include "frontend/ast.h"
 
 // ========== CHECKED TYPE REPRESENTATION ==========
 

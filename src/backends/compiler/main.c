@@ -11,13 +11,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <limits.h>
-#include "../../include/lexer.h"
-#include "../../include/parser.h"
-#include "../../include/ast.h"
+#include "frontend.h"
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
-#include "../../include/resolver.h"
-#include "../../include/optimizer.h"
 #include "codegen.h"
 #include "type_check.h"
 

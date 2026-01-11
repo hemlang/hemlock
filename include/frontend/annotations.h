@@ -1,7 +1,7 @@
 #ifndef HEMLOCK_ANNOTATIONS_H
 #define HEMLOCK_ANNOTATIONS_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 
 // Declaration types that can have annotations
 typedef enum {

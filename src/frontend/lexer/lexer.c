@@ -1,4 +1,4 @@
-#include "lexer.h"
+#include "frontend/lexer.h"
 #include "hemlock_limits.h"
 #include <stdlib.h>
 #include <string.h>

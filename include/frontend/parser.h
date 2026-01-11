@@ -1,8 +1,8 @@
 #ifndef HEMLOCK_PARSER_H
 #define HEMLOCK_PARSER_H
 
-#include "lexer.h"
-#include "ast.h"
+#include "frontend/lexer.h"
+#include "frontend/ast.h"
 
 // Parser state
 typedef struct {

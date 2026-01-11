@@ -3,9 +3,9 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
-#include "formatter.h"
-#include "lexer.h"
-#include "parser.h"
+#include "frontend/formatter.h"
+#include "frontend/lexer.h"
+#include "frontend/parser.h"
 
 // ========== STRING BUFFER ==========
 
@@ -966,7 +966,7 @@ static void fmt_type(FmtCtx *ctx, Type *type) {
 // ========== ANNOTATION FORMATTING ==========
 
 // Forward declaration
-#include "ast.h"
+#include "frontend/ast.h"
 
 // Format annotations (e.g., @inline, @hot, @optimize("3"))
 static void fmt_annotations(FmtCtx *ctx, Annotation **annotations, int count) {

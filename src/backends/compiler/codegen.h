@@ -7,7 +7,7 @@
 #ifndef HEMLOCK_CODEGEN_H
 #define HEMLOCK_CODEGEN_H
 
-#include "../../include/ast.h"
+#include "frontend/ast.h"
 #include "../../include/modules.h"
 #include "type_check.h"
 #include <stdio.h>

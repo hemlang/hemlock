@@ -6,9 +6,7 @@
 #include "lsp.h"
 #include "protocol.h"
 
-#include "../../include/lexer.h"
-#include "../../include/parser.h"
-#include "../../include/ast.h"
+#include "frontend.h"
 #include "../../include/version.h"
 
 #include <stdlib.h>

@@ -1,5 +1,5 @@
 #include "internal.h"
-#include "annotations.h"
+#include "frontend/annotations.h"
 
 // ========== ANNOTATION PARSING ==========
 
@@ -1764,4 +1764,3 @@ not_function:
 }
 
 #undef RETURN_STMT
-

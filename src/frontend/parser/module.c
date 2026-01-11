@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 500
-#include "module.h"
-#include "parser.h"
-#include "lexer.h"
+#include "frontend/module.h"
+#include "frontend/parser.h"
+#include "frontend/lexer.h"
 #include "interpreter/internal.h"
 #include <stdlib.h>
 #include <string.h>

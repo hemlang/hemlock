@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "optimizer.h"
+#include "frontend/optimizer.h"
 
 /* Forward declarations */
 static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats);

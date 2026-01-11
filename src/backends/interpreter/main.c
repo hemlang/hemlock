@@ -4,18 +4,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <zlib.h>
-#include "lexer.h"
-#include "parser.h"
-#include "ast.h"
+#include "frontend.h"
 #include "interpreter.h"
-#include "module.h"
-#include "resolver.h"
-#include "optimizer.h"
 #include "interpreter/internal.h"
 #include "lsp/lsp.h"
-#include "ast_serialize.h"
 #include "bundler/bundler.h"
-#include "formatter.h"
 #include "version.h"
 #include "profiler/profiler.h"
 

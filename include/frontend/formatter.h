@@ -1,7 +1,7 @@
 #ifndef HEMLOCK_FORMATTER_H
 #define HEMLOCK_FORMATTER_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 
 // Formatter configuration (opinionated, not configurable by user)
 #define FMT_INDENT_CHAR '\t'

@@ -12,7 +12,7 @@
 #ifndef HEMLOCK_BUNDLER_H
 #define HEMLOCK_BUNDLER_H
 
-#include "../include/ast.h"
+#include "frontend/ast.h"
 #include "../include/modules.h"
 #include <stdint.h>
 

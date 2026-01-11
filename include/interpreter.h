@@ -1,7 +1,7 @@
 #ifndef HEMLOCK_INTERPRETER_H
 #define HEMLOCK_INTERPRETER_H
 
-#include "ast.h"
+#include "frontend/ast.h"
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
