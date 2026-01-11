@@ -183,7 +183,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         // Create temporary string from rune
         String *rune_str = string_new(rune_bytes);
         String *result = string_concat(left.as.as_string, rune_str);
-        free(rune_str);  // Free temporary string
+        string_free(rune_str);  // Free temporary string
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -198,7 +198,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         // Create temporary string from rune
         String *rune_str = string_new(rune_bytes);
         String *result = string_concat(rune_str, right.as.as_string);
-        free(rune_str);  // Free temporary string
+        string_free(rune_str);  // Free temporary string
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -209,7 +209,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         String *right_string = string_new(right_str);
         free(right_str);
         String *result = string_concat(left.as.as_string, right_string);
-        free(right_string);
+        string_free(right_string);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -220,7 +220,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         String *left_string = string_new(left_str);
         free(left_str);
         String *result = string_concat(left_string, right.as.as_string);
-        free(left_string);
+        string_free(left_string);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -238,7 +238,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         String *right_string = string_new(right_json);
         free(right_json);
         String *result = string_concat(left.as.as_string, right_string);
-        free(right_string);
+        string_free(right_string);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -256,7 +256,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         String *left_string = string_new(left_json);
         free(left_json);
         String *result = string_concat(left_string, right.as.as_string);
-        free(left_string);
+        string_free(left_string);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -265,7 +265,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_NULL) {
         String *null_str = string_new("null");
         String *result = string_concat(left.as.as_string, null_str);
-        free(null_str);
+        string_free(null_str);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
@@ -274,7 +274,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (expr->as.binary.op == OP_ADD && left.type == VAL_NULL && right.type == VAL_STRING) {
         String *null_str = string_new("null");
         String *result = string_concat(null_str, right.as.as_string);
-        free(null_str);
+        string_free(null_str);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
