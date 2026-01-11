@@ -96,10 +96,21 @@ int resolver_define(ResolverContext *ctx, const char *name, Annotation **annotat
 
     // Grow if needed
     if (scope->count >= scope->capacity) {
-        scope->capacity *= 2;
-        scope->names = realloc(scope->names, sizeof(char *) * scope->capacity);
-        scope->annotations = realloc(scope->annotations, sizeof(Annotation **) * scope->capacity);
-        scope->annotation_counts = realloc(scope->annotation_counts, sizeof(int) * scope->capacity);
+        int new_capacity = scope->capacity * 2;
+        char **new_names = realloc(scope->names, sizeof(char *) * new_capacity);
+        Annotation ***new_annotations = realloc(scope->annotations, sizeof(Annotation **) * new_capacity);
+        int *new_annotation_counts = realloc(scope->annotation_counts, sizeof(int) * new_capacity);
+        if (!new_names || !new_annotations || !new_annotation_counts) {
+            if (new_names) scope->names = new_names;
+            if (new_annotations) scope->annotations = new_annotations;
+            if (new_annotation_counts) scope->annotation_counts = new_annotation_counts;
+            fprintf(stderr, "Resolver error: Memory allocation failed\n");
+            return -1;
+        }
+        scope->names = new_names;
+        scope->annotations = new_annotations;
+        scope->annotation_counts = new_annotation_counts;
+        scope->capacity = new_capacity;
     }
 
     int slot = scope->count;

@@ -60,7 +60,18 @@ static Annotation **parse_annotations(Parser *p, int *count) {
     while (check(p, TOK_AT)) {
         if (*count >= capacity) {
             capacity = capacity == 0 ? 4 : capacity * 2;
-            annotations = realloc(annotations, sizeof(Annotation*) * capacity);
+            Annotation **new_annotations = realloc(annotations, sizeof(Annotation*) * capacity);
+            if (!new_annotations) {
+                // Free existing annotations on failure
+                for (int i = 0; i < *count; i++) {
+                    annotation_free(annotations[i]);
+                }
+                free(annotations);
+                error(p, "Memory allocation failed for annotations");
+                *count = 0;
+                return NULL;
+            }
+            annotations = new_annotations;
         }
         annotations[(*count)++] = parse_annotation(p);
     }
@@ -119,13 +130,23 @@ Stmt* const_statement(Parser *p) {
 Stmt* block_statement(Parser *p) {
     int capacity = 256;
     Stmt **statements = malloc(sizeof(Stmt*) * capacity);
+    if (!statements) {
+        error(p, "Memory allocation failed for block statements");
+        return stmt_block(NULL, 0);
+    }
     int count = 0;
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
         // Grow array if needed
         if (count >= capacity) {
             capacity *= 2;
-            statements = realloc(statements, sizeof(Stmt*) * capacity);
+            Stmt **new_statements = realloc(statements, sizeof(Stmt*) * capacity);
+            if (!new_statements) {
+                error(p, "Memory allocation failed for block statements");
+                // Return what we have so far
+                return stmt_block(statements, count);
+            }
+            statements = new_statements;
         }
         statements[count++] = statement(p);
     }
@@ -207,14 +228,29 @@ Stmt* switch_statement(Parser *p) {
     int case_capacity = 32;
     Expr **case_values = malloc(sizeof(Expr*) * case_capacity);
     Stmt **case_bodies = malloc(sizeof(Stmt*) * case_capacity);
+    if (!case_values || !case_bodies) {
+        free(case_values);
+        free(case_bodies);
+        error(p, "Memory allocation failed for switch cases");
+        return stmt_switch(expr, NULL, NULL, 0);
+    }
     int num_cases = 0;
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
         // Grow case arrays if needed
         if (num_cases >= case_capacity) {
             case_capacity *= 2;
-            case_values = realloc(case_values, sizeof(Expr*) * case_capacity);
-            case_bodies = realloc(case_bodies, sizeof(Stmt*) * case_capacity);
+            Expr **new_case_values = realloc(case_values, sizeof(Expr*) * case_capacity);
+            Stmt **new_case_bodies = realloc(case_bodies, sizeof(Stmt*) * case_capacity);
+            if (!new_case_values || !new_case_bodies) {
+                // Keep the original pointers if realloc failed
+                if (new_case_values) case_values = new_case_values;
+                if (new_case_bodies) case_bodies = new_case_bodies;
+                error(p, "Memory allocation failed for switch cases");
+                break;
+            }
+            case_values = new_case_values;
+            case_bodies = new_case_bodies;
         }
 
         if (match(p, TOK_CASE)) {
@@ -225,12 +261,22 @@ Stmt* switch_statement(Parser *p) {
             // Parse case body statements until we hit another case/default/closing brace
             int stmt_capacity = 32;
             Stmt **statements = malloc(sizeof(Stmt*) * stmt_capacity);
+            if (!statements) {
+                error(p, "Memory allocation failed for case statements");
+                break;
+            }
             int count = 0;
 
             while (!check(p, TOK_CASE) && !check(p, TOK_DEFAULT) && !check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
                 if (count >= stmt_capacity) {
                     stmt_capacity *= 2;
-                    statements = realloc(statements, sizeof(Stmt*) * stmt_capacity);
+                    Stmt **new_statements = realloc(statements, sizeof(Stmt*) * stmt_capacity);
+                    if (!new_statements) {
+                        error(p, "Memory allocation failed for case statements");
+                        // Use what we have so far
+                        break;
+                    }
+                    statements = new_statements;
                 }
                 statements[count++] = statement(p);
             }
@@ -246,12 +292,22 @@ Stmt* switch_statement(Parser *p) {
             // Parse default body statements
             int stmt_capacity = 32;
             Stmt **statements = malloc(sizeof(Stmt*) * stmt_capacity);
+            if (!statements) {
+                error(p, "Memory allocation failed for default statements");
+                break;
+            }
             int count = 0;
 
             while (!check(p, TOK_CASE) && !check(p, TOK_DEFAULT) && !check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
                 if (count >= stmt_capacity) {
                     stmt_capacity *= 2;
-                    statements = realloc(statements, sizeof(Stmt*) * stmt_capacity);
+                    Stmt **new_statements = realloc(statements, sizeof(Stmt*) * stmt_capacity);
+                    if (!new_statements) {
+                        error(p, "Memory allocation failed for default statements");
+                        // Use what we have so far
+                        break;
+                    }
+                    statements = new_statements;
                 }
                 statements[count++] = statement(p);
             }
@@ -515,6 +571,12 @@ Stmt* import_statement(Parser *p) {
     int import_capacity = 32;
     char **import_names = malloc(sizeof(char*) * import_capacity);
     char **import_aliases = malloc(sizeof(char*) * import_capacity);
+    if (!import_names || !import_aliases) {
+        free(import_names);
+        free(import_aliases);
+        error(p, "Memory allocation failed for import names");
+        return stmt_import_named(NULL, NULL, 0, NULL);
+    }
     int num_imports = 0;
 
     // Parse import list - supports trailing commas: import { a, b, c, }
@@ -525,8 +587,16 @@ Stmt* import_statement(Parser *p) {
         // Grow arrays if needed
         if (num_imports >= import_capacity) {
             import_capacity *= 2;
-            import_names = realloc(import_names, sizeof(char*) * import_capacity);
-            import_aliases = realloc(import_aliases, sizeof(char*) * import_capacity);
+            char **new_import_names = realloc(import_names, sizeof(char*) * import_capacity);
+            char **new_import_aliases = realloc(import_aliases, sizeof(char*) * import_capacity);
+            if (!new_import_names || !new_import_aliases) {
+                if (new_import_names) import_names = new_import_names;
+                if (new_import_aliases) import_aliases = new_import_aliases;
+                error(p, "Memory allocation failed for import names");
+                break;
+            }
+            import_names = new_import_names;
+            import_aliases = new_import_aliases;
         }
         consume(p, TOK_IDENT, "Expect import name");
         import_names[num_imports] = token_text(&p->previous);
@@ -560,6 +630,12 @@ Stmt* export_statement(Parser *p) {
         int export_capacity = 32;
         char **export_names = malloc(sizeof(char*) * export_capacity);
         char **export_aliases = malloc(sizeof(char*) * export_capacity);
+        if (!export_names || !export_aliases) {
+            free(export_names);
+            free(export_aliases);
+            error(p, "Memory allocation failed for export names");
+            return stmt_export_list(NULL, NULL, 0);
+        }
         int num_exports = 0;
 
         // Parse export list - supports trailing commas: export { a, b, c, }
@@ -570,8 +646,16 @@ Stmt* export_statement(Parser *p) {
             // Grow arrays if needed
             if (num_exports >= export_capacity) {
                 export_capacity *= 2;
-                export_names = realloc(export_names, sizeof(char*) * export_capacity);
-                export_aliases = realloc(export_aliases, sizeof(char*) * export_capacity);
+                char **new_export_names = realloc(export_names, sizeof(char*) * export_capacity);
+                char **new_export_aliases = realloc(export_aliases, sizeof(char*) * export_capacity);
+                if (!new_export_names || !new_export_aliases) {
+                    if (new_export_names) export_names = new_export_names;
+                    if (new_export_aliases) export_aliases = new_export_aliases;
+                    error(p, "Memory allocation failed for export names");
+                    break;
+                }
+                export_names = new_export_names;
+                export_aliases = new_export_aliases;
             }
             consume(p, TOK_IDENT, "Expect export name");
             export_names[num_exports] = token_text(&p->previous);
@@ -653,6 +737,16 @@ Stmt* export_statement(Parser *p) {
     Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
     int *param_is_ref = malloc(sizeof(int) * param_capacity);
     int *param_is_const = malloc(sizeof(int) * param_capacity);
+    if (!param_names || !param_types || !param_defaults || !param_is_ref || !param_is_const) {
+        free(param_names);
+        free(param_types);
+        free(param_defaults);
+        free(param_is_ref);
+        free(param_is_const);
+        free(name);
+        error(p, "Memory allocation failed for function parameters");
+        return stmt_expr(expr_number(0));
+    }
     int num_params = 0;
     int seen_optional = 0;
     char *rest_param = NULL;
@@ -684,12 +778,27 @@ Stmt* export_statement(Parser *p) {
 
             // Grow arrays if needed
             if (num_params >= param_capacity) {
-                param_capacity *= 2;
-                param_names = realloc(param_names, sizeof(char*) * param_capacity);
-                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
-                param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
-                param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
-                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+                int new_capacity = param_capacity * 2;
+                char **new_param_names = realloc(param_names, sizeof(char*) * new_capacity);
+                Type **new_param_types = realloc(param_types, sizeof(Type*) * new_capacity);
+                Expr **new_param_defaults = realloc(param_defaults, sizeof(Expr*) * new_capacity);
+                int *new_param_is_ref = realloc(param_is_ref, sizeof(int) * new_capacity);
+                int *new_param_is_const = realloc(param_is_const, sizeof(int) * new_capacity);
+                if (!new_param_names || !new_param_types || !new_param_defaults || !new_param_is_ref || !new_param_is_const) {
+                    if (new_param_names) param_names = new_param_names;
+                    if (new_param_types) param_types = new_param_types;
+                    if (new_param_defaults) param_defaults = new_param_defaults;
+                    if (new_param_is_ref) param_is_ref = new_param_is_ref;
+                    if (new_param_is_const) param_is_const = new_param_is_const;
+                    error(p, "Memory allocation failed for function parameters");
+                    break;
+                }
+                param_names = new_param_names;
+                param_types = new_param_types;
+                param_defaults = new_param_defaults;
+                param_is_ref = new_param_is_ref;
+                param_is_const = new_param_is_const;
+                param_capacity = new_capacity;
             }
 
             // Check for const keyword (immutable parameter)
@@ -765,6 +874,13 @@ Stmt* extern_fn_statement(Parser *p) {
     int param_capacity = 32;
     char **param_names = malloc(sizeof(char*) * param_capacity);
     Type **param_types = malloc(sizeof(Type*) * param_capacity);
+    if (!param_names || !param_types) {
+        free(param_names);
+        free(param_types);
+        free(function_name);
+        error(p, "Memory allocation failed for extern function parameters");
+        return stmt_expr(expr_number(0));
+    }
     int num_params = 0;
 
     if (!check(p, TOK_RPAREN)) {
@@ -775,8 +891,16 @@ Stmt* extern_fn_statement(Parser *p) {
             // Grow array if needed
             if (num_params >= param_capacity) {
                 param_capacity *= 2;
-                param_names = realloc(param_names, sizeof(char*) * param_capacity);
-                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                char **new_param_names = realloc(param_names, sizeof(char*) * param_capacity);
+                Type **new_param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                if (!new_param_names || !new_param_types) {
+                    if (new_param_names) param_names = new_param_names;
+                    if (new_param_types) param_types = new_param_types;
+                    error(p, "Memory allocation failed for extern function parameters");
+                    break;
+                }
+                param_names = new_param_names;
+                param_types = new_param_types;
             }
             // Parameter name is required for syntax and preserved for formatting
             // Contextual keywords can be used as parameter names
@@ -815,6 +939,11 @@ Stmt* define_statement(Parser *p) {
 
     if (match(p, TOK_LESS)) {
         type_params = malloc(sizeof(char*) * type_param_capacity);
+        if (!type_params) {
+            free(name);
+            error(p, "Memory allocation failed for type parameters");
+            return stmt_expr(expr_number(0));
+        }
 
         do {
             // Allow trailing comma before closing >
@@ -823,7 +952,12 @@ Stmt* define_statement(Parser *p) {
             consume(p, TOK_IDENT, "Expect type parameter name");
             if (num_type_params >= type_param_capacity) {
                 type_param_capacity *= 2;
-                type_params = realloc(type_params, sizeof(char*) * type_param_capacity);
+                char **new_type_params = realloc(type_params, sizeof(char*) * type_param_capacity);
+                if (!new_type_params) {
+                    error(p, "Memory allocation failed for type parameters");
+                    break;
+                }
+                type_params = new_type_params;
             }
             type_params[num_type_params++] = token_text(&p->previous);
         } while (match(p, TOK_COMMA));
@@ -845,6 +979,17 @@ Stmt* define_statement(Parser *p) {
     Type **field_types = malloc(sizeof(Type*) * field_capacity);
     int *field_optional = malloc(sizeof(int) * field_capacity);
     Expr **field_defaults = malloc(sizeof(Expr*) * field_capacity);
+    if (!field_names || !field_types || !field_optional || !field_defaults) {
+        free(field_names);
+        free(field_types);
+        free(field_optional);
+        free(field_defaults);
+        free(name);
+        error(p, "Memory allocation failed for define fields");
+        p->type_params = old_type_params;
+        p->num_type_params = old_num_type_params;
+        return stmt_expr(expr_number(0));
+    }
     int num_fields = 0;
 
     int method_capacity = 16;
@@ -852,6 +997,21 @@ Stmt* define_statement(Parser *p) {
     Type **method_types = malloc(sizeof(Type*) * method_capacity);
     int *method_optional = malloc(sizeof(int) * method_capacity);
     Expr **method_defaults = malloc(sizeof(Expr*) * method_capacity);
+    if (!method_names || !method_types || !method_optional || !method_defaults) {
+        free(method_names);
+        free(method_types);
+        free(method_optional);
+        free(method_defaults);
+        free(field_names);
+        free(field_types);
+        free(field_optional);
+        free(field_defaults);
+        free(name);
+        error(p, "Memory allocation failed for define methods");
+        p->type_params = old_type_params;
+        p->num_type_params = old_num_type_params;
+        return stmt_expr(expr_number(0));
+    }
     int num_methods = 0;
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
@@ -859,11 +1019,24 @@ Stmt* define_statement(Parser *p) {
         if (match(p, TOK_FN)) {
             // Grow method arrays if needed
             if (num_methods >= method_capacity) {
-                method_capacity *= 2;
-                method_names = realloc(method_names, sizeof(char*) * method_capacity);
-                method_types = realloc(method_types, sizeof(Type*) * method_capacity);
-                method_optional = realloc(method_optional, sizeof(int) * method_capacity);
-                method_defaults = realloc(method_defaults, sizeof(Expr*) * method_capacity);
+                int new_capacity = method_capacity * 2;
+                char **new_method_names = realloc(method_names, sizeof(char*) * new_capacity);
+                Type **new_method_types = realloc(method_types, sizeof(Type*) * new_capacity);
+                int *new_method_optional = realloc(method_optional, sizeof(int) * new_capacity);
+                Expr **new_method_defaults = realloc(method_defaults, sizeof(Expr*) * new_capacity);
+                if (!new_method_names || !new_method_types || !new_method_optional || !new_method_defaults) {
+                    if (new_method_names) method_names = new_method_names;
+                    if (new_method_types) method_types = new_method_types;
+                    if (new_method_optional) method_optional = new_method_optional;
+                    if (new_method_defaults) method_defaults = new_method_defaults;
+                    error(p, "Memory allocation failed for method arrays");
+                    break;
+                }
+                method_names = new_method_names;
+                method_types = new_method_types;
+                method_optional = new_method_optional;
+                method_defaults = new_method_defaults;
+                method_capacity = new_capacity;
             }
 
             // Parse method name - contextual keywords can be used as method names
@@ -880,6 +1053,14 @@ Stmt* define_statement(Parser *p) {
             char **fn_param_names = malloc(sizeof(char*) * fn_param_capacity);
             int *fn_param_optional = malloc(sizeof(int) * fn_param_capacity);
             int *fn_param_is_const = malloc(sizeof(int) * fn_param_capacity);
+            if (!fn_param_types || !fn_param_names || !fn_param_optional || !fn_param_is_const) {
+                free(fn_param_types);
+                free(fn_param_names);
+                free(fn_param_optional);
+                free(fn_param_is_const);
+                error(p, "Memory allocation failed for method parameters");
+                break;
+            }
             int fn_num_params = 0;
 
             // Parse method parameters - supports trailing commas
@@ -889,11 +1070,24 @@ Stmt* define_statement(Parser *p) {
                     if (check(p, TOK_RPAREN)) break;
 
                     if (fn_num_params >= fn_param_capacity) {
-                        fn_param_capacity *= 2;
-                        fn_param_types = realloc(fn_param_types, sizeof(Type*) * fn_param_capacity);
-                        fn_param_names = realloc(fn_param_names, sizeof(char*) * fn_param_capacity);
-                        fn_param_optional = realloc(fn_param_optional, sizeof(int) * fn_param_capacity);
-                        fn_param_is_const = realloc(fn_param_is_const, sizeof(int) * fn_param_capacity);
+                        int new_capacity = fn_param_capacity * 2;
+                        Type **new_fn_param_types = realloc(fn_param_types, sizeof(Type*) * new_capacity);
+                        char **new_fn_param_names = realloc(fn_param_names, sizeof(char*) * new_capacity);
+                        int *new_fn_param_optional = realloc(fn_param_optional, sizeof(int) * new_capacity);
+                        int *new_fn_param_is_const = realloc(fn_param_is_const, sizeof(int) * new_capacity);
+                        if (!new_fn_param_types || !new_fn_param_names || !new_fn_param_optional || !new_fn_param_is_const) {
+                            if (new_fn_param_types) fn_param_types = new_fn_param_types;
+                            if (new_fn_param_names) fn_param_names = new_fn_param_names;
+                            if (new_fn_param_optional) fn_param_optional = new_fn_param_optional;
+                            if (new_fn_param_is_const) fn_param_is_const = new_fn_param_is_const;
+                            error(p, "Memory allocation failed for method parameters");
+                            break;
+                        }
+                        fn_param_types = new_fn_param_types;
+                        fn_param_names = new_fn_param_names;
+                        fn_param_optional = new_fn_param_optional;
+                        fn_param_is_const = new_fn_param_is_const;
+                        fn_param_capacity = new_capacity;
                     }
 
                     // Parse const modifier
@@ -960,11 +1154,24 @@ Stmt* define_statement(Parser *p) {
         // Otherwise, it's a field
         // Grow arrays if needed
         if (num_fields >= field_capacity) {
-            field_capacity *= 2;
-            field_names = realloc(field_names, sizeof(char*) * field_capacity);
-            field_types = realloc(field_types, sizeof(Type*) * field_capacity);
-            field_optional = realloc(field_optional, sizeof(int) * field_capacity);
-            field_defaults = realloc(field_defaults, sizeof(Expr*) * field_capacity);
+            int new_capacity = field_capacity * 2;
+            char **new_field_names = realloc(field_names, sizeof(char*) * new_capacity);
+            Type **new_field_types = realloc(field_types, sizeof(Type*) * new_capacity);
+            int *new_field_optional = realloc(field_optional, sizeof(int) * new_capacity);
+            Expr **new_field_defaults = realloc(field_defaults, sizeof(Expr*) * new_capacity);
+            if (!new_field_names || !new_field_types || !new_field_optional || !new_field_defaults) {
+                if (new_field_names) field_names = new_field_names;
+                if (new_field_types) field_types = new_field_types;
+                if (new_field_optional) field_optional = new_field_optional;
+                if (new_field_defaults) field_defaults = new_field_defaults;
+                error(p, "Memory allocation failed for field arrays");
+                break;
+            }
+            field_names = new_field_names;
+            field_types = new_field_types;
+            field_optional = new_field_optional;
+            field_defaults = new_field_defaults;
+            field_capacity = new_capacity;
         }
         field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
 
@@ -1087,6 +1294,11 @@ Stmt* statement(Parser *p) {
 
         if (match(p, TOK_LESS)) {
             type_params = malloc(sizeof(char*) * param_capacity);
+            if (!type_params) {
+                free(name);
+                error(p, "Memory allocation failed for type parameters");
+                RETURN_STMT(stmt_expr(expr_number(0)));
+            }
 
             do {
                 // Allow trailing comma before closing >
@@ -1094,7 +1306,12 @@ Stmt* statement(Parser *p) {
 
                 if (num_type_params >= param_capacity) {
                     param_capacity *= 2;
-                    type_params = realloc(type_params, sizeof(char*) * param_capacity);
+                    char **new_type_params = realloc(type_params, sizeof(char*) * param_capacity);
+                    if (!new_type_params) {
+                        error(p, "Memory allocation failed for type parameters");
+                        break;
+                    }
+                    type_params = new_type_params;
                 }
                 // Contextual keywords can be used as type parameter names
                 type_params[num_type_params++] = consume_identifier_or_type_keyword(p, "Expect type parameter name");
@@ -1136,14 +1353,29 @@ Stmt* statement(Parser *p) {
         int variant_capacity = 32;
         char **variant_names = malloc(sizeof(char*) * variant_capacity);
         Expr **variant_values = malloc(sizeof(Expr*) * variant_capacity);
+        if (!variant_names || !variant_values) {
+            free(variant_names);
+            free(variant_values);
+            free(name);
+            error(p, "Memory allocation failed for enum variants");
+            RETURN_STMT(stmt_expr(expr_number(0)));
+        }
         int num_variants = 0;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
             // Grow arrays if needed
             if (num_variants >= variant_capacity) {
                 variant_capacity *= 2;
-                variant_names = realloc(variant_names, sizeof(char*) * variant_capacity);
-                variant_values = realloc(variant_values, sizeof(Expr*) * variant_capacity);
+                char **new_variant_names = realloc(variant_names, sizeof(char*) * variant_capacity);
+                Expr **new_variant_values = realloc(variant_values, sizeof(Expr*) * variant_capacity);
+                if (!new_variant_names || !new_variant_values) {
+                    if (new_variant_names) variant_names = new_variant_names;
+                    if (new_variant_values) variant_values = new_variant_values;
+                    error(p, "Memory allocation failed for enum variants");
+                    break;
+                }
+                variant_names = new_variant_names;
+                variant_values = new_variant_values;
             }
             // Contextual keywords can be used as variant names
             variant_names[num_variants] = consume_identifier_or_type_keyword(p, "Expect variant name");
@@ -1200,6 +1432,16 @@ Stmt* statement(Parser *p) {
         Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
         int *param_is_ref = malloc(sizeof(int) * param_capacity);
         int *param_is_const = malloc(sizeof(int) * param_capacity);
+        if (!param_names || !param_types || !param_defaults || !param_is_ref || !param_is_const) {
+            free(param_names);
+            free(param_types);
+            free(param_defaults);
+            free(param_is_ref);
+            free(param_is_const);
+            free(name);
+            error(p, "Memory allocation failed for function parameters");
+            RETURN_STMT(stmt_expr(expr_number(0)));
+        }
         int num_params = 0;
         int seen_optional = 0;
         char *rest_param = NULL;
@@ -1231,12 +1473,27 @@ Stmt* statement(Parser *p) {
 
                 // Grow arrays if needed
                 if (num_params >= param_capacity) {
-                    param_capacity *= 2;
-                    param_names = realloc(param_names, sizeof(char*) * param_capacity);
-                    param_types = realloc(param_types, sizeof(Type*) * param_capacity);
-                    param_defaults = realloc(param_defaults, sizeof(Expr*) * param_capacity);
-                    param_is_ref = realloc(param_is_ref, sizeof(int) * param_capacity);
-                    param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+                    int new_capacity = param_capacity * 2;
+                    char **new_param_names = realloc(param_names, sizeof(char*) * new_capacity);
+                    Type **new_param_types = realloc(param_types, sizeof(Type*) * new_capacity);
+                    Expr **new_param_defaults = realloc(param_defaults, sizeof(Expr*) * new_capacity);
+                    int *new_param_is_ref = realloc(param_is_ref, sizeof(int) * new_capacity);
+                    int *new_param_is_const = realloc(param_is_const, sizeof(int) * new_capacity);
+                    if (!new_param_names || !new_param_types || !new_param_defaults || !new_param_is_ref || !new_param_is_const) {
+                        if (new_param_names) param_names = new_param_names;
+                        if (new_param_types) param_types = new_param_types;
+                        if (new_param_defaults) param_defaults = new_param_defaults;
+                        if (new_param_is_ref) param_is_ref = new_param_is_ref;
+                        if (new_param_is_const) param_is_const = new_param_is_const;
+                        error(p, "Memory allocation failed for function parameters");
+                        break;
+                    }
+                    param_names = new_param_names;
+                    param_types = new_param_types;
+                    param_defaults = new_param_defaults;
+                    param_is_ref = new_param_is_ref;
+                    param_is_const = new_param_is_const;
+                    param_capacity = new_capacity;
                 }
 
                 // Check for const keyword (immutable parameter)
