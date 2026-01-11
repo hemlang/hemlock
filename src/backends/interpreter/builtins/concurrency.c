@@ -50,6 +50,12 @@ static void* task_thread_wrapper(void* arg) {
     task->result = malloc(sizeof(Value));
     if (task->result) {
         *task->result = result;
+    } else {
+        // Memory allocation failed - log error and set exception state
+        // The result will be lost, but the caller will see an exception
+        fprintf(stderr, "Runtime error: Failed to allocate memory for task result\n");
+        task->ctx->exception_state.exception_value = val_string("Memory allocation failed for task result");
+        task->ctx->exception_state.is_throwing = 1;
     }
     task->state = TASK_COMPLETED;
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
