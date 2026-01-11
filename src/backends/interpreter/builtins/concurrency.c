@@ -455,8 +455,8 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 return val_object(result);
             }
 
-            // Check if buffered channel has data
-            if (ch->count > 0) {
+            // Check if buffered channel has data (capacity > 0 ensures no division by zero)
+            if (ch->capacity > 0 && ch->count > 0) {
                 // Read the value
                 Value msg = ch->buffer[ch->head];
                 ch->head = (ch->head + 1) % ch->capacity;
