@@ -82,6 +82,24 @@ jobs:
     - name: Check interpreter tests compile
       run: make compile-check
 
+  # Repo compile check - verify all .hml files compile with hemlockc
+  repo-compile-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Check repo .hml files compile
+      run: ./tests/run_repo_compile_check.sh
+
   # Bundler tests
   bundler:
     runs-on: ubuntu-latest
