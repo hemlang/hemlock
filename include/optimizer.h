@@ -19,6 +19,7 @@ typedef struct {
     int constants_folded;
     int booleans_simplified;
     int strength_reductions;
+    int dead_code_eliminated;
 } OptimizationStats;
 
 /*
