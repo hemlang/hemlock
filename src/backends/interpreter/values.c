@@ -208,8 +208,6 @@ void buffer_retain(Buffer *buf) {
 
 void buffer_release(Buffer *buf) {
     if (!buf) return;
-    // Skip if already manually freed via builtin_free()
-    if (atomic_load(&buf->freed)) return;
     int old_count = __atomic_sub_fetch(&buf->ref_count, 1, __ATOMIC_SEQ_CST);
     if (old_count == 0) {
         buffer_free(buf);
@@ -294,8 +292,6 @@ void array_retain(Array *arr) {
 
 void array_release(Array *arr) {
     if (!arr) return;
-    // Skip if already manually freed via builtin_free()
-    if (atomic_load(&arr->freed)) return;
     int old_count = __atomic_sub_fetch(&arr->ref_count, 1, __ATOMIC_SEQ_CST);
     if (old_count == 0) {
         array_free(arr);
@@ -467,8 +463,6 @@ void object_retain(Object *obj) {
 
 void object_release(Object *obj) {
     if (!obj) return;
-    // Skip if already manually freed via builtin_free()
-    if (atomic_load(&obj->freed)) return;
     int old_count = __atomic_sub_fetch(&obj->ref_count, 1, __ATOMIC_SEQ_CST);
     if (old_count == 0) {
         object_free(obj);
@@ -1382,8 +1376,23 @@ static void value_free_internal(Value val, VisitedSet *visited);
 static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (!obj) return;
 
-    // Check if manually freed via builtin_free()
-    if (atomic_load(&obj->freed)) return;
+    if (atomic_load(&obj->freed)) {
+        if (obj->type_name) free(obj->type_name);
+        if (obj->field_names) {
+            for (int i = 0; i < obj->num_fields; i++) {
+                free(obj->field_names[i]);
+            }
+            free(obj->field_names);
+        }
+        if (obj->field_values) {
+            free(obj->field_values);
+        }
+        if (obj->hash_table) {
+            free(obj->hash_table);
+        }
+        free(obj);
+        return;
+    }
 
     // Check if already visited (cycle detected)
     if (visited_set_contains(visited, obj)) {
@@ -1411,8 +1420,16 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
 static void array_free_internal(Array *arr, VisitedSet *visited) {
     if (!arr) return;
 
-    // Check if manually freed via builtin_free()
-    if (atomic_load(&arr->freed)) return;
+    if (atomic_load(&arr->freed)) {
+        if (arr->elements) {
+            free(arr->elements);
+        }
+        if (arr->element_type) {
+            type_free(arr->element_type);
+        }
+        free(arr);
+        return;
+    }
 
     // Check if already visited (cycle detected)
     if (visited_set_contains(visited, arr)) {
