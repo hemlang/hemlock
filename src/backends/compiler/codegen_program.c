@@ -356,7 +356,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
             char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = module_resolve_path(ctx->module_cache, module->absolute_path, import_path);
+            char *resolved = resolve_module_path(ctx->module_cache->resolver, module->absolute_path, import_path);
             if (resolved) {
                 CompiledModule *imported = module_get_cached(ctx->module_cache, resolved);
                 if (imported) {
@@ -718,7 +718,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         for (int i = 0; i < stmt_count; i++) {
             if (stmts[i]->type == STMT_IMPORT) {
                 char *import_path = stmts[i]->as.import_stmt.module_path;
-                char *resolved = module_resolve_path(ctx->module_cache, NULL, import_path);
+                char *resolved = resolve_module_path(ctx->module_cache->resolver, NULL, import_path);
                 if (resolved) {
                     module_compile(ctx, resolved);
                     free(resolved);
@@ -771,7 +771,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             if (stmts[i]->type == STMT_IMPORT) {
                 Stmt *import_stmt = stmts[i];
                 char *import_path = import_stmt->as.import_stmt.module_path;
-                char *resolved = module_resolve_path(ctx->module_cache, NULL, import_path);
+                char *resolved = resolve_module_path(ctx->module_cache->resolver, NULL, import_path);
                 if (resolved) {
                     CompiledModule *mod = module_get_cached(ctx->module_cache, resolved);
                     if (mod) {
@@ -868,7 +868,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         for (int i = 0; i < stmt_count; i++) {
             if (stmts[i]->type == STMT_IMPORT) {
                 char *import_path = stmts[i]->as.import_stmt.module_path;
-                char *resolved = module_resolve_path(ctx->module_cache, NULL, import_path);
+                char *resolved = resolve_module_path(ctx->module_cache->resolver, NULL, import_path);
                 if (resolved) {
                     CompiledModule *mod = module_get_cached(ctx->module_cache, resolved);
                     if (mod) {

@@ -60,8 +60,9 @@ CFLAGS += -DHAVE_LIBWEBSOCKETS=1
 endif
 
 # ========== SOURCE FILES (New Structure) ==========
-# Frontend: shared lexer, parser, AST
-FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/*.c) $(wildcard $(SRC_DIR)/frontend/parser/*.c)
+# Frontend: shared lexer, parser, AST, and modules
+MODULES_SRCS = $(wildcard $(SRC_DIR)/modules/*.c)
+FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/*.c) $(wildcard $(SRC_DIR)/frontend/parser/*.c) $(MODULES_SRCS)
 
 # Frontend files for compiler (exclude module.c which has interpreter-specific code)
 FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/ast.c \
@@ -70,7 +71,8 @@ FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/ast.c \
                          $(SRC_DIR)/frontend/lexer.c \
                          $(SRC_DIR)/frontend/optimizer.c \
                          $(SRC_DIR)/frontend/resolver.c \
-                         $(wildcard $(SRC_DIR)/frontend/parser/*.c)
+                         $(wildcard $(SRC_DIR)/frontend/parser/*.c) \
+                         $(MODULES_SRCS)
 
 # Interpreter backend
 INTERP_SRCS = $(wildcard $(SRC_DIR)/backends/interpreter/*.c) \
@@ -101,7 +103,8 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/backends/compiler \
              $(BUILD_DIR)/lsp \
              $(BUILD_DIR)/bundler \
-             $(BUILD_DIR)/formatter
+             $(BUILD_DIR)/formatter \
+             $(BUILD_DIR)/modules
 
 all: $(BUILD_DIRS) $(TARGET) compiler
 

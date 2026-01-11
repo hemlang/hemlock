@@ -1,0 +1,6 @@
+// Ensure module resolution and caching behave consistently
+import { VALUE } from "./cache_helper";
+import { VALUE as VALUE2 } from "././cache_helper.hml";
+
+print(VALUE);
+print(VALUE2);

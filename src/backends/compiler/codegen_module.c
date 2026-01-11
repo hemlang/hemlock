@@ -8,102 +8,24 @@
 
 // ========== MODULE COMPILATION ==========
 
-// Find the stdlib directory path
-static char* find_stdlib_path(void) {
-    char exe_path[PATH_MAX];
-    char resolved[PATH_MAX];
-    int found_exe = 0;
-
-#ifdef __APPLE__
-    // macOS: use _NSGetExecutablePath
-    uint32_t size = sizeof(exe_path);
-    if (_NSGetExecutablePath(exe_path, &size) == 0) {
-        // Resolve any symlinks
-        char *real = realpath(exe_path, NULL);
-        if (real) {
-            strncpy(exe_path, real, PATH_MAX - 1);
-            exe_path[PATH_MAX - 1] = '\0';
-            free(real);
-            found_exe = 1;
-        }
-    }
-#else
-    // Linux: use /proc/self/exe
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len != -1) {
-        exe_path[len] = '\0';
-        found_exe = 1;
-    }
-#endif
-
-    if (found_exe) {
-        // Make a copy because dirname may modify the string
-        char *exe_copy = strdup(exe_path);
-        char *dir = dirname(exe_copy);
-
-        // Try: executable_dir/stdlib
-        snprintf(resolved, PATH_MAX, "%s/stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            free(exe_copy);
-            return realpath(resolved, NULL);
-        }
-
-        // Try: executable_dir/../stdlib (for build directory structure)
-        snprintf(resolved, PATH_MAX, "%s/../stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            free(exe_copy);
-            return realpath(resolved, NULL);
-        }
-        free(exe_copy);
-    }
-
-    // Fallback: try current working directory + stdlib
-    if (getcwd(resolved, sizeof(resolved))) {
-        char stdlib_path[PATH_MAX];
-        int ret = snprintf(stdlib_path, sizeof(stdlib_path), "%s/stdlib", resolved);
-        if (ret > 0 && ret < (int)sizeof(stdlib_path)) {
-            if (access(stdlib_path, F_OK) == 0) {
-                return realpath(stdlib_path, NULL);
-            }
-        }
-    }
-
-    // Last resort: use /usr/local/lib/hemlock/stdlib
-    if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
-        return strdup("/usr/local/lib/hemlock/stdlib");
-    }
-
-    return NULL;
-}
-
 ModuleCache* module_cache_new(const char *main_file_path) {
     ModuleCache *cache = malloc(sizeof(ModuleCache));
     cache->modules = NULL;
     cache->module_counter = 0;
 
-    // Get current working directory
     char cwd[PATH_MAX];
+    const char *cwd_ptr = NULL;
     if (getcwd(cwd, sizeof(cwd))) {
-        cache->current_dir = strdup(cwd);
-    } else {
-        cache->current_dir = strdup(".");
+        cwd_ptr = cwd;
     }
 
-    // Get directory of main file
-    if (main_file_path) {
-        char *path_copy = strdup(main_file_path);
-        char *dir = dirname(path_copy);
-        cache->main_file_dir = realpath(dir, NULL);
-        if (!cache->main_file_dir) {
-            cache->main_file_dir = strdup(dir);
-        }
-        free(path_copy);
-    } else {
-        cache->main_file_dir = strdup(cache->current_dir);
+    cache->resolver = module_resolution_new(cwd_ptr, main_file_path);
+    if (!cache->resolver) {
+        fprintf(stderr, "Error: Failed to initialize module resolution\n");
+        free(cache);
+        exit(1);
     }
-
-    // Find stdlib path
-    cache->stdlib_path = find_stdlib_path();
+    module_cache_map_init(&cache->cache_map);
 
     return cache;
 }
@@ -142,76 +64,13 @@ void module_cache_free(ModuleCache *cache) {
         mod = next;
     }
 
-    free(cache->current_dir);
-    free(cache->main_file_dir);
-    if (cache->stdlib_path) {
-        free(cache->stdlib_path);
-    }
+    module_cache_map_free(&cache->cache_map);
+    module_resolution_free(cache->resolver);
     free(cache);
 }
 
-char* module_resolve_path(ModuleCache *cache, const char *importer_path, const char *import_path) {
-    char resolved[PATH_MAX];
-
-    // Check for @stdlib alias
-    if (strncmp(import_path, "@stdlib/", 8) == 0) {
-        if (!cache->stdlib_path) {
-            fprintf(stderr, "Error: @stdlib alias used but stdlib directory not found\n");
-            return NULL;
-        }
-
-        // Replace @stdlib with actual stdlib path
-        const char *module_subpath = import_path + 8;  // Skip "@stdlib/"
-        snprintf(resolved, PATH_MAX, "%s/%s", cache->stdlib_path, module_subpath);
-    }
-    // If import_path is absolute, use it directly
-    else if (import_path[0] == '/') {
-        strncpy(resolved, import_path, PATH_MAX);
-        resolved[PATH_MAX - 1] = '\0';
-    } else {
-        // Relative path - resolve relative to importer's directory
-        const char *base_dir;
-        char importer_dir[PATH_MAX];
-
-        if (importer_path) {
-            strncpy(importer_dir, importer_path, PATH_MAX);
-            importer_dir[PATH_MAX - 1] = '\0';
-            char *dir = dirname(importer_dir);
-            base_dir = dir;
-        } else {
-            base_dir = cache->main_file_dir;
-        }
-
-        snprintf(resolved, PATH_MAX, "%s/%s", base_dir, import_path);
-    }
-
-    // Add .hml extension if not present
-    size_t len = strlen(resolved);
-    if (len < 4 || strcmp(resolved + len - 4, ".hml") != 0) {
-        if (len + 4 < PATH_MAX) {
-            strcat(resolved, ".hml");
-        }
-    }
-
-    // Resolve to absolute canonical path
-    char *absolute = realpath(resolved, NULL);
-    if (!absolute) {
-        // File doesn't exist - return the resolved path anyway for error reporting
-        return strdup(resolved);
-    }
-
-    return absolute;
-}
-
 CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path) {
-    CompiledModule *mod = cache->modules;
-    while (mod) {
-        if (strcmp(mod->absolute_path, absolute_path) == 0) {
-            return mod;
-        }
-        mod = mod->next;
-    }
-    return NULL;
+    return (CompiledModule *)module_cache_map_get(&cache->cache_map, absolute_path);
 }
 
 void module_add_export(CompiledModule *module, const char *name, const char *mangled_name, int is_function, int num_params) {
@@ -366,6 +225,14 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     // Add to cache (for cycle detection)
     module->next = cache->modules;
     cache->modules = module;
+    if (module_cache_map_set(&cache->cache_map, absolute_path, module) != 0) {
+        fprintf(stderr, "Error: Failed to cache compiled module '%s'\n", absolute_path);
+        cache->modules = module->next;
+        free(module->absolute_path);
+        free(module->module_prefix);
+        free(module);
+        return NULL;
+    }
 
     // Parse the module
     module->statements = parse_module_file(absolute_path, &module->num_statements);
@@ -379,7 +246,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
             char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = module_resolve_path(cache, absolute_path, import_path);
+            char *resolved = resolve_module_path(cache->resolver, absolute_path, import_path);
             if (!resolved) {
                 fprintf(stderr, "Error: Could not resolve import '%s' in '%s'\n", import_path, absolute_path);
                 return NULL;

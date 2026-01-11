@@ -8,6 +8,7 @@
 #define HEMLOCK_CODEGEN_H
 
 #include "../../include/ast.h"
+#include "../../include/modules.h"
 #include "type_check.h"
 #include <stdio.h>
 
@@ -89,9 +90,8 @@ struct CompiledModule {
 // Module cache for tracking all compiled modules
 struct ModuleCache {
     CompiledModule *modules;    // Linked list of modules
-    char *current_dir;          // Current working directory
-    char *stdlib_path;          // Path to standard library
-    char *main_file_dir;        // Directory of the main file being compiled
+    ModuleResolution *resolver; // Shared module resolution context
+    ModuleCacheMap cache_map;   // Shared module cache
     int module_counter;         // Counter for generating unique module prefixes
 };
 
@@ -367,9 +367,6 @@ ModuleCache* module_cache_new(const char *main_file_path);
 
 // Free module cache
 void module_cache_free(ModuleCache *cache);
-
-// Resolve a module path (handles @stdlib/, relative, absolute)
-char* module_resolve_path(ModuleCache *cache, const char *importer_path, const char *import_path);
 
 // Compile a module (recursively compiles dependencies)
 CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path);
