@@ -52,6 +52,27 @@ static int is_const_string(Expr *expr) {
 }
 
 /*
+ * Check if an expression is a non-null literal.
+ */
+static int is_const_literal_non_null(Expr *expr) {
+    if (!expr) {
+        return 0;
+    }
+
+    switch (expr->type) {
+        case EXPR_NUMBER:
+        case EXPR_BOOL:
+        case EXPR_STRING:
+        case EXPR_RUNE:
+        case EXPR_ARRAY_LITERAL:
+        case EXPR_OBJECT_LITERAL:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/*
  * Determine truthiness for constant expressions (bool, number, or null).
  * Returns 1 if the expression is a constant and populates truthy; 0 otherwise.
  */
@@ -356,6 +377,52 @@ static Expr *try_short_circuit(BinaryOp op, Expr *left, Expr *right, Optimizatio
     }
 
     return NULL;
+}
+
+/*
+ * Try to fold constant string interpolation into a single literal.
+ */
+static Expr *try_fold_string_interpolation(Expr *expr, OptimizationStats *stats) {
+    if (!expr || expr->type != EXPR_STRING_INTERPOLATION) {
+        return NULL;
+    }
+
+    for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
+        if (!is_const_string(expr->as.string_interpolation.expr_parts[i])) {
+            return NULL;
+        }
+    }
+
+    size_t total_len = 0;
+    for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
+        total_len += strlen(expr->as.string_interpolation.string_parts[i]);
+        total_len += strlen(expr->as.string_interpolation.expr_parts[i]->as.string);
+    }
+    total_len += strlen(expr->as.string_interpolation.string_parts[expr->as.string_interpolation.num_parts]);
+
+    char *buffer = malloc(total_len + 1);
+    char *cursor = buffer;
+    for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
+        size_t part_len = strlen(expr->as.string_interpolation.string_parts[i]);
+        memcpy(cursor, expr->as.string_interpolation.string_parts[i], part_len);
+        cursor += part_len;
+
+        size_t expr_len = strlen(expr->as.string_interpolation.expr_parts[i]->as.string);
+        memcpy(cursor, expr->as.string_interpolation.expr_parts[i]->as.string, expr_len);
+        cursor += expr_len;
+    }
+    size_t tail_len = strlen(expr->as.string_interpolation.string_parts[expr->as.string_interpolation.num_parts]);
+    memcpy(cursor, expr->as.string_interpolation.string_parts[expr->as.string_interpolation.num_parts], tail_len);
+    cursor += tail_len;
+    *cursor = '\0';
+
+    Expr *result = expr_string(buffer);
+    result->line = expr->line;
+    free(buffer);
+
+    stats->constants_folded++;
+    stats->literals_folded++;
+    return result;
 }
 
 /*
@@ -666,6 +733,12 @@ static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats) {
                 expr->as.string_interpolation.expr_parts[i] =
                     optimize_expr_internal(expr->as.string_interpolation.expr_parts[i], stats);
             }
+            {
+                Expr *folded = try_fold_string_interpolation(expr, stats);
+                if (folded) {
+                    return folded;
+                }
+            }
             break;
 
         case EXPR_OPTIONAL_CHAIN:
@@ -685,16 +758,15 @@ static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats) {
             expr->as.null_coalesce.left = optimize_expr_internal(expr->as.null_coalesce.left, stats);
             expr->as.null_coalesce.right = optimize_expr_internal(expr->as.null_coalesce.right, stats);
             /* Optimization: if left is non-null constant, return it directly */
-            if (expr->as.null_coalesce.left->type != EXPR_NULL &&
-                (is_const_number(expr->as.null_coalesce.left) ||
-                 is_const_bool(expr->as.null_coalesce.left) ||
-                 is_const_string(expr->as.null_coalesce.left))) {
+            if (is_const_literal_non_null(expr->as.null_coalesce.left)) {
                 stats->constants_folded++;
+                stats->literals_folded++;
                 return expr->as.null_coalesce.left;
             }
             /* If left is null literal, return right */
             if (expr->as.null_coalesce.left->type == EXPR_NULL) {
                 stats->constants_folded++;
+                stats->literals_folded++;
                 return expr->as.null_coalesce.right;
             }
             break;
