@@ -1,0 +1,77 @@
+// Test optional parameters in method signatures within define blocks
+
+// Basic optional parameter (no default value)
+define HasOptional {
+    fn method(required: string, optional?): string
+}
+
+let obj1: HasOptional = {
+    method: fn(required, optional) {
+        if (optional == null) {
+            return required + " only";
+        }
+        return required + " and " + optional;
+    }
+};
+
+print(obj1.method("A", null));
+print(obj1.method("A", "B"));
+
+// Optional parameter with default value
+define HasDefault {
+    fn process(value: i32, multiplier?: 2): i32
+}
+
+let obj2: HasDefault = {
+    process: fn(value, multiplier) {
+        return value * multiplier;
+    }
+};
+
+print(obj2.process(5, 2));
+print(obj2.process(5, 3));
+
+// Multiple optional parameters
+define MultiOptional {
+    fn format(text: string, prefix?: "[", suffix?: "]"): string
+}
+
+let obj3: MultiOptional = {
+    format: fn(text, prefix, suffix) {
+        return prefix + text + suffix;
+    }
+};
+
+print(obj3.format("hello", "[", "]"));
+print(obj3.format("world", "<", ">"));
+
+// Mixed required and optional parameters
+define Calculator {
+    fn compute(a: i32, b: i32, c?: 0, d?: 0): i32
+}
+
+let calc: Calculator = {
+    compute: fn(a, b, c, d) {
+        return a + b + c + d;
+    }
+};
+
+print(calc.compute(1, 2, 0, 0));
+print(calc.compute(10, 20, 5, 3));
+
+// Optional parameter without type annotation
+define Flexible {
+    fn greet(name?, greeting?: "Hello"): string
+}
+
+let flex: Flexible = {
+    greet: fn(name, greeting) {
+        if (name == null) {
+            return greeting + "!";
+        }
+        return greeting + ", " + name + "!";
+    }
+};
+
+print(flex.greet(null, "Hello"));
+print(flex.greet("World", "Hi"));
