@@ -151,11 +151,14 @@ Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
 
             if (matched) free(matched);
 
-            array_push(result, val_object(match));
+            Value obj_val = val_object(match);
+            array_push(result, obj_val);
+            value_release(obj_val);  // array_push retains, so release our reference
         }
     }
 
     free(pmatch);
+    // Ownership of array transfers to caller via return value
     return val_array(result);
 }
 

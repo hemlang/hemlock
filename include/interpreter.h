@@ -325,6 +325,8 @@ void buffer_free(Buffer *buf);
 
 // Array operations
 void array_free(Array *arr);
+void array_release(Array *arr);
+void array_retain(Array *arr);
 Array* array_new(void);
 void array_push(Array *arr, Value val);
 Value array_pop(Array *arr);
