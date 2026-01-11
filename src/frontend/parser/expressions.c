@@ -1182,10 +1182,26 @@ static Type* parse_function_type(Parser *p) {
 
             if (num_params >= param_capacity) {
                 param_capacity *= 2;
-                param_types = realloc(param_types, sizeof(Type*) * param_capacity);
-                param_names = realloc(param_names, sizeof(char*) * param_capacity);
-                param_optional = realloc(param_optional, sizeof(int) * param_capacity);
-                param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+                Type **new_param_types = realloc(param_types, sizeof(Type*) * param_capacity);
+                char **new_param_names = realloc(param_names, sizeof(char*) * param_capacity);
+                int *new_param_optional = realloc(param_optional, sizeof(int) * param_capacity);
+                int *new_param_is_const = realloc(param_is_const, sizeof(int) * param_capacity);
+                if (!new_param_types || !new_param_names || !new_param_optional || !new_param_is_const) {
+                    // On failure, free successfully allocated new buffers and return with what we have
+                    if (new_param_types && new_param_types != param_types) free(new_param_types);
+                    if (new_param_names && new_param_names != param_names) free(new_param_names);
+                    if (new_param_optional && new_param_optional != param_optional) free(new_param_optional);
+                    if (new_param_is_const && new_param_is_const != param_is_const) free(new_param_is_const);
+                    free(param_types);
+                    free(param_names);
+                    free(param_optional);
+                    free(param_is_const);
+                    return type_new(TYPE_INFER);
+                }
+                param_types = new_param_types;
+                param_names = new_param_names;
+                param_optional = new_param_optional;
+                param_is_const = new_param_is_const;
             }
 
             // Check for const modifier
@@ -1331,7 +1347,12 @@ static Type* parse_single_type(Parser *p) {
                 do {
                     if (num_type_args >= type_arg_capacity) {
                         type_arg_capacity *= 2;
-                        type_args = realloc(type_args, sizeof(Type*) * type_arg_capacity);
+                        Type **new_type_args = realloc(type_args, sizeof(Type*) * type_arg_capacity);
+                        if (!new_type_args) {
+                            free(type_args);
+                            return type_new(TYPE_INFER);
+                        }
+                        type_args = new_type_args;
                     }
                     type_args[num_type_args++] = parse_type(p);
                 } while (match(p, TOK_COMMA));
@@ -1402,7 +1423,12 @@ Type* parse_type(Parser *p) {
 
             if (count >= capacity) {
                 capacity *= 2;
-                types = realloc(types, sizeof(Type*) * capacity);
+                Type **new_types = realloc(types, sizeof(Type*) * capacity);
+                if (!new_types) {
+                    free(types);
+                    return first;  // Return first type on allocation failure
+                }
+                types = new_types;
             }
 
             types[count++] = parse_single_type(p);

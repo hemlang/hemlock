@@ -508,11 +508,12 @@ static void sb_append(StringBuilder *sb, const char *str) {
             exit(1);
         }
         sb->capacity *= 2;
-        sb->buffer = realloc(sb->buffer, sb->capacity);
-        if (!sb->buffer) {
+        char *new_buffer = realloc(sb->buffer, sb->capacity);
+        if (!new_buffer) {
             fprintf(stderr, "LSP error: Memory allocation failed\n");
             exit(1);
         }
+        sb->buffer = new_buffer;
     }
     memcpy(sb->buffer + sb->length, str, len + 1);
     sb->length += len;
@@ -526,11 +527,12 @@ static void sb_append_char(StringBuilder *sb, char c) {
             exit(1);
         }
         sb->capacity *= 2;
-        sb->buffer = realloc(sb->buffer, sb->capacity);
-        if (!sb->buffer) {
+        char *new_buffer = realloc(sb->buffer, sb->capacity);
+        if (!new_buffer) {
             fprintf(stderr, "LSP error: Memory allocation failed\n");
             exit(1);
         }
+        sb->buffer = new_buffer;
     }
     sb->buffer[sb->length++] = c;
     sb->buffer[sb->length] = '\0';

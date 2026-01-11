@@ -156,8 +156,16 @@ static Value get_object_field(Object *obj, const char *name) {
 static void set_object_field(Object *obj, const char *name, Value value) {
     if (obj->num_fields >= obj->capacity) {
         obj->capacity *= 2;
-        obj->field_names = realloc(obj->field_names, obj->capacity * sizeof(char *));
-        obj->field_values = realloc(obj->field_values, obj->capacity * sizeof(Value));
+        char **new_field_names = realloc(obj->field_names, obj->capacity * sizeof(char *));
+        Value *new_field_values = realloc(obj->field_values, obj->capacity * sizeof(Value));
+        if (!new_field_names || !new_field_values) {
+            // On failure, free any successfully allocated buffer
+            if (new_field_names && new_field_names != obj->field_names) free(new_field_names);
+            if (new_field_values && new_field_values != obj->field_values) free(new_field_values);
+            return;  // Keep original data on allocation failure
+        }
+        obj->field_names = new_field_names;
+        obj->field_values = new_field_values;
     }
     obj->field_names[obj->num_fields] = strdup(name);
     obj->field_values[obj->num_fields] = value;

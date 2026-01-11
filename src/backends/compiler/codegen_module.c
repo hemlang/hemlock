@@ -217,7 +217,11 @@ CompiledModule* module_get_cached(ModuleCache *cache, const char *absolute_path)
 void module_add_export(CompiledModule *module, const char *name, const char *mangled_name, int is_function, int num_params) {
     if (module->num_exports >= module->export_capacity) {
         module->export_capacity = module->export_capacity == 0 ? 16 : module->export_capacity * 2;
-        module->exports = realloc(module->exports, sizeof(ExportedSymbol) * module->export_capacity);
+        ExportedSymbol *new_exports = realloc(module->exports, sizeof(ExportedSymbol) * module->export_capacity);
+        if (!new_exports) {
+            return;  // Keep original data on allocation failure
+        }
+        module->exports = new_exports;
     }
     module->exports[module->num_exports].name = strdup(name);
     module->exports[module->num_exports].mangled_name = strdup(mangled_name);
@@ -238,7 +242,11 @@ ExportedSymbol* module_find_export(CompiledModule *module, const char *name) {
 void module_add_import(CompiledModule *module, const char *local_name, const char *original_name, const char *module_prefix, int is_function, int num_params, int is_extern) {
     if (module->num_imports >= module->import_capacity) {
         module->import_capacity = module->import_capacity == 0 ? 16 : module->import_capacity * 2;
-        module->imports = realloc(module->imports, sizeof(ImportBinding) * module->import_capacity);
+        ImportBinding *new_imports = realloc(module->imports, sizeof(ImportBinding) * module->import_capacity);
+        if (!new_imports) {
+            return;  // Keep original data on allocation failure
+        }
+        module->imports = new_imports;
     }
     module->imports[module->num_imports].local_name = strdup(local_name);
     module->imports[module->num_imports].original_name = strdup(original_name);

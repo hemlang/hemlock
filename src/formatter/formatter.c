@@ -127,7 +127,11 @@ static void blank_line_list_free(BlankLineList *list) {
 static void blank_line_list_add(BlankLineList *list, int line) {
     if (list->count >= list->capacity) {
         list->capacity *= 2;
-        list->lines = realloc(list->lines, sizeof(int) * list->capacity);
+        int *new_lines = realloc(list->lines, sizeof(int) * list->capacity);
+        if (!new_lines) {
+            return;  // Keep original data on allocation failure
+        }
+        list->lines = new_lines;
     }
     list->lines[list->count++] = line;
 }
@@ -152,7 +156,11 @@ static void comment_list_add(CommentList *list, CommentType type, int line, int 
                              const char *text, int len, int is_trailing) {
     if (list->count >= list->capacity) {
         list->capacity *= 2;
-        list->comments = realloc(list->comments, sizeof(Comment) * list->capacity);
+        Comment *new_comments = realloc(list->comments, sizeof(Comment) * list->capacity);
+        if (!new_comments) {
+            return;  // Keep original data on allocation failure
+        }
+        list->comments = new_comments;
     }
     Comment *c = &list->comments[list->count++];
     c->type = type;
@@ -395,7 +403,11 @@ static void literal_map_free(LiteralMap *map) {
 static void literal_map_add(LiteralMap *map, int line, int col, const char *text) {
     if (map->count >= map->capacity) {
         map->capacity *= 2;
-        map->spans = realloc(map->spans, map->capacity * sizeof(LiteralSpan));
+        LiteralSpan *new_spans = realloc(map->spans, map->capacity * sizeof(LiteralSpan));
+        if (!new_spans) {
+            return;  // Keep original data on allocation failure
+        }
+        map->spans = new_spans;
     }
     map->spans[map->count].line = line;
     map->spans[map->count].col = col;

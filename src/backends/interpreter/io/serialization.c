@@ -263,7 +263,11 @@ int serialize_visited_contains(SerializeVisitedSet *set, Object *obj) {
 void serialize_visited_add(SerializeVisitedSet *set, Object *obj) {
     if (set->count >= set->capacity) {
         set->capacity *= 2;
-        set->visited = realloc(set->visited, sizeof(Object*) * set->capacity);
+        Object **new_visited = realloc(set->visited, sizeof(Object*) * set->capacity);
+        if (!new_visited) {
+            return;  // Keep original data on allocation failure
+        }
+        set->visited = new_visited;
     }
     set->visited[set->count++] = obj;
 }
