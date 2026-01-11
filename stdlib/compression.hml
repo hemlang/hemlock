@@ -1,8 +1,8 @@
 // @stdlib/compression - Compression and archive utilities
-// 
+//
 // Provides zlib/gzip compression/decompression and
 // tar archive reading/writing.
-// 
+//
 // Usage:
 // import { compress, decompress, gzip, gunzip } from "@stdlib/compression";
 // import { TarWriter, TarReader } from "@stdlib/compression";

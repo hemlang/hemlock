@@ -1,8 +1,8 @@
 // @stdlib/shell - Shell utilities and command helpers
-// 
+//
 // Provides utilities for building shell commands safely, escaping arguments,
 // and parsing command output.
-// 
+//
 // Usage:
 // import { escape, quote, run, run_capture } from "@stdlib/shell";
 

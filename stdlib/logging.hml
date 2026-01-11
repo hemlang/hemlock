@@ -12,13 +12,13 @@ export let ERROR = 3;
 
 // Logger(config?: object) -> Logger object
 // Create a logger with optional configuration
-// 
+//
 // Config options:
 // - output: "stdout" (default) or file path string
 // - level: minimum log level (DEBUG, INFO, WARN, ERROR) - default INFO
 // - format: format string with placeholders - default "{timestamp} [{level}] {message}"
 // - include_timestamp: boolean - default true
-// 
+//
 // Example:
 // let logger = Logger({ output: "app.log", level: WARN });
 // logger.warn("Something went wrong");

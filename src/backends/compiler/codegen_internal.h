@@ -64,6 +64,7 @@ typedef struct {
     int has_defers;           // Saved ctx->has_defers
     CompiledModule *module;   // Saved ctx->current_module (for closures)
     ClosureInfo *closure;     // Saved ctx->current_closure
+    Scope *scope;             // Saved ctx->current_scope
     char *tail_call_func_name;  // Saved tail call optimization state
     char *tail_call_label;
     Expr *tail_call_func_expr;
@@ -103,6 +104,12 @@ void codegen_remove_shadow(CodegenContext *ctx, const char *name);
 // Const variable tracking (for preventing reassignment)
 void codegen_add_const(CodegenContext *ctx, const char *name);
 int codegen_is_const(CodegenContext *ctx, const char *name);
+
+// Consumed temporary tracking (avoid double-release when values are moved)
+void codegen_mark_temp_consumed(CodegenContext *ctx, const char *name);
+int codegen_is_temp_consumed(CodegenContext *ctx, const char *name);
+int codegen_consumed_checkpoint(CodegenContext *ctx);
+void codegen_restore_consumed(CodegenContext *ctx, int checkpoint);
 
 // Try-finally context tracking
 void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,

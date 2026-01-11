@@ -44,7 +44,11 @@ static int visited_contains(HmlVisitedSet *set, void *ptr) {
 static void visited_add(HmlVisitedSet *set, void *ptr) {
     if (set->count >= set->capacity) {
         int new_cap = (set->capacity == 0) ? 16 : set->capacity * 2;
-        set->items = realloc(set->items, new_cap * sizeof(void*));
+        void **new_items = realloc(set->items, new_cap * sizeof(void*));
+        if (!new_items) {
+            hml_runtime_error("Out of memory expanding visited set");
+        }
+        set->items = new_items;
         set->capacity = new_cap;
     }
     set->items[set->count++] = ptr;
@@ -68,7 +72,11 @@ static inline void hjbuf_ensure(HmlJsonBuffer *buf, size_t additional) {
     if (needed > buf->capacity) {
         size_t new_cap = buf->capacity * 2;
         if (new_cap < needed) new_cap = needed;
-        buf->data = realloc(buf->data, new_cap);
+        char *new_data = realloc(buf->data, new_cap);
+        if (!new_data) {
+            hml_runtime_error("Out of memory expanding JSON buffer");
+        }
+        buf->data = new_data;
         buf->capacity = new_cap;
     }
 }
@@ -519,9 +527,24 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
 
         // Grow arrays if needed
         if (num_fields >= capacity) {
-            capacity *= 2;
-            field_names = realloc(field_names, sizeof(char*) * capacity);
-            field_values = realloc(field_values, sizeof(HmlValue) * capacity);
+            int new_capacity = capacity * 2;
+            char **new_names = realloc(field_names, sizeof(char*) * new_capacity);
+            HmlValue *new_values = realloc(field_values, sizeof(HmlValue) * new_capacity);
+            if (!new_names || !new_values) {
+                // Cleanup on OOM - use whichever succeeded
+                if (new_names) field_names = new_names;
+                if (new_values) field_values = new_values;
+                for (int i = 0; i < num_fields; i++) {
+                    free(field_names[i]);
+                    hml_release(&field_values[i]);
+                }
+                free(field_names);
+                free(field_values);
+                hml_runtime_error("Out of memory parsing JSON object");
+            }
+            field_names = new_names;
+            field_values = new_values;
+            capacity = new_capacity;
         }
 
         // Direct assignment - no duplicate check needed for JSON parsing
@@ -628,8 +651,17 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
 
         // Grow if needed
         if (length >= capacity) {
-            capacity *= 2;
-            elements = realloc(elements, sizeof(HmlValue) * capacity);
+            int new_capacity = capacity * 2;
+            HmlValue *new_elements = realloc(elements, sizeof(HmlValue) * new_capacity);
+            if (!new_elements) {
+                for (int i = 0; i < length; i++) {
+                    hml_release(&elements[i]);
+                }
+                free(elements);
+                hml_runtime_error("Out of memory parsing JSON array");
+            }
+            elements = new_elements;
+            capacity = new_capacity;
         }
 
         // Parse directly into array - value already has ref_count=1

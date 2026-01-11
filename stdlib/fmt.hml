@@ -1,7 +1,7 @@
 // @stdlib/fmt - String formatting utilities
-// 
+//
 // Provides printf-style string formatting and text manipulation.
-// 
+//
 // Usage:
 // import { format, pad_left, pad_right } from "@stdlib/fmt";
 // let msg = format("Hello, %s! You have %d messages.", ["Alice", 5]);
@@ -10,7 +10,7 @@
 // ============================================================================
 // Format Specifiers
 // ============================================================================
-// 
+//
 // %s - String
 // %d, %i - Integer (decimal)
 // %f - Float (default 6 decimal places)
@@ -22,7 +22,7 @@
 // %% - Literal percent sign
 // %c - Character (from integer code)
 // %q - Quoted string (with escapes)
-// 
+//
 // Width and padding:
 // %10s - Right-pad to 10 chars
 // %-10s - Left-pad to 10 chars

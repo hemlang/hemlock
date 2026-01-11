@@ -36,6 +36,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->local_vars = NULL;
     ctx->num_locals = 0;
     ctx->local_capacity = 0;
+    ctx->consumed_temps = NULL;
+    ctx->num_consumed_temps = 0;
+    ctx->consumed_temps_capacity = 0;
     ctx->current_scope = NULL;
     ctx->closures = NULL;
     ctx->func_params = NULL;
@@ -187,6 +190,14 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->const_vars[i]);
             }
             free(ctx->const_vars);
+        }
+
+        // Free consumed temp tracking
+        if (ctx->consumed_temps) {
+            for (int i = 0; i < ctx->num_consumed_temps; i++) {
+                free(ctx->consumed_temps[i]);
+            }
+            free(ctx->consumed_temps);
         }
 
         // Free try-finally tracking arrays
@@ -404,6 +415,59 @@ int codegen_is_const(CodegenContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+// Consumed temp tracking (avoid double-release when values are moved)
+void codegen_mark_temp_consumed(CodegenContext *ctx, const char *name) {
+    if (!name) {
+        return;
+    }
+    for (int i = 0; i < ctx->num_consumed_temps; i++) {
+        if (strcmp(ctx->consumed_temps[i], name) == 0) {
+            return;
+        }
+    }
+    if (ctx->num_consumed_temps >= ctx->consumed_temps_capacity) {
+        int new_cap = safe_double_capacity(ctx->consumed_temps_capacity, 8);
+        if (new_cap < 0) {
+            fprintf(stderr, "Codegen error: Consumed temp capacity overflow\n");
+            exit(1);
+        }
+        char **new_temps = realloc(ctx->consumed_temps, (size_t)new_cap * sizeof(char*));
+        if (!new_temps) {
+            fprintf(stderr, "Codegen error: Failed to expand consumed temp storage\n");
+            exit(1);
+        }
+        ctx->consumed_temps = new_temps;
+        ctx->consumed_temps_capacity = new_cap;
+    }
+    ctx->consumed_temps[ctx->num_consumed_temps++] = strdup(name);
+}
+
+int codegen_is_temp_consumed(CodegenContext *ctx, const char *name) {
+    if (!name) {
+        return 0;
+    }
+    for (int i = 0; i < ctx->num_consumed_temps; i++) {
+        if (strcmp(ctx->consumed_temps[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int codegen_consumed_checkpoint(CodegenContext *ctx) {
+    return ctx->num_consumed_temps;
+}
+
+void codegen_restore_consumed(CodegenContext *ctx, int checkpoint) {
+    if (checkpoint < 0 || checkpoint > ctx->num_consumed_temps) {
+        return;
+    }
+    for (int i = checkpoint; i < ctx->num_consumed_temps; i++) {
+        free(ctx->consumed_temps[i]);
+    }
+    ctx->num_consumed_temps = checkpoint;
 }
 
 // Try-finally context tracking (for return/break to jump to finally first)
@@ -1117,6 +1181,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->has_defers = ctx->has_defers;
     state->module = ctx->current_module;
     state->closure = ctx->current_closure;
+    state->scope = ctx->current_scope;
     state->tail_call_func_name = ctx->tail_call_func_name;
     state->tail_call_label = ctx->tail_call_label;
     state->tail_call_func_expr = ctx->tail_call_func_expr;
@@ -1125,6 +1190,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->defer_stack = NULL;
     ctx->in_function = 1;
     ctx->has_defers = 0;
+    ctx->current_scope = NULL;  // Fresh scope for new function
     ctx->last_closure_env_id = -1;
     ctx->tail_call_func_name = NULL;
     ctx->tail_call_label = NULL;
@@ -1134,11 +1200,27 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     codegen_defer_clear(ctx);
     ctx->defer_stack = state->defer_stack;
+
+    // Free any locals added during the nested scope before restoring num_locals
+    // This prevents memory leaks and ensures the outer scope's locals aren't corrupted
+    for (int i = state->num_locals; i < ctx->num_locals; i++) {
+        if (ctx->local_vars[i]) {
+            free(ctx->local_vars[i]);
+            ctx->local_vars[i] = NULL;
+        }
+    }
     ctx->num_locals = state->num_locals;
     ctx->in_function = state->in_function;
     ctx->has_defers = state->has_defers;
     ctx->current_module = state->module;
     ctx->current_closure = state->closure;
+    // Free any scopes created during the function (they should already be freed by block statements)
+    while (ctx->current_scope) {
+        Scope *old = ctx->current_scope;
+        ctx->current_scope = old->parent;
+        scope_free(old);
+    }
+    ctx->current_scope = state->scope;
     // Free any allocated tail call labels
     free(ctx->tail_call_label);
     ctx->tail_call_func_name = state->tail_call_func_name;
@@ -1430,4 +1512,3 @@ void membuf_free(MemBuffer *buf) {
     }
     free(buf);
 }
-

@@ -1,6 +1,6 @@
 // Hemlock Standard Library: OS Module
 // Platform detection, system information, and hardware details
-// 
+//
 // This module provides:
 // - Platform detection (linux, macos, windows)
 // - System info (hostname, username, home dir)

@@ -108,6 +108,11 @@ typedef struct {
     int num_locals;         // Number of local variables
     int local_capacity;     // Capacity of local vars array
 
+    // Consumed temporary tracking (to avoid double-release)
+    char **consumed_temps;     // List of consumed temp/short-lived variable names
+    int num_consumed_temps;    // Count of consumed temps
+    int consumed_temps_capacity;  // Capacity of consumed_temps array
+
     // Closure support
     Scope *current_scope;   // Current variable scope
     ClosureInfo *closures;  // List of closures to generate

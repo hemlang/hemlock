@@ -1,7 +1,7 @@
 // @stdlib/url - URL parsing and manipulation
-// 
+//
 // Provides functions for parsing, building, and manipulating URLs.
-// 
+//
 // Usage:
 // import { parse, format, resolve, get_query_param } from "@stdlib/url";
 // let u = parse("https://example.com:8080/path?foo=bar#section");

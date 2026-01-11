@@ -1,8 +1,8 @@
 // @stdlib/semver - Semantic Versioning utilities
-// 
+//
 // Provides parsing, comparison, and manipulation of semantic versions
 // following the SemVer 2.0.0 specification.
-// 
+//
 // Usage:
 // import { parse, compare, satisfies, increment } from "@stdlib/semver";
 

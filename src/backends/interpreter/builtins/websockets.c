@@ -1747,6 +1747,7 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
             // Create WebSocketHandle wrapper for accepted connection
             WebSocketHandle *ws = calloc(1, sizeof(WebSocketHandle));
             if (!ws) {
+                ws_connection_close(conn);
                 return val_null();
             }
             ws->handle = conn;

@@ -1,8 +1,8 @@
 // @stdlib/path - Path manipulation utilities
-// 
+//
 // Provides cross-platform path manipulation functions for working with
 // file and directory paths.
-// 
+//
 // Usage:
 // import { join, dirname, basename, extname } from "@stdlib/path";
 // import { normalize, is_absolute, parse, format } from "@stdlib/path";
@@ -78,9 +78,7 @@ export fn join_all(parts): string {
 	}
 
 	let result = "";
-	let i = 0;
-	while (i < parts.length) {
-		let part = parts[i];
+	for (part in parts) {
 		if (typeof(part) != "string") {
 			throw "join_all() requires array of strings";
 		}
@@ -92,7 +90,6 @@ export fn join_all(parts): string {
 				result = join(result, part);
 			}
 		}
-		i = i + 1;
 	}
 
 	if (result.length == 0) {

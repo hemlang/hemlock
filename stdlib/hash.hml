@@ -1,8 +1,8 @@
 // @stdlib/hash - Hashing and checksum utilities
-// 
+//
 // Provides both non-cryptographic hashes (for hash tables, checksums)
 // and cryptographic hashes (SHA-256, SHA-512, MD5 via built-in OpenSSL).
-// 
+//
 // Usage:
 // import { djb2, fnv1a, murmur3, sha256, sha512, md5, file_checksum } from "@stdlib/hash";
 

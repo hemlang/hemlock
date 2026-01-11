@@ -1,8 +1,8 @@
 // @stdlib/retry - Retry and backoff utilities
-// 
+//
 // Provides retry logic with configurable backoff strategies for handling
 // transient failures in network calls, file operations, etc.
-// 
+//
 // Usage:
 // import { retry, retry_with_backoff, exponential_backoff } from "@stdlib/retry";
 import { sleep } from "@stdlib/time";

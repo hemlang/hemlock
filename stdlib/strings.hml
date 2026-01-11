@@ -1,7 +1,7 @@
 // @stdlib/strings - Advanced string utilities
-// 
+//
 // Provides string manipulation functions beyond the 18 built-in methods.
-// 
+//
 // Usage:
 // import { pad_left, pad_right, center, is_alpha, is_digit } from "@stdlib/strings";
 // import { reverse, lines, words } from "@stdlib/strings";
