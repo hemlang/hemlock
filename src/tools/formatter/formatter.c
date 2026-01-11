@@ -2245,19 +2245,14 @@ static char *read_file(const char *path) {
 }
 
 static char *resolve_format_path(const char *path) {
-    ModuleResolution *resolver = module_resolution_new(NULL, NULL);
-    if (!resolver) {
-        return strdup(path);
+    // Don't use module resolution - it adds .hml extension
+    // Just resolve to absolute path if possible
+    char *absolute = realpath(path, NULL);
+    if (absolute) {
+        return absolute;
     }
-
-    char *resolved = resolve_module_path(resolver, NULL, path);
-    module_resolution_free(resolver);
-
-    if (!resolved) {
-        return strdup(path);
-    }
-
-    return resolved;
+    // If realpath fails, just use the original path
+    return strdup(path);
 }
 
 // Write string to file
@@ -2442,11 +2437,12 @@ char *format_source(const char *source) {
     blank_line_list_free(&blank_lines);
     literal_map_free(&literals);
 
-    // Remove trailing newline at end of file
+    // Ensure exactly one trailing newline at end of file (POSIX convention)
     while (ctx.buf.len > 0 && ctx.buf.data[ctx.buf.len - 1] == '\n') {
         ctx.buf.len--;
         ctx.buf.data[ctx.buf.len] = '\0';
     }
+    buf_append_char(&ctx.buf, '\n');
 
     // Transfer ownership of buffer
     char *result = ctx.buf.data;
