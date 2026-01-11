@@ -64,6 +64,19 @@ echo ""
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
+echo -e "${BLUE}Checking TMPDIR handling...${NC}"
+TMPDIR_CHECK_DIR=$(mktemp -d)
+if TMPDIR="$TMPDIR_CHECK_DIR" ./hemlockc "$TEST_DIR/args.hml" -o "$TMPDIR_CHECK_DIR/tmpdir_check" > /tmp/hemlockc_tmpdir.log 2>&1; then
+    echo -e "${GREEN}✓${NC} TMPDIR respected for temporary C files"
+    ((PASS_COUNT++))
+else
+    echo -e "${RED}✗${NC} TMPDIR handling failed"
+    cat /tmp/hemlockc_tmpdir.log
+    ((FAIL_COUNT++))
+fi
+rm -rf "$TMPDIR_CHECK_DIR"
+echo ""
+
 # Find all test files with .expected files
 for test_file in "$TEST_DIR"/*.hml; do
     if [ ! -f "$test_file" ]; then
