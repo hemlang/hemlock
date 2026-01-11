@@ -1053,15 +1053,18 @@ Stmt* define_statement(Parser *p) {
             char **fn_param_names = malloc(sizeof(char*) * fn_param_capacity);
             int *fn_param_optional = malloc(sizeof(int) * fn_param_capacity);
             int *fn_param_is_const = malloc(sizeof(int) * fn_param_capacity);
-            if (!fn_param_types || !fn_param_names || !fn_param_optional || !fn_param_is_const) {
+            Expr **fn_param_defaults = malloc(sizeof(Expr*) * fn_param_capacity);
+            if (!fn_param_types || !fn_param_names || !fn_param_optional || !fn_param_is_const || !fn_param_defaults) {
                 free(fn_param_types);
                 free(fn_param_names);
                 free(fn_param_optional);
                 free(fn_param_is_const);
+                free(fn_param_defaults);
                 error(p, "Memory allocation failed for method parameters");
                 break;
             }
             int fn_num_params = 0;
+            int fn_seen_optional = 0;
 
             // Parse method parameters - supports trailing commas
             if (!check(p, TOK_RPAREN)) {
@@ -1075,11 +1078,13 @@ Stmt* define_statement(Parser *p) {
                         char **new_fn_param_names = realloc(fn_param_names, sizeof(char*) * new_capacity);
                         int *new_fn_param_optional = realloc(fn_param_optional, sizeof(int) * new_capacity);
                         int *new_fn_param_is_const = realloc(fn_param_is_const, sizeof(int) * new_capacity);
-                        if (!new_fn_param_types || !new_fn_param_names || !new_fn_param_optional || !new_fn_param_is_const) {
+                        Expr **new_fn_param_defaults = realloc(fn_param_defaults, sizeof(Expr*) * new_capacity);
+                        if (!new_fn_param_types || !new_fn_param_names || !new_fn_param_optional || !new_fn_param_is_const || !new_fn_param_defaults) {
                             if (new_fn_param_types) fn_param_types = new_fn_param_types;
                             if (new_fn_param_names) fn_param_names = new_fn_param_names;
                             if (new_fn_param_optional) fn_param_optional = new_fn_param_optional;
                             if (new_fn_param_is_const) fn_param_is_const = new_fn_param_is_const;
+                            if (new_fn_param_defaults) fn_param_defaults = new_fn_param_defaults;
                             error(p, "Memory allocation failed for method parameters");
                             break;
                         }
@@ -1087,6 +1092,7 @@ Stmt* define_statement(Parser *p) {
                         fn_param_names = new_fn_param_names;
                         fn_param_optional = new_fn_param_optional;
                         fn_param_is_const = new_fn_param_is_const;
+                        fn_param_defaults = new_fn_param_defaults;
                         fn_param_capacity = new_capacity;
                     }
 
@@ -1103,8 +1109,24 @@ Stmt* define_statement(Parser *p) {
                         fn_param_types[fn_num_params] = NULL;
                     }
 
-                    // Check for optional parameter
-                    fn_param_optional[fn_num_params] = 0;  // TODO: support optional params in method signatures
+                    // Check for optional parameter (?) with optional default value
+                    if (match(p, TOK_QUESTION)) {
+                        fn_param_optional[fn_num_params] = 1;
+                        // Optional colon with default value
+                        if (match(p, TOK_COLON)) {
+                            fn_param_defaults[fn_num_params] = expression(p);
+                        } else {
+                            fn_param_defaults[fn_num_params] = NULL;
+                        }
+                        fn_seen_optional = 1;
+                    } else {
+                        // Required parameter
+                        if (fn_seen_optional) {
+                            error_at(p, &p->current, "Required parameters must come before optional parameters");
+                        }
+                        fn_param_optional[fn_num_params] = 0;
+                        fn_param_defaults[fn_num_params] = NULL;
+                    }
 
                     fn_num_params++;
                 } while (match(p, TOK_COMMA));
@@ -1129,14 +1151,16 @@ Stmt* define_statement(Parser *p) {
                 Stmt *body = block_statement(p);
 
                 // Create function expression for the default
-                // Duplicate param_names for the function expression
+                // Duplicate param_names and param_defaults for the function expression
                 char **default_param_names = malloc(sizeof(char*) * fn_num_params);
+                Expr **default_param_defaults = malloc(sizeof(Expr*) * fn_num_params);
                 for (int i = 0; i < fn_num_params; i++) {
                     default_param_names[i] = strdup(fn_param_names[i]);
+                    default_param_defaults[i] = fn_param_defaults[i];  // Expr* shared, not copied
                 }
 
                 method_defaults[num_methods] = expr_function(
-                    0, default_param_names, fn_param_types, NULL,
+                    0, default_param_names, fn_param_types, default_param_defaults,
                     NULL, fn_param_is_const, fn_num_params,
                     NULL, NULL, return_type, body);
             } else {
