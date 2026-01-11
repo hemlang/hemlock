@@ -855,8 +855,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Save defer stack depth before executing function body
                 int defer_depth_before = ctx->defer_stack.count;
 
-                // Execute body
+                // Execute body - reset return state first
                 ctx->return_state.is_returning = 0;
+                ctx->return_state.return_value = val_null();  // Reset to prevent stale values
                 eval_stmt(fn->body, call_env, ctx);
 
                 // Execute deferred calls (in LIFO order) before returning
@@ -891,9 +892,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Reset return state
                 ctx->return_state.is_returning = 0;
 
-                // Retain result for the caller (so it survives call_env cleanup)
-                // The caller now owns this reference
-                VALUE_RETAIN(result);
+                // Note: result already has correct ref_count from eval_expr:
+                // - For returned variables: env_get retained it, env_release will release local copy
+                // - For new values: created with ref_count=1, env_release doesn't affect it
+                // No additional retain needed here.
 
                 // Profile: exit function (always, even on exception, for accurate timing)
                 PROFILER_EXIT(ctx);
