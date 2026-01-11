@@ -21,6 +21,13 @@ assert(float_val == 3.14, "parse float");
 let str = parse("\"hello\"");
 assert(str == "hello", "parse string");
 
+// Test parsing Unicode escapes
+let bmp_char = parse("\"\\u263A\"");
+assert(bmp_char == "☺", "parse unicode BMP escape");
+
+let non_bmp_char = parse("\"\\uD83D\\uDE00\"");
+assert(non_bmp_char == "😀", "parse unicode surrogate pair");
+
 // Test parsing arrays
 let arr = parse("[1,2,3]");
 assert(arr.length == 3, "parse array length");
@@ -71,6 +78,20 @@ try {
     error_caught = true;
 }
 assert(error_caught, "parse error on invalid JSON");
+
+fn assert_parse_error(input: string, message: string) {
+    let caught = false;
+    try {
+        parse(input);
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, message);
+}
+
+assert_parse_error("\"\\u12G4\"", "parse error on invalid unicode hex");
+assert_parse_error("\"\\uD83D\"", "parse error on missing surrogate pair");
+assert_parse_error("\"\\uDE00\"", "parse error on lone low surrogate");
 
 // Test error handling - circular reference in stringify
 let circular = {};
