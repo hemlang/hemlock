@@ -650,8 +650,14 @@ Object* object_new(char *type_name, int initial_capacity) {
         exit(1);
     }
     obj->type_name = type_name ? strdup(type_name) : NULL;
+    if (type_name && !obj->type_name) {
+        free(obj);
+        fprintf(stderr, "Runtime error: Memory allocation failed\n");
+        exit(1);
+    }
     obj->field_names = malloc(sizeof(char*) * initial_capacity);
     if (!obj->field_names) {
+        free(obj->type_name);
         free(obj);
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
@@ -659,6 +665,7 @@ Object* object_new(char *type_name, int initial_capacity) {
     obj->field_values = malloc(sizeof(Value) * initial_capacity);
     if (!obj->field_values) {
         free(obj->field_names);
+        free(obj->type_name);
         free(obj);
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);

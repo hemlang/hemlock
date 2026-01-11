@@ -491,9 +491,21 @@ void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
         ctx->has_return_vars = new_has_vars;
         ctx->try_finally_capacity = new_cap;
     }
-    ctx->finally_labels[ctx->try_finally_depth] = strdup(finally_label);
-    ctx->return_value_vars[ctx->try_finally_depth] = strdup(return_value_var);
-    ctx->has_return_vars[ctx->try_finally_depth] = strdup(has_return_var);
+    char *dup_finally = strdup(finally_label);
+    char *dup_return = strdup(return_value_var);
+    char *dup_has = strdup(has_return_var);
+
+    if (!dup_finally || !dup_return || !dup_has) {
+        free(dup_finally);
+        free(dup_return);
+        free(dup_has);
+        fprintf(stderr, "Codegen error: Failed to allocate try-finally strings\n");
+        exit(1);
+    }
+
+    ctx->finally_labels[ctx->try_finally_depth] = dup_finally;
+    ctx->return_value_vars[ctx->try_finally_depth] = dup_return;
+    ctx->has_return_vars[ctx->try_finally_depth] = dup_has;
     ctx->try_finally_depth++;
 }
 
