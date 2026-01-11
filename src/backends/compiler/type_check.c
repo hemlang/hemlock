@@ -794,6 +794,11 @@ int type_is_assignable(CheckedType *to, CheckedType *from) {
         return 1;  // Rune codepoint to integer is valid
     }
 
+    // Integer to rune - integer values can represent Unicode codepoints
+    if (to->kind == CHECKED_RUNE && type_is_integer(from)) {
+        return 1;  // Integer to rune codepoint is valid
+    }
+
     // Numeric/rune to bool - truthy conversion (0/0.0 = false, non-zero = true)
     if (to->kind == CHECKED_BOOL && (type_is_numeric(from) || from->kind == CHECKED_RUNE)) {
         return 1;  // Truthy conversion is valid
