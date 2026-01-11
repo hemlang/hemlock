@@ -546,6 +546,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
 Stmt* stmt_import_ffi(const char *library_path);
 Stmt* stmt_extern_fn(const char *function_name, char **param_names, Type **param_types, int num_params, Type *return_type);
 Type* type_new(TypeKind kind);
+Type* type_copy(Type *src);  // Deep copy a Type (including function types)
 Type* type_compound(Type **types, int num_types);  // Create compound type (A & B & C)
 Type* type_function(Type **param_types, char **param_names, int *param_optional,
                     int *param_is_const, int num_params, char *rest_param_name,

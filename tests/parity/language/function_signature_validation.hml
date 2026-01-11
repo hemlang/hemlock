@@ -1,0 +1,53 @@
+// Test function signature validation for function type annotations
+// This tests that function type annotations properly validate signatures
+
+// 1. Valid: exact match
+let exact_match: fn(i32, i32): i32 = fn(a: i32, b: i32): i32 { return a + b; };
+print(exact_match(3, 4));
+
+// 2. Valid: untyped function matches typed annotation (dynamic compatibility)
+let untyped_fn: fn(i32, string): bool = fn(n, s) { return n > 0; };
+print(untyped_fn(5, "hello"));
+
+// 3. Valid: numeric types are compatible (i32 ↔ i64 in same family)
+let numeric_compat: fn(i64): i64 = fn(x: i32): i32 { return x * 2; };
+print(numeric_compat(10));
+
+// 4. Valid: async function with async type
+async fn async_double(n: i32): i32 { return n * 2; }
+let async_handler: async fn(i32): i32 = async_double;
+print(join(spawn(async_handler, 7)));
+
+// 5. Valid: function with fewer specified types (partial typing)
+let partial_typed: fn(i32, i32): i32 = fn(a: i32, b) { return a + b; };
+print(partial_typed(100, 200));
+
+// 6. Valid: function type as parameter (higher-order function)
+fn apply_op(op: fn(i32, i32): i32, x: i32, y: i32): i32 {
+    return op(x, y);
+}
+print(apply_op(fn(a, b) { return a * b; }, 6, 7));
+
+// 7. Valid: function type with no return type (void)
+let logger: fn(string): void = fn(msg: string) { print(msg); };
+logger("logging works");
+
+// 8. Valid: curried function type
+fn make_adder(n: i32): fn(i32): i32 {
+    return fn(x: i32): i32 { return x + n; };
+}
+let add10 = make_adder(10);
+print(add10(5));
+
+// 9. Valid: type alias with function type
+type BinaryOp = fn(i32, i32): i32;
+let mul: BinaryOp = fn(a, b) { return a * b; };
+print(mul(8, 9));
+
+// 10. Valid: function with optional/default parameter accepts typed fn
+fn run_with_default(cb: fn(i32): i32, val?: 100) {
+    print(cb(val));
+}
+run_with_default(fn(x: i32): i32 { return x / 2; });
+
+print("all signature validations passed");

@@ -364,6 +364,98 @@ Type* type_new(TypeKind kind) {
     return type;
 }
 
+Type* type_copy(Type *src) {
+    if (!src) return NULL;
+
+    Type *type = malloc(sizeof(Type));
+    type->kind = src->kind;
+    type->nullable = src->nullable;
+
+    // Copy type_name
+    type->type_name = src->type_name ? strdup(src->type_name) : NULL;
+
+    // Copy element_type (for arrays)
+    type->element_type = type_copy(src->element_type);
+
+    // Copy compound types (for intersection types)
+    type->num_compound_types = src->num_compound_types;
+    if (src->num_compound_types > 0 && src->compound_types) {
+        type->compound_types = malloc(sizeof(Type*) * src->num_compound_types);
+        for (int i = 0; i < src->num_compound_types; i++) {
+            type->compound_types[i] = type_copy(src->compound_types[i]);
+        }
+    } else {
+        type->compound_types = NULL;
+    }
+
+    // Copy type_args (for generic types)
+    type->num_type_args = src->num_type_args;
+    if (src->num_type_args > 0 && src->type_args) {
+        type->type_args = malloc(sizeof(Type*) * src->num_type_args);
+        for (int i = 0; i < src->num_type_args; i++) {
+            type->type_args[i] = type_copy(src->type_args[i]);
+        }
+    } else {
+        type->type_args = NULL;
+    }
+
+    // Copy function type fields
+    type->fn_num_params = src->fn_num_params;
+    type->fn_is_async = src->fn_is_async;
+
+    if (src->fn_num_params > 0) {
+        // Copy fn_param_types
+        if (src->fn_param_types) {
+            type->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
+            for (int i = 0; i < src->fn_num_params; i++) {
+                type->fn_param_types[i] = type_copy(src->fn_param_types[i]);
+            }
+        } else {
+            type->fn_param_types = NULL;
+        }
+
+        // Copy fn_param_names
+        if (src->fn_param_names) {
+            type->fn_param_names = malloc(sizeof(char*) * src->fn_num_params);
+            for (int i = 0; i < src->fn_num_params; i++) {
+                type->fn_param_names[i] = src->fn_param_names[i] ? strdup(src->fn_param_names[i]) : NULL;
+            }
+        } else {
+            type->fn_param_names = NULL;
+        }
+
+        // Copy fn_param_optional
+        if (src->fn_param_optional) {
+            type->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
+            memcpy(type->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
+        } else {
+            type->fn_param_optional = NULL;
+        }
+
+        // Copy fn_param_is_const
+        if (src->fn_param_is_const) {
+            type->fn_param_is_const = malloc(sizeof(int) * src->fn_num_params);
+            memcpy(type->fn_param_is_const, src->fn_param_is_const, sizeof(int) * src->fn_num_params);
+        } else {
+            type->fn_param_is_const = NULL;
+        }
+    } else {
+        type->fn_param_types = NULL;
+        type->fn_param_names = NULL;
+        type->fn_param_optional = NULL;
+        type->fn_param_is_const = NULL;
+    }
+
+    // Copy rest parameter
+    type->fn_rest_param_name = src->fn_rest_param_name ? strdup(src->fn_rest_param_name) : NULL;
+    type->fn_rest_param_type = type_copy(src->fn_rest_param_type);
+
+    // Copy return type
+    type->fn_return_type = type_copy(src->fn_return_type);
+
+    return type;
+}
+
 Type* type_compound(Type **types, int num_types) {
     Type *type = malloc(sizeof(Type));
     type->kind = TYPE_COMPOUND;

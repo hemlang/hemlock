@@ -1431,42 +1431,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 fn->param_names[i] = strdup(expr->as.function.param_names[i]);
             }
 
-            // Copy parameter types (may be NULL)
+            // Copy parameter types (may be NULL) - use type_copy for deep copy
             fn->param_types = malloc(sizeof(Type*) * expr->as.function.num_params);
             for (int i = 0; i < expr->as.function.num_params; i++) {
-                if (expr->as.function.param_types[i]) {
-                    fn->param_types[i] = type_new(expr->as.function.param_types[i]->kind);
-                    // Copy nullable flag
-                    fn->param_types[i]->nullable = expr->as.function.param_types[i]->nullable;
-                    // Copy type_name for custom types (enums and objects)
-                    if (expr->as.function.param_types[i]->type_name) {
-                        fn->param_types[i]->type_name = strdup(expr->as.function.param_types[i]->type_name);
-                    }
-                    // Copy element_type for arrays
-                    if (expr->as.function.param_types[i]->element_type) {
-                        fn->param_types[i]->element_type = type_new(expr->as.function.param_types[i]->element_type->kind);
-                        fn->param_types[i]->element_type->nullable = expr->as.function.param_types[i]->element_type->nullable;
-                        if (expr->as.function.param_types[i]->element_type->type_name) {
-                            fn->param_types[i]->element_type->type_name = strdup(expr->as.function.param_types[i]->element_type->type_name);
-                        }
-                    }
-                    // Copy compound types (for intersection types like A & B)
-                    if (expr->as.function.param_types[i]->compound_types) {
-                        Type *src = expr->as.function.param_types[i];
-                        fn->param_types[i]->num_compound_types = src->num_compound_types;
-                        fn->param_types[i]->compound_types = malloc(sizeof(Type*) * src->num_compound_types);
-                        for (int j = 0; j < src->num_compound_types; j++) {
-                            // Shallow copy - compound constituents are simple types (TYPE_CUSTOM_OBJECT)
-                            fn->param_types[i]->compound_types[j] = type_new(src->compound_types[j]->kind);
-                            fn->param_types[i]->compound_types[j]->nullable = src->compound_types[j]->nullable;
-                            if (src->compound_types[j]->type_name) {
-                                fn->param_types[i]->compound_types[j]->type_name = strdup(src->compound_types[j]->type_name);
-                            }
-                        }
-                    }
-                } else {
-                    fn->param_types[i] = NULL;
-                }
+                fn->param_types[i] = type_copy(expr->as.function.param_types[i]);
             }
 
             // Store parameter defaults (AST expressions, not evaluated yet)
@@ -1505,40 +1473,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Copy rest parameter (varargs) if present
             if (expr->as.function.rest_param) {
                 fn->rest_param = strdup(expr->as.function.rest_param);
-                if (expr->as.function.rest_param_type) {
-                    fn->rest_param_type = type_new(expr->as.function.rest_param_type->kind);
-                    fn->rest_param_type->nullable = expr->as.function.rest_param_type->nullable;
-                    if (expr->as.function.rest_param_type->type_name) {
-                        fn->rest_param_type->type_name = strdup(expr->as.function.rest_param_type->type_name);
-                    }
-                } else {
-                    fn->rest_param_type = NULL;
-                }
+                fn->rest_param_type = type_copy(expr->as.function.rest_param_type);
             } else {
                 fn->rest_param = NULL;
                 fn->rest_param_type = NULL;
             }
 
-            // Copy return type (may be NULL)
-            if (expr->as.function.return_type) {
-                fn->return_type = type_new(expr->as.function.return_type->kind);
-                // Copy nullable flag
-                fn->return_type->nullable = expr->as.function.return_type->nullable;
-                // Copy type_name for custom types (enums and objects)
-                if (expr->as.function.return_type->type_name) {
-                    fn->return_type->type_name = strdup(expr->as.function.return_type->type_name);
-                }
-                // Copy element_type for arrays
-                if (expr->as.function.return_type->element_type) {
-                    fn->return_type->element_type = type_new(expr->as.function.return_type->element_type->kind);
-                    fn->return_type->element_type->nullable = expr->as.function.return_type->element_type->nullable;
-                    if (expr->as.function.return_type->element_type->type_name) {
-                        fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
-                    }
-                }
-            } else {
-                fn->return_type = NULL;
-            }
+            // Copy return type (may be NULL) - use type_copy for deep copy
+            fn->return_type = type_copy(expr->as.function.return_type);
 
             // Store body AST (shared, not copied)
             fn->body = expr->as.function.body;
