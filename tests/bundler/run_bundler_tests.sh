@@ -120,8 +120,22 @@ else
     fail "Output match" "Bundled output differs from original"
 fi
 
-# Test 10: Multiple stdlib imports
-echo "Test 10: Bundle with multiple stdlib imports"
+# Test 10: Module cache/path resolution parity
+echo "Test 10: Module cache/path resolution parity"
+if $HEMLOCK --bundle tests/parity/modules/cache_resolution.hml -o "$TMPDIR/cache_resolution.hmlc" 2>/dev/null; then
+    ORIGINAL=$($HEMLOCK tests/parity/modules/cache_resolution.hml 2>&1)
+    BUNDLED=$($HEMLOCK "$TMPDIR/cache_resolution.hmlc" 2>&1)
+    if [ "$ORIGINAL" = "$BUNDLED" ]; then
+        pass "Module cache resolution matches original output"
+    else
+        fail "Module cache resolution" "Bundled output differs from original"
+    fi
+else
+    fail "Module cache resolution bundle" "Bundle command failed"
+fi
+
+# Test 11: Multiple stdlib imports
+echo "Test 11: Bundle with multiple stdlib imports"
 cat > "$TMPDIR/multi_stdlib.hml" << 'EOF'
 import { HashMap } from "@stdlib/collections";
 import { now } from "@stdlib/time";
@@ -143,8 +157,8 @@ else
     fail "Multiple stdlib imports bundle" "Bundle command failed"
 fi
 
-# Test 11: Info command on hmlc
-echo "Test 11: Info command on .hmlc"
+# Test 12: Info command on hmlc
+echo "Test 12: Info command on .hmlc"
 OUTPUT=$($HEMLOCK --info "$TMPDIR/stdlib.hmlc" 2>&1)
 if echo "$OUTPUT" | grep -q "Format: HMLC" && echo "$OUTPUT" | grep -q "Statements:"; then
     pass "Info command shows .hmlc details"
@@ -152,8 +166,8 @@ else
     fail "Info command on .hmlc" "Expected output not found"
 fi
 
-# Test 12: Info command on hmlb
-echo "Test 12: Info command on .hmlb"
+# Test 13: Info command on hmlb
+echo "Test 13: Info command on .hmlb"
 OUTPUT=$($HEMLOCK --info "$TMPDIR/compressed.hmlb" 2>&1)
 if echo "$OUTPUT" | grep -q "Format: HMLB" && echo "$OUTPUT" | grep -q "Ratio:"; then
     pass "Info command shows .hmlb compression ratio"
@@ -161,8 +175,8 @@ else
     fail "Info command on .hmlb" "Expected output not found"
 fi
 
-# Test 13: Package single file (compressed)
-echo "Test 13: Package single file (compressed)"
+# Test 14: Package single file (compressed)
+echo "Test 14: Package single file (compressed)"
 if $HEMLOCK --package tests/primitives/binary_literals.hml -o "$TMPDIR/pkg_single" 2>/dev/null; then
     if [ -x "$TMPDIR/pkg_single" ]; then
         pass "Packaged single file created and is executable"
@@ -173,24 +187,24 @@ else
     fail "Package single file" "Package command failed"
 fi
 
-# Test 14: Run packaged single file
-echo "Test 14: Run packaged single file"
+# Test 15: Run packaged single file
+echo "Test 15: Run packaged single file"
 if "$TMPDIR/pkg_single" >/dev/null 2>&1; then
     pass "Packaged single file runs"
 else
     fail "Packaged single file runs" "Execution failed"
 fi
 
-# Test 15: Package multi-module example (compressed)
-echo "Test 15: Package multi-module example"
+# Test 16: Package multi-module example (compressed)
+echo "Test 16: Package multi-module example"
 if $HEMLOCK --package examples/multi_module/main.hml -o "$TMPDIR/pkg_multi" 2>/dev/null; then
     pass "Packaged multi-module example created"
 else
     fail "Package multi-module" "Package command failed"
 fi
 
-# Test 16: Run packaged multi-module and verify output
-echo "Test 16: Run packaged multi-module"
+# Test 17: Run packaged multi-module and verify output
+echo "Test 17: Run packaged multi-module"
 OUTPUT=$("$TMPDIR/pkg_multi" 2>&1)
 if echo "$OUTPUT" | grep -q "Example Complete"; then
     pass "Packaged multi-module runs correctly"

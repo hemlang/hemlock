@@ -7,185 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <libgen.h>
 #include <limits.h>
-
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
-#endif
-
-// ========== HASH TABLE HELPERS ==========
-
-// djb2 hash function for module paths
-static unsigned long module_path_hash(const char *str) {
-    unsigned long hash = 5381;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
-    }
-    return hash;
-}
-
-// Initialize hash table
-static void module_hash_init(ModuleCache *cache) {
-    cache->hash_size = MODULE_HASH_SIZE;
-    cache->hash_count = 0;
-    cache->hash_table = malloc(sizeof(ModuleCacheEntry) * cache->hash_size);
-    for (int i = 0; i < cache->hash_size; i++) {
-        cache->hash_table[i].path = NULL;
-        cache->hash_table[i].module_index = -1;
-    }
-}
-
-// Resize hash table when load factor exceeds 0.7
-static void module_hash_resize(ModuleCache *cache) {
-    int old_size = cache->hash_size;
-    ModuleCacheEntry *old_table = cache->hash_table;
-
-    // Double the size
-    cache->hash_size *= 2;
-    cache->hash_table = malloc(sizeof(ModuleCacheEntry) * cache->hash_size);
-    cache->hash_count = 0;
-
-    // Initialize new table
-    for (int i = 0; i < cache->hash_size; i++) {
-        cache->hash_table[i].path = NULL;
-        cache->hash_table[i].module_index = -1;
-    }
-
-    // Rehash all entries
-    for (int i = 0; i < old_size; i++) {
-        if (old_table[i].path != NULL) {
-            unsigned long hash = module_path_hash(old_table[i].path);
-            int index = hash % cache->hash_size;
-
-            // Linear probing
-            while (cache->hash_table[index].path != NULL) {
-                index = (index + 1) % cache->hash_size;
-            }
-
-            cache->hash_table[index].path = old_table[i].path;
-            cache->hash_table[index].module_index = old_table[i].module_index;
-            cache->hash_count++;
-        }
-    }
-
-    free(old_table);
-}
-
-// Insert into hash table
-static void module_hash_insert(ModuleCache *cache, const char *path, int module_index) {
-    // Resize if load factor > 0.7
-    if (cache->hash_count * 10 > cache->hash_size * 7) {
-        module_hash_resize(cache);
-    }
-
-    unsigned long hash = module_path_hash(path);
-    int index = hash % cache->hash_size;
-
-    // Linear probing to find empty slot
-    while (cache->hash_table[index].path != NULL) {
-        index = (index + 1) % cache->hash_size;
-    }
-
-    cache->hash_table[index].path = strdup(path);
-    cache->hash_table[index].module_index = module_index;
-    cache->hash_count++;
-}
-
-// Lookup in hash table - returns module index or -1 if not found
-static int module_hash_lookup(ModuleCache *cache, const char *path) {
-    unsigned long hash = module_path_hash(path);
-    int index = hash % cache->hash_size;
-    int start = index;
-
-    // Linear probing
-    while (cache->hash_table[index].path != NULL) {
-        if (strcmp(cache->hash_table[index].path, path) == 0) {
-            return cache->hash_table[index].module_index;
-        }
-        index = (index + 1) % cache->hash_size;
-        if (index == start) break;  // Full circle, not found
-    }
-
-    return -1;
-}
-
-// Free hash table
-static void module_hash_free(ModuleCache *cache) {
-    for (int i = 0; i < cache->hash_size; i++) {
-        if (cache->hash_table[i].path != NULL) {
-            free(cache->hash_table[i].path);
-        }
-    }
-    free(cache->hash_table);
-}
-
-// ========== PATH SECURITY ==========
-
-// Check if a path component contains directory traversal attempts
-// Returns 1 if path is safe, 0 if it contains traversal
-static int is_safe_subpath(const char *path) {
-    // Reject NULL paths
-    if (path == NULL) return 0;
-
-    // Reject empty paths or absolute paths
-    if (path[0] == '\0' || path[0] == '/') return 0;
-
-    // Check for ".." components
-    const char *p = path;
-    while (*p) {
-        // Check for ".." at start or after "/"
-        if ((p == path || *(p-1) == '/') && p[0] == '.' && p[1] == '.') {
-            // ".." followed by end, "/" or nothing is traversal
-            if (p[2] == '\0' || p[2] == '/') {
-                return 0;
-            }
-        }
-        p++;
-    }
-
-    return 1;
-}
-
-// Validate that resolved path stays within base directory
-// Returns 1 if path is contained within base, 0 otherwise
-static int path_is_within_base(const char *resolved_path, const char *base_path) {
-    char base_real[PATH_MAX];
-
-    // Get canonical paths
-    if (!realpath(base_path, base_real)) {
-        return 0;
-    }
-
-    // For resolved_path, we need to handle non-existent files
-    // Try to resolve the directory part
-    char resolved_copy[PATH_MAX];
-    strncpy(resolved_copy, resolved_path, PATH_MAX - 1);
-    resolved_copy[PATH_MAX - 1] = '\0';
-
-    // Get the directory part
-    char *dir = dirname(resolved_copy);
-    char dir_real[PATH_MAX];
-
-    if (!realpath(dir, dir_real)) {
-        // If directory doesn't exist, this is already suspicious
-        return 0;
-    }
-
-    // Check that dir_real starts with base_real
-    size_t base_len = strlen(base_real);
-    if (strncmp(dir_real, base_real, base_len) != 0) {
-        return 0;
-    }
-
-    // Ensure it's not a prefix match (e.g., /foo/bar vs /foo/barbaz)
-    if (dir_real[base_len] != '\0' && dir_real[base_len] != '/') {
-        return 0;
-    }
-
-    return 1;
-}
 
 // ========== MODULE CACHE ==========
 
@@ -207,88 +29,21 @@ static void ensure_export_capacity(Module *module) {
     }
 }
 
-// Find the stdlib directory path
-static char* find_stdlib_path(void) {
-    char exe_path[PATH_MAX];
-    char resolved[PATH_MAX];
-    int found_exe = 0;
-
-#ifdef __APPLE__
-    // macOS: use _NSGetExecutablePath
-    uint32_t size = sizeof(exe_path);
-    if (_NSGetExecutablePath(exe_path, &size) == 0) {
-        // Resolve any symlinks
-        char *real = realpath(exe_path, NULL);
-        if (real) {
-            strncpy(exe_path, real, PATH_MAX - 1);
-            exe_path[PATH_MAX - 1] = '\0';
-            free(real);
-            found_exe = 1;
-        }
-    }
-#else
-    // Linux: use /proc/self/exe
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len != -1) {
-        exe_path[len] = '\0';
-        found_exe = 1;
-    }
-#endif
-
-    if (found_exe) {
-        // Make a copy because dirname may modify the string
-        char *exe_copy = strdup(exe_path);
-        char *dir = dirname(exe_copy);
-
-        // Try: executable_dir/stdlib
-        snprintf(resolved, PATH_MAX, "%s/stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            free(exe_copy);
-            return realpath(resolved, NULL);
-        }
-
-        // Try: executable_dir/../stdlib (for build directory structure)
-        snprintf(resolved, PATH_MAX, "%s/../stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            free(exe_copy);
-            return realpath(resolved, NULL);
-        }
-        free(exe_copy);
-    }
-
-    // Fallback: try current working directory + stdlib
-    if (getcwd(resolved, sizeof(resolved))) {
-        char stdlib_path[PATH_MAX];
-        int ret = snprintf(stdlib_path, sizeof(stdlib_path), "%s/stdlib", resolved);
-        // Check if snprintf succeeded without truncation
-        if (ret > 0 && ret < (int)sizeof(stdlib_path)) {
-            if (access(stdlib_path, F_OK) == 0) {
-                return realpath(stdlib_path, NULL);
-            }
-        }
-    }
-
-    // Last resort: use /usr/local/lib/hemlock/stdlib (for installed version)
-    if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
-        return strdup("/usr/local/lib/hemlock/stdlib");
-    }
-
-    // Not found - return NULL
-    return NULL;
-}
-
 ModuleCache* module_cache_new(const char *initial_dir) {
     ModuleCache *cache = malloc(sizeof(ModuleCache));
     cache->modules = malloc(sizeof(Module*) * 32);
     cache->count = 0;
     cache->capacity = 32;
-    cache->current_dir = strdup(initial_dir);
-    cache->stdlib_path = find_stdlib_path();
+    cache->resolver = module_resolution_new(initial_dir, NULL);
+    if (!cache->resolver) {
+        fprintf(stderr, "Error: Failed to initialize module resolution\n");
+        free(cache->modules);
+        free(cache);
+        exit(1);
+    }
+    module_cache_map_init(&cache->cache_map);
 
-    // Initialize hash table for O(1) module lookup
-    module_hash_init(cache);
-
-    if (!cache->stdlib_path) {
+    if (!cache->resolver->stdlib_path) {
         fprintf(stderr, "Warning: Could not locate stdlib directory. @stdlib imports will not work.\n");
     }
 
@@ -323,318 +78,16 @@ void module_cache_free(ModuleCache *cache) {
     }
 
     free(cache->modules);
-    free(cache->current_dir);
-    if (cache->stdlib_path) {
-        free(cache->stdlib_path);
-    }
-
-    // Free hash table
-    module_hash_free(cache);
+    module_cache_map_free(&cache->cache_map);
+    module_resolution_free(cache->resolver);
 
     free(cache);
-}
-
-// ========== PATH RESOLUTION ==========
-
-// Helper: Find hem_modules directory by walking up from a path
-static char* find_hem_modules(const char *start_path) {
-    char search_path[PATH_MAX];
-    char hem_modules_path[PATH_MAX];
-
-    // Make a copy of start_path
-    strncpy(search_path, start_path, PATH_MAX - 1);
-    search_path[PATH_MAX - 1] = '\0';
-
-    // Walk up the directory tree looking for hem_modules
-    while (1) {
-        int ret = snprintf(hem_modules_path, PATH_MAX, "%s/hem_modules", search_path);
-        // Check if snprintf succeeded without truncation
-        if (ret > 0 && ret < PATH_MAX && access(hem_modules_path, F_OK) == 0) {
-            return strdup(hem_modules_path);
-        }
-
-        // Go up one directory
-        char *parent = dirname(search_path);
-        if (strcmp(parent, search_path) == 0 || strcmp(parent, "/") == 0) {
-            // Reached root, not found
-            break;
-        }
-        strncpy(search_path, parent, PATH_MAX - 1);
-    }
-
-    return NULL;
-}
-
-// Helper: Check if import path looks like a package (owner/repo format)
-static int is_package_import(const char *import_path) {
-    // Must not start with ./ or ../ or /
-    if (import_path[0] == '.' || import_path[0] == '/') {
-        return 0;
-    }
-
-    // Must contain exactly at least one slash (owner/repo)
-    const char *slash = strchr(import_path, '/');
-    if (!slash || slash == import_path) {
-        return 0;
-    }
-
-    return 1;
-}
-
-// Resolve relative or absolute path to absolute path
-char* resolve_module_path(ModuleCache *cache, const char *importer_path, const char *import_path) {
-    char resolved[PATH_MAX];
-
-    // Check for @stdlib alias
-    if (strncmp(import_path, "@stdlib/", 8) == 0) {
-        // Handle @stdlib alias
-        if (!cache->stdlib_path) {
-            fprintf(stderr, "Error: @stdlib alias used but stdlib directory not found\n");
-            return NULL;
-        }
-
-        // Replace @stdlib with actual stdlib path
-        const char *module_subpath = import_path + 8;  // Skip "@stdlib/"
-
-        // SECURITY: Validate subpath doesn't contain directory traversal
-        if (!is_safe_subpath(module_subpath)) {
-            fprintf(stderr, "Error: Invalid module path '%s' - directory traversal not allowed\n", import_path);
-            return NULL;
-        }
-
-        snprintf(resolved, PATH_MAX, "%s/%s", cache->stdlib_path, module_subpath);
-
-        // SECURITY: Double-check resolved path stays within stdlib directory
-        if (!path_is_within_base(resolved, cache->stdlib_path)) {
-            fprintf(stderr, "Error: Module path '%s' resolves outside stdlib directory\n", import_path);
-            return NULL;
-        }
-    }
-    // If import_path is absolute, use it directly
-    else if (import_path[0] == '/') {
-        // Already absolute
-        strncpy(resolved, import_path, PATH_MAX - 1);
-        resolved[PATH_MAX - 1] = '\0';
-    }
-    // Check for package import (owner/repo or owner/repo/subpath)
-    else if (is_package_import(import_path)) {
-        // Try to find hem_modules directory
-        const char *search_from = importer_path ? importer_path : cache->current_dir;
-
-        // Make a copy for dirname since it may modify the string
-        char search_dir[PATH_MAX];
-        strncpy(search_dir, search_from, PATH_MAX - 1);
-        search_dir[PATH_MAX - 1] = '\0';
-
-        // If search_from is a file, get its directory
-        if (importer_path) {
-            dirname(search_dir);
-        }
-
-        char *hem_modules = find_hem_modules(search_dir);
-
-        if (hem_modules) {
-            // Parse owner/repo from import path
-            char owner[256] = {0};
-            char repo[256] = {0};
-            const char *subpath = NULL;
-
-            // Find first slash (after owner)
-            const char *first_slash = strchr(import_path, '/');
-            if (!first_slash) {
-                // Invalid package path - must have at least owner/repo
-                free(hem_modules);
-                fprintf(stderr, "Error: Invalid package import '%s' - expected owner/repo format\n", import_path);
-                return NULL;
-            }
-            {
-                size_t owner_len = first_slash - import_path;
-                if (owner_len >= sizeof(owner)) owner_len = sizeof(owner) - 1;
-                strncpy(owner, import_path, owner_len);
-                owner[owner_len] = '\0';
-
-                // Find second slash (after repo) if exists
-                const char *second_slash = strchr(first_slash + 1, '/');
-                if (second_slash) {
-                    size_t repo_len = second_slash - first_slash - 1;
-                    if (repo_len >= sizeof(repo)) repo_len = sizeof(repo) - 1;
-                    strncpy(repo, first_slash + 1, repo_len);
-                    repo[repo_len] = '\0';
-                    subpath = second_slash + 1;
-                } else {
-                    strncpy(repo, first_slash + 1, sizeof(repo) - 1);
-                    repo[sizeof(repo) - 1] = '\0';
-                }
-            }
-
-            // SECURITY: Validate owner and repo names don't contain traversal
-            if (!is_safe_subpath(owner) || !is_safe_subpath(repo)) {
-                fprintf(stderr, "Error: Invalid package name - directory traversal not allowed\n");
-                free(hem_modules);
-                return NULL;
-            }
-
-            // SECURITY: Validate subpath if present
-            if (subpath && !is_safe_subpath(subpath)) {
-                fprintf(stderr, "Error: Invalid package subpath '%s' - directory traversal not allowed\n", subpath);
-                free(hem_modules);
-                return NULL;
-            }
-
-            // Try different resolution patterns per spec:
-            // 1. hem_modules/owner/repo/path.hml
-            // 2. hem_modules/owner/repo/path/index.hml
-            // 3. hem_modules/owner/repo/src/path.hml
-            // 4. hem_modules/owner/repo/src/path/index.hml
-            // For root imports (no subpath):
-            // - Read main from package.json, default to src/index.hml
-
-            char try_path[PATH_MAX];
-
-            if (subpath) {
-                // Has subpath - try direct file
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
-                    free(hem_modules);
-                    return strdup(try_path);
-                }
-
-                // Try as directory with index.hml
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s/index.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
-                    free(hem_modules);
-                    return strdup(try_path);
-                }
-
-                // Try in src/ directory
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
-                    free(hem_modules);
-                    return strdup(try_path);
-                }
-
-                // Try in src/ as directory
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s/index.hml", hem_modules, owner, repo, subpath);
-                if (access(try_path, F_OK) == 0) {
-                    free(hem_modules);
-                    return strdup(try_path);
-                }
-            } else {
-                // No subpath - import root of package
-                // Try to read main from package.json
-                char pkg_json_path[PATH_MAX];
-                snprintf(pkg_json_path, PATH_MAX, "%s/%s/%s/package.json", hem_modules, owner, repo);
-
-                char main_file[256] = "src/index.hml";  // Default
-                FILE *pkg_file = fopen(pkg_json_path, "r");
-                if (pkg_file) {
-                    // Simple JSON parsing to find "main" field
-                    char line[1024];
-                    while (fgets(line, sizeof(line), pkg_file)) {
-                        char *main_pos = strstr(line, "\"main\"");
-                        if (main_pos) {
-                            char *colon = strchr(main_pos, ':');
-                            if (colon) {
-                                char *quote1 = strchr(colon, '"');
-                                if (quote1) {
-                                    char *quote2 = strchr(quote1 + 1, '"');
-                                    if (quote2) {
-                                        size_t len = quote2 - quote1 - 1;
-                                        if (len < sizeof(main_file)) {
-                                            strncpy(main_file, quote1 + 1, len);
-                                            main_file[len] = '\0';
-                                        }
-                                    }
-                                }
-                            }
-                            break;
-                        }
-                    }
-                    fclose(pkg_file);
-                }
-
-                // SECURITY: Validate main_file from package.json doesn't contain traversal
-                if (!is_safe_subpath(main_file)) {
-                    fprintf(stderr, "Error: Invalid 'main' field in package.json - directory traversal not allowed\n");
-                    free(hem_modules);
-                    return NULL;
-                }
-
-                // Build path to main file
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/%s", hem_modules, owner, repo, main_file);
-
-                // Add .hml if not present
-                int path_len = strlen(try_path);
-                if (path_len < 4 || strcmp(try_path + path_len - 4, ".hml") != 0) {
-                    strncat(try_path, ".hml", PATH_MAX - path_len - 1);
-                }
-
-                if (access(try_path, F_OK) == 0) {
-                    free(hem_modules);
-                    return strdup(try_path);
-                }
-
-                // Fallback: try src/index.hml
-                snprintf(try_path, PATH_MAX, "%s/%s/%s/src/index.hml", hem_modules, owner, repo);
-                if (access(try_path, F_OK) == 0) {
-                    free(hem_modules);
-                    return strdup(try_path);
-                }
-            }
-
-            // If nothing found in hem_modules, fall through to relative path resolution
-            // (package might not be installed yet)
-            free(hem_modules);
-        }
-
-        // Fall back to relative path resolution for uninstalled packages
-        // This will result in a "file not found" error, which is appropriate
-        snprintf(resolved, PATH_MAX, "%s/%s", cache->current_dir, import_path);
-    } else {
-        // Relative path - resolve relative to importer's directory
-        const char *base_dir;
-        char importer_dir[PATH_MAX];
-
-        if (importer_path) {
-            // Resolve relative to the importing file's directory
-            strncpy(importer_dir, importer_path, PATH_MAX - 1);
-            importer_dir[PATH_MAX - 1] = '\0';
-            char *dir = dirname(importer_dir);
-            base_dir = dir;
-        } else {
-            // No importer - use current directory
-            base_dir = cache->current_dir;
-        }
-
-        // Build the path
-        snprintf(resolved, PATH_MAX, "%s/%s", base_dir, import_path);
-    }
-
-    // Add .hml extension if not present
-    int len = strlen(resolved);
-    if (len < 4 || strcmp(resolved + len - 4, ".hml") != 0) {
-        strncat(resolved, ".hml", PATH_MAX - len - 1);
-    }
-
-    // Resolve to absolute canonical path
-    char *absolute = realpath(resolved, NULL);
-    if (!absolute) {
-        // File doesn't exist - return the resolved path anyway for error reporting
-        return strdup(resolved);
-    }
-
-    return absolute;
 }
 
 // ========== MODULE LOADING ==========
 
 Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
-    // O(1) hash table lookup instead of O(n) linear search
-    int index = module_hash_lookup(cache, absolute_path);
-    if (index >= 0 && index < cache->count) {
-        return cache->modules[index];
-    }
-    return NULL;
+    return (Module *)module_cache_map_get(&cache->cache_map, absolute_path);
 }
 
 // Parse a module file and return statements
@@ -691,7 +144,7 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
 // Recursively load a module and its dependencies
 Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContext *ctx) {
     // Resolve to absolute path
-    char *absolute_path = resolve_module_path(cache, NULL, module_path);
+    char *absolute_path = resolve_module_path(cache->resolver, NULL, module_path);
 
     // Check if already in cache
     Module *cached = get_cached_module(cache, absolute_path);
@@ -745,9 +198,15 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
     }
 
     // Add to array and hash table for O(1) lookup
-    int module_index = cache->count;
     cache->modules[cache->count++] = module;
-    module_hash_insert(cache, absolute_path, module_index);
+    if (module_cache_map_set(&cache->cache_map, absolute_path, module) != 0) {
+        fprintf(stderr, "Error: Failed to cache module '%s'\n", absolute_path);
+        cache->count--;
+        free(module->export_names);
+        free(module->absolute_path);
+        free(module);
+        return NULL;
+    }
 
     // Parse the module file
     module->statements = parse_module_file(absolute_path, &module->num_statements, ctx);
@@ -761,7 +220,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
             char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = resolve_module_path(cache, absolute_path, import_path);
+            char *resolved = resolve_module_path(cache->resolver, absolute_path, import_path);
 
             // Recursively load the imported module
             Module *imported = load_module(cache, resolved, ctx);
@@ -775,7 +234,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
         } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
             // Re-export: also need to load that module
             char *reexport_path = stmt->as.export_stmt.module_path;
-            char *resolved = resolve_module_path(cache, absolute_path, reexport_path);
+            char *resolved = resolve_module_path(cache->resolver, absolute_path, reexport_path);
 
             Module *reexported = load_module(cache, resolved, ctx);
             free(resolved);
@@ -811,7 +270,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
             char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = resolve_module_path(cache, module->absolute_path, import_path);
+            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, import_path);
             Module *imported = get_cached_module(cache, resolved);
             free(resolved);
 
@@ -820,7 +279,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
             }
         } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
             char *reexport_path = stmt->as.export_stmt.module_path;
-            char *resolved = resolve_module_path(cache, module->absolute_path, reexport_path);
+            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, reexport_path);
             Module *reexported = get_cached_module(cache, resolved);
             free(resolved);
 
@@ -840,7 +299,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
         if (stmt->type == STMT_IMPORT) {
             // Handle import: bind imported values into this module's environment
             char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = resolve_module_path(cache, module->absolute_path, import_path);
+            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, import_path);
             Module *imported = get_cached_module(cache, resolved);
             free(resolved);
 
@@ -914,7 +373,7 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
             } else if (stmt->as.export_stmt.is_reexport) {
                 // Re-export: copy exports from another module
                 char *reexport_path = stmt->as.export_stmt.module_path;
-                char *resolved = resolve_module_path(cache, module->absolute_path, reexport_path);
+                char *resolved = resolve_module_path(cache->resolver, module->absolute_path, reexport_path);
                 Module *reexported = get_cached_module(cache, resolved);
                 free(resolved);
 

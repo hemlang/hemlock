@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "interpreter.h"
+#include "modules.h"
 
 // Forward declarations
 typedef struct Module Module;
@@ -27,26 +28,12 @@ typedef struct Module {
     int export_capacity;         // Capacity of export_names array
 } Module;
 
-// Module cache structure
-// Uses a hash table for O(1) module lookup by path
-#define MODULE_HASH_SIZE 64  // Initial hash table size, grows as needed
-
-typedef struct ModuleCacheEntry {
-    char *path;              // Absolute path (key)
-    int module_index;        // Index into modules array (-1 if empty)
-} ModuleCacheEntry;
-
 typedef struct ModuleCache {
     Module **modules;            // Array of modules
     int count;
     int capacity;
-    char *current_dir;           // Current working directory for relative imports
-    char *stdlib_path;           // Path to standard library directory
-
-    // Hash table for O(1) lookup
-    ModuleCacheEntry *hash_table;
-    int hash_size;               // Current hash table size
-    int hash_count;              // Number of entries in hash table
+    ModuleResolution *resolver;  // Shared module resolution context
+    ModuleCacheMap cache_map;    // Shared module cache
 } ModuleCache;
 
 // Public interface
@@ -56,7 +43,6 @@ ModuleCache* module_cache_new(const char *initial_dir);
 void module_cache_free(ModuleCache *cache);
 
 // Module loading and resolution
-char* resolve_module_path(ModuleCache *cache, const char *importer_path, const char *import_path);
 Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContext *ctx);
 Module* get_cached_module(ModuleCache *cache, const char *absolute_path);
 

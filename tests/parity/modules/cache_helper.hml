@@ -1,0 +1,4 @@
+// Helper module for cache/path resolution parity tests
+print("cache helper loaded");
+
+export const VALUE = 7;

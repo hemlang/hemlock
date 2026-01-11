@@ -13,7 +13,7 @@
 #define HEMLOCK_BUNDLER_H
 
 #include "../include/ast.h"
-#include "../include/module.h"
+#include "../include/modules.h"
 #include <stdint.h>
 
 // ========== TREE SHAKING STRUCTURES ==========
@@ -64,7 +64,10 @@ typedef struct Bundle {
     int capacity;
 
     char *entry_path;            // Absolute path of entry point
-    char *stdlib_path;           // Path to stdlib directory
+    char *stdlib_path;           // Path to stdlib directory (owned by resolver)
+    ModuleResolution *resolver;  // Shared module resolution context
+    ModuleCacheMap module_cache; // Shared module cache for module discovery
+    ModuleDependencyGraph *module_graph; // Dependency graph for module discovery
 
     // Flattened output
     Stmt **statements;           // Unified statement list

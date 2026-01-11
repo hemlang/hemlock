@@ -12,43 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <libgen.h>
-#include <limits.h>
 #include <zlib.h>
-
-// ========== PATH SECURITY ==========
-
-// Check if a path component contains directory traversal attempts
-// Returns 1 if path is safe, 0 if it contains traversal
-static int is_safe_subpath(const char *path) {
-    if (!path) return 0;
-
-    // Reject absolute paths in subpaths
-    if (path[0] == '/') return 0;
-
-    // Check for ".." components
-    const char *p = path;
-    while (*p) {
-        // Check for ".." at start or after "/"
-        if ((p == path || *(p-1) == '/') && p[0] == '.' && p[1] == '.') {
-            // ".." followed by end, "/" or nothing is traversal
-            if (p[2] == '\0' || p[2] == '/') {
-                return 0;
-            }
-        }
-        p++;
-    }
-
-    return 1;
-}
 
 // ========== INTERNAL STRUCTURES ==========
 
 typedef struct {
     Bundle *bundle;
     BundleOptions options;
-    char *current_dir;
 } BundleContext;
 
 // Unprefixed builtin names that are already registered by the interpreter.
@@ -79,7 +49,6 @@ static int is_builtin_name(const char *name) {
 
 // ========== FORWARD DECLARATIONS ==========
 
-static char* find_stdlib_path(void);
 static char* resolve_import_path(BundleContext *ctx, const char *importer_path, const char *import_path);
 static BundledModule* load_module_for_bundle(BundleContext *ctx, const char *absolute_path, int is_entry);
 static int collect_exports(BundledModule *module);
@@ -580,94 +549,8 @@ static int stmt_has_side_effects(Stmt *stmt) {
 
 // ========== HELPER FUNCTIONS ==========
 
-static char* find_stdlib_path(void) {
-    char exe_path[PATH_MAX];
-    char resolved[PATH_MAX];
-
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len != -1) {
-        exe_path[len] = '\0';
-        char *dir = dirname(exe_path);
-
-        snprintf(resolved, sizeof(resolved), "%s/stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            return realpath(resolved, NULL);
-        }
-
-        snprintf(resolved, sizeof(resolved), "%s/../stdlib", dir);
-        if (access(resolved, F_OK) == 0) {
-            return realpath(resolved, NULL);
-        }
-    }
-
-    if (getcwd(resolved, sizeof(resolved))) {
-        char stdlib_path[PATH_MAX + 16];
-        snprintf(stdlib_path, sizeof(stdlib_path), "%s/stdlib", resolved);
-        if (access(stdlib_path, F_OK) == 0) {
-            return realpath(stdlib_path, NULL);
-        }
-    }
-
-    if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
-        return strdup("/usr/local/lib/hemlock/stdlib");
-    }
-
-    return NULL;
-}
-
 static char* resolve_import_path(BundleContext *ctx, const char *importer_path, const char *import_path) {
-    char resolved[PATH_MAX];
-
-    // Handle @stdlib alias
-    if (strncmp(import_path, "@stdlib/", 8) == 0) {
-        if (!ctx->bundle->stdlib_path) {
-            fprintf(stderr, "Error: @stdlib alias used but stdlib directory not found\n");
-            return NULL;
-        }
-        const char *module_subpath = import_path + 8;
-
-        // SECURITY: Validate subpath doesn't contain directory traversal
-        if (!is_safe_subpath(module_subpath)) {
-            fprintf(stderr, "Error: Invalid module path '%s' - directory traversal not allowed\n", import_path);
-            return NULL;
-        }
-
-        snprintf(resolved, PATH_MAX, "%s/%s", ctx->bundle->stdlib_path, module_subpath);
-    }
-    // Absolute path
-    else if (import_path[0] == '/') {
-        strncpy(resolved, import_path, PATH_MAX - 1);
-        resolved[PATH_MAX - 1] = '\0';
-    }
-    // Relative path
-    else {
-        const char *base_dir;
-        char importer_dir[PATH_MAX];
-
-        if (importer_path) {
-            strncpy(importer_dir, importer_path, PATH_MAX - 1);
-            importer_dir[PATH_MAX - 1] = '\0';
-            base_dir = dirname(importer_dir);
-        } else {
-            base_dir = ctx->current_dir;
-        }
-
-        snprintf(resolved, PATH_MAX, "%s/%s", base_dir, import_path);
-    }
-
-    // Add .hml extension if needed
-    size_t len = strlen(resolved);
-    if (len < 4 || strcmp(resolved + len - 4, ".hml") != 0) {
-        strncat(resolved, ".hml", PATH_MAX - len - 1);
-    }
-
-    char *absolute = realpath(resolved, NULL);
-    if (!absolute) {
-        fprintf(stderr, "Error: Cannot resolve import path '%s' -> '%s'\n", import_path, resolved);
-        return NULL;
-    }
-
-    return absolute;
+    return resolve_module_path(ctx->bundle->resolver, importer_path, import_path);
 }
 
 // Parse a module file
@@ -708,12 +591,7 @@ static Stmt** parse_file(const char *path, int *stmt_count) {
 
 // Check if module is already in bundle
 static BundledModule* find_module_in_bundle(Bundle *bundle, const char *absolute_path) {
-    for (int i = 0; i < bundle->num_modules; i++) {
-        if (strcmp(bundle->modules[i]->absolute_path, absolute_path) == 0) {
-            return bundle->modules[i];
-        }
-    }
-    return NULL;
+    return (BundledModule *)module_cache_map_get(&bundle->module_cache, absolute_path);
 }
 
 // Add module to bundle
@@ -729,6 +607,9 @@ static void add_module_to_bundle(Bundle *bundle, BundledModule *module) {
         bundle->capacity = new_capacity;
     }
     bundle->modules[bundle->num_modules++] = module;
+    if (module_cache_map_set(&bundle->module_cache, module->absolute_path, module) != 0) {
+        fprintf(stderr, "Error: Failed to cache bundled module '%s'\n", module->absolute_path);
+    }
 }
 
 // Generate module ID from index
@@ -1055,13 +936,6 @@ BundleOptions bundle_options_default(void) {
 Bundle* bundle_create(const char *entry_path, const BundleOptions *options) {
     BundleOptions opts = options ? *options : bundle_options_default();
 
-    // Get current directory
-    char cwd[PATH_MAX];
-    if (!getcwd(cwd, sizeof(cwd))) {
-        fprintf(stderr, "Error: Could not get current directory\n");
-        return NULL;
-    }
-
     // Resolve entry path
     char *absolute_entry = realpath(entry_path, NULL);
     if (!absolute_entry) {
@@ -1075,7 +949,19 @@ Bundle* bundle_create(const char *entry_path, const BundleOptions *options) {
     bundle->num_modules = 0;
     bundle->capacity = 32;
     bundle->entry_path = absolute_entry;
-    bundle->stdlib_path = find_stdlib_path();
+    bundle->resolver = module_resolution_new(NULL, absolute_entry);
+    if (!bundle->resolver) {
+        free(bundle->modules);
+        free(bundle->entry_path);
+        free(bundle);
+        return NULL;
+    }
+    module_cache_map_init(&bundle->module_cache);
+    bundle->module_graph = module_dependency_graph_new();
+    if (bundle->module_graph) {
+        module_resolution_set_dependency_hook(bundle->resolver, module_dependency_graph_hook, bundle->module_graph);
+    }
+    bundle->stdlib_path = bundle->resolver->stdlib_path;
     bundle->statements = NULL;
     bundle->num_statements = 0;
     bundle->stmt_capacity = 0;
@@ -1091,8 +977,7 @@ Bundle* bundle_create(const char *entry_path, const BundleOptions *options) {
     // Create context
     BundleContext ctx = {
         .bundle = bundle,
-        .options = opts,
-        .current_dir = cwd
+        .options = opts
     };
 
     // Load entry module and all dependencies
@@ -1223,9 +1108,11 @@ void bundle_free(Bundle *bundle) {
 
     free(bundle->modules);
     free(bundle->entry_path);
-    if (bundle->stdlib_path) {
-        free(bundle->stdlib_path);
+    module_cache_map_free(&bundle->module_cache);
+    if (bundle->module_graph) {
+        module_dependency_graph_free(bundle->module_graph);
     }
+    module_resolution_free(bundle->resolver);
 
     // Free dependency graph if it was created
     if (bundle->dep_graph) {

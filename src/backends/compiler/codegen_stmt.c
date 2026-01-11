@@ -1282,7 +1282,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Resolve the import path
             const char *importer_path = ctx->current_module ? ctx->current_module->absolute_path : NULL;
-            char *resolved = module_resolve_path(ctx->module_cache, importer_path, stmt->as.import_stmt.module_path);
+            char *resolved = resolve_module_path(ctx->module_cache->resolver, importer_path,
+                stmt->as.import_stmt.module_path);
             if (!resolved) {
                 codegen_error(ctx, stmt->line, "could not resolve import \"%s\"", stmt->as.import_stmt.module_path);
                 break;
