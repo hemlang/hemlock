@@ -126,7 +126,14 @@ HmlValue hml_val_string(const char *str) {
     int capacity = len + 1;
 
     HmlString *s = malloc(sizeof(HmlString));
+    if (!s) {
+        hml_runtime_error("Out of memory allocating string");
+    }
     s->data = malloc(capacity);
+    if (!s->data) {
+        free(s);
+        hml_runtime_error("Out of memory allocating string data");
+    }
     if (str != NULL) {
         memcpy(s->data, str, len);
     }
@@ -145,6 +152,9 @@ HmlValue hml_val_string_owned(char *str, int length, int capacity) {
     v.type = HML_VAL_STRING;
 
     HmlString *s = malloc(sizeof(HmlString));
+    if (!s) {
+        hml_runtime_error("Out of memory allocating string");
+    }
     s->data = str;
     s->length = length;
     s->char_length = -1;

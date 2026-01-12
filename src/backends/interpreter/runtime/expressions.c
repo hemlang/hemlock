@@ -2009,6 +2009,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Evaluate expression parts and convert to strings
             char **expr_strings = malloc(sizeof(char*) * num_parts);
+            if (!expr_strings) {
+                runtime_error(ctx, "Out of memory in string interpolation");
+                return val_null();
+            }
             for (int i = 0; i < num_parts; i++) {
                 Value expr_val = eval_expr(expr_parts[i], env, ctx);
                 expr_strings[i] = value_to_string(expr_val);
@@ -2018,6 +2022,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Build final string
             char *result = malloc(total_len + 1);
+            if (!result) {
+                for (int i = 0; i < num_parts; i++) {
+                    free(expr_strings[i]);
+                }
+                free(expr_strings);
+                runtime_error(ctx, "Out of memory in string interpolation");
+                return val_null();
+            }
             result[0] = '\0';
 
             for (int i = 0; i < num_parts; i++) {
