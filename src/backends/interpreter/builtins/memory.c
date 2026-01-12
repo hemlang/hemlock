@@ -131,9 +131,11 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         free(obj->field_names);
         free(obj->field_values);
         if (obj->type_name) free(obj->type_name);
+        if (obj->hash_table) free(obj->hash_table);
         obj->field_names = NULL;
         obj->field_values = NULL;
         obj->type_name = NULL;
+        obj->hash_table = NULL;
         obj->num_fields = 0;
         obj->capacity = 0;
         // Note: We don't free(obj) here - struct remains until ref_count reaches zero
@@ -155,7 +157,9 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         }
         // Free internal data but keep struct alive for cleanup to check freed flag
         free(arr->elements);
+        if (arr->element_type) type_free(arr->element_type);
         arr->elements = NULL;
+        arr->element_type = NULL;
         arr->length = 0;
         arr->capacity = 0;
         // Note: We don't free(arr) here - struct remains until ref_count reaches zero
