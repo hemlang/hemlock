@@ -83,6 +83,10 @@ HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length) {
     if (start_idx + len > s->length) len = s->length - start_idx;
 
     char *result = malloc(len + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string substr");
+        return hml_val_null();
+    }
     memcpy(result, s->data + start_idx, len);
     result[len] = '\0';
     return hml_val_string_owned(result, len, len + 1);
@@ -104,6 +108,10 @@ HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
 
     int len = end_idx - start_idx;
     char *result = malloc(len + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string slice");
+        return hml_val_null();
+    }
     memcpy(result, s->data + start_idx, len);
     result[len] = '\0';
     return hml_val_string_owned(result, len, len + 1);
@@ -148,6 +156,10 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
         // Split into individual characters
         for (int i = 0; i < s->length; i++) {
             char *c = malloc(2);
+            if (!c) {
+                hml_runtime_error("Failed to allocate memory for string split");
+                return result;
+            }
             c[0] = s->data[i];
             c[1] = '\0';
             HmlValue part_val = hml_val_string_owned(c, 1, 2);
@@ -161,6 +173,10 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
         if (memcmp(s->data + i, d->data, d->length) == 0) {
             int len = i - start;
             char *part = malloc(len + 1);
+            if (!part) {
+                hml_runtime_error("Failed to allocate memory for string split");
+                return result;
+            }
             memcpy(part, s->data + start, len);
             part[len] = '\0';
             HmlValue part_val = hml_val_string_owned(part, len, len + 1);
@@ -173,6 +189,10 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
     // Add remaining part
     int len = s->length - start;
     char *part = malloc(len + 1);
+    if (!part) {
+        hml_runtime_error("Failed to allocate memory for string split");
+        return result;
+    }
     memcpy(part, s->data + start, len);
     part[len] = '\0';
     HmlValue part_val = hml_val_string_owned(part, len, len + 1);
@@ -203,6 +223,10 @@ HmlValue hml_string_trim(HmlValue str) {
     if (len <= 0) return hml_val_string("");
 
     char *result = malloc(len + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string trim");
+        return hml_val_null();
+    }
     memcpy(result, s->data + start, len);
     result[len] = '\0';
     return hml_val_string_owned(result, len, len + 1);
@@ -214,6 +238,10 @@ HmlValue hml_string_to_upper(HmlValue str) {
     }
     HmlString *s = str.as.as_string;
     char *result = malloc(s->length + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string to_upper");
+        return hml_val_null();
+    }
     for (int i = 0; i < s->length; i++) {
         char c = s->data[i];
         if (c >= 'a' && c <= 'z') {
@@ -232,6 +260,10 @@ HmlValue hml_string_to_lower(HmlValue str) {
     }
     HmlString *s = str.as.as_string;
     char *result = malloc(s->length + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string to_lower");
+        return hml_val_null();
+    }
     for (int i = 0; i < s->length; i++) {
         char c = s->data[i];
         if (c >= 'A' && c <= 'Z') {
@@ -298,6 +330,10 @@ HmlValue hml_string_replace(HmlValue str, HmlValue old, HmlValue new_str) {
 
     int new_len = s->length - o->length + n->length;
     char *result = malloc(new_len + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string replace");
+        return hml_val_null();
+    }
     memcpy(result, s->data, pos);
     memcpy(result + pos, n->data, n->length);
     memcpy(result + pos + n->length, s->data + pos + o->length, s->length - pos - o->length);
@@ -426,6 +462,13 @@ HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c) {
     int total = len_a + len_b + len_c;
 
     char *result = malloc(total + 1);
+    if (!result) {
+        if (a.type != HML_VAL_STRING) hml_release(&str_a);
+        if (b.type != HML_VAL_STRING) hml_release(&str_b);
+        if (c.type != HML_VAL_STRING) hml_release(&str_c);
+        hml_runtime_error("Failed to allocate memory for string concat");
+        return hml_val_null();
+    }
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
@@ -459,6 +502,14 @@ HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d) {
     int total = len_a + len_b + len_c + len_d;
 
     char *result = malloc(total + 1);
+    if (!result) {
+        if (a.type != HML_VAL_STRING) hml_release(&str_a);
+        if (b.type != HML_VAL_STRING) hml_release(&str_b);
+        if (c.type != HML_VAL_STRING) hml_release(&str_c);
+        if (d.type != HML_VAL_STRING) hml_release(&str_d);
+        hml_runtime_error("Failed to allocate memory for string concat");
+        return hml_val_null();
+    }
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
@@ -496,6 +547,15 @@ HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlV
     int total = len_a + len_b + len_c + len_d + len_e;
 
     char *result = malloc(total + 1);
+    if (!result) {
+        if (a.type != HML_VAL_STRING) hml_release(&str_a);
+        if (b.type != HML_VAL_STRING) hml_release(&str_b);
+        if (c.type != HML_VAL_STRING) hml_release(&str_c);
+        if (d.type != HML_VAL_STRING) hml_release(&str_d);
+        if (e.type != HML_VAL_STRING) hml_release(&str_e);
+        hml_runtime_error("Failed to allocate memory for string concat");
+        return hml_val_null();
+    }
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
@@ -536,6 +596,10 @@ HmlValue hml_string_concat_many(HmlValue arr) {
 
     // Allocate and build result
     char *result = malloc(total_len + 1);
+    if (!result) {
+        hml_runtime_error("Failed to allocate memory for string concat_many");
+        return hml_val_null();
+    }
     int pos = 0;
     for (int i = 0; i < a->length; i++) {
         if (a->elements[i].type == HML_VAL_STRING && a->elements[i].as.as_string) {
@@ -799,7 +863,16 @@ HmlValue hml_string_to_bytes(HmlValue str) {
 
     HmlString *s = str.as.as_string;
     HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+    if (!buf) {
+        hml_runtime_error("Failed to allocate buffer for to_bytes");
+        return hml_val_null();
+    }
     buf->data = malloc(s->length);
+    if (!buf->data) {
+        free(buf);
+        hml_runtime_error("Failed to allocate buffer data for to_bytes");
+        return hml_val_null();
+    }
     memcpy(buf->data, s->data, s->length);
     buf->length = s->length;
     buf->capacity = s->length;

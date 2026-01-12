@@ -163,6 +163,13 @@ HmlValue hml_val_string_owned(char *str, int length, int capacity) {
     v.type = HML_VAL_STRING;
 
     HmlString *s = malloc(sizeof(HmlString));
+    if (!s) {
+        free(str);  // Caller expects us to take ownership, so free on failure
+        hml_runtime_error("Failed to allocate string");
+        v.type = HML_VAL_NULL;
+        v.as.as_ptr = NULL;
+        return v;
+    }
     s->data = str;
     s->length = length;
     s->char_length = -1;
@@ -213,6 +220,10 @@ HmlValue hml_val_array(void) {
     v.type = HML_VAL_ARRAY;
 
     HmlArray *a = malloc(sizeof(HmlArray));
+    if (!a) {
+        hml_runtime_error("Failed to allocate array");
+        return hml_val_null();
+    }
     a->elements = NULL;
     a->length = 0;
     a->capacity = 0;
@@ -229,6 +240,10 @@ HmlValue hml_val_object(void) {
     v.type = HML_VAL_OBJECT;
 
     HmlObject *o = malloc(sizeof(HmlObject));
+    if (!o) {
+        hml_runtime_error("Failed to allocate object");
+        return hml_val_null();
+    }
     o->type_name = NULL;
     o->field_names = NULL;
     o->field_values = NULL;
@@ -259,9 +274,14 @@ HmlValue hml_val_function_named(void *fn_ptr, int num_params, int num_required, 
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        hml_runtime_error("Failed to allocate function");
+        return hml_val_null();
+    }
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
+    f->param_names = NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
@@ -281,6 +301,10 @@ HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_requi
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        hml_runtime_error("Failed to allocate function");
+        return hml_val_null();
+    }
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -300,6 +324,10 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        hml_runtime_error("Failed to allocate function");
+        return hml_val_null();
+    }
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -307,6 +335,12 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
     // Copy parameter names
     if (param_names && num_params > 0) {
         f->param_names = malloc(sizeof(char*) * num_params);
+        if (!f->param_names) {
+            free(f->name);
+            free(f);
+            hml_runtime_error("Failed to allocate function param names");
+            return hml_val_null();
+        }
         for (int i = 0; i < num_params; i++) {
             f->param_names[i] = param_names[i] ? strdup(param_names[i]) : NULL;
         }
@@ -333,6 +367,10 @@ HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        hml_runtime_error("Failed to allocate function");
+        return hml_val_null();
+    }
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
@@ -356,6 +394,10 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
     v.type = HML_VAL_FUNCTION;
 
     HmlFunction *f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        hml_runtime_error("Failed to allocate function");
+        return hml_val_null();
+    }
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
@@ -391,6 +433,10 @@ void hml_function_set_param_names(HmlValue fn, const char **param_names, int num
         }
         // Copy new param_names
         f->param_names = malloc(sizeof(char*) * num_params);
+        if (!f->param_names) {
+            hml_runtime_error("Failed to allocate param names");
+            return;
+        }
         for (int i = 0; i < num_params; i++) {
             f->param_names[i] = param_names[i] ? strdup(param_names[i]) : NULL;
         }
@@ -945,7 +991,16 @@ const char* hml_typeof_str(HmlValue val) {
 
 HmlClosureEnv* hml_closure_env_new(int num_vars) {
     HmlClosureEnv *env = malloc(sizeof(HmlClosureEnv));
+    if (!env) {
+        hml_runtime_error("Failed to allocate closure environment");
+        return NULL;
+    }
     env->captured = calloc(num_vars, sizeof(HmlValue));
+    if (!env->captured) {
+        free(env);
+        hml_runtime_error("Failed to allocate closure captured values");
+        return NULL;
+    }
     env->num_captured = num_vars;
     env->ref_count = 1;
 

@@ -998,6 +998,15 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
         if (ret_type->type == FFI_TYPE_STRUCT) {
             // Struct returns need heap allocation (variable size)
             return_storage = malloc(ret_type->size);
+            if (!return_storage) {
+                if (!use_stack && num_args > 0) {
+                    free(arg_values);
+                    free(bulk_storage);
+                    free(struct_storage);
+                }
+                fprintf(stderr, "Error: Failed to allocate FFI return storage\n");
+                return val_null();
+            }
             free_return = 1;
         } else {
             // Primitive returns use stack
