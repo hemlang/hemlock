@@ -1,0 +1,30 @@
+// Parity test for regex builtins directly (not through stdlib/regex)
+
+print("=== Regex compile ===");
+let re = __regex_compile("[0-9]+", null);
+print("compiled: " + (re != null));
+print("type: " + typeof(re));
+
+print("=== Regex test ===");
+print("match digits: " + __regex_test(re, "abc123def", null));
+print("no digits: " + __regex_test(re, "abcdef", null));
+
+print("=== Regex replace ===");
+let replaced = __regex_replace(re, "abc123def456", "X");
+print("replaced: " + replaced);
+
+print("=== Regex replace_all ===");
+let replaced_all = __regex_replace_all(re, "abc123def456", "X");
+print("replaced_all: " + replaced_all);
+
+print("=== Regex free ===");
+__regex_free(re);
+print("freed: true");
+
+print("=== Case insensitive ===");
+// REG_ICASE = 2
+let re_case = __regex_compile("hello", 2);
+print("case insensitive match: " + __regex_test(re_case, "HELLO world", null));
+__regex_free(re_case);
+
+print("=== Done ===");
