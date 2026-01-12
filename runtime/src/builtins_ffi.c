@@ -1308,5 +1308,8 @@ HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) {
 
     // Read through pointer-to-pointer (qsort passes ptr to element)
     int32_t *actual_ptr = *(int32_t**)p;
+    if (!actual_ptr) {
+        hml_runtime_error("ptr_read_i32() dereferenced pointer is null");
+    }
     return hml_val_i32(*actual_ptr);
 }

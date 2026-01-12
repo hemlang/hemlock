@@ -1384,19 +1384,9 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (!obj) return;
 
     if (atomic_load(&obj->freed)) {
-        if (obj->type_name) free(obj->type_name);
-        if (obj->field_names) {
-            for (int i = 0; i < obj->num_fields; i++) {
-                free(obj->field_names[i]);
-            }
-            free(obj->field_names);
-        }
-        if (obj->field_values) {
-            free(obj->field_values);
-        }
-        if (obj->hash_table) {
-            free(obj->hash_table);
-        }
+        // Object was manually freed via builtin_free().
+        // Internal data (type_name, field_names, field_values, hash_table) was
+        // already freed there. Only free the struct wrapper itself.
         free(obj);
         return;
     }
@@ -1428,12 +1418,9 @@ static void array_free_internal(Array *arr, VisitedSet *visited) {
     if (!arr) return;
 
     if (atomic_load(&arr->freed)) {
-        if (arr->elements) {
-            free(arr->elements);
-        }
-        if (arr->element_type) {
-            type_free(arr->element_type);
-        }
+        // Array was manually freed via builtin_free().
+        // Internal data (elements, element_type) was already freed there.
+        // Only free the struct wrapper itself.
         free(arr);
         return;
     }

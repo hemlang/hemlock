@@ -101,6 +101,11 @@ static void init_ascii_strings(void) {
         ascii_data[i][0] = (char)i;
         ascii_data[i][1] = '\0';
         ascii_strings[i] = malloc(sizeof(HmlString));
+        if (!ascii_strings[i]) {
+            // Fatal error during initialization - cannot continue
+            fprintf(stderr, "Fatal: Failed to allocate ASCII string pool\n");
+            exit(1);
+        }
         ascii_strings[i]->data = ascii_data[i];
         ascii_strings[i]->length = 1;
         ascii_strings[i]->char_length = 1;

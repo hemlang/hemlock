@@ -49,6 +49,7 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         char *result = malloc(len);
         if (!result) {
             fprintf(stderr, "Error: Out of memory in codegen_ref_arg\n");
+            free(temp);
             exit(1);
         }
         snprintf(result, len, "&%s", temp);

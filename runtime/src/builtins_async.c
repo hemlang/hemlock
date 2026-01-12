@@ -34,6 +34,10 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 
     // Prepare argument types
     ffi_type **arg_types = malloc(sizeof(ffi_type*) * total_args);
+    if (!arg_types) {
+        hml_runtime_error("Failed to allocate FFI argument types for async function call");
+        return hml_val_null();
+    }
     arg_types[0] = &ffi_type_pointer;  // closure_env
     for (int i = 0; i < num_args; i++) {
         arg_types[i + 1] = &hml_value_ffi_type;
@@ -51,6 +55,11 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 
     // Prepare argument values (pointers to the actual values)
     void **arg_values = malloc(sizeof(void*) * total_args);
+    if (!arg_values) {
+        free(arg_types);
+        hml_runtime_error("Failed to allocate FFI argument values for async function call");
+        return hml_val_null();
+    }
     arg_values[0] = &closure_env;
     for (int i = 0; i < num_args; i++) {
         arg_values[i + 1] = &args[i];
