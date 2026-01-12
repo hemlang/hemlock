@@ -1773,14 +1773,23 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // strerror()
-        if (strcmp(fn_name, "strerror") == 0 && expr->as.call.num_args == 0) {
+        // strerror() / __strerror()
+        if ((strcmp(fn_name, "strerror") == 0 || strcmp(fn_name, "__strerror") == 0) && expr->as.call.num_args == 0) {
             codegen_writeln(ctx, "HmlValue %s = hml_strerror();", result);
             return result;
         }
 
-        // string_to_cstr(str)
-        if (strcmp(fn_name, "string_to_cstr") == 0 && expr->as.call.num_args == 1) {
+        // __dirent_name(ptr) - extract directory entry name from dirent pointer
+        if (strcmp(fn_name, "__dirent_name") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_dirent_name(%s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // string_to_cstr(str) / __string_to_cstr(str)
+        if ((strcmp(fn_name, "string_to_cstr") == 0 || strcmp(fn_name, "__string_to_cstr") == 0) && expr->as.call.num_args == 1) {
             char *str = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_string_to_cstr(%s);", result, str);
             codegen_writeln(ctx, "hml_release(&%s);", str);
@@ -1788,8 +1797,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // cstr_to_string(ptr)
-        if (strcmp(fn_name, "cstr_to_string") == 0 && expr->as.call.num_args == 1) {
+        // cstr_to_string(ptr) / __cstr_to_string(ptr)
+        if ((strcmp(fn_name, "cstr_to_string") == 0 || strcmp(fn_name, "__cstr_to_string") == 0) && expr->as.call.num_args == 1) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_cstr_to_string(%s);", result, ptr);
             codegen_writeln(ctx, "hml_release(&%s);", ptr);
@@ -2188,8 +2197,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // ========== FILESYSTEM BUILTINS ==========
 
-        // exists(path)
-        if (strcmp(fn_name, "exists") == 0 && expr->as.call.num_args == 1) {
+        // exists(path) / __exists(path)
+        if ((strcmp(fn_name, "exists") == 0 || strcmp(fn_name, "__exists") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_exists(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
@@ -2197,8 +2206,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // read_file(path)
-        if (strcmp(fn_name, "read_file") == 0 && expr->as.call.num_args == 1) {
+        // read_file(path) / __read_file(path)
+        if ((strcmp(fn_name, "read_file") == 0 || strcmp(fn_name, "__read_file") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_read_file(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
@@ -2206,8 +2215,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // write_file(path, content)
-        if (strcmp(fn_name, "write_file") == 0 && expr->as.call.num_args == 2) {
+        // write_file(path, content) / __write_file(path, content)
+        if ((strcmp(fn_name, "write_file") == 0 || strcmp(fn_name, "__write_file") == 0) && expr->as.call.num_args == 2) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             char *content = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_write_file(%s, %s);", result, path, content);
@@ -2218,8 +2227,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // append_file(path, content)
-        if (strcmp(fn_name, "append_file") == 0 && expr->as.call.num_args == 2) {
+        // append_file(path, content) / __append_file(path, content)
+        if ((strcmp(fn_name, "append_file") == 0 || strcmp(fn_name, "__append_file") == 0) && expr->as.call.num_args == 2) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             char *content = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_append_file(%s, %s);", result, path, content);
@@ -2230,8 +2239,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // remove_file(path)
-        if (strcmp(fn_name, "remove_file") == 0 && expr->as.call.num_args == 1) {
+        // remove_file(path) / __remove_file(path)
+        if ((strcmp(fn_name, "remove_file") == 0 || strcmp(fn_name, "__remove_file") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_remove_file(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
@@ -2239,8 +2248,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // rename(old_path, new_path)
-        if (strcmp(fn_name, "rename") == 0 && expr->as.call.num_args == 2) {
+        // rename(old_path, new_path) / __rename(old_path, new_path)
+        if ((strcmp(fn_name, "rename") == 0 || strcmp(fn_name, "__rename") == 0) && expr->as.call.num_args == 2) {
             char *old_path = codegen_expr(ctx, expr->as.call.args[0]);
             char *new_path = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_rename_file(%s, %s);", result, old_path, new_path);
@@ -2251,8 +2260,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // copy_file(src, dest)
-        if (strcmp(fn_name, "copy_file") == 0 && expr->as.call.num_args == 2) {
+        // copy_file(src, dest) / __copy_file(src, dest)
+        if ((strcmp(fn_name, "copy_file") == 0 || strcmp(fn_name, "__copy_file") == 0) && expr->as.call.num_args == 2) {
             char *src = codegen_expr(ctx, expr->as.call.args[0]);
             char *dest = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_copy_file(%s, %s);", result, src, dest);
@@ -2263,8 +2272,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // is_file(path)
-        if (strcmp(fn_name, "is_file") == 0 && expr->as.call.num_args == 1) {
+        // is_file(path) / __is_file(path)
+        if ((strcmp(fn_name, "is_file") == 0 || strcmp(fn_name, "__is_file") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_is_file(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
@@ -2272,8 +2281,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // is_dir(path)
-        if (strcmp(fn_name, "is_dir") == 0 && expr->as.call.num_args == 1) {
+        // is_dir(path) / __is_dir(path)
+        if ((strcmp(fn_name, "is_dir") == 0 || strcmp(fn_name, "__is_dir") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_is_dir(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
@@ -2281,8 +2290,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // file_stat(path)
-        if (strcmp(fn_name, "file_stat") == 0 && expr->as.call.num_args == 1) {
+        // file_stat(path) / __file_stat(path)
+        if ((strcmp(fn_name, "file_stat") == 0 || strcmp(fn_name, "__file_stat") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_file_stat(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
@@ -2339,12 +2348,123 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // absolute_path(path)
-        if (strcmp(fn_name, "absolute_path") == 0 && expr->as.call.num_args == 1) {
+        // absolute_path(path) / __absolute_path(path)
+        if ((strcmp(fn_name, "absolute_path") == 0 || strcmp(fn_name, "__absolute_path") == 0) && expr->as.call.num_args == 1) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_absolute_path(%s);", result, path);
             codegen_writeln(ctx, "hml_release(&%s);", path);
             free(path);
+            return result;
+        }
+
+        // ========== REGEX BUILTINS ==========
+
+        // __regex_compile(pattern, flags?) - compile a regex pattern
+        if (strcmp(fn_name, "__regex_compile") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
+            char *pattern = codegen_expr(ctx, expr->as.call.args[0]);
+            if (expr->as.call.num_args == 2) {
+                char *flags = codegen_expr(ctx, expr->as.call.args[1]);
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_compile(%s, %s);", result, pattern, flags);
+                codegen_writeln(ctx, "hml_release(&%s);", flags);
+                free(flags);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_compile(%s, hml_val_null());", result, pattern);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", pattern);
+            free(pattern);
+            return result;
+        }
+
+        // __regex_test(preg, text, eflags?) - test if text matches regex
+        if (strcmp(fn_name, "__regex_test") == 0 && (expr->as.call.num_args == 2 || expr->as.call.num_args == 3)) {
+            char *preg = codegen_expr(ctx, expr->as.call.args[0]);
+            char *text = codegen_expr(ctx, expr->as.call.args[1]);
+            if (expr->as.call.num_args == 3) {
+                char *eflags = codegen_expr(ctx, expr->as.call.args[2]);
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_test(%s, %s, %s);", result, preg, text, eflags);
+                codegen_writeln(ctx, "hml_release(&%s);", eflags);
+                free(eflags);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_test(%s, %s, hml_val_null());", result, preg, text);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", preg);
+            codegen_writeln(ctx, "hml_release(&%s);", text);
+            free(preg);
+            free(text);
+            return result;
+        }
+
+        // __regex_match(preg, text, max_matches?) - find matches in text
+        if (strcmp(fn_name, "__regex_match") == 0 && (expr->as.call.num_args == 2 || expr->as.call.num_args == 3)) {
+            char *preg = codegen_expr(ctx, expr->as.call.args[0]);
+            char *text = codegen_expr(ctx, expr->as.call.args[1]);
+            if (expr->as.call.num_args == 3) {
+                char *max_matches = codegen_expr(ctx, expr->as.call.args[2]);
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_match(%s, %s, %s);", result, preg, text, max_matches);
+                codegen_writeln(ctx, "hml_release(&%s);", max_matches);
+                free(max_matches);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_match(%s, %s, hml_val_null());", result, preg, text);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", preg);
+            codegen_writeln(ctx, "hml_release(&%s);", text);
+            free(preg);
+            free(text);
+            return result;
+        }
+
+        // __regex_free(preg) - free a compiled regex
+        if (strcmp(fn_name, "__regex_free") == 0 && expr->as.call.num_args == 1) {
+            char *preg = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_regex_free(%s);", result, preg);
+            codegen_writeln(ctx, "hml_release(&%s);", preg);
+            free(preg);
+            return result;
+        }
+
+        // __regex_error(errcode, preg?) - get error message for regex error code
+        if (strcmp(fn_name, "__regex_error") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
+            char *errcode = codegen_expr(ctx, expr->as.call.args[0]);
+            if (expr->as.call.num_args == 2) {
+                char *preg = codegen_expr(ctx, expr->as.call.args[1]);
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_error(%s, %s);", result, errcode, preg);
+                codegen_writeln(ctx, "hml_release(&%s);", preg);
+                free(preg);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_regex_error(%s, hml_val_null());", result, errcode);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", errcode);
+            free(errcode);
+            return result;
+        }
+
+        // __regex_replace(preg, text, replacement) - replace first match
+        if (strcmp(fn_name, "__regex_replace") == 0 && expr->as.call.num_args == 3) {
+            char *preg = codegen_expr(ctx, expr->as.call.args[0]);
+            char *text = codegen_expr(ctx, expr->as.call.args[1]);
+            char *replacement = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_regex_replace(%s, %s, %s);", result, preg, text, replacement);
+            codegen_writeln(ctx, "hml_release(&%s);", preg);
+            codegen_writeln(ctx, "hml_release(&%s);", text);
+            codegen_writeln(ctx, "hml_release(&%s);", replacement);
+            free(preg);
+            free(text);
+            free(replacement);
+            return result;
+        }
+
+        // __regex_replace_all(preg, text, replacement) - replace all matches
+        if (strcmp(fn_name, "__regex_replace_all") == 0 && expr->as.call.num_args == 3) {
+            char *preg = codegen_expr(ctx, expr->as.call.args[0]);
+            char *text = codegen_expr(ctx, expr->as.call.args[1]);
+            char *replacement = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_regex_replace_all(%s, %s, %s);", result, preg, text, replacement);
+            codegen_writeln(ctx, "hml_release(&%s);", preg);
+            codegen_writeln(ctx, "hml_release(&%s);", text);
+            codegen_writeln(ctx, "hml_release(&%s);", replacement);
+            free(preg);
+            free(text);
+            free(replacement);
             return result;
         }
 

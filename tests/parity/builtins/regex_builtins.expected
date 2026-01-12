@@ -1,0 +1,15 @@
+=== Regex compile ===
+compiled: true
+type: ptr
+=== Regex test ===
+match digits: true
+no digits: false
+=== Regex replace ===
+replaced: abcXdef456
+=== Regex replace_all ===
+replaced_all: abcXdefX
+=== Regex free ===
+freed: true
+=== Case insensitive ===
+case insensitive match: true
+=== Done ===
