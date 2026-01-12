@@ -527,10 +527,20 @@ fn merge(base, update) {
 	}
 
 	let result = clone(base);
-
-	// Note: Need object_keys() builtin to iterate
-	// For now, this is a placeholder
-	throw "merge() requires object iteration support";
+	let update_keys = update.keys();
+	let i = 0;
+	while (i < update_keys.length) {
+		let key = update_keys[i];
+		let update_val = update[key];
+		if (is_object(update_val) && is_object(result[key])) {
+			// Both are objects - recursively merge
+			result[key] = merge(result[key], update_val);
+		} else {
+			// Override with update value
+			result[key] = update_val;
+		}
+		i = i + 1;
+	}
 
 	return result;
 }
@@ -541,8 +551,17 @@ fn patch(base, update) {
 		return update;
 	}
 
-	// Note: Need object_keys() builtin
-	throw "patch() requires object iteration support";
+	let result = clone(base);
+	let update_keys = update.keys();
+	let i = 0;
+	while (i < update_keys.length) {
+		let key = update_keys[i];
+		// Shallow: directly replace values (no recursive merge)
+		result[key] = update[key];
+		i = i + 1;
+	}
+
+	return result;
 }
 
 // ============================================================================
@@ -578,9 +597,42 @@ fn equals(a, b): bool {
 		return true;
 	}
 
-	// Objects - need object iteration
+	// Objects
 	if (type_a == "object") {
-		throw "equals() for objects requires object iteration support";
+		let keys_a = a.keys();
+		let keys_b = b.keys();
+
+		// Must have same number of keys
+		if (keys_a.length != keys_b.length) {
+			return false;
+		}
+
+		// Check all keys in a exist in b with equal values
+		let i = 0;
+		while (i < keys_a.length) {
+			let key = keys_a[i];
+			// Check if key exists in b (value would be null if missing)
+			// We need to verify the key actually exists
+			let found = false;
+			let j = 0;
+			while (j < keys_b.length) {
+				if (keys_b[j] == key) {
+					found = true;
+					break;
+				}
+				j = j + 1;
+			}
+			if (!found) {
+				return false;
+			}
+			// Recursively compare values
+			if (!equals(a[key], b[key])) {
+				return false;
+			}
+			i = i + 1;
+		}
+
+		return true;
 	}
 
 	return false;

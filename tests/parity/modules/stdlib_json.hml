@@ -1,5 +1,5 @@
 // JSON functions test
-import { parse, stringify } from "@stdlib/json";
+import { parse, stringify, merge, patch, equals } from "@stdlib/json";
 
 // Parse simple object
 let obj = parse("{\"name\": \"Alice\", \"age\": 30}");
@@ -24,3 +24,37 @@ print(nested.user.name);
 let mixed = parse("{\"flag\": true, \"empty\": null}");
 print(mixed.flag);
 print(mixed.empty);
+
+// === New Year's Miracle: merge, patch, equals ===
+
+// Test merge - deep merge objects
+let base = { name: "Alice", settings: { theme: "dark", size: 12 } };
+let update = { age: 30, settings: { size: 16 } };
+let merged = merge(base, update);
+print(merged.name);
+print(merged.age);
+print(merged.settings.theme);
+print(merged.settings.size);
+
+// Test patch - shallow merge (replaces nested objects)
+let patched = patch(base, { settings: { font: "mono" } });
+print(patched.name);
+print(patched.settings.font);
+
+// Test equals - primitive comparison
+print(equals(42, 42));
+print(equals("hello", "hello"));
+print(equals(true, false));
+
+// Test equals - array comparison
+print(equals([1, 2, 3], [1, 2, 3]));
+print(equals([1, 2], [1, 2, 3]));
+
+// Test equals - object comparison
+print(equals({ a: 1, b: 2 }, { a: 1, b: 2 }));
+print(equals({ a: 1 }, { a: 2 }));
+print(equals({ a: 1 }, { b: 1 }));
+
+// Test equals - nested objects
+print(equals({ x: { y: 1 } }, { x: { y: 1 } }));
+print(equals({ x: { y: 1 } }, { x: { y: 2 } }));
