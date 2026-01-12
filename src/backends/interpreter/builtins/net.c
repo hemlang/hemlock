@@ -380,7 +380,14 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
     if (size <= 0) {
         // Return empty buffer
         Buffer *buf = malloc(sizeof(Buffer));
+        if (!buf) {
+            return throw_runtime_error(ctx, "Memory allocation failed for buffer");
+        }
         buf->data = malloc(1);
+        if (!buf->data) {
+            free(buf);
+            return throw_runtime_error(ctx, "Memory allocation failed for buffer data");
+        }
         buf->length = 0;
         buf->capacity = 0;
         buf->ref_count = 1;  // Start with 1 - caller owns the first reference
@@ -409,7 +416,14 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
         free(data);
         // Return empty buffer to indicate EOF
         Buffer *buf = malloc(sizeof(Buffer));
+        if (!buf) {
+            return throw_runtime_error(ctx, "Memory allocation failed for buffer");
+        }
         buf->data = malloc(1);
+        if (!buf->data) {
+            free(buf);
+            return throw_runtime_error(ctx, "Memory allocation failed for buffer data");
+        }
         buf->length = 0;
         buf->capacity = 0;
         buf->ref_count = 1;
@@ -418,6 +432,10 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
     }
 
     Buffer *buf = malloc(sizeof(Buffer));
+    if (!buf) {
+        free(data);
+        return throw_runtime_error(ctx, "Memory allocation failed for buffer");
+    }
     buf->data = data;
     buf->length = (int)received;
     buf->capacity = size;
