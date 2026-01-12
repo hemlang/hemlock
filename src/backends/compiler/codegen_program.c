@@ -663,7 +663,12 @@ static void ffi_struct_list_add(FFIStructList *list, const char *name, Stmt *def
         list->structs = new_structs;
         list->capacity = new_cap;
     }
-    list->structs[list->count].name = strdup(name);
+    char *dup_name = strdup(name);
+    if (!dup_name) {
+        fprintf(stderr, "Codegen error: Failed to allocate FFI struct name\n");
+        exit(1);
+    }
+    list->structs[list->count].name = dup_name;
     list->structs[list->count].define_stmt = define_stmt;
     list->count++;
 }

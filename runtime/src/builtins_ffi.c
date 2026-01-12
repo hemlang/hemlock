@@ -441,15 +441,46 @@ HmlFFIStructType* hml_ffi_register_struct(const char *name, const char **field_n
 
     // Create the struct type
     HmlFFIStructType *st = malloc(sizeof(HmlFFIStructType));
+    if (!st) {
+        return NULL;
+    }
+
     st->name = strdup(name);
+    if (!st->name) {
+        free(st);
+        return NULL;
+    }
+
     st->num_fields = num_fields;
     st->fields = malloc(sizeof(HmlFFIStructField) * num_fields);
+    if (!st->fields) {
+        free((void*)st->name);
+        free(st);
+        return NULL;
+    }
 
     // Build ffi_type array for struct
     ffi_type **ffi_field_types = malloc(sizeof(ffi_type*) * (num_fields + 1));
+    if (!ffi_field_types) {
+        free(st->fields);
+        free((void*)st->name);
+        free(st);
+        return NULL;
+    }
 
     for (int i = 0; i < num_fields; i++) {
         st->fields[i].name = strdup(field_names[i]);
+        if (!st->fields[i].name) {
+            // Free previously allocated field names
+            for (int j = 0; j < i; j++) {
+                free((void*)st->fields[j].name);
+            }
+            free(ffi_field_types);
+            free(st->fields);
+            free((void*)st->name);
+            free(st);
+            return NULL;
+        }
         st->fields[i].type = field_types[i];
         st->fields[i].size = hml_ffi_type_size_internal(field_types[i]);
         ffi_field_types[i] = hml_ffi_type_to_ffi_internal(field_types[i]);
@@ -458,6 +489,16 @@ HmlFFIStructType* hml_ffi_register_struct(const char *name, const char **field_n
 
     // Create the libffi struct type
     ffi_type *struct_ffi_type = malloc(sizeof(ffi_type));
+    if (!struct_ffi_type) {
+        for (int i = 0; i < num_fields; i++) {
+            free((void*)st->fields[i].name);
+        }
+        free(ffi_field_types);
+        free(st->fields);
+        free((void*)st->name);
+        free(st);
+        return NULL;
+    }
     struct_ffi_type->size = 0;  // Let libffi compute
     struct_ffi_type->alignment = 0;  // Let libffi compute
     struct_ffi_type->type = FFI_TYPE_STRUCT;
@@ -707,6 +748,16 @@ HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
             arg_storage = malloc(num_args * sizeof(void*));
             arg_structs = malloc(num_args * sizeof(HmlFFIStructType*));
             scalar_storage = malloc(num_args * sizeof(uint64_t));
+
+            // Check all allocations succeeded
+            if (!arg_types || !arg_values || !arg_storage || !arg_structs || !scalar_storage) {
+                free(arg_types);
+                free(arg_values);
+                free(arg_storage);
+                free(arg_structs);
+                free(scalar_storage);
+                hml_runtime_error("FFI call memory allocation failed");
+            }
         }
 
         for (int i = 0; i < num_args; i++) {
