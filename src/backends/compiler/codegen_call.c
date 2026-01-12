@@ -24,6 +24,10 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         // Simple variable - return address of the actual variable
         const char *var_name = arg->as.ident.name;
         char *result = malloc(CODEGEN_MANGLED_NAME_SIZE);
+        if (!result) {
+            fprintf(stderr, "Fatal: Memory allocation failed in codegen_ref_arg\n");
+            exit(1);
+        }
 
         if (codegen_is_main_var(ctx, var_name)) {
             snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&_main_%s", var_name);
@@ -41,8 +45,14 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         // This won't work for true pass-by-ref semantics (changes won't persist)
         // but it's the best we can do for non-lvalue expressions
         char *temp = codegen_expr(ctx, arg);
-        char *result = malloc(strlen(temp) + 2);
-        sprintf(result, "&%s", temp);
+        size_t buf_size = strlen(temp) + 2;
+        char *result = malloc(buf_size);
+        if (!result) {
+            fprintf(stderr, "Fatal: Memory allocation failed in codegen_ref_arg\n");
+            free(temp);
+            exit(1);
+        }
+        snprintf(result, buf_size, "&%s", temp);
         free(temp);
         return result;
     }

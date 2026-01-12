@@ -926,6 +926,38 @@ int value_is_truthy(Value val) {
 
 // ========== TYPE PROMOTION ==========
 
+// Helper to convert ValueType to descriptive string for error messages
+static const char* value_type_to_string(ValueType type) {
+    switch (type) {
+        case VAL_NULL: return "null";
+        case VAL_BOOL: return "bool";
+        case VAL_I8: return "i8";
+        case VAL_I16: return "i16";
+        case VAL_I32: return "i32";
+        case VAL_I64: return "i64";
+        case VAL_U8: return "u8";
+        case VAL_U16: return "u16";
+        case VAL_U32: return "u32";
+        case VAL_U64: return "u64";
+        case VAL_F32: return "f32";
+        case VAL_F64: return "f64";
+        case VAL_RUNE: return "rune";
+        case VAL_STRING: return "string";
+        case VAL_ARRAY: return "array";
+        case VAL_OBJECT: return "object";
+        case VAL_FUNCTION: return "function";
+        case VAL_BUILTIN_FN: return "builtin function";
+        case VAL_FFI_FUNCTION: return "ffi function";
+        case VAL_PTR: return "pointer";
+        case VAL_BUFFER: return "buffer";
+        case VAL_FILE: return "file";
+        case VAL_TASK: return "task";
+        case VAL_CHANNEL: return "channel";
+        case VAL_SOCKET: return "socket";
+        default: return "unknown";
+    }
+}
+
 // Get the "rank" of a type for promotion rules
 int type_rank(ValueType type) {
     switch (type) {
@@ -1030,7 +1062,8 @@ Value promote_value(Value val, ValueType target_type) {
                 return val_rune((uint32_t)value_to_int(val));
             }
         default:
-            fprintf(stderr, "Runtime error: Cannot promote to type\n");
+            fprintf(stderr, "Runtime error: Cannot promote value of type '%s' to target type '%s'\n",
+                    value_type_to_string(val.type), value_type_to_string(target_type));
             exit(1);
     }
 }
