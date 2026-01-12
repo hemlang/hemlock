@@ -374,8 +374,9 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
         p += pmatch[0].rm_eo;
     }
 
-    // Copy remaining suffix
-    strcpy(dst, p);
+    // Copy remaining suffix (use memcpy with explicit length for safety)
+    size_t suffix_len = strlen(p);
+    memcpy(dst, p, suffix_len + 1);  // +1 includes null terminator
 
     Value result_val = val_string(result);
     free(result);
