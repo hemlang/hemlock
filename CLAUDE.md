@@ -493,7 +493,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (39 modules)
+## Standard Library (40 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -505,6 +505,7 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 
 | Module | Description |
 |--------|-------------|
+| `arena` | Arena memory allocator (bump allocation) |
 | `args` | Command-line argument parsing |
 | `assert` | Assertion utilities |
 | `async` | ThreadPool, parallel_map |
@@ -637,7 +638,7 @@ hemlock/
 │   │   ├── lsp/          # Language Server Protocol
 │   │   └── bundler/      # Bundle/package tools
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
-├── stdlib/               # Standard library (39 modules)
+├── stdlib/               # Standard library (40 modules)
 │   └── docs/             # Module documentation
 ├── docs/                 # Full documentation
 │   ├── language-guide/   # Types, strings, arrays, etc.
@@ -889,7 +890,7 @@ make parity
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 39 stdlib modules (+ assert, semver, toml, retry, iter, random, shell)
+- 40 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
 - FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)
