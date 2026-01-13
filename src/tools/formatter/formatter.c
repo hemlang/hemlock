@@ -591,7 +591,7 @@ static void update_column(FmtCtx *ctx) {
             // Count from after the newline
             for (size_t j = i; j < ctx->buf.len; j++) {
                 if (ctx->buf.data[j] == '\t') {
-                    ctx->column = ((ctx->column / 4) + 1) * 4;
+                    ctx->column = ((ctx->column / FMT_TAB_WIDTH) + 1) * FMT_TAB_WIDTH;
                 } else {
                     ctx->column++;
                 }
@@ -602,7 +602,7 @@ static void update_column(FmtCtx *ctx) {
     // No newline found - count from beginning
     for (size_t j = 0; j < ctx->buf.len; j++) {
         if (ctx->buf.data[j] == '\t') {
-            ctx->column = ((ctx->column / 4) + 1) * 4;
+            ctx->column = ((ctx->column / FMT_TAB_WIDTH) + 1) * FMT_TAB_WIDTH;
         } else {
             ctx->column++;
         }
@@ -696,8 +696,57 @@ static int estimate_expr_len(Expr *expr) {
         case EXPR_ASSIGN:
             return (expr->as.assign.name ? (int)strlen(expr->as.assign.name) : 0) + 3 +
                    estimate_expr_len(expr->as.assign.value);
+        case EXPR_INDEX_ASSIGN:
+            return estimate_expr_len(expr->as.index_assign.object) + 2 +
+                   estimate_expr_len(expr->as.index_assign.index) + 4 +
+                   estimate_expr_len(expr->as.index_assign.value);
+        case EXPR_FUNCTION:
+            // Functions are always complex - return large value to trigger line break
+            return 50;
+        case EXPR_PREFIX_INC:
+            return 2 + estimate_expr_len(expr->as.prefix_inc.operand);
+        case EXPR_PREFIX_DEC:
+            return 2 + estimate_expr_len(expr->as.prefix_dec.operand);
+        case EXPR_POSTFIX_INC:
+            return estimate_expr_len(expr->as.postfix_inc.operand) + 2;
+        case EXPR_POSTFIX_DEC:
+            return estimate_expr_len(expr->as.postfix_dec.operand) + 2;
+        case EXPR_AWAIT:
+            return 6 + estimate_expr_len(expr->as.await_expr.awaited_expr);
+        case EXPR_STRING_INTERPOLATION: {
+            int len = 2;  // backticks
+            for (int i = 0; i <= expr->as.string_interpolation.num_parts; i++) {
+                if (expr->as.string_interpolation.string_parts[i]) {
+                    len += strlen(expr->as.string_interpolation.string_parts[i]);
+                }
+                if (i < expr->as.string_interpolation.num_parts) {
+                    len += 3;  // "${" and "}"
+                    len += estimate_expr_len(expr->as.string_interpolation.expr_parts[i]);
+                }
+            }
+            return len;
+        }
+        case EXPR_OPTIONAL_CHAIN: {
+            int len = estimate_expr_len(expr->as.optional_chain.object) + 2;  // "?."
+            if (expr->as.optional_chain.is_call) {
+                len += 2;  // "()"
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    if (i > 0) len += 2;
+                    len += estimate_expr_len(expr->as.optional_chain.args[i]);
+                }
+            } else if (expr->as.optional_chain.is_property) {
+                len += expr->as.optional_chain.property ?
+                       (int)strlen(expr->as.optional_chain.property) : 0;
+            } else {
+                len += 2 + estimate_expr_len(expr->as.optional_chain.index);  // "[idx]"
+            }
+            return len;
+        }
+        case EXPR_NULL_COALESCE:
+            return estimate_expr_len(expr->as.null_coalesce.left) + 4 +
+                   estimate_expr_len(expr->as.null_coalesce.right);
         default:
-            return 10;  // Default estimate for complex expressions
+            return 10;  // Default estimate for any future expression types
     }
 }
 
@@ -1188,6 +1237,33 @@ static void fmt_escaped_string(FmtCtx *ctx, const char *s) {
     buf_append_char(&ctx->buf, '"');
 }
 
+// Escape a template string part for output (different escapes than regular strings)
+static void fmt_escaped_template_part(FmtCtx *ctx, const char *s) {
+    while (*s) {
+        unsigned char c = *s;
+        // Check for ${ which needs escaping to prevent re-interpretation
+        if (c == '$' && s[1] == '{') {
+            buf_append(&ctx->buf, "\\${");
+            s += 2;
+            continue;
+        }
+        switch (c) {
+            case '`':  buf_append(&ctx->buf, "\\`"); break;
+            case '\\': buf_append(&ctx->buf, "\\\\"); break;
+            case '\n': buf_append(&ctx->buf, "\\n"); break;
+            case '\r': buf_append(&ctx->buf, "\\r"); break;
+            case '\t': buf_append(&ctx->buf, "\\t"); break;
+            default:
+                if (c < 32) {
+                    buf_printf(&ctx->buf, "\\x%02x", c);
+                } else {
+                    buf_append_char(&ctx->buf, c);
+                }
+        }
+        s++;
+    }
+}
+
 // Format a rune literal
 static void fmt_rune(FmtCtx *ctx, uint32_t codepoint) {
     buf_append_char(&ctx->buf, '\'');
@@ -1564,9 +1640,9 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
         case EXPR_STRING_INTERPOLATION:
             buf_append_char(&ctx->buf, '`');
             for (int i = 0; i <= expr->as.string_interpolation.num_parts; i++) {
-                // String part
+                // String part (escape backticks, backslashes, and ${ sequences)
                 if (expr->as.string_interpolation.string_parts[i]) {
-                    buf_append(&ctx->buf, expr->as.string_interpolation.string_parts[i]);
+                    fmt_escaped_template_part(ctx, expr->as.string_interpolation.string_parts[i]);
                 }
                 // Expression part (except after last string)
                 if (i < expr->as.string_interpolation.num_parts) {

@@ -575,13 +575,6 @@ static int validate_method_signature(Function *func, Type *expected_type,
         }
     }
 
-    int actual_required = func->num_params;
-    for (int i = 0; i < func->num_params; i++) {
-        if (func->param_defaults && func->param_defaults[i]) {
-            actual_required--;
-        }
-    }
-
     // Function must accept at least as many parameters as required by signature
     if (func->num_params < expected_required) {
         snprintf(error_buffer, sizeof(error_buffer),
@@ -1126,73 +1119,77 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     TypeKind kind = target_type->kind;
 
-    // Handle function types - validate parameter count and types
+    // Handle function types early - validate function signature matches
     if (kind == TYPE_FUNCTION) {
-        if (value.type != VAL_FUNCTION) {
-            fprintf(stderr, "Runtime error: Expected function value\n");
-            exit(1);
-        }
+        if (value.type == VAL_FUNCTION) {
+            Function *func = value.as.as_function;
 
-        Function *fn = value.as.as_function;
-
-        // Validate parameter count (allow functions with fewer required params)
-        // Count required parameters in target type
-        int target_required = 0;
-        for (int i = 0; i < target_type->fn_num_params; i++) {
-            if (!target_type->fn_param_optional || !target_type->fn_param_optional[i]) {
-                target_required++;
-            }
-        }
-
-        // Count required parameters in actual function
-        int fn_required = 0;
-        for (int i = 0; i < fn->num_params; i++) {
-            if (!fn->param_defaults || !fn->param_defaults[i]) {
-                fn_required++;
-            }
-        }
-
-        // Actual function must be able to accept the expected number of args
-        // fn_required <= target_num_params <= fn->num_params (with rest param, any count OK)
-        if (!fn->rest_param) {
-            if (target_type->fn_num_params < fn_required) {
-                fprintf(stderr, "Runtime error: Function type mismatch - "
-                        "expected function accepting %d args, got function requiring at least %d args\n",
-                        target_type->fn_num_params, fn_required);
+            // Validate async flag
+            if (target_type->fn_is_async && !func->is_async) {
+                fprintf(stderr, "Runtime error: Expected async function, got non-async function\n");
                 exit(1);
             }
-            if (target_type->fn_num_params > fn->num_params) {
-                fprintf(stderr, "Runtime error: Function type mismatch - "
-                        "expected function accepting %d args, got function accepting at most %d args\n",
-                        target_type->fn_num_params, fn->num_params);
+
+            // Calculate required parameters (non-optional) for both sides
+            int expected_required = target_type->fn_num_params;
+            for (int i = 0; i < target_type->fn_num_params; i++) {
+                if (target_type->fn_param_optional && target_type->fn_param_optional[i]) {
+                    expected_required--;
+                }
+            }
+
+            int actual_required = func->num_params;
+            for (int i = 0; i < func->num_params; i++) {
+                if (func->param_defaults && func->param_defaults[i]) {
+                    actual_required--;
+                }
+            }
+
+            // Function must accept at least as many required parameters as the type specifies
+            // and not require more parameters than the type provides
+            if (actual_required > target_type->fn_num_params) {
+                fprintf(stderr, "Runtime error: Function requires %d parameter(s), but type expects at most %d\n",
+                        actual_required, target_type->fn_num_params);
                 exit(1);
             }
-        }
 
-        // Validate parameter types (contravariant - actual params can be more general)
-        // For now, just warn if types are specified and differ
-        // Full contravariance checking would require a type compatibility function
-        for (int i = 0; i < target_type->fn_num_params && i < fn->num_params; i++) {
-            Type *expected = target_type->fn_param_types ? target_type->fn_param_types[i] : NULL;
-            Type *actual = fn->param_types ? fn->param_types[i] : NULL;
+            if (func->num_params < expected_required) {
+                fprintf(stderr, "Runtime error: Function accepts %d parameter(s), but type requires at least %d\n",
+                        func->num_params, expected_required);
+                exit(1);
+            }
 
-            // Skip validation if either type is unspecified (dynamic typing)
-            if (!expected || !actual) continue;
+            // Check parameter types for matching positions
+            int params_to_check = target_type->fn_num_params < func->num_params
+                ? target_type->fn_num_params : func->num_params;
+            for (int i = 0; i < params_to_check; i++) {
+                Type *expected_param = target_type->fn_param_types ? target_type->fn_param_types[i] : NULL;
+                Type *actual_param = func->param_types ? func->param_types[i] : NULL;
 
-            // Check if types are compatible (same kind or both numeric)
-            if (expected->kind != actual->kind) {
-                // Allow numeric type coercion
-                int expected_numeric = (expected->kind >= TYPE_I8 && expected->kind <= TYPE_F64);
-                int actual_numeric = (actual->kind >= TYPE_I8 && actual->kind <= TYPE_F64);
-                if (!expected_numeric || !actual_numeric) {
-                    fprintf(stderr, "Runtime error: Function type mismatch - "
-                            "parameter %d type incompatible\n", i + 1);
+                if (!types_compatible(expected_param, actual_param)) {
+                    fprintf(stderr, "Runtime error: Function parameter %d type mismatch (expected %s, got %s)\n",
+                            i + 1, type_to_string(expected_param), type_to_string(actual_param));
                     exit(1);
                 }
             }
+
+            // Check return type
+            if (!types_compatible(target_type->fn_return_type, func->return_type)) {
+                fprintf(stderr, "Runtime error: Function return type mismatch (expected %s, got %s)\n",
+                        type_to_string(target_type->fn_return_type), type_to_string(func->return_type));
+                exit(1);
+            }
+
+            return value;
         }
 
-        return value;
+        // Also accept builtin functions (no signature validation possible)
+        if (value.type == VAL_BUILTIN_FN) {
+            return value;
+        }
+
+        fprintf(stderr, "Runtime error: Expected function value\n");
+        exit(1);
     }
 
     // Handle object and enum types (both use TYPE_CUSTOM_OBJECT at parse time)
