@@ -1163,9 +1163,13 @@ Stmt* define_statement(Parser *p) {
                     0, default_param_names, fn_param_types, default_param_defaults,
                     NULL, fn_param_is_const, fn_num_params,
                     NULL, NULL, return_type, body);
+                // Free fn_param_defaults array (elements were copied to default_param_defaults)
+                free(fn_param_defaults);
             } else {
                 // Just a signature, no default
                 method_defaults[num_methods] = NULL;
+                // Free fn_param_defaults when no default impl (elements are NULL anyway)
+                free(fn_param_defaults);
             }
 
             num_methods++;

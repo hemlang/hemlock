@@ -796,6 +796,7 @@ static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats) {
             {
                 Expr *folded = try_fold_string_interpolation(expr, stats);
                 if (folded) {
+                    expr_free(expr);  // Free the replaced interpolation expression
                     return folded;
                 }
             }
