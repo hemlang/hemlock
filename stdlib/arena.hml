@@ -118,7 +118,7 @@ export fn Arena(capacity: i64) {
 		// Allocate memory and return both pointer and size for manual bounds tracking
 		// Note: Returns raw ptr - Hemlock's buffer() allocates new memory,
 		// so arena allocations use ptr with explicit size tracking
-		alloc_with_size: fn(size: i64): object {
+		alloc_with_size: fn(size: i64) {
 			if (destroyed) {
 				panic("Cannot allocate from destroyed arena");
 			}
