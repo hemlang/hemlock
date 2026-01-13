@@ -10,6 +10,10 @@ Welcome to the Hemlock programming language documentation!
 - [Installation](getting-started/installation.md) - Build and install Hemlock
 - [Quick Start](getting-started/quick-start.md) - Your first Hemlock program
 - [Tutorial](getting-started/tutorial.md) - Step-by-step guide to Hemlock basics
+- [Learning Paths](getting-started/learning-paths.md) - Choose your learning journey based on your goals
+
+### New to Programming?
+- [Glossary](glossary.md) - Plain-language definitions of programming terms
 
 ### Language Guide
 - [Syntax Overview](language-guide/syntax.md) - Basic syntax and structure

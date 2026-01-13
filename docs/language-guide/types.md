@@ -2,6 +2,144 @@
 
 Hemlock features a **dynamic type system** with optional type annotations and runtime type checking.
 
+---
+
+## Type Selection Guide: What Type Should I Use?
+
+**New to types?** Start here. If you're familiar with type systems, skip to [Philosophy](#philosophy).
+
+### The Short Answer
+
+**Just let Hemlock figure it out:**
+
+```hemlock
+let count = 42;        // Hemlock knows this is an integer
+let price = 19.99;     // Hemlock knows this is a decimal
+let name = "Alice";    // Hemlock knows this is text
+let active = true;     // Hemlock knows this is yes/no
+```
+
+Hemlock automatically picks the right type for your values. You don't *need* to specify types.
+
+### When to Add Type Annotations
+
+Add types when you want to:
+
+1. **Be specific about size** - `i8` vs `i64` matters for memory or FFI
+2. **Document your code** - Types show what a function expects
+3. **Catch mistakes early** - Hemlock checks types at runtime
+
+```hemlock
+// Without types (works fine):
+fn add(a, b) {
+    return a + b;
+}
+
+// With types (more explicit):
+fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+```
+
+### Quick Reference: Choosing Number Types
+
+| What you're storing | Suggested type | Example |
+|---------------------|----------------|---------|
+| Regular whole numbers | `i32` (default) | `let count = 42;` |
+| Very large numbers | `i64` | `let population = 8000000000;` |
+| Never-negative counts | `u32` | `let items: u32 = 100;` |
+| Bytes (0-255) | `u8` | `let pixel: u8 = 255;` |
+| Decimals/fractions | `f64` (default) | `let price = 19.99;` |
+| Performance-critical decimals | `f32` | `let x: f32 = 1.5;` |
+
+### Quick Reference: All Types
+
+| Category | Types | When to use |
+|----------|-------|-------------|
+| **Whole numbers** | `i8`, `i16`, `i32`, `i64` | Counting, IDs, ages, etc. |
+| **Positive-only numbers** | `u8`, `u16`, `u32`, `u64` | Bytes, sizes, array lengths |
+| **Decimals** | `f32`, `f64` | Money, measurements, math |
+| **Yes/No** | `bool` | Flags, conditions |
+| **Text** | `string` | Names, messages, any text |
+| **Single character** | `rune` | Individual letters, emoji |
+| **Lists** | `array` | Collections of values |
+| **Named fields** | `object` | Grouping related data |
+| **Raw memory** | `ptr`, `buffer` | Low-level programming |
+| **Nothing** | `null` | Absence of a value |
+
+### Common Scenarios
+
+**"I just need a number"**
+```hemlock
+let x = 42;  // Done! Hemlock picks i32
+```
+
+**"I need decimals"**
+```hemlock
+let price = 19.99;  // Done! Hemlock picks f64
+```
+
+**"I'm working with bytes (files, network)"**
+```hemlock
+let byte: u8 = 255;  // 0-255 range
+```
+
+**"I need really big numbers"**
+```hemlock
+let big = 9000000000000;  // Hemlock auto-picks i64 (> i32 max)
+// Or be explicit:
+let big: i64 = 9000000000000;
+```
+
+**"I'm storing money"**
+```hemlock
+// Option 1: Float (simple, but has precision limits)
+let price: f64 = 19.99;
+
+// Option 2: Store as cents (more precise)
+let price_cents: i32 = 1999;  // $19.99 as integer cents
+```
+
+**"I'm passing data to C code (FFI)"**
+```hemlock
+// Match C types exactly
+let c_int: i32 = 100;      // C 'int'
+let c_long: i64 = 100;     // C 'long' (on 64-bit)
+let c_char: u8 = 65;       // C 'char'
+let c_double: f64 = 3.14;  // C 'double'
+```
+
+### What Happens When Types Mix?
+
+When you combine different types, Hemlock promotes to the "bigger" type:
+
+```hemlock
+let a: i32 = 10;
+let b: f64 = 2.5;
+let result = a + b;  // result is f64 (12.5)
+// The integer became a decimal automatically
+```
+
+**Rule of thumb:** Floats always "win" - mixing any integer with a float gives you a float.
+
+### Type Errors
+
+If you try to use the wrong type, Hemlock tells you at runtime:
+
+```hemlock
+let age: i32 = "thirty";  // ERROR: type mismatch - expected i32, got string
+```
+
+To convert types, use type constructor functions:
+
+```hemlock
+let text = "42";
+let number = i32(text);   // Parse string to integer: 42
+let back = text + "";     // Already a string
+```
+
+---
+
 ## Philosophy
 
 - **Dynamic by default** - Every value has a runtime type tag
