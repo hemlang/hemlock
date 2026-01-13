@@ -1,0 +1,33 @@
+name: macOS Sanity Test
+
+on:
+  push:
+    branches: [ main, master, 'claude/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  macos-arm:
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        brew install coreutils libffi openssl@3 libwebsockets
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
+
+    - name: Build interpreter
+      run: make clean && make
+
+    - name: Build stdlib
+      run: make stdlib || true
+
+    - name: Run interpreter tests
+      run: timeout 120 make test
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run parity tests
+      run: timeout 120 make parity
