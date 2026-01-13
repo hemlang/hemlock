@@ -318,6 +318,9 @@ HmlValue hml_array_join(HmlValue arr, HmlValue delimiter) {
     }
 
     char *result = malloc(total_len + 1);
+    if (!result) {
+        hml_runtime_error("Out of memory in array join");
+    }
     int pos = 0;
     for (int i = 0; i < a->length; i++) {
         HmlValue str = hml_to_string(a->elements[i]);
