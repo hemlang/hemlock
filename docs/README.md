@@ -11,6 +11,14 @@ Welcome to the Hemlock programming language documentation!
 - [Quick Start](getting-started/quick-start.md) - Your first Hemlock program
 - [Tutorial](getting-started/tutorial.md) - Step-by-step guide to Hemlock basics
 
+### Learning Systems Programming
+- [Education Overview](education/README.md) - Learning systems programming with Hemlock
+- [Why Manual Memory Matters](education/why-memory-matters.md) - Conceptual foundation
+- [From Python/JS to Systems](education/from-high-level.md) - Bridge guide for high-level programmers
+- [Common Mistakes](education/common-mistakes.md) - Debugging memory and concurrency bugs
+- [Learning Curriculum](education/curriculum.md) - Structured learning path
+- [Exercises](education/exercises/) - Hands-on practice exercises
+
 ### Language Guide
 - [Syntax Overview](language-guide/syntax.md) - Basic syntax and structure
 - [Type System](language-guide/types.md) - Primitive types, type inference, and conversions
@@ -108,6 +116,7 @@ We give you the tools to be safe (`buffer`, type annotations, bounds checking) b
 - **Package Manager**: [hpm](https://github.com/hemlang/hpm) - Hemlock Package Manager
 - **Issues**: Report bugs and request features
 - **Examples**: See the `examples/` directory
+- **Educational Examples**: See `examples/educational/` for learning-focused programs
 - **Tests**: See the `tests/` directory for usage examples
 
 ## License

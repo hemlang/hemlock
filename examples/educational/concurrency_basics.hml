@@ -1,0 +1,360 @@
+// ============================================================================
+// HEMLOCK EDUCATIONAL EXAMPLE: Concurrency Basics
+// ============================================================================
+//
+// This program teaches concurrent programming concepts through practical
+// examples. Each section builds on the previous one.
+//
+// Run with: ./hemlock examples/educational/concurrency_basics.hml
+// ============================================================================
+
+import { sleep, time_ms } from "@stdlib/time";
+
+print("=== CONCURRENCY BASICS ===");
+print("");
+
+// ============================================================================
+// LESSON 1: What is Concurrency?
+// ============================================================================
+//
+// Concurrency means multiple things happening at once (or appearing to).
+// In Hemlock, `spawn` creates a real OS thread that runs in parallel.
+
+print("--- LESSON 1: Your First Task ---");
+print("");
+
+// A regular function runs on the main thread
+fn regular_work() {
+    print("  Regular: Starting work");
+    sleep(100);  // Sleep 100ms
+    print("  Regular: Done");
+}
+
+// An async function CAN be spawned to run on another thread
+async fn async_work() {
+    print("  Async: Starting work");
+    sleep(100);
+    print("  Async: Done");
+}
+
+print("Running regular function (blocks main thread):");
+let start = time_ms();
+regular_work();
+print("  Time: " + (time_ms() - start) + "ms");
+print("");
+
+print("Running async function with spawn (runs in parallel):");
+start = time_ms();
+let task = spawn(async_work);
+print("  Main thread continues immediately!");
+print("  Main thread time: " + (time_ms() - start) + "ms");
+join(task);  // Wait for the async task to finish
+print("  Total time: " + (time_ms() - start) + "ms");
+print("");
+
+// ============================================================================
+// LESSON 2: Parallelism Speedup
+// ============================================================================
+//
+// The power of concurrency: do multiple things simultaneously.
+
+print("--- LESSON 2: Parallelism Speedup ---");
+print("");
+
+async fn slow_computation(id: i32): i32 {
+    print("  Task " + id + ": starting computation");
+    sleep(200);  // Simulates 200ms of work
+    print("  Task " + id + ": finished");
+    return id * 100;
+}
+
+// Sequential: Run one after another (takes ~800ms)
+print("Sequential execution (4 tasks, 200ms each):");
+start = time_ms();
+let results_seq = [];
+for (let i = 1; i <= 4; i++) {
+    results_seq.push(join(spawn(slow_computation, i)));
+}
+print("  Results: " + results_seq.join(", "));
+print("  Time: " + (time_ms() - start) + "ms (expected ~800ms)");
+print("");
+
+// Parallel: Run all at once (takes ~200ms)
+print("Parallel execution (4 tasks at once):");
+start = time_ms();
+
+// Spawn all tasks first
+let tasks = [];
+for (let i = 1; i <= 4; i++) {
+    tasks.push(spawn(slow_computation, i));
+}
+
+// Then wait for all of them
+let results_par = [];
+for (t in tasks) {
+    results_par.push(join(t));
+}
+print("  Results: " + results_par.join(", "));
+print("  Time: " + (time_ms() - start) + "ms (expected ~200ms)");
+print("");
+
+// ============================================================================
+// LESSON 3: The Race Condition Problem
+// ============================================================================
+//
+// When multiple threads access shared data without synchronization,
+// they can interfere with each other. This is called a "race condition".
+
+print("--- LESSON 3: Race Conditions ---");
+print("");
+
+// DANGER: This code has a race condition!
+// Multiple threads read-modify-write a shared variable.
+print("Demonstrating a race condition:");
+print("  (This may give wrong results!)");
+print("");
+
+// We'll use a pointer to shared memory
+let shared = alloc(sizeof(i32));
+ptr_write_i32(shared, 0);
+
+async fn increment_shared(p: ptr, iterations: i32) {
+    for (let i = 0; i < iterations; i++) {
+        // RACE: read, add, write is NOT atomic
+        let current = ptr_read_i32(p);
+        ptr_write_i32(p, current + 1);
+    }
+}
+
+// Run two tasks, each incrementing 1000 times
+// Expected result: 2000 (if no race)
+let t1 = spawn(increment_shared, shared, 1000);
+let t2 = spawn(increment_shared, shared, 1000);
+join(t1);
+join(t2);
+
+let result = ptr_read_i32(shared);
+print("  Two tasks, each incrementing 1000 times");
+print("  Expected result: 2000");
+print("  Actual result: " + result);
+if (result != 2000) {
+    print("  RACE DETECTED! Some increments were lost.");
+    print("  This happens because:");
+    print("    Thread A reads: 500");
+    print("    Thread B reads: 500");
+    print("    Thread A writes: 501");
+    print("    Thread B writes: 501  <- Thread A's increment is lost!");
+}
+print("");
+
+free(shared);
+
+// ============================================================================
+// LESSON 4: Fixing Races with Atomics
+// ============================================================================
+//
+// Atomic operations are indivisible - they complete entirely or not at all.
+// No other thread can see a half-done atomic operation.
+
+print("--- LESSON 4: Atomic Operations ---");
+print("");
+
+let atomic_counter = alloc(sizeof(i32));
+atomic_store_i32(atomic_counter, 0);
+
+async fn increment_atomic(p: ptr, iterations: i32) {
+    for (let i = 0; i < iterations; i++) {
+        // atomic_add_i32 is ATOMIC: read-modify-write happens together
+        atomic_add_i32(p, 1);
+    }
+}
+
+// Same test, but with atomic operations
+let t3 = spawn(increment_atomic, atomic_counter, 1000);
+let t4 = spawn(increment_atomic, atomic_counter, 1000);
+join(t3);
+join(t4);
+
+let atomic_result = atomic_load_i32(atomic_counter);
+print("  Using atomic_add_i32:");
+print("  Expected result: 2000");
+print("  Actual result: " + atomic_result);
+if (atomic_result == 2000) {
+    print("  SUCCESS! Atomics prevented the race.");
+}
+print("");
+
+free(atomic_counter);
+
+// ============================================================================
+// LESSON 5: Channels for Communication
+// ============================================================================
+//
+// Instead of sharing memory, we can send messages through channels.
+// This is often safer and easier to reason about.
+
+print("--- LESSON 5: Channels ---");
+print("");
+
+print("Channels let tasks communicate by sending messages.");
+print("");
+
+// Create a channel with buffer size 5
+let ch = channel(5);
+
+// Producer: sends data into the channel
+async fn producer(ch: channel, count: i32) {
+    print("  Producer: starting");
+    for (let i = 1; i <= count; i++) {
+        ch.send(i * 10);
+        print("  Producer: sent " + (i * 10));
+    }
+    ch.close();  // Signal we're done
+    print("  Producer: closed channel");
+}
+
+// Consumer: receives data from the channel
+async fn consumer(ch: channel): i32 {
+    print("  Consumer: starting");
+    let sum = 0;
+    loop {
+        let value = ch.recv();
+        if (value == null) {
+            // Channel closed
+            break;
+        }
+        print("  Consumer: received " + value);
+        sum = sum + value;
+    }
+    print("  Consumer: channel closed, sum = " + sum);
+    return sum;
+}
+
+let prod = spawn(producer, ch, 5);
+let cons = spawn(consumer, ch);
+
+join(prod);
+let total = join(cons);
+
+print("  Final sum: " + total);
+print("");
+
+// ============================================================================
+// LESSON 6: Memory Ownership with Tasks
+// ============================================================================
+//
+// CRITICAL: When you pass a pointer to a spawned task, you must ensure
+// the memory remains valid until the task completes!
+
+print("--- LESSON 6: Memory and Tasks ---");
+print("");
+
+print("RULE: Never free memory while a task is using it!");
+print("");
+
+// CORRECT: Wait for task before freeing
+async fn use_memory(p: ptr): i32 {
+    sleep(50);  // Simulate some work
+    return ptr_read_i32(p);
+}
+
+let safe_ptr = alloc(sizeof(i32));
+ptr_write_i32(safe_ptr, 12345);
+
+let mem_task = spawn(use_memory, safe_ptr);
+// DO NOT free here - task is still running!
+
+let mem_result = join(mem_task);  // Wait for task
+print("Task returned: " + mem_result);
+
+free(safe_ptr);  // NOW it's safe to free
+print("Safely freed memory after task completed");
+print("");
+
+// ============================================================================
+// LESSON 7: Practical Example - Parallel Sum
+// ============================================================================
+//
+// Let's put it all together: sum a large array using multiple threads.
+
+print("--- LESSON 7: Parallel Sum Example ---");
+print("");
+
+// Create an array to sum
+let arr_size = 100;
+let arr_bytes = arr_size * sizeof(i32);
+let array = alloc(arr_bytes);
+
+// Fill with values 1..100
+for (let i = 0; i < arr_size; i++) {
+    ptr_write_i32(array + i * sizeof(i32), i + 1);
+}
+print("Created array with values 1 to " + arr_size);
+
+// Sequential sum for comparison
+let seq_sum = 0;
+start = time_ms();
+for (let i = 0; i < arr_size; i++) {
+    seq_sum = seq_sum + ptr_read_i32(array + i * sizeof(i32));
+}
+let seq_time = time_ms() - start;
+print("Sequential sum: " + seq_sum + " (" + seq_time + "ms)");
+
+// Parallel sum: divide work among threads
+async fn partial_sum(arr: ptr, start_idx: i32, end_idx: i32): i32 {
+    let sum = 0;
+    for (let i = start_idx; i < end_idx; i++) {
+        sum = sum + ptr_read_i32(arr + i * sizeof(i32));
+    }
+    return sum;
+}
+
+start = time_ms();
+let num_threads = 4;
+let chunk_size = arr_size / num_threads;
+
+let sum_tasks = [];
+for (let t = 0; t < num_threads; t++) {
+    let start_idx = t * chunk_size;
+    let end_idx = start_idx + chunk_size;
+    if (t == num_threads - 1) {
+        end_idx = arr_size;  // Last thread gets remainder
+    }
+    sum_tasks.push(spawn(partial_sum, array, start_idx, end_idx));
+}
+
+// Collect results
+let par_sum = 0;
+for (task in sum_tasks) {
+    par_sum = par_sum + join(task);
+}
+let par_time = time_ms() - start;
+print("Parallel sum (" + num_threads + " threads): " + par_sum + " (" + par_time + "ms)");
+
+free(array);
+print("");
+
+// ============================================================================
+// SUMMARY
+// ============================================================================
+
+print("--- SUMMARY ---");
+print("");
+print("What you learned:");
+print("  1. spawn() creates real parallel threads");
+print("  2. join() waits for a task to complete");
+print("  3. Race conditions occur when threads share unsynchronized data");
+print("  4. Atomic operations (atomic_add_i32, etc.) prevent races");
+print("  5. Channels provide safe inter-task communication");
+print("  6. Never free memory while tasks are using it");
+print("");
+print("Key functions:");
+print("  spawn(fn, args...)  - Start a task");
+print("  join(task)          - Wait and get result");
+print("  detach(task)        - Let task run independently");
+print("  channel(size)       - Create a channel");
+print("  ch.send(value)      - Send through channel");
+print("  ch.recv()           - Receive from channel");
+print("  atomic_*            - Lock-free atomic operations");
+print("");
+print("=== END OF CONCURRENCY BASICS ===");
