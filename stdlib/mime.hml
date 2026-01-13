@@ -1,0 +1,419 @@
+// Hemlock Standard Library: MIME Type Detection
+// Detect MIME types from file extensions and magic bytes
+
+import { HashMap } from "@stdlib/collections";
+
+// ========== MIME TYPE DATABASE ==========
+
+// Extension to MIME type mapping
+let ext_to_mime = HashMap();
+
+// Initialize extension mappings
+fn init_extensions() {
+    // Text
+    ext_to_mime.set(".txt", "text/plain");
+    ext_to_mime.set(".html", "text/html");
+    ext_to_mime.set(".htm", "text/html");
+    ext_to_mime.set(".css", "text/css");
+    ext_to_mime.set(".csv", "text/csv");
+    ext_to_mime.set(".xml", "text/xml");
+    ext_to_mime.set(".md", "text/markdown");
+    ext_to_mime.set(".markdown", "text/markdown");
+    ext_to_mime.set(".rtf", "text/rtf");
+
+    // JavaScript / TypeScript
+    ext_to_mime.set(".js", "text/javascript");
+    ext_to_mime.set(".mjs", "text/javascript");
+    ext_to_mime.set(".cjs", "text/javascript");
+    ext_to_mime.set(".ts", "text/typescript");
+    ext_to_mime.set(".tsx", "text/typescript");
+    ext_to_mime.set(".jsx", "text/javascript");
+
+    // Programming languages
+    ext_to_mime.set(".json", "application/json");
+    ext_to_mime.set(".yaml", "application/yaml");
+    ext_to_mime.set(".yml", "application/yaml");
+    ext_to_mime.set(".toml", "application/toml");
+    ext_to_mime.set(".py", "text/x-python");
+    ext_to_mime.set(".rb", "text/x-ruby");
+    ext_to_mime.set(".rs", "text/x-rust");
+    ext_to_mime.set(".go", "text/x-go");
+    ext_to_mime.set(".java", "text/x-java");
+    ext_to_mime.set(".c", "text/x-c");
+    ext_to_mime.set(".h", "text/x-c");
+    ext_to_mime.set(".cpp", "text/x-c++");
+    ext_to_mime.set(".hpp", "text/x-c++");
+    ext_to_mime.set(".hml", "text/x-hemlock");
+    ext_to_mime.set(".sh", "application/x-sh");
+    ext_to_mime.set(".bash", "application/x-sh");
+    ext_to_mime.set(".zsh", "application/x-sh");
+    ext_to_mime.set(".sql", "application/sql");
+
+    // Images
+    ext_to_mime.set(".png", "image/png");
+    ext_to_mime.set(".jpg", "image/jpeg");
+    ext_to_mime.set(".jpeg", "image/jpeg");
+    ext_to_mime.set(".gif", "image/gif");
+    ext_to_mime.set(".webp", "image/webp");
+    ext_to_mime.set(".svg", "image/svg+xml");
+    ext_to_mime.set(".ico", "image/x-icon");
+    ext_to_mime.set(".bmp", "image/bmp");
+    ext_to_mime.set(".tiff", "image/tiff");
+    ext_to_mime.set(".tif", "image/tiff");
+    ext_to_mime.set(".avif", "image/avif");
+
+    // Audio
+    ext_to_mime.set(".mp3", "audio/mpeg");
+    ext_to_mime.set(".wav", "audio/wav");
+    ext_to_mime.set(".ogg", "audio/ogg");
+    ext_to_mime.set(".flac", "audio/flac");
+    ext_to_mime.set(".aac", "audio/aac");
+    ext_to_mime.set(".m4a", "audio/mp4");
+    ext_to_mime.set(".weba", "audio/webm");
+    ext_to_mime.set(".opus", "audio/opus");
+
+    // Video
+    ext_to_mime.set(".mp4", "video/mp4");
+    ext_to_mime.set(".webm", "video/webm");
+    ext_to_mime.set(".avi", "video/x-msvideo");
+    ext_to_mime.set(".mov", "video/quicktime");
+    ext_to_mime.set(".mkv", "video/x-matroska");
+    ext_to_mime.set(".flv", "video/x-flv");
+    ext_to_mime.set(".wmv", "video/x-ms-wmv");
+    ext_to_mime.set(".m4v", "video/mp4");
+    ext_to_mime.set(".mpeg", "video/mpeg");
+    ext_to_mime.set(".mpg", "video/mpeg");
+
+    // Documents
+    ext_to_mime.set(".pdf", "application/pdf");
+    ext_to_mime.set(".doc", "application/msword");
+    ext_to_mime.set(".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    ext_to_mime.set(".xls", "application/vnd.ms-excel");
+    ext_to_mime.set(".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    ext_to_mime.set(".ppt", "application/vnd.ms-powerpoint");
+    ext_to_mime.set(".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    ext_to_mime.set(".odt", "application/vnd.oasis.opendocument.text");
+    ext_to_mime.set(".ods", "application/vnd.oasis.opendocument.spreadsheet");
+    ext_to_mime.set(".odp", "application/vnd.oasis.opendocument.presentation");
+
+    // Archives
+    ext_to_mime.set(".zip", "application/zip");
+    ext_to_mime.set(".tar", "application/x-tar");
+    ext_to_mime.set(".gz", "application/gzip");
+    ext_to_mime.set(".tgz", "application/gzip");
+    ext_to_mime.set(".bz2", "application/x-bzip2");
+    ext_to_mime.set(".xz", "application/x-xz");
+    ext_to_mime.set(".7z", "application/x-7z-compressed");
+    ext_to_mime.set(".rar", "application/vnd.rar");
+
+    // Executables / Libraries
+    ext_to_mime.set(".exe", "application/x-msdownload");
+    ext_to_mime.set(".dll", "application/x-msdownload");
+    ext_to_mime.set(".so", "application/x-sharedlib");
+    ext_to_mime.set(".dylib", "application/x-sharedlib");
+    ext_to_mime.set(".a", "application/x-archive");
+    ext_to_mime.set(".o", "application/x-object");
+
+    // Fonts
+    ext_to_mime.set(".woff", "font/woff");
+    ext_to_mime.set(".woff2", "font/woff2");
+    ext_to_mime.set(".ttf", "font/ttf");
+    ext_to_mime.set(".otf", "font/otf");
+    ext_to_mime.set(".eot", "application/vnd.ms-fontobject");
+
+    // Web
+    ext_to_mime.set(".wasm", "application/wasm");
+    ext_to_mime.set(".map", "application/json");
+
+    // Data formats
+    ext_to_mime.set(".sqlite", "application/x-sqlite3");
+    ext_to_mime.set(".db", "application/x-sqlite3");
+}
+
+// Initialize on module load
+init_extensions();
+
+// ========== MIME TYPE LOOKUP ==========
+
+// get_extension(path: string) -> string
+// Extract file extension from path (including the dot)
+fn get_extension(path: string): string {
+    let last_dot = -1;
+    let last_slash = -1;
+
+    for (let i = 0; i < path.length; i++) {
+        let ch = path.char_at(i);
+        if (ch == '.') {
+            last_dot = i;
+        } else if (ch == '/' || ch == '\\') {
+            last_slash = i;
+        }
+    }
+
+    // No dot found or dot is before last slash (hidden file like .gitignore)
+    if (last_dot == -1 || last_dot < last_slash) {
+        return "";
+    }
+
+    return path.substr(last_dot, path.length - last_dot).to_lower();
+}
+
+// from_extension(ext: string) -> string | null
+// Get MIME type from file extension
+// ext can be with or without leading dot
+export fn from_extension(ext: string): string {
+    let lookup_ext = ext;
+
+    // Ensure extension starts with dot
+    if (!ext.starts_with(".")) {
+        lookup_ext = "." + ext;
+    }
+
+    lookup_ext = lookup_ext.to_lower();
+    return ext_to_mime.get(lookup_ext);
+}
+
+// from_path(path: string) -> string
+// Get MIME type from file path
+// Returns "application/octet-stream" if unknown
+export fn from_path(path: string): string {
+    let ext = get_extension(path);
+    if (ext == "") {
+        return "application/octet-stream";
+    }
+
+    let mime = ext_to_mime.get(ext);
+    return mime ?? "application/octet-stream";
+}
+
+// ========== MIME TYPE PROPERTIES ==========
+
+// is_text(mime: string) -> bool
+// Check if MIME type is text-based
+export fn is_text(mime: string): bool {
+    if (mime.starts_with("text/")) {
+        return true;
+    }
+
+    // Special cases that are text despite not starting with text/
+    let text_types = [
+        "application/json",
+        "application/xml",
+        "application/javascript",
+        "application/yaml",
+        "application/toml",
+        "application/sql",
+        "application/x-sh",
+        "image/svg+xml",
+    ];
+
+    for (t in text_types) {
+        if (mime == t) {
+            return true;
+        }
+    }
+
+    // Check for +xml or +json suffixes
+    if (mime.ends_with("+xml") || mime.ends_with("+json")) {
+        return true;
+    }
+
+    return false;
+}
+
+// is_image(mime: string) -> bool
+// Check if MIME type is an image
+export fn is_image(mime: string): bool {
+    return mime.starts_with("image/");
+}
+
+// is_audio(mime: string) -> bool
+// Check if MIME type is audio
+export fn is_audio(mime: string): bool {
+    return mime.starts_with("audio/");
+}
+
+// is_video(mime: string) -> bool
+// Check if MIME type is video
+export fn is_video(mime: string): bool {
+    return mime.starts_with("video/");
+}
+
+// is_media(mime: string) -> bool
+// Check if MIME type is any media (image, audio, or video)
+export fn is_media(mime: string): bool {
+    return is_image(mime) || is_audio(mime) || is_video(mime);
+}
+
+// is_font(mime: string) -> bool
+// Check if MIME type is a font
+export fn is_font(mime: string): bool {
+    return mime.starts_with("font/") || mime == "application/vnd.ms-fontobject";
+}
+
+// is_archive(mime: string) -> bool
+// Check if MIME type is an archive
+export fn is_archive(mime: string): bool {
+    let archive_types = [
+        "application/zip",
+        "application/x-tar",
+        "application/gzip",
+        "application/x-bzip2",
+        "application/x-xz",
+        "application/x-7z-compressed",
+        "application/vnd.rar",
+    ];
+
+    for (t in archive_types) {
+        if (mime == t) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// is_binary(mime: string) -> bool
+// Check if MIME type is binary (not text)
+export fn is_binary(mime: string): bool {
+    return !is_text(mime);
+}
+
+// ========== MIME TYPE PARSING ==========
+
+// parse(mime: string) -> { type: string, subtype: string, params: object }
+// Parse a MIME type string
+// Example: "text/html; charset=utf-8" -> { type: "text", subtype: "html", params: { charset: "utf-8" } }
+export fn parse(mime: string) {
+    let result = {
+        type: "",
+        subtype: "",
+        params: {},
+    };
+
+    // Split by semicolon for parameters
+    let parts = mime.split(";");
+    if (parts.length == 0) {
+        return result;
+    }
+
+    // Parse type/subtype
+    let type_part = parts[0].trim();
+    let slash_pos = type_part.find("/");
+
+    if (slash_pos == -1) {
+        result.type = type_part;
+    } else {
+        result.type = type_part.substr(0, slash_pos);
+        result.subtype = type_part.substr(slash_pos + 1, type_part.length - slash_pos - 1);
+    }
+
+    // Parse parameters
+    for (let i = 1; i < parts.length; i++) {
+        let param = parts[i].trim();
+        let eq_pos = param.find("=");
+
+        if (eq_pos != -1) {
+            let key = param.substr(0, eq_pos).trim();
+            let value = param.substr(eq_pos + 1, param.length - eq_pos - 1).trim();
+
+            // Remove quotes from value if present
+            if (value.starts_with("\"") && value.ends_with("\"")) {
+                value = value.substr(1, value.length - 2);
+            }
+
+            result.params[key] = value;
+        }
+    }
+
+    return result;
+}
+
+// format(type: string, subtype: string, params?: object) -> string
+// Format MIME type string from components
+export fn format(type: string, subtype: string, params?) {
+    let result = type + "/" + subtype;
+
+    if (params != null) {
+        let keys = [];
+        for (key in params) {
+            keys.push(key);
+        }
+
+        for (key in keys) {
+            let value = params[key];
+            // Quote value if it contains special chars
+            if (value.contains(" ") || value.contains(";")) {
+                value = "\"" + value + "\"";
+            }
+            result = result + "; " + key + "=" + value;
+        }
+    }
+
+    return result;
+}
+
+// ========== CONTENT TYPE HELPERS ==========
+
+// content_type(path: string, charset?: string) -> string
+// Get Content-Type header value for a file
+// Automatically adds charset for text types
+export fn content_type(path: string, charset?: "utf-8"): string {
+    let mime = from_path(path);
+
+    if (is_text(mime) && charset != null) {
+        return mime + "; charset=" + charset;
+    }
+
+    return mime;
+}
+
+// ========== EXTENSION LOOKUP ==========
+
+// get_extensions(mime: string) -> array
+// Get all extensions for a MIME type
+export fn get_extensions(mime: string): array {
+    let result = [];
+
+    for (entry in ext_to_mime.entries()) {
+        if (entry[1] == mime) {
+            result.push(entry[0]);
+        }
+    }
+
+    return result;
+}
+
+// get_primary_extension(mime: string) -> string | null
+// Get the primary (most common) extension for a MIME type
+export fn get_primary_extension(mime: string): string {
+    let extensions = get_extensions(mime);
+    if (extensions.length == 0) {
+        return null;
+    }
+    return extensions[0];
+}
+
+// ========== CUSTOM TYPE REGISTRATION ==========
+
+// register(ext: string, mime: string) -> null
+// Register a custom MIME type for an extension
+export fn register(ext: string, mime: string) {
+    let lookup_ext = ext;
+    if (!ext.starts_with(".")) {
+        lookup_ext = "." + ext;
+    }
+    ext_to_mime.set(lookup_ext.to_lower(), mime);
+    return null;
+}
+
+// unregister(ext: string) -> bool
+// Remove a MIME type registration
+// Returns true if extension was registered
+export fn unregister(ext: string): bool {
+    let lookup_ext = ext;
+    if (!ext.starts_with(".")) {
+        lookup_ext = "." + ext;
+    }
+    return ext_to_mime.delete(lookup_ext.to_lower());
+}

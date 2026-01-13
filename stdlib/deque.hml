@@ -1,0 +1,324 @@
+// Hemlock Standard Library: Deque (Double-Ended Queue)
+// Efficient O(1) operations at both ends using circular buffer
+
+// ========== DEQUE ==========
+
+// Deque(initial_capacity?: i32) -> Deque object
+// Create a double-ended queue with optional initial capacity
+//
+// Example usage:
+//   let d = Deque();
+//   d.push_back(1);
+//   d.push_front(0);
+//   d.pop_back();   // Returns 1
+//   d.pop_front();  // Returns 0
+
+export fn Deque(initial_capacity?: 16) {
+    let items = [];
+    let head = 0;  // Index of first element
+    let tail = 0;  // Index after last element
+    let count = 0;
+    let capacity = initial_capacity;
+
+    // Initialize array with nulls
+    for (let i = 0; i < capacity; i++) {
+        items.push(null);
+    }
+
+    // Helper: compute index with wrap-around
+    fn wrap_index(i: i32): i32 {
+        let result = i % capacity;
+        if (result < 0) {
+            result = result + capacity;
+        }
+        return result;
+    }
+
+    // Helper: resize when capacity is reached
+    fn resize() {
+        let new_capacity = capacity * 2;
+        let new_items = [];
+
+        // Initialize new array
+        for (let i = 0; i < new_capacity; i++) {
+            new_items.push(null);
+        }
+
+        // Copy items in order from head to tail
+        for (let i = 0; i < count; i++) {
+            new_items[i] = items[wrap_index(head + i)];
+        }
+
+        items = new_items;
+        head = 0;
+        tail = count;
+        capacity = new_capacity;
+    }
+
+    return {
+        size: 0,
+
+        // push_back(item) -> null
+        // Add item to the back of the deque
+        push_back: fn(item) {
+            if (count == capacity) {
+                resize();
+            }
+
+            items[tail] = item;
+            tail = wrap_index(tail + 1);
+            count = count + 1;
+            self.size = count;
+            return null;
+        },
+
+        // push_front(item) -> null
+        // Add item to the front of the deque
+        push_front: fn(item) {
+            if (count == capacity) {
+                resize();
+            }
+
+            head = wrap_index(head - 1);
+            items[head] = item;
+            count = count + 1;
+            self.size = count;
+            return null;
+        },
+
+        // pop_back() -> item
+        // Remove and return item from the back
+        // Throws if deque is empty
+        pop_back: fn() {
+            if (count == 0) {
+                throw "Deque is empty";
+            }
+
+            tail = wrap_index(tail - 1);
+            let item = items[tail];
+            items[tail] = null;  // Clear reference
+            count = count - 1;
+            self.size = count;
+            return item;
+        },
+
+        // pop_front() -> item
+        // Remove and return item from the front
+        // Throws if deque is empty
+        pop_front: fn() {
+            if (count == 0) {
+                throw "Deque is empty";
+            }
+
+            let item = items[head];
+            items[head] = null;  // Clear reference
+            head = wrap_index(head + 1);
+            count = count - 1;
+            self.size = count;
+            return item;
+        },
+
+        // peek_back() -> item | null
+        // Return item at the back without removing it
+        peek_back: fn() {
+            if (count == 0) {
+                return null;
+            }
+            return items[wrap_index(tail - 1)];
+        },
+
+        // peek_front() -> item | null
+        // Return item at the front without removing it
+        peek_front: fn() {
+            if (count == 0) {
+                return null;
+            }
+            return items[head];
+        },
+
+        // get(index: i32) -> item
+        // Get item at index (0 = front, size-1 = back)
+        // Throws if index is out of bounds
+        get: fn(index: i32) {
+            if (index < 0 || index >= count) {
+                throw "Index out of bounds: " + index;
+            }
+            return items[wrap_index(head + index)];
+        },
+
+        // set(index: i32, item) -> null
+        // Set item at index
+        // Throws if index is out of bounds
+        set: fn(index: i32, item) {
+            if (index < 0 || index >= count) {
+                throw "Index out of bounds: " + index;
+            }
+            items[wrap_index(head + index)] = item;
+            return null;
+        },
+
+        // is_empty() -> bool
+        // Check if deque is empty
+        is_empty: fn(): bool {
+            return count == 0;
+        },
+
+        // clear() -> null
+        // Remove all items from deque
+        clear: fn() {
+            // Reset to initial state
+            items = [];
+            for (let i = 0; i < capacity; i++) {
+                items.push(null);
+            }
+            head = 0;
+            tail = 0;
+            count = 0;
+            self.size = 0;
+            return null;
+        },
+
+        // to_array() -> array
+        // Return items as array (front to back)
+        to_array: fn(): array {
+            let result = [];
+            for (let i = 0; i < count; i++) {
+                result.push(items[wrap_index(head + i)]);
+            }
+            return result;
+        },
+
+        // from_array(arr: array) -> null
+        // Add all items from array to back of deque
+        from_array: fn(arr: array) {
+            for (item in arr) {
+                self.push_back(item);
+            }
+            return null;
+        },
+
+        // reverse() -> null
+        // Reverse the deque in place
+        reverse: fn() {
+            let left = 0;
+            let right = count - 1;
+
+            while (left < right) {
+                let left_idx = wrap_index(head + left);
+                let right_idx = wrap_index(head + right);
+
+                let temp = items[left_idx];
+                items[left_idx] = items[right_idx];
+                items[right_idx] = temp;
+
+                left = left + 1;
+                right = right - 1;
+            }
+
+            return null;
+        },
+
+        // rotate(n: i32) -> null
+        // Rotate deque by n positions
+        // Positive n: rotate right (back to front)
+        // Negative n: rotate left (front to back)
+        rotate: fn(n: i32) {
+            if (count == 0) {
+                return null;
+            }
+
+            // Normalize n to be within bounds
+            n = n % count;
+            if (n < 0) {
+                n = n + count;
+            }
+
+            // Rotate right by n
+            for (let i = 0; i < n; i++) {
+                self.push_front(self.pop_back());
+            }
+
+            return null;
+        },
+
+        // contains(item) -> bool
+        // Check if deque contains item
+        contains: fn(item): bool {
+            for (let i = 0; i < count; i++) {
+                if (items[wrap_index(head + i)] == item) {
+                    return true;
+                }
+            }
+            return false;
+        },
+
+        // index_of(item) -> i32
+        // Return index of first occurrence of item, or -1 if not found
+        index_of: fn(item): i32 {
+            for (let i = 0; i < count; i++) {
+                if (items[wrap_index(head + i)] == item) {
+                    return i;
+                }
+            }
+            return -1;
+        },
+
+        // each(callback: fn) -> null
+        // Iterate over items from front to back
+        each: fn(callback) {
+            for (let i = 0; i < count; i++) {
+                callback(items[wrap_index(head + i)], i);
+            }
+            return null;
+        },
+
+        // each_reverse(callback: fn) -> null
+        // Iterate over items from back to front
+        each_reverse: fn(callback) {
+            for (let i = count - 1; i >= 0; i--) {
+                callback(items[wrap_index(head + i)], i);
+            }
+            return null;
+        },
+
+        // first() -> item | null
+        // Alias for peek_front()
+        first: fn() {
+            return self.peek_front();
+        },
+
+        // last() -> item | null
+        // Alias for peek_back()
+        last: fn() {
+            return self.peek_back();
+        },
+
+        // extend_back(arr: array) -> null
+        // Add all items from array to back
+        extend_back: fn(arr: array) {
+            for (item in arr) {
+                self.push_back(item);
+            }
+            return null;
+        },
+
+        // extend_front(arr: array) -> null
+        // Add all items from array to front (in reverse order)
+        extend_front: fn(arr: array) {
+            for (let i = arr.length - 1; i >= 0; i--) {
+                self.push_front(arr[i]);
+            }
+            return null;
+        },
+    };
+}
+
+// ========== UTILITY FUNCTIONS ==========
+
+// deque_from(items: array) -> Deque
+// Create a deque from an array
+export fn deque_from(items: array) {
+    let d = Deque(items.length);
+    d.from_array(items);
+    return d;
+}

@@ -1,0 +1,293 @@
+// Hemlock Standard Library: Extended File System Operations
+// This module provides recursive directory operations and file walking
+
+import { exists, is_dir, is_file, list_dir, make_dir, remove_dir, remove_file } from "@stdlib/fs";
+import { join, dirname, basename } from "@stdlib/path";
+
+// ========== RECURSIVE DIRECTORY CREATION ==========
+
+// make_dir_p(path: string) -> bool
+// Create directory and all parent directories (like mkdir -p)
+// Returns true if directory was created or already exists
+export fn make_dir_p(path: string): bool {
+    // If path already exists as directory, we're done
+    if (exists(path)) {
+        if (is_dir(path)) {
+            return true;
+        }
+        throw "Path exists but is not a directory: " + path;
+    }
+
+    // Build list of directories to create (from root to leaf)
+    let dirs_to_create = [];
+    let current = path;
+
+    while (current != "" && current != "/" && current != ".") {
+        if (!exists(current)) {
+            dirs_to_create.push(current);
+        } else {
+            break;
+        }
+        current = dirname(current);
+    }
+
+    // Create directories from parent to child
+    dirs_to_create.reverse();
+
+    for (dir in dirs_to_create) {
+        make_dir(dir, 493);  // 0755 in octal = 493 decimal
+    }
+
+    return true;
+}
+
+// ========== RECURSIVE DIRECTORY REMOVAL ==========
+
+// remove_dir_r(path: string) -> bool
+// Remove directory and all contents recursively (like rm -rf)
+// Returns true if directory was removed
+export fn remove_dir_r(path: string): bool {
+    if (!exists(path)) {
+        return false;
+    }
+
+    if (!is_dir(path)) {
+        throw "Path is not a directory: " + path;
+    }
+
+    // Remove contents first
+    let entries = list_dir(path);
+    for (entry in entries) {
+        let full_path = join(path, entry);
+
+        if (is_dir(full_path)) {
+            // Recursively remove subdirectory
+            remove_dir_r(full_path);
+        } else {
+            // Remove file
+            remove_file(full_path);
+        }
+    }
+
+    // Now remove the empty directory
+    remove_dir(path);
+    return true;
+}
+
+// ========== DIRECTORY WALKING ==========
+
+// walk_dir(path: string, callback: fn) -> null
+// Walk directory tree recursively, calling callback(file_path, is_dir) for each entry
+// Depth-first traversal
+export fn walk_dir(path: string, callback) {
+    if (!exists(path)) {
+        throw "Path does not exist: " + path;
+    }
+
+    if (!is_dir(path)) {
+        // Single file - just call callback
+        callback(path, false);
+        return null;
+    }
+
+    // Call callback for directory itself
+    callback(path, true);
+
+    // Process directory contents
+    let entries = list_dir(path);
+    for (entry in entries) {
+        let full_path = join(path, entry);
+
+        if (is_dir(full_path)) {
+            // Recursively walk subdirectory
+            walk_dir(full_path, callback);
+        } else {
+            // Call callback for file
+            callback(full_path, false);
+        }
+    }
+
+    return null;
+}
+
+// walk_files(path: string, callback: fn) -> null
+// Walk directory tree, calling callback(file_path) for each FILE only (not directories)
+export fn walk_files(path: string, callback) {
+    walk_dir(path, fn(file_path, is_directory) {
+        if (!is_directory) {
+            callback(file_path);
+        }
+    });
+    return null;
+}
+
+// walk_dirs(path: string, callback: fn) -> null
+// Walk directory tree, calling callback(dir_path) for each DIRECTORY only
+export fn walk_dirs(path: string, callback) {
+    walk_dir(path, fn(file_path, is_directory) {
+        if (is_directory) {
+            callback(file_path);
+        }
+    });
+    return null;
+}
+
+// ========== FILE COLLECTION ==========
+
+// collect_files(path: string) -> array
+// Recursively collect all file paths under a directory
+export fn collect_files(path: string): array {
+    let files = [];
+    walk_files(path, fn(file_path) {
+        files.push(file_path);
+    });
+    return files;
+}
+
+// collect_dirs(path: string) -> array
+// Recursively collect all directory paths under a directory
+export fn collect_dirs(path: string): array {
+    let dirs = [];
+    walk_dirs(path, fn(dir_path) {
+        dirs.push(dir_path);
+    });
+    return dirs;
+}
+
+// find_files(path: string, predicate: fn) -> array
+// Find all files matching a predicate function
+// predicate(file_path: string) -> bool
+export fn find_files(path: string, predicate): array {
+    let matches = [];
+    walk_files(path, fn(file_path) {
+        if (predicate(file_path)) {
+            matches.push(file_path);
+        }
+    });
+    return matches;
+}
+
+// find_by_extension(path: string, ext: string) -> array
+// Find all files with a specific extension (e.g., ".txt", ".hml")
+export fn find_by_extension(path: string, ext: string): array {
+    return find_files(path, fn(file_path) {
+        return file_path.ends_with(ext);
+    });
+}
+
+// find_by_name(path: string, name: string) -> array
+// Find all files with a specific name (e.g., "README.md")
+export fn find_by_name(path: string, name: string): array {
+    return find_files(path, fn(file_path) {
+        return basename(file_path) == name;
+    });
+}
+
+// ========== DIRECTORY SIZE ==========
+
+// dir_size(path: string) -> i64
+// Calculate total size of all files in directory (recursive)
+export fn dir_size(path: string): i64 {
+    let total: i64 = 0;
+    walk_files(path, fn(file_path) {
+        let stat = file_stat(file_path);
+        total = total + stat.size;
+    });
+    return total;
+}
+
+// file_count(path: string) -> i32
+// Count total number of files in directory (recursive)
+export fn file_count(path: string): i32 {
+    let count = 0;
+    walk_files(path, fn(file_path) {
+        count = count + 1;
+    });
+    return count;
+}
+
+// dir_count(path: string) -> i32
+// Count total number of subdirectories (recursive)
+export fn dir_count(path: string): i32 {
+    let count = 0;
+    walk_dirs(path, fn(dir_path) {
+        count = count + 1;
+    });
+    // Subtract 1 to not count the root directory
+    return count - 1;
+}
+
+// ========== COPY DIRECTORY ==========
+
+// copy_dir(src: string, dest: string) -> bool
+// Recursively copy a directory and all its contents
+export fn copy_dir(src: string, dest: string): bool {
+    if (!exists(src)) {
+        throw "Source directory does not exist: " + src;
+    }
+
+    if (!is_dir(src)) {
+        throw "Source is not a directory: " + src;
+    }
+
+    // Create destination directory
+    make_dir_p(dest);
+
+    // Copy contents
+    let entries = list_dir(src);
+    for (entry in entries) {
+        let src_path = join(src, entry);
+        let dest_path = join(dest, entry);
+
+        if (is_dir(src_path)) {
+            // Recursively copy subdirectory
+            copy_dir(src_path, dest_path);
+        } else {
+            // Copy file
+            copy_file(src_path, dest_path);
+        }
+    }
+
+    return true;
+}
+
+// ========== MOVE DIRECTORY ==========
+
+// move_dir(src: string, dest: string) -> bool
+// Move a directory (copy then delete original)
+export fn move_dir(src: string, dest: string): bool {
+    copy_dir(src, dest);
+    remove_dir_r(src);
+    return true;
+}
+
+// ========== EMPTY CHECK ==========
+
+// is_empty_dir(path: string) -> bool
+// Check if directory is empty
+export fn is_empty_dir(path: string): bool {
+    if (!exists(path) || !is_dir(path)) {
+        return false;
+    }
+    let entries = list_dir(path);
+    return entries.length == 0;
+}
+
+// ========== ENSURE DIRECTORY ==========
+
+// ensure_dir(path: string) -> bool
+// Ensure a directory exists, creating it if necessary
+// Alias for make_dir_p
+export fn ensure_dir(path: string): bool {
+    return make_dir_p(path);
+}
+
+// ensure_parent_dir(file_path: string) -> bool
+// Ensure the parent directory of a file exists
+export fn ensure_parent_dir(file_path: string): bool {
+    let parent = dirname(file_path);
+    if (parent != "" && parent != ".") {
+        return make_dir_p(parent);
+    }
+    return true;
+}

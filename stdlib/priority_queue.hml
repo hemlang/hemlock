@@ -1,0 +1,352 @@
+// Hemlock Standard Library: Priority Queue
+// Binary heap implementation for efficient priority-based operations
+// Default is min-heap (smallest element has highest priority)
+
+// ========== MIN PRIORITY QUEUE ==========
+
+// PriorityQueue(comparator?: fn) -> PriorityQueue object
+// Create a priority queue with optional custom comparator
+// Default comparator: min-heap (a < b returns true means a has higher priority)
+//
+// Example usage:
+//   let pq = PriorityQueue();  // Min-heap
+//   pq.push(5);
+//   pq.push(3);
+//   pq.push(7);
+//   pq.pop();  // Returns 3 (smallest)
+//
+// Custom comparator for max-heap:
+//   let pq = PriorityQueue(fn(a, b) { return a > b; });
+//
+// Custom comparator for objects by priority field:
+//   let pq = PriorityQueue(fn(a, b) { return a.priority < b.priority; });
+
+export fn PriorityQueue(comparator?) {
+    let heap = [];
+
+    // Default comparator: min-heap (smaller values have higher priority)
+    let compare = comparator ?? fn(a, b) { return a < b; };
+
+    // Helper: get parent index
+    fn parent(i: i32): i32 {
+        return divi(i - 1, 2);
+    }
+
+    // Helper: get left child index
+    fn left_child(i: i32): i32 {
+        return 2 * i + 1;
+    }
+
+    // Helper: get right child index
+    fn right_child(i: i32): i32 {
+        return 2 * i + 2;
+    }
+
+    // Helper: swap two elements
+    fn swap(i: i32, j: i32) {
+        let temp = heap[i];
+        heap[i] = heap[j];
+        heap[j] = temp;
+    }
+
+    // Helper: bubble up element at index i
+    fn sift_up(i: i32) {
+        while (i > 0) {
+            let p = parent(i);
+            if (compare(heap[i], heap[p])) {
+                swap(i, p);
+                i = p;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Helper: bubble down element at index i
+    fn sift_down(i: i32) {
+        let size = heap.length;
+
+        loop {
+            let smallest = i;
+            let l = left_child(i);
+            let r = right_child(i);
+
+            // Check if left child has higher priority
+            if (l < size && compare(heap[l], heap[smallest])) {
+                smallest = l;
+            }
+
+            // Check if right child has higher priority
+            if (r < size && compare(heap[r], heap[smallest])) {
+                smallest = r;
+            }
+
+            // If smallest is not current node, swap and continue
+            if (smallest != i) {
+                swap(i, smallest);
+                i = smallest;
+            } else {
+                break;
+            }
+        }
+    }
+
+    return {
+        size: 0,
+
+        // push(item) -> null
+        // Add item to the queue
+        push: fn(item) {
+            heap.push(item);
+            sift_up(heap.length - 1);
+            self.size = heap.length;
+            return null;
+        },
+
+        // pop() -> item
+        // Remove and return highest priority item
+        // Throws if queue is empty
+        pop: fn() {
+            if (heap.length == 0) {
+                throw "PriorityQueue is empty";
+            }
+
+            let result = heap[0];
+
+            if (heap.length == 1) {
+                heap.pop();
+            } else {
+                // Move last element to root and sift down
+                heap[0] = heap.pop();
+                sift_down(0);
+            }
+
+            self.size = heap.length;
+            return result;
+        },
+
+        // peek() -> item | null
+        // Return highest priority item without removing it
+        peek: fn() {
+            if (heap.length == 0) {
+                return null;
+            }
+            return heap[0];
+        },
+
+        // is_empty() -> bool
+        // Check if queue is empty
+        is_empty: fn(): bool {
+            return heap.length == 0;
+        },
+
+        // clear() -> null
+        // Remove all items from queue
+        clear: fn() {
+            heap = [];
+            self.size = 0;
+            return null;
+        },
+
+        // to_array() -> array
+        // Return copy of internal heap array (not sorted)
+        to_array: fn(): array {
+            return heap.slice(0, heap.length);
+        },
+
+        // to_sorted_array() -> array
+        // Return items in priority order (destructive to copy)
+        to_sorted_array: fn(): array {
+            let result = [];
+            let temp_heap = heap.slice(0, heap.length);
+            let temp_size = self.size;
+
+            while (heap.length > 0) {
+                result.push(self.pop());
+            }
+
+            // Restore original heap
+            heap = temp_heap;
+            self.size = temp_size;
+
+            return result;
+        },
+
+        // contains(item) -> bool
+        // Check if item exists in queue (O(n) operation)
+        contains: fn(item): bool {
+            for (let i = 0; i < heap.length; i++) {
+                if (heap[i] == item) {
+                    return true;
+                }
+            }
+            return false;
+        },
+
+        // push_all(items: array) -> null
+        // Add multiple items to queue
+        push_all: fn(items: array) {
+            for (item in items) {
+                self.push(item);
+            }
+            return null;
+        },
+
+        // pop_n(n: i32) -> array
+        // Pop n items from queue
+        pop_n: fn(n: i32): array {
+            let result = [];
+            let count = 0;
+            while (count < n && heap.length > 0) {
+                result.push(self.pop());
+                count = count + 1;
+            }
+            return result;
+        },
+
+        // each(callback: fn) -> null
+        // Iterate over items (in heap order, not priority order)
+        each: fn(callback) {
+            for (let i = 0; i < heap.length; i++) {
+                callback(heap[i], i);
+            }
+            return null;
+        },
+    };
+}
+
+// ========== CONVENIENCE CONSTRUCTORS ==========
+
+// MinHeap() -> PriorityQueue
+// Create a min-heap (smallest element first)
+export fn MinHeap() {
+    return PriorityQueue(fn(a, b) { return a < b; });
+}
+
+// MaxHeap() -> PriorityQueue
+// Create a max-heap (largest element first)
+export fn MaxHeap() {
+    return PriorityQueue(fn(a, b) { return a > b; });
+}
+
+// PriorityQueueBy(key: string) -> PriorityQueue
+// Create a min-heap that compares objects by a specific field
+// Example: PriorityQueueBy("priority") for objects like { value: "task", priority: 1 }
+export fn PriorityQueueBy(key: string) {
+    return PriorityQueue(fn(a, b) {
+        return a[key] < b[key];
+    });
+}
+
+// MaxPriorityQueueBy(key: string) -> PriorityQueue
+// Create a max-heap that compares objects by a specific field
+export fn MaxPriorityQueueBy(key: string) {
+    return PriorityQueue(fn(a, b) {
+        return a[key] > b[key];
+    });
+}
+
+// ========== UTILITY FUNCTIONS ==========
+
+// heapify(array: array, comparator?: fn) -> PriorityQueue
+// Create a priority queue from an existing array (O(n) operation)
+export fn heapify(items: array, comparator?) {
+    let pq = PriorityQueue(comparator);
+
+    // More efficient: build heap in O(n) instead of O(n log n)
+    // For simplicity, we use the O(n log n) approach here
+    for (item in items) {
+        pq.push(item);
+    }
+
+    return pq;
+}
+
+// heap_sort(array: array, comparator?: fn) -> array
+// Sort array using heap sort (returns new sorted array)
+export fn heap_sort(items: array, comparator?): array {
+    let pq = heapify(items, comparator);
+    return pq.to_sorted_array();
+}
+
+// nlargest(n: i32, items: array) -> array
+// Return n largest items from array
+export fn nlargest(n: i32, items: array): array {
+    // Use min-heap of size n
+    let pq = MinHeap();
+
+    for (item in items) {
+        if (pq.size < n) {
+            pq.push(item);
+        } else if (item > pq.peek()) {
+            pq.pop();
+            pq.push(item);
+        }
+    }
+
+    // Return in descending order
+    let result = pq.to_sorted_array();
+    result.reverse();
+    return result;
+}
+
+// nsmallest(n: i32, items: array) -> array
+// Return n smallest items from array
+export fn nsmallest(n: i32, items: array): array {
+    // Use max-heap of size n
+    let pq = MaxHeap();
+
+    for (item in items) {
+        if (pq.size < n) {
+            pq.push(item);
+        } else if (item < pq.peek()) {
+            pq.pop();
+            pq.push(item);
+        }
+    }
+
+    // Return in ascending order
+    let result = pq.to_sorted_array();
+    result.reverse();
+    return result;
+}
+
+// merge_sorted(arrays: array<array>, comparator?: fn) -> array
+// Merge multiple sorted arrays into one sorted array
+export fn merge_sorted(arrays: array, comparator?): array {
+    if (arrays.length == 0) {
+        return [];
+    }
+
+    // Create priority queue of (value, array_index, element_index)
+    let compare = comparator ?? fn(a, b) { return a < b; };
+    let pq = PriorityQueue(fn(a, b) {
+        return compare(a.value, b.value);
+    });
+
+    // Initialize with first element of each array
+    for (let i = 0; i < arrays.length; i++) {
+        if (arrays[i].length > 0) {
+            pq.push({ value: arrays[i][0], arr_idx: i, elem_idx: 0 });
+        }
+    }
+
+    let result = [];
+
+    while (!pq.is_empty()) {
+        let item = pq.pop();
+        result.push(item.value);
+
+        // Add next element from same array if available
+        let next_idx = item.elem_idx + 1;
+        if (next_idx < arrays[item.arr_idx].length) {
+            pq.push({
+                value: arrays[item.arr_idx][next_idx],
+                arr_idx: item.arr_idx,
+                elem_idx: next_idx,
+            });
+        }
+    }
+
+    return result;
+}

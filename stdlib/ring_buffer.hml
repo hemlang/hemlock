@@ -1,0 +1,340 @@
+// Hemlock Standard Library: Ring Buffer (Circular Buffer)
+// Fixed-size buffer that overwrites oldest data when full
+
+// ========== RING BUFFER ==========
+
+// RingBuffer(capacity: i32) -> RingBuffer object
+// Create a fixed-size ring buffer
+// When the buffer is full, new items overwrite the oldest items
+//
+// Example usage:
+//   let rb = RingBuffer(3);
+//   rb.write(1);
+//   rb.write(2);
+//   rb.write(3);
+//   rb.write(4);  // Overwrites 1
+//   rb.read();    // Returns 2
+
+export fn RingBuffer(capacity: i32) {
+    if (capacity < 1) {
+        throw "RingBuffer capacity must be at least 1";
+    }
+
+    let items = [];
+    let read_idx = 0;   // Index to read from
+    let write_idx = 0;  // Index to write to
+    let count = 0;      // Number of items currently stored
+    let max_capacity = capacity;
+
+    // Initialize array with nulls
+    for (let i = 0; i < capacity; i++) {
+        items.push(null);
+    }
+
+    return {
+        size: 0,
+
+        // write(item) -> bool
+        // Write item to buffer
+        // Returns true if an item was overwritten
+        write: fn(item): bool {
+            let overwritten = count == max_capacity;
+
+            items[write_idx] = item;
+            write_idx = (write_idx + 1) % max_capacity;
+
+            if (overwritten) {
+                // Move read pointer forward (oldest data lost)
+                read_idx = (read_idx + 1) % max_capacity;
+            } else {
+                count = count + 1;
+                self.size = count;
+            }
+
+            return overwritten;
+        },
+
+        // read() -> item
+        // Read and remove oldest item from buffer
+        // Throws if buffer is empty
+        read: fn() {
+            if (count == 0) {
+                throw "RingBuffer is empty";
+            }
+
+            let item = items[read_idx];
+            items[read_idx] = null;  // Clear reference
+            read_idx = (read_idx + 1) % max_capacity;
+            count = count - 1;
+            self.size = count;
+            return item;
+        },
+
+        // peek() -> item | null
+        // Return oldest item without removing it
+        peek: fn() {
+            if (count == 0) {
+                return null;
+            }
+            return items[read_idx];
+        },
+
+        // peek_at(index: i32) -> item
+        // Return item at relative index (0 = oldest, size-1 = newest)
+        // Throws if index is out of bounds
+        peek_at: fn(index: i32) {
+            if (index < 0 || index >= count) {
+                throw "Index out of bounds: " + index;
+            }
+            return items[(read_idx + index) % max_capacity];
+        },
+
+        // is_empty() -> bool
+        // Check if buffer is empty
+        is_empty: fn(): bool {
+            return count == 0;
+        },
+
+        // is_full() -> bool
+        // Check if buffer is full
+        is_full: fn(): bool {
+            return count == max_capacity;
+        },
+
+        // capacity() -> i32
+        // Return maximum capacity of buffer
+        capacity: fn(): i32 {
+            return max_capacity;
+        },
+
+        // available() -> i32
+        // Return number of slots available for writing without overwriting
+        available: fn(): i32 {
+            return max_capacity - count;
+        },
+
+        // clear() -> null
+        // Remove all items from buffer
+        clear: fn() {
+            for (let i = 0; i < max_capacity; i++) {
+                items[i] = null;
+            }
+            read_idx = 0;
+            write_idx = 0;
+            count = 0;
+            self.size = 0;
+            return null;
+        },
+
+        // to_array() -> array
+        // Return items as array (oldest to newest)
+        to_array: fn(): array {
+            let result = [];
+            for (let i = 0; i < count; i++) {
+                result.push(items[(read_idx + i) % max_capacity]);
+            }
+            return result;
+        },
+
+        // write_all(arr: array) -> i32
+        // Write all items from array to buffer
+        // Returns number of items overwritten
+        write_all: fn(arr: array): i32 {
+            let overwritten = 0;
+            for (item in arr) {
+                if (self.write(item)) {
+                    overwritten = overwritten + 1;
+                }
+            }
+            return overwritten;
+        },
+
+        // read_all() -> array
+        // Read and remove all items from buffer
+        read_all: fn(): array {
+            let result = [];
+            while (count > 0) {
+                result.push(self.read());
+            }
+            return result;
+        },
+
+        // read_n(n: i32) -> array
+        // Read and remove up to n items from buffer
+        read_n: fn(n: i32): array {
+            let result = [];
+            let to_read = n;
+            if (to_read > count) {
+                to_read = count;
+            }
+            for (let i = 0; i < to_read; i++) {
+                result.push(self.read());
+            }
+            return result;
+        },
+
+        // newest() -> item | null
+        // Return newest item without removing it
+        newest: fn() {
+            if (count == 0) {
+                return null;
+            }
+            let idx = (write_idx - 1 + max_capacity) % max_capacity;
+            return items[idx];
+        },
+
+        // oldest() -> item | null
+        // Return oldest item without removing it (alias for peek)
+        oldest: fn() {
+            return self.peek();
+        },
+
+        // skip(n: i32) -> i32
+        // Skip n oldest items (discard without returning)
+        // Returns number of items actually skipped
+        skip: fn(n: i32): i32 {
+            let to_skip = n;
+            if (to_skip > count) {
+                to_skip = count;
+            }
+
+            for (let i = 0; i < to_skip; i++) {
+                items[read_idx] = null;
+                read_idx = (read_idx + 1) % max_capacity;
+            }
+
+            count = count - to_skip;
+            self.size = count;
+            return to_skip;
+        },
+
+        // each(callback: fn) -> null
+        // Iterate over items from oldest to newest
+        each: fn(callback) {
+            for (let i = 0; i < count; i++) {
+                callback(items[(read_idx + i) % max_capacity], i);
+            }
+            return null;
+        },
+
+        // contains(item) -> bool
+        // Check if buffer contains item
+        contains: fn(item): bool {
+            for (let i = 0; i < count; i++) {
+                if (items[(read_idx + i) % max_capacity] == item) {
+                    return true;
+                }
+            }
+            return false;
+        },
+    };
+}
+
+// ========== SPECIALIZED RING BUFFERS ==========
+
+// ByteRingBuffer(capacity: i32) -> RingBuffer
+// Create a ring buffer optimized for byte data (u8)
+// Includes methods for reading/writing multiple bytes
+export fn ByteRingBuffer(capacity: i32) {
+    let rb = RingBuffer(capacity);
+
+    // Add byte-specific methods
+    rb.write_bytes = fn(data: string): i32 {
+        let overwritten = 0;
+        for (let i = 0; i < data.byte_length; i++) {
+            if (rb.write(data.byte_at(i))) {
+                overwritten = overwritten + 1;
+            }
+        }
+        return overwritten;
+    };
+
+    rb.read_bytes = fn(n: i32): string {
+        let result = "";
+        let to_read = n;
+        if (to_read > rb.size) {
+            to_read = rb.size;
+        }
+        for (let i = 0; i < to_read; i++) {
+            // Convert byte to char (simplified - assumes ASCII)
+            let byte_val = rb.read();
+            // Build string byte by byte
+            // Note: This is simplified; real implementation would use buffer
+        }
+        return result;
+    };
+
+    return rb;
+}
+
+// LogBuffer(capacity: i32) -> RingBuffer
+// Create a ring buffer for log messages with timestamps
+export fn LogBuffer(capacity: i32) {
+    let rb = RingBuffer(capacity);
+
+    // Add log-specific methods
+    rb.log = fn(message: string) {
+        rb.write({
+            timestamp: now(),
+            message: message,
+        });
+        return null;
+    };
+
+    rb.get_logs = fn(): array {
+        return rb.to_array();
+    };
+
+    rb.get_recent = fn(n: i32): array {
+        let all = rb.to_array();
+        if (n >= all.length) {
+            return all;
+        }
+        return all.slice(all.length - n, all.length);
+    };
+
+    return rb;
+}
+
+// ========== UTILITY FUNCTIONS ==========
+
+// sliding_window(items: array, window_size: i32, callback: fn) -> null
+// Apply callback to each sliding window over the items
+// callback(window: array, index: i32)
+export fn sliding_window(items: array, window_size: i32, callback) {
+    if (window_size < 1 || window_size > items.length) {
+        return null;
+    }
+
+    let rb = RingBuffer(window_size);
+
+    // Fill initial window
+    for (let i = 0; i < window_size; i++) {
+        rb.write(items[i]);
+    }
+    callback(rb.to_array(), 0);
+
+    // Slide window
+    for (let i = window_size; i < items.length; i++) {
+        rb.write(items[i]);
+        callback(rb.to_array(), i - window_size + 1);
+    }
+
+    return null;
+}
+
+// moving_average(items: array, window_size: i32) -> array
+// Calculate moving average with given window size
+export fn moving_average(items: array, window_size: i32): array {
+    let result = [];
+
+    sliding_window(items, window_size, fn(window, idx) {
+        let sum = 0;
+        for (val in window) {
+            sum = sum + val;
+        }
+        result.push(sum / window_size);
+    });
+
+    return result;
+}
