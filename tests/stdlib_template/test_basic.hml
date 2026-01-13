@@ -1,0 +1,100 @@
+// Test Template engine functionality
+
+import { render, compile, interpolate, format, escape_html, Template } from "@stdlib/template";
+
+// Test basic variable interpolation
+let result1 = render("Hello, {{ name }}!", { name: "World" });
+assert(result1 == "Hello, World!", "Basic interpolation should work");
+
+// Test multiple variables
+let result2 = render("{{ greeting }}, {{ name }}!", { greeting: "Hi", name: "Alice" });
+assert(result2 == "Hi, Alice!", "Multiple variables should work");
+
+print("Basic interpolation tests passed");
+
+// Test dot notation
+let result3 = render("Name: {{ user.name }}", { user: { name: "Bob" } });
+assert(result3 == "Name: Bob", "Dot notation should work");
+
+let result4 = render("City: {{ person.address.city }}", {
+    person: { address: { city: "NYC" } }
+});
+assert(result4 == "City: NYC", "Nested dot notation should work");
+
+print("Dot notation tests passed");
+
+// Test HTML escaping
+let result5 = render("{{ html }}", { html: "<script>alert('xss')</script>" });
+assert(result5.contains("&lt;"), "HTML should be escaped by default");
+assert(!result5.contains("<script>"), "Script tags should be escaped");
+
+// Test raw (unescaped) output
+let result6 = render("{{{ html }}}", { html: "<b>bold</b>" });
+assert(result6 == "<b>bold</b>", "Triple braces should not escape");
+
+print("HTML escaping tests passed");
+
+// Test sections (conditionals)
+let result7 = render("{{#show}}Visible{{/show}}", { show: true });
+assert(result7 == "Visible", "True section should render");
+
+let result8 = render("{{#show}}Visible{{/show}}", { show: false });
+assert(result8 == "", "False section should not render");
+
+print("Section tests passed");
+
+// Test inverted sections
+let result9 = render("{{^show}}Hidden{{/show}}", { show: false });
+assert(result9 == "Hidden", "Inverted false section should render");
+
+let result10 = render("{{^show}}Hidden{{/show}}", { show: true });
+assert(result10 == "", "Inverted true section should not render");
+
+print("Inverted section tests passed");
+
+// Test array iteration with objects
+let result11 = render("{{#items}}{{name}},{{/items}}", { items: [{name: "a"}, {name: "b"}, {name: "c"}] });
+assert(result11 == "a,b,c,", "Array iteration should work");
+
+print("Array iteration test passed");
+
+// Test compiled templates
+let tmpl = compile("Hello, {{ name }}!");
+let r1 = tmpl.render({ name: "Alice" });
+let r2 = tmpl.render({ name: "Bob" });
+
+assert(r1 == "Hello, Alice!", "Compiled template should work for Alice");
+assert(r2 == "Hello, Bob!", "Compiled template should work for Bob");
+
+print("Compiled template tests passed");
+
+// Test interpolate (simple version)
+let result12 = interpolate("Name: {{ name }}, Age: {{ age }}", { name: "Test", age: 25 });
+assert(result12 == "Name: Test, Age: 25", "interpolate should work");
+
+print("Interpolate test passed");
+
+// Test format function
+let result13 = format("Hello, {}!", ["World"]);
+assert(result13 == "Hello, World!", "format with {} should work");
+
+let result14 = format("{} + {} = {}", [1, 2, 3]);
+assert(result14 == "1 + 2 = 3", "format with multiple {} should work");
+
+print("Format tests passed");
+
+// Test escape_html directly
+assert(escape_html("<") == "&lt;", "< should escape to &lt;");
+assert(escape_html(">") == "&gt;", "> should escape to &gt;");
+assert(escape_html("&") == "&amp;", "& should escape to &amp;");
+assert(escape_html("\"") == "&quot;", "\" should escape to &quot;");
+
+print("escape_html tests passed");
+
+// Test missing variables (should be empty)
+let result15 = render("Hello, {{ missing }}!", {});
+assert(result15 == "Hello, !", "Missing variables should be empty");
+
+print("Missing variable test passed");
+
+print("All template tests passed!");

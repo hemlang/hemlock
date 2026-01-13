@@ -275,7 +275,7 @@ fn tokenize(template: string): array {
 // ========== PARSER ==========
 
 // Parse tokens into an AST
-fn parse_tokens(tokens: array, start?: 0, end_tag?) {
+fn parse_tokens(tokens: array, start?: 0, end_tag?: null) {
     let nodes = [];
     let i = start;
 
@@ -366,7 +366,8 @@ fn render_nodes(nodes: array, context, partials) {
                             // Create new context with item and special vars
                             let item_context = item;
                             if (typeof(item) != "object") {
-                                item_context = { ".": item };
+                                item_context = {};
+                                item_context["dot"] = item;
                             }
                             result = result + render_nodes(node.body, item_context, partials);
                         }
@@ -434,7 +435,7 @@ export fn Template(source: string) {
 
 // render(template: string, context: object, partials?: object) -> string
 // One-shot render without pre-compilation
-export fn render(template: string, context, partials?) {
+export fn render(template: string, context, partials?: null) {
     let t = Template(template);
     if (partials != null) {
         t.partials(partials);

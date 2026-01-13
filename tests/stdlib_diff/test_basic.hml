@@ -1,0 +1,92 @@
+// Test Diff functionality
+
+import { diff, diff_lines, split_lines, has_changes, changes_count, format_diff, apply_diff, DIFF_EQUAL, DIFF_INSERT, DIFF_DELETE } from "@stdlib/diff";
+
+// Test split_lines
+let lines1 = split_lines("a\nb\nc\n");
+assert(lines1.length == 3, "Should split into 3 lines");
+assert(lines1[0] == "a\n", "First line should be 'a\\n'");
+assert(lines1[1] == "b\n", "Second line should be 'b\\n'");
+
+let lines2 = split_lines("no newline");
+assert(lines2.length == 1, "Should have 1 line without newline");
+assert(lines2[0] == "no newline", "Should preserve line without newline");
+
+print("split_lines tests passed");
+
+// Test diff with identical strings
+let ops1 = diff("hello\n", "hello\n");
+assert(has_changes(ops1) == false, "Identical strings should have no changes");
+
+print("Identical strings test passed");
+
+// Test diff with insertions
+let ops2 = diff("a\nb\n", "a\nb\nc\n");
+assert(has_changes(ops2) == true, "Should have changes");
+
+let counts2 = changes_count(ops2);
+assert(counts2.insertions == 1, "Should have 1 insertion");
+assert(counts2.deletions == 0, "Should have 0 deletions");
+
+print("Insertion test passed");
+
+// Test diff with deletions
+let ops3 = diff("a\nb\nc\n", "a\nc\n");
+assert(has_changes(ops3) == true, "Should have changes");
+
+let counts3 = changes_count(ops3);
+assert(counts3.deletions == 1, "Should have 1 deletion");
+
+print("Deletion test passed");
+
+// Test diff with substitution (delete + insert)
+let ops4 = diff("a\nb\nc\n", "a\nB\nc\n");
+assert(has_changes(ops4) == true, "Should have changes for substitution");
+
+print("Substitution test passed");
+
+// Test apply_diff
+let original = "line1\nline2\nline3\n";
+let modified = "line1\nline2\nline4\n";
+let ops5 = diff(original, modified);
+let result = apply_diff(original, ops5);
+
+assert(result == modified, "apply_diff should produce modified text");
+
+print("apply_diff test passed");
+
+// Test format_diff
+let ops6 = diff("old\n", "new\n");
+let formatted = format_diff(ops6);
+assert(formatted.contains("- old"), "Should show deleted line with -");
+assert(formatted.contains("+ new"), "Should show inserted line with +");
+
+print("format_diff test passed");
+
+// Test changes_count
+let ops7 = diff("a\nb\nc\n", "x\ny\nz\n");
+let counts7 = changes_count(ops7);
+assert(counts7.insertions == 3, "Should have 3 insertions");
+assert(counts7.deletions == 3, "Should have 3 deletions");
+
+print("changes_count test passed");
+
+// Test empty strings
+let ops8 = diff("", "new\n");
+assert(changes_count(ops8).insertions == 1, "Empty to new should have 1 insertion");
+
+let ops9 = diff("old\n", "");
+assert(changes_count(ops9).deletions == 1, "Old to empty should have 1 deletion");
+
+print("Empty string tests passed");
+
+// Test multi-line diff
+let old_text = "line1\nline2\nline3\nline4\nline5\n";
+let new_text = "line1\nmodified\nline3\nline4\nnew line\nline5\n";
+let ops10 = diff(old_text, new_text);
+
+assert(has_changes(ops10) == true, "Multi-line diff should have changes");
+
+print("Multi-line diff test passed");
+
+print("All diff tests passed!");

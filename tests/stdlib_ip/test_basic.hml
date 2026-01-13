@@ -1,0 +1,126 @@
+// Test IP address utilities
+
+import { parse_ipv4, is_valid_ipv4, format_ipv4, ipv4_to_int, int_to_ipv4, is_private_ipv4, is_loopback_ipv4, is_public_ipv4, parse_cidr, prefix_to_netmask, network_address, broadcast_address, contains, host_count, parse_address, LOCALHOST, ANY } from "@stdlib/ip";
+
+// Test parse_ipv4
+let octets1 = parse_ipv4("192.168.1.1");
+assert(octets1 != null, "Should parse valid IP");
+assert(octets1[0] == 192, "First octet should be 192");
+assert(octets1[1] == 168, "Second octet should be 168");
+assert(octets1[2] == 1, "Third octet should be 1");
+assert(octets1[3] == 1, "Fourth octet should be 1");
+
+assert(parse_ipv4("256.0.0.1") == null, "Should reject invalid octet > 255");
+assert(parse_ipv4("1.2.3") == null, "Should reject incomplete IP");
+assert(parse_ipv4("1.2.3.4.5") == null, "Should reject too many octets");
+assert(parse_ipv4("01.02.03.04") == null, "Should reject leading zeros");
+
+print("parse_ipv4 tests passed");
+
+// Test is_valid_ipv4
+assert(is_valid_ipv4("0.0.0.0") == true, "0.0.0.0 should be valid");
+assert(is_valid_ipv4("255.255.255.255") == true, "255.255.255.255 should be valid");
+assert(is_valid_ipv4("127.0.0.1") == true, "127.0.0.1 should be valid");
+assert(is_valid_ipv4("invalid") == false, "invalid should be invalid");
+
+print("is_valid_ipv4 tests passed");
+
+// Test format_ipv4
+let formatted = format_ipv4([10, 20, 30, 40]);
+assert(formatted == "10.20.30.40", "Should format correctly");
+
+print("format_ipv4 test passed");
+
+// Test ipv4_to_int and int_to_ipv4
+let int_val = ipv4_to_int("192.168.1.1");
+let back = int_to_ipv4(int_val);
+assert(back == "192.168.1.1", "Round trip should preserve IP");
+
+let zero_int = ipv4_to_int("0.0.0.0");
+assert(zero_int == 0, "0.0.0.0 should be 0");
+
+print("ipv4_to_int/int_to_ipv4 tests passed");
+
+// Test private IP detection
+assert(is_private_ipv4("10.0.0.1") == true, "10.x.x.x should be private");
+assert(is_private_ipv4("10.255.255.255") == true, "10.255.255.255 should be private");
+assert(is_private_ipv4("172.16.0.1") == true, "172.16.x.x should be private");
+assert(is_private_ipv4("172.31.255.255") == true, "172.31.x.x should be private");
+assert(is_private_ipv4("192.168.0.1") == true, "192.168.x.x should be private");
+assert(is_private_ipv4("8.8.8.8") == false, "8.8.8.8 should not be private");
+
+print("is_private_ipv4 tests passed");
+
+// Test loopback
+assert(is_loopback_ipv4("127.0.0.1") == true, "127.0.0.1 should be loopback");
+assert(is_loopback_ipv4("127.255.255.255") == true, "127.x.x.x should be loopback");
+assert(is_loopback_ipv4("128.0.0.1") == false, "128.0.0.1 should not be loopback");
+
+print("is_loopback_ipv4 tests passed");
+
+// Test public IP
+assert(is_public_ipv4("8.8.8.8") == true, "8.8.8.8 should be public");
+assert(is_public_ipv4("1.1.1.1") == true, "1.1.1.1 should be public");
+assert(is_public_ipv4("192.168.1.1") == false, "Private IP should not be public");
+assert(is_public_ipv4("127.0.0.1") == false, "Loopback should not be public");
+
+print("is_public_ipv4 tests passed");
+
+// Test CIDR parsing
+let cidr = parse_cidr("192.168.1.0/24");
+assert(cidr != null, "Should parse CIDR");
+assert(cidr.address == "192.168.1.0", "Address should be 192.168.1.0");
+assert(cidr.prefix == 24, "Prefix should be 24");
+
+assert(parse_cidr("invalid") == null, "Invalid CIDR should return null");
+assert(parse_cidr("192.168.1.0/33") == null, "Invalid prefix should return null");
+
+print("parse_cidr tests passed");
+
+// Test prefix_to_netmask
+assert(prefix_to_netmask(24) == "255.255.255.0", "/24 should be 255.255.255.0");
+assert(prefix_to_netmask(16) == "255.255.0.0", "/16 should be 255.255.0.0");
+assert(prefix_to_netmask(8) == "255.0.0.0", "/8 should be 255.0.0.0");
+assert(prefix_to_netmask(32) == "255.255.255.255", "/32 should be 255.255.255.255");
+
+print("prefix_to_netmask tests passed");
+
+// Test network_address
+assert(network_address("192.168.1.100", 24) == "192.168.1.0", "Network should be .0");
+assert(network_address("10.20.30.40", 8) == "10.0.0.0", "Network should be 10.0.0.0");
+
+print("network_address tests passed");
+
+// Test broadcast_address
+assert(broadcast_address("192.168.1.0", 24) == "192.168.1.255", "Broadcast should be .255");
+
+print("broadcast_address test passed");
+
+// Test contains
+assert(contains("192.168.1.0/24", "192.168.1.100") == true, "Should contain .100");
+assert(contains("192.168.1.0/24", "192.168.2.1") == false, "Should not contain .2.1");
+assert(contains("10.0.0.0/8", "10.255.255.255") == true, "Should contain any 10.x");
+
+print("contains tests passed");
+
+// Test host_count
+assert(host_count(24) == 254, "/24 should have 254 hosts");
+assert(host_count(16) == 65534, "/16 should have 65534 hosts");
+
+print("host_count tests passed");
+
+// Test parse_address
+let addr = parse_address("127.0.0.1:8080");
+assert(addr != null, "Should parse address:port");
+assert(addr.host == "127.0.0.1", "Host should be 127.0.0.1");
+assert(addr.port == 8080, "Port should be 8080");
+
+print("parse_address test passed");
+
+// Test constants
+assert(LOCALHOST == "127.0.0.1", "LOCALHOST should be 127.0.0.1");
+assert(ANY == "0.0.0.0", "ANY should be 0.0.0.0");
+
+print("Constants test passed");
+
+print("All IP tests passed!");

@@ -694,7 +694,7 @@ export fn Server(address: string, port: i32) {
 
         // listen(callback?: fn) -> null
         // Start listening for connections (blocking)
-        listen: fn(callback?) {
+        listen: fn(callback?: null) {
             listener = TcpListener(address, port);
             running = true;
 
@@ -719,7 +719,7 @@ export fn Server(address: string, port: i32) {
 
         // listen_async(callback?: fn) -> task
         // Start listening in background
-        listen_async: fn(callback?) {
+        listen_async: fn(callback?: null) {
             return spawn(fn() {
                 self.listen(callback);
             });

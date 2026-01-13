@@ -1,0 +1,107 @@
+// Test Deque basic functionality
+
+import { Deque, deque_from } from "@stdlib/deque";
+
+// Test creation and basic operations
+let d = Deque();
+
+assert(d.is_empty() == true, "New deque should be empty");
+assert(d.size == 0, "New deque size should be 0");
+
+// Test push_back
+d.push_back(1);
+d.push_back(2);
+d.push_back(3);
+
+assert(d.size == 3, "Size should be 3");
+assert(d.peek_front() == 1, "Front should be 1");
+assert(d.peek_back() == 3, "Back should be 3");
+
+// Test push_front
+d.push_front(0);
+d.push_front(-1);
+
+assert(d.size == 5, "Size should be 5");
+assert(d.peek_front() == -1, "Front should be -1");
+
+// Test pop operations
+assert(d.pop_front() == -1, "Pop front should return -1");
+assert(d.pop_back() == 3, "Pop back should return 3");
+assert(d.size == 3, "Size should be 3 after pops");
+
+print("Push/pop tests passed");
+
+// Test get and set
+let d2 = Deque();
+d2.push_back("a");
+d2.push_back("b");
+d2.push_back("c");
+
+assert(d2.get(0) == "a", "get(0) should be 'a'");
+assert(d2.get(1) == "b", "get(1) should be 'b'");
+assert(d2.get(2) == "c", "get(2) should be 'c'");
+
+d2.set(1, "B");
+assert(d2.get(1) == "B", "After set, get(1) should be 'B'");
+
+print("Get/set tests passed");
+
+// Test to_array
+let arr = d2.to_array();
+assert(arr.length == 3, "Array should have 3 elements");
+assert(arr[0] == "a", "First element should be 'a'");
+assert(arr[2] == "c", "Third element should be 'c'");
+
+print("to_array test passed");
+
+// Test reverse
+let d3 = Deque();
+d3.push_back(1);
+d3.push_back(2);
+d3.push_back(3);
+d3.reverse();
+
+assert(d3.get(0) == 3, "After reverse, first should be 3");
+assert(d3.get(2) == 1, "After reverse, last should be 1");
+
+print("Reverse test passed");
+
+// Test rotate
+let d4 = Deque();
+d4.push_back(1);
+d4.push_back(2);
+d4.push_back(3);
+d4.push_back(4);
+
+d4.rotate(1);  // Rotate right by 1
+assert(d4.get(0) == 4, "After rotate(1), first should be 4");
+
+print("Rotate test passed");
+
+// Test contains and index_of
+let d5 = Deque();
+d5.push_back("apple");
+d5.push_back("banana");
+d5.push_back("cherry");
+
+assert(d5.contains("banana") == true, "Should contain 'banana'");
+assert(d5.contains("grape") == false, "Should not contain 'grape'");
+assert(d5.index_of("cherry") == 2, "Index of 'cherry' should be 2");
+assert(d5.index_of("grape") == -1, "Index of 'grape' should be -1");
+
+print("Contains/index_of tests passed");
+
+// Test deque_from helper
+let d6 = deque_from([10, 20, 30]);
+assert(d6.size == 3, "deque_from should create deque with 3 elements");
+assert(d6.get(1) == 20, "Middle element should be 20");
+
+print("deque_from test passed");
+
+// Test clear
+d6.clear();
+assert(d6.is_empty() == true, "Deque should be empty after clear");
+
+print("Clear test passed");
+
+print("All deque tests passed!");

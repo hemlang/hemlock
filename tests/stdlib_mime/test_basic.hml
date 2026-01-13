@@ -1,0 +1,120 @@
+// Test MIME type detection
+
+import { from_extension, from_path, is_text, is_image, is_audio, is_video, is_archive, is_binary, parse, format, content_type, register, get_extensions } from "@stdlib/mime";
+
+// Test from_extension
+assert(from_extension(".html") == "text/html", ".html should be text/html");
+assert(from_extension(".txt") == "text/plain", ".txt should be text/plain");
+assert(from_extension(".json") == "application/json", ".json should be application/json");
+assert(from_extension(".png") == "image/png", ".png should be image/png");
+assert(from_extension(".jpg") == "image/jpeg", ".jpg should be image/jpeg");
+assert(from_extension(".mp3") == "audio/mpeg", ".mp3 should be audio/mpeg");
+assert(from_extension(".mp4") == "video/mp4", ".mp4 should be video/mp4");
+assert(from_extension(".zip") == "application/zip", ".zip should be application/zip");
+
+// Test without leading dot
+assert(from_extension("css") == "text/css", "css without dot should work");
+
+print("from_extension tests passed");
+
+// Test from_path
+assert(from_path("/path/to/file.html") == "text/html", "Path should detect .html");
+assert(from_path("document.pdf") == "application/pdf", "Path should detect .pdf");
+assert(from_path("image.PNG") == "image/png", "Should be case-insensitive");
+assert(from_path("no_extension") == "application/octet-stream", "No extension should be octet-stream");
+assert(from_path(".gitignore") == "application/octet-stream", "Hidden file should be octet-stream");
+
+print("from_path tests passed");
+
+// Test is_text
+assert(is_text("text/html") == true, "text/html should be text");
+assert(is_text("text/plain") == true, "text/plain should be text");
+assert(is_text("application/json") == true, "application/json should be text");
+assert(is_text("application/javascript") == true, "application/javascript should be text");
+assert(is_text("image/svg+xml") == true, "image/svg+xml should be text");
+assert(is_text("image/png") == false, "image/png should not be text");
+assert(is_text("application/octet-stream") == false, "octet-stream should not be text");
+
+print("is_text tests passed");
+
+// Test is_image
+assert(is_image("image/png") == true, "image/png should be image");
+assert(is_image("image/jpeg") == true, "image/jpeg should be image");
+assert(is_image("image/gif") == true, "image/gif should be image");
+assert(is_image("image/svg+xml") == true, "image/svg+xml should be image");
+assert(is_image("text/html") == false, "text/html should not be image");
+
+print("is_image tests passed");
+
+// Test is_audio
+assert(is_audio("audio/mpeg") == true, "audio/mpeg should be audio");
+assert(is_audio("audio/wav") == true, "audio/wav should be audio");
+assert(is_audio("video/mp4") == false, "video/mp4 should not be audio");
+
+print("is_audio tests passed");
+
+// Test is_video
+assert(is_video("video/mp4") == true, "video/mp4 should be video");
+assert(is_video("video/webm") == true, "video/webm should be video");
+assert(is_video("audio/mpeg") == false, "audio/mpeg should not be video");
+
+print("is_video tests passed");
+
+// Test is_archive
+assert(is_archive("application/zip") == true, "zip should be archive");
+assert(is_archive("application/x-tar") == true, "tar should be archive");
+assert(is_archive("application/gzip") == true, "gzip should be archive");
+assert(is_archive("text/plain") == false, "text/plain should not be archive");
+
+print("is_archive tests passed");
+
+// Test is_binary
+assert(is_binary("image/png") == true, "image/png should be binary");
+assert(is_binary("application/octet-stream") == true, "octet-stream should be binary");
+assert(is_binary("text/html") == false, "text/html should not be binary");
+assert(is_binary("application/json") == false, "application/json should not be binary");
+
+print("is_binary tests passed");
+
+// Test parse
+let parsed = parse("text/html; charset=utf-8");
+assert(parsed.type == "text", "Type should be 'text'");
+assert(parsed.subtype == "html", "Subtype should be 'html'");
+assert(parsed.params.charset == "utf-8", "Charset param should be 'utf-8'");
+
+let parsed2 = parse("application/json");
+assert(parsed2.type == "application", "Type should be 'application'");
+assert(parsed2.subtype == "json", "Subtype should be 'json'");
+
+print("parse tests passed");
+
+// Test format
+let formatted = format("text", "html", { charset: "utf-8" });
+assert(formatted.contains("text/html"), "Should contain text/html");
+assert(formatted.contains("charset=utf-8"), "Should contain charset");
+
+print("format test passed");
+
+// Test content_type
+let ct1 = content_type("/path/to/style.css");
+assert(ct1.contains("text/css"), "CSS content type should include text/css");
+
+let ct2 = content_type("/path/to/image.png");
+assert(ct2 == "image/png", "PNG should be image/png without charset");
+
+print("content_type tests passed");
+
+// Test register custom type
+register(".hml", "text/x-hemlock");
+assert(from_extension(".hml") == "text/x-hemlock", "Custom type should be registered");
+
+print("register test passed");
+
+// Test get_extensions
+let html_exts = get_extensions("text/html");
+assert(html_exts.contains(".html"), "HTML extensions should include .html");
+assert(html_exts.contains(".htm"), "HTML extensions should include .htm");
+
+print("get_extensions test passed");
+
+print("All MIME tests passed!");

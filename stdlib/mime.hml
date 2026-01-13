@@ -331,17 +331,14 @@ export fn parse(mime: string) {
 
 // format(type: string, subtype: string, params?: object) -> string
 // Format MIME type string from components
-export fn format(type: string, subtype: string, params?) {
+export fn format(type: string, subtype: string, params?: null) {
     let result = type + "/" + subtype;
 
     if (params != null) {
-        let keys = [];
-        for (key in params) {
-            keys.push(key);
-        }
+        let keys = params.keys();
 
         for (key in keys) {
-            let value = params[key];
+            let value = params[key] + "";  // Convert to string
             // Quote value if it contains special chars
             if (value.contains(" ") || value.contains(";")) {
                 value = "\"" + value + "\"";

@@ -1,0 +1,91 @@
+// Test Levenshtein distance functionality
+
+import { distance, ratio, percentage, is_similar, find_closest, find_matches, common_prefix, common_suffix, damerau_distance } from "@stdlib/levenshtein";
+
+// Test basic distance
+assert(distance("", "") == 0, "Empty strings should have distance 0");
+assert(distance("abc", "abc") == 0, "Identical strings should have distance 0");
+assert(distance("abc", "") == 3, "Distance from 'abc' to '' should be 3");
+assert(distance("", "abc") == 3, "Distance from '' to 'abc' should be 3");
+
+// Test single character operations
+assert(distance("a", "b") == 1, "Single substitution should be 1");
+assert(distance("a", "ab") == 1, "Single insertion should be 1");
+assert(distance("ab", "a") == 1, "Single deletion should be 1");
+
+// Test more complex cases
+assert(distance("kitten", "sitting") == 3, "kitten -> sitting should be 3");
+assert(distance("saturday", "sunday") == 3, "saturday -> sunday should be 3");
+
+print("Distance tests passed");
+
+// Test ratio
+let r1 = ratio("", "");
+assert(r1 == 1.0, "Empty strings should have ratio 1.0");
+
+let r2 = ratio("abc", "abc");
+assert(r2 == 1.0, "Identical strings should have ratio 1.0");
+
+let r3 = ratio("abc", "abd");
+// Distance is 1, max length is 3, so ratio = 1 - 1/3 = 0.666...
+assert(r3 > 0.6 && r3 < 0.7, "Ratio for 'abc'/'abd' should be ~0.66");
+
+print("Ratio tests passed");
+
+// Test percentage
+let p1 = percentage("abc", "abc");
+assert(p1 == 100, "Identical strings should be 100%");
+
+let p2 = percentage("abc", "xyz");
+assert(p2 == 0, "Completely different strings should be 0%");
+
+print("Percentage tests passed");
+
+// Test is_similar
+assert(is_similar("hello", "hello", 0.8) == true, "Identical should be similar");
+assert(is_similar("hello", "hallo", 0.8) == true, "hello/hallo should be similar");
+assert(is_similar("hello", "world", 0.8) == false, "hello/world should not be similar");
+
+print("is_similar tests passed");
+
+// Test find_closest
+let words = ["apple", "banana", "cherry", "apricot", "avocado"];
+let closest = find_closest("aple", words);
+assert(closest == "apple", "Closest to 'aple' should be 'apple'");
+
+let closest2 = find_closest("banan", words);
+assert(closest2 == "banana", "Closest to 'banan' should be 'banana'");
+
+print("find_closest tests passed");
+
+// Test find_matches
+let matches = find_matches("app", words, 3);
+assert(matches.contains("apple"), "Matches should contain 'apple'");
+
+print("find_matches test passed");
+
+// Test common_prefix
+assert(common_prefix("hello", "help") == "hel", "Common prefix should be 'hel'");
+assert(common_prefix("abc", "xyz") == "", "No common prefix should be ''");
+assert(common_prefix("test", "test") == "test", "Same string prefix should be full string");
+
+print("common_prefix tests passed");
+
+// Test common_suffix
+assert(common_suffix("testing", "running") == "ing", "Common suffix should be 'ing'");
+assert(common_suffix("abc", "xyz") == "", "No common suffix should be ''");
+
+print("common_suffix tests passed");
+
+// Test Damerau-Levenshtein (handles transpositions)
+// Standard Levenshtein: ab -> ba requires 2 ops (delete a, insert a)
+// Damerau-Levenshtein: ab -> ba requires 1 op (transpose)
+let d_lev = distance("ab", "ba");
+let d_dam = damerau_distance("ab", "ba");
+
+assert(d_lev == 2, "Levenshtein: ab->ba should be 2");
+assert(d_dam == 1, "Damerau: ab->ba should be 1 (transposition)");
+
+print("Damerau-Levenshtein test passed");
+
+print("All levenshtein tests passed!");

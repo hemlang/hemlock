@@ -6,7 +6,7 @@
 // parse_ipv4(addr: string) -> array | null
 // Parse IPv4 address string into array of 4 octets
 // Returns null if invalid
-export fn parse_ipv4(addr: string): array {
+export fn parse_ipv4(addr: string) {
     let parts = addr.split(".");
 
     if (parts.length != 4) {

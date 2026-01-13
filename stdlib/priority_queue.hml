@@ -21,11 +21,14 @@
 // Custom comparator for objects by priority field:
 //   let pq = PriorityQueue(fn(a, b) { return a.priority < b.priority; });
 
-export fn PriorityQueue(comparator?) {
+export fn PriorityQueue(comparator?: null) {
     let heap = [];
 
     // Default comparator: min-heap (smaller values have higher priority)
-    let compare = comparator ?? fn(a, b) { return a < b; };
+    fn default_compare(a, b) {
+        return a < b;
+    }
+    let compare = comparator ?? default_compare;
 
     // Helper: get parent index
     fn parent(i: i32): i32 {
@@ -220,37 +223,45 @@ export fn PriorityQueue(comparator?) {
 // MinHeap() -> PriorityQueue
 // Create a min-heap (smallest element first)
 export fn MinHeap() {
-    return PriorityQueue(fn(a, b) { return a < b; });
+    fn min_compare(a, b) {
+        return a < b;
+    }
+    return PriorityQueue(min_compare);
 }
 
 // MaxHeap() -> PriorityQueue
 // Create a max-heap (largest element first)
 export fn MaxHeap() {
-    return PriorityQueue(fn(a, b) { return a > b; });
+    fn max_compare(a, b) {
+        return a > b;
+    }
+    return PriorityQueue(max_compare);
 }
 
 // PriorityQueueBy(key: string) -> PriorityQueue
 // Create a min-heap that compares objects by a specific field
 // Example: PriorityQueueBy("priority") for objects like { value: "task", priority: 1 }
 export fn PriorityQueueBy(key: string) {
-    return PriorityQueue(fn(a, b) {
+    fn key_compare(a, b) {
         return a[key] < b[key];
-    });
+    }
+    return PriorityQueue(key_compare);
 }
 
 // MaxPriorityQueueBy(key: string) -> PriorityQueue
 // Create a max-heap that compares objects by a specific field
 export fn MaxPriorityQueueBy(key: string) {
-    return PriorityQueue(fn(a, b) {
+    fn key_compare(a, b) {
         return a[key] > b[key];
-    });
+    }
+    return PriorityQueue(key_compare);
 }
 
 // ========== UTILITY FUNCTIONS ==========
 
 // heapify(array: array, comparator?: fn) -> PriorityQueue
 // Create a priority queue from an existing array (O(n) operation)
-export fn heapify(items: array, comparator?) {
+export fn heapify(items: array, comparator?: null) {
     let pq = PriorityQueue(comparator);
 
     // More efficient: build heap in O(n) instead of O(n log n)
@@ -264,7 +275,7 @@ export fn heapify(items: array, comparator?) {
 
 // heap_sort(array: array, comparator?: fn) -> array
 // Sort array using heap sort (returns new sorted array)
-export fn heap_sort(items: array, comparator?): array {
+export fn heap_sort(items: array, comparator?: null): array {
     let pq = heapify(items, comparator);
     return pq.to_sorted_array();
 }
@@ -313,16 +324,21 @@ export fn nsmallest(n: i32, items: array): array {
 
 // merge_sorted(arrays: array<array>, comparator?: fn) -> array
 // Merge multiple sorted arrays into one sorted array
-export fn merge_sorted(arrays: array, comparator?): array {
+export fn merge_sorted(arrays: array, comparator?: null): array {
     if (arrays.length == 0) {
         return [];
     }
 
     // Create priority queue of (value, array_index, element_index)
-    let compare = comparator ?? fn(a, b) { return a < b; };
-    let pq = PriorityQueue(fn(a, b) {
+    fn default_cmp(a, b) {
+        return a < b;
+    }
+    let compare = comparator ?? default_cmp;
+
+    fn item_compare(a, b) {
         return compare(a.value, b.value);
-    });
+    }
+    let pq = PriorityQueue(item_compare);
 
     // Initialize with first element of each array
     for (let i = 0; i < arrays.length; i++) {
