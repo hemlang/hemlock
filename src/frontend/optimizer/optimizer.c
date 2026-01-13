@@ -495,12 +495,17 @@ static Expr *optimize_unary(Expr *expr, OptimizationStats *stats) {
             /* !true → false, !false → true */
             if (is_const_bool(operand)) {
                 stats->booleans_simplified++;
-                return make_bool_expr(!operand->as.boolean, expr->line);
+                Expr *result = make_bool_expr(!operand->as.boolean, expr->line);
+                expr_free(expr);  /* Free the replaced unary and its operand */
+                return result;
             }
             /* !!x → x (if operand is also a NOT) */
             if (operand->type == EXPR_UNARY && operand->as.unary.op == UNARY_NOT) {
                 stats->booleans_simplified++;
-                return operand->as.unary.operand;
+                Expr *result = operand->as.unary.operand;
+                operand->as.unary.operand = NULL;  /* Detach before freeing */
+                expr_free(expr);  /* Free outer and inner unary exprs */
+                return result;
             }
             break;
 
@@ -508,16 +513,22 @@ static Expr *optimize_unary(Expr *expr, OptimizationStats *stats) {
             /* -5 → -5 (fold constant) */
             if (is_const_number(operand)) {
                 stats->constants_folded++;
+                Expr *result;
                 if (operand->as.number.is_float) {
-                    return make_float_expr(-operand->as.number.float_value, expr->line);
+                    result = make_float_expr(-operand->as.number.float_value, expr->line);
                 } else {
-                    return make_int_expr(-operand->as.number.int_value, expr->line);
+                    result = make_int_expr(-operand->as.number.int_value, expr->line);
                 }
+                expr_free(expr);  /* Free the replaced unary and its operand */
+                return result;
             }
             /* --x → x */
             if (operand->type == EXPR_UNARY && operand->as.unary.op == UNARY_NEGATE) {
                 stats->constants_folded++;
-                return operand->as.unary.operand;
+                Expr *result = operand->as.unary.operand;
+                operand->as.unary.operand = NULL;  /* Detach before freeing */
+                expr_free(expr);  /* Free outer and inner unary exprs */
+                return result;
             }
             break;
 
@@ -525,12 +536,17 @@ static Expr *optimize_unary(Expr *expr, OptimizationStats *stats) {
             /* ~constant → folded */
             if (is_const_int(operand)) {
                 stats->constants_folded++;
-                return make_int_expr(~operand->as.number.int_value, expr->line);
+                Expr *result = make_int_expr(~operand->as.number.int_value, expr->line);
+                expr_free(expr);  /* Free the replaced unary and its operand */
+                return result;
             }
             /* ~~x → x */
             if (operand->type == EXPR_UNARY && operand->as.unary.op == UNARY_BIT_NOT) {
                 stats->constants_folded++;
-                return operand->as.unary.operand;
+                Expr *result = operand->as.unary.operand;
+                operand->as.unary.operand = NULL;  /* Detach before freeing */
+                expr_free(expr);  /* Free outer and inner unary exprs */
+                return result;
             }
             break;
     }
@@ -554,59 +570,94 @@ static Expr *optimize_binary(Expr *expr, OptimizationStats *stats) {
 
     /* Try constant folding for numbers */
     result = try_fold_binary_numeric(op, left, right, line, stats);
-    if (result) return result;
+    if (result) {
+        expr_free(expr);  /* Free the replaced binary expression and both operands */
+        return result;
+    }
 
     /* Try constant folding for booleans */
     result = try_fold_binary_bool(op, left, right, line, stats);
-    if (result) return result;
+    if (result) {
+        expr_free(expr);  /* Free the replaced binary expression and both operands */
+        return result;
+    }
 
     /* Try string concatenation folding */
     result = try_fold_string_concat(op, left, right, line, stats);
-    if (result) return result;
+    if (result) {
+        expr_free(expr);  /* Free the replaced binary expression and both operands */
+        return result;
+    }
 
-    /* Try short-circuit optimization */
+    /* Try short-circuit optimization - this returns one of the operands, so handle specially */
     result = try_short_circuit(op, left, right, stats);
-    if (result) return result;
+    if (result) {
+        /* Detach the returned operand before freeing */
+        if (result == left) {
+            expr->as.binary.left = NULL;
+        } else if (result == right) {
+            expr->as.binary.right = NULL;
+        }
+        expr_free(expr);  /* Free binary expr and the unused operand */
+        return result;
+    }
 
     /* Try strength reduction */
     result = try_strength_reduce(op, left, right, line, stats);
-    if (result) return result;
+    if (result) {
+        expr_free(expr);  /* Free the replaced binary expression and both operands */
+        return result;
+    }
 
     /* Identity optimizations */
     /* x + 0 → x, x - 0 → x */
     if ((op == OP_ADD || op == OP_SUB) && is_const_number(right) && get_number_as_double(right) == 0.0) {
         stats->constants_folded++;
+        expr->as.binary.left = NULL;  /* Detach left before freeing */
+        expr_free(expr);  /* Free binary expr and the 0 operand */
         return left;
     }
     /* 0 + x → x */
     if (op == OP_ADD && is_const_number(left) && get_number_as_double(left) == 0.0) {
         stats->constants_folded++;
+        expr->as.binary.right = NULL;  /* Detach right before freeing */
+        expr_free(expr);  /* Free binary expr and the 0 operand */
         return right;
     }
     /* x * 1 → x, x / 1 → x */
     if ((op == OP_MUL || op == OP_DIV) && is_const_number(right) && get_number_as_double(right) == 1.0) {
         stats->constants_folded++;
+        expr->as.binary.left = NULL;  /* Detach left before freeing */
+        expr_free(expr);  /* Free binary expr and the 1 operand */
         return left;
     }
     /* 1 * x → x */
     if (op == OP_MUL && is_const_number(left) && get_number_as_double(left) == 1.0) {
         stats->constants_folded++;
+        expr->as.binary.right = NULL;  /* Detach right before freeing */
+        expr_free(expr);  /* Free binary expr and the 1 operand */
         return right;
     }
     /* x * 0 → 0 (only if x has no side effects, but we'll be conservative and skip this) */
     /* x | 0 → x, x ^ 0 → x */
     if ((op == OP_BIT_OR || op == OP_BIT_XOR) && is_const_int(right) && right->as.number.int_value == 0) {
         stats->constants_folded++;
+        expr->as.binary.left = NULL;  /* Detach left before freeing */
+        expr_free(expr);  /* Free binary expr and the 0 operand */
         return left;
     }
     /* x & -1 → x (all bits set) */
     if (op == OP_BIT_AND && is_const_int(right) && right->as.number.int_value == -1) {
         stats->constants_folded++;
+        expr->as.binary.left = NULL;  /* Detach left before freeing */
+        expr_free(expr);  /* Free binary expr and the -1 operand */
         return left;
     }
     /* x << 0 → x, x >> 0 → x */
     if ((op == OP_BIT_LSHIFT || op == OP_BIT_RSHIFT) && is_const_int(right) && right->as.number.int_value == 0) {
         stats->constants_folded++;
+        expr->as.binary.left = NULL;  /* Detach left before freeing */
+        expr_free(expr);  /* Free binary expr and the 0 operand */
         return left;
     }
 
@@ -623,11 +674,16 @@ static Expr *optimize_ternary(Expr *expr, OptimizationStats *stats) {
     /* If condition is constant, we can eliminate the branch */
     if (is_const_bool(condition)) {
         stats->booleans_simplified++;
+        Expr *result;
         if (condition->as.boolean) {
-            return optimize_expr_internal(expr->as.ternary.true_expr, stats);
+            result = optimize_expr_internal(expr->as.ternary.true_expr, stats);
+            expr->as.ternary.true_expr = NULL;  /* Detach before freeing */
         } else {
-            return optimize_expr_internal(expr->as.ternary.false_expr, stats);
+            result = optimize_expr_internal(expr->as.ternary.false_expr, stats);
+            expr->as.ternary.false_expr = NULL;  /* Detach before freeing */
         }
+        expr_free(expr);  /* Free condition and unused branch */
+        return result;
     }
 
     /* Otherwise optimize both branches */

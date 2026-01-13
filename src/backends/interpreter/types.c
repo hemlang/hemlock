@@ -575,13 +575,6 @@ static int validate_method_signature(Function *func, Type *expected_type,
         }
     }
 
-    int actual_required = func->num_params;
-    for (int i = 0; i < func->num_params; i++) {
-        if (func->param_defaults && func->param_defaults[i]) {
-            actual_required--;
-        }
-    }
-
     // Function must accept at least as many parameters as required by signature
     if (func->num_params < expected_required) {
         snprintf(error_buffer, sizeof(error_buffer),
@@ -1126,11 +1119,75 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     TypeKind kind = target_type->kind;
 
-    // Handle function types early - just verify it's a function
+    // Handle function types early - validate function signature matches
     if (kind == TYPE_FUNCTION) {
         if (value.type == VAL_FUNCTION) {
-            return value;  // TODO: Could validate parameter/return types
+            Function *func = value.as.as_function;
+
+            // Validate async flag
+            if (target_type->fn_is_async && !func->is_async) {
+                fprintf(stderr, "Runtime error: Expected async function, got non-async function\n");
+                exit(1);
+            }
+
+            // Calculate required parameters (non-optional) for both sides
+            int expected_required = target_type->fn_num_params;
+            for (int i = 0; i < target_type->fn_num_params; i++) {
+                if (target_type->fn_param_optional && target_type->fn_param_optional[i]) {
+                    expected_required--;
+                }
+            }
+
+            int actual_required = func->num_params;
+            for (int i = 0; i < func->num_params; i++) {
+                if (func->param_defaults && func->param_defaults[i]) {
+                    actual_required--;
+                }
+            }
+
+            // Function must accept at least as many required parameters as the type specifies
+            // and not require more parameters than the type provides
+            if (actual_required > target_type->fn_num_params) {
+                fprintf(stderr, "Runtime error: Function requires %d parameter(s), but type expects at most %d\n",
+                        actual_required, target_type->fn_num_params);
+                exit(1);
+            }
+
+            if (func->num_params < expected_required) {
+                fprintf(stderr, "Runtime error: Function accepts %d parameter(s), but type requires at least %d\n",
+                        func->num_params, expected_required);
+                exit(1);
+            }
+
+            // Check parameter types for matching positions
+            int params_to_check = target_type->fn_num_params < func->num_params
+                ? target_type->fn_num_params : func->num_params;
+            for (int i = 0; i < params_to_check; i++) {
+                Type *expected_param = target_type->fn_param_types ? target_type->fn_param_types[i] : NULL;
+                Type *actual_param = func->param_types ? func->param_types[i] : NULL;
+
+                if (!types_compatible(expected_param, actual_param)) {
+                    fprintf(stderr, "Runtime error: Function parameter %d type mismatch (expected %s, got %s)\n",
+                            i + 1, type_to_string(expected_param), type_to_string(actual_param));
+                    exit(1);
+                }
+            }
+
+            // Check return type
+            if (!types_compatible(target_type->fn_return_type, func->return_type)) {
+                fprintf(stderr, "Runtime error: Function return type mismatch (expected %s, got %s)\n",
+                        type_to_string(target_type->fn_return_type), type_to_string(func->return_type));
+                exit(1);
+            }
+
+            return value;
         }
+
+        // Also accept builtin functions (no signature validation possible)
+        if (value.type == VAL_BUILTIN_FN) {
+            return value;
+        }
+
         fprintf(stderr, "Runtime error: Expected function value\n");
         exit(1);
     }
