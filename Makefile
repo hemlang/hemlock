@@ -303,6 +303,34 @@ asan-quick: asan
 	@echo ""
 	@echo "✓ Quick ASAN check passed - no leaks detected"
 
+# Comprehensive leak verification - runs full test suite
+# This provides memory safety guarantees for the runtime
+.PHONY: leak-check
+leak-check: asan
+	@echo ""
+	@echo "Running comprehensive memory leak verification..."
+	@./tests/leak_check.sh
+
+# Quick leak check - core tests only
+.PHONY: leak-check-quick
+leak-check-quick: asan
+	@echo ""
+	@echo "Running quick memory leak verification..."
+	@./tests/leak_check.sh --quick
+
+# Verbose leak check - shows all test output
+.PHONY: leak-check-verbose
+leak-check-verbose: asan
+	@echo ""
+	@echo "Running verbose memory leak verification..."
+	@./tests/leak_check.sh --verbose
+
+# Run the comprehensive stress test only
+.PHONY: leak-stress
+leak-stress: asan
+	@echo "Running comprehensive leak stress test..."
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:print_stats=1" ./$(TARGET) tests/memory/comprehensive_leak_test.hml
+
 # ========== CLANG STATIC ANALYSIS ==========
 
 # Check if clang-tidy and scan-build are installed
