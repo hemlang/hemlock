@@ -1,0 +1,38 @@
+// Parity test: @optimize annotation should not change behavior
+// @optimize(level) sets per-function optimization level
+
+@optimize("3")
+fn hot_path(x: i32): i32 {
+    let result = 0;
+    for (let i = 0; i < 10; i++) {
+        result = result + x;
+    }
+    return result;
+}
+
+@optimize("s")
+fn size_optimized(x: i32): i32 {
+    return x * x;
+}
+
+@optimize("0")
+fn debug_function(x: i32): i32 {
+    return x + 1;
+}
+
+@optimize("fast")
+fn speed_critical(n: i32): i32 {
+    return n * n + n;
+}
+
+@optimize("2")
+fn medium_optimization(a: i32, b: i32): i32 {
+    return a + b * 2;
+}
+
+// All functions should produce same results
+print(hot_path(5));           // 50
+print(size_optimized(7));     // 49
+print(debug_function(10));    // 11
+print(speed_critical(6));     // 42
+print(medium_optimization(3, 4));  // 11

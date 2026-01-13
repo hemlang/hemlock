@@ -575,13 +575,6 @@ static int validate_method_signature(Function *func, Type *expected_type,
         }
     }
 
-    int actual_required = func->num_params;
-    for (int i = 0; i < func->num_params; i++) {
-        if (func->param_defaults && func->param_defaults[i]) {
-            actual_required--;
-        }
-    }
-
     // Function must accept at least as many parameters as required by signature
     if (func->num_params < expected_required) {
         snprintf(error_buffer, sizeof(error_buffer),

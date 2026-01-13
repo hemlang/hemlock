@@ -755,10 +755,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_THROW: {
-            // Evaluate the value to throw and retain it
-            // (so it survives past environment cleanups during unwinding)
+            // Evaluate the value to throw
+            // Ownership is transferred to the context (no retain needed)
+            // The value will survive unwinding as long as exception_state holds it
             ctx->exception_state.exception_value = eval_expr(stmt->as.throw_stmt.value, env, ctx);
-            VALUE_RETAIN(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
 
             // Push throw location onto stack trace

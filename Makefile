@@ -1,9 +1,9 @@
 CC = gcc
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends $(EXTRA_CFLAGS)
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends $(EXTRA_CFLAGS)
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -51,7 +51,7 @@ else
 endif
 
 # Base libraries (always required)
-LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto
+LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 
 # Conditionally add libwebsockets
 ifeq ($(HAS_LIBWEBSOCKETS),1)
@@ -256,6 +256,80 @@ valgrind-clean:
 	@echo "Done."
 
 .PHONY: all clean run test
+
+# ========== ADDRESS SANITIZER (ASAN) MEMORY LEAK DETECTION ==========
+
+# Build with AddressSanitizer for leak detection
+# ASAN catches: memory leaks, use-after-free, buffer overflows, double-free
+ASAN_CFLAGS = -fsanitize=address -fno-omit-frame-pointer -g -O1
+ASAN_LDFLAGS = -fsanitize=address
+
+# Build interpreter with ASAN (not compiler - it has separate build rules)
+.PHONY: asan
+asan: clean
+	@echo "Building hemlock interpreter with AddressSanitizer..."
+	$(MAKE) $(TARGET) EXTRA_CFLAGS="$(ASAN_CFLAGS)" EXTRA_LDFLAGS="$(ASAN_LDFLAGS)"
+	@echo ""
+	@echo "✓ ASAN build complete. Run tests with: make asan-test"
+	@echo "  Or run directly: ASAN_OPTIONS=detect_leaks=1 ./hemlock script.hml"
+
+# Run test suite with ASAN
+.PHONY: asan-test
+asan-test: asan
+	@echo "Running test suite with AddressSanitizer (leak detection enabled)..."
+	@echo "This will report any memory leaks in the runtime."
+	@echo ""
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" timeout 120 $(MAKE) test || true
+	@echo ""
+	@echo "✓ ASAN test run complete. Check output above for leak reports."
+
+# Run specific file with ASAN
+.PHONY: asan-file
+asan-file: asan
+ifndef FILE
+	@echo "Usage: make asan-file FILE=path/to/test.hml"
+	@exit 1
+endif
+	@echo "Running $(FILE) with AddressSanitizer..."
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" ./$(TARGET) $(FILE)
+
+# Quick ASAN check - build and run basic test
+.PHONY: asan-quick
+asan-quick: asan
+	@echo "Quick ASAN check..."
+	@echo 'let x = alloc(100); free(x); print("ok");' > /tmp/asan_test.hml
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" ./$(TARGET) /tmp/asan_test.hml
+	@rm -f /tmp/asan_test.hml
+	@echo ""
+	@echo "✓ Quick ASAN check passed - no leaks detected"
+
+# Comprehensive leak verification - runs full test suite
+# This provides memory safety guarantees for the runtime
+.PHONY: leak-check
+leak-check: asan
+	@echo ""
+	@echo "Running comprehensive memory leak verification..."
+	@./tests/leak_check.sh
+
+# Quick leak check - core tests only
+.PHONY: leak-check-quick
+leak-check-quick: asan
+	@echo ""
+	@echo "Running quick memory leak verification..."
+	@./tests/leak_check.sh --quick
+
+# Verbose leak check - shows all test output
+.PHONY: leak-check-verbose
+leak-check-verbose: asan
+	@echo ""
+	@echo "Running verbose memory leak verification..."
+	@./tests/leak_check.sh --verbose
+
+# Run the comprehensive stress test only
+.PHONY: leak-stress
+leak-stress: asan
+	@echo "Running comprehensive leak stress test..."
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:print_stats=1" ./$(TARGET) tests/memory/comprehensive_leak_test.hml
 
 # ========== CLANG STATIC ANALYSIS ==========
 

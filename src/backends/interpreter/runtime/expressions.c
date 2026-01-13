@@ -877,8 +877,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     ctx->defer_stack.count = defer_depth_before;
                 }
 
-                // Get result
-                result = ctx->return_state.return_value;
+                // Get result (use null if exception is being thrown - return_value may be stale)
+                result = ctx->exception_state.is_throwing ? val_null() : ctx->return_state.return_value;
 
                 // Check return type if specified (but not if exception is being thrown)
                 if (fn->return_type && !ctx->exception_state.is_throwing) {
@@ -2089,12 +2089,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
             for (int i = 0; i < num_parts; i++) {
                 Value expr_val = eval_expr(expr_parts[i], env, ctx);
+                // Check for exception after evaluating expression
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(expr_val);
+                    // Free already allocated strings
+                    for (int j = 0; j < i; j++) {
+                        free(expr_strings[j]);
+                    }
+                    free(expr_strings);
+                    return val_null();
+                }
                 expr_strings[i] = value_to_string(expr_val);
                 VALUE_RELEASE(expr_val);  // Release after converting to string
                 total_len += strlen(expr_strings[i]);
             }
 
-            // Build final string
+            // Build final string using memcpy with offset tracking (O(n) instead of O(n²))
             char *result = malloc(total_len + 1);
             if (!result) {
                 for (int i = 0; i < num_parts; i++) {
@@ -2104,14 +2114,23 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 runtime_error(ctx, "Out of memory in string interpolation");
                 return val_null();
             }
-            result[0] = '\0';
+            size_t offset = 0;
 
             for (int i = 0; i < num_parts; i++) {
-                strcat(result, string_parts[i]);
-                strcat(result, expr_strings[i]);
+                size_t part_len = strlen(string_parts[i]);
+                memcpy(result + offset, string_parts[i], part_len);
+                offset += part_len;
+
+                size_t expr_len = strlen(expr_strings[i]);
+                memcpy(result + offset, expr_strings[i], expr_len);
+                offset += expr_len;
                 free(expr_strings[i]);
             }
-            strcat(result, string_parts[num_parts]);  // Final string part
+            // Final string part
+            size_t final_len = strlen(string_parts[num_parts]);
+            memcpy(result + offset, string_parts[num_parts], final_len);
+            offset += final_len;
+            result[offset] = '\0';
 
             free(expr_strings);
 

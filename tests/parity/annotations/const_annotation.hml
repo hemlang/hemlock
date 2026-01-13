@@ -1,0 +1,25 @@
+// Parity test: @const annotation should not change behavior
+// @const marks functions that have no side effects and only depend on arguments
+
+@const
+fn square(x: i32): i32 {
+    return x * x;
+}
+
+@const
+fn add_const(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+@const
+fn compute(x: i32, y: i32, z: i32): i32 {
+    return x * y + z;
+}
+
+// All @const functions should produce same results
+print(square(5));           // 25
+print(square(12));          // 144
+print(add_const(10, 20));   // 30
+print(add_const(100, 200)); // 300
+print(compute(2, 3, 4));    // 10
+print(compute(5, 5, 5));    // 30

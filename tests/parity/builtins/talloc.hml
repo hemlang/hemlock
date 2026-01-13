@@ -1,0 +1,37 @@
+// Parity test: talloc builtin - typed allocation
+
+// Test i32 allocation
+let p1 = talloc(i32, 5);
+ptr_write_i32(p1, 42);
+ptr_write_i32(ptr_offset(p1, 4, 4), 100);
+print(ptr_deref_i32(p1));
+print(ptr_deref_i32(ptr_offset(p1, 4, 4)));
+free(p1);
+
+// Test i64 allocation
+let p2 = talloc(i64, 3);
+ptr_write_i64(p2, 9876543210);
+print(ptr_deref_i64(p2));
+free(p2);
+
+// Test u8 allocation (bytes)
+let p3 = talloc(u8, 10);
+ptr_write_u8(p3, 255);
+ptr_write_u8(ptr_offset(p3, 1, 1), 128);
+print(ptr_deref_u8(p3));
+print(ptr_deref_u8(ptr_offset(p3, 1, 1)));
+free(p3);
+
+// Test f64 allocation
+let p4 = talloc(f64, 2);
+ptr_write_f64(p4, 3.14159);
+print(ptr_deref_f64(p4));
+free(p4);
+
+// Test pointer allocation
+let p5 = talloc(ptr, 2);
+ptr_write_ptr(p5, ptr_null());
+print(ptr_deref_ptr(p5) == ptr_null());
+free(p5);
+
+print("talloc tests passed");

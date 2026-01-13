@@ -1,0 +1,37 @@
+// Parity test: @section annotation should not change behavior
+// @section(name) places function in custom ELF section (compiler only)
+
+@section(".text.hot")
+fn critical_path(x: i32): i32 {
+    return x * 10;
+}
+
+@section(".text.cold")
+fn error_handler(code: i32): string {
+    return "Error: " + code;
+}
+
+@section(".text.startup")
+fn early_init(): i32 {
+    return 42;
+}
+
+// Combined with other annotations
+@section(".text.hot")
+@hot
+fn hot_and_sectioned(x: i32): i32 {
+    return x + x;
+}
+
+@section(".text.cold")
+@cold
+fn cold_and_sectioned(x: i32): i32 {
+    return x - 1;
+}
+
+// All functions should work normally
+print(critical_path(5));      // 50
+print(error_handler(404));    // Error: 404
+print(early_init());          // 42
+print(hot_and_sectioned(7));  // 14
+print(cold_and_sectioned(10)); // 9
