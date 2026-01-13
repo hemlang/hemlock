@@ -1281,7 +1281,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (!new_names || !new_values) {
                     if (new_names) obj->field_names = new_names;
                     if (new_values) obj->field_values = new_values;
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Failed to expand object fields");
+                    return val_null();
                 }
                 obj->field_names = new_names;
                 obj->field_values = new_values;
