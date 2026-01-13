@@ -1,0 +1,796 @@
+// Hemlock Standard Library: HTTP Server
+// Simple HTTP/1.1 server implementation for building web services
+
+import { TcpListener, TcpStream } from "@stdlib/net";
+import { HashMap } from "@stdlib/collections";
+import { from_path, content_type } from "@stdlib/mime";
+import { read_file, exists, is_file } from "@stdlib/fs";
+import { join } from "@stdlib/path";
+
+// ========== HTTP STATUS CODES ==========
+
+export let HTTP_OK = 200;
+export let HTTP_CREATED = 201;
+export let HTTP_ACCEPTED = 202;
+export let HTTP_NO_CONTENT = 204;
+export let HTTP_MOVED_PERMANENTLY = 301;
+export let HTTP_FOUND = 302;
+export let HTTP_NOT_MODIFIED = 304;
+export let HTTP_BAD_REQUEST = 400;
+export let HTTP_UNAUTHORIZED = 401;
+export let HTTP_FORBIDDEN = 403;
+export let HTTP_NOT_FOUND = 404;
+export let HTTP_METHOD_NOT_ALLOWED = 405;
+export let HTTP_CONFLICT = 409;
+export let HTTP_GONE = 410;
+export let HTTP_UNPROCESSABLE_ENTITY = 422;
+export let HTTP_TOO_MANY_REQUESTS = 429;
+export let HTTP_INTERNAL_SERVER_ERROR = 500;
+export let HTTP_NOT_IMPLEMENTED = 501;
+export let HTTP_BAD_GATEWAY = 502;
+export let HTTP_SERVICE_UNAVAILABLE = 503;
+
+// Status code to message mapping
+fn status_message(code: i32): string {
+    if (code == 200) { return "OK"; }
+    if (code == 201) { return "Created"; }
+    if (code == 202) { return "Accepted"; }
+    if (code == 204) { return "No Content"; }
+    if (code == 301) { return "Moved Permanently"; }
+    if (code == 302) { return "Found"; }
+    if (code == 304) { return "Not Modified"; }
+    if (code == 400) { return "Bad Request"; }
+    if (code == 401) { return "Unauthorized"; }
+    if (code == 403) { return "Forbidden"; }
+    if (code == 404) { return "Not Found"; }
+    if (code == 405) { return "Method Not Allowed"; }
+    if (code == 409) { return "Conflict"; }
+    if (code == 410) { return "Gone"; }
+    if (code == 422) { return "Unprocessable Entity"; }
+    if (code == 429) { return "Too Many Requests"; }
+    if (code == 500) { return "Internal Server Error"; }
+    if (code == 501) { return "Not Implemented"; }
+    if (code == 502) { return "Bad Gateway"; }
+    if (code == 503) { return "Service Unavailable"; }
+    return "Unknown";
+}
+
+// ========== HTTP REQUEST PARSING ==========
+
+// parse_request_line(line: string) -> { method, path, version } | null
+fn parse_request_line(line: string) {
+    let parts = line.split(" ");
+    if (parts.length < 3) {
+        return null;
+    }
+
+    return {
+        method: parts[0],
+        path: parts[1],
+        version: parts[2],
+    };
+}
+
+// parse_header_line(line: string) -> { name, value } | null
+fn parse_header_line(line: string) {
+    let colon_pos = line.find(":");
+    if (colon_pos == -1) {
+        return null;
+    }
+
+    let name = line.substr(0, colon_pos).trim().to_lower();
+    let value = line.substr(colon_pos + 1, line.length - colon_pos - 1).trim();
+
+    return { name: name, value: value };
+}
+
+// parse_query_string(query: string) -> HashMap
+fn parse_query_string(query: string) {
+    let params = HashMap();
+
+    if (query == "" || query == null) {
+        return params;
+    }
+
+    let pairs = query.split("&");
+    for (pair in pairs) {
+        let eq_pos = pair.find("=");
+        if (eq_pos == -1) {
+            params.set(url_decode(pair), "");
+        } else {
+            let key = url_decode(pair.substr(0, eq_pos));
+            let value = url_decode(pair.substr(eq_pos + 1, pair.length - eq_pos - 1));
+            params.set(key, value);
+        }
+    }
+
+    return params;
+}
+
+// Simple URL decode (handles %XX encoding)
+fn url_decode(s: string): string {
+    let result = "";
+    let i = 0;
+
+    while (i < s.length) {
+        let ch = s.char_at(i);
+
+        if (ch == '%' && i + 2 < s.length) {
+            // Decode hex
+            let hex = s.substr(i + 1, 2);
+            let val = hex_to_int(hex);
+            if (val >= 0) {
+                // Convert to character (simplified - assumes ASCII)
+                result = result + chr(val);
+                i = i + 3;
+                continue;
+            }
+        } else if (ch == '+') {
+            result = result + " ";
+            i = i + 1;
+            continue;
+        }
+
+        result = result + ch;
+        i = i + 1;
+    }
+
+    return result;
+}
+
+// Helper: convert hex string to int
+fn hex_to_int(hex: string): i32 {
+    let result = 0;
+    for (let i = 0; i < hex.length; i++) {
+        let ch = hex.char_at(i);
+        let val = -1;
+
+        if (ch >= '0' && ch <= '9') {
+            val = hex.byte_at(i) - 48;
+        } else if (ch >= 'a' && ch <= 'f') {
+            val = hex.byte_at(i) - 87;
+        } else if (ch >= 'A' && ch <= 'F') {
+            val = hex.byte_at(i) - 55;
+        }
+
+        if (val < 0) {
+            return -1;
+        }
+
+        result = result * 16 + val;
+    }
+    return result;
+}
+
+// Helper: convert int to character
+fn chr(code: i32): string {
+    // This is a simplified version - uses buffer for ASCII
+    if (code >= 32 && code <= 126) {
+        // Common ASCII characters
+        let chars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+        return chars.char_at(code - 32);
+    }
+    return "?";
+}
+
+// ========== HTTP REQUEST OBJECT ==========
+
+// Request represents an incoming HTTP request
+define Request {
+    method: string,
+    path: string,
+    query: string,
+    version: string,
+    headers: object,
+    body: string,
+    params: object,
+    query_params: object,
+}
+
+// parse_request(client: TcpStream) -> Request | null
+// Read and parse HTTP request from client connection
+export fn parse_request(client) {
+    // Read request data (simplified - reads up to 64KB)
+    let data = "";
+    let chunk_size = 4096;
+    let max_size = 65536;
+
+    // Set timeout to avoid blocking forever
+    client.set_timeout(30);
+
+    // Read until we have headers (look for \r\n\r\n)
+    let headers_end = -1;
+
+    while (data.length < max_size) {
+        try {
+            let chunk = client.read(chunk_size);
+            if (chunk == null || chunk.length == 0) {
+                break;
+            }
+            data = data + chunk;
+
+            // Check for end of headers
+            headers_end = data.find("\r\n\r\n");
+            if (headers_end != -1) {
+                break;
+            }
+        } catch (e) {
+            break;
+        }
+    }
+
+    if (data.length == 0) {
+        return null;
+    }
+
+    // Split headers and body
+    let headers_part = data;
+    let body = "";
+
+    if (headers_end != -1) {
+        headers_part = data.substr(0, headers_end);
+        body = data.substr(headers_end + 4, data.length - headers_end - 4);
+    }
+
+    // Parse request line
+    let lines = headers_part.split("\r\n");
+    if (lines.length == 0) {
+        return null;
+    }
+
+    let request_line = parse_request_line(lines[0]);
+    if (request_line == null) {
+        return null;
+    }
+
+    // Parse headers
+    let headers = HashMap();
+    for (let i = 1; i < lines.length; i++) {
+        let header = parse_header_line(lines[i]);
+        if (header != null) {
+            headers.set(header.name, header.value);
+        }
+    }
+
+    // Read body if Content-Length header present
+    let content_length_str = headers.get("content-length");
+    if (content_length_str != null) {
+        let content_length = i32(content_length_str);
+        while (body.length < content_length && body.length < max_size) {
+            try {
+                let chunk = client.read(chunk_size);
+                if (chunk == null || chunk.length == 0) {
+                    break;
+                }
+                body = body + chunk;
+            } catch (e) {
+                break;
+            }
+        }
+    }
+
+    // Parse path and query string
+    let path = request_line.path;
+    let query = "";
+    let query_pos = path.find("?");
+
+    if (query_pos != -1) {
+        query = path.substr(query_pos + 1, path.length - query_pos - 1);
+        path = path.substr(0, query_pos);
+    }
+
+    return {
+        method: request_line.method,
+        path: path,
+        query: query,
+        version: request_line.version,
+        headers: headers,
+        body: body,
+        params: {},  // Route params filled by router
+        query_params: parse_query_string(query),
+    };
+}
+
+// ========== HTTP RESPONSE OBJECT ==========
+
+// Response builder for HTTP responses
+export fn Response() {
+    let status_code = 200;
+    let headers = HashMap();
+    let body_content = "";
+
+    // Set default headers
+    headers.set("server", "Hemlock/1.0");
+    headers.set("connection", "close");
+
+    return {
+        // status(code: i32) -> self
+        // Set response status code
+        status: fn(code: i32) {
+            status_code = code;
+            return self;
+        },
+
+        // header(name: string, value: string) -> self
+        // Set a response header
+        header: fn(name: string, value: string) {
+            headers.set(name.to_lower(), value);
+            return self;
+        },
+
+        // content_type(type: string) -> self
+        // Set Content-Type header
+        content_type: fn(type: string) {
+            headers.set("content-type", type);
+            return self;
+        },
+
+        // body(content: string) -> self
+        // Set response body
+        body: fn(content: string) {
+            body_content = content;
+            return self;
+        },
+
+        // json(data: object) -> self
+        // Set JSON response body
+        json: fn(data) {
+            headers.set("content-type", "application/json");
+            body_content = data.serialize();
+            return self;
+        },
+
+        // html(content: string) -> self
+        // Set HTML response body
+        html: fn(content: string) {
+            headers.set("content-type", "text/html; charset=utf-8");
+            body_content = content;
+            return self;
+        },
+
+        // text(content: string) -> self
+        // Set plain text response body
+        text: fn(content: string) {
+            headers.set("content-type", "text/plain; charset=utf-8");
+            body_content = content;
+            return self;
+        },
+
+        // redirect(url: string, permanent?: bool) -> self
+        // Set redirect response
+        redirect: fn(url: string, permanent?: false) {
+            status_code = permanent ? 301 : 302;
+            headers.set("location", url);
+            return self;
+        },
+
+        // send(client: TcpStream) -> null
+        // Send response to client
+        send: fn(client) {
+            // Set content-length
+            headers.set("content-length", body_content.byte_length + "");
+
+            // Build response string
+            let response = "HTTP/1.1 " + status_code + " " + status_message(status_code) + "\r\n";
+
+            // Add headers
+            for (entry in headers.entries()) {
+                response = response + entry[0] + ": " + entry[1] + "\r\n";
+            }
+
+            response = response + "\r\n" + body_content;
+
+            // Send to client
+            client.write(response);
+            return null;
+        },
+
+        // get_status() -> i32
+        // Get current status code
+        get_status: fn(): i32 {
+            return status_code;
+        },
+    };
+}
+
+// ========== CONVENIENCE RESPONSE FUNCTIONS ==========
+
+// ok(body?: string) -> Response
+// Create 200 OK response
+export fn ok(body?: ""): Response {
+    return Response().status(200).text(body);
+}
+
+// created(body?: string) -> Response
+// Create 201 Created response
+export fn created(body?: ""): Response {
+    return Response().status(201).text(body);
+}
+
+// no_content() -> Response
+// Create 204 No Content response
+export fn no_content(): Response {
+    return Response().status(204);
+}
+
+// bad_request(message?: string) -> Response
+// Create 400 Bad Request response
+export fn bad_request(message?: "Bad Request"): Response {
+    return Response().status(400).text(message);
+}
+
+// unauthorized(message?: string) -> Response
+// Create 401 Unauthorized response
+export fn unauthorized(message?: "Unauthorized"): Response {
+    return Response().status(401).text(message);
+}
+
+// forbidden(message?: string) -> Response
+// Create 403 Forbidden response
+export fn forbidden(message?: "Forbidden"): Response {
+    return Response().status(403).text(message);
+}
+
+// not_found(message?: string) -> Response
+// Create 404 Not Found response
+export fn not_found(message?: "Not Found"): Response {
+    return Response().status(404).text(message);
+}
+
+// method_not_allowed(allowed: string) -> Response
+// Create 405 Method Not Allowed response
+export fn method_not_allowed(allowed: string): Response {
+    return Response().status(405).header("Allow", allowed).text("Method Not Allowed");
+}
+
+// internal_error(message?: string) -> Response
+// Create 500 Internal Server Error response
+export fn internal_error(message?: "Internal Server Error"): Response {
+    return Response().status(500).text(message);
+}
+
+// json_response(data: object, status?: i32) -> Response
+// Create JSON response
+export fn json_response(data, status?: 200): Response {
+    return Response().status(status).json(data);
+}
+
+// ========== ROUTER ==========
+
+// Router for matching requests to handlers
+export fn Router() {
+    let routes = [];
+
+    // Helper: match path pattern to actual path
+    // Supports :param for path parameters
+    fn match_path(pattern: string, path: string) {
+        let pattern_parts = pattern.split("/");
+        let path_parts = path.split("/");
+
+        if (pattern_parts.length != path_parts.length) {
+            return null;
+        }
+
+        let params = {};
+
+        for (let i = 0; i < pattern_parts.length; i++) {
+            let pp = pattern_parts[i];
+            let pathp = path_parts[i];
+
+            if (pp.starts_with(":")) {
+                // Parameter - extract name and capture value
+                let param_name = pp.substr(1, pp.length - 1);
+                params[param_name] = pathp;
+            } else if (pp != pathp) {
+                // Literal mismatch
+                return null;
+            }
+        }
+
+        return params;
+    }
+
+    return {
+        // route(method: string, pattern: string, handler: fn) -> self
+        // Add a route
+        route: fn(method: string, pattern: string, handler) {
+            routes.push({ method: method.to_upper(), pattern: pattern, handler: handler });
+            return self;
+        },
+
+        // get(pattern: string, handler: fn) -> self
+        // Add GET route
+        get: fn(pattern: string, handler) {
+            return self.route("GET", pattern, handler);
+        },
+
+        // post(pattern: string, handler: fn) -> self
+        // Add POST route
+        post: fn(pattern: string, handler) {
+            return self.route("POST", pattern, handler);
+        },
+
+        // put(pattern: string, handler: fn) -> self
+        // Add PUT route
+        put: fn(pattern: string, handler) {
+            return self.route("PUT", pattern, handler);
+        },
+
+        // delete(pattern: string, handler: fn) -> self
+        // Add DELETE route
+        delete: fn(pattern: string, handler) {
+            return self.route("DELETE", pattern, handler);
+        },
+
+        // patch(pattern: string, handler: fn) -> self
+        // Add PATCH route
+        patch: fn(pattern: string, handler) {
+            return self.route("PATCH", pattern, handler);
+        },
+
+        // handle(request: Request) -> Response
+        // Find matching route and execute handler
+        handle: fn(request) {
+            for (r in routes) {
+                if (r.method != request.method && r.method != "*") {
+                    continue;
+                }
+
+                let params = match_path(r.pattern, request.path);
+                if (params != null) {
+                    request.params = params;
+                    try {
+                        return r.handler(request);
+                    } catch (e) {
+                        return internal_error("Handler error: " + e);
+                    }
+                }
+            }
+
+            return not_found("No route matches " + request.method + " " + request.path);
+        },
+
+        // all(pattern: string, handler: fn) -> self
+        // Add route for all methods
+        all: fn(pattern: string, handler) {
+            return self.route("*", pattern, handler);
+        },
+    };
+}
+
+// ========== STATIC FILE SERVER ==========
+
+// static_files(root: string, prefix?: string) -> fn
+// Create a handler that serves static files from a directory
+export fn static_files(root: string, prefix?: "/") {
+    return fn(request) {
+        // Remove prefix from path
+        let file_path = request.path;
+        if (prefix != "/" && file_path.starts_with(prefix)) {
+            file_path = file_path.substr(prefix.length, file_path.length - prefix.length);
+        }
+
+        // Security: prevent directory traversal
+        if (file_path.contains("..")) {
+            return forbidden("Invalid path");
+        }
+
+        // Build full path
+        let full_path = join(root, file_path);
+
+        // Serve index.html for directories
+        if (!exists(full_path) || !is_file(full_path)) {
+            let index_path = join(full_path, "index.html");
+            if (exists(index_path) && is_file(index_path)) {
+                full_path = index_path;
+            } else {
+                return not_found("File not found: " + file_path);
+            }
+        }
+
+        // Read and serve file
+        try {
+            let content = read_file(full_path);
+            let mime = content_type(full_path);
+
+            return Response()
+                .status(200)
+                .header("content-type", mime)
+                .body(content);
+        } catch (e) {
+            return internal_error("Error reading file: " + e);
+        }
+    };
+}
+
+// ========== HTTP SERVER ==========
+
+// Server(address: string, port: i32) -> Server object
+// Create an HTTP server
+export fn Server(address: string, port: i32) {
+    let listener = null;
+    let router = Router();
+    let running = false;
+    let middleware = [];
+
+    return {
+        // get/post/put/delete/patch - delegate to router
+        get: fn(pattern: string, handler) {
+            router.get(pattern, handler);
+            return self;
+        },
+
+        post: fn(pattern: string, handler) {
+            router.post(pattern, handler);
+            return self;
+        },
+
+        put: fn(pattern: string, handler) {
+            router.put(pattern, handler);
+            return self;
+        },
+
+        delete: fn(pattern: string, handler) {
+            router.delete(pattern, handler);
+            return self;
+        },
+
+        patch: fn(pattern: string, handler) {
+            router.patch(pattern, handler);
+            return self;
+        },
+
+        // route(method: string, pattern: string, handler: fn) -> self
+        route: fn(method: string, pattern: string, handler) {
+            router.route(method, pattern, handler);
+            return self;
+        },
+
+        // use(handler: fn) -> self
+        // Add middleware
+        use: fn(handler) {
+            middleware.push(handler);
+            return self;
+        },
+
+        // static(root: string, prefix?: string) -> self
+        // Serve static files from directory
+        static: fn(root: string, prefix?: "/") {
+            router.all(prefix + "/*", static_files(root, prefix));
+            return self;
+        },
+
+        // handle_request(client: TcpStream) -> null
+        // Handle a single client connection
+        handle_request: fn(client) {
+            defer client.close();
+
+            let request = parse_request(client);
+            if (request == null) {
+                bad_request("Invalid request").send(client);
+                return null;
+            }
+
+            // Run middleware
+            for (mw in middleware) {
+                try {
+                    let result = mw(request);
+                    if (result != null) {
+                        // Middleware returned response, send it
+                        result.send(client);
+                        return null;
+                    }
+                } catch (e) {
+                    internal_error("Middleware error: " + e).send(client);
+                    return null;
+                }
+            }
+
+            // Handle request through router
+            let response = router.handle(request);
+            response.send(client);
+            return null;
+        },
+
+        // listen(callback?: fn) -> null
+        // Start listening for connections (blocking)
+        listen: fn(callback?) {
+            listener = TcpListener(address, port);
+            running = true;
+
+            if (callback != null) {
+                callback(address, port);
+            }
+
+            while (running) {
+                try {
+                    let client = listener.accept();
+                    // Handle request (could spawn for concurrent handling)
+                    self.handle_request(client);
+                } catch (e) {
+                    if (running) {
+                        eprint("Error accepting connection: " + e);
+                    }
+                }
+            }
+
+            return null;
+        },
+
+        // listen_async(callback?: fn) -> task
+        // Start listening in background
+        listen_async: fn(callback?) {
+            return spawn(fn() {
+                self.listen(callback);
+            });
+        },
+
+        // stop() -> null
+        // Stop the server
+        stop: fn() {
+            running = false;
+            if (listener != null) {
+                listener.close();
+            }
+            return null;
+        },
+
+        // is_running() -> bool
+        is_running: fn(): bool {
+            return running;
+        },
+
+        // get_router() -> Router
+        get_router: fn() {
+            return router;
+        },
+    };
+}
+
+// ========== MIDDLEWARE HELPERS ==========
+
+// logger() -> fn
+// Logging middleware
+export fn logger() {
+    return fn(request) {
+        let timestamp = now();
+        print("[" + timestamp + "] " + request.method + " " + request.path);
+        return null;  // Continue to next handler
+    };
+}
+
+// cors(origins?: string) -> fn
+// CORS middleware
+export fn cors(origins?: "*") {
+    return fn(request) {
+        // For preflight requests
+        if (request.method == "OPTIONS") {
+            return Response()
+                .status(204)
+                .header("Access-Control-Allow-Origin", origins)
+                .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+                .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+                .header("Access-Control-Max-Age", "86400");
+        }
+
+        // For actual requests, headers will be added by response
+        // This is a simplified implementation
+        return null;
+    };
+}
+
+// json_body() -> fn
+// Parse JSON body middleware (adds parsed_body to request)
+export fn json_body() {
+    return fn(request) {
+        let content_type = request.headers.get("content-type");
+        if (content_type != null && content_type.contains("application/json")) {
+            try {
+                request.parsed_body = request.body.deserialize();
+            } catch (e) {
+                return bad_request("Invalid JSON body");
+            }
+        }
+        return null;
+    };
+}

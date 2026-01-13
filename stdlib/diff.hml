@@ -1,0 +1,470 @@
+// Hemlock Standard Library: Diff Algorithm
+// Text comparison and patch generation using longest common subsequence
+
+// ========== DIFF TYPES ==========
+
+export let DIFF_EQUAL = 0;    // Line unchanged
+export let DIFF_INSERT = 1;   // Line added
+export let DIFF_DELETE = 2;   // Line removed
+
+// ========== LINE SPLITTING ==========
+
+// split_lines(text: string) -> array
+// Split text into lines, preserving line endings
+export fn split_lines(text: string): array {
+    let lines = [];
+    let current = "";
+
+    for (let i = 0; i < text.length; i++) {
+        let ch = text.char_at(i);
+        current = current + ch;
+
+        if (ch == '\n') {
+            lines.push(current);
+            current = "";
+        }
+    }
+
+    // Add last line if not empty
+    if (current.length > 0) {
+        lines.push(current);
+    }
+
+    return lines;
+}
+
+// join_lines(lines: array) -> string
+// Join lines back into text
+export fn join_lines(lines: array): string {
+    let result = "";
+    for (line in lines) {
+        result = result + line;
+    }
+    return result;
+}
+
+// ========== LONGEST COMMON SUBSEQUENCE ==========
+
+// lcs_length(a: array, b: array) -> array<array<i32>>
+// Compute LCS length matrix
+fn lcs_matrix(a: array, b: array): array {
+    let m = a.length;
+    let n = b.length;
+
+    // Create (m+1) x (n+1) matrix
+    let matrix = [];
+    for (let i = 0; i <= m; i++) {
+        let row = [];
+        for (let j = 0; j <= n; j++) {
+            row.push(0);
+        }
+        matrix.push(row);
+    }
+
+    // Fill matrix
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (a[i - 1] == b[j - 1]) {
+                matrix[i][j] = matrix[i - 1][j - 1] + 1;
+            } else {
+                let up = matrix[i - 1][j];
+                let left = matrix[i][j - 1];
+                matrix[i][j] = up > left ? up : left;
+            }
+        }
+    }
+
+    return matrix;
+}
+
+// ========== DIFF COMPUTATION ==========
+
+// DiffOp represents a single diff operation
+define DiffOp {
+    op: i32,       // DIFF_EQUAL, DIFF_INSERT, or DIFF_DELETE
+    value: string, // The line content
+}
+
+// diff_lines(old_lines: array, new_lines: array) -> array<DiffOp>
+// Compute line-by-line diff between two arrays of lines
+export fn diff_lines(old_lines: array, new_lines: array): array {
+    let m = old_lines.length;
+    let n = new_lines.length;
+
+    // Handle edge cases
+    if (m == 0 && n == 0) {
+        return [];
+    }
+
+    if (m == 0) {
+        let result = [];
+        for (line in new_lines) {
+            result.push({ op: DIFF_INSERT, value: line });
+        }
+        return result;
+    }
+
+    if (n == 0) {
+        let result = [];
+        for (line in old_lines) {
+            result.push({ op: DIFF_DELETE, value: line });
+        }
+        return result;
+    }
+
+    // Compute LCS matrix
+    let matrix = lcs_matrix(old_lines, new_lines);
+
+    // Backtrack to find diff
+    let result = [];
+    let i = m;
+    let j = n;
+
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1]) {
+            // Lines are equal
+            result.push({ op: DIFF_EQUAL, value: old_lines[i - 1] });
+            i = i - 1;
+            j = j - 1;
+        } else if (j > 0 && (i == 0 || matrix[i][j - 1] >= matrix[i - 1][j])) {
+            // Insert from new
+            result.push({ op: DIFF_INSERT, value: new_lines[j - 1] });
+            j = j - 1;
+        } else if (i > 0) {
+            // Delete from old
+            result.push({ op: DIFF_DELETE, value: old_lines[i - 1] });
+            i = i - 1;
+        }
+    }
+
+    // Reverse since we built it backwards
+    result.reverse();
+    return result;
+}
+
+// diff(old_text: string, new_text: string) -> array<DiffOp>
+// Compute diff between two strings
+export fn diff(old_text: string, new_text: string): array {
+    let old_lines = split_lines(old_text);
+    let new_lines = split_lines(new_text);
+    return diff_lines(old_lines, new_lines);
+}
+
+// ========== UNIFIED DIFF FORMAT ==========
+
+// unified_diff(old_text: string, new_text: string, old_name?: string, new_name?: string, context?: i32) -> string
+// Generate unified diff format
+export fn unified_diff(old_text: string, new_text: string, old_name?: "a", new_name?: "b", context?: 3): string {
+    let ops = diff(old_text, new_text);
+
+    if (ops.length == 0) {
+        return "";
+    }
+
+    // Check if there are any changes
+    let has_changes = false;
+    for (op in ops) {
+        if (op.op != DIFF_EQUAL) {
+            has_changes = true;
+            break;
+        }
+    }
+
+    if (!has_changes) {
+        return "";
+    }
+
+    let result = "";
+
+    // Header
+    result = result + "--- " + old_name + "\n";
+    result = result + "+++ " + new_name + "\n";
+
+    // Group changes into hunks
+    let hunks = [];
+    let current_hunk = null;
+    let old_line = 0;
+    let new_line = 0;
+
+    for (let i = 0; i < ops.length; i++) {
+        let op = ops[i];
+
+        // Count lines
+        let old_count = op.op == DIFF_INSERT ? 0 : 1;
+        let new_count = op.op == DIFF_DELETE ? 0 : 1;
+
+        if (op.op != DIFF_EQUAL) {
+            // Start new hunk or extend current
+            if (current_hunk == null) {
+                // Start new hunk with context
+                let start_idx = i - context;
+                if (start_idx < 0) {
+                    start_idx = 0;
+                }
+
+                current_hunk = {
+                    old_start: old_line - (i - start_idx) + 1,
+                    new_start: new_line - (i - start_idx) + 1,
+                    old_count: 0,
+                    new_count: 0,
+                    lines: [],
+                };
+
+                // Add leading context
+                for (let j = start_idx; j < i; j++) {
+                    current_hunk.lines.push({ prefix: " ", value: ops[j].value });
+                    current_hunk.old_count = current_hunk.old_count + 1;
+                    current_hunk.new_count = current_hunk.new_count + 1;
+                }
+            }
+
+            // Add change
+            if (op.op == DIFF_DELETE) {
+                current_hunk.lines.push({ prefix: "-", value: op.value });
+                current_hunk.old_count = current_hunk.old_count + 1;
+            } else {
+                current_hunk.lines.push({ prefix: "+", value: op.value });
+                current_hunk.new_count = current_hunk.new_count + 1;
+            }
+        } else if (current_hunk != null) {
+            // In a hunk, check if we should continue or close
+            let remaining_changes = false;
+            for (let j = i + 1; j < ops.length && j <= i + context; j++) {
+                if (ops[j].op != DIFF_EQUAL) {
+                    remaining_changes = true;
+                    break;
+                }
+            }
+
+            if (remaining_changes) {
+                // Continue hunk
+                current_hunk.lines.push({ prefix: " ", value: op.value });
+                current_hunk.old_count = current_hunk.old_count + 1;
+                current_hunk.new_count = current_hunk.new_count + 1;
+            } else {
+                // Add trailing context and close hunk
+                let trail_count = 0;
+                for (let j = i; j < ops.length && trail_count < context; j++) {
+                    if (ops[j].op == DIFF_EQUAL) {
+                        current_hunk.lines.push({ prefix: " ", value: ops[j].value });
+                        current_hunk.old_count = current_hunk.old_count + 1;
+                        current_hunk.new_count = current_hunk.new_count + 1;
+                        trail_count = trail_count + 1;
+                    }
+                }
+                hunks.push(current_hunk);
+                current_hunk = null;
+            }
+        }
+
+        old_line = old_line + old_count;
+        new_line = new_line + new_count;
+    }
+
+    // Close final hunk
+    if (current_hunk != null) {
+        hunks.push(current_hunk);
+    }
+
+    // Format hunks
+    for (hunk in hunks) {
+        result = result + "@@ -" + hunk.old_start + "," + hunk.old_count;
+        result = result + " +" + hunk.new_start + "," + hunk.new_count + " @@\n";
+
+        for (line in hunk.lines) {
+            result = result + line.prefix + line.value;
+            // Ensure line ends with newline
+            if (!line.value.ends_with("\n")) {
+                result = result + "\n";
+            }
+        }
+    }
+
+    return result;
+}
+
+// ========== PATCH APPLICATION ==========
+
+// apply_diff(original: string, diff_ops: array) -> string
+// Apply diff operations to original text
+export fn apply_diff(original: string, diff_ops: array): string {
+    let result = "";
+
+    for (op in diff_ops) {
+        if (op.op == DIFF_EQUAL || op.op == DIFF_INSERT) {
+            result = result + op.value;
+        }
+        // DIFF_DELETE: skip the line
+    }
+
+    return result;
+}
+
+// ========== COMPARISON UTILITIES ==========
+
+// are_equal(a: string, b: string) -> bool
+// Check if two texts are equal
+export fn are_equal(a: string, b: string): bool {
+    return a == b;
+}
+
+// changes_count(diff_ops: array) -> { insertions: i32, deletions: i32 }
+// Count insertions and deletions in diff
+export fn changes_count(diff_ops: array) {
+    let insertions = 0;
+    let deletions = 0;
+
+    for (op in diff_ops) {
+        if (op.op == DIFF_INSERT) {
+            insertions = insertions + 1;
+        } else if (op.op == DIFF_DELETE) {
+            deletions = deletions + 1;
+        }
+    }
+
+    return { insertions: insertions, deletions: deletions };
+}
+
+// has_changes(diff_ops: array) -> bool
+// Check if diff contains any changes
+export fn has_changes(diff_ops: array): bool {
+    for (op in diff_ops) {
+        if (op.op != DIFF_EQUAL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ========== THREE-WAY MERGE ==========
+
+// merge3(base: string, ours: string, theirs: string) -> { result: string, conflicts: array }
+// Three-way merge
+export fn merge3(base: string, ours: string, theirs: string) {
+    let base_lines = split_lines(base);
+    let ours_lines = split_lines(ours);
+    let theirs_lines = split_lines(theirs);
+
+    let ours_diff = diff_lines(base_lines, ours_lines);
+    let theirs_diff = diff_lines(base_lines, theirs_lines);
+
+    // Simple merge: if both changed the same way, keep; if different, conflict
+    // This is a simplified implementation
+
+    let result_lines = [];
+    let conflicts = [];
+
+    let ours_changes = {};
+    let theirs_changes = {};
+
+    // Build change maps (simplified - maps line index to new content)
+    let ours_idx = 0;
+    for (op in ours_diff) {
+        if (op.op == DIFF_DELETE) {
+            ours_changes[ours_idx] = { deleted: true };
+            ours_idx = ours_idx + 1;
+        } else if (op.op == DIFF_EQUAL) {
+            ours_idx = ours_idx + 1;
+        }
+    }
+
+    let theirs_idx = 0;
+    for (op in theirs_diff) {
+        if (op.op == DIFF_DELETE) {
+            theirs_changes[theirs_idx] = { deleted: true };
+            theirs_idx = theirs_idx + 1;
+        } else if (op.op == DIFF_EQUAL) {
+            theirs_idx = theirs_idx + 1;
+        }
+    }
+
+    // Apply changes (simplified - just use ours if no conflict)
+    for (let i = 0; i < base_lines.length; i++) {
+        let ours_change = ours_changes[i];
+        let theirs_change = theirs_changes[i];
+
+        if (ours_change == null && theirs_change == null) {
+            // No change
+            result_lines.push(base_lines[i]);
+        } else if (ours_change != null && theirs_change == null) {
+            // Only ours changed
+            if (ours_change.deleted != true) {
+                result_lines.push(ours_change.value ?? base_lines[i]);
+            }
+        } else if (ours_change == null && theirs_change != null) {
+            // Only theirs changed
+            if (theirs_change.deleted != true) {
+                result_lines.push(theirs_change.value ?? base_lines[i]);
+            }
+        } else {
+            // Both changed - potential conflict
+            conflicts.push({
+                line: i,
+                base: base_lines[i],
+                ours: ours_change,
+                theirs: theirs_change,
+            });
+            // Keep ours for now
+            if (ours_change.deleted != true) {
+                result_lines.push(base_lines[i]);
+            }
+        }
+    }
+
+    return {
+        result: join_lines(result_lines),
+        conflicts: conflicts,
+    };
+}
+
+// ========== PRETTY PRINTING ==========
+
+// format_diff(diff_ops: array) -> string
+// Format diff for display (with +/- prefixes)
+export fn format_diff(diff_ops: array): string {
+    let result = "";
+
+    for (op in diff_ops) {
+        if (op.op == DIFF_EQUAL) {
+            result = result + "  " + op.value;
+        } else if (op.op == DIFF_INSERT) {
+            result = result + "+ " + op.value;
+        } else if (op.op == DIFF_DELETE) {
+            result = result + "- " + op.value;
+        }
+
+        // Ensure line ends with newline
+        if (!op.value.ends_with("\n")) {
+            result = result + "\n";
+        }
+    }
+
+    return result;
+}
+
+// colorize_diff(diff_ops: array) -> string
+// Format diff with ANSI colors
+export fn colorize_diff(diff_ops: array): string {
+    let RED = "\x1b[31m";
+    let GREEN = "\x1b[32m";
+    let RESET = "\x1b[0m";
+
+    let result = "";
+
+    for (op in diff_ops) {
+        if (op.op == DIFF_EQUAL) {
+            result = result + "  " + op.value;
+        } else if (op.op == DIFF_INSERT) {
+            result = result + GREEN + "+ " + op.value + RESET;
+        } else if (op.op == DIFF_DELETE) {
+            result = result + RED + "- " + op.value + RESET;
+        }
+
+        // Ensure line ends with newline
+        if (!op.value.ends_with("\n")) {
+            result = result + "\n";
+        }
+    }
+
+    return result;
+}

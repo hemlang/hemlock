@@ -1,0 +1,543 @@
+// Hemlock Standard Library: Template Engine
+// Mustache-inspired template syntax for string interpolation
+
+import { HashMap } from "@stdlib/collections";
+
+// ========== TEMPLATE SYNTAX ==========
+//
+// Variables:
+//   {{ name }}           - Insert variable, HTML escaped
+//   {{{ name }}}         - Insert variable, raw (no escaping)
+//   {{ obj.prop }}       - Dot notation for nested properties
+//   {{ arr.0 }}          - Array index access
+//
+// Sections (conditionals and loops):
+//   {{#section}} ... {{/section}}     - If truthy or iterate array
+//   {{^section}} ... {{/section}}     - If falsy (inverted)
+//
+// Comments:
+//   {{! This is a comment }}
+//
+// Partials (sub-templates):
+//   {{> partial_name }}
+//
+
+// ========== HTML ESCAPING ==========
+
+// escape_html(s: string) -> string
+// Escape HTML special characters
+export fn escape_html(s: string): string {
+    let result = "";
+
+    for (let i = 0; i < s.length; i++) {
+        let ch = s.char_at(i);
+
+        if (ch == '&') {
+            result = result + "&amp;";
+        } else if (ch == '<') {
+            result = result + "&lt;";
+        } else if (ch == '>') {
+            result = result + "&gt;";
+        } else if (ch == '"') {
+            result = result + "&quot;";
+        } else if (ch == "'") {
+            result = result + "&#39;";
+        } else {
+            result = result + ch;
+        }
+    }
+
+    return result;
+}
+
+// ========== VALUE RESOLUTION ==========
+
+// resolve_value(path: string, context: object) -> any
+// Resolve a dotted path in a context object
+fn resolve_value(path: string, context) {
+    if (context == null) {
+        return null;
+    }
+
+    let parts = path.split(".");
+    let current = context;
+
+    for (part in parts) {
+        if (current == null) {
+            return null;
+        }
+
+        let type = typeof(current);
+
+        if (type == "object") {
+            current = current[part];
+        } else if (type == "array") {
+            // Try to parse as index
+            let index = parse_int(part);
+            if (index >= 0 && index < current.length) {
+                current = current[index];
+            } else {
+                return null;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    return current;
+}
+
+// Helper: parse integer from string
+fn parse_int(s: string): i32 {
+    let result = 0;
+    for (let i = 0; i < s.length; i++) {
+        let ch = s.char_at(i);
+        if (ch < '0' || ch > '9') {
+            return -1;
+        }
+        result = result * 10 + (s.byte_at(i) - 48);
+    }
+    return result;
+}
+
+// is_truthy(value) -> bool
+// Check if value is truthy for template conditionals
+fn is_truthy(value): bool {
+    if (value == null) {
+        return false;
+    }
+
+    let type = typeof(value);
+
+    if (type == "bool") {
+        return value;
+    }
+
+    if (type == "string") {
+        return value.length > 0;
+    }
+
+    if (type == "array") {
+        return value.length > 0;
+    }
+
+    if (type == "i32" || type == "i64" || type == "f64") {
+        return value != 0;
+    }
+
+    return true;
+}
+
+// to_string(value) -> string
+// Convert any value to string for output
+fn to_string(value): string {
+    if (value == null) {
+        return "";
+    }
+
+    let type = typeof(value);
+
+    if (type == "string") {
+        return value;
+    }
+
+    if (type == "bool") {
+        return value ? "true" : "false";
+    }
+
+    if (type == "object" || type == "array") {
+        return value.serialize();
+    }
+
+    return value + "";
+}
+
+// ========== TOKENIZER ==========
+
+let TOKEN_TEXT = 0;
+let TOKEN_VAR = 1;
+let TOKEN_VAR_RAW = 2;
+let TOKEN_SECTION_START = 3;
+let TOKEN_SECTION_END = 4;
+let TOKEN_INVERTED = 5;
+let TOKEN_COMMENT = 6;
+let TOKEN_PARTIAL = 7;
+
+fn tokenize(template: string): array {
+    let tokens = [];
+    let i = 0;
+    let len = template.length;
+
+    while (i < len) {
+        // Look for opening tag
+        let open_pos = -1;
+
+        for (let j = i; j < len - 1; j++) {
+            if (template.char_at(j) == '{' && template.char_at(j + 1) == '{') {
+                open_pos = j;
+                break;
+            }
+        }
+
+        if (open_pos == -1) {
+            // No more tags, rest is text
+            if (i < len) {
+                tokens.push({ type: TOKEN_TEXT, value: template.substr(i, len - i) });
+            }
+            break;
+        }
+
+        // Add text before tag
+        if (open_pos > i) {
+            tokens.push({ type: TOKEN_TEXT, value: template.substr(i, open_pos - i) });
+        }
+
+        // Find closing tag
+        let close_pos = -1;
+        let search_start = open_pos + 2;
+
+        // Check for triple mustache {{{ }}}
+        let is_triple = open_pos + 2 < len && template.char_at(open_pos + 2) == '{';
+        if (is_triple) {
+            search_start = open_pos + 3;
+            // Look for }}}
+            for (let j = search_start; j < len - 2; j++) {
+                if (template.char_at(j) == '}' &&
+                    template.char_at(j + 1) == '}' &&
+                    template.char_at(j + 2) == '}') {
+                    close_pos = j;
+                    break;
+                }
+            }
+        } else {
+            // Look for }}
+            for (let j = search_start; j < len - 1; j++) {
+                if (template.char_at(j) == '}' && template.char_at(j + 1) == '}') {
+                    close_pos = j;
+                    break;
+                }
+            }
+        }
+
+        if (close_pos == -1) {
+            // Unclosed tag, treat rest as text
+            tokens.push({ type: TOKEN_TEXT, value: template.substr(open_pos, len - open_pos) });
+            break;
+        }
+
+        // Extract tag content
+        let content = template.substr(search_start, close_pos - search_start).trim();
+
+        // Determine token type
+        let token_type = TOKEN_VAR;
+        let token_value = content;
+
+        if (is_triple) {
+            token_type = TOKEN_VAR_RAW;
+            i = close_pos + 3;
+        } else if (content.length > 0) {
+            let first_char = content.char_at(0);
+
+            if (first_char == '#') {
+                token_type = TOKEN_SECTION_START;
+                token_value = content.substr(1, content.length - 1).trim();
+            } else if (first_char == '/') {
+                token_type = TOKEN_SECTION_END;
+                token_value = content.substr(1, content.length - 1).trim();
+            } else if (first_char == '^') {
+                token_type = TOKEN_INVERTED;
+                token_value = content.substr(1, content.length - 1).trim();
+            } else if (first_char == '!') {
+                token_type = TOKEN_COMMENT;
+                token_value = content.substr(1, content.length - 1).trim();
+            } else if (first_char == '>') {
+                token_type = TOKEN_PARTIAL;
+                token_value = content.substr(1, content.length - 1).trim();
+            } else if (first_char == '&') {
+                // {{& var }} is also raw output
+                token_type = TOKEN_VAR_RAW;
+                token_value = content.substr(1, content.length - 1).trim();
+            }
+
+            i = close_pos + 2;
+        } else {
+            i = close_pos + 2;
+        }
+
+        if (token_type != TOKEN_COMMENT) {
+            tokens.push({ type: token_type, value: token_value });
+        }
+    }
+
+    return tokens;
+}
+
+// ========== PARSER ==========
+
+// Parse tokens into an AST
+fn parse_tokens(tokens: array, start?: 0, end_tag?) {
+    let nodes = [];
+    let i = start;
+
+    while (i < tokens.length) {
+        let token = tokens[i];
+
+        if (token.type == TOKEN_TEXT) {
+            nodes.push({ type: "text", value: token.value });
+            i = i + 1;
+        } else if (token.type == TOKEN_VAR) {
+            nodes.push({ type: "var", name: token.value, escape: true });
+            i = i + 1;
+        } else if (token.type == TOKEN_VAR_RAW) {
+            nodes.push({ type: "var", name: token.value, escape: false });
+            i = i + 1;
+        } else if (token.type == TOKEN_SECTION_START) {
+            // Parse section body
+            let section_name = token.value;
+            let body_result = parse_tokens(tokens, i + 1, section_name);
+            nodes.push({
+                type: "section",
+                name: section_name,
+                body: body_result.nodes,
+                inverted: false,
+            });
+            i = body_result.end_index + 1;
+        } else if (token.type == TOKEN_INVERTED) {
+            // Parse inverted section body
+            let section_name = token.value;
+            let body_result = parse_tokens(tokens, i + 1, section_name);
+            nodes.push({
+                type: "section",
+                name: section_name,
+                body: body_result.nodes,
+                inverted: true,
+            });
+            i = body_result.end_index + 1;
+        } else if (token.type == TOKEN_SECTION_END) {
+            if (end_tag != null && token.value == end_tag) {
+                return { nodes: nodes, end_index: i };
+            }
+            // Mismatched end tag, skip
+            i = i + 1;
+        } else if (token.type == TOKEN_PARTIAL) {
+            nodes.push({ type: "partial", name: token.value });
+            i = i + 1;
+        } else {
+            i = i + 1;
+        }
+    }
+
+    return { nodes: nodes, end_index: tokens.length };
+}
+
+// ========== RENDERER ==========
+
+// Render AST with context
+fn render_nodes(nodes: array, context, partials) {
+    let result = "";
+
+    for (node in nodes) {
+        if (node.type == "text") {
+            result = result + node.value;
+        } else if (node.type == "var") {
+            let value = resolve_value(node.name, context);
+            let str_value = to_string(value);
+
+            if (node.escape) {
+                result = result + escape_html(str_value);
+            } else {
+                result = result + str_value;
+            }
+        } else if (node.type == "section") {
+            let value = resolve_value(node.name, context);
+            let truthy = is_truthy(value);
+
+            if (node.inverted) {
+                // Inverted section: render if falsy
+                if (!truthy) {
+                    result = result + render_nodes(node.body, context, partials);
+                }
+            } else {
+                // Normal section
+                if (truthy) {
+                    if (typeof(value) == "array") {
+                        // Iterate over array
+                        for (item in value) {
+                            // Create new context with item and special vars
+                            let item_context = item;
+                            if (typeof(item) != "object") {
+                                item_context = { ".": item };
+                            }
+                            result = result + render_nodes(node.body, item_context, partials);
+                        }
+                    } else if (typeof(value) == "object") {
+                        // Use object as new context
+                        result = result + render_nodes(node.body, value, partials);
+                    } else {
+                        // Just render body with current context
+                        result = result + render_nodes(node.body, context, partials);
+                    }
+                }
+            }
+        } else if (node.type == "partial") {
+            // Look up partial template
+            let partial_template = partials.get(node.name);
+            if (partial_template != null) {
+                // Compile and render partial
+                let partial_ast = compile_to_ast(partial_template);
+                result = result + render_nodes(partial_ast, context, partials);
+            }
+        }
+    }
+
+    return result;
+}
+
+// ========== PUBLIC API ==========
+
+// Compile template to AST (for reuse)
+fn compile_to_ast(template: string): array {
+    let tokens = tokenize(template);
+    let parsed = parse_tokens(tokens, 0, null);
+    return parsed.nodes;
+}
+
+// Template object for compiled templates
+export fn Template(source: string) {
+    let ast = compile_to_ast(source);
+    let partials_map = HashMap();
+
+    return {
+        // render(context: object) -> string
+        // Render template with given context
+        render: fn(context) {
+            return render_nodes(ast, context, partials_map);
+        },
+
+        // partial(name: string, template: string) -> self
+        // Register a partial template
+        partial: fn(name: string, template: string) {
+            partials_map.set(name, template);
+            return self;
+        },
+
+        // partials(map: object) -> self
+        // Register multiple partials
+        partials: fn(map) {
+            for (key in map) {
+                partials_map.set(key, map[key]);
+            }
+            return self;
+        },
+    };
+}
+
+// render(template: string, context: object, partials?: object) -> string
+// One-shot render without pre-compilation
+export fn render(template: string, context, partials?) {
+    let t = Template(template);
+    if (partials != null) {
+        t.partials(partials);
+    }
+    return t.render(context);
+}
+
+// compile(template: string) -> Template
+// Compile template for repeated use
+export fn compile(template: string) {
+    return Template(template);
+}
+
+// ========== CONVENIENCE FUNCTIONS ==========
+
+// interpolate(template: string, values: object) -> string
+// Simple variable interpolation without sections
+// Uses {{ var }} syntax
+export fn interpolate(template: string, values): string {
+    let result = "";
+    let i = 0;
+    let len = template.length;
+
+    while (i < len) {
+        // Look for {{
+        let open_pos = -1;
+        for (let j = i; j < len - 1; j++) {
+            if (template.char_at(j) == '{' && template.char_at(j + 1) == '{') {
+                open_pos = j;
+                break;
+            }
+        }
+
+        if (open_pos == -1) {
+            result = result + template.substr(i, len - i);
+            break;
+        }
+
+        // Add text before
+        result = result + template.substr(i, open_pos - i);
+
+        // Find }}
+        let close_pos = -1;
+        for (let j = open_pos + 2; j < len - 1; j++) {
+            if (template.char_at(j) == '}' && template.char_at(j + 1) == '}') {
+                close_pos = j;
+                break;
+            }
+        }
+
+        if (close_pos == -1) {
+            result = result + template.substr(open_pos, len - open_pos);
+            break;
+        }
+
+        // Get variable name and resolve
+        let var_name = template.substr(open_pos + 2, close_pos - open_pos - 2).trim();
+        let value = resolve_value(var_name, values);
+        result = result + to_string(value);
+
+        i = close_pos + 2;
+    }
+
+    return result;
+}
+
+// format(template: string, ...args) -> string
+// Printf-style formatting with {} placeholders
+// Example: format("Hello, {}!", "world") -> "Hello, world!"
+export fn format(template: string, args: array): string {
+    let result = "";
+    let arg_index = 0;
+    let i = 0;
+    let len = template.length;
+
+    while (i < len) {
+        let ch = template.char_at(i);
+
+        if (ch == '{' && i + 1 < len && template.char_at(i + 1) == '}') {
+            // Replace {} with next argument
+            if (arg_index < args.length) {
+                result = result + to_string(args[arg_index]);
+                arg_index = arg_index + 1;
+            }
+            i = i + 2;
+        } else if (ch == '{' && i + 2 < len && template.char_at(i + 2) == '}') {
+            // Check for {n} numbered placeholder
+            let num_ch = template.char_at(i + 1);
+            if (num_ch >= '0' && num_ch <= '9') {
+                let idx = template.byte_at(i + 1) - 48;
+                if (idx < args.length) {
+                    result = result + to_string(args[idx]);
+                }
+                i = i + 3;
+                continue;
+            }
+            result = result + ch;
+            i = i + 1;
+        } else {
+            result = result + ch;
+            i = i + 1;
+        }
+    }
+
+    return result;
+}
