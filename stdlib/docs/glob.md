@@ -5,14 +5,14 @@ The `glob` module provides functions for matching file paths against glob patter
 ## Quick Start
 
 ```hemlock
-import { glob, match, match_path } from "@stdlib/glob";
+import { glob, glob_match, match_path } from "@stdlib/glob";
 
 // Find all .hml files recursively
 let files = glob("**/*.hml", "src");
 
 // Match a string against a pattern
-print(match("*.txt", "file.txt"));   // true
-print(match("*.txt", "file.md"));    // false
+print(glob_match("*.txt", "file.txt"));   // true
+print(glob_match("*.txt", "file.md"));    // false
 
 // Match paths with ** support
 print(match_path("src/**/*.hml", "src/utils/helper.hml"));  // true
@@ -31,7 +31,7 @@ print(match_path("src/**/*.hml", "src/utils/helper.hml"));  // true
 
 ## API Reference
 
-### match(pattern, text): bool
+### glob_match(pattern, text): bool
 
 Match a string against a glob pattern.
 
@@ -42,17 +42,17 @@ Match a string against a glob pattern.
 **Returns:** `bool` - True if text matches pattern
 
 ```hemlock
-import { match } from "@stdlib/glob";
+import { glob_match } from "@stdlib/glob";
 
-print(match("*.txt", "file.txt"));    // true
-print(match("*.txt", "file.md"));     // false
-print(match("file.*", "file.tar.gz")); // true
-print(match("f?le.txt", "file.txt")); // true
-print(match("f?le.txt", "fle.txt"));  // false
-print(match("[abc].txt", "a.txt"));   // true
-print(match("[abc].txt", "d.txt"));   // false
-print(match("[!abc].txt", "d.txt"));  // true
-print(match("[a-z].txt", "m.txt"));   // true
+print(glob_match("*.txt", "file.txt"));    // true
+print(glob_match("*.txt", "file.md"));     // false
+print(glob_match("file.*", "file.tar.gz")); // true
+print(glob_match("f?le.txt", "file.txt")); // true
+print(glob_match("f?le.txt", "fle.txt"));  // false
+print(glob_match("[abc].txt", "a.txt"));   // true
+print(glob_match("[abc].txt", "d.txt"));   // false
+print(glob_match("[!abc].txt", "d.txt"));  // true
+print(glob_match("[a-z].txt", "m.txt"));   // true
 ```
 
 ### match_path(pattern, path): bool
@@ -131,7 +131,7 @@ import { escape, match } from "@stdlib/glob";
 let filename = "file[1].txt";
 let pattern = escape(filename);
 print(pattern);                        // "file[[]1].txt"
-print(match(pattern, filename));       // true
+print(glob_match(pattern, filename));       // true
 ```
 
 ### has_magic(pattern): bool
@@ -216,16 +216,16 @@ while (i < sources.length) {
 ### Matching file extensions
 
 ```hemlock
-import { match } from "@stdlib/glob";
+import { glob_match } from "@stdlib/glob";
 
 fn get_file_type(filename) {
-    if (match("*.hml", filename)) {
+    if (glob_match("*.hml", filename)) {
         return "hemlock";
     }
-    if (match("*.{js,ts}", filename)) {
+    if (glob_match("*.{js,ts}", filename)) {
         return "javascript";
     }
-    if (match("*.py", filename)) {
+    if (glob_match("*.py", filename)) {
         return "python";
     }
     return "unknown";

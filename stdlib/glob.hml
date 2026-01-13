@@ -4,9 +4,9 @@
 // and finding files in the filesystem.
 //
 // Usage:
-// import { glob, match } from "@stdlib/glob";
+// import { glob, glob_match } from "@stdlib/glob";
 // let files = glob("src/**/*.hml");
-// print(match("file.txt", "*.txt"));  // true
+// print(glob_match("file.txt", "*.txt"));  // true
 import { list_dir, is_dir, is_file, exists, cwd } from "@stdlib/fs";
 import { join, basename, dirname, SEP } from "@stdlib/path";
 
@@ -19,9 +19,9 @@ import { join, basename, dirname, SEP } from "@stdlib/path";
 // pattern: string - Glob pattern (supports *, ?, [abc], [!abc])
 // text: string - String to match
 // Returns: bool - True if text matches pattern
-export fn match(pattern, text): bool {
+export fn glob_match(pattern, text): bool {
 	if (typeof(pattern) != "string" || typeof(text) != "string") {
-		throw "match() requires string arguments";
+		throw "glob_match() requires string arguments";
 	}
 
 	return match_pattern(pattern, text, 0, 0);
@@ -204,7 +204,7 @@ fn match_parts(pattern_parts, path_parts, pi, ti): bool {
 				return false;
 			}
 
-			if (!match(p_part, path_parts[ti])) {
+			if (!glob_match(p_part, path_parts[ti])) {
 				return false;
 			}
 
@@ -329,7 +329,7 @@ fn glob_recurse(dir, pattern, prefix, results) {
 			}
 		} else {
 			// Regular pattern segment
-			if (match(first_part, entry)) {
+			if (glob_match(first_part, entry)) {
 				if (rest_pattern == "") {
 					// End of pattern - this is a match
 					results.push(result_path);
