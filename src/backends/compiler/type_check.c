@@ -1854,8 +1854,8 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                 CheckedType *val_type = type_check_infer_expr(ctx, expr->as.index_assign.value);
                 if (val_type && val_type->kind != CHECKED_ANY &&
                     !type_is_assignable(obj_type->element_type, val_type)) {
-                    type_error(ctx, expr->line,
-                        "cannot assign '%s' to array<%s> element",
+                    type_warning(ctx, expr->line,
+                        "assigning '%s' to array<%s> element",
                         checked_type_name(val_type), checked_type_name(obj_type->element_type));
                 }
                 checked_type_free(val_type);
