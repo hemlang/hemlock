@@ -773,6 +773,11 @@ static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats) {
             }
             break;
 
+        case EXPR_GRACE:
+            expr->as.grace_expr.try_expr = optimize_expr_internal(expr->as.grace_expr.try_expr, stats);
+            expr->as.grace_expr.else_expr = optimize_expr_internal(expr->as.grace_expr.else_expr, stats);
+            break;
+
         /* Literals - nothing to optimize */
         case EXPR_NUMBER:
         case EXPR_BOOL:
@@ -947,6 +952,11 @@ static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats) {
         case STMT_IMPORT_FFI:
         case STMT_EXTERN_FN:
         case STMT_TYPE_ALIAS:
+            break;
+
+        case STMT_GRACE:
+            optimize_stmt_internal(stmt->as.grace_stmt.try_block, stats);
+            optimize_stmt_internal(stmt->as.grace_stmt.else_block, stats);
             break;
     }
 }

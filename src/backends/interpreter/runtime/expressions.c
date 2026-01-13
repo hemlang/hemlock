@@ -2273,6 +2273,25 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Evaluate and return the right operand
             return eval_expr(expr->as.null_coalesce.right, env, ctx);
         }
+
+        case EXPR_GRACE: {
+            // Grace expression: grace try_expr else else_expr
+            // Try evaluating try_expr; if it throws, return else_expr instead
+            Value result = eval_expr(expr->as.grace_expr.try_expr, env, ctx);
+
+            // Check if exception was thrown during evaluation
+            if (ctx->exception_state.is_throwing) {
+                // Clear the exception state (grace handles it gracefully)
+                VALUE_RELEASE(ctx->exception_state.exception_value);
+                ctx->exception_state.is_throwing = 0;
+
+                // Evaluate and return the else expression as fallback
+                return eval_expr(expr->as.grace_expr.else_expr, env, ctx);
+            }
+
+            // No exception - return the result
+            return result;
+        }
     }
 
     return val_null();

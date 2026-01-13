@@ -887,6 +887,23 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             register_type_alias(alias);
             break;
         }
+
+        case STMT_GRACE: {
+            // Grace statement: grace { try_block } else { else_block }
+            // Execute try_block; if exception thrown, execute else_block instead
+            eval_stmt(stmt->as.grace_stmt.try_block, env, ctx);
+
+            // Check if exception was thrown during try_block
+            if (ctx->exception_state.is_throwing) {
+                // Clear the exception state (grace handles it gracefully)
+                VALUE_RELEASE(ctx->exception_state.exception_value);
+                ctx->exception_state.is_throwing = 0;
+
+                // Execute the else block as fallback
+                eval_stmt(stmt->as.grace_stmt.else_block, env, ctx);
+            }
+            break;
+        }
     }
 }
 

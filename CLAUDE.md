@@ -419,6 +419,13 @@ patterns with Hemlock's duck typing system.
 ```hemlock
 try { throw "error"; } catch (e) { print(e); } finally { cleanup(); }
 panic("unrecoverable");  // exits immediately, not catchable
+
+// Grace - graceful error handling with fallback values
+let result = grace risky_call() else default_value;  // expression form
+grace { risky_code(); } else { fallback_code(); }    // statement form
+
+// Chained grace for fallback chains
+let data = grace primary() else grace secondary() else default;
 ```
 
 ### Async/Concurrency
@@ -848,6 +855,10 @@ make parity
 ## Version
 
 **v1.8.0** - Current release with:
+- **Grace keyword** (`grace expr else fallback`) - graceful error handling with automatic fallback values
+  - Expression form: `let x = grace risky() else default;`
+  - Statement form: `grace { try_code } else { fallback_code }`
+  - Chainable: `grace a() else grace b() else c`
 - **Compiler helper annotations** - 11 optimization annotations for GCC/Clang control:
   - `@inline`, `@noinline` - function inlining control
   - `@hot`, `@cold` - branch prediction hints

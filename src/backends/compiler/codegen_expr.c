@@ -2138,6 +2138,35 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             break;
         }
 
+        case EXPR_GRACE: {
+            // Grace expression: grace try_expr else else_expr
+            // Try evaluating try_expr; if it throws, return else_expr instead
+            codegen_writeln(ctx, "HmlValue %s;", result);
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "HmlExceptionContext *_ex_ctx = hml_exception_push();");
+            codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
+            codegen_indent_inc(ctx);
+            // Try evaluating the expression
+            char *try_result = codegen_expr(ctx, expr->as.grace_expr.try_expr);
+            codegen_writeln(ctx, "%s = %s;", result, try_result);
+            free(try_result);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else {");
+            codegen_indent_inc(ctx);
+            // Exception was thrown - clear it and evaluate else expression
+            codegen_writeln(ctx, "hml_exception_clear();");
+            char *else_result = codegen_expr(ctx, expr->as.grace_expr.else_expr);
+            codegen_writeln(ctx, "%s = %s;", result, else_result);
+            free(else_result);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            codegen_writeln(ctx, "hml_exception_pop();");
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            break;
+        }
+
         default:
             codegen_error(ctx, expr->line, "unsupported expression type %d", expr->type);
             codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);

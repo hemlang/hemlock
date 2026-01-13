@@ -336,6 +336,11 @@ static void collect_expr_deps(Expr *expr, Symbol *sym) {
             collect_expr_deps(expr->as.null_coalesce.right, sym);
             break;
 
+        case EXPR_GRACE:
+            collect_expr_deps(expr->as.grace_expr.try_expr, sym);
+            collect_expr_deps(expr->as.grace_expr.else_expr, sym);
+            break;
+
         case EXPR_NUMBER:
         case EXPR_BOOL:
         case EXPR_STRING:
@@ -452,6 +457,11 @@ static void collect_stmt_deps(Stmt *stmt, Symbol *sym) {
         case STMT_EXTERN_FN:
         case STMT_TYPE_ALIAS:
             // No dependencies to collect
+            break;
+
+        case STMT_GRACE:
+            collect_stmt_deps(stmt->as.grace_stmt.try_block, sym);
+            collect_stmt_deps(stmt->as.grace_stmt.else_block, sym);
             break;
     }
 }

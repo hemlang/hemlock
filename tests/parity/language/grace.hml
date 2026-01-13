@@ -1,0 +1,109 @@
+// Test grace expression and statement - graceful error handling
+// Grace allows handling exceptions gracefully with fallback values
+
+// Helper function that throws an error
+fn risky_divide(a, b) {
+    if (b == 0) {
+        throw "Division by zero";
+    }
+    return a / b;
+}
+
+// Helper function that always succeeds
+fn safe_value() {
+    return 42;
+}
+
+// ========== Grace Expression Tests ==========
+print("=== Grace Expression Tests ===");
+
+// Test 1: Grace with successful expression
+let result1 = grace safe_value() else 0;
+print("Grace success: " + result1);  // Should print 42
+
+// Test 2: Grace with failing expression
+let result2 = grace risky_divide(10, 0) else -1;
+print("Grace fallback: " + result2);  // Should print -1
+
+// Test 3: Grace with successful division
+let result3 = grace risky_divide(10, 2) else -1;
+print("Grace division: " + result3);  // Should print 5.0
+
+// Test 4: Chained grace expressions
+fn get_primary() { throw "No primary"; }
+fn get_secondary() { throw "No secondary"; }
+fn get_default() { return "default"; }
+
+let result4 = grace get_primary() else grace get_secondary() else grace get_default() else "final";
+print("Chained grace: " + result4);  // Should print "default"
+
+// Test 5: Grace with literal fallback
+let result5 = grace risky_divide(5, 0) else 999;
+print("Grace literal: " + result5);  // Should print 999
+
+// ========== Grace Statement Tests ==========
+print("\n=== Grace Statement Tests ===");
+
+// Test 6: Grace statement with successful block
+let x = 0;
+grace {
+    x = 10;
+    print("Inside grace block");
+} else {
+    x = -10;
+    print("Inside else block");
+}
+print("After grace: x = " + x);  // Should print 10
+
+// Test 7: Grace statement with failing block
+let y = 0;
+grace {
+    throw "Error in grace block";
+    y = 10;  // Should not execute
+} else {
+    y = -10;
+    print("Caught error gracefully");
+}
+print("After grace: y = " + y);  // Should print -10
+
+// Test 8: Nested grace statements
+let z = 0;
+grace {
+    grace {
+        throw "Inner error";
+        z = 1;
+    } else {
+        z = 2;
+        print("Inner catch");
+    }
+    z = z + 10;
+} else {
+    z = -100;
+    print("Outer catch");
+}
+print("Nested grace: z = " + z);  // Should print 12
+
+// Test 9: Grace with function that modifies state
+let counter = 0;
+fn increment() {
+    counter = counter + 1;
+    if (counter > 2) {
+        throw "Counter too high";
+    }
+    return counter;
+}
+
+let a = grace increment() else 0;  // 1
+let b = grace increment() else 0;  // 2
+let c = grace increment() else 0;  // throws, returns 0
+print("Counter values: " + a + ", " + b + ", " + c);
+
+// Test 10: Grace in loop
+let sum = 0;
+for (let i = -2; i <= 2; i++) {
+    let val = grace risky_divide(10, i) else 0;
+    sum = sum + val;
+}
+print("Sum with grace: " + sum);  // -5 + -10 + 0 + 10 + 5 = 0
+
+print("\n=== Grace Tests Complete ===");

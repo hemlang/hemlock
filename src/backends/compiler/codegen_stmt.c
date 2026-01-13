@@ -1482,6 +1482,34 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // No runtime code is generated for them
             break;
 
+        case STMT_GRACE: {
+            // Grace statement: grace { try_block } else { else_block }
+            // Execute try_block; if exception thrown, execute else_block instead
+            codegen_writeln(ctx, "{");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "HmlExceptionContext *_ex_ctx = hml_exception_push();");
+
+            codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
+            codegen_indent_inc(ctx);
+            // Try block (grace block)
+            codegen_stmt(ctx, stmt->as.grace_stmt.try_block);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else {");
+            codegen_indent_inc(ctx);
+            // Else block - executed when exception was thrown
+            // Clear exception (grace handles it gracefully)
+            codegen_writeln(ctx, "hml_exception_clear();");
+            codegen_stmt(ctx, stmt->as.grace_stmt.else_block);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+
+            // Pop exception context
+            codegen_writeln(ctx, "hml_exception_pop();");
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
+            break;
+        }
+
         default:
             codegen_error(ctx, stmt->line, "unsupported statement type %d", stmt->type);
             break;

@@ -1761,6 +1761,33 @@ not_function:
         RETURN_STMT(stmt_try(try_block, catch_param, catch_block, finally_block));
     }
 
+    if (match(p, TOK_GRACE)) {
+        // Grace can be either a statement or expression
+        // Statement form: grace { } else { }
+        // Expression form: grace expr else value (handled in expression parser)
+        if (check(p, TOK_LBRACE)) {
+            // Grace statement: grace { try_block } else { else_block }
+            consume(p, TOK_LBRACE, "Expect '{' after 'grace'");
+            Stmt *try_block = block_statement(p);
+
+            // Must have else block
+            consume(p, TOK_ELSE, "Expect 'else' after grace block");
+            consume(p, TOK_LBRACE, "Expect '{' after 'else'");
+            Stmt *else_block = block_statement(p);
+
+            RETURN_STMT(stmt_grace(try_block, else_block));
+        } else {
+            // Grace expression used as statement: grace expr else default;
+            Expr *try_expr = expression(p);
+            consume(p, TOK_ELSE, "Expect 'else' after grace expression");
+            Expr *else_expr = expression(p);
+            consume(p, TOK_SEMICOLON, "Expect ';' after grace statement");
+
+            Expr *grace_expr = expr_grace(try_expr, else_expr);
+            RETURN_STMT(stmt_expr(grace_expr));
+        }
+    }
+
     if (match(p, TOK_THROW)) {
         Expr *value = expression(p);
         consume(p, TOK_SEMICOLON, "Expect ';' after throw statement");

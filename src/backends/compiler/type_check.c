@@ -1311,6 +1311,17 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
             return result ? result : checked_type_primitive(CHECKED_ANY);
         }
 
+        case EXPR_GRACE: {
+            // Grace expression: grace try_expr else else_expr
+            // Type is the common type of try and else expressions
+            CheckedType *try_type = type_check_infer_expr(ctx, expr->as.grace_expr.try_expr);
+            CheckedType *else_type = type_check_infer_expr(ctx, expr->as.grace_expr.else_expr);
+            CheckedType *result = type_common(try_type, else_type);
+            checked_type_free(try_type);
+            checked_type_free(else_type);
+            return result ? result : checked_type_primitive(CHECKED_ANY);
+        }
+
         case EXPR_PREFIX_INC:
         case EXPR_PREFIX_DEC:
         case EXPR_POSTFIX_INC:
@@ -1909,6 +1920,11 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
             type_check_expr(ctx, expr->as.null_coalesce.right);
             break;
 
+        case EXPR_GRACE:
+            type_check_expr(ctx, expr->as.grace_expr.try_expr);
+            type_check_expr(ctx, expr->as.grace_expr.else_expr);
+            break;
+
         case EXPR_PREFIX_INC:
         case EXPR_PREFIX_DEC:
             type_check_expr(ctx, expr->as.prefix_inc.operand);
@@ -2345,6 +2361,12 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             if (stmt->as.export_stmt.is_declaration && stmt->as.export_stmt.declaration) {
                 type_check_stmt(ctx, stmt->as.export_stmt.declaration);
             }
+            break;
+
+        case STMT_GRACE:
+            // Grace statement: type check both try and else blocks
+            type_check_stmt(ctx, stmt->as.grace_stmt.try_block);
+            type_check_stmt(ctx, stmt->as.grace_stmt.else_block);
             break;
 
         default:
@@ -3518,6 +3540,10 @@ static int stmt_is_tail_recursive(Stmt *stmt, const char *func_name) {
 
         case STMT_TRY:
             // Try-catch is not compatible with simple tail call optimization
+            return 0;
+
+        case STMT_GRACE:
+            // Grace is not compatible with simple tail call optimization
             return 0;
 
         case STMT_DEFER:

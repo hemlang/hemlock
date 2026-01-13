@@ -39,6 +39,7 @@ typedef enum {
     EXPR_STRING_INTERPOLATION,
     EXPR_OPTIONAL_CHAIN,     // Optional chaining: obj?.prop, obj?.[index], obj?.method()
     EXPR_NULL_COALESCE,      // Null coalescing: value ?? default
+    EXPR_GRACE,              // Graceful error handling: grace expr() else default
 } ExprType;
 
 typedef enum {
@@ -213,6 +214,10 @@ struct Expr {
             Expr *left;          // Left operand
             Expr *right;         // Right operand (default value)
         } null_coalesce;
+        struct {
+            Expr *try_expr;      // Expression to try (evaluates with grace)
+            Expr *else_expr;     // Fallback expression if try_expr throws
+        } grace_expr;
     } as;
 };
 
@@ -328,6 +333,7 @@ typedef enum {
     STMT_IMPORT_FFI,
     STMT_EXTERN_FN,
     STMT_TYPE_ALIAS,     // Type alias: type Name<T> = SomeType;
+    STMT_GRACE,          // Graceful error handling: grace { } else { }
 } StmtType;
 
 // Statement node
@@ -469,6 +475,10 @@ struct Stmt {
             int num_type_params;     // Number of type parameters
             Type *aliased_type;      // The actual type
         } type_alias;
+        struct {
+            Stmt *try_block;         // Block to try (executes with grace)
+            Stmt *else_block;        // Fallback block if try_block throws
+        } grace_stmt;
     } as;
 };
 
@@ -505,6 +515,7 @@ Expr* expr_optional_chain_property(Expr *object, const char *property);
 Expr* expr_optional_chain_index(Expr *object, Expr *index);
 Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int num_args);
 Expr* expr_null_coalesce(Expr *left, Expr *right);
+Expr* expr_grace(Expr *try_expr, Expr *else_expr);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);
@@ -552,6 +563,7 @@ Type* type_function(Type **param_types, char **param_names, int *param_optional,
                     Type *rest_param_type, Type *return_type, int is_async);
 Type* type_self(void);  // Create Self type for define blocks
 Stmt* stmt_type_alias(const char *name, char **type_params, int num_type_params, Type *aliased_type);
+Stmt* stmt_grace(Stmt *try_block, Stmt *else_block);
 void type_free(Type *type);
 
 // Cloning

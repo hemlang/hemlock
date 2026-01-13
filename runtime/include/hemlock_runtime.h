@@ -403,6 +403,7 @@ typedef struct HmlExceptionContext {
 // Exception stack management
 HmlExceptionContext* hml_exception_push(void);
 void hml_exception_pop(void);
+void hml_exception_clear(void);  // Clear exception value (for grace blocks)
 __attribute__((noreturn)) void hml_throw(HmlValue exception_value);
 HmlValue hml_exception_get_value(void);
 

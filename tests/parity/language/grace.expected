@@ -1,0 +1,18 @@
+=== Grace Expression Tests ===
+Grace success: 42
+Grace fallback: -1
+Grace division: 5
+Chained grace: default
+Grace literal: 999
+
+=== Grace Statement Tests ===
+Inside grace block
+After grace: x = 10
+Caught error gracefully
+After grace: y = -10
+Inner catch
+Nested grace: z = 12
+Counter values: 1, 2, 0
+Sum with grace: 0
+
+=== Grace Tests Complete ===

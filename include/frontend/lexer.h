@@ -128,6 +128,7 @@ typedef enum {
 
     // New keywords (added at end to preserve enum values)
     TOK_TYPE,          // 'type' keyword for type aliases
+    TOK_GRACE,         // 'grace' keyword for graceful error handling
 
     // Special
     TOK_EOF,

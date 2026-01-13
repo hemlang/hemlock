@@ -2689,6 +2689,15 @@ void hml_exception_pop(void) {
     }
 }
 
+void hml_exception_clear(void) {
+    // Clear the exception value in the current context (for grace blocks)
+    // This releases the exception value without popping the context
+    if (g_exception_stack) {
+        hml_release(&g_exception_stack->exception_value);
+        g_exception_stack->exception_value = hml_val_null();
+    }
+}
+
 void hml_throw(HmlValue exception_value) {
     if (!g_exception_stack || !g_exception_stack->is_active) {
         // Uncaught exception

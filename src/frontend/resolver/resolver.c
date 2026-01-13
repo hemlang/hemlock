@@ -390,6 +390,11 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
             resolve_expr_internal(ctx, expr->as.null_coalesce.right);
             break;
 
+        case EXPR_GRACE:
+            resolve_expr_internal(ctx, expr->as.grace_expr.try_expr);
+            resolve_expr_internal(ctx, expr->as.grace_expr.else_expr);
+            break;
+
         // Literals - no resolution needed
         case EXPR_NUMBER:
         case EXPR_BOOL:
@@ -612,6 +617,12 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
 
         case STMT_TYPE_ALIAS:
             // Type aliases - no expressions to resolve
+            break;
+
+        case STMT_GRACE:
+            // Resolve both try and else blocks
+            resolve_stmt_internal(ctx, stmt->as.grace_stmt.try_block);
+            resolve_stmt_internal(ctx, stmt->as.grace_stmt.else_block);
             break;
     }
 }

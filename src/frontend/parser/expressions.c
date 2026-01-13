@@ -721,6 +721,15 @@ Expr* unary(Parser *p) {
         return expr_await(operand);
     }
 
+    // Grace expression: grace expr else fallback
+    // Gracefully handles exceptions - returns fallback if expr throws
+    if (match(p, TOK_GRACE)) {
+        Expr *try_expr = unary(p);  // Parse the expression to try
+        consume(p, TOK_ELSE, "Expect 'else' after grace expression");
+        Expr *else_expr = unary(p);  // Parse the fallback expression
+        return expr_grace(try_expr, else_expr);
+    }
+
     if (match(p, TOK_BANG)) {
         Expr *operand = unary(p);  // Recursive for multiple unary ops
         return expr_unary(UNARY_NOT, operand);

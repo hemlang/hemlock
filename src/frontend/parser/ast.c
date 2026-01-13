@@ -339,6 +339,16 @@ Expr* expr_null_coalesce(Expr *left, Expr *right) {
     return expr;
 }
 
+Expr* expr_grace(Expr *try_expr, Expr *else_expr) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_GRACE;
+    expr->line = 0;
+    expr->column = 0;
+    expr->as.grace_expr.try_expr = try_expr;
+    expr->as.grace_expr.else_expr = else_expr;
+    return expr;
+}
+
 // ========== TYPE CONSTRUCTORS ==========
 
 Type* type_new(TypeKind kind) {
@@ -859,6 +869,16 @@ Stmt* stmt_type_alias(const char *name, char **type_params, int num_type_params,
     return stmt;
 }
 
+Stmt* stmt_grace(Stmt *try_block, Stmt *else_block) {
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_GRACE;
+    stmt->line = 0;
+    stmt->column = 0;
+    stmt->as.grace_stmt.try_block = try_block;
+    stmt->as.grace_stmt.else_block = else_block;
+    return stmt;
+}
+
 // ========== CLONING ==========
 
 Expr* expr_clone(const Expr *expr) {
@@ -1072,6 +1092,12 @@ Expr* expr_clone(const Expr *expr) {
                 expr_clone(expr->as.null_coalesce.left),
                 expr_clone(expr->as.null_coalesce.right)
             );
+
+        case EXPR_GRACE:
+            return expr_grace(
+                expr_clone(expr->as.grace_expr.try_expr),
+                expr_clone(expr->as.grace_expr.else_expr)
+            );
     }
 
     return NULL;
@@ -1238,6 +1264,10 @@ void expr_free(Expr *expr) {
         case EXPR_NULL_COALESCE:
             expr_free(expr->as.null_coalesce.left);
             expr_free(expr->as.null_coalesce.right);
+            break;
+        case EXPR_GRACE:
+            expr_free(expr->as.grace_expr.try_expr);
+            expr_free(expr->as.grace_expr.else_expr);
             break;
         case EXPR_NUMBER:
         case EXPR_BOOL:
@@ -1454,6 +1484,10 @@ void stmt_free(Stmt *stmt) {
                 free(stmt->as.type_alias.type_params);
             }
             type_free(stmt->as.type_alias.aliased_type);
+            break;
+        case STMT_GRACE:
+            stmt_free(stmt->as.grace_stmt.try_block);
+            stmt_free(stmt->as.grace_stmt.else_block);
             break;
     }
 
