@@ -41,8 +41,18 @@ Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx) {
     // Compile the pattern
     int result = regcomp(preg, pattern.as.as_string->data, cflags);
     if (result != 0) {
+        // Get detailed error message before freeing preg
+        char errbuf[256];
+        regerror(result, preg, errbuf, sizeof(errbuf));
         free(preg);
-        return val_null();  // Return null on compilation failure
+
+        // Throw exception with detailed error message instead of returning null
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg),
+                 "Regex compilation failed for pattern '%s': %s",
+                 pattern.as.as_string->data, errbuf);
+        runtime_error(ctx, "%s", error_msg);
+        return val_null();  // Unreachable, but silences compiler warning
     }
 
     // Return pointer to compiled regex

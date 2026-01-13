@@ -2016,16 +2016,25 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 total_len += strlen(expr_strings[i]);
             }
 
-            // Build final string
+            // Build final string using memcpy with offset tracking (O(n) instead of O(n²))
             char *result = malloc(total_len + 1);
-            result[0] = '\0';
+            size_t offset = 0;
 
             for (int i = 0; i < num_parts; i++) {
-                strcat(result, string_parts[i]);
-                strcat(result, expr_strings[i]);
+                size_t part_len = strlen(string_parts[i]);
+                memcpy(result + offset, string_parts[i], part_len);
+                offset += part_len;
+
+                size_t expr_len = strlen(expr_strings[i]);
+                memcpy(result + offset, expr_strings[i], expr_len);
+                offset += expr_len;
                 free(expr_strings[i]);
             }
-            strcat(result, string_parts[num_parts]);  // Final string part
+            // Final string part
+            size_t final_len = strlen(string_parts[num_parts]);
+            memcpy(result + offset, string_parts[num_parts], final_len);
+            offset += final_len;
+            result[offset] = '\0';
 
             free(expr_strings);
 

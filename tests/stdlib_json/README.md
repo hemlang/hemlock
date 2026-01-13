@@ -133,15 +133,6 @@ make test | grep stdlib_json
 - ✅ File I/O
 - ✅ Real-world use cases
 
-## Known Limitations in Tests
-
-Some functions are tested but have incomplete implementation due to missing builtins:
-- `merge()` - Requires `object_keys()` builtin (throws "not implemented" error)
-- `patch()` - Requires `object_keys()` builtin (throws "not implemented" error)
-- `equals()` for objects - Requires `object_keys()` builtin (works for arrays/primitives)
-
-These limitations are documented and tests will be added when builtins are available.
-
 ## Test Assertions
 
 All tests use Hemlock's built-in `assert()` function:

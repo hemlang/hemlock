@@ -323,8 +323,10 @@ static Expr *try_fold_string_concat(BinaryOp op, Expr *left, Expr *right, int li
     size_t right_len = strlen(right->as.string);
     char *new_str = malloc(left_len + right_len + 1);
     if (!new_str) return NULL;  // Allocation failed, skip optimization
-    strcpy(new_str, left->as.string);
-    strcat(new_str, right->as.string);
+    // Safe: use memcpy instead of strcpy/strcat to avoid potential overflow
+    memcpy(new_str, left->as.string, left_len);
+    memcpy(new_str + left_len, right->as.string, right_len);
+    new_str[left_len + right_len] = '\0';
 
     Expr *result = expr_string(new_str);
     result->line = line;

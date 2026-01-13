@@ -384,15 +384,16 @@ static char* make_c_filename(const char *input) {
 
     char *result;
     if (ext) {
-        int base_len = ext - base;
-        result = malloc(base_len + 3);  // base + ".c" + null
+        size_t base_len = (size_t)(ext - base);
+        size_t alloc_size = base_len + 3;  // base + ".c" + null
+        result = malloc(alloc_size);
         if (!result) {
             fprintf(stderr, "Error: Failed to allocate output filename\n");
             return NULL;
         }
-        strncpy(result, base, base_len);
-        result[base_len] = '\0';
-        strcat(result, ".c");
+        // Safe: use memcpy + explicit null termination instead of strncpy/strcat
+        memcpy(result, base, base_len);
+        memcpy(result + base_len, ".c", 3);  // includes null terminator
     } else {
         size_t len = strlen(base) + 3;
         result = malloc(len);
@@ -424,7 +425,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Check if -lz is linkable (same check as runtime Makefile)
     char zlib_flag[8] = "";
     if (system("echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null") == 0) {
-        strcpy(zlib_flag, " -lz");
+        memcpy(zlib_flag, " -lz", 5);  // Safe: 5 bytes including null, fits in 8-byte buffer
     }
 
     // Platform-specific library paths
@@ -475,7 +476,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         "echo 'int main(){return 0;}' | gcc -x c - %s -lwebsockets -o /dev/null 2>/dev/null",
         extra_lib_paths);
     if (system(ws_test_cmd) == 0) {
-        strcpy(websockets_flag, " -lwebsockets");
+        memcpy(websockets_flag, " -lwebsockets", 14);  // Safe: 14 bytes including null, fits in 16-byte buffer
     }
 
     // OpenSSL/libcrypto is required - the runtime links against it for hash functions
