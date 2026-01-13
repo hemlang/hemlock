@@ -120,6 +120,10 @@ static Token make_token(Lexer *lex, TokenType type) {
     token.line = lex->line;
     token.column = (int)(lex->start - lex->line_start) + 1;  // 1-based column
     token.int_value = 0;
+    token.float_value = 0.0;
+    token.is_float = 0;
+    token.string_value = NULL;  // Initialize to NULL to prevent freeing garbage
+    token.rune_value = 0;
     return token;
 }
 
@@ -131,6 +135,10 @@ static Token error_token(Lexer *lex, const char *message) {
     token.line = lex->line;
     token.column = (int)(lex->current - lex->line_start) + 1;  // 1-based column
     token.int_value = 0;
+    token.float_value = 0.0;
+    token.is_float = 0;
+    token.string_value = NULL;
+    token.rune_value = 0;
     return token;
 }
 
