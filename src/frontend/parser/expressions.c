@@ -999,6 +999,7 @@ Expr* assignment(Parser *p) {
             // Index null coalescing assignment: arr[i] ??= value
             Expr *object = expr->as.index.object;
             Expr *index = expr->as.index.index;
+            int line = expr->line;  // Preserve line number
 
             // Clone for the RHS
             Expr *object_clone = expr_clone(object);
@@ -1016,7 +1017,9 @@ Expr* assignment(Parser *p) {
             expr_free(expr);
 
             // Create the assignment: arr[i] = arr[i] ?? value
-            return expr_index_assign(object, index, null_coalesce);
+            Expr *result = expr_index_assign(object, index, null_coalesce);
+            result->line = line;  // Set line number for error messages
+            return result;
         } else if (expr->type == EXPR_GET_PROPERTY) {
             // Property null coalescing assignment: obj.field ??= value
             Expr *object = expr->as.get_property.object;
@@ -1064,6 +1067,7 @@ Expr* assignment(Parser *p) {
             // We clone the object and index expressions to avoid evaluating twice
             Expr *object = expr->as.index.object;
             Expr *index = expr->as.index.index;
+            int line = expr->line;  // Preserve line number
 
             // Clone for the RHS
             Expr *object_clone = expr_clone(object);
@@ -1081,7 +1085,9 @@ Expr* assignment(Parser *p) {
             expr_free(expr);
 
             // Create the assignment: arr[i] = arr[i] + 5
-            return expr_index_assign(object, index, binary);
+            Expr *result = expr_index_assign(object, index, binary);
+            result->line = line;  // Set line number for error messages
+            return result;
         } else if (expr->type == EXPR_GET_PROPERTY) {
             // Property compound assignment: obj.field += 5
             // Desugar to: obj.field = obj.field + 5
@@ -1126,6 +1132,7 @@ Expr* assignment(Parser *p) {
             // Index assignment: obj[index] = value
             Expr *object = expr->as.index.object;
             Expr *index = expr->as.index.index;
+            int line = expr->line;  // Preserve line number
             Expr *value = assignment(p);
 
             // Steal the object and index from the EXPR_INDEX
@@ -1134,7 +1141,9 @@ Expr* assignment(Parser *p) {
             expr->as.index.index = NULL;
             expr_free(expr);
 
-            return expr_index_assign(object, index, value);
+            Expr *result = expr_index_assign(object, index, value);
+            result->line = line;  // Set line number for error messages
+            return result;
         } else if (expr->type == EXPR_GET_PROPERTY) {
             // Property assignment: obj.field = value
             Expr *object = expr->as.get_property.object;

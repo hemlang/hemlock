@@ -510,6 +510,20 @@ void type_check_pop_scope(TypeCheckContext *ctx) {
 
 void type_check_bind(TypeCheckContext *ctx, const char *name, CheckedType *type,
                      int is_const, int is_param, int line) {
+    // Check for variable shadowing in parent scopes
+    if (ctx->current_env->parent) {
+        for (TypeCheckEnv *env = ctx->current_env->parent; env; env = env->parent) {
+            for (TypeCheckBinding *b = env->bindings; b; b = b->next) {
+                if (strcmp(b->name, name) == 0) {
+                    type_warning(ctx, line,
+                        "variable '%s' shadows variable declared at line %d",
+                        name, b->line);
+                    break;  // Only warn once
+                }
+            }
+        }
+    }
+
     TypeCheckBinding *binding = calloc(1, sizeof(TypeCheckBinding));
     binding->name = strdup(name);
     binding->type = type;
@@ -1610,6 +1624,41 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                     // These are more permissive - any truthy/falsy value works
                     break;
 
+                case OP_LESS:
+                case OP_LESS_EQUAL:
+                case OP_GREATER:
+                case OP_GREATER_EQUAL:
+                    // Ordering comparisons require comparable types
+                    if (left->kind != CHECKED_ANY && right->kind != CHECKED_ANY) {
+                        int both_numeric = type_is_numeric(left) && type_is_numeric(right);
+                        int both_string = left->kind == CHECKED_STRING && right->kind == CHECKED_STRING;
+                        int both_rune = left->kind == CHECKED_RUNE && right->kind == CHECKED_RUNE;
+                        if (!both_numeric && !both_string && !both_rune) {
+                            type_warning(ctx, expr->line,
+                                "comparison between incompatible types '%s' and '%s'",
+                                checked_type_name(left), checked_type_name(right));
+                        }
+                    }
+                    break;
+
+                case OP_EQUAL:
+                case OP_NOT_EQUAL:
+                    // Equality comparisons are more permissive, but warn on obviously wrong types
+                    if (left->kind != CHECKED_ANY && right->kind != CHECKED_ANY &&
+                        left->kind != CHECKED_NULL && right->kind != CHECKED_NULL) {
+                        int both_numeric = type_is_numeric(left) && type_is_numeric(right);
+                        int same_kind = left->kind == right->kind;
+                        // Warn if comparing completely different types (not just different numeric types)
+                        if (!both_numeric && !same_kind &&
+                            !(left->kind == CHECKED_OBJECT && right->kind == CHECKED_CUSTOM) &&
+                            !(left->kind == CHECKED_CUSTOM && right->kind == CHECKED_OBJECT)) {
+                            type_warning(ctx, expr->line,
+                                "equality comparison between different types '%s' and '%s'",
+                                checked_type_name(left), checked_type_name(right));
+                        }
+                    }
+                    break;
+
                 default:
                     break;
             }
@@ -1760,16 +1809,60 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
             break;
         }
 
-        case EXPR_INDEX:
+        case EXPR_INDEX: {
             type_check_expr(ctx, expr->as.index.object);
             type_check_expr(ctx, expr->as.index.index);
-            break;
 
-        case EXPR_INDEX_ASSIGN:
+            // Validate index type based on object type
+            // - Arrays and strings require integer indices
+            // - Objects allow string indices (property access)
+            CheckedType *obj_type = type_check_infer_expr(ctx, expr->as.index.object);
+            CheckedType *idx_type = type_check_infer_expr(ctx, expr->as.index.index);
+            if (obj_type && idx_type && idx_type->kind != CHECKED_ANY) {
+                int needs_int = (obj_type->kind == CHECKED_ARRAY || obj_type->kind == CHECKED_STRING);
+                if (needs_int && !type_is_integer(idx_type)) {
+                    type_error(ctx, expr->line, "array/string index must be integer, got '%s'",
+                        checked_type_name(idx_type));
+                }
+            }
+            checked_type_free(obj_type);
+            checked_type_free(idx_type);
+            break;
+        }
+
+        case EXPR_INDEX_ASSIGN: {
             type_check_expr(ctx, expr->as.index_assign.object);
             type_check_expr(ctx, expr->as.index_assign.index);
             type_check_expr(ctx, expr->as.index_assign.value);
+
+            // Validate index type based on object type
+            CheckedType *obj_type = type_check_infer_expr(ctx, expr->as.index_assign.object);
+            CheckedType *idx_type = type_check_infer_expr(ctx, expr->as.index_assign.index);
+            if (obj_type && idx_type && idx_type->kind != CHECKED_ANY) {
+                int needs_int = (obj_type->kind == CHECKED_ARRAY || obj_type->kind == CHECKED_STRING);
+                if (needs_int && !type_is_integer(idx_type)) {
+                    type_error(ctx, expr->line, "array/string index must be integer, got '%s'",
+                        checked_type_name(idx_type));
+                }
+            }
+            checked_type_free(idx_type);
+
+            // Validate value type matches array element type (skip for null/any element types)
+            if (obj_type && obj_type->kind == CHECKED_ARRAY && obj_type->element_type &&
+                obj_type->element_type->kind != CHECKED_NULL &&
+                obj_type->element_type->kind != CHECKED_ANY) {
+                CheckedType *val_type = type_check_infer_expr(ctx, expr->as.index_assign.value);
+                if (val_type && val_type->kind != CHECKED_ANY &&
+                    !type_is_assignable(obj_type->element_type, val_type)) {
+                    type_warning(ctx, expr->line,
+                        "assigning '%s' to array<%s> element",
+                        checked_type_name(val_type), checked_type_name(obj_type->element_type));
+                }
+                checked_type_free(val_type);
+            }
+            checked_type_free(obj_type);
             break;
+        }
 
         case EXPR_GET_PROPERTY: {
             type_check_expr(ctx, expr->as.get_property.object);
