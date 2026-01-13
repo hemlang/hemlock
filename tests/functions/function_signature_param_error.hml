@@ -1,0 +1,2 @@
+// Test function signature parameter count mismatch
+let wrong: fn(i32, i32): i32 = fn(a: i32): i32 { return a; };
