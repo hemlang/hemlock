@@ -1,0 +1,29 @@
+// Parity test: @warn_unused annotation should not change behavior
+// @warn_unused warns when return value is ignored (compiler only)
+
+@warn_unused
+fn important_result(x: i32): i32 {
+    return x * x + 10;
+}
+
+@warn_unused
+fn must_use_value(): string {
+    return "important";
+}
+
+fn regular_function(x: i32): i32 {
+    return x + 1;
+}
+
+// All return values are used here, no warnings expected
+let a = important_result(5);
+let b = must_use_value();
+let c = regular_function(10);
+
+print(a);  // 35
+print(b);  // important
+print(c);  // 11
+
+// Chain of must-use functions
+let d = important_result(important_result(2));
+print(d);  // (2*2+10)^2 + 10 = 14*14 + 10 = 206

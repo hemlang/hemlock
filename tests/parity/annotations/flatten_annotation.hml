@@ -1,0 +1,34 @@
+// Parity test: @flatten annotation should not change behavior
+// @flatten requests inlining of all function calls within
+
+fn helper1(x: i32): i32 {
+    return x + 1;
+}
+
+fn helper2(x: i32): i32 {
+    return x * 2;
+}
+
+fn helper3(x: i32): i32 {
+    return x - 1;
+}
+
+@flatten
+fn process(n: i32): i32 {
+    let a = helper1(n);
+    let b = helper2(a);
+    let c = helper3(b);
+    return c;
+}
+
+@flatten
+fn chain(x: i32): i32 {
+    let y = helper1(helper1(helper1(x)));
+    return helper2(y);
+}
+
+// Results should be same regardless of @flatten
+print(process(10));   // ((10+1)*2)-1 = 21
+print(process(5));    // ((5+1)*2)-1 = 11
+print(chain(0));      // ((0+1+1+1))*2 = 6
+print(chain(10));     // ((10+1+1+1))*2 = 26
