@@ -1,0 +1,501 @@
+// Hemlock Standard Library: Arena Memory Allocator
+// This module provides memory arenas for efficient bulk allocation and deallocation.
+//
+// Arenas are ideal for:
+// - Per-frame game allocations (reset each frame)
+// - Per-request server allocations (free when request completes)
+// - Parser/compiler temporary allocations (free when done)
+// - Any scenario where many allocations share a lifetime
+//
+// Benefits:
+// - Super fast allocation (just bump a pointer)
+// - No fragmentation within the arena
+// - Instant bulk deallocation (reset or destroy)
+// - No need to track individual allocations
+
+// ========== ARENA ==========
+// A memory arena with bump allocation.
+// Allocations are O(1) - just increment a pointer.
+// All memory is freed at once via reset() or destroy().
+
+export fn Arena(capacity: i64) {
+	if (capacity <= 0) {
+		panic("Arena capacity must be positive");
+	}
+
+	// Allocate the backing memory
+	let memory = alloc(capacity);
+	if (memory == null) {
+		panic("Failed to allocate arena memory");
+	}
+
+	let arena_capacity = capacity;
+	let offset = 0;         // Current allocation offset
+	let destroyed = false;  // Track if arena has been destroyed
+
+	// Align offset to given alignment (must be power of 2)
+	fn align_up(value: i64, alignment: i64): i64 {
+		let mask = alignment - 1;
+		return (value + mask) & (~mask);
+	}
+
+	return {
+		// Current bytes used
+		used: 0,
+
+		// Total capacity
+		capacity: arena_capacity,
+
+		// Bytes remaining
+		remaining: arena_capacity,
+
+		// Allocate raw memory from the arena
+		// Returns null if arena doesn't have enough space
+		alloc: fn(size: i64) {
+			if (destroyed) {
+				panic("Cannot allocate from destroyed arena");
+			}
+			if (size <= 0) {
+				return null;
+			}
+
+			// Check if we have space
+			if (offset + size > arena_capacity) {
+				return null;  // Out of space
+			}
+
+			// Bump allocate
+			let result = memory + offset;
+			offset = offset + size;
+
+			// Update properties
+			self.used = offset;
+			self.remaining = arena_capacity - offset;
+
+			return result;
+		},
+
+		// Allocate with alignment (alignment must be power of 2)
+		alloc_aligned: fn(size: i64, alignment: i64) {
+			if (destroyed) {
+				panic("Cannot allocate from destroyed arena");
+			}
+			if (size <= 0) {
+				return null;
+			}
+			if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+				panic("Alignment must be a positive power of 2");
+			}
+
+			// Align the current offset
+			let aligned_offset = align_up(offset, alignment);
+
+			// Check if we have space after alignment
+			if (aligned_offset + size > arena_capacity) {
+				return null;  // Out of space
+			}
+
+			// Bump allocate from aligned position
+			let result = memory + aligned_offset;
+			offset = aligned_offset + size;
+
+			// Update properties
+			self.used = offset;
+			self.remaining = arena_capacity - offset;
+
+			return result;
+		},
+
+		// Allocate and zero-initialize memory
+		alloc_zeroed: fn(size: i64) {
+			let p = self.alloc(size);
+			if (p != null) {
+				memset(p, 0, size);
+			}
+			return p;
+		},
+
+		// Allocate memory and return both pointer and size for manual bounds tracking
+		// Note: Returns raw ptr - Hemlock's buffer() allocates new memory,
+		// so arena allocations use ptr with explicit size tracking
+		alloc_with_size: fn(size: i64) {
+			if (destroyed) {
+				panic("Cannot allocate from destroyed arena");
+			}
+			if (size <= 0) {
+				return null;
+			}
+
+			// Check if we have space
+			if (offset + size > arena_capacity) {
+				return null;  // Out of space
+			}
+
+			// Get the pointer location
+			let ptr_loc = memory + offset;
+			offset = offset + size;
+
+			// Update properties
+			self.used = offset;
+			self.remaining = arena_capacity - offset;
+
+			// Return pointer and size together for bounds tracking
+			return { ptr: ptr_loc, size: size };
+		},
+
+		// Save current position (for temporary allocations)
+		save: fn(): i64 {
+			if (destroyed) {
+				panic("Cannot save position of destroyed arena");
+			}
+			return offset;
+		},
+
+		// Restore to a previously saved position
+		// This effectively "frees" all allocations made after the save point
+		restore: fn(saved_offset: i64) {
+			if (destroyed) {
+				panic("Cannot restore destroyed arena");
+			}
+			if (saved_offset < 0 || saved_offset > offset) {
+				panic("Invalid arena restore point");
+			}
+			offset = saved_offset;
+			self.used = offset;
+			self.remaining = arena_capacity - offset;
+		},
+
+		// Reset the arena - "frees" all allocations but keeps memory
+		// This is O(1) - just reset the offset
+		reset: fn() {
+			if (destroyed) {
+				panic("Cannot reset destroyed arena");
+			}
+			offset = 0;
+			self.used = 0;
+			self.remaining = arena_capacity;
+		},
+
+		// Destroy the arena - frees the backing memory
+		// Arena cannot be used after this
+		destroy: fn() {
+			if (destroyed) {
+				return;  // Already destroyed, no-op
+			}
+			free(memory);
+			destroyed = true;
+			offset = 0;
+			self.used = 0;
+			self.remaining = 0;
+			self.capacity = 0;
+		},
+
+		// Check if arena has been destroyed
+		is_destroyed: fn(): bool {
+			return destroyed;
+		},
+
+		// Check if arena can fit an allocation of given size
+		can_alloc: fn(size: i64): bool {
+			if (destroyed) {
+				return false;
+			}
+			return offset + size <= arena_capacity;
+		},
+
+		// Get the base pointer (for advanced use)
+		base_ptr: fn() {
+			if (destroyed) {
+				panic("Cannot get base pointer of destroyed arena");
+			}
+			return memory;
+		},
+
+		// Get current allocation pointer (for advanced use)
+		current_ptr: fn() {
+			if (destroyed) {
+				panic("Cannot get current pointer of destroyed arena");
+			}
+			return memory + offset;
+		},
+	};
+}
+
+// ========== GROWING ARENA ==========
+// An arena that grows automatically when full.
+// Uses a linked list of fixed-size chunks.
+
+export fn GrowingArena(chunk_size?: 64 * 1024) {
+	if (chunk_size <= 0) {
+		panic("GrowingArena chunk_size must be positive");
+	}
+
+	let chunks = [];           // Array of {ptr, capacity, used}
+	let current_chunk = null;  // Current chunk being allocated from
+	let total_used = 0;        // Total bytes across all chunks
+	let total_capacity = 0;    // Total capacity across all chunks
+	let destroyed = false;
+
+	// Allocate a new chunk
+	fn new_chunk(size: i64) {
+		let mem = alloc(size);
+		if (mem == null) {
+			panic("Failed to allocate arena chunk");
+		}
+		let chunk = {
+			memory: mem,
+			capacity: size,
+			offset: 0,
+		};
+		chunks.push(chunk);
+		total_capacity = total_capacity + size;
+		return chunk;
+	}
+
+	// Initialize with first chunk
+	current_chunk = new_chunk(chunk_size);
+
+	// Align offset to given alignment
+	fn align_up(value: i64, alignment: i64): i64 {
+		let mask = alignment - 1;
+		return (value + mask) & (~mask);
+	}
+
+	return {
+		// Total bytes used across all chunks
+		used: 0,
+
+		// Total capacity across all chunks
+		capacity: chunk_size,
+
+		// Number of chunks allocated
+		chunk_count: 1,
+
+		// Allocate memory (grows if needed)
+		alloc: fn(size: i64) {
+			if (destroyed) {
+				panic("Cannot allocate from destroyed arena");
+			}
+			if (size <= 0) {
+				return null;
+			}
+
+			// Try current chunk first
+			if (current_chunk.offset + size <= current_chunk.capacity) {
+				let result = current_chunk.memory + current_chunk.offset;
+				current_chunk.offset = current_chunk.offset + size;
+				total_used = total_used + size;
+				self.used = total_used;
+				return result;
+			}
+
+			// Need a new chunk - allocate at least chunk_size or size (whichever is larger)
+			let new_size = chunk_size;
+			if (size > new_size) {
+				new_size = size;
+			}
+			current_chunk = new_chunk(new_size);
+			self.capacity = total_capacity;
+			self.chunk_count = chunks.length;
+
+			// Allocate from new chunk
+			let result = current_chunk.memory + current_chunk.offset;
+			current_chunk.offset = current_chunk.offset + size;
+			total_used = total_used + size;
+			self.used = total_used;
+			return result;
+		},
+
+		// Allocate with alignment
+		alloc_aligned: fn(size: i64, alignment: i64) {
+			if (destroyed) {
+				panic("Cannot allocate from destroyed arena");
+			}
+			if (size <= 0) {
+				return null;
+			}
+			if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+				panic("Alignment must be a positive power of 2");
+			}
+
+			// Calculate aligned offset in current chunk
+			let aligned_offset = align_up(current_chunk.offset, alignment);
+
+			// Try current chunk
+			if (aligned_offset + size <= current_chunk.capacity) {
+				let result = current_chunk.memory + aligned_offset;
+				let wasted = aligned_offset - current_chunk.offset;
+				current_chunk.offset = aligned_offset + size;
+				total_used = total_used + size + wasted;
+				self.used = total_used;
+				return result;
+			}
+
+			// Need new chunk (allocations at start are naturally aligned for small alignments)
+			let new_size = chunk_size;
+			if (size + alignment > new_size) {
+				new_size = size + alignment;
+			}
+			current_chunk = new_chunk(new_size);
+			self.capacity = total_capacity;
+			self.chunk_count = chunks.length;
+
+			// Align in new chunk
+			aligned_offset = align_up(0, alignment);
+			let result = current_chunk.memory + aligned_offset;
+			current_chunk.offset = aligned_offset + size;
+			total_used = total_used + aligned_offset + size;
+			self.used = total_used;
+			return result;
+		},
+
+		// Allocate and zero-initialize
+		alloc_zeroed: fn(size: i64) {
+			let p = self.alloc(size);
+			if (p != null) {
+				memset(p, 0, size);
+			}
+			return p;
+		},
+
+		// Reset all chunks - keeps memory allocated
+		reset: fn() {
+			if (destroyed) {
+				panic("Cannot reset destroyed arena");
+			}
+			for (chunk in chunks) {
+				chunk.offset = 0;
+			}
+			// Reset to first chunk
+			if (chunks.length > 0) {
+				current_chunk = chunks[0];
+			}
+			total_used = 0;
+			self.used = 0;
+		},
+
+		// Destroy arena - frees all chunk memory
+		destroy: fn() {
+			if (destroyed) {
+				return;
+			}
+			for (chunk in chunks) {
+				free(chunk.memory);
+			}
+			chunks = [];
+			current_chunk = null;
+			destroyed = true;
+			total_used = 0;
+			total_capacity = 0;
+			self.used = 0;
+			self.capacity = 0;
+			self.chunk_count = 0;
+		},
+
+		// Check if destroyed
+		is_destroyed: fn(): bool {
+			return destroyed;
+		},
+
+		// Check if can fit allocation without growing
+		can_alloc_without_grow: fn(size: i64): bool {
+			if (destroyed) {
+				return false;
+			}
+			return current_chunk.offset + size <= current_chunk.capacity;
+		},
+	};
+}
+
+// ========== SCRATCH ARENA ==========
+// A convenience wrapper for temporary allocations within a scope.
+// Uses save/restore pattern automatically.
+
+export fn ScratchScope(arena) {
+	let saved = arena.save();
+	let released = false;
+
+	return {
+		// Get the underlying arena
+		arena: arena,
+
+		// Allocate from the arena
+		alloc: fn(size: i64) {
+			return arena.alloc(size);
+		},
+
+		// Allocate with alignment
+		alloc_aligned: fn(size: i64, alignment: i64) {
+			return arena.alloc_aligned(size, alignment);
+		},
+
+		// Allocate zeroed
+		alloc_zeroed: fn(size: i64) {
+			return arena.alloc_zeroed(size);
+		},
+
+		// Release all allocations made in this scope
+		// Restores arena to saved position
+		release: fn() {
+			if (!released) {
+				arena.restore(saved);
+				released = true;
+			}
+		},
+
+		// Check if already released
+		is_released: fn(): bool {
+			return released;
+		},
+	};
+}
+
+// ========== TYPED ALLOCATION HELPERS ==========
+// Convenience functions for common allocation patterns
+
+// Size constants for primitive types
+export let SIZEOF_I8 = 1;
+export let SIZEOF_I16 = 2;
+export let SIZEOF_I32 = 4;
+export let SIZEOF_I64 = 8;
+export let SIZEOF_U8 = 1;
+export let SIZEOF_U16 = 2;
+export let SIZEOF_U32 = 4;
+export let SIZEOF_U64 = 8;
+export let SIZEOF_F32 = 4;
+export let SIZEOF_F64 = 8;
+export let SIZEOF_PTR = 8;  // 64-bit pointers
+
+// Allocate array of i32 values
+export fn arena_alloc_i32_array(arena, count: i64) {
+	return arena.alloc_aligned(count * SIZEOF_I32, SIZEOF_I32);
+}
+
+// Allocate array of i64 values
+export fn arena_alloc_i64_array(arena, count: i64) {
+	return arena.alloc_aligned(count * SIZEOF_I64, SIZEOF_I64);
+}
+
+// Allocate array of f64 values
+export fn arena_alloc_f64_array(arena, count: i64) {
+	return arena.alloc_aligned(count * SIZEOF_F64, SIZEOF_F64);
+}
+
+// Allocate array of pointers
+export fn arena_alloc_ptr_array(arena, count: i64) {
+	return arena.alloc_aligned(count * SIZEOF_PTR, SIZEOF_PTR);
+}
+
+// Copy a string into the arena
+export fn arena_copy_string(arena, str: string) {
+	let len = str.byte_length;
+	let p = arena.alloc(len + 1);  // +1 for null terminator
+	if (p != null) {
+		let bytes = str.to_bytes();
+		for (let i = 0; i < len; i++) {
+			ptr_write_u8(p + i, bytes[i]);
+		}
+		ptr_write_u8(p + len, 0);  // Null terminator
+	}
+	return p;
+}
