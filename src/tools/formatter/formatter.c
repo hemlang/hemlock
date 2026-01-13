@@ -1311,6 +1311,86 @@ static void fmt_rune(FmtCtx *ctx, uint32_t codepoint) {
     buf_append_char(&ctx->buf, '\'');
 }
 
+// Forward declarations for pattern formatting
+static void fmt_pattern(FmtCtx *ctx, Pattern *pattern);
+static void fmt_expr(FmtCtx *ctx, Expr *expr);
+
+// Format a pattern (for match expressions)
+static void fmt_pattern(FmtCtx *ctx, Pattern *pattern) {
+    if (!pattern) return;
+
+    switch (pattern->type) {
+        case PATTERN_LITERAL:
+            fmt_expr(ctx, pattern->as.literal);
+            break;
+
+        case PATTERN_WILDCARD:
+            buf_append_char(&ctx->buf, '_');
+            break;
+
+        case PATTERN_BINDING:
+            buf_append(&ctx->buf, pattern->as.binding.name);
+            break;
+
+        case PATTERN_TYPED:
+            if (pattern->as.typed.name) {
+                buf_append(&ctx->buf, pattern->as.typed.name);
+            } else {
+                buf_append_char(&ctx->buf, '_');
+            }
+            if (pattern->as.typed.type_annotation) {
+                buf_append(&ctx->buf, ": ");
+                fmt_type(ctx, pattern->as.typed.type_annotation);
+            }
+            break;
+
+        case PATTERN_OR:
+            for (int i = 0; i < pattern->as.or_pattern.num_alternatives; i++) {
+                if (i > 0) buf_append(&ctx->buf, " | ");
+                fmt_pattern(ctx, pattern->as.or_pattern.alternatives[i]);
+            }
+            break;
+
+        case PATTERN_OBJECT:
+            buf_append(&ctx->buf, "{ ");
+            for (int i = 0; i < pattern->as.object.num_fields; i++) {
+                if (i > 0) buf_append(&ctx->buf, ", ");
+                ObjectFieldPattern *field = &pattern->as.object.fields[i];
+                buf_append(&ctx->buf, field->name);
+                if (field->pattern) {
+                    buf_append(&ctx->buf, ": ");
+                    fmt_pattern(ctx, field->pattern);
+                }
+            }
+            if (pattern->as.object.has_rest) {
+                if (pattern->as.object.num_fields > 0) buf_append(&ctx->buf, ", ");
+                buf_append(&ctx->buf, "...");
+                if (pattern->as.object.rest_name) {
+                    buf_append(&ctx->buf, pattern->as.object.rest_name);
+                }
+            }
+            buf_append(&ctx->buf, " }");
+            break;
+
+        case PATTERN_ARRAY:
+            buf_append_char(&ctx->buf, '[');
+            for (int i = 0; i < pattern->as.array.num_elements; i++) {
+                if (i > 0) buf_append(&ctx->buf, ", ");
+                ArrayElementPattern *elem = &pattern->as.array.elements[i];
+                if (elem->is_rest) {
+                    buf_append(&ctx->buf, "...");
+                    if (elem->rest_name) {
+                        buf_append(&ctx->buf, elem->rest_name);
+                    }
+                } else {
+                    fmt_pattern(ctx, elem->pattern);
+                }
+            }
+            buf_append_char(&ctx->buf, ']');
+            break;
+    }
+}
+
 static void fmt_expr(FmtCtx *ctx, Expr *expr) {
     if (!expr) return;
 
@@ -1678,6 +1758,32 @@ static void fmt_expr(FmtCtx *ctx, Expr *expr) {
             fmt_expr(ctx, expr->as.null_coalesce.left);
             buf_append(&ctx->buf, " ?? ");
             fmt_expr(ctx, expr->as.null_coalesce.right);
+            break;
+
+        case EXPR_MATCH:
+            buf_append(&ctx->buf, "match (");
+            fmt_expr(ctx, expr->as.match_expr.scrutinee);
+            buf_append(&ctx->buf, ") {");
+            fmt_newline(ctx);
+            ctx->indent++;
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                fmt_indent(ctx);
+                fmt_pattern(ctx, arm->pattern);
+                if (arm->guard) {
+                    buf_append(&ctx->buf, " if ");
+                    fmt_expr(ctx, arm->guard);
+                }
+                buf_append(&ctx->buf, " => ");
+                fmt_expr(ctx, arm->body);
+                if (i < expr->as.match_expr.num_arms - 1) {
+                    buf_append_char(&ctx->buf, ',');
+                }
+                fmt_newline(ctx);
+            }
+            ctx->indent--;
+            fmt_indent(ctx);
+            buf_append_char(&ctx->buf, '}');
             break;
     }
 }

@@ -390,6 +390,31 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
             resolve_expr_internal(ctx, expr->as.null_coalesce.right);
             break;
 
+        case EXPR_MATCH:
+            // Resolve the scrutinee expression
+            resolve_expr_internal(ctx, expr->as.match_expr.scrutinee);
+            // Resolve each match arm
+            // Note: We do NOT define pattern bindings here because the interpreter's
+            // pattern matching creates bindings at runtime in a different way than
+            // the resolver tracks. Marking them as resolved would interfere with
+            // the runtime binding mechanism.
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+
+                // Resolve literal patterns (they may contain expressions)
+                if (arm->pattern && arm->pattern->type == PATTERN_LITERAL) {
+                    resolve_expr_internal(ctx, arm->pattern->as.literal);
+                }
+
+                // Resolve guard if present
+                if (arm->guard) {
+                    resolve_expr_internal(ctx, arm->guard);
+                }
+                // Resolve body (pattern bindings will use hash lookup at runtime)
+                resolve_expr_internal(ctx, arm->body);
+            }
+            break;
+
         // Literals - no resolution needed
         case EXPR_NUMBER:
         case EXPR_BOOL:

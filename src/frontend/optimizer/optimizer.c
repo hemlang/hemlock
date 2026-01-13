@@ -831,6 +831,25 @@ static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats) {
             }
             break;
 
+        case EXPR_MATCH:
+            /* Optimize the scrutinee expression */
+            expr->as.match_expr.scrutinee = optimize_expr_internal(expr->as.match_expr.scrutinee, stats);
+            /* Optimize each match arm */
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                /* Optimize literal patterns */
+                if (arm->pattern && arm->pattern->type == PATTERN_LITERAL) {
+                    arm->pattern->as.literal = optimize_expr_internal(arm->pattern->as.literal, stats);
+                }
+                /* Optimize guard expression if present */
+                if (arm->guard) {
+                    arm->guard = optimize_expr_internal(arm->guard, stats);
+                }
+                /* Optimize body expression */
+                arm->body = optimize_expr_internal(arm->body, stats);
+            }
+            break;
+
         /* Literals - nothing to optimize */
         case EXPR_NUMBER:
         case EXPR_BOOL:
