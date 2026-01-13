@@ -877,8 +877,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     ctx->defer_stack.count = defer_depth_before;
                 }
 
-                // Get result
-                result = ctx->return_state.return_value;
+                // Get result (use null if exception is being thrown - return_value may be stale)
+                result = ctx->exception_state.is_throwing ? val_null() : ctx->return_state.return_value;
 
                 // Check return type if specified (but not if exception is being thrown)
                 if (fn->return_type && !ctx->exception_state.is_throwing) {
@@ -1281,7 +1281,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (!new_names || !new_values) {
                     if (new_names) obj->field_names = new_names;
                     if (new_values) obj->field_values = new_values;
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Failed to expand object fields");
+                    return val_null();
                 }
                 obj->field_names = new_names;
                 obj->field_values = new_values;
@@ -1466,6 +1469,42 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             }
                         }
                     }
+                    // Copy function type fields (for callback type annotations like fn(i32): i32)
+                    if (expr->as.function.param_types[i]->kind == TYPE_FUNCTION) {
+                        Type *src = expr->as.function.param_types[i];
+                        Type *dst = fn->param_types[i];
+                        dst->fn_is_async = src->fn_is_async;
+                        dst->fn_num_params = src->fn_num_params;
+                        // Copy parameter types
+                        if (src->fn_num_params > 0 && src->fn_param_types) {
+                            dst->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
+                            for (int j = 0; j < src->fn_num_params; j++) {
+                                if (src->fn_param_types[j]) {
+                                    // Shallow copy for now - function param types are usually simple
+                                    dst->fn_param_types[j] = type_new(src->fn_param_types[j]->kind);
+                                    dst->fn_param_types[j]->nullable = src->fn_param_types[j]->nullable;
+                                    if (src->fn_param_types[j]->type_name) {
+                                        dst->fn_param_types[j]->type_name = strdup(src->fn_param_types[j]->type_name);
+                                    }
+                                } else {
+                                    dst->fn_param_types[j] = NULL;
+                                }
+                            }
+                        }
+                        // Copy optional flags
+                        if (src->fn_num_params > 0 && src->fn_param_optional) {
+                            dst->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
+                            memcpy(dst->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
+                        }
+                        // Copy return type
+                        if (src->fn_return_type) {
+                            dst->fn_return_type = type_new(src->fn_return_type->kind);
+                            dst->fn_return_type->nullable = src->fn_return_type->nullable;
+                            if (src->fn_return_type->type_name) {
+                                dst->fn_return_type->type_name = strdup(src->fn_return_type->type_name);
+                            }
+                        }
+                    }
                 } else {
                     fn->param_types[i] = NULL;
                 }
@@ -1536,6 +1575,41 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     fn->return_type->element_type->nullable = expr->as.function.return_type->element_type->nullable;
                     if (expr->as.function.return_type->element_type->type_name) {
                         fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
+                    }
+                }
+                // Copy function type fields (for return type annotations like fn(i32): i32)
+                if (expr->as.function.return_type->kind == TYPE_FUNCTION) {
+                    Type *src = expr->as.function.return_type;
+                    Type *dst = fn->return_type;
+                    dst->fn_is_async = src->fn_is_async;
+                    dst->fn_num_params = src->fn_num_params;
+                    // Copy parameter types
+                    if (src->fn_num_params > 0 && src->fn_param_types) {
+                        dst->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
+                        for (int j = 0; j < src->fn_num_params; j++) {
+                            if (src->fn_param_types[j]) {
+                                dst->fn_param_types[j] = type_new(src->fn_param_types[j]->kind);
+                                dst->fn_param_types[j]->nullable = src->fn_param_types[j]->nullable;
+                                if (src->fn_param_types[j]->type_name) {
+                                    dst->fn_param_types[j]->type_name = strdup(src->fn_param_types[j]->type_name);
+                                }
+                            } else {
+                                dst->fn_param_types[j] = NULL;
+                            }
+                        }
+                    }
+                    // Copy optional flags
+                    if (src->fn_num_params > 0 && src->fn_param_optional) {
+                        dst->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
+                        memcpy(dst->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
+                    }
+                    // Copy return type of the function type
+                    if (src->fn_return_type) {
+                        dst->fn_return_type = type_new(src->fn_return_type->kind);
+                        dst->fn_return_type->nullable = src->fn_return_type->nullable;
+                        if (src->fn_return_type->type_name) {
+                            dst->fn_return_type->type_name = strdup(src->fn_return_type->type_name);
+                        }
                     }
                 }
             } else {
@@ -2009,8 +2083,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Evaluate expression parts and convert to strings
             char **expr_strings = malloc(sizeof(char*) * num_parts);
+            if (!expr_strings) {
+                runtime_error(ctx, "Out of memory in string interpolation");
+                return val_null();
+            }
             for (int i = 0; i < num_parts; i++) {
                 Value expr_val = eval_expr(expr_parts[i], env, ctx);
+                // Check for exception after evaluating expression
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(expr_val);
+                    // Free already allocated strings
+                    for (int j = 0; j < i; j++) {
+                        free(expr_strings[j]);
+                    }
+                    free(expr_strings);
+                    return val_null();
+                }
                 expr_strings[i] = value_to_string(expr_val);
                 VALUE_RELEASE(expr_val);  // Release after converting to string
                 total_len += strlen(expr_strings[i]);
@@ -2018,6 +2106,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Build final string
             char *result = malloc(total_len + 1);
+            if (!result) {
+                for (int i = 0; i < num_parts; i++) {
+                    free(expr_strings[i]);
+                }
+                free(expr_strings);
+                runtime_error(ctx, "Out of memory in string interpolation");
+                return val_null();
+            }
             result[0] = '\0';
 
             for (int i = 0; i < num_parts; i++) {

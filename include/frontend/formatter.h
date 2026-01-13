@@ -6,6 +6,7 @@
 // Formatter configuration (opinionated, not configurable by user)
 #define FMT_INDENT_CHAR '\t'
 #define FMT_INDENT_SIZE 1
+#define FMT_TAB_WIDTH 4          // Visual width of tab character for column tracking
 #define FMT_MAX_LINE_WIDTH 100
 
 // Format a file in place

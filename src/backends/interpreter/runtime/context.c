@@ -161,7 +161,7 @@ char* format_error_with_context(const char *file, int line, int column, const ch
             offset += snprintf(buffer + offset, base_size - offset, "\n       | ");
 
             // Add caret (with bounds checking)
-            if (column > 0 && (size_t)(offset + column + 2) < base_size) {
+            if (column > 0 && (size_t)offset + (size_t)column + 2 < base_size) {
                 for (int i = 1; i < column && i <= display_len; i++) {
                     if (line_text[i-1] == '\t') {
                         buffer[offset++] = '\t';
@@ -170,7 +170,7 @@ char* format_error_with_context(const char *file, int line, int column, const ch
                     }
                 }
             }
-            if ((size_t)(offset + 2) < base_size) {
+            if ((size_t)offset + 2 < base_size) {
                 buffer[offset++] = '^';
                 buffer[offset] = '\0';
             }

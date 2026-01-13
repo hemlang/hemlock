@@ -1,0 +1,187 @@
+// Basic arena tests - demonstrating core functionality
+
+import { Arena, GrowingArena, ScratchScope, SIZEOF_I32, arena_alloc_i32_array } from "@stdlib/arena";
+
+print("=== Testing Arena Basic Allocation ===");
+let arena = Arena(4096);
+assert(arena.capacity == 4096, "Arena capacity should be 4096");
+assert(arena.used == 0, "Arena should start empty");
+assert(arena.remaining == 4096, "Arena remaining should be full");
+
+// Test basic allocation
+let p1 = arena.alloc(64);
+assert(p1 != null, "First allocation should succeed");
+assert(arena.used == 64, "Used should be 64 after first alloc");
+assert(arena.remaining == 4032, "Remaining should be 4032");
+
+let p2 = arena.alloc(128);
+assert(p2 != null, "Second allocation should succeed");
+assert(arena.used == 192, "Used should be 192 after second alloc");
+
+// Test writing to allocated memory
+ptr_write_i32(p1, 42);
+ptr_write_i32(p2, 100);
+assert(ptr_deref_i32(p1) == 42, "Should read back 42 from p1");
+assert(ptr_deref_i32(p2) == 100, "Should read back 100 from p2");
+
+print("Arena basic allocation passed!");
+
+print("=== Testing Arena Reset ===");
+arena.reset();
+assert(arena.used == 0, "Used should be 0 after reset");
+assert(arena.remaining == 4096, "Remaining should be full after reset");
+
+// Can allocate again after reset
+let p3 = arena.alloc(256);
+assert(p3 != null, "Should be able to allocate after reset");
+assert(arena.used == 256, "Used should be 256");
+
+print("Arena reset passed!");
+
+print("=== Testing Arena Save/Restore ===");
+arena.reset();
+
+// Persistent allocation
+let persistent = arena.alloc(100);
+ptr_write_i32(persistent, 999);
+
+// Save position
+let mark = arena.save();
+assert(mark == 100, "Saved position should be 100");
+
+// Temporary allocations
+let temp1 = arena.alloc(500);
+let temp2 = arena.alloc(500);
+assert(arena.used == 1100, "Used should be 1100");
+
+// Restore
+arena.restore(mark);
+assert(arena.used == 100, "Used should be 100 after restore");
+
+// Persistent data still valid
+assert(ptr_deref_i32(persistent) == 999, "Persistent data should survive restore");
+
+print("Arena save/restore passed!");
+
+print("=== Testing Arena Aligned Allocation ===");
+arena.reset();
+
+// Allocate with 16-byte alignment
+let aligned = arena.alloc_aligned(64, 16);
+assert(aligned != null, "Aligned allocation should succeed");
+
+let aligned32 = arena.alloc_aligned(128, 32);
+assert(aligned32 != null, "32-byte aligned allocation should succeed");
+
+print("Arena aligned allocation passed!");
+
+print("=== Testing Arena Zeroed Allocation ===");
+arena.reset();
+
+let zeroed = arena.alloc_zeroed(64);
+assert(zeroed != null, "Zeroed allocation should succeed");
+
+// Check that memory is zeroed
+for (let i = 0; i < 16; i++) {
+    assert(ptr_deref_i32(zeroed + i * 4) == 0, "Memory should be zeroed");
+}
+
+print("Arena zeroed allocation passed!");
+
+print("=== Testing Arena Out-of-Space ===");
+arena.reset();
+
+// Fill up most of the arena
+let big = arena.alloc(4000);
+assert(big != null, "Large allocation should succeed");
+
+// Try to allocate more than remaining
+let toobig = arena.alloc(200);
+assert(toobig == null, "Over-capacity allocation should return null");
+
+print("Arena out-of-space handling passed!");
+
+print("=== Testing Arena Destroy ===");
+arena.destroy();
+assert(arena.is_destroyed() == true, "Arena should be destroyed");
+assert(arena.capacity == 0, "Destroyed arena capacity should be 0");
+
+print("Arena destroy passed!");
+
+print("=== Testing GrowingArena ===");
+let growing = GrowingArena(1024);  // Small chunks for testing
+assert(growing.capacity == 1024, "GrowingArena should start with one chunk");
+assert(growing.chunk_count == 1, "Should have 1 chunk initially");
+
+// Allocate across multiple chunks
+for (let i = 0; i < 20; i++) {
+    let p = growing.alloc(100);
+    assert(p != null, "GrowingArena allocation should succeed");
+}
+
+assert(growing.chunk_count > 1, "GrowingArena should have grown");
+assert(growing.used == 2000, "GrowingArena should have 2000 bytes used");
+
+// Reset
+growing.reset();
+assert(growing.used == 0, "GrowingArena used should be 0 after reset");
+
+// Destroy
+growing.destroy();
+assert(growing.is_destroyed() == true, "GrowingArena should be destroyed");
+
+print("GrowingArena passed!");
+
+print("=== Testing ScratchScope ===");
+let scratch_arena = Arena(4096);
+
+fn use_scratch() {
+    let scope = ScratchScope(scratch_arena);
+
+    let t1 = scope.alloc(100);
+    let t2 = scope.alloc(200);
+
+    ptr_write_i32(t1, 123);
+    assert(ptr_deref_i32(t1) == 123, "Scratch allocation should work");
+
+    // Release the scope
+    scope.release();
+    assert(scope.is_released() == true, "Scope should be released");
+}
+
+// Arena is empty before
+assert(scratch_arena.used == 0, "Scratch arena should start empty");
+
+// Use scratch scope
+use_scratch();
+
+// Arena is empty after (scope released)
+assert(scratch_arena.used == 0, "Scratch arena should be empty after scope release");
+
+scratch_arena.destroy();
+
+print("ScratchScope passed!");
+
+print("=== Testing Typed Allocation Helpers ===");
+let typed_arena = Arena(4096);
+
+// Allocate array of i32
+let int_arr = arena_alloc_i32_array(typed_arena, 10);
+assert(int_arr != null, "i32 array allocation should succeed");
+
+// Write and read values
+for (let i = 0; i < 10; i++) {
+    ptr_write_i32(int_arr + i * SIZEOF_I32, i * 10);
+}
+
+for (let i = 0; i < 10; i++) {
+    let val = ptr_deref_i32(int_arr + i * SIZEOF_I32);
+    assert(val == i * 10, "Should read back correct value");
+}
+
+typed_arena.destroy();
+
+print("Typed allocation helpers passed!");
+
+print("");
+print("All arena tests passed!");

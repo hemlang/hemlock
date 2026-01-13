@@ -166,7 +166,7 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
                 }
             }
             // Comparison ops return bool
-            if (expr->as.binary.op >= OP_LESS && expr->as.binary.op <= OP_NOT_EQUAL) {
+            if (expr->as.binary.op >= OP_EQUAL && expr->as.binary.op <= OP_GREATER_EQUAL) {
                 return INFER_BOOL;
             }
             return INFER_UNKNOWN;
