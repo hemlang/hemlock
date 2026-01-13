@@ -877,8 +877,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     ctx->defer_stack.count = defer_depth_before;
                 }
 
-                // Get result
-                result = ctx->return_state.return_value;
+                // Get result (use null if exception is being thrown - return_value may be stale)
+                result = ctx->exception_state.is_throwing ? val_null() : ctx->return_state.return_value;
 
                 // Check return type if specified (but not if exception is being thrown)
                 if (fn->return_type && !ctx->exception_state.is_throwing) {
@@ -2089,6 +2089,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
             for (int i = 0; i < num_parts; i++) {
                 Value expr_val = eval_expr(expr_parts[i], env, ctx);
+                // Check for exception after evaluating expression
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(expr_val);
+                    // Free already allocated strings
+                    for (int j = 0; j < i; j++) {
+                        free(expr_strings[j]);
+                    }
+                    free(expr_strings);
+                    return val_null();
+                }
                 expr_strings[i] = value_to_string(expr_val);
                 VALUE_RELEASE(expr_val);  // Release after converting to string
                 total_len += strlen(expr_strings[i]);
