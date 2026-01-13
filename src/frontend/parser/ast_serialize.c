@@ -491,6 +491,54 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
             serialize_expr(ctx, expr->as.null_coalesce.left);
             serialize_expr(ctx, expr->as.null_coalesce.right);
             break;
+
+        case EXPR_MATCH:
+            // Match expression serialization: scrutinee + num_arms + arms
+            // Note: Pattern serialization is simplified - patterns containing expressions
+            // will have those expressions serialized properly
+            serialize_expr(ctx, expr->as.match_expr.scrutinee);
+            write_u32(ctx, (uint32_t)expr->as.match_expr.num_arms);
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                // Serialize pattern type and data
+                if (arm->pattern) {
+                    write_u8(ctx, (uint8_t)arm->pattern->type);
+                    switch (arm->pattern->type) {
+                        case PATTERN_LITERAL:
+                            serialize_expr(ctx, arm->pattern->as.literal);
+                            break;
+                        case PATTERN_WILDCARD:
+                            // No data needed
+                            break;
+                        case PATTERN_BINDING:
+                            write_string_id(ctx, arm->pattern->as.binding.name);
+                            break;
+                        case PATTERN_TYPED:
+                            write_string_id(ctx, arm->pattern->as.typed.name);
+                            serialize_type(ctx, arm->pattern->as.typed.type_annotation);
+                            break;
+                        case PATTERN_OR:
+                            // Complex pattern - not fully supported in serialization
+                            write_u32(ctx, 0);  // Write 0 alternatives
+                            break;
+                        case PATTERN_OBJECT:
+                            // Complex pattern - not fully supported in serialization
+                            write_u32(ctx, 0);  // Write 0 fields
+                            write_u8(ctx, 0);   // has_rest = false
+                            break;
+                        case PATTERN_ARRAY:
+                            // Complex pattern - not fully supported in serialization
+                            write_u32(ctx, 0);  // Write 0 elements
+                            break;
+                    }
+                } else {
+                    write_u8(ctx, NULL_MARKER);
+                }
+                // Serialize guard and body
+                serialize_expr(ctx, arm->guard);
+                serialize_expr(ctx, arm->body);
+            }
+            break;
     }
 }
 
@@ -756,6 +804,77 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             expr->as.null_coalesce.left = deserialize_expr(ctx);
             expr->as.null_coalesce.right = deserialize_expr(ctx);
             break;
+
+        case EXPR_MATCH: {
+            expr->as.match_expr.scrutinee = deserialize_expr(ctx);
+            expr->as.match_expr.num_arms = (int)read_u32(ctx);
+            if (expr->as.match_expr.num_arms > 0) {
+                expr->as.match_expr.arms = malloc(expr->as.match_expr.num_arms * sizeof(MatchArm));
+                if (!expr->as.match_expr.arms) {
+                    free(expr);
+                    return NULL;
+                }
+                for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                    MatchArm *arm = &expr->as.match_expr.arms[i];
+                    arm->line = expr->line;
+                    arm->column = 0;
+
+                    // Deserialize pattern
+                    uint8_t pattern_marker = read_u8(ctx);
+                    if (pattern_marker == NULL_MARKER) {
+                        arm->pattern = NULL;
+                    } else {
+                        arm->pattern = malloc(sizeof(Pattern));
+                        if (!arm->pattern) {
+                            // Cleanup and return NULL
+                            free(expr->as.match_expr.arms);
+                            free(expr);
+                            return NULL;
+                        }
+                        memset(arm->pattern, 0, sizeof(Pattern));
+                        arm->pattern->type = (PatternType)pattern_marker;
+                        arm->pattern->line = expr->line;
+
+                        switch (arm->pattern->type) {
+                            case PATTERN_LITERAL:
+                                arm->pattern->as.literal = deserialize_expr(ctx);
+                                break;
+                            case PATTERN_WILDCARD:
+                                // No data
+                                break;
+                            case PATTERN_BINDING:
+                                arm->pattern->as.binding.name = read_string_id(ctx);
+                                break;
+                            case PATTERN_TYPED:
+                                arm->pattern->as.typed.name = read_string_id(ctx);
+                                arm->pattern->as.typed.type_annotation = deserialize_type(ctx);
+                                break;
+                            case PATTERN_OR:
+                                arm->pattern->as.or_pattern.num_alternatives = (int)read_u32(ctx);
+                                arm->pattern->as.or_pattern.alternatives = NULL;
+                                break;
+                            case PATTERN_OBJECT:
+                                arm->pattern->as.object.num_fields = (int)read_u32(ctx);
+                                arm->pattern->as.object.fields = NULL;
+                                arm->pattern->as.object.has_rest = read_u8(ctx);
+                                arm->pattern->as.object.rest_name = NULL;
+                                break;
+                            case PATTERN_ARRAY:
+                                arm->pattern->as.array.num_elements = (int)read_u32(ctx);
+                                arm->pattern->as.array.elements = NULL;
+                                break;
+                        }
+                    }
+
+                    // Deserialize guard and body
+                    arm->guard = deserialize_expr(ctx);
+                    arm->body = deserialize_expr(ctx);
+                }
+            } else {
+                expr->as.match_expr.arms = NULL;
+            }
+            break;
+        }
     }
 
     return expr;
@@ -1238,6 +1357,7 @@ uint8_t* ast_serialize(Stmt **statements, int stmt_count, uint16_t flags, size_t
     if (!ctx.buffer) {
         fprintf(stderr, "Error: Failed to allocate serialization output buffer\n");
         free(ast_data);
+        string_table_free(&ctx.strings);
         *out_size = 0;
         return NULL;
     }

@@ -336,6 +336,17 @@ static void collect_expr_deps(Expr *expr, Symbol *sym) {
             collect_expr_deps(expr->as.null_coalesce.right, sym);
             break;
 
+        case EXPR_MATCH:
+            collect_expr_deps(expr->as.match_expr.scrutinee, sym);
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                if (arm->guard) {
+                    collect_expr_deps(arm->guard, sym);
+                }
+                collect_expr_deps(arm->body, sym);
+            }
+            break;
+
         case EXPR_NUMBER:
         case EXPR_BOOL:
         case EXPR_STRING:
@@ -592,14 +603,14 @@ static BundledModule* find_module_in_bundle(Bundle *bundle, const char *absolute
     return (BundledModule *)module_cache_map_get(&bundle->module_cache, absolute_path);
 }
 
-// Add module to bundle
-static void add_module_to_bundle(Bundle *bundle, BundledModule *module) {
+// Add module to bundle. Returns 0 on success, -1 on failure.
+static int add_module_to_bundle(Bundle *bundle, BundledModule *module) {
     if (bundle->num_modules >= bundle->capacity) {
         int new_capacity = bundle->capacity * 2;
         BundledModule **new_modules = realloc(bundle->modules, sizeof(BundledModule*) * new_capacity);
         if (!new_modules) {
             fprintf(stderr, "Error: Failed to grow bundle modules\n");
-            return;
+            return -1;
         }
         bundle->modules = new_modules;
         bundle->capacity = new_capacity;
@@ -608,6 +619,7 @@ static void add_module_to_bundle(Bundle *bundle, BundledModule *module) {
     if (module_cache_map_set(&bundle->module_cache, module->absolute_path, module) != 0) {
         fprintf(stderr, "Error: Failed to cache bundled module '%s'\n", module->absolute_path);
     }
+    return 0;
 }
 
 // Generate module ID from index
@@ -654,7 +666,12 @@ static BundledModule* load_module_for_bundle(BundleContext *ctx, const char *abs
     module->num_exports = 0;
 
     // Add to bundle immediately (for cycle detection)
-    add_module_to_bundle(ctx->bundle, module);
+    if (add_module_to_bundle(ctx->bundle, module) != 0) {
+        free(module->absolute_path);
+        free(module->module_id);
+        free(module);
+        return NULL;
+    }
 
     // Parse the file
     module->statements = parse_file(absolute_path, &module->num_statements);
@@ -1272,7 +1289,16 @@ static int build_dependency_graph(Bundle *bundle, int verbose) {
 // Mark reachable symbols using worklist algorithm
 static void mark_reachable(DependencyGraph *graph, int verbose) {
     // Create worklist with all entry points
-    char **worklist = malloc(sizeof(char*) * (graph->num_entry_points + graph->num_symbols));
+    // Ensure at least 1 element to avoid malloc(0) undefined behavior
+    size_t worklist_capacity = graph->num_entry_points + graph->num_symbols;
+    if (worklist_capacity == 0) {
+        return;  // Nothing to mark as reachable
+    }
+    char **worklist = malloc(sizeof(char*) * worklist_capacity);
+    if (!worklist) {
+        fprintf(stderr, "Error: Failed to allocate worklist\n");
+        return;
+    }
     int worklist_size = 0;
 
     // Add all entry points to worklist
