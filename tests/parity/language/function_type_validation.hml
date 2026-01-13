@@ -1,0 +1,77 @@
+// Test function type validation during assignment
+// When a function is assigned to a typed variable, validate the signature matches
+
+// Test 1: Basic function type validation
+fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+let f1: fn(i32, i32): i32 = add;
+print(f1(10, 20));
+
+// Test 2: Function with return type validation
+fn double(x: i32): i32 {
+    return x * 2;
+}
+
+let f2: fn(i32): i32 = double;
+print(f2(25));
+
+// Test 3: Void return type
+fn greet() {
+    print("hello");
+}
+
+let f3: fn(): void = greet;
+f3();
+
+// Test 4: Anonymous function assigned to typed variable
+let f4: fn(i32): i32 = fn(x: i32): i32 { return x * x; };
+print(f4(7));
+
+// Test 5: Function accepting less parameters than type allows (via defaults)
+fn add_default(a: i32, b?: 10): i32 {
+    return a + b;
+}
+
+// This should work - function can accept 1 or 2 args, type expects 2
+let f5: fn(i32, i32): i32 = add_default;
+print(f5(5, 15));
+
+// Test 6: Type alias for function type
+type BinaryOp = fn(i32, i32): i32;
+
+fn multiply(a: i32, b: i32): i32 {
+    return a * b;
+}
+
+let f6: BinaryOp = multiply;
+print(f6(6, 7));
+
+// Test 7: Function type in callback position
+fn apply_twice(f: fn(i32): i32, x: i32): i32 {
+    return f(f(x));
+}
+
+let result = apply_twice(fn(n: i32): i32 { return n + 1; }, 0);
+print(result);
+
+// Test 8: Mixed type annotations - untyped params compatible with typed
+fn untyped_add(a, b) {
+    return a + b;
+}
+
+// Untyped function params are compatible with any type (treated as 'any')
+let f8: fn(i32, i32): i32 = untyped_add;
+print(f8(100, 200));
+
+// Test 9: Async function type
+async fn async_compute(x: i32): i32 {
+    return x * 10;
+}
+
+let f9: async fn(i32): i32 = async_compute;
+let task = spawn(f9, 5);
+print(await task);
+
+print("all tests passed");

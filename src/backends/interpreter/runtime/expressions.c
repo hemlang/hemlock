@@ -1469,6 +1469,42 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             }
                         }
                     }
+                    // Copy function type fields (for callback type annotations like fn(i32): i32)
+                    if (expr->as.function.param_types[i]->kind == TYPE_FUNCTION) {
+                        Type *src = expr->as.function.param_types[i];
+                        Type *dst = fn->param_types[i];
+                        dst->fn_is_async = src->fn_is_async;
+                        dst->fn_num_params = src->fn_num_params;
+                        // Copy parameter types
+                        if (src->fn_num_params > 0 && src->fn_param_types) {
+                            dst->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
+                            for (int j = 0; j < src->fn_num_params; j++) {
+                                if (src->fn_param_types[j]) {
+                                    // Shallow copy for now - function param types are usually simple
+                                    dst->fn_param_types[j] = type_new(src->fn_param_types[j]->kind);
+                                    dst->fn_param_types[j]->nullable = src->fn_param_types[j]->nullable;
+                                    if (src->fn_param_types[j]->type_name) {
+                                        dst->fn_param_types[j]->type_name = strdup(src->fn_param_types[j]->type_name);
+                                    }
+                                } else {
+                                    dst->fn_param_types[j] = NULL;
+                                }
+                            }
+                        }
+                        // Copy optional flags
+                        if (src->fn_num_params > 0 && src->fn_param_optional) {
+                            dst->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
+                            memcpy(dst->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
+                        }
+                        // Copy return type
+                        if (src->fn_return_type) {
+                            dst->fn_return_type = type_new(src->fn_return_type->kind);
+                            dst->fn_return_type->nullable = src->fn_return_type->nullable;
+                            if (src->fn_return_type->type_name) {
+                                dst->fn_return_type->type_name = strdup(src->fn_return_type->type_name);
+                            }
+                        }
+                    }
                 } else {
                     fn->param_types[i] = NULL;
                 }
@@ -1539,6 +1575,41 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     fn->return_type->element_type->nullable = expr->as.function.return_type->element_type->nullable;
                     if (expr->as.function.return_type->element_type->type_name) {
                         fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
+                    }
+                }
+                // Copy function type fields (for return type annotations like fn(i32): i32)
+                if (expr->as.function.return_type->kind == TYPE_FUNCTION) {
+                    Type *src = expr->as.function.return_type;
+                    Type *dst = fn->return_type;
+                    dst->fn_is_async = src->fn_is_async;
+                    dst->fn_num_params = src->fn_num_params;
+                    // Copy parameter types
+                    if (src->fn_num_params > 0 && src->fn_param_types) {
+                        dst->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
+                        for (int j = 0; j < src->fn_num_params; j++) {
+                            if (src->fn_param_types[j]) {
+                                dst->fn_param_types[j] = type_new(src->fn_param_types[j]->kind);
+                                dst->fn_param_types[j]->nullable = src->fn_param_types[j]->nullable;
+                                if (src->fn_param_types[j]->type_name) {
+                                    dst->fn_param_types[j]->type_name = strdup(src->fn_param_types[j]->type_name);
+                                }
+                            } else {
+                                dst->fn_param_types[j] = NULL;
+                            }
+                        }
+                    }
+                    // Copy optional flags
+                    if (src->fn_num_params > 0 && src->fn_param_optional) {
+                        dst->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
+                        memcpy(dst->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
+                    }
+                    // Copy return type of the function type
+                    if (src->fn_return_type) {
+                        dst->fn_return_type = type_new(src->fn_return_type->kind);
+                        dst->fn_return_type->nullable = src->fn_return_type->nullable;
+                        if (src->fn_return_type->type_name) {
+                            dst->fn_return_type->type_name = strdup(src->fn_return_type->type_name);
+                        }
                     }
                 }
             } else {
