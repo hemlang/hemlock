@@ -1,0 +1,80 @@
+// Basic pattern matching tests
+
+// Simple literal matching
+fn test_literals() {
+    let x = 2;
+    let result = match (x) {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "other"
+    };
+    print(result);
+
+    // String literals
+    let s = "hello";
+    let r2 = match (s) {
+        "hi" => "greeting hi",
+        "hello" => "greeting hello",
+        _ => "unknown"
+    };
+    print(r2);
+
+    // Boolean literals
+    let b = true;
+    let r3 = match (b) {
+        true => "yes",
+        false => "no"
+    };
+    print(r3);
+}
+
+// Wildcard pattern
+fn test_wildcard() {
+    let x = 42;
+    let result = match (x) {
+        1 => "one",
+        _ => "something else"
+    };
+    print(result);
+}
+
+// Variable binding
+fn test_binding() {
+    let x = 100;
+    let result = match (x) {
+        n => "got " + n
+    };
+    print(result);
+}
+
+// OR patterns
+fn test_or_patterns() {
+    let x = 2;
+    let result = match (x) {
+        1 | 2 | 3 => "small",
+        4 | 5 | 6 => "medium",
+        _ => "large"
+    };
+    print(result);
+}
+
+// Guards
+fn test_guards() {
+    let x = 50;
+    let result = match (x) {
+        n if n < 0 => "negative",
+        n if n == 0 => "zero",
+        n if n < 10 => "small positive",
+        n if n < 100 => "medium positive",
+        _ => "large positive"
+    };
+    print(result);
+}
+
+// Run tests
+test_literals();
+test_wildcard();
+test_binding();
+test_or_patterns();
+test_guards();

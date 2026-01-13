@@ -209,6 +209,12 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module,
 // Parse a module file
 Stmt** parse_module_file(const char *path, int *stmt_count);
 
+// ========== PATTERN MATCHING CODEGEN ==========
+
+// Generate code to match a pattern against a value, jumping to fail_label if no match
+// Creates local variables for any bindings in the pattern
+void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *scrutinee, const char *fail_label);
+
 // ========== TYPE MAPPING HELPERS ==========
 
 // Convert TypeKind to HML_VAL_* string (e.g., TYPE_I8 -> "HML_VAL_I8")
