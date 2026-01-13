@@ -1,0 +1,49 @@
+// Hemlock Banner - Simple startup splash
+// Usage: ./hemlock examples/banner.hml
+
+import {
+    GREEN, BRIGHT_GREEN, YELLOW, CYAN, WHITE, RED,
+    BOLD, DIM, RESET
+} from "@stdlib/terminal";
+
+let LEAF = BRIGHT_GREEN;
+let STEM = GREEN;
+let FLOWER = WHITE;
+let EYE = YELLOW;
+
+// Main banner
+print("");
+print(BOLD + GREEN + "  ╔═══════════════════════════════════════════════════════════════════╗" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "                                                                   " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "         " + FLOWER + "* * *" + RESET + "                                                  " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "        " + FLOWER + "* * * *" + RESET + "     " + BOLD + BRIGHT_GREEN + "██╗  ██╗███████╗███╗   ███╗██╗      ██████╗  ██████╗██╗  ██╗" + RESET + " " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "       " + LEAF + ",@@@@@@@," + RESET + "    " + BOLD + BRIGHT_GREEN + "██║  ██║██╔════╝████╗ ████║██║     ██╔═══██╗██╔════╝██║ ██╔╝" + RESET + " " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "      " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET + "   " + BOLD + BRIGHT_GREEN + "███████║█████╗  ██╔████╔██║██║     ██║   ██║██║     █████╔╝ " + RESET + " " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "     " + LEAF + "@@" + RESET + "  " + EYE + "o" + RESET + "   " + EYE + "o" + RESET + "  " + LEAF + "@@" + RESET + "  " + BOLD + BRIGHT_GREEN + "██╔══██║██╔══╝  ██║╚██╔╝██║██║     ██║   ██║██║     ██╔═██╗ " + RESET + " " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "     " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET + "  " + BOLD + BRIGHT_GREEN + "██║  ██║███████╗██║ ╚═╝ ██║███████╗╚██████╔╝╚██████╗██║  ██╗" + RESET + " " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "     " + LEAF + "@@" + RESET + "   " + RED + "\\-/" + RESET + "   " + LEAF + "@@" + RESET + "  " + BOLD + BRIGHT_GREEN + "╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝" + RESET + " " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "      " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET + "                                                   " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "     " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET + "   " + DIM + "A small, unsafe language for writing unsafe things safely" + RESET + "  " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "    " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET + "                                                   " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "         " + STEM + "|||" + RESET + "         " + DIM + "Version 1.8.0" + RESET + "                                    " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "         " + STEM + "|||" + RESET + "         " + DIM + "github.com/hemlang/hemlock" + RESET + "                          " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "        " + DIM + "~~~~~" + RESET + "                                                        " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "                                                                   " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ╚═══════════════════════════════════════════════════════════════════╝" + RESET);
+print("");
+
+// Quick reference
+print(BOLD + "  Quick Start:" + RESET);
+print("    " + CYAN + "hemlock script.hml" + RESET + "     Run a Hemlock script");
+print("    " + CYAN + "hemlockc script.hml" + RESET + "    Compile to native binary");
+print("    " + CYAN + "hemlock --help" + RESET + "         Show all options");
+print("");
+
+print(BOLD + "  Examples:" + RESET);
+print("    " + GREEN + "let x = alloc(64);" + RESET + "    " + DIM + "// Allocate 64 bytes" + RESET);
+print("    " + GREEN + "free(x);" + RESET + "              " + DIM + "// Manual cleanup (your responsibility!)" + RESET);
+print("    " + GREEN + "let b = buffer(64);" + RESET + "   " + DIM + "// Safe buffer with bounds checking" + RESET);
+print("");
+
+print(DIM + "  \"We give you the tools to be safe - but we don't force you to use them.\"" + RESET);
+print("");

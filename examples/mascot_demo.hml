@@ -1,0 +1,182 @@
+// Hemlock Mascot Demo - Quick showcase of all expressions
+// Run with: ./hemlock examples/mascot_demo.hml
+
+import {
+    GREEN, BRIGHT_GREEN, YELLOW, CYAN, MAGENTA, WHITE, RED,
+    BOLD, DIM, RESET, clear
+} from "@stdlib/terminal";
+import { sleep } from "@stdlib/time";
+
+// Color palette
+let LEAF = BRIGHT_GREEN;
+let STEM = GREEN;
+let FLOWER = WHITE;
+let EYE = YELLOW;
+let TOXIC = MAGENTA;
+
+fn print_mascot(name: string, frame: array) {
+    print("");
+    print(BOLD + CYAN + "  === " + name + " ===" + RESET);
+    print("");
+    for (line in frame) {
+        print("  " + line);
+    }
+    print("");
+}
+
+// Normal/Happy
+let happy = [
+    "       " + FLOWER + "* * *" + RESET,
+    "      " + FLOWER + "* * * *" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + EYE + "o" + RESET + "   " + EYE + "o" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + RED + "\\-/" + RESET + "   " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Winking
+let winking = [
+    "       " + FLOWER + "* * *" + RESET,
+    "      " + FLOWER + "* * * *" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + EYE + "-" + RESET + "   " + EYE + "o" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + YELLOW + ";)" + RESET + "    " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Excited (code compiles!)
+let excited = [
+    "   " + YELLOW + "*" + RESET + "   " + YELLOW + "*" + RESET + "   " + YELLOW + "*" + RESET + "   " + YELLOW + "*" + RESET,
+    "     " + YELLOW + "*" + RESET + " " + FLOWER + "* * *" + RESET + " " + YELLOW + "*" + RESET,
+    "      " + FLOWER + "* * * *" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + EYE + "*" + RESET + "   " + EYE + "*" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + YELLOW + "\\O/" + RESET + "   " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + STEM + "/|||" + RESET + "\\",
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Thinking
+let thinking = [
+    "                " + DIM + "o" + RESET,
+    "       " + FLOWER + "* * *" + RESET + "   " + DIM + "O" + RESET,
+    "      " + FLOWER + "* * * *" + RESET + "  " + DIM + "o" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + EYE + "o" + RESET + "   " + EYE + "-" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + RED + "~-~" + RESET + "   " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Mischievous/Toxic (for unsafe operations)
+let toxic = [
+    "    " + TOXIC + "~" + RESET + "         " + TOXIC + "~" + RESET,
+    "       " + FLOWER + "* * *" + RESET,
+    "   " + TOXIC + "~" + RESET + " " + FLOWER + "* * * *" + RESET + " " + TOXIC + "~" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + TOXIC + ">" + RESET + "   " + TOXIC + "<" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + TOXIC + ":P" + RESET + "    " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Sad (for errors)
+let sad = [
+    "       " + FLOWER + "* * *" + RESET,
+    "      " + FLOWER + "* * * *" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + CYAN + "T" + RESET + "   " + CYAN + "T" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + RED + "/-\\" + RESET + "   " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Sleeping
+let sleeping = [
+    "                " + DIM + "z" + RESET,
+    "       " + FLOWER + "* * *" + RESET + " " + DIM + "Z" + RESET,
+    "      " + FLOWER + "* * * *" + RESET + "  " + DIM + "z" + RESET,
+    "     " + LEAF + ",@@@@@@@," + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "  " + EYE + "-" + RESET + "   " + EYE + "-" + RESET + "  " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "    " + STEM + "^" + RESET + "    " + LEAF + "@@" + RESET,
+    "   " + LEAF + "@@" + RESET + "   " + RED + "~~~" + RESET + "   " + LEAF + "@@" + RESET,
+    "    " + LEAF + "@@@" + RESET + "     " + LEAF + "@@@" + RESET,
+    "   " + LEAF + "@@@@@" + RESET + " " + LEAF + "@@@@@" + RESET,
+    "  " + LEAF + "@@" + RESET + "   " + STEM + "|||" + RESET + "   " + LEAF + "@@" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "       " + STEM + "|||" + RESET,
+    "      " + DIM + "~~~~~" + RESET
+];
+
+// Header
+print("");
+print(BOLD + GREEN + "  ╔═══════════════════════════════════════════════════════════╗" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "               " + BRIGHT_GREEN + BOLD + "HEMLOCK MASCOT GALLERY" + RESET + "                   " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ║" + RESET + "      " + DIM + "A small, unsafe language for writing unsafe things" + RESET + "     " + BOLD + GREEN + "║" + RESET);
+print(BOLD + GREEN + "  ╚═══════════════════════════════════════════════════════════╝" + RESET);
+print("");
+
+print_mascot("HAPPY (default)", happy);
+sleep(0.5);
+
+print_mascot("WINKING (success!)", winking);
+sleep(0.5);
+
+print_mascot("EXCITED (code compiles!)", excited);
+sleep(0.5);
+
+print_mascot("THINKING (processing...)", thinking);
+sleep(0.5);
+
+print_mascot("MISCHIEVOUS (unsafe operation)", toxic);
+sleep(0.5);
+
+print_mascot("SAD (runtime error)", sad);
+sleep(0.5);
+
+print_mascot("SLEEPING (idle)", sleeping);
+sleep(0.5);
+
+print("");
+print(BOLD + "  Meet Hemlock - your friendly (but slightly toxic) coding companion!" + RESET);
+print(DIM + "  Run 'hemlock examples/mascot.hml' for the full animation!" + RESET);
+print("");
