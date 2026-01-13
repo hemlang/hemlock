@@ -484,9 +484,29 @@ void function_free(Function *fn) {
             free(fn->param_names);
         }
 
-        // Free parameter types (Type structs are owned by AST, just free the array)
+        // Free parameter types (these are copies created during EXPR_FUNCTION evaluation)
         if (fn->param_types) {
+            for (int i = 0; i < fn->num_params; i++) {
+                if (fn->param_types[i]) {
+                    type_free(fn->param_types[i]);
+                }
+            }
             free(fn->param_types);
+        }
+
+        // Free rest parameter type
+        if (fn->rest_param_type) {
+            type_free(fn->rest_param_type);
+        }
+
+        // Free rest parameter name
+        if (fn->rest_param) {
+            free(fn->rest_param);
+        }
+
+        // Free return type (also a copy created during evaluation)
+        if (fn->return_type) {
+            type_free(fn->return_type);
         }
 
         // Free parameter defaults array (Expr* pointers are owned by AST, just free the array)
@@ -511,7 +531,6 @@ void function_free(Function *fn) {
     }
 
     // Note: body (Stmt*) is not freed - owned by AST
-    // Note: return_type (Type*) is not freed - owned by AST
     // Note: param_defaults (Expr**) expressions are not freed - owned by AST
 
     free(fn);
