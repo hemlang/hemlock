@@ -1,0 +1,70 @@
+========================================
+PATTERN MATCHING COMPREHENSIVE TESTS
+========================================
+
+=== Literal Number Patterns ===
+i32 match: forty-two
+negative match: minus five
+
+=== Literal String Patterns ===
+string match: greeting hello
+
+=== Literal Boolean Patterns ===
+bool true: is true
+bool false: is false
+
+=== Literal Null Patterns ===
+null match: is null
+non-null match: not null
+
+=== Wildcard Patterns ===
+wildcard: wildcard matched
+wildcard fallback: fallback wildcard
+
+=== Variable Binding Patterns ===
+simple binding: bound value: 100
+binding as fallback: other: 50
+
+=== OR Patterns ===
+or pattern small: small (1-3)
+or pattern medium: medium
+or pattern strings: exiting
+
+=== Guard Expressions ===
+guard range: medium positive
+guard negative: negative: -5
+complex guard: even and > 10
+
+=== Type Patterns ===
+type i32: i32: 42
+type string: string: hello
+type bool: bool: true
+
+=== Object Destructuring ===
+simple object: point: 10,20
+partial object: Alice is 30
+origin check: origin
+x-axis check: on x-axis at 5
+
+=== Array Destructuring ===
+empty array: empty array
+single element: single: 42
+triple: three: 1,2,3
+literal array: starts with 1, second is 2
+
+=== Array Rest Patterns ===
+head/tail: first: 1
+first two: first two: 1,2
+single with rest: has at least one: 42
+
+=== Nested Patterns ===
+nested object: Bob lives in LA
+object with array: first item: 1, total: 3
+
+=== Match as Expression ===
+direct assign: number: 5
+Your grade is B
+
+========================================
+ALL TESTS COMPLETE
+========================================

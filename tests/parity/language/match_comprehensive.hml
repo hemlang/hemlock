@@ -1,0 +1,424 @@
+// Comprehensive pattern matching test suite
+// Tests all pattern types for both interpreter and compiler parity
+
+// ============================================
+// 1. LITERAL PATTERNS
+// ============================================
+fn test_literal_numbers() {
+    print("=== Literal Number Patterns ===");
+
+    // Integer literals
+    let x = 42;
+    let r1 = match (x) {
+        0 => "zero",
+        1 => "one",
+        42 => "forty-two",
+        _ => "other"
+    };
+    print("i32 match: " + r1);
+
+    // Negative numbers
+    let neg = -5;
+    let r2 = match (neg) {
+        -10 => "minus ten",
+        -5 => "minus five",
+        0 => "zero",
+        _ => "other"
+    };
+    print("negative match: " + r2);
+}
+
+fn test_literal_strings() {
+    print("=== Literal String Patterns ===");
+
+    let s = "hello";
+    let r = match (s) {
+        "hi" => "greeting hi",
+        "hello" => "greeting hello",
+        "bye" => "farewell",
+        _ => "unknown"
+    };
+    print("string match: " + r);
+}
+
+fn test_literal_booleans() {
+    print("=== Literal Boolean Patterns ===");
+
+    let b = true;
+    let r1 = match (b) {
+        true => "is true",
+        false => "is false"
+    };
+    print("bool true: " + r1);
+
+    let b2 = false;
+    let r2 = match (b2) {
+        true => "is true",
+        false => "is false"
+    };
+    print("bool false: " + r2);
+}
+
+fn test_literal_null() {
+    print("=== Literal Null Patterns ===");
+
+    let n = null;
+    let r1 = match (n) {
+        null => "is null",
+        _ => "not null"
+    };
+    print("null match: " + r1);
+
+    let v = 42;
+    let r2 = match (v) {
+        null => "is null",
+        _ => "not null"
+    };
+    print("non-null match: " + r2);
+}
+
+// ============================================
+// 2. WILDCARD PATTERNS
+// ============================================
+fn test_wildcard() {
+    print("=== Wildcard Patterns ===");
+
+    let x = 999;
+    let r = match (x) {
+        _ => "wildcard matched"
+    };
+    print("wildcard: " + r);
+
+    // Wildcard as fallback
+    let y = "anything";
+    let r2 = match (y) {
+        "specific" => "specific",
+        _ => "fallback wildcard"
+    };
+    print("wildcard fallback: " + r2);
+}
+
+// ============================================
+// 3. VARIABLE BINDING PATTERNS
+// ============================================
+fn test_binding() {
+    print("=== Variable Binding Patterns ===");
+
+    let x = 100;
+    let r = match (x) {
+        n => "bound value: " + n
+    };
+    print("simple binding: " + r);
+
+    // Binding with other patterns
+    let y = 50;
+    let r2 = match (y) {
+        0 => "zero",
+        1 => "one",
+        n => "other: " + n
+    };
+    print("binding as fallback: " + r2);
+}
+
+// ============================================
+// 4. OR PATTERNS
+// ============================================
+fn test_or_patterns() {
+    print("=== OR Patterns ===");
+
+    let x = 2;
+    let r1 = match (x) {
+        1 | 2 | 3 => "small (1-3)",
+        4 | 5 | 6 => "medium (4-6)",
+        _ => "large"
+    };
+    print("or pattern small: " + r1);
+
+    let y = 5;
+    let r2 = match (y) {
+        1 | 2 | 3 => "small",
+        4 | 5 | 6 => "medium",
+        _ => "large"
+    };
+    print("or pattern medium: " + r2);
+
+    // OR with strings
+    let cmd = "quit";
+    let r3 = match (cmd) {
+        "exit" | "quit" | "q" => "exiting",
+        "help" | "h" | "?" => "showing help",
+        _ => "unknown command"
+    };
+    print("or pattern strings: " + r3);
+}
+
+// ============================================
+// 5. GUARD EXPRESSIONS
+// ============================================
+fn test_guards() {
+    print("=== Guard Expressions ===");
+
+    let x = 15;
+    let r1 = match (x) {
+        n if n < 0 => "negative",
+        n if n == 0 => "zero",
+        n if n < 10 => "small positive",
+        n if n < 100 => "medium positive",
+        n => "large: " + n
+    };
+    print("guard range: " + r1);
+
+    // Guard with negative
+    let y = -5;
+    let r2 = match (y) {
+        n if n < 0 => "negative: " + n,
+        n if n > 0 => "positive: " + n,
+        _ => "zero"
+    };
+    print("guard negative: " + r2);
+
+    // Complex guard
+    let z = 12;
+    let r3 = match (z) {
+        n if n % 2 == 0 && n > 10 => "even and > 10",
+        n if n % 2 == 0 => "even",
+        n => "odd: " + n
+    };
+    print("complex guard: " + r3);
+}
+
+// ============================================
+// 6. TYPE PATTERNS
+// ============================================
+fn test_type_patterns() {
+    print("=== Type Patterns ===");
+
+    let val1 = 42;
+    let r1 = match (val1) {
+        num: i32 => "i32: " + num,
+        str: string => "string: " + str,
+        _ => "other type"
+    };
+    print("type i32: " + r1);
+
+    let val2 = "hello";
+    let r2 = match (val2) {
+        num: i32 => "i32: " + num,
+        str: string => "string: " + str,
+        _ => "other type"
+    };
+    print("type string: " + r2);
+
+    let val3 = true;
+    let r3 = match (val3) {
+        flag: bool => "bool: " + flag,
+        _ => "not bool"
+    };
+    print("type bool: " + r3);
+}
+
+// ============================================
+// 7. OBJECT DESTRUCTURING
+// ============================================
+fn test_object_destructure() {
+    print("=== Object Destructuring ===");
+
+    // Simple destructure
+    let point = { x: 10, y: 20 };
+    let r1 = match (point) {
+        { x, y } => "point: " + x + "," + y
+    };
+    print("simple object: " + r1);
+
+    // Partial match
+    let obj = { name: "Alice", age: 30, city: "NYC" };
+    let r2 = match (obj) {
+        { name, age } => name + " is " + age
+    };
+    print("partial object: " + r2);
+
+    // With literal field values
+    let origin = { x: 0, y: 0 };
+    let r3 = match (origin) {
+        { x: 0, y: 0 } => "origin",
+        { x: 0, y } => "on y-axis at " + y,
+        { x, y: 0 } => "on x-axis at " + x,
+        { x, y } => "point at " + x + "," + y
+    };
+    print("origin check: " + r3);
+
+    // Non-origin point
+    let p2 = { x: 5, y: 0 };
+    let r4 = match (p2) {
+        { x: 0, y: 0 } => "origin",
+        { x: 0, y } => "on y-axis",
+        { x, y: 0 } => "on x-axis at " + x,
+        { x, y } => "point at " + x + "," + y
+    };
+    print("x-axis check: " + r4);
+}
+
+// ============================================
+// 8. ARRAY DESTRUCTURING
+// ============================================
+fn test_array_destructure() {
+    print("=== Array Destructuring ===");
+
+    // Empty array
+    let empty = [];
+    let r1 = match (empty) {
+        [] => "empty array",
+        _ => "not empty"
+    };
+    print("empty array: " + r1);
+
+    // Single element
+    let single = [42];
+    let r2 = match (single) {
+        [] => "empty",
+        [x] => "single: " + x,
+        _ => "multiple"
+    };
+    print("single element: " + r2);
+
+    // Multiple elements - exact match
+    let triple = [1, 2, 3];
+    let r3 = match (triple) {
+        [] => "empty",
+        [a] => "one",
+        [a, b] => "two",
+        [a, b, c] => "three: " + a + "," + b + "," + c,
+        _ => "many"
+    };
+    print("triple: " + r3);
+
+    // Array with literal values
+    let arr = [1, 2];
+    let r4 = match (arr) {
+        [0, 0] => "both zero",
+        [1, x] => "starts with 1, second is " + x,
+        [x, 1] => "ends with 1",
+        _ => "other"
+    };
+    print("literal array: " + r4);
+}
+
+// ============================================
+// 9. ARRAY REST PATTERNS
+// ============================================
+fn test_array_rest() {
+    print("=== Array Rest Patterns ===");
+
+    // Head and tail
+    let nums = [1, 2, 3, 4, 5];
+    let r1 = match (nums) {
+        [first, ...rest] => "first: " + first,
+        _ => "empty"
+    };
+    print("head/tail: " + r1);
+
+    // First two and rest
+    let r2 = match (nums) {
+        [a, b, ...rest] => "first two: " + a + "," + b,
+        _ => "too short"
+    };
+    print("first two: " + r2);
+
+    // Single element with rest
+    let short = [42];
+    let r3 = match (short) {
+        [x, ...rest] => "has at least one: " + x,
+        [] => "empty"
+    };
+    print("single with rest: " + r3);
+}
+
+// ============================================
+// 10. NESTED PATTERNS
+// ============================================
+fn test_nested_patterns() {
+    print("=== Nested Patterns ===");
+
+    // Nested objects
+    let user = { name: "Bob", address: { city: "LA", zip: 90001 } };
+    let r1 = match (user) {
+        { name, address: { city, zip } } => name + " lives in " + city,
+        _ => "unknown"
+    };
+    print("nested object: " + r1);
+
+    // Object containing array
+    let data = { items: [1, 2, 3], count: 3 };
+    let r2 = match (data) {
+        { items: [first, ...rest], count } => "first item: " + first + ", total: " + count,
+        _ => "no items"
+    };
+    print("object with array: " + r2);
+}
+
+// ============================================
+// 11. MATCH AS EXPRESSION
+// ============================================
+fn test_match_expression() {
+    print("=== Match as Expression ===");
+
+    // Direct assignment
+    let x = 5;
+    let result = match (x) {
+        1 => "one",
+        2 => "two",
+        n => "number: " + n
+    };
+    print("direct assign: " + result);
+
+    // In string concatenation
+    let grade = 85;
+    let msg = "Your grade is " + match (grade) {
+        n if n >= 90 => "A",
+        n if n >= 80 => "B",
+        n if n >= 70 => "C",
+        n if n >= 60 => "D",
+        _ => "F"
+    };
+    print(msg);
+}
+
+// ============================================
+// RUN ALL TESTS
+// ============================================
+print("========================================");
+print("PATTERN MATCHING COMPREHENSIVE TESTS");
+print("========================================");
+print("");
+
+test_literal_numbers();
+print("");
+test_literal_strings();
+print("");
+test_literal_booleans();
+print("");
+test_literal_null();
+print("");
+test_wildcard();
+print("");
+test_binding();
+print("");
+test_or_patterns();
+print("");
+test_guards();
+print("");
+test_type_patterns();
+print("");
+test_object_destructure();
+print("");
+test_array_destructure();
+print("");
+test_array_rest();
+print("");
+test_nested_patterns();
+print("");
+test_match_expression();
+print("");
+print("========================================");
+print("ALL TESTS COMPLETE");
+print("========================================");

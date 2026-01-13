@@ -202,6 +202,25 @@ static Pattern* parse_primary_pattern(Parser *p) {
     }
 
     // Literal patterns: numbers, strings, booleans, null
+    // Handle negative numbers: -NUMBER
+    if (match(p, TOK_MINUS)) {
+        if (match(p, TOK_NUMBER)) {
+            Expr *lit;
+            if (p->previous.is_float) {
+                lit = expr_number_float(-p->previous.float_value);
+            } else {
+                lit = expr_number_int(-p->previous.int_value);
+            }
+            Pattern *pat = pattern_literal(lit);
+            pat->line = line;
+            pat->column = column;
+            return pat;
+        } else {
+            error(p, "Expect number after '-' in pattern");
+            return pattern_wildcard();
+        }
+    }
+
     if (match(p, TOK_NUMBER)) {
         Expr *lit;
         if (p->previous.is_float) {
