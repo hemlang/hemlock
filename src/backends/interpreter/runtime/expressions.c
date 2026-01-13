@@ -234,7 +234,9 @@ static int match_pattern(Pattern *pattern, Value value, Environment *env, Execut
                         rest_obj->num_fields++;
                     }
                 }
-                env_define(env, pattern->as.object.rest_name, val_object(rest_obj), 0, ctx);
+                Value rest_val = val_object(rest_obj);
+                env_define(env, pattern->as.object.rest_name, rest_val, 0, ctx);
+                VALUE_RELEASE(rest_val);  // Release caller's reference (env_define retained it)
             }
 
             return 1;
@@ -295,7 +297,9 @@ static int match_pattern(Pattern *pattern, Value value, Environment *env, Execut
                     VALUE_RETAIN(elem);
                     array_push(rest_arr, elem);
                 }
-                env_define(env, rest_pat->rest_name, val_array(rest_arr), 0, ctx);
+                Value rest_val = val_array(rest_arr);
+                env_define(env, rest_pat->rest_name, rest_val, 0, ctx);
+                VALUE_RELEASE(rest_val);  // Release caller's reference (env_define retained it)
 
                 // Match elements after rest
                 for (int i = 0; i < required_after_rest; i++) {
@@ -1075,6 +1079,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                     // Use fast param binding with pre-computed hash (skips redundant checks)
                     env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
+
+                    // Release default param value if we created it (not from args array)
+                    // For default params or ref params, arg_value was created locally and needs release
+                    if (!has_arg || is_ref_param) {
+                        VALUE_RELEASE(arg_value);
+                    }
                 }
 
                 // Bind rest parameter if present (collect extra args into array)
@@ -1091,7 +1101,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             array_push(rest_arr, arg);
                         }
                     }
-                    env_define(call_env, fn->rest_param, val_array(rest_arr), 0, ctx);
+                    Value rest_val = val_array(rest_arr);
+                    env_define(call_env, fn->rest_param, rest_val, 0, ctx);
+                    VALUE_RELEASE(rest_val);  // Release caller's reference (env_define retained it)
                 }
 
                 // Inject 'self' AFTER parameters to preserve slot order for resolved lookups
@@ -1155,7 +1167,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Release call environment (reference counted - will be freed when no longer used)
                 env_release(call_env);
-                // User-defined functions retained args via env_set, so don't release them again
+                // User-defined functions retained args via env_define_param, but we still need to
+                // release our reference from the args array. The env has its own retained copy.
+                // Note: Must release BEFORE exiting this block because 'args' might point to
+                // 'reordered_stack' which is a local stack variable that will go out of scope.
+                if (args) {
+                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                        VALUE_RELEASE(args[i]);
+                    }
+                }
+                // Free args array if heap-allocated (handles both original and reordered cases)
+                if (args_on_heap) {
+                    free(args);
+                    args = NULL;
+                    args_on_heap = 0;
+                }
+                // Don't release again in the common cleanup below
                 should_release_args = 0;
             } else if (func.type == VAL_FFI_FUNCTION) {
                 // Call FFI function

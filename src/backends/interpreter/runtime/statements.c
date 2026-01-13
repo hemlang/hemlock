@@ -693,6 +693,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
             // Bind the enum namespace to the environment
             env_define(env, type->name, enum_obj, 1, ctx);  // 1 = const
+            VALUE_RELEASE(enum_obj);  // Release caller's reference (env_define retained it)
             break;
         }
 
