@@ -1,0 +1,64 @@
+// Pattern matching with destructuring tests
+
+// Object destructuring
+fn test_object_destructure() {
+    let point = { x: 10, y: 20 };
+    let result = match (point) {
+        { x: 0, y: 0 } => "origin",
+        { x: 0, y } => "on y-axis at " + y,
+        { x, y: 0 } => "on x-axis at " + x,
+        { x, y } => "point at " + x + "," + y
+    };
+    print(result);
+}
+
+// Array destructuring
+fn test_array_destructure() {
+    let arr = [1, 2, 3];
+    let result = match (arr) {
+        [] => "empty",
+        [x] => "single: " + x,
+        [x, y] => "pair: " + x + "," + y,
+        [x, y, z] => "triple: " + x + "," + y + "," + z,
+        _ => "many"
+    };
+    print(result);
+}
+
+// Array with rest pattern
+fn test_array_rest() {
+    let nums = [1, 2, 3, 4, 5];
+    let result = match (nums) {
+        [first, ...rest] => "first: " + first + ", got rest",
+        _ => "no match"
+    };
+    print(result);
+}
+
+// Nested destructuring
+fn test_nested() {
+    let data = { name: "Alice", coords: { x: 5, y: 10 } };
+    let result = match (data) {
+        { name, coords: { x, y } } => name + " at " + x + "," + y,
+        _ => "unknown"
+    };
+    print(result);
+}
+
+// Type patterns
+fn test_typed() {
+    let val = 42;
+    let result = match (val) {
+        n: i32 => "integer: " + n,
+        s: string => "string: " + s,
+        _ => "other"
+    };
+    print(result);
+}
+
+// Run tests
+test_object_destructure();
+test_array_destructure();
+test_array_rest();
+test_nested();
+test_typed();

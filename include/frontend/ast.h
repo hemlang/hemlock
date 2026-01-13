@@ -9,6 +9,8 @@ typedef struct Stmt Stmt;
 typedef struct Type Type;
 typedef struct Annotation Annotation;
 typedef struct AnnotationArg AnnotationArg;
+typedef struct Pattern Pattern;
+typedef struct MatchArm MatchArm;
 
 // ========== EXPRESSION TYPES ==========
 
@@ -39,6 +41,7 @@ typedef enum {
     EXPR_STRING_INTERPOLATION,
     EXPR_OPTIONAL_CHAIN,     // Optional chaining: obj?.prop, obj?.[index], obj?.method()
     EXPR_NULL_COALESCE,      // Null coalescing: value ?? default
+    EXPR_MATCH,              // Pattern matching: match (x) { pattern => expr, ... }
 } ExprType;
 
 typedef enum {
@@ -213,6 +216,11 @@ struct Expr {
             Expr *left;          // Left operand
             Expr *right;         // Right operand (default value)
         } null_coalesce;
+        struct {
+            Expr *scrutinee;     // Expression being matched against
+            MatchArm *arms;      // Array of match arms
+            int num_arms;        // Number of arms
+        } match_expr;
     } as;
 };
 
@@ -300,6 +308,70 @@ struct Annotation {
     int arg_capacity;
     int line;
     int column;                 // Source location
+};
+
+// ========== PATTERN TYPES (for match expressions) ==========
+
+typedef enum {
+    PATTERN_LITERAL,     // Literal value: 1, "hello", true, null
+    PATTERN_WILDCARD,    // Wildcard: _ (matches anything)
+    PATTERN_BINDING,     // Variable binding: x (binds matched value to x)
+    PATTERN_TYPED,       // Type pattern: x: i32 (match if typeof == type, bind to x)
+    PATTERN_OR,          // OR pattern: 1 | 2 | 3 (match any alternative)
+    PATTERN_OBJECT,      // Object destructuring: { x, y: 0 }
+    PATTERN_ARRAY,       // Array destructuring: [a, b, ...rest]
+} PatternType;
+
+// Object field pattern for destructuring
+typedef struct {
+    char *name;          // Field name to match
+    Pattern *pattern;    // Pattern to match field value (NULL means bind to name)
+} ObjectFieldPattern;
+
+// Array element pattern for destructuring
+typedef struct {
+    Pattern *pattern;    // Pattern for this element
+    int is_rest;         // 1 if this is a ...rest pattern
+    char *rest_name;     // Name for rest binding (only if is_rest)
+} ArrayElementPattern;
+
+struct Pattern {
+    PatternType type;
+    int line;
+    int column;
+    union {
+        Expr *literal;              // PATTERN_LITERAL
+        struct {
+            char *name;             // Variable name to bind
+        } binding;                  // PATTERN_BINDING, PATTERN_WILDCARD
+        struct {
+            char *name;             // Variable name to bind (NULL for just type check)
+            Type *type_annotation;  // Type to check against
+        } typed;                    // PATTERN_TYPED
+        struct {
+            Pattern **alternatives; // Array of alternative patterns
+            int num_alternatives;
+        } or_pattern;               // PATTERN_OR
+        struct {
+            ObjectFieldPattern *fields;  // Array of field patterns
+            int num_fields;
+            int has_rest;                // 1 if { ...rest } present
+            char *rest_name;             // Name for rest binding
+        } object;                   // PATTERN_OBJECT
+        struct {
+            ArrayElementPattern *elements;  // Array of element patterns
+            int num_elements;
+        } array;                    // PATTERN_ARRAY
+    } as;
+};
+
+// Match arm: pattern => expression (with optional guard)
+struct MatchArm {
+    Pattern *pattern;    // Pattern to match
+    Expr *guard;         // Guard expression (NULL if no guard) - "if condition"
+    Expr *body;          // Body expression to evaluate if pattern matches
+    int line;
+    int column;
 };
 
 // ========== STATEMENT TYPES ==========
@@ -505,6 +577,20 @@ Expr* expr_optional_chain_property(Expr *object, const char *property);
 Expr* expr_optional_chain_index(Expr *object, Expr *index);
 Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int num_args);
 Expr* expr_null_coalesce(Expr *left, Expr *right);
+Expr* expr_match(Expr *scrutinee, MatchArm *arms, int num_arms);
+
+// Pattern constructors
+Pattern* pattern_literal(Expr *value);
+Pattern* pattern_wildcard(void);
+Pattern* pattern_binding(const char *name);
+Pattern* pattern_typed(const char *name, Type *type_annotation);
+Pattern* pattern_or(Pattern **alternatives, int num_alternatives);
+Pattern* pattern_object(ObjectFieldPattern *fields, int num_fields, int has_rest, const char *rest_name);
+Pattern* pattern_array(ArrayElementPattern *elements, int num_elements);
+
+// Pattern cleanup
+void pattern_free(Pattern *pattern);
+void match_arm_free(MatchArm *arm);
 
 // Statement constructors
 Stmt* stmt_let(const char *name, Expr *value);

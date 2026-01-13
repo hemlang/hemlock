@@ -1,37 +1,37 @@
 // Test @stdlib/glob module
-import { match, match_path, glob, escape, has_magic, filter, translate } from "@stdlib/glob";
+import { glob_match, match_path, glob, escape, has_magic, filter, translate } from "@stdlib/glob";
 
 print("=== Glob Module Tests ===");
 
-// Test match() - basic wildcards
-print("\n--- match() ---");
-print("*.txt matches file.txt: " + match("*.txt", "file.txt"));
-print("*.txt matches file.md: " + match("*.txt", "file.md"));
-print("file.* matches file.txt: " + match("file.*", "file.txt"));
-print("file.* matches file.tar.gz: " + match("file.*", "file.tar.gz"));
-print("f*.txt matches foo.txt: " + match("f*.txt", "foo.txt"));
-print("f*.txt matches f.txt: " + match("f*.txt", "f.txt"));
+// Test glob_match() - basic wildcards
+print("\n--- glob_match() ---");
+print("*.txt matches file.txt: " + glob_match("*.txt", "file.txt"));
+print("*.txt matches file.md: " + glob_match("*.txt", "file.md"));
+print("file.* matches file.txt: " + glob_match("file.*", "file.txt"));
+print("file.* matches file.tar.gz: " + glob_match("file.*", "file.tar.gz"));
+print("f*.txt matches foo.txt: " + glob_match("f*.txt", "foo.txt"));
+print("f*.txt matches f.txt: " + glob_match("f*.txt", "f.txt"));
 
 // Test ? wildcard
 print("\n--- ? wildcard ---");
-print("file?.txt matches file1.txt: " + match("file?.txt", "file1.txt"));
-print("file?.txt matches file.txt: " + match("file?.txt", "file.txt"));
-print("f??e.txt matches file.txt: " + match("f??e.txt", "file.txt"));
-print("f??e.txt matches fxxe.txt: " + match("f??e.txt", "fxxe.txt"));
+print("file?.txt matches file1.txt: " + glob_match("file?.txt", "file1.txt"));
+print("file?.txt matches file.txt: " + glob_match("file?.txt", "file.txt"));
+print("f??e.txt matches file.txt: " + glob_match("f??e.txt", "file.txt"));
+print("f??e.txt matches fxxe.txt: " + glob_match("f??e.txt", "fxxe.txt"));
 
 // Test character classes
 print("\n--- character classes ---");
-print("[abc].txt matches a.txt: " + match("[abc].txt", "a.txt"));
-print("[abc].txt matches d.txt: " + match("[abc].txt", "d.txt"));
-print("[a-z].txt matches m.txt: " + match("[a-z].txt", "m.txt"));
-print("[a-z].txt matches 5.txt: " + match("[a-z].txt", "5.txt"));
-print("[!abc].txt matches d.txt: " + match("[!abc].txt", "d.txt"));
-print("[!abc].txt matches a.txt: " + match("[!abc].txt", "a.txt"));
+print("[abc].txt matches a.txt: " + glob_match("[abc].txt", "a.txt"));
+print("[abc].txt matches d.txt: " + glob_match("[abc].txt", "d.txt"));
+print("[a-z].txt matches m.txt: " + glob_match("[a-z].txt", "m.txt"));
+print("[a-z].txt matches 5.txt: " + glob_match("[a-z].txt", "5.txt"));
+print("[!abc].txt matches d.txt: " + glob_match("[!abc].txt", "d.txt"));
+print("[!abc].txt matches a.txt: " + glob_match("[!abc].txt", "a.txt"));
 
 // Test exact matches
 print("\n--- exact matches ---");
-print("file.txt matches file.txt: " + match("file.txt", "file.txt"));
-print("file.txt matches other.txt: " + match("file.txt", "other.txt"));
+print("file.txt matches file.txt: " + glob_match("file.txt", "file.txt"));
+print("file.txt matches other.txt: " + glob_match("file.txt", "other.txt"));
 
 // Test match_path() with **
 print("\n--- match_path() with ** ---");
@@ -52,7 +52,7 @@ print("*.txt matches file.txt: " + match_path("*.txt", "file.txt"));
 print("\n--- escape() ---");
 let escaped = escape("file[1].txt");
 print("Escaped: " + escaped);
-print("Pattern matches after escape: " + match(escaped, "file[1].txt"));
+print("Pattern matches after escape: " + glob_match(escaped, "file[1].txt"));
 
 // Test has_magic()
 print("\n--- has_magic() ---");

@@ -151,6 +151,44 @@ outer: while (cond) {
 }
 ```
 
+### Pattern Matching
+```hemlock
+// Match expression - returns value
+let result = match (value) {
+    0 => "zero",                    // Literal pattern
+    1 | 2 | 3 => "small",           // OR pattern
+    n if n < 10 => "medium",        // Guard expression
+    n => "large: " + n              // Variable binding
+};
+
+// Type patterns
+match (val) {
+    n: i32 => "integer",
+    s: string => "string",
+    _ => "other"                    // Wildcard
+}
+
+// Object destructuring
+match (point) {
+    { x: 0, y: 0 } => "origin",
+    { x, y } => "at " + x + "," + y
+}
+
+// Array destructuring with rest
+match (arr) {
+    [] => "empty",
+    [first, ...rest] => "head: " + first,
+    _ => "other"
+}
+
+// Nested patterns
+match (user) {
+    { name, address: { city } } => name + " in " + city
+}
+```
+
+See `docs/language-guide/pattern-matching.md` for full documentation.
+
 ### Null Coalescing Operators
 ```hemlock
 // Null coalescing (??) - returns left if non-null, else right
@@ -849,6 +887,14 @@ make parity
 ## Version
 
 **v1.8.0** - Current release with:
+- **Pattern matching** (`match` expressions) - Powerful destructuring and control flow:
+  - Literal, wildcard, and variable binding patterns
+  - OR patterns (`1 | 2 | 3`)
+  - Guard expressions (`n if n > 0`)
+  - Object destructuring (`{ x, y }`)
+  - Array destructuring with rest (`[first, ...rest]`)
+  - Type patterns (`n: i32`)
+  - Full parity between interpreter and compiler
 - **Compiler helper annotations** - 11 optimization annotations for GCC/Clang control:
   - `@inline`, `@noinline` - function inlining control
   - `@hot`, `@cold` - branch prediction hints

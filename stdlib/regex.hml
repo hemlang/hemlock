@@ -78,7 +78,7 @@ export fn compile(pattern: string, flags): object {
 			}
 			return __regex_test(self._preg, text, null);
 		},
-		match: fn(text: string, max_matches): array {
+		find_all: fn(text: string, max_matches): array {
 
 			// Find all matches and return array of match objects
 			// Each match object has: { start: i32, end: i32, text: string }
