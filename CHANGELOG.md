@@ -5,6 +5,44 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-01-13
+
+### Added
+
+- **Pattern matching** (`match` expressions) - Powerful destructuring and control flow
+  - Literal patterns for integers, floats, strings, booleans, and null
+  - Wildcard pattern (`_`) for catch-all matching
+  - Variable binding patterns to capture matched values
+  - OR patterns (`1 | 2 | 3`) for matching multiple alternatives
+  - Guard expressions (`n if n > 0`) for conditional matching
+  - Object destructuring (`{ x, y }`) with nested support
+  - Array destructuring with rest patterns (`[first, ...rest]`)
+  - Type patterns (`n: i32`) for type-based matching
+  - Full parity between interpreter and compiler
+- **Arena memory allocator** (`@stdlib/arena`) - Bump allocation for efficient memory management
+- **macOS ARM sanity test** - CI workflow for Apple Silicon compatibility
+- **AddressSanitizer (ASAN) make targets** - `make asan` and `make test-asan` for memory leak detection
+
+### Fixed
+
+- Multiple memory leaks in interpreter, parser, optimizer, and FFI
+- Use-after-free and double-free bugs in manual memory handling
+- NULL pointer dereference risks from unchecked allocations
+- Type checking for object indexing and dynamic arrays
+- Generic type alias substitution at runtime
+- Interpreter SIGABRT crash on certain error conditions
+- Clang analyzer warnings and `-Wswitch` warnings for `EXPR_MATCH`
+- Regex and concurrency stability issues
+- FFI callback allocation cleanup
+- JSON unicode escape parsing
+- Compiler error with type annotations in `alloc_with_size`
+
+### Changed
+
+- Array element type mismatch now produces a warning instead of an error
+- Renamed `glob.match()` to `glob_match()` to avoid keyword conflict
+- Renamed regex object `match` field to `find_all` to avoid keyword conflict
+
 ## [1.7.5] - 2026-01-10
 
 ### Fixed
