@@ -25,7 +25,7 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         const char *var_name = arg->as.ident.name;
         char *result = malloc(CODEGEN_MANGLED_NAME_SIZE);
         if (!result) {
-            fprintf(stderr, "Fatal: Memory allocation failed in codegen_ref_arg\n");
+            fprintf(stderr, "Error: Out of memory in codegen_ref_arg\n");
             exit(1);
         }
 
@@ -45,14 +45,14 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         // This won't work for true pass-by-ref semantics (changes won't persist)
         // but it's the best we can do for non-lvalue expressions
         char *temp = codegen_expr(ctx, arg);
-        size_t buf_size = strlen(temp) + 2;
-        char *result = malloc(buf_size);
+        size_t len = strlen(temp) + 2;
+        char *result = malloc(len);
         if (!result) {
-            fprintf(stderr, "Fatal: Memory allocation failed in codegen_ref_arg\n");
+            fprintf(stderr, "Error: Out of memory in codegen_ref_arg\n");
             free(temp);
             exit(1);
         }
-        snprintf(result, buf_size, "&%s", temp);
+        snprintf(result, len, "&%s", temp);
         free(temp);
         return result;
     }

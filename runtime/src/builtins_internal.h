@@ -88,13 +88,19 @@ int hml_is_float_type(HmlValue val);
 int64_t hml_val_to_int64(HmlValue val);
 double hml_val_to_double(HmlValue val);
 
-// Type promotion helpers (used by binary ops)
+// Type promotion helpers (used by binary ops, defined in builtins.c)
 int type_priority(HmlValueType type);
 HmlValueType promote_types(HmlValueType a, HmlValueType b);
 HmlValue make_int_result(HmlValueType result_type, int64_t value);
 
 // UTF-8 encoder (used by string operations)
 int encode_utf8(uint32_t cp, char *out);
+
+// Sandbox functions (defined in builtins_core.c)
+void hml_sandbox_init(int flags, const char *root_path);
+int hml_sandbox_check(int restriction_flag);
+int hml_sandbox_path_allowed(const char *path, int is_write);
+void hml_sandbox_error(const char *operation);
 
 // ========== BUILTIN WRAPPER MACRO ==========
 
