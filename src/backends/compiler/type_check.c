@@ -3141,7 +3141,7 @@ static CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr)
             }
 
             // Comparison operators return bool
-            if (expr->as.binary.op >= OP_LESS && expr->as.binary.op <= OP_NOT_EQUAL) {
+            if (expr->as.binary.op >= OP_EQUAL && expr->as.binary.op <= OP_GREATER_EQUAL) {
                 return CHECKED_BOOL;
             }
 

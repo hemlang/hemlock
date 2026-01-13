@@ -2,6 +2,105 @@
 
 Hemlock embraces **manual memory management** with explicit control over allocation and deallocation. This guide covers Hemlock's memory model, the two pointer types, and the complete memory API.
 
+---
+
+## Memory 101: The Basics
+
+**New to programming?** Start here. If you already understand memory management, skip to [Philosophy](#philosophy).
+
+### What is Memory Management?
+
+When your program needs to store data (text, numbers, lists), it needs space to put it. That space comes from your computer's memory (RAM). Memory management is about:
+
+1. **Getting space** - asking for memory when you need it
+2. **Using space** - reading and writing your data
+3. **Giving it back** - returning memory when you're done
+
+### Why Does It Matter?
+
+Imagine a library with limited books:
+- If you keep checking out books and never return them, eventually there are none left
+- If you try to read a book you already returned, you'll get confused or cause problems
+
+Memory works the same way. If you forget to return memory, your program slowly uses more and more (a "memory leak"). If you try to use memory after returning it, bad things happen.
+
+### The Good News
+
+**Most of the time, you don't need to think about this!**
+
+Hemlock automatically cleans up most common types:
+
+```hemlock
+fn example() {
+    let name = "Alice";       // Hemlock manages this
+    let numbers = [1, 2, 3];  // And this
+    let person = { age: 30 }; // And this too
+
+    // When the function ends, all of this is cleaned up automatically!
+}
+```
+
+### When You DO Need to Think About It
+
+You only need manual memory management when using:
+
+1. **`alloc()`** - raw memory allocation (returns `ptr`)
+2. **`buffer()`** - when you want to free early (optional - it auto-frees at scope end)
+
+```hemlock
+// This needs manual cleanup:
+let raw = alloc(100);   // Raw memory - YOU must free it
+// ... use raw ...
+free(raw);              // Required! Or you have a memory leak
+
+// This cleans up automatically (but you CAN free early):
+let buf = buffer(100);  // Safe buffer
+// ... use buf ...
+// free(buf);           // Optional - will auto-free when scope ends
+```
+
+### The Simple Rule
+
+> **If you call `alloc()`, you must call `free()`.**
+>
+> Everything else is handled for you.
+
+### Which Should You Use?
+
+| Situation | Use This | Why |
+|-----------|----------|-----|
+| **Just starting out** | `buffer()` | Safe, bounds-checked, auto-cleanup |
+| **Need byte storage** | `buffer()` | Safe and easy |
+| **Working with C libraries (FFI)** | `alloc()` / `ptr` | Required for C interop |
+| **Maximum performance** | `alloc()` / `ptr` | No bounds checking overhead |
+| **Not sure** | `buffer()` | Always the safer choice |
+
+### Quick Example: Safe vs Raw
+
+```hemlock
+// RECOMMENDED: Safe buffer
+fn safe_example() {
+    let data = buffer(10);
+    data[0] = 65;           // OK
+    data[5] = 66;           // OK
+    // data[100] = 67;      // ERROR - Hemlock stops you (bounds check)
+    free(data);             // Clean up
+}
+
+// ADVANCED: Raw pointer (only when you need it)
+fn raw_example() {
+    let data = alloc(10);
+    *data = 65;             // OK
+    *(data + 5) = 66;       // OK
+    *(data + 100) = 67;     // DANGER - No bounds check, corrupts memory!
+    free(data);             // Clean up
+}
+```
+
+**Start with `buffer()`. Only use `alloc()` when you specifically need raw pointers.**
+
+---
+
 ## Philosophy
 
 Hemlock follows the principle of explicit memory management with sensible defaults:
