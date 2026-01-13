@@ -528,9 +528,24 @@ fn merge(base, update) {
 
 	let result = clone(base);
 
-	// Note: Need object_keys() builtin to iterate
-	// For now, this is a placeholder
-	throw "merge() requires object iteration support";
+	// Iterate over update keys using the built-in keys() method
+	let update_keys = update.keys();
+	for (let i = 0; i < update_keys.length; i++) {
+		let key = update_keys[i];
+		let update_val = get(update, key);
+
+		if (result.has(key)) {
+			let base_val = get(result, key);
+			// Deep merge if both values are objects
+			if (is_object(base_val) && is_object(update_val)) {
+				set(result, key, merge(base_val, update_val));
+			} else {
+				set(result, key, clone(update_val));
+			}
+		} else {
+			set(result, key, clone(update_val));
+		}
+	}
 
 	return result;
 }
@@ -541,8 +556,17 @@ fn patch(base, update) {
 		return update;
 	}
 
-	// Note: Need object_keys() builtin
-	throw "patch() requires object iteration support";
+	let result = clone(base);
+
+	// Iterate over update keys using the built-in keys() method
+	let update_keys = update.keys();
+	for (let i = 0; i < update_keys.length; i++) {
+		let key = update_keys[i];
+		// Shallow: just replace values directly (no deep merge)
+		set(result, key, clone(get(update, key)));
+	}
+
+	return result;
 }
 
 // ============================================================================
@@ -578,9 +602,28 @@ fn equals(a, b): bool {
 		return true;
 	}
 
-	// Objects - need object iteration
+	// Objects - compare using keys() method
 	if (type_a == "object") {
-		throw "equals() for objects requires object iteration support";
+		let keys_a = a.keys();
+		let keys_b = b.keys();
+
+		// Different number of keys means not equal
+		if (keys_a.length != keys_b.length) {
+			return false;
+		}
+
+		// Check that all keys from a exist in b with equal values
+		for (let i = 0; i < keys_a.length; i++) {
+			let key = keys_a[i];
+			if (!b.has(key)) {
+				return false;
+			}
+			if (!equals(get(a, key), get(b, key))) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	return false;
