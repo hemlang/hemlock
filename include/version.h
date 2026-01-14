@@ -10,14 +10,15 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 0
+#define HEMLOCK_VERSION_PATCH 1
 
-#define HEMLOCK_VERSION "1.8.0"
+#define HEMLOCK_VERSION "1.8.1"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
- *   1.8.0 - Fix compiler warnings, maintenance release
+ *   1.8.1 - Fix use-after-free bug in function return value handling
+ *   1.8.0 - Pattern matching, arena allocator, memory leak fixes
  *   1.7.5 - Fix formatter else-if indentation bug
  *   1.7.4 - Formatter improvements: function parameter, binary expr, import, and method chain line breaking
  *   1.7.3 - Fix formatter comment and blank line preservation

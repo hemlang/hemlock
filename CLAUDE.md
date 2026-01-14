@@ -886,7 +886,7 @@ make parity
 
 ## Version
 
-**v1.8.0** - Current release with:
+**v1.8.1** - Current release with:
 - **Pattern matching** (`match` expressions) - Powerful destructuring and control flow:
   - Literal, wildcard, and variable binding patterns
   - OR patterns (`1 | 2 | 3`)
