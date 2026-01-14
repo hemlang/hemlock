@@ -1,0 +1,85 @@
+// Test: Nested function return value handling
+// This tests that functions without explicit return statements
+// correctly return null instead of stale values from nested calls.
+// Bug fixed in v1.8.1: use-after-free when outer function used
+// stale return_value from inner function calls.
+
+// Test 1: Basic nested function - outer has no return
+fn test_no_return() {
+    fn inner() {
+        return "inner_value";
+    }
+
+    let x = inner();
+    print(x);
+    // No return - should implicitly return null
+}
+
+let result1 = test_no_return();
+print(result1 == null);
+
+// Test 2: Closure capturing outer variable
+fn test_closure() {
+    let config = { version: "1.0" };
+
+    fn get_version() {
+        return config["version"];
+    }
+
+    let v = get_version();
+    print(v);
+    // No return - should return null, not the stale return from get_version
+}
+
+let result2 = test_closure();
+print(result2 == null);
+
+// Test 3: Multiple nested calls
+fn test_multiple_calls() {
+    fn a() { return 1; }
+    fn b() { return 2; }
+    fn c() { return 3; }
+
+    let x = a();
+    let y = b();
+    let z = c();
+    print(x + y + z);
+    // No return
+}
+
+let result3 = test_multiple_calls();
+print(result3 == null);
+
+// Test 4: Nested function with explicit return
+fn test_with_return() {
+    fn inner() {
+        return 42;
+    }
+
+    let x = inner();
+    return x * 2;  // Explicit return
+}
+
+let result4 = test_with_return();
+print(result4);
+
+// Test 5: Deeply nested functions
+fn outer() {
+    fn middle() {
+        fn inner() {
+            return "deep";
+        }
+        let r = inner();
+        print(r);
+        // middle has no return
+    }
+
+    let m = middle();
+    print(m == null);
+    // outer has no return
+}
+
+let result5 = outer();
+print(result5 == null);
+
+print("done");
