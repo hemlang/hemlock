@@ -1137,8 +1137,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     ctx->defer_stack.count = defer_depth_before;
                 }
 
-                // Get result (use null if exception is being thrown - return_value may be stale)
-                result = ctx->exception_state.is_throwing ? val_null() : ctx->return_state.return_value;
+                // Get result:
+                // - Use null if exception is being thrown
+                // - Use null if function didn't explicitly return (is_returning == 0)
+                //   This prevents stale return_value from nested calls being used
+                // - Otherwise use the actual return_value
+                if (ctx->exception_state.is_throwing || !ctx->return_state.is_returning) {
+                    result = val_null();
+                } else {
+                    result = ctx->return_state.return_value;
+                }
 
                 // Check return type if specified (but not if exception is being thrown)
                 if (fn->return_type && !ctx->exception_state.is_throwing) {
