@@ -14,6 +14,7 @@
 #include "frontend.h"
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
+#include "../../include/terminal.h"
 #include "codegen.h"
 #include "compiler/type_check.h"
 
@@ -221,30 +222,37 @@ typedef struct {
 } Options;
 
 static void print_usage(const char *progname) {
-    fprintf(stderr, "Hemlock Compiler v%s\n\n", HEMLOCK_VERSION);
-    fprintf(stderr, "Usage: %s [options] <input.hml>\n\n", progname);
-    fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -o <file>       Output executable name (default: a.out)\n");
-    fprintf(stderr, "  -c              Emit C code only (don't compile)\n");
-    fprintf(stderr, "  --emit-c <f>    Write generated C to file\n");
-    fprintf(stderr, "  -k, --keep-c    Keep generated C file after compilation\n");
-    fprintf(stderr, "  -O<level>       Optimization level (0-3, default: 3)\n");
+    // Header
+    fprintf(stderr, "%s%sHemlockc%s %s- Hemlock Compiler%s v%s%s%s\n\n",
+            C_BOLD, C_GREEN, C_RESET, C_MUTED, C_RESET, C_ACCENT, HEMLOCK_VERSION, C_RESET);
+
+    // Usage
+    fprintf(stderr, "%s%sUSAGE%s\n", C_BOLD, C_YELLOW, C_RESET);
+    fprintf(stderr, "    %s%s%s [options] <input.hml>\n\n", C_CODE, progname, C_RESET);
+
+    // Options
+    fprintf(stderr, "%s%sOPTIONS%s\n", C_BOLD, C_YELLOW, C_RESET);
+    fprintf(stderr, "  %s-o%s <file>       Output executable name (default: a.out)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s-c%s              Emit C code only (don't compile)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--emit-c%s <f>    Write generated C to file\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s-k, --keep-c%s    Keep generated C file after compilation\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s-O%s<level>       Optimization level (0-3, default: 3)\n", C_CYAN, C_RESET);
 #ifdef __APPLE__
-    fprintf(stderr, "  --cc <path>     C compiler to use (default: clang)\n");
+    fprintf(stderr, "  %s--cc%s <path>     C compiler to use (default: clang)\n", C_CYAN, C_RESET);
 #else
-    fprintf(stderr, "  --cc <path>     C compiler to use (default: gcc)\n");
+    fprintf(stderr, "  %s--cc%s <path>     C compiler to use (default: gcc)\n", C_CYAN, C_RESET);
 #endif
-    fprintf(stderr, "  --runtime <p>   Path to runtime library\n");
-    fprintf(stderr, "  --check         Type check only, don't compile\n");
-    fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
-    fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
-    fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
-    fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
-    fprintf(stderr, "  --sandbox [DIR] Enable sandbox mode (restrict FFI, network, process, file writes)\n");
-    fprintf(stderr, "                  If DIR provided, restricts file reads to that directory\n");
-    fprintf(stderr, "  -v, --verbose   Verbose output\n");
-    fprintf(stderr, "  -h, --help      Show this help message\n");
-    fprintf(stderr, "  --version       Show version\n");
+    fprintf(stderr, "  %s--runtime%s <p>   Path to runtime library\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--check%s         Type check only, don't compile\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--no-type-check%s Disable type checking (less safe, fewer optimizations)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--strict-types%s  Strict type checking (warn on implicit any)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--no-stack-check%s  Disable stack overflow checking (faster, but no protection)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--static%s        Static link all libraries (standalone binary)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--sandbox%s [DIR] Enable sandbox mode (restrict FFI, network, process, file writes)\n", C_CYAN, C_RESET);
+    fprintf(stderr, "                  %sIf DIR provided, restricts file reads to that directory%s\n", C_MUTED, C_RESET);
+    fprintf(stderr, "  %s-v, --verbose%s   Verbose output\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s-h, --help%s      Show this help message\n", C_CYAN, C_RESET);
+    fprintf(stderr, "  %s--version%s       Show version\n", C_CYAN, C_RESET);
 }
 
 static Options parse_args(int argc, char **argv) {
@@ -585,7 +593,7 @@ int main(int argc, char **argv) {
 
     // Parse
     if (opts.verbose) {
-        printf("Parsing %s...\n", opts.input_file);
+        printf("%s[1/5]%s Parsing %s%s%s...\n", C_MUTED, C_RESET, C_CODE, opts.input_file, C_RESET);
     }
 
     Lexer lexer;
@@ -598,34 +606,34 @@ int main(int argc, char **argv) {
     Stmt **statements = parse_program(&parser, &stmt_count);
 
     if (parser.had_error) {
-        fprintf(stderr, "Parse failed!\n");
+        fprintf(stderr, "%serror:%s Parse failed!\n", C_ERROR, C_RESET);
         free(source);
         return 1;
     }
 
     if (opts.verbose) {
-        printf("Parsed %d statements\n", stmt_count);
+        printf("      %sParsed %d statements%s\n", C_MUTED, stmt_count, C_RESET);
     }
 
     // Resolve variables (compute depth/slot indices - shared with interpreter)
     if (opts.verbose) {
-        printf("Resolving variables...\n");
+        printf("%s[2/5]%s Resolving variables...\n", C_MUTED, C_RESET);
     }
     resolve_program(statements, stmt_count);
 
     // Optimize AST (constant folding, boolean simplification, strength reduction)
     // This runs before type checking to simplify patterns for analysis
     if (opts.verbose) {
-        printf("Optimizing AST...\n");
+        printf("%s[3/5]%s Optimizing AST...\n", C_MUTED, C_RESET);
     }
     OptimizationStats opt_stats = optimize_program(statements, stmt_count);
     if (opts.verbose && (opt_stats.constants_folded > 0 || opt_stats.literals_folded > 0 ||
                          opt_stats.booleans_simplified > 0 || opt_stats.strength_reductions > 0 ||
                          opt_stats.dead_code_eliminated > 0)) {
-        printf("  Folded %d constants (%d literals), simplified %d booleans, %d strength reductions, %d dead-code eliminations\n",
-               opt_stats.constants_folded, opt_stats.literals_folded,
+        printf("      %sFolded %d constants (%d literals), simplified %d booleans, %d strength reductions, %d dead-code eliminations%s\n",
+               C_MUTED, opt_stats.constants_folded, opt_stats.literals_folded,
                opt_stats.booleans_simplified, opt_stats.strength_reductions,
-               opt_stats.dead_code_eliminated);
+               opt_stats.dead_code_eliminated, C_RESET);
     }
 
     // Type check (if enabled - on by default)
@@ -633,7 +641,7 @@ int main(int argc, char **argv) {
     TypeCheckContext *type_ctx = NULL;
     if (opts.type_check) {
         if (opts.verbose) {
-            printf("Type checking...\n");
+            printf("%s[4/5]%s Type checking...\n", C_MUTED, C_RESET);
         }
 
         type_ctx = type_check_new(opts.input_file);
@@ -641,8 +649,8 @@ int main(int argc, char **argv) {
         int type_errors = type_check_program(type_ctx, statements, stmt_count);
 
         if (type_errors > 0) {
-            fprintf(stderr, "%d type error%s found\n",
-                    type_errors, type_errors > 1 ? "s" : "");
+            fprintf(stderr, "%serror:%s %d type error%s found\n",
+                    C_ERROR, C_RESET, type_errors, type_errors > 1 ? "s" : "");
             type_check_free(type_ctx);
             for (int i = 0; i < stmt_count; i++) {
                 stmt_free(statements[i]);
@@ -653,13 +661,13 @@ int main(int argc, char **argv) {
         }
 
         if (opts.verbose) {
-            printf("Type checking passed\n");
+            printf("      %s%sType checking passed%s\n", C_SUCCESS, C_BOLD, C_RESET);
         }
 
         // If --check flag was used, exit after type checking
         if (opts.check_only) {
             if (!opts.verbose) {
-                printf("%s: no type errors\n", opts.input_file);
+                printf("%s%s%s: %sno type errors%s\n", C_CODE, opts.input_file, C_RESET, C_SUCCESS, C_RESET);
             }
             type_check_free(type_ctx);
             for (int i = 0; i < stmt_count; i++) {
@@ -699,7 +707,7 @@ int main(int argc, char **argv) {
     // Open output file
     FILE *output = fopen(c_file, "w");
     if (!output) {
-        fprintf(stderr, "Error: Could not open output file '%s'\n", c_file);
+        fprintf(stderr, "%serror:%s Could not open output file '%s'\n", C_ERROR, C_RESET, c_file);
         free(source);
         if (c_file_allocated) free(c_file);
         return 1;
@@ -707,7 +715,7 @@ int main(int argc, char **argv) {
 
     // Generate C code
     if (opts.verbose) {
-        printf("Generating C code to %s...\n", c_file);
+        printf("%s[5/5]%s Generating C code to %s%s%s...\n", C_MUTED, C_RESET, C_CODE, c_file, C_RESET);
     }
 
     // Initialize module cache for import support
@@ -738,7 +746,7 @@ int main(int argc, char **argv) {
     // Check for compilation errors
     int had_errors = ctx->error_count > 0;
     if (had_errors) {
-        fprintf(stderr, "%d error%s generated\n", ctx->error_count, ctx->error_count > 1 ? "s" : "");
+        fprintf(stderr, "%serror:%s %d error%s generated\n", C_ERROR, C_RESET, ctx->error_count, ctx->error_count > 1 ? "s" : "");
     }
 
     codegen_free(ctx);
@@ -769,7 +777,7 @@ int main(int argc, char **argv) {
 
     if (opts.emit_c_only) {
         if (opts.verbose) {
-            printf("C code written to %s\n", c_file);
+            printf("%s%sC code written to %s%s\n", C_SUCCESS, C_BOLD, c_file, C_RESET);
         }
         if (c_file_allocated) free(c_file);
         return 0;
@@ -777,7 +785,7 @@ int main(int argc, char **argv) {
 
     // Compile C code
     if (opts.verbose) {
-        printf("Compiling C code...\n");
+        printf("      Compiling C code...\n");
     }
 
     int result = compile_c(&opts, c_file);
@@ -785,7 +793,7 @@ int main(int argc, char **argv) {
     // Cleanup temp file
     if (!opts.keep_c && !opts.c_output) {
         if (opts.verbose) {
-            printf("Removing temporary file %s\n", c_file);
+            printf("      %sRemoving temporary file %s%s\n", C_MUTED, c_file, C_RESET);
         }
         unlink(c_file);
     }
@@ -794,10 +802,10 @@ int main(int argc, char **argv) {
 
     if (result == 0) {
         if (opts.verbose) {
-            printf("Successfully compiled to %s\n", opts.output_file);
+            printf("\n%s%sSuccessfully compiled to %s%s\n", C_SUCCESS, C_BOLD, opts.output_file, C_RESET);
         }
     } else {
-        fprintf(stderr, "C compilation failed with status %d\n", result);
+        fprintf(stderr, "%serror:%s C compilation failed with status %d\n", C_ERROR, C_RESET, result);
     }
 
     return result;

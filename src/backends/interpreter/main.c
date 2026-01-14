@@ -11,6 +11,7 @@
 #include "tools/bundler/bundler.h"
 #include "version.h"
 #include "profiler/profiler.h"
+#include "terminal.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -27,7 +28,7 @@ extern void ffi_cleanup(void);
 static char* read_file(const char *path) {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
-        fprintf(stderr, "Error: Could not open file '%s'\n", path);
+        fprintf(stderr, "%serror:%s Could not open file '%s'\n", C_ERROR, C_RESET, path);
         return NULL;
     }
     
@@ -35,23 +36,23 @@ static char* read_file(const char *path) {
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
     if (fseek(file, 0, SEEK_SET) != 0) {
-        fprintf(stderr, "Error: Could not seek to beginning of file\n");
+        fprintf(stderr, "%serror:%s Could not seek to beginning of file\n", C_ERROR, C_RESET);
         fclose(file);
         return NULL;
     }
-    
+
     // Allocate buffer
     char *buffer = malloc(size + 1);
     if (buffer == NULL) {
-        fprintf(stderr, "Error: Could not allocate memory for file\n");
+        fprintf(stderr, "%serror:%s Could not allocate memory for file\n", C_ERROR, C_RESET);
         fclose(file);
         return NULL;
     }
-    
+
     // Read file
     size_t bytes_read = fread(buffer, 1, size, file);
     if (bytes_read < (size_t)size) {
-        fprintf(stderr, "Error: Could not read file\n");
+        fprintf(stderr, "%serror:%s Could not read file\n", C_ERROR, C_RESET);
         free(buffer);
         fclose(file);
         return NULL;
@@ -195,7 +196,7 @@ static uint8_t* check_embedded_payload(size_t *out_size) {
 // Run an embedded payload (HMLB compressed or HMLC uncompressed)
 static int run_embedded_payload(uint8_t *payload, size_t payload_size, int argc, char **argv) {
     if (payload_size < 4) {
-        fprintf(stderr, "Error: Invalid embedded payload\n");
+        fprintf(stderr, "%serror:%s Invalid embedded payload\n", C_ERROR, C_RESET);
         return 1;
     }
 
@@ -206,7 +207,7 @@ static int run_embedded_payload(uint8_t *payload, size_t payload_size, int argc,
     if (magic == 0x424C4D48) {  // "HMLB" (compressed)
         // Payload is in HMLB format: [magic:4][version:2][orig_size:4][compressed_data]
         if (payload_size < 10) {
-            fprintf(stderr, "Error: Invalid HMLB payload\n");
+            fprintf(stderr, "%serror:%s Invalid HMLB payload\n", C_ERROR, C_RESET);
             return 1;
         }
 
@@ -220,14 +221,14 @@ static int run_embedded_payload(uint8_t *payload, size_t payload_size, int argc,
         // Decompress
         uint8_t *decompressed = malloc(orig_size);
         if (!decompressed) {
-            fprintf(stderr, "Error: Cannot allocate memory for decompression\n");
+            fprintf(stderr, "%serror:%s Cannot allocate memory for decompression\n", C_ERROR, C_RESET);
             return 1;
         }
 
         uLongf dest_len = orig_size;
         int ret = uncompress(decompressed, &dest_len, compressed_data, compressed_size);
         if (ret != Z_OK) {
-            fprintf(stderr, "Error: Decompression failed (%d)\n", ret);
+            fprintf(stderr, "%serror:%s Decompression failed (%d)\n", C_ERROR, C_RESET, ret);
             free(decompressed);
             return 1;
         }
@@ -239,12 +240,12 @@ static int run_embedded_payload(uint8_t *payload, size_t payload_size, int argc,
         // Payload is already in HMLC format, deserialize directly
         statements = ast_deserialize(payload, payload_size, &stmt_count);
     } else {
-        fprintf(stderr, "Error: Unknown embedded payload format (magic: 0x%08x)\n", magic);
+        fprintf(stderr, "%serror:%s Unknown embedded payload format (magic: 0x%08x)\n", C_ERROR, C_RESET, magic);
         return 1;
     }
 
     if (!statements) {
-        fprintf(stderr, "Error: Failed to deserialize embedded code\n");
+        fprintf(stderr, "%serror:%s Failed to deserialize embedded code\n", C_ERROR, C_RESET);
         return 1;
     }
 
@@ -445,7 +446,7 @@ static int compile_file(const char *input_path, const char *output_path, int deb
 static int show_file_info(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "Error: Cannot open file '%s'\n", path);
+        fprintf(stderr, "%serror:%s Cannot open file '%s'\n", C_ERROR, C_RESET, path);
         return 1;
     }
 
@@ -457,13 +458,13 @@ static int show_file_info(const char *path) {
     // Read header
     uint32_t magic;
     if (fread(&magic, 4, 1, f) != 1) {
-        fprintf(stderr, "Error: Cannot read file header\n");
+        fprintf(stderr, "%serror:%s Cannot read file header\n", C_ERROR, C_RESET);
         fclose(f);
         return 1;
     }
 
-    printf("=== File Info: %s ===\n", path);
-    printf("Size: %ld bytes\n", file_size);
+    printf("%s%s=== File Info: %s ===%s\n", C_BOLD, C_CYAN, path, C_RESET);
+    printf("Size: %s%ld%s bytes\n", C_CODE, file_size, C_RESET);
 
     if (magic == 0x434C4D48) {  // "HMLC"
         uint16_t version, flags;
@@ -473,26 +474,26 @@ static int show_file_info(const char *path) {
             fread(&flags, 2, 1, f) != 1 ||
             fread(&string_count, 4, 1, f) != 1 ||
             fread(&stmt_count, 4, 1, f) != 1) {
-            fprintf(stderr, "Error: Cannot read HMLC header\n");
+            fprintf(stderr, "%serror:%s Cannot read HMLC header\n", C_ERROR, C_RESET);
             fclose(f);
             return 1;
         }
 
-        printf("Format: HMLC (compiled AST)\n");
-        printf("Version: %d\n", version);
-        printf("Flags: 0x%04x", flags);
-        if (flags & 0x0001) printf(" [DEBUG]");
-        if (flags & 0x0002) printf(" [COMPRESSED]");
+        printf("Format: %sHMLC%s (compiled AST)\n", C_GREEN, C_RESET);
+        printf("Version: %s%d%s\n", C_CODE, version, C_RESET);
+        printf("Flags: %s0x%04x%s", C_CODE, flags, C_RESET);
+        if (flags & 0x0001) printf(" %s[DEBUG]%s", C_YELLOW, C_RESET);
+        if (flags & 0x0002) printf(" %s[COMPRESSED]%s", C_CYAN, C_RESET);
         printf("\n");
-        printf("Strings: %u\n", string_count);
-        printf("Statements: %u\n", stmt_count);
+        printf("Strings: %s%u%s\n", C_CODE, string_count, C_RESET);
+        printf("Statements: %s%u%s\n", C_CODE, stmt_count, C_RESET);
     } else if (magic == 0x424C4D48) {  // "HMLB"
         uint16_t version;
         uint32_t orig_size;
 
         if (fread(&version, 2, 1, f) != 1 ||
             fread(&orig_size, 4, 1, f) != 1) {
-            fprintf(stderr, "Error: Cannot read HMLB header\n");
+            fprintf(stderr, "%serror:%s Cannot read HMLB header\n", C_ERROR, C_RESET);
             fclose(f);
             return 1;
         }
@@ -500,13 +501,13 @@ static int show_file_info(const char *path) {
         long compressed_size = file_size - 10;  // Header is 10 bytes
         double ratio = (1.0 - (double)compressed_size / orig_size) * 100;
 
-        printf("Format: HMLB (compressed bundle)\n");
-        printf("Version: %d\n", version);
-        printf("Uncompressed: %u bytes\n", orig_size);
-        printf("Compressed: %ld bytes\n", compressed_size);
-        printf("Ratio: %.1f%% reduction\n", ratio);
+        printf("Format: %sHMLB%s (compressed bundle)\n", C_GREEN, C_RESET);
+        printf("Version: %s%d%s\n", C_CODE, version, C_RESET);
+        printf("Uncompressed: %s%u%s bytes\n", C_CODE, orig_size, C_RESET);
+        printf("Compressed: %s%ld%s bytes\n", C_CODE, compressed_size, C_RESET);
+        printf("Ratio: %s%.1f%%%s reduction\n", C_SUCCESS, ratio, C_RESET);
     } else {
-        printf("Format: Unknown (magic: 0x%08x)\n", magic);
+        printf("Format: %sUnknown%s (magic: 0x%08x)\n", C_WARNING, C_RESET, magic);
     }
 
     fclose(f);
@@ -857,11 +858,27 @@ static void run_repl(int stack_depth) {
 
     register_builtins(env, 0, NULL, ctx);
 
-    printf("Hemlock v%s REPL\n", HEMLOCK_VERSION);
-    printf("Type 'exit' to quit\n\n");
+    // Print sexy REPL header
+    if (term_color_enabled()) {
+        printf("\n");
+        printf("%s      *%s\n", C_GREEN, C_RESET);
+        printf("%s     /|\\%s\n", C_GREEN, C_RESET);
+        printf("%s    /_|_\\%s\n", C_GREEN, C_RESET);
+        printf("%s   /__|__\\%s\n", C_GREEN, C_RESET);
+        printf("%s  /___|___\\%s\n", C_GREEN, C_RESET);
+        printf("%s      |%s\n", C_YELLOW, C_RESET);
+        printf("\n");
+        printf("  %s%sHemlock%s v%s%s%s\n", C_BOLD, C_GREEN, C_RESET, C_ACCENT, HEMLOCK_VERSION, C_RESET);
+        printf("  %sA small, unsafe language for writing unsafe things safely.%s\n", C_MUTED, C_RESET);
+        printf("\n");
+        printf("  %sType %s'exit'%s%s to quit, or start typing code.%s\n\n", C_MUTED, C_CODE, C_RESET, C_MUTED, C_RESET);
+    } else {
+        printf("\nHemlock v%s REPL\n", HEMLOCK_VERSION);
+        printf("Type 'exit' to quit\n\n");
+    }
 
     for (;;) {
-        printf(">>> ");
+        printf("%s>>>%s ", C_GREEN, C_RESET);
 
         if (!fgets(line, sizeof(line), stdin)) {
             printf("\n");
@@ -925,75 +942,84 @@ static void run_repl(int stack_depth) {
 }
 
 static void print_version(void) {
-    printf("Hemlock version %s (built %s %s)\n", HEMLOCK_VERSION, HEMLOCK_BUILD_DATE, HEMLOCK_BUILD_TIME);
-    printf("A small, unsafe language for writing unsafe things safely.\n");
+    printf("%s%sHemlock%s version %s%s%s %s(built %s %s)%s\n",
+           C_BOLD, C_GREEN, C_RESET,
+           C_ACCENT, HEMLOCK_VERSION, C_RESET,
+           C_MUTED, HEMLOCK_BUILD_DATE, HEMLOCK_BUILD_TIME, C_RESET);
+    printf("%sA small, unsafe language for writing unsafe things safely.%s\n", C_MUTED, C_RESET);
 }
 
 static void print_help(const char *program) {
-    printf("Hemlock - A systems scripting language\n\n");
-    printf("USAGE:\n");
-    printf("    %s [OPTIONS] [FILE] [ARGS...]\n", program);
-    printf("    %s --compile FILE [-o OUTPUT] [--debug]\n", program);
-    printf("    %s --bundle FILE [-o OUTPUT] [--compress] [--tree-shake] [--verbose]\n", program);
-    printf("    %s --package FILE [-o OUTPUT] [--no-compress] [--tree-shake] [--verbose]\n", program);
-    printf("    %s format FILE [--check]\n", program);
-    printf("    %s lsp [--stdio | --tcp PORT]\n\n", program);
-    printf("ARGUMENTS:\n");
-    printf("    <FILE>       Hemlock script file to execute (.hml or .hmlc)\n");
-    printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
-    printf("SUBCOMMANDS:\n");
-    printf("    format       Format Hemlock source code\n");
-    printf("        --check      Check if file is formatted (exit 1 if not)\n");
-    printf("    lsp          Start Language Server Protocol server\n");
-    printf("        --stdio      Use stdio transport (default)\n");
-    printf("        --tcp PORT   Use TCP transport on specified port\n");
-    printf("    profile      Profile script execution (CPU time, memory, call counts)\n");
-    printf("        --cpu        CPU/time profiling (default)\n");
-    printf("        --memory     Memory allocation profiling\n");
-    printf("        --json       Output in JSON format\n");
-    printf("        --flamegraph Output in flamegraph-compatible format\n");
-    printf("        --top N      Show top N entries (default: 20)\n\n");
-    printf("OPTIONS:\n");
-    printf("    -h, --help           Display this help message\n");
-    printf("    -v, --version        Display version information\n");
-    printf("    -i, --interactive    Start REPL after executing file\n");
-    printf("    -e, -c, --command <CODE>\n");
+    // Header
+    printf("%s%sHemlock%s %s- A systems scripting language%s\n\n", C_BOLD, C_GREEN, C_RESET, C_MUTED, C_RESET);
+
+    // Usage
+    printf("%s%sUSAGE%s\n", C_BOLD, C_YELLOW, C_RESET);
+    printf("    %s%s%s [OPTIONS] [FILE] [ARGS...]\n", C_CODE, program, C_RESET);
+    printf("    %s%s%s --compile FILE [-o OUTPUT] [--debug]\n", C_CODE, program, C_RESET);
+    printf("    %s%s%s --bundle FILE [-o OUTPUT] [--compress] [--tree-shake] [--verbose]\n", C_CODE, program, C_RESET);
+    printf("    %s%s%s --package FILE [-o OUTPUT] [--no-compress] [--tree-shake] [--verbose]\n", C_CODE, program, C_RESET);
+    printf("    %s%s%s format FILE [--check]\n", C_CODE, program, C_RESET);
+    printf("    %s%s%s lsp [--stdio | --tcp PORT]\n\n", C_CODE, program, C_RESET);
+
+    // Arguments
+    printf("%s%sARGUMENTS%s\n", C_BOLD, C_YELLOW, C_RESET);
+    printf("    %s<FILE>%s       Hemlock script file to execute (.hml or .hmlc)\n", C_CYAN, C_RESET);
+    printf("    %s<ARGS>...%s    Arguments passed to the script (available in 'args' array)\n\n", C_CYAN, C_RESET);
+
+    // Subcommands
+    printf("%s%sSUBCOMMANDS%s\n", C_BOLD, C_YELLOW, C_RESET);
+    printf("    %sformat%s       Format Hemlock source code\n", C_GREEN, C_RESET);
+    printf("        %s--check%s      Check if file is formatted (exit 1 if not)\n", C_MUTED, C_RESET);
+    printf("    %slsp%s          Start Language Server Protocol server\n", C_GREEN, C_RESET);
+    printf("        %s--stdio%s      Use stdio transport (default)\n", C_MUTED, C_RESET);
+    printf("        %s--tcp PORT%s   Use TCP transport on specified port\n", C_MUTED, C_RESET);
+    printf("    %sprofile%s      Profile script execution (CPU time, memory, call counts)\n", C_GREEN, C_RESET);
+    printf("        %s--cpu%s        CPU/time profiling (default)\n", C_MUTED, C_RESET);
+    printf("        %s--memory%s     Memory allocation profiling\n", C_MUTED, C_RESET);
+    printf("        %s--json%s       Output in JSON format\n", C_MUTED, C_RESET);
+    printf("        %s--flamegraph%s Output in flamegraph-compatible format\n", C_MUTED, C_RESET);
+    printf("        %s--top N%s      Show top N entries (default: 20)\n\n", C_MUTED, C_RESET);
+
+    // Options
+    printf("%s%sOPTIONS%s\n", C_BOLD, C_YELLOW, C_RESET);
+    printf("    %s-h, --help%s           Display this help message\n", C_CYAN, C_RESET);
+    printf("    %s-v, --version%s        Display version information\n", C_CYAN, C_RESET);
+    printf("    %s-i, --interactive%s    Start REPL after executing file\n", C_CYAN, C_RESET);
+    printf("    %s-e, -c, --command%s <CODE>\n", C_CYAN, C_RESET);
     printf("                         Execute code string directly\n");
-    printf("    --compile <FILE>     Compile .hml to binary AST (.hmlc)\n");
-    printf("    --bundle <FILE>      Bundle .hml with all imports into single file\n");
-    printf("    --package <FILE>     Create self-contained executable (interpreter + bundle)\n");
-    printf("    --compress           Use zlib compression for bundle output (.hmlb)\n");
-    printf("    --tree-shake         Remove unused exports from bundle (dead code elimination)\n");
-    printf("    --no-compress        Skip compression (faster startup, larger binary)\n");
-    printf("    --info <FILE>        Show info about a .hmlc/.hmlb file\n");
-    printf("    -o, --output <FILE>  Output path for compiled/bundled/packaged file\n");
-    printf("    --debug              Include line numbers in compiled output\n");
-    printf("    --verbose            Print progress during bundling/packaging\n");
-    printf("    --stack-depth <N>    Set maximum call stack depth (default: 10000)\n");
-    printf("    --sandbox [DIR]      Run in sandbox mode (restricts dangerous operations)\n");
-    printf("                         Disables: FFI, network, process spawning, file writes,\n");
-    printf("                         signals (signal, raise, kill, abort)\n");
-    printf("                         If DIR provided, restricts file reads to that directory\n\n");
-    printf("EXAMPLES:\n");
-    printf("    %s                     # Start interactive REPL\n", program);
-    printf("    %s script.hml          # Run script.hml\n", program);
-    printf("    %s script.hmlc         # Run compiled script\n", program);
-    printf("    %s script.hml arg1 arg2    # Run script with arguments\n", program);
-    printf("    %s -e 'print(\"Hello\");'    # Execute code string (one-liner)\n", program);
-    printf("    %s -i script.hml       # Run script then start REPL\n", program);
-    printf("    %s --compile script.hml    # Compile to script.hmlc\n", program);
-    printf("    %s --compile src.hml -o out.hmlc --debug\n", program);
-    printf("    %s --bundle app.hml        # Bundle app.hml + imports -> app.hmlc\n", program);
-    printf("    %s --bundle app.hml --compress -o app.hmlb\n", program);
-    printf("    %s --package app.hml       # Create ./app executable\n", program);
-    printf("    %s --package app.hml --no-compress -o myapp\n", program);
-    printf("    %s --info app.hmlc         # Show compiled file info\n", program);
-    printf("    %s --stack-depth 50000 script.hml  # Run with larger stack\n", program);
-    printf("    %s lsp                 # Start LSP server (stdio)\n", program);
-    printf("    %s lsp --tcp 6969      # Start LSP server (TCP)\n", program);
-    printf("    %s --sandbox script.hml    # Run in sandbox mode\n", program);
-    printf("    %s --sandbox /tmp script.hml   # Sandbox with /tmp as allowed dir\n\n", program);
-    printf("For more information, visit: https://github.com/hemlang/hemlock\n");
+    printf("    %s--compile%s <FILE>     Compile .hml to binary AST (.hmlc)\n", C_CYAN, C_RESET);
+    printf("    %s--bundle%s <FILE>      Bundle .hml with all imports into single file\n", C_CYAN, C_RESET);
+    printf("    %s--package%s <FILE>     Create self-contained executable (interpreter + bundle)\n", C_CYAN, C_RESET);
+    printf("    %s--compress%s           Use zlib compression for bundle output (.hmlb)\n", C_CYAN, C_RESET);
+    printf("    %s--tree-shake%s         Remove unused exports from bundle (dead code elimination)\n", C_CYAN, C_RESET);
+    printf("    %s--no-compress%s        Skip compression (faster startup, larger binary)\n", C_CYAN, C_RESET);
+    printf("    %s--info%s <FILE>        Show info about a .hmlc/.hmlb file\n", C_CYAN, C_RESET);
+    printf("    %s-o, --output%s <FILE>  Output path for compiled/bundled/packaged file\n", C_CYAN, C_RESET);
+    printf("    %s--debug%s              Include line numbers in compiled output\n", C_CYAN, C_RESET);
+    printf("    %s--verbose%s            Print progress during bundling/packaging\n", C_CYAN, C_RESET);
+    printf("    %s--stack-depth%s <N>    Set maximum call stack depth (default: 10000)\n", C_CYAN, C_RESET);
+    printf("    %s--sandbox%s [DIR]      Run in sandbox mode (restricts dangerous operations)\n", C_CYAN, C_RESET);
+    printf("                         %sDisables: FFI, network, process spawning, file writes,%s\n", C_MUTED, C_RESET);
+    printf("                         %ssignals (signal, raise, kill, abort)%s\n", C_MUTED, C_RESET);
+    printf("                         %sIf DIR provided, restricts file reads to that directory%s\n\n", C_MUTED, C_RESET);
+
+    // Examples
+    printf("%s%sEXAMPLES%s\n", C_BOLD, C_YELLOW, C_RESET);
+    printf("    %s%s%s                     %s# Start interactive REPL%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s script.hml%s          %s# Run script.hml%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s script.hmlc%s         %s# Run compiled script%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s script.hml arg1 arg2%s    %s# Run script with arguments%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s -e 'print(\"Hello\");'%s    %s# Execute code string%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s -i script.hml%s       %s# Run script then start REPL%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s --compile script.hml%s    %s# Compile to script.hmlc%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s --bundle app.hml%s    %s# Bundle app.hml + imports%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s --package app.hml%s   %s# Create ./app executable%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s lsp%s                 %s# Start LSP server%s\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+    printf("    %s%s --sandbox script.hml%s    %s# Run in sandbox mode%s\n\n", C_CODE, program, C_RESET, C_MUTED, C_RESET);
+
+    // Footer
+    printf("%sFor more information, visit: %s%shttps://github.com/hemlang/hemlock%s\n", C_MUTED, C_RESET, C_UNDERLINE, C_RESET);
 }
 
 // Run profiler
@@ -1052,7 +1078,7 @@ static int run_profile(int argc, char **argv) {
             printf("    hemlock profile --flamegraph script.hml | flamegraph.pl > out.svg\n");
             return 0;
         } else if (argv[i][0] == '-') {
-            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "%serror:%s Unknown option '%s'\n", C_ERROR, C_RESET, argv[i]);
             fprintf(stderr, "Try 'hemlock profile --help' for more information.\n");
             return 1;
         } else {
@@ -1064,7 +1090,7 @@ static int run_profile(int argc, char **argv) {
     }
 
     if (!file_to_run) {
-        fprintf(stderr, "Error: No input file specified\n");
+        fprintf(stderr, "%serror:%s No input file specified\n", C_ERROR, C_RESET);
         fprintf(stderr, "Usage: hemlock profile [OPTIONS] <FILE> [ARGS...]\n");
         return 1;
     }
@@ -1079,7 +1105,7 @@ static int run_profile(int argc, char **argv) {
     char *source = NULL;
     FILE *f = fopen(file_to_run, "rb");
     if (!f) {
-        fprintf(stderr, "Error: Could not open file '%s'\n", file_to_run);
+        fprintf(stderr, "%serror:%s Could not open file '%s'\n", C_ERROR, C_RESET, file_to_run);
         profiler_free(profiler);
         return 1;
     }
@@ -1087,7 +1113,7 @@ static int run_profile(int argc, char **argv) {
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     if (fseek(f, 0, SEEK_SET) != 0) {
-        fprintf(stderr, "Error: Could not seek to beginning of file\n");
+        fprintf(stderr, "%serror:%s Could not seek to beginning of file\n", C_ERROR, C_RESET);
         fclose(f);
         profiler_free(profiler);
         return 1;
@@ -1095,7 +1121,7 @@ static int run_profile(int argc, char **argv) {
     source = malloc(size + 1);
     size_t bytes_read = fread(source, 1, size, f);
     if ((long)bytes_read != size) {
-        fprintf(stderr, "Error: Could not read complete file (read %zu of %ld bytes)\n", bytes_read, size);
+        fprintf(stderr, "%serror:%s Could not read complete file (read %zu of %ld bytes)\n", C_ERROR, C_RESET, bytes_read, size);
         free(source);
         fclose(f);
         profiler_free(profiler);
@@ -1154,7 +1180,7 @@ static int run_profile(int argc, char **argv) {
     if (output_file) {
         output = fopen(output_file, "w");
         if (!output) {
-            fprintf(stderr, "Error: Could not open output file '%s'\n", output_file);
+            fprintf(stderr, "%serror:%s Could not open output file '%s'\n", C_ERROR, C_RESET, output_file);
             output = stdout;
         }
     }
@@ -1260,7 +1286,7 @@ static int run_format(int argc, char **argv) {
             printf("    - Single blank line maximum\n");
             return 0;
         } else if (argv[i][0] == '-') {
-            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "%serror:%s Unknown option '%s'\n", C_ERROR, C_RESET, argv[i]);
             fprintf(stderr, "Try 'hemlock format --help' for more information.\n");
             return 1;
         } else {
@@ -1269,7 +1295,7 @@ static int run_format(int argc, char **argv) {
     }
 
     if (file_to_format == NULL) {
-        fprintf(stderr, "Error: No input file specified\n");
+        fprintf(stderr, "%serror:%s No input file specified\n", C_ERROR, C_RESET);
         fprintf(stderr, "Try 'hemlock format --help' for more information.\n");
         return 1;
     }
@@ -1353,7 +1379,7 @@ int main(int argc, char **argv) {
             interactive_mode = 1;
         } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--command") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: -e/-c/--command requires a code argument\n");
+                fprintf(stderr, "%serror:%s -e/-c/--command requires a code argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
@@ -1362,7 +1388,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--compile") == 0) {
             compile_mode = 1;
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: --compile requires a file argument\n");
+                fprintf(stderr, "%serror:%s --compile requires a file argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
@@ -1370,7 +1396,7 @@ int main(int argc, char **argv) {
             i++;  // Skip the file argument
         } else if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: -o/--output requires a file argument\n");
+                fprintf(stderr, "%serror:%s -o/--output requires a file argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
@@ -1381,7 +1407,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--bundle") == 0) {
             bundle_mode = 1;
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: --bundle requires a file argument\n");
+                fprintf(stderr, "%serror:%s --bundle requires a file argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
@@ -1397,20 +1423,20 @@ int main(int argc, char **argv) {
             bundle_tree_shake = 1;
         } else if (strcmp(argv[i], "--stack-depth") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: --stack-depth requires a numeric argument\n");
+                fprintf(stderr, "%serror:%s --stack-depth requires a numeric argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
             stack_depth = atoi(argv[i + 1]);
             if (stack_depth <= 0) {
-                fprintf(stderr, "Error: --stack-depth must be a positive integer\n");
+                fprintf(stderr, "%serror:%s --stack-depth must be a positive integer\n", C_ERROR, C_RESET);
                 return 1;
             }
             i++;  // Skip the value argument
         } else if (strcmp(argv[i], "--info") == 0) {
             info_mode = 1;
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: --info requires a file argument\n");
+                fprintf(stderr, "%serror:%s --info requires a file argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
@@ -1419,7 +1445,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--package") == 0) {
             package_mode = 1;
             if (i + 1 >= argc) {
-                fprintf(stderr, "Error: --package requires a file argument\n");
+                fprintf(stderr, "%serror:%s --package requires a file argument\n", C_ERROR, C_RESET);
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
@@ -1447,7 +1473,7 @@ int main(int argc, char **argv) {
             }
         } else if (argv[i][0] == '-') {
             // Unknown flag
-            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "%serror:%s Unknown option '%s'\n", C_ERROR, C_RESET, argv[i]);
             fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
             return 1;
         } else {
@@ -1463,7 +1489,7 @@ int main(int argc, char **argv) {
     // Handle compile mode
     if (compile_mode) {
         if (file_to_compile == NULL) {
-            fprintf(stderr, "Error: No input file specified for compilation\n");
+            fprintf(stderr, "%serror:%s No input file specified for compilation\n", C_ERROR, C_RESET);
             return 1;
         }
         int result = compile_file(file_to_compile, output_path, compile_debug);
@@ -1473,7 +1499,7 @@ int main(int argc, char **argv) {
     // Handle bundle mode
     if (bundle_mode) {
         if (file_to_bundle == NULL) {
-            fprintf(stderr, "Error: No input file specified for bundling\n");
+            fprintf(stderr, "%serror:%s No input file specified for bundling\n", C_ERROR, C_RESET);
             return 1;
         }
         int result = bundle_file(file_to_bundle, output_path, bundle_verbose, bundle_compress, bundle_tree_shake);
@@ -1483,7 +1509,7 @@ int main(int argc, char **argv) {
     // Handle info mode
     if (info_mode) {
         if (file_to_info == NULL) {
-            fprintf(stderr, "Error: No input file specified for info\n");
+            fprintf(stderr, "%serror:%s No input file specified for info\n", C_ERROR, C_RESET);
             return 1;
         }
         return show_file_info(file_to_info);
@@ -1492,7 +1518,7 @@ int main(int argc, char **argv) {
     // Handle package mode
     if (package_mode) {
         if (file_to_package == NULL) {
-            fprintf(stderr, "Error: No input file specified for packaging\n");
+            fprintf(stderr, "%serror:%s No input file specified for packaging\n", C_ERROR, C_RESET);
             return 1;
         }
         // For --package, compression is ON by default (smaller binary)
