@@ -127,16 +127,20 @@ ch.close();  // Are "a" and "b" released?
 **Files Affected:**
 - `src/backends/interpreter/values.c:850-915` (channel_close, channel_free)
 
-### Gap 4: Null Coalescing AST Leak (KNOWN ISSUE)
+### Gap 4: Null Coalescing AST Leak (FIXED)
 
-**Issue:** Documented in `docs/contributing/testing.md`:
-> "Null coalescing with literals (`let x = null ?? "default"`) leaks AST nodes"
+**Issue:** The optimizer was optimizing away null coalescing expressions when the result was known at compile time, but not freeing the discarded AST nodes.
 
-**Root Cause:** The literal on the RHS creates an AST node that isn't properly tracked when the short-circuit evaluation skips it.
+**Root Cause:** In `optimizer.c`, when `??` was optimized (e.g., `"value" ?? "default"` → `"value"`), the optimizer returned the kept child without freeing the parent `EXPR_NULL_COALESCE` node or the discarded child.
 
-**Files Affected:**
-- `src/backends/interpreter/runtime/evaluator.c` (null coalescing evaluation)
-- `src/frontend/parser/` (AST node lifetime)
+**Fix:** Added proper cleanup in the optimizer to free discarded nodes:
+- Save the result child
+- Free the unused child with `expr_free()`
+- Free the parent node structure
+- Return the saved result
+
+**Files Modified:**
+- `src/frontend/optimizer/optimizer.c` (null coalescing optimization cleanup)
 
 ### Gap 5: Closure Capture List Granularity (LOW PRIORITY)
 
