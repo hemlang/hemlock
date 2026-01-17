@@ -1,0 +1,35 @@
+// Test: Exception during array literal evaluation should not leak memory
+// Expected: No memory leaks when exception thrown mid-array
+
+fn thrower(x) {
+    if (x == 2) {
+        throw "exception at index 2";
+    }
+    return x * 10;
+}
+
+// Test 1: Exception in array literal
+try {
+    let arr = [thrower(0), thrower(1), thrower(2), thrower(3)];
+    print("ERROR: Should have thrown");
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("Test 1 passed: array literal exception");
+
+// Test 2: Exception in nested array
+try {
+    let nested = [[1, 2], [thrower(0), thrower(2)], [5, 6]];
+    print("ERROR: Should have thrown");
+} catch (e) {
+    print("Caught nested: " + e);
+}
+
+print("Test 2 passed: nested array exception");
+
+// Test 3: Normal array creation still works
+let normal = [1, 2, 3, 4, 5];
+print("Normal array created successfully");
+
+print("All exception safety tests passed");

@@ -1,0 +1,59 @@
+// Test: Channel should drain buffered values when freed
+// Expected: No memory leaks when channel closed with values remaining
+
+import { sleep } from "@stdlib/time";
+
+// Test 1: Buffered channel closed with values remaining
+fn test_buffered_drain() {
+    let ch = channel(10);
+    ch.send("value1");
+    ch.send("value2");
+    ch.send("value3");
+    ch.close();
+    // Channel goes out of scope here with values still buffered
+    print("Test 1: Buffered channel with values closed");
+}
+test_buffered_drain();
+
+// Test 2: Buffered channel with objects
+fn test_object_drain() {
+    let ch = channel(5);
+    ch.send({ name: "obj1", data: [1, 2, 3] });
+    ch.send({ name: "obj2", data: [4, 5, 6] });
+    ch.close();
+    print("Test 2: Channel with objects closed");
+}
+test_object_drain();
+
+// Test 3: Partially consumed channel
+fn test_partial_consume() {
+    let ch = channel(5);
+    ch.send("a");
+    ch.send("b");
+    ch.send("c");
+    ch.send("d");
+
+    // Consume some but not all
+    let v1 = ch.recv();
+    let v2 = ch.recv();
+    print("Consumed: " + v1 + ", " + v2);
+
+    ch.close();
+    // "c" and "d" remain in buffer
+    print("Test 3: Partially consumed channel closed");
+}
+test_partial_consume();
+
+// Test 4: Channel used normally (full cycle)
+fn test_normal_use() {
+    let ch = channel(3);
+    ch.send("x");
+    ch.send("y");
+    let r1 = ch.recv();
+    let r2 = ch.recv();
+    ch.close();
+    print("Test 4: Normal use - received " + r1 + " and " + r2);
+}
+test_normal_use();
+
+print("All channel drain tests completed");

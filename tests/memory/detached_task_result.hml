@@ -1,0 +1,48 @@
+// Test: Detached task results should be properly cleaned up
+// Expected: No memory leaks when detached tasks complete
+
+import { sleep } from "@stdlib/time";
+
+// Test 1: Detached task returning a string (heap-allocated)
+async fn string_returner() {
+    return "this string should be freed when task completes";
+}
+
+detach(string_returner);
+print("Test 1: Detached string-returning task");
+
+// Test 2: Detached task returning an array
+async fn array_returner() {
+    return [1, 2, 3, 4, 5];
+}
+
+detach(array_returner);
+print("Test 2: Detached array-returning task");
+
+// Test 3: Detached task returning an object
+async fn object_returner() {
+    return { name: "test", value: 42 };
+}
+
+detach(object_returner);
+print("Test 3: Detached object-returning task");
+
+// Test 4: Multiple detached tasks
+for (let i = 0; i < 10; i = i + 1) {
+    detach(string_returner);
+}
+print("Test 4: Multiple detached tasks");
+
+// Test 5: Join still works correctly with retained result
+async fn compute(x) {
+    return "result: " + x;
+}
+
+let task = spawn(compute, 42);
+let result = join(task);
+print("Test 5: Join result = " + result);
+
+// Give detached tasks time to complete
+sleep(100);
+
+print("All detached task tests completed");
