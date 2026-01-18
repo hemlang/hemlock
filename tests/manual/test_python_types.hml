@@ -1,6 +1,9 @@
 // Test Python type conversion edge cases
 //
-// NOTE: This test requires Python 3.11+ with development headers installed.
+// MANUAL TEST: This test requires Python 3.11+ with libpython3.11.so available.
+// Run manually when Python is installed - not included in automated test suite.
+//
+// Run with: ./hemlock tests/manual/test_python_types.hml
 
 import {
     py_init,

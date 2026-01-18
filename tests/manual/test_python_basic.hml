@@ -1,12 +1,14 @@
 // Test basic Python interop operations
 //
-// NOTE: This test requires Python 3.11+ with development headers installed.
-// If Python is not available, the test will fail at py_init().
+// MANUAL TEST: This test requires Python 3.11+ with libpython3.11.so available.
+// Run manually when Python is installed - not included in automated test suite.
 //
 // Install Python dev on:
-// - Ubuntu/Debian: sudo apt-get install python3-dev
+// - Ubuntu/Debian: sudo apt-get install python3-dev libpython3.11
 // - Fedora/RHEL: sudo dnf install python3-devel
 // - macOS: brew install python3
+//
+// Run with: ./hemlock tests/manual/test_python_basic.hml
 
 import {
     py_init,
