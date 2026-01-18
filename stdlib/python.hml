@@ -23,9 +23,9 @@
 // print(from_python(result));  // 4.0
 // py_finalize();
 
-// Import Python library (version 3.11 - adjust as needed)
-// Common locations: libpython3.11.so.1.0, libpython3.10.so.1.0, etc.
-import "libpython3.11.so.1.0";
+// Import Python library (version 3.10 - Ubuntu 22.04 default)
+// Common locations: libpython3.10.so.1.0, libpython3.11.so.1.0, etc.
+import "libpython3.10.so.1.0";
 
 // ============================================================================
 // Python C API FFI Bindings
