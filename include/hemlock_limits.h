@@ -142,6 +142,28 @@
 // Maximum path length for sandbox root directory
 #define HML_SANDBOX_ROOT_MAX_PATH        4096
 
+// ========== FUNCTION CALL LIMITS ==========
+
+// Maximum arguments for stack-allocated argument arrays
+// Beyond this count, heap allocation is used (slower but unlimited)
+#define HML_MAX_STACK_ARGS 8
+
+// ========== FFI LIMITS ==========
+
+// Maximum FFI arguments using stack allocation
+// Must match HML_MAX_STACK_ARGS for consistency
+#define HML_FFI_MAX_STACK_ARGS 8
+
+// ========== TYPE STRING BUFFERS ==========
+
+// Buffer size for type name formatting (type_to_string, etc.)
+#define HML_TYPE_NAME_BUFSIZE 256
+
+// ========== SERIALIZATION LIMITS ==========
+
+// Initial buffer size for AST serialization
+#define HML_AST_SERIALIZE_INITIAL_BUFFER 4096
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch

@@ -345,7 +345,7 @@ static Options parse_args(int argc, char **argv) {
 static char* read_file(const char *path) {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
-        fprintf(stderr, "Error: Could not open file '%s'\n", path);
+        fprintf(stderr, "error: Could not open file '%s'\n", path);
         return NULL;
     }
 
@@ -355,14 +355,14 @@ static char* read_file(const char *path) {
 
     char *buffer = malloc(size + 1);
     if (buffer == NULL) {
-        fprintf(stderr, "Error: Could not allocate memory for file\n");
+        fprintf(stderr, "error: Could not allocate memory for file\n");
         fclose(file);
         return NULL;
     }
 
     size_t bytes_read = fread(buffer, 1, size, file);
     if (bytes_read < (size_t)size) {
-        fprintf(stderr, "Error: Could not read file\n");
+        fprintf(stderr, "error: Could not read file\n");
         free(buffer);
         fclose(file);
         return NULL;
@@ -388,7 +388,7 @@ static char* make_c_filename(const char *input) {
         size_t alloc_size = base_len + 3;  // base + ".c" + null
         result = malloc(alloc_size);
         if (!result) {
-            fprintf(stderr, "Error: Failed to allocate output filename\n");
+            fprintf(stderr, "error: Failed to allocate output filename\n");
             return NULL;
         }
         // Safe: use memcpy + explicit null termination instead of strncpy/strcat
@@ -398,7 +398,7 @@ static char* make_c_filename(const char *input) {
         size_t len = strlen(base) + 3;
         result = malloc(len);
         if (!result) {
-            fprintf(stderr, "Error: Failed to allocate output filename\n");
+            fprintf(stderr, "error: Failed to allocate output filename\n");
             return NULL;
         }
         snprintf(result, len, "%s.c", base);
@@ -562,7 +562,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
 
     if (n >= (int)sizeof(cmd)) {
-        fprintf(stderr, "Error: Compiler command too long (truncated)\n");
+        fprintf(stderr, "error: Compiler command too long (truncated)\n");
         return 1;
     }
 
@@ -689,7 +689,7 @@ int main(int argc, char **argv) {
         // Generate temp file
         c_file = make_temp_c_filename();
         if (!c_file) {
-            fprintf(stderr, "Error: Could not create temporary file\n");
+            fprintf(stderr, "error: Could not create temporary file\n");
             free(source);
             return 1;
         }
@@ -699,7 +699,7 @@ int main(int argc, char **argv) {
     // Open output file
     FILE *output = fopen(c_file, "w");
     if (!output) {
-        fprintf(stderr, "Error: Could not open output file '%s'\n", c_file);
+        fprintf(stderr, "error: Could not open output file '%s'\n", c_file);
         free(source);
         if (c_file_allocated) free(c_file);
         return 1;

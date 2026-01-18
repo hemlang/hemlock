@@ -6,6 +6,7 @@
 
 #include "compiler/type_check.h"
 #include "../../include/builtins_registry.h"
+#include "../../include/hemlock_limits.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -297,9 +298,9 @@ const char* checked_type_kind_name(CheckedTypeKind kind) {
 
 const char* checked_type_name(CheckedType *type) {
     // Use rotating buffers to allow multiple calls in one expression (e.g., error messages)
+    // Uses HML_TYPE_NAME_BUFSIZE from hemlock_limits.h
     #define TYPE_NAME_BUFFERS 4
-    #define TYPE_NAME_BUFSIZE 256
-    static char buffers[TYPE_NAME_BUFFERS][TYPE_NAME_BUFSIZE];
+    static char buffers[TYPE_NAME_BUFFERS][HML_TYPE_NAME_BUFSIZE];
     static int buf_index = 0;
 
     char *buffer = buffers[buf_index];
@@ -308,7 +309,7 @@ const char* checked_type_name(CheckedType *type) {
     if (!type) return "unknown";
 
     if (type->kind == CHECKED_CUSTOM && type->type_name) {
-        snprintf(buffer, TYPE_NAME_BUFSIZE, "%s%s",
+        snprintf(buffer, HML_TYPE_NAME_BUFSIZE, "%s%s",
                  type->type_name, type->nullable ? "?" : "");
         return buffer;
     }
@@ -317,17 +318,17 @@ const char* checked_type_name(CheckedType *type) {
         if (type->element_type) {
             // Get element type name first (uses its own buffer slot)
             const char *elem_name = checked_type_name(type->element_type);
-            snprintf(buffer, TYPE_NAME_BUFSIZE, "array<%s>%s",
+            snprintf(buffer, HML_TYPE_NAME_BUFSIZE, "array<%s>%s",
                      elem_name, type->nullable ? "?" : "");
         } else {
-            snprintf(buffer, TYPE_NAME_BUFSIZE, "array%s",
+            snprintf(buffer, HML_TYPE_NAME_BUFSIZE, "array%s",
                      type->nullable ? "?" : "");
         }
         return buffer;
     }
 
     if (type->kind == CHECKED_ENUM && type->type_name) {
-        snprintf(buffer, TYPE_NAME_BUFSIZE, "%s%s",
+        snprintf(buffer, HML_TYPE_NAME_BUFSIZE, "%s%s",
                  type->type_name, type->nullable ? "?" : "");
         return buffer;
     }
@@ -335,7 +336,7 @@ const char* checked_type_name(CheckedType *type) {
     if (type->kind == CHECKED_COMPOUND && type->compound_types && type->num_compound_types > 0) {
         // Build "A & B & C" format
         char *pos = buffer;
-        int remaining = TYPE_NAME_BUFSIZE;
+        int remaining = HML_TYPE_NAME_BUFSIZE;
         for (int i = 0; i < type->num_compound_types; i++) {
             const char *name = checked_type_name(type->compound_types[i]);
             int written;
@@ -356,7 +357,7 @@ const char* checked_type_name(CheckedType *type) {
 
     const char *base = checked_type_kind_name(type->kind);
     if (type->nullable) {
-        snprintf(buffer, TYPE_NAME_BUFSIZE, "%s?", base);
+        snprintf(buffer, HML_TYPE_NAME_BUFSIZE, "%s?", base);
         return buffer;
     }
     return base;

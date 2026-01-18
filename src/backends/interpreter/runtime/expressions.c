@@ -731,12 +731,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             // Evaluate arguments - use stack allocation for small arg counts (common case)
-            #define MAX_STACK_ARGS 8
-            Value stack_args[MAX_STACK_ARGS];
+            // Uses HML_MAX_STACK_ARGS from hemlock_limits.h
+            Value stack_args[HML_MAX_STACK_ARGS];
             Value *args = NULL;
             int args_on_heap = 0;
             if (expr->as.call.num_args > 0) {
-                if (expr->as.call.num_args <= MAX_STACK_ARGS) {
+                if (expr->as.call.num_args <= HML_MAX_STACK_ARGS) {
                     args = stack_args;
                 } else {
                     args = malloc(sizeof(Value) * expr->as.call.num_args);
@@ -775,7 +775,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Handle named arguments: reorder args array to match parameter order
                 // Also track which argument indices are used for named vs positional
-                Value reordered_stack[MAX_STACK_ARGS];
+                Value reordered_stack[HML_MAX_STACK_ARGS];
                 Value *reordered_args = NULL;
                 int reordered_on_heap = 0;
                 int *arg_used = NULL;  // Track which args have been used
@@ -784,7 +784,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 if (expr->as.call.arg_names != NULL) {
                     // Allocate reordered array
-                    if (fn->num_params <= MAX_STACK_ARGS) {
+                    if (fn->num_params <= HML_MAX_STACK_ARGS) {
                         reordered_args = reordered_stack;
                     } else {
                         reordered_args = malloc(sizeof(Value) * fn->num_params);

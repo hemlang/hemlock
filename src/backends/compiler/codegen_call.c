@@ -25,7 +25,7 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         const char *var_name = arg->as.ident.name;
         char *result = malloc(CODEGEN_MANGLED_NAME_SIZE);
         if (!result) {
-            fprintf(stderr, "Error: Out of memory in codegen_ref_arg\n");
+            fprintf(stderr, "error: Out of memory in codegen_ref_arg\n");
             exit(1);
         }
 
@@ -48,7 +48,7 @@ static char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
         size_t len = strlen(temp) + 2;
         char *result = malloc(len);
         if (!result) {
-            fprintf(stderr, "Error: Out of memory in codegen_ref_arg\n");
+            fprintf(stderr, "error: Out of memory in codegen_ref_arg\n");
             free(temp);
             exit(1);
         }
