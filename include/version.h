@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 2
+#define HEMLOCK_VERSION_PATCH 3
 
-#define HEMLOCK_VERSION "1.8.2"
+#define HEMLOCK_VERSION "1.8.3"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.8.3 - Code polish: consolidate magic numbers, standardize error messages
  *   1.8.2 - Memory leak prevention: exception-safe eval, task/channel cleanup, optimizer fixes
  *   1.8.1 - Fix use-after-free bug in function return value handling
  *   1.8.0 - Pattern matching, arena allocator, memory leak fixes

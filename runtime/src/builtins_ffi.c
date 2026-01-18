@@ -15,6 +15,7 @@
 
 #define CIF_CACHE_SIZE 64       // Power of 2 for fast modulo
 #define FFI_MAX_STACK_ARGS 8    // Use stack allocation for <= this many args
+                                // Note: matches HML_FFI_MAX_STACK_ARGS in hemlock_limits.h
 
 typedef struct CifCacheEntry {
     uint32_t hash;              // Signature hash for quick comparison

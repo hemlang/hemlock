@@ -363,10 +363,10 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 // ========== TYPE STRING FORMATTING ==========
 
 // Format a Type to a human-readable string (uses rotating buffers for multiple calls)
+// Uses HML_TYPE_NAME_BUFSIZE from hemlock_limits.h
 static const char* type_to_string(Type *type) {
     #define TYPE_STR_BUFFERS 4
-    #define TYPE_STR_BUFSIZE 256
-    static char buffers[TYPE_STR_BUFFERS][TYPE_STR_BUFSIZE];
+    static char buffers[TYPE_STR_BUFFERS][HML_TYPE_NAME_BUFSIZE];
     static int buf_index = 0;
 
     char *buffer = buffers[buf_index];
@@ -396,7 +396,7 @@ static const char* type_to_string(Type *type) {
         case TYPE_SELF: return "Self";
         case TYPE_ARRAY:
             if (type->element_type) {
-                snprintf(buffer, TYPE_STR_BUFSIZE, "array<%s>", type_to_string(type->element_type));
+                snprintf(buffer, HML_TYPE_NAME_BUFSIZE, "array<%s>", type_to_string(type->element_type));
             } else {
                 return "array";
             }
@@ -409,7 +409,7 @@ static const char* type_to_string(Type *type) {
             return "object";
         case TYPE_FUNCTION: {
             char *pos = buffer;
-            int remaining = TYPE_STR_BUFSIZE;
+            int remaining = HML_TYPE_NAME_BUFSIZE;
             int written;
             if (type->fn_is_async) {
                 written = snprintf(pos, remaining, "async fn(");
@@ -445,7 +445,7 @@ static const char* type_to_string(Type *type) {
         case TYPE_COMPOUND:
             if (type->num_compound_types > 0) {
                 char *pos = buffer;
-                int remaining = TYPE_STR_BUFSIZE;
+                int remaining = HML_TYPE_NAME_BUFSIZE;
                 for (int i = 0; i < type->num_compound_types && remaining > 0; i++) {
                     int written;
                     if (i > 0) {

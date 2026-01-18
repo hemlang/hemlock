@@ -1,12 +1,12 @@
 #include "frontend/ast_serialize.h"
+#include "hemlock_limits.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 // ========== INTERNAL HELPERS ==========
 
-// Initial buffer capacity
-#define INITIAL_BUFFER_SIZE 4096
+// Initial buffer capacity - uses HML_AST_SERIALIZE_INITIAL_BUFFER from hemlock_limits.h
 #define INITIAL_STRING_TABLE_SIZE 256
 
 // Marker for NULL pointers in serialized data
@@ -86,13 +86,13 @@ static uint32_t string_table_add(StringTable *table, const char *str) {
 
 static void ctx_init(SerializeContext *ctx, uint16_t flags) {
     string_table_init(&ctx->strings);
-    ctx->buffer = malloc(INITIAL_BUFFER_SIZE);
+    ctx->buffer = malloc(HML_AST_SERIALIZE_INITIAL_BUFFER);
     if (!ctx->buffer) {
         fprintf(stderr, "Error: Failed to allocate serialization buffer\n");
         exit(1);
     }
     ctx->buffer_size = 0;
-    ctx->buffer_capacity = INITIAL_BUFFER_SIZE;
+    ctx->buffer_capacity = HML_AST_SERIALIZE_INITIAL_BUFFER;
     ctx->flags = flags;
 }
 
@@ -1353,7 +1353,7 @@ uint8_t* ast_serialize(Stmt **statements, int stmt_count, uint16_t flags, size_t
     size_t ast_data_size = ctx.buffer_size;
 
     // Create new buffer for final output
-    ctx.buffer = malloc(INITIAL_BUFFER_SIZE);
+    ctx.buffer = malloc(HML_AST_SERIALIZE_INITIAL_BUFFER);
     if (!ctx.buffer) {
         fprintf(stderr, "Error: Failed to allocate serialization output buffer\n");
         free(ast_data);
@@ -1362,7 +1362,7 @@ uint8_t* ast_serialize(Stmt **statements, int stmt_count, uint16_t flags, size_t
         return NULL;
     }
     ctx.buffer_size = 0;
-    ctx.buffer_capacity = INITIAL_BUFFER_SIZE;
+    ctx.buffer_capacity = HML_AST_SERIALIZE_INITIAL_BUFFER;
 
     // Write header
     write_u32(&ctx, HMLC_MAGIC);

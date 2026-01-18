@@ -40,7 +40,7 @@ void free_var_set_add(FreeVarSet *set, const char *var) {
         int new_cap = (set->capacity == 0) ? 8 : set->capacity * 2;
         char **new_vars = realloc(set->vars, new_cap * sizeof(char*));
         if (!new_vars) {
-            fprintf(stderr, "Codegen error: Failed to expand capture set\n");
+            fprintf(stderr, "error: Failed to expand capture set\n");
             exit(1);
         }
         set->vars = new_vars;
@@ -68,7 +68,7 @@ int shared_env_add_var(CodegenContext *ctx, const char *var) {
         int new_cap = (ctx->shared_env_capacity == 0) ? 16 : ctx->shared_env_capacity * 2;
         char **new_vars = realloc(ctx->shared_env_vars, new_cap * sizeof(char*));
         if (!new_vars) {
-            fprintf(stderr, "Codegen error: Failed to expand shared environment\n");
+            fprintf(stderr, "error: Failed to expand shared environment\n");
             exit(1);
         }
         ctx->shared_env_vars = new_vars;

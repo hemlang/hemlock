@@ -21,7 +21,7 @@ CompilerModuleCache* compiler_module_cache_new(const char *main_file_path) {
 
     cache->resolver = module_resolution_new(cwd_ptr, main_file_path);
     if (!cache->resolver) {
-        fprintf(stderr, "Error: Failed to initialize module resolution\n");
+        fprintf(stderr, "error: Failed to initialize module resolution\n");
         free(cache);
         exit(1);
     }
@@ -86,7 +86,7 @@ void module_add_export(CompiledModule *module, const char *name, const char *man
     // Allocate name first
     char *name_copy = strdup(name);
     if (!name_copy) {
-        fprintf(stderr, "Compiler error: Memory allocation failed for export name\n");
+        fprintf(stderr, "error: Memory allocation failed for export name\n");
         return;
     }
 
@@ -94,7 +94,7 @@ void module_add_export(CompiledModule *module, const char *name, const char *man
     char *mangled_copy = strdup(mangled_name);
     if (!mangled_copy) {
         free(name_copy);  // Clean up previous allocation
-        fprintf(stderr, "Compiler error: Memory allocation failed for export mangled name\n");
+        fprintf(stderr, "error: Memory allocation failed for export mangled name\n");
         return;
     }
 
@@ -127,14 +127,14 @@ void module_add_import(CompiledModule *module, const char *local_name, const cha
     // Allocate all strings, cleaning up on failure
     char *local_copy = strdup(local_name);
     if (!local_copy) {
-        fprintf(stderr, "Compiler error: Memory allocation failed for import local name\n");
+        fprintf(stderr, "error: Memory allocation failed for import local name\n");
         return;
     }
 
     char *original_copy = strdup(original_name);
     if (!original_copy) {
         free(local_copy);
-        fprintf(stderr, "Compiler error: Memory allocation failed for import original name\n");
+        fprintf(stderr, "error: Memory allocation failed for import original name\n");
         return;
     }
 
@@ -142,7 +142,7 @@ void module_add_import(CompiledModule *module, const char *local_name, const cha
     if (!prefix_copy) {
         free(local_copy);
         free(original_copy);
-        fprintf(stderr, "Compiler error: Memory allocation failed for import module prefix\n");
+        fprintf(stderr, "error: Memory allocation failed for import module prefix\n");
         return;
     }
 
@@ -201,7 +201,7 @@ void codegen_set_module_cache(CodegenContext *ctx, CompilerModuleCache *cache) {
 Stmt** parse_module_file(const char *path, int *stmt_count) {
     FILE *file = fopen(path, "r");
     if (!file) {
-        fprintf(stderr, "Error: Cannot open module file '%s'\n", path);
+        fprintf(stderr, "error: Cannot open module file '%s'\n", path);
         *stmt_count = 0;
         return NULL;
     }
@@ -228,7 +228,7 @@ Stmt** parse_module_file(const char *path, int *stmt_count) {
     free(source);
 
     if (parser.had_error) {
-        fprintf(stderr, "Error: Failed to parse module '%s'\n", path);
+        fprintf(stderr, "error: Failed to parse module '%s'\n", path);
         *stmt_count = 0;
         return NULL;
     }
@@ -243,7 +243,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     CompiledModule *cached = module_get_cached(cache, absolute_path);
     if (cached) {
         if (cached->state == CMOD_LOADING) {
-            fprintf(stderr, "Error: Circular dependency detected when compiling '%s'\n", absolute_path);
+            fprintf(stderr, "error: Circular dependency detected when compiling '%s'\n", absolute_path);
             return NULL;
         }
         return cached;
@@ -265,7 +265,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
     module->next = cache->modules;
     cache->modules = module;
     if (module_cache_map_set(&cache->cache_map, absolute_path, module) != 0) {
-        fprintf(stderr, "Error: Failed to cache compiled module '%s'\n", absolute_path);
+        fprintf(stderr, "error: Failed to cache compiled module '%s'\n", absolute_path);
         cache->modules = module->next;
         free(module->absolute_path);
         free(module->module_prefix);
@@ -287,7 +287,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
             char *import_path = stmt->as.import_stmt.module_path;
             char *resolved = resolve_module_path(cache->resolver, absolute_path, import_path);
             if (!resolved) {
-                fprintf(stderr, "Error: Could not resolve import '%s' in '%s'\n", import_path, absolute_path);
+                fprintf(stderr, "error: Could not resolve import '%s' in '%s'\n", import_path, absolute_path);
                 return NULL;
             }
 
@@ -295,7 +295,7 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
             free(resolved);
 
             if (!imported) {
-                fprintf(stderr, "Error: Failed to compile imported module '%s'\n", import_path);
+                fprintf(stderr, "error: Failed to compile imported module '%s'\n", import_path);
                 return NULL;
             }
 

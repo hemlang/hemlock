@@ -8,7 +8,7 @@
 #include <stdatomic.h>
 
 // Stack allocation threshold for FFI calls
-#define FFI_MAX_STACK_ARGS 8
+// Uses HML_FFI_MAX_STACK_ARGS from hemlock_limits.h (included via internal.h)
 
 // ========== FFI DATA STRUCTURES ==========
 
@@ -928,10 +928,10 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
 
     // Stack-based allocation for common case (<=8 args)
     // bulk_storage: 8 bytes per arg, enough for any primitive type
-    void *stack_arg_values[FFI_MAX_STACK_ARGS];
-    uint64_t stack_bulk_storage[FFI_MAX_STACK_ARGS];
-    void *stack_struct_storage[FFI_MAX_STACK_ARGS];  // Track heap-allocated structs
-    int use_stack = (num_args <= FFI_MAX_STACK_ARGS);
+    void *stack_arg_values[HML_FFI_MAX_STACK_ARGS];
+    uint64_t stack_bulk_storage[HML_FFI_MAX_STACK_ARGS];
+    void *stack_struct_storage[HML_FFI_MAX_STACK_ARGS];  // Track heap-allocated structs
+    int use_stack = (num_args <= HML_FFI_MAX_STACK_ARGS);
 
     void **arg_values;
     uint64_t *bulk_storage;

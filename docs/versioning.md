@@ -29,10 +29,10 @@ The version is defined in `include/version.h`:
 
 ```c
 #define HEMLOCK_VERSION_MAJOR 1
-#define HEMLOCK_VERSION_MINOR 7
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_MINOR 8
+#define HEMLOCK_VERSION_PATCH 3
 
-#define HEMLOCK_VERSION "1.7.1"
+#define HEMLOCK_VERSION "1.8.3"
 ```
 
 ### Checking Versions
@@ -93,6 +93,13 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **1.8.3** | 2026 | Code polish: consolidate magic numbers, standardize error messages |
+| **1.8.2** | 2026 | Memory leak prevention: exception-safe eval, task/channel cleanup, optimizer fixes |
+| **1.8.1** | 2026 | Fix use-after-free bug in function return value handling |
+| **1.8.0** | 2026 | Pattern matching, arena allocator, memory leak fixes |
+| **1.7.5** | 2026 | Fix formatter else-if indentation bug |
+| **1.7.4** | 2026 | Formatter improvements: function parameter, binary expr, import, and method chain line breaking |
+| **1.7.3** | 2026 | Fix formatter comment and blank line preservation |
 | **1.7.2** | 2026 | Maintenance release |
 | **1.7.1** | 2026 | Single-line if/while/for statements (braceless syntax) |
 | **1.7.0** | 2026 | Type aliases, function types, const params, method signatures, loop labels, named args, null coalescing |

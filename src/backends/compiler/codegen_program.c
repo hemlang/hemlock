@@ -594,7 +594,7 @@ static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list) {
             int new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
             Stmt **new_stmts = realloc(list->stmts, new_cap * sizeof(Stmt*));
             if (!new_stmts) {
-                fprintf(stderr, "Codegen error: Failed to expand extern fn list\n");
+                fprintf(stderr, "error: Failed to expand extern fn list\n");
                 exit(1);
             }
             list->stmts = new_stmts;
@@ -657,7 +657,7 @@ static void ffi_struct_list_add(FFIStructList *list, const char *name, Stmt *def
         int new_cap = list->capacity == 0 ? 8 : list->capacity * 2;
         FFIStructInfo *new_structs = realloc(list->structs, new_cap * sizeof(FFIStructInfo));
         if (!new_structs) {
-            fprintf(stderr, "Codegen error: Failed to expand FFI struct list\n");
+            fprintf(stderr, "error: Failed to expand FFI struct list\n");
             exit(1);
         }
         list->structs = new_structs;
@@ -665,7 +665,7 @@ static void ffi_struct_list_add(FFIStructList *list, const char *name, Stmt *def
     }
     char *dup_name = strdup(name);
     if (!dup_name) {
-        fprintf(stderr, "Codegen error: Failed to allocate FFI struct name\n");
+        fprintf(stderr, "error: Failed to allocate FFI struct name\n");
         exit(1);
     }
     list->structs[list->count].name = dup_name;
@@ -1207,7 +1207,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         if (num_declared_statics >= declared_statics_capacity) { \
             int _new_cap = declared_statics_capacity == 0 ? 16 : declared_statics_capacity * 2; \
             char **_new_statics = realloc(declared_statics, _new_cap * sizeof(char*)); \
-            if (!_new_statics) { fprintf(stderr, "Codegen error: Failed to expand statics list\n"); exit(1); } \
+            if (!_new_statics) { fprintf(stderr, "error: Failed to expand statics list\n"); exit(1); } \
             declared_statics = _new_statics; \
             declared_statics_capacity = _new_cap; \
         } \
