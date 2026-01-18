@@ -331,6 +331,18 @@ leak-stress: asan
 	@echo "Running comprehensive leak stress test..."
 	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:print_stats=1" ./$(TARGET) tests/memory/comprehensive_leak_test.hml
 
+# Run leak regression test suite (all memory leak fixes)
+.PHONY: leak-regression
+leak-regression: asan
+	@echo ""
+	@./tests/memory/regression/run_leak_tests.sh
+
+# Quick leak regression test (skip comprehensive test)
+.PHONY: leak-regression-quick
+leak-regression-quick: asan
+	@echo ""
+	@./tests/memory/regression/run_leak_tests.sh --quick
+
 # ========== CLANG STATIC ANALYSIS ==========
 
 # Check if clang-tidy and scan-build are installed
