@@ -886,7 +886,14 @@ make parity
 
 ## Version
 
-**v1.8.1** - Current release with:
+**v1.8.2** - Current release with:
+- **Memory leak prevention** - Comprehensive fixes ensuring the runtime is leak-free:
+  - Exception-safe expression evaluation (arrays, objects, function calls)
+  - Task result proper retain/release on join()
+  - Channel drain on close (releases buffered values)
+  - Optimizer cleanup for null coalescing constant folding
+  - Leak regression test suite (`make leak-regression`)
+  - Memory ownership documentation (`docs/advanced/memory-ownership.md`)
 - **Pattern matching** (`match` expressions) - Powerful destructuring and control flow:
   - Literal, wildcard, and variable binding patterns
   - OR patterns (`1 | 2 | 3`)
