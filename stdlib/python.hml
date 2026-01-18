@@ -65,17 +65,12 @@ extern fn PyObject_IsTrue(obj: ptr): i32;
 extern fn PyObject_RichCompareBool(o1: ptr, o2: ptr, opid: i32): i32;
 
 // --- Type Checking ---
+// Note: Many Py*_Check functions are macros in Python C API
+// We use PyCallable_Check and Py*_Check functions through PyObject_IsInstance
 extern fn PyCallable_Check(obj: ptr): i32;
 extern fn PySequence_Check(obj: ptr): i32;
 extern fn PyMapping_Check(obj: ptr): i32;
-extern fn PyBool_Check(obj: ptr): i32;
-extern fn PyLong_Check(obj: ptr): i32;
-extern fn PyFloat_Check(obj: ptr): i32;
-extern fn PyUnicode_Check(obj: ptr): i32;
-extern fn PyBytes_Check(obj: ptr): i32;
-extern fn PyList_Check(obj: ptr): i32;
-extern fn PyDict_Check(obj: ptr): i32;
-extern fn PyTuple_Check(obj: ptr): i32;
+extern fn PyObject_IsInstance(obj: ptr, cls: ptr): i32;
 
 // --- Integer/Long ---
 extern fn PyLong_FromLong(val: i32): ptr;
@@ -152,8 +147,7 @@ extern fn PyBuffer_Release(view: ptr): void;
 extern fn PySys_GetObject(name: ptr): ptr;
 extern fn PySys_SetObject(name: ptr, obj: ptr): i32;
 
-// --- None singleton ---
-extern fn _Py_NoneStruct(): ptr;
+// Note: Python None singleton is accessed via builtins.None, not _Py_NoneStruct
 
 // ============================================================================
 // Constants
@@ -196,38 +190,99 @@ define PyGILState {
     _state: i32,
 }
 
-// NumPy array metadata
-define NumpyArray {
-    data: buffer,        // Raw data buffer
-    shape: array,        // Dimensions (e.g., [224, 224, 3])
-    dtype: string,       // Data type (e.g., "float32")
-    strides: array,      // Byte strides per dimension
-}
+// NumPy array metadata is returned as an object with fields:
+// - data: buffer        - Raw data buffer
+// - shape: array        - Dimensions (e.g., [224, 224, 3])
+// - dtype: string       - Data type (e.g., "float32")
+// - strides: array      - Byte strides per dimension
 
 // ============================================================================
 // Internal State
 // ============================================================================
 
 let _py_initialized = false;
-let _py_main_thread_state: ptr = null;
-let _py_none: ptr = null;
+let _py_main_thread_state = null;
+let _py_none = null;
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
 // Wrap a PyObject* pointer as PyObj
-fn wrap_pyobj(p: ptr, owned: bool): PyObj {
+fn wrap_pyobj(p, owned) {
     return { _ptr: p, _owned: owned };
 }
 
 // Get the raw pointer from PyObj
-fn unwrap_pyobj(obj: PyObj): ptr {
+fn unwrap_pyobj(obj) {
     return obj._ptr;
 }
 
+// Internal: Get Python type name from raw pointer
+fn _get_type_name(p) {
+    let type_obj = PyObject_Type(p);
+    if (type_obj == null) {
+        return "unknown";
+    }
+    let name_cstr = __string_to_cstr("__name__");
+    let name_obj = PyObject_GetAttrString(type_obj, name_cstr);
+    free(name_cstr);
+    Py_DecRef(type_obj);
+    if (name_obj == null) {
+        return "unknown";
+    }
+    let str_ptr = PyUnicode_AsUTF8(name_obj);
+    let result = "unknown";
+    if (str_ptr != null) {
+        result = __cstr_to_string(str_ptr);
+    }
+    Py_DecRef(name_obj);
+    return result;
+}
+
+// Internal type checks using type name (since Py*_Check are macros)
+fn _is_int(p) {
+    let t = _get_type_name(p);
+    return t == "int";
+}
+
+fn _is_float(p) {
+    let t = _get_type_name(p);
+    return t == "float";
+}
+
+fn _is_bool(p) {
+    let t = _get_type_name(p);
+    return t == "bool";
+}
+
+fn _is_str(p) {
+    let t = _get_type_name(p);
+    return t == "str";
+}
+
+fn _is_bytes(p) {
+    let t = _get_type_name(p);
+    return t == "bytes";
+}
+
+fn _is_list(p) {
+    let t = _get_type_name(p);
+    return t == "list";
+}
+
+fn _is_dict(p) {
+    let t = _get_type_name(p);
+    return t == "dict";
+}
+
+fn _is_tuple(p) {
+    let t = _get_type_name(p);
+    return t == "tuple";
+}
+
 // Get Python None singleton
-fn get_py_none(): ptr {
+fn get_py_none() {
     if (_py_none == null) {
         // Import builtins and get None
         let builtins_cstr = __string_to_cstr("builtins");
@@ -254,7 +309,7 @@ fn get_py_none(): ptr {
 //   - home: string - Python home directory
 //   - path: string - Additional path to add to sys.path
 // Returns: true on success
-export fn py_init(options?): bool {
+export fn py_init(options?: null): bool {
     if (_py_initialized) {
         return true;
     }
@@ -659,7 +714,7 @@ export fn py_call_kw(callable: PyObj, args?: array, kwargs?: object): PyObj {
     }
 
     // Build kwargs dict
-    let kw_dict: ptr = null;
+    let kw_dict = null;
     if (kwargs != null) {
         kw_dict = PyDict_New();
         if (kw_dict == null) {
@@ -668,7 +723,7 @@ export fn py_call_kw(callable: PyObj, args?: array, kwargs?: object): PyObj {
         }
 
         // Iterate over object keys
-        let keys = __object_keys(kwargs);
+        let keys = kwargs.keys();
         let j = 0;
         while (j < keys.length) {
             let key = keys[j];
@@ -717,7 +772,7 @@ export fn to_python(value): PyObj {
     }
 
     // Already a PyObj - just incref and return
-    if (t == "object" && value._ptr != null && value._owned != null) {
+    if (t == "object" && value?._ptr != null && value?._owned != null) {
         Py_IncRef(value._ptr);
         return wrap_pyobj(value._ptr, true);
     }
@@ -842,7 +897,7 @@ export fn to_python(value): PyObj {
             throw "Failed to create Python dict";
         }
 
-        let keys = __object_keys(value);
+        let keys = value.keys();
         let j = 0;
         while (j < keys.length) {
             let key = keys[j];
@@ -905,17 +960,17 @@ export fn from_python(obj: PyObj) {
     }
 
     // Int -> i64
-    if (PyLong_Check(p) != 0) {
+    if (_is_int(p)) {
         return PyLong_AsLongLong(p);
     }
 
     // Float -> f64
-    if (PyFloat_Check(p) != 0) {
+    if (_is_float(p)) {
         return PyFloat_AsDouble(p);
     }
 
     // String -> string
-    if (PyUnicode_Check(p) != 0) {
+    if (_is_str(p)) {
         let str_ptr = PyUnicode_AsUTF8(p);
         if (str_ptr != null) {
             return __cstr_to_string(str_ptr);
@@ -924,7 +979,7 @@ export fn from_python(obj: PyObj) {
     }
 
     // Bytes -> buffer
-    if (PyBytes_Check(p) != 0) {
+    if (_is_bytes(p)) {
         let data_ptr = PyBytes_AsString(p);
         let len = PyBytes_Size(p);
 
@@ -942,7 +997,7 @@ export fn from_python(obj: PyObj) {
     }
 
     // List/Tuple -> array
-    if (PyList_Check(p) != 0) {
+    if (_is_list(p)) {
         let len = PyList_Size(p);
         let arr = [];
         let i: i64 = 0;
@@ -956,7 +1011,7 @@ export fn from_python(obj: PyObj) {
         return arr;
     }
 
-    if (PyTuple_Check(p) != 0) {
+    if (_is_tuple(p)) {
         let len = PyTuple_Size(p);
         let arr = [];
         let i: i64 = 0;
@@ -971,7 +1026,7 @@ export fn from_python(obj: PyObj) {
     }
 
     // Dict -> object
-    if (PyDict_Check(p) != 0) {
+    if (_is_dict(p)) {
         let result = {};
         let keys = PyDict_Keys(p);
         if (keys != null) {
@@ -982,7 +1037,7 @@ export fn from_python(obj: PyObj) {
                 let key_str = "";
 
                 // Convert key to string
-                if (PyUnicode_Check(key) != 0) {
+                if (_is_str(key)) {
                     let str_ptr = PyUnicode_AsUTF8(key);
                     if (str_ptr != null) {
                         key_str = __cstr_to_string(str_ptr);
@@ -1022,7 +1077,7 @@ export fn from_python(obj: PyObj) {
 // Explicit conversion functions for type control
 
 export fn py_to_int(obj: PyObj): i64 {
-    if (PyLong_Check(obj._ptr) != 0) {
+    if (_is_int(obj._ptr)) {
         return PyLong_AsLongLong(obj._ptr);
     }
     // Try to convert
@@ -1039,10 +1094,10 @@ export fn py_to_int(obj: PyObj): i64 {
 }
 
 export fn py_to_float(obj: PyObj): f64 {
-    if (PyFloat_Check(obj._ptr) != 0) {
+    if (_is_float(obj._ptr)) {
         return PyFloat_AsDouble(obj._ptr);
     }
-    if (PyLong_Check(obj._ptr) != 0) {
+    if (_is_int(obj._ptr)) {
         return PyLong_AsLongLong(obj._ptr);
     }
     throw "Cannot convert to float";
@@ -1130,27 +1185,27 @@ export fn py_is_mapping(obj: PyObj): bool {
 }
 
 export fn py_is_int(obj: PyObj): bool {
-    return PyLong_Check(obj._ptr) != 0;
+    return _is_int(obj._ptr);
 }
 
 export fn py_is_float(obj: PyObj): bool {
-    return PyFloat_Check(obj._ptr) != 0;
+    return _is_float(obj._ptr);
 }
 
 export fn py_is_string(obj: PyObj): bool {
-    return PyUnicode_Check(obj._ptr) != 0;
+    return _is_str(obj._ptr);
 }
 
 export fn py_is_list(obj: PyObj): bool {
-    return PyList_Check(obj._ptr) != 0;
+    return _is_list(obj._ptr);
 }
 
 export fn py_is_dict(obj: PyObj): bool {
-    return PyDict_Check(obj._ptr) != 0;
+    return _is_dict(obj._ptr);
 }
 
 export fn py_is_tuple(obj: PyObj): bool {
-    return PyTuple_Check(obj._ptr) != 0;
+    return _is_tuple(obj._ptr);
 }
 
 // ============================================================================
@@ -1222,7 +1277,7 @@ export fn py_set_create(items?: array): PyObj {
     }
 
     // Call set() or set(items)
-    let result: ptr;
+    let result = null;
     if (items == null) {
         result = PyObject_CallObject(set_type, null);
     } else {
@@ -1287,7 +1342,7 @@ export fn py_gil_release(state: PyGILState): null {
 
 // Execute function with GIL held
 // Automatically acquires/releases GIL around callback
-export fn py_with_gil(callback: fn) {
+export fn py_with_gil(callback) {
     let gil = py_gil_acquire();
     try {
         let result = callback();
@@ -1381,8 +1436,8 @@ export fn numpy_dtype(arr: PyObj): string {
     return result;
 }
 
-// Convert numpy array to NumpyArray struct with full metadata
-export fn numpy_to_array(arr: PyObj): NumpyArray {
+// Convert numpy array to object with full metadata (data, shape, dtype, strides)
+export fn numpy_to_array(arr: PyObj) {
     let data = numpy_to_buffer(arr);
     let shape = numpy_shape(arr);
     let dtype = numpy_dtype(arr);
@@ -1412,18 +1467,28 @@ export fn py_eval(expr: string): PyObj {
     let eval_cstr = __string_to_cstr("eval");
     let eval_fn = PyObject_GetAttrString(builtins, eval_cstr);
     free(eval_cstr);
-    Py_DecRef(builtins);
 
     if (eval_fn == null) {
+        Py_DecRef(builtins);
         throw "Failed to get eval function";
     }
 
+    // Create globals dict with __builtins__ to allow eval to work
+    let globals = PyDict_New();
+    let builtins_key = __string_to_cstr("__builtins__");
+    PyDict_SetItemString(globals, builtins_key, builtins);
+    free(builtins_key);
+    Py_DecRef(builtins);
+
     let py_expr = to_python(expr);
-    let args = PyTuple_New(1);
+    let args = PyTuple_New(2);
     Py_IncRef(py_expr._ptr);
     PyTuple_SetItem(args, 0, py_expr._ptr);
+    Py_IncRef(globals);
+    PyTuple_SetItem(args, 1, globals);
 
     let result = PyObject_Call(eval_fn, args, null);
+    Py_DecRef(globals);
 
     Py_DecRef(args);
     py_release(py_expr);
