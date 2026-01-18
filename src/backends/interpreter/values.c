@@ -760,6 +760,9 @@ void task_free(Task *task) {
             free(task->args);
         }
         if (task->result) {
+            // Release the result value before freeing the pointer
+            // This handles string/array/object results that need refcount decrement
+            value_release(*task->result);
             free(task->result);
         }
         if (task->ctx) {
@@ -863,6 +866,14 @@ Channel* channel_new(int capacity) {
 
 void channel_free(Channel *ch) {
     if (ch) {
+        // Drain any remaining buffered values before freeing
+        // This prevents memory leaks when channel is closed with values still in buffer
+        if (ch->buffer && ch->count > 0) {
+            for (int i = 0; i < ch->count; i++) {
+                int idx = (ch->head + i) % ch->capacity;
+                value_release(ch->buffer[idx]);
+            }
+        }
         if (ch->buffer) {
             free(ch->buffer);
         }
@@ -883,6 +894,8 @@ void channel_free(Channel *ch) {
             free(ch->rendezvous);
         }
         if (ch->unbuffered_value) {
+            // Release the value if there's one waiting (for unbuffered channels)
+            value_release(*ch->unbuffered_value);
             free(ch->unbuffered_value);
         }
         free(ch);

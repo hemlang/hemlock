@@ -822,13 +822,25 @@ static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats) {
             if (is_const_literal_non_null(expr->as.null_coalesce.left)) {
                 stats->constants_folded++;
                 stats->literals_folded++;
-                return expr->as.null_coalesce.left;
+                /* Save the result, free unused right child and parent node */
+                Expr *result = expr->as.null_coalesce.left;
+                expr_free(expr->as.null_coalesce.right);
+                expr->as.null_coalesce.left = NULL;  /* Don't double-free */
+                expr->as.null_coalesce.right = NULL;
+                free(expr);  /* Free just the parent node */
+                return result;
             }
             /* If left is null literal, return right */
             if (expr->as.null_coalesce.left->type == EXPR_NULL) {
                 stats->constants_folded++;
                 stats->literals_folded++;
-                return expr->as.null_coalesce.right;
+                /* Save the result, free unused left child and parent node */
+                Expr *result = expr->as.null_coalesce.right;
+                expr_free(expr->as.null_coalesce.left);
+                expr->as.null_coalesce.left = NULL;  /* Don't double-free */
+                expr->as.null_coalesce.right = NULL;
+                free(expr);  /* Free just the parent node */
+                return result;
             }
             break;
 

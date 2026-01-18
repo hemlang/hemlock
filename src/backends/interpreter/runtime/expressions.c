@@ -744,6 +744,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 for (int i = 0; i < expr->as.call.num_args; i++) {
                     args[i] = eval_expr(expr->as.call.args[i], env, ctx);
+                    // Exception safety: if arg evaluation threw, release previous args
+                    if (ctx->exception_state.is_throwing) {
+                        // Release all args evaluated so far (including this one)
+                        for (int j = 0; j <= i; j++) {
+                            VALUE_RELEASE(args[j]);
+                        }
+                        if (args_on_heap) free(args);
+                        VALUE_RELEASE(func);
+                        return val_null();
+                    }
                 }
             }
 
@@ -1921,6 +1931,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             for (int i = 0; i < expr->as.array_literal.num_elements; i++) {
                 Value element = eval_expr(expr->as.array_literal.elements[i], env, ctx);
+                // Exception safety: if element evaluation threw, release partial array
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(element);
+                    Value arr_val = val_array(arr);
+                    VALUE_RELEASE(arr_val);
+                    return val_null();
+                }
                 array_push(arr, element);
                 VALUE_RELEASE(element);  // array_push retained it
             }
@@ -1938,6 +1955,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Spread operator: ...expr
                     // Evaluate the spread expression and copy all its fields
                     Value spread_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                    // Exception safety: if spread evaluation threw, release partial object
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(spread_val);
+                        Value obj_val = val_object(obj);
+                        VALUE_RELEASE(obj_val);
+                        return val_null();
+                    }
                     if (spread_val.type != VAL_OBJECT) {
                         VALUE_RELEASE(spread_val);
                         runtime_error(ctx, "Spread operator requires an object");
@@ -1971,6 +1995,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                     if (new_names) obj->field_names = new_names;
                                     if (new_values) obj->field_values = new_values;
                                     VALUE_RELEASE(spread_val);
+                                    Value obj_val = val_object(obj);
+                                    VALUE_RELEASE(obj_val);
                                     runtime_error(ctx, "Failed to expand object fields");
                                     return val_null();
                                 }
@@ -1997,6 +2023,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     Value field_val = eval_expr(expr->as.object_literal.field_values[i], env, ctx);
+                    // Exception safety: if field evaluation threw, release partial object
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(field_val);
+                        Value obj_val = val_object(obj);
+                        VALUE_RELEASE(obj_val);
+                        return val_null();
+                    }
 
                     if (existing_idx >= 0) {
                         // Overwrite existing field (from spread)
@@ -2012,6 +2045,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 if (new_names) obj->field_names = new_names;
                                 if (new_values) obj->field_values = new_values;
                                 VALUE_RELEASE(field_val);
+                                Value obj_val = val_object(obj);
+                                VALUE_RELEASE(obj_val);
                                 runtime_error(ctx, "Failed to expand object fields");
                                 return val_null();
                             }

@@ -3,10 +3,6 @@
 //
 // This test verifies the runtime is free of memory leaks for core operations.
 // Run with: make leak-stress
-//
-// KNOWN ISSUES (documented, not tested here):
-// - Null coalescing with literals: `let x = null ?? "default";` leaks AST nodes
-//   Workaround: Use variables instead of literals in ?? expressions
 
 print("═══════════════════════════════════════════════════════════════");
 print("       HEMLOCK RUNTIME MEMORY LEAK VERIFICATION");
@@ -364,16 +360,15 @@ print("▶ Section 9: Safe Navigation");
 let nav_obj = { user: { name: "Alice" } };
 let nav_name = nav_obj?.user?.name;
 
-// Null coalescing with variables (no leak)
-let null_val = null;
-let default_val = "default";
-let nc_result = null_val ?? default_val;
+// Null coalescing (now leak-free with literals)
+let nc_result = null ?? "default";
+let nc_non_null = "value" ?? "fallback";
 
-// Null coalescing assignment (no leak)
+// Null coalescing assignment
 let nca_x = null;
 nca_x ??= "assigned";
 
-print("  ✓ Safe navigation (using variable workarounds)");
+print("  ✓ Safe navigation and null coalescing");
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 10: MISCELLANEOUS
@@ -425,7 +420,3 @@ print("");
 print("╔═══════════════════════════════════════════════════════════════╗");
 print("║  ✓ RUNTIME MEMORY VERIFICATION PASSED                        ║");
 print("╚═══════════════════════════════════════════════════════════════╝");
-print("");
-print("KNOWN LIMITATIONS (not tested above):");
-print("  • Null coalescing with literals: `null ?? value` leaks AST nodes");
-print("    Workaround: Use variables instead of literals in ?? expressions");

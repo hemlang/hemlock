@@ -1,0 +1,47 @@
+// Test: Exception during function argument evaluation should not leak memory
+// Expected: No memory leaks when exception thrown mid-argument-list
+
+fn thrower(x) {
+    if (x == "bad") {
+        throw "exception during arg eval";
+    }
+    return x;
+}
+
+fn multi_arg(a, b, c, d) {
+    return a + b + c + d;
+}
+
+// Test 1: Exception in function arguments
+try {
+    let result = multi_arg(thrower("a"), thrower("b"), thrower("bad"), thrower("d"));
+    print("ERROR: Should have thrown");
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("Test 1 passed: function arg exception");
+
+// Test 2: Exception with heap-allocated args (> 8 args to exceed MAX_STACK_ARGS)
+fn many_args(a, b, c, d, e, f, g, h, i, j) {
+    return a;
+}
+
+try {
+    let result = many_args(
+        thrower("1"), thrower("2"), thrower("3"), thrower("4"),
+        thrower("5"), thrower("bad"), thrower("7"), thrower("8"),
+        thrower("9"), thrower("10")
+    );
+    print("ERROR: Should have thrown");
+} catch (e) {
+    print("Caught many args: " + e);
+}
+
+print("Test 2 passed: many args exception");
+
+// Test 3: Normal function call still works
+let result = multi_arg(thrower("a"), thrower("b"), thrower("c"), thrower("d"));
+print("Normal call result: " + result);
+
+print("All function call exception safety tests passed");

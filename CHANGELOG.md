@@ -5,6 +5,27 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.2] - 2026-01-18
+
+### Added
+
+- **Memory ownership documentation** (`docs/advanced/memory-ownership.md`) - Comprehensive
+  guide covering programmer vs runtime responsibility, reference counting, ownership
+  transfer points, async/concurrency memory isolation, FFI rules, and best practices
+- **Leak regression test suite** (`make leak-regression`) - ASAN-based test suite
+  covering all memory leak fixes with organized test categories
+
+### Fixed
+
+- **Exception-safe expression evaluation** - Arrays, objects, and function call arguments
+  now properly release partial allocations when exceptions are thrown mid-evaluation
+- **Task result memory ownership** - `join()` now correctly retains results for the caller,
+  and `task_free()` properly releases result values (fixes leak in detached tasks)
+- **Channel drain on close** - `channel_free()` now releases all buffered values before
+  freeing the channel (prevents leaks when channels closed with values remaining)
+- **Null coalescing optimizer leak** - Optimizer now properly frees discarded AST nodes
+  when constant-folding `??` expressions (e.g., `"value" ?? "default"` → `"value"`)
+
 ## [1.8.1] - 2026-01-14
 
 ### Fixed

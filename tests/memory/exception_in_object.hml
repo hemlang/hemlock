@@ -1,0 +1,44 @@
+// Test: Exception during object literal evaluation should not leak memory
+// Expected: No memory leaks when exception thrown mid-object
+
+fn thrower(x) {
+    if (x == "bad") {
+        throw "exception for bad value";
+    }
+    return x;
+}
+
+// Test 1: Exception in object literal field
+try {
+    let obj = {
+        a: thrower("good"),
+        b: thrower("bad"),
+        c: thrower("never reached")
+    };
+    print("ERROR: Should have thrown");
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("Test 1 passed: object literal exception");
+
+// Test 2: Exception in object spread
+fn get_spread() {
+    throw "spread threw";
+}
+
+try {
+    let base = { x: 1 };
+    let obj = { ...get_spread(), y: 2 };
+    print("ERROR: Should have thrown");
+} catch (e) {
+    print("Caught spread: " + e);
+}
+
+print("Test 2 passed: object spread exception");
+
+// Test 3: Normal object creation still works
+let normal = { a: 1, b: 2, c: 3 };
+print("Normal object.a = " + normal.a);
+
+print("All object exception safety tests passed");

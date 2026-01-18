@@ -192,10 +192,13 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Get the result
+    // Get the result and retain it for the caller
+    // The task will release its reference when freed, so we need to retain
+    // for the caller to have a valid reference to the result value
     Value result = val_null();
     if (task->result) {
         result = *task->result;
+        VALUE_RETAIN(result);  // Caller now owns a reference
     }
 
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);

@@ -1,0 +1,29 @@
+// Test: Null coalescing with literals - potential AST leak
+// This test checks if null ?? "literal" leaks memory
+
+// Case 1: Left is null, so right is evaluated (should work fine)
+let val1 = null ?? "default1";
+print("val1: " + val1);
+
+// Case 2: Left is non-null, right is NOT evaluated
+// This is the potentially leaky case
+let val2 = "value" ?? "default2";
+print("val2: " + val2);
+
+// Case 3: Left is non-null variable, right is literal
+let x = "exists";
+let val3 = x ?? "default3";
+print("val3: " + val3);
+
+// Case 4: Chained null coalescing
+let a = null;
+let b = null;
+let val4 = a ?? b ?? "final";
+print("val4: " + val4);
+
+// Case 5: Left is non-null, chained right literals are never evaluated
+let y = "first";
+let val5 = y ?? "second" ?? "third";
+print("val5: " + val5);
+
+print("Null coalescing test completed");
