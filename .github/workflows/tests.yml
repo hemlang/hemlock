@@ -16,13 +16,33 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev python3-dev
 
     - name: Build
       run: make clean && make && make stdlib
 
     - name: Run tests
       run: make test
+
+  # Python stdlib tests
+  python-stdlib:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev python3-dev
+
+    - name: Build
+      run: make clean && make && make stdlib
+
+    - name: Run Python stdlib tests
+      run: |
+        # Run Python interop tests
+        ./hemlock tests/stdlib_python/test_python_basic.hml
+        ./hemlock tests/stdlib_python/test_python_types.hml
 
   # Compiler tests
   compiler:
