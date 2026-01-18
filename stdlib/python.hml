@@ -1,0 +1,1503 @@
+// @stdlib/python - Python interoperability module via FFI
+//
+// Enables Hemlock programs to use Python libraries like:
+// - Hugging Face Transformers
+// - NumPy
+// - PyTorch
+// - scikit-learn
+// - Any Python package
+//
+// System Requirements:
+// - Python 3.8+ with development headers
+// - libpython3.x.so (shared library)
+// - On Debian/Ubuntu: sudo apt-get install python3-dev
+// - On Fedora/RHEL: sudo dnf install python3-devel
+// - On macOS: brew install python3
+//
+// Usage:
+// import { py_init, py_import, py_call, from_python, py_finalize } from "@stdlib/python";
+//
+// py_init();
+// let math = py_import("math");
+// let result = py_call(py_get(math, "sqrt"), [16]);
+// print(from_python(result));  // 4.0
+// py_finalize();
+
+// Import Python library (version 3.11 - adjust as needed)
+// Common locations: libpython3.11.so.1.0, libpython3.10.so.1.0, etc.
+import "libpython3.11.so.1.0";
+
+// ============================================================================
+// Python C API FFI Bindings
+// ============================================================================
+
+// --- Initialization & Finalization ---
+extern fn Py_Initialize(): void;
+extern fn Py_InitializeEx(initsigs: i32): void;
+extern fn Py_Finalize(): void;
+extern fn Py_FinalizeEx(): i32;
+extern fn Py_IsInitialized(): i32;
+extern fn Py_GetVersion(): ptr;
+
+// --- Reference Counting ---
+extern fn Py_IncRef(obj: ptr): void;
+extern fn Py_DecRef(obj: ptr): void;
+
+// --- Module Import ---
+extern fn PyImport_ImportModule(name: ptr): ptr;
+extern fn PyImport_Import(name: ptr): ptr;
+extern fn PyImport_AddModule(name: ptr): ptr;
+
+// --- Object Protocol ---
+extern fn PyObject_GetAttrString(obj: ptr, attr: ptr): ptr;
+extern fn PyObject_SetAttrString(obj: ptr, attr: ptr, value: ptr): i32;
+extern fn PyObject_HasAttrString(obj: ptr, attr: ptr): i32;
+extern fn PyObject_Call(callable: ptr, args: ptr, kwargs: ptr): ptr;
+extern fn PyObject_CallObject(callable: ptr, args: ptr): ptr;
+extern fn PyObject_Str(obj: ptr): ptr;
+extern fn PyObject_Repr(obj: ptr): ptr;
+extern fn PyObject_Type(obj: ptr): ptr;
+extern fn PyObject_Length(obj: ptr): i64;
+extern fn PyObject_GetItem(obj: ptr, key: ptr): ptr;
+extern fn PyObject_SetItem(obj: ptr, key: ptr, value: ptr): i32;
+extern fn PyObject_DelItem(obj: ptr, key: ptr): i32;
+extern fn PyObject_IsTrue(obj: ptr): i32;
+extern fn PyObject_RichCompareBool(o1: ptr, o2: ptr, opid: i32): i32;
+
+// --- Type Checking ---
+extern fn PyCallable_Check(obj: ptr): i32;
+extern fn PySequence_Check(obj: ptr): i32;
+extern fn PyMapping_Check(obj: ptr): i32;
+extern fn PyBool_Check(obj: ptr): i32;
+extern fn PyLong_Check(obj: ptr): i32;
+extern fn PyFloat_Check(obj: ptr): i32;
+extern fn PyUnicode_Check(obj: ptr): i32;
+extern fn PyBytes_Check(obj: ptr): i32;
+extern fn PyList_Check(obj: ptr): i32;
+extern fn PyDict_Check(obj: ptr): i32;
+extern fn PyTuple_Check(obj: ptr): i32;
+
+// --- Integer/Long ---
+extern fn PyLong_FromLong(val: i32): ptr;
+extern fn PyLong_FromLongLong(val: i64): ptr;
+extern fn PyLong_FromUnsignedLongLong(val: u64): ptr;
+extern fn PyLong_AsLong(obj: ptr): i32;
+extern fn PyLong_AsLongLong(obj: ptr): i64;
+
+// --- Float ---
+extern fn PyFloat_FromDouble(val: f64): ptr;
+extern fn PyFloat_AsDouble(obj: ptr): f64;
+
+// --- String/Unicode ---
+extern fn PyUnicode_FromString(str: ptr): ptr;
+extern fn PyUnicode_AsUTF8(obj: ptr): ptr;
+extern fn PyUnicode_AsUTF8AndSize(obj: ptr, size: ptr): ptr;
+
+// --- Bool ---
+extern fn PyBool_FromLong(val: i32): ptr;
+
+// --- Bytes ---
+extern fn PyBytes_FromStringAndSize(str: ptr, len: i64): ptr;
+extern fn PyBytes_AsString(obj: ptr): ptr;
+extern fn PyBytes_Size(obj: ptr): i64;
+
+// --- Tuple ---
+extern fn PyTuple_New(size: i64): ptr;
+extern fn PyTuple_SetItem(tuple: ptr, pos: i64, item: ptr): i32;
+extern fn PyTuple_GetItem(tuple: ptr, pos: i64): ptr;
+extern fn PyTuple_Size(tuple: ptr): i64;
+
+// --- List ---
+extern fn PyList_New(size: i64): ptr;
+extern fn PyList_SetItem(list: ptr, index: i64, item: ptr): i32;
+extern fn PyList_GetItem(list: ptr, index: i64): ptr;
+extern fn PyList_Append(list: ptr, item: ptr): i32;
+extern fn PyList_Size(list: ptr): i64;
+
+// --- Dict ---
+extern fn PyDict_New(): ptr;
+extern fn PyDict_SetItem(dict: ptr, key: ptr, val: ptr): i32;
+extern fn PyDict_SetItemString(dict: ptr, key: ptr, val: ptr): i32;
+extern fn PyDict_GetItem(dict: ptr, key: ptr): ptr;
+extern fn PyDict_GetItemString(dict: ptr, key: ptr): ptr;
+extern fn PyDict_Keys(dict: ptr): ptr;
+extern fn PyDict_Values(dict: ptr): ptr;
+extern fn PyDict_Items(dict: ptr): ptr;
+extern fn PyDict_Size(dict: ptr): i64;
+
+// --- Sequence Protocol ---
+extern fn PySequence_GetItem(seq: ptr, index: i64): ptr;
+extern fn PySequence_SetItem(seq: ptr, index: i64, item: ptr): i32;
+extern fn PySequence_Length(seq: ptr): i64;
+
+// --- Error Handling ---
+extern fn PyErr_Occurred(): ptr;
+extern fn PyErr_Clear(): void;
+extern fn PyErr_Fetch(ptype: ptr, pvalue: ptr, ptraceback: ptr): void;
+extern fn PyErr_NormalizeException(ptype: ptr, pvalue: ptr, ptraceback: ptr): void;
+extern fn PyErr_SetString(type: ptr, message: ptr): void;
+extern fn PyErr_Print(): void;
+
+// --- GIL Management ---
+extern fn PyGILState_Ensure(): i32;
+extern fn PyGILState_Release(state: i32): void;
+extern fn PyEval_SaveThread(): ptr;
+extern fn PyEval_RestoreThread(state: ptr): void;
+
+// --- Buffer Protocol ---
+extern fn PyObject_GetBuffer(obj: ptr, view: ptr, flags: i32): i32;
+extern fn PyBuffer_Release(view: ptr): void;
+
+// --- System ---
+extern fn PySys_GetObject(name: ptr): ptr;
+extern fn PySys_SetObject(name: ptr, obj: ptr): i32;
+
+// --- None singleton ---
+extern fn _Py_NoneStruct(): ptr;
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Buffer protocol flags
+export let PyBUF_SIMPLE = 0;
+export let PyBUF_WRITABLE = 1;
+export let PyBUF_FORMAT = 4;
+export let PyBUF_ND = 8;
+export let PyBUF_STRIDES = 24;
+
+// Comparison operators
+export let Py_LT = 0;
+export let Py_LE = 1;
+export let Py_EQ = 2;
+export let Py_NE = 3;
+export let Py_GT = 4;
+export let Py_GE = 5;
+
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
+// PyObj wraps a PyObject* with ownership tracking
+define PyObj {
+    _ptr: ptr,       // PyObject* pointer
+    _owned: bool,    // Whether we own the reference (need to decref)
+}
+
+// Python exception information
+define PyError {
+    type: string,        // Exception type name (e.g., "ValueError")
+    message: string,     // Exception message
+    traceback: string,   // Python traceback string (may be empty)
+}
+
+// GIL state handle for multi-threaded access
+define PyGILState {
+    _state: i32,
+}
+
+// NumPy array metadata
+define NumpyArray {
+    data: buffer,        // Raw data buffer
+    shape: array,        // Dimensions (e.g., [224, 224, 3])
+    dtype: string,       // Data type (e.g., "float32")
+    strides: array,      // Byte strides per dimension
+}
+
+// ============================================================================
+// Internal State
+// ============================================================================
+
+let _py_initialized = false;
+let _py_main_thread_state: ptr = null;
+let _py_none: ptr = null;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Wrap a PyObject* pointer as PyObj
+fn wrap_pyobj(p: ptr, owned: bool): PyObj {
+    return { _ptr: p, _owned: owned };
+}
+
+// Get the raw pointer from PyObj
+fn unwrap_pyobj(obj: PyObj): ptr {
+    return obj._ptr;
+}
+
+// Get Python None singleton
+fn get_py_none(): ptr {
+    if (_py_none == null) {
+        // Import builtins and get None
+        let builtins_cstr = __string_to_cstr("builtins");
+        let builtins = PyImport_ImportModule(builtins_cstr);
+        free(builtins_cstr);
+
+        if (builtins != null) {
+            let none_cstr = __string_to_cstr("None");
+            _py_none = PyObject_GetAttrString(builtins, none_cstr);
+            free(none_cstr);
+            Py_DecRef(builtins);
+        }
+    }
+    return _py_none;
+}
+
+// ============================================================================
+// Initialization Functions
+// ============================================================================
+
+// Initialize the Python interpreter
+// Must be called before any other Python functions
+// options: Optional object with:
+//   - home: string - Python home directory
+//   - path: string - Additional path to add to sys.path
+// Returns: true on success
+export fn py_init(options?): bool {
+    if (_py_initialized) {
+        return true;
+    }
+
+    // Initialize Python
+    Py_Initialize();
+
+    if (Py_IsInitialized() == 0) {
+        throw "Failed to initialize Python interpreter";
+    }
+
+    _py_initialized = true;
+
+    // Handle options
+    if (options != null) {
+        if (options.path != null) {
+            py_add_path(options.path);
+        }
+    }
+
+    return true;
+}
+
+// Check if Python is initialized
+export fn py_is_initialized(): bool {
+    return Py_IsInitialized() != 0;
+}
+
+// Finalize the Python interpreter
+// Releases all Python resources
+export fn py_finalize(): null {
+    if (!_py_initialized) {
+        return null;
+    }
+
+    // Clear cached None
+    if (_py_none != null) {
+        Py_DecRef(_py_none);
+        _py_none = null;
+    }
+
+    Py_Finalize();
+    _py_initialized = false;
+
+    return null;
+}
+
+// Get Python version string
+export fn py_version(): string {
+    let ver_ptr = Py_GetVersion();
+    return __cstr_to_string(ver_ptr);
+}
+
+// ============================================================================
+// Error Handling Functions
+// ============================================================================
+
+// Check if a Python exception occurred
+export fn py_error_occurred(): bool {
+    return PyErr_Occurred() != null;
+}
+
+// Clear the current Python exception
+export fn py_error_clear(): null {
+    PyErr_Clear();
+    return null;
+}
+
+// Get the current Python exception as PyError
+export fn py_error_fetch(): PyError {
+    let type_holder = alloc(8);
+    let value_holder = alloc(8);
+    let tb_holder = alloc(8);
+
+    PyErr_Fetch(type_holder, value_holder, tb_holder);
+    PyErr_NormalizeException(type_holder, value_holder, tb_holder);
+
+    let type_ptr = __read_ptr(type_holder);
+    let value_ptr = __read_ptr(value_holder);
+    let tb_ptr = __read_ptr(tb_holder);
+
+    // Extract type name
+    let type_name = "Exception";
+    if (type_ptr != null) {
+        let name_cstr = __string_to_cstr("__name__");
+        let name_obj = PyObject_GetAttrString(type_ptr, name_cstr);
+        free(name_cstr);
+        if (name_obj != null) {
+            let name_str = PyUnicode_AsUTF8(name_obj);
+            if (name_str != null) {
+                type_name = __cstr_to_string(name_str);
+            }
+            Py_DecRef(name_obj);
+        }
+    }
+
+    // Extract message
+    let message = "";
+    if (value_ptr != null) {
+        let str_obj = PyObject_Str(value_ptr);
+        if (str_obj != null) {
+            let str_ptr = PyUnicode_AsUTF8(str_obj);
+            if (str_ptr != null) {
+                message = __cstr_to_string(str_ptr);
+            }
+            Py_DecRef(str_obj);
+        }
+    }
+
+    // Traceback (simplified - just note if present)
+    let traceback = "";
+    if (tb_ptr != null) {
+        traceback = "(traceback available)";
+    }
+
+    // Cleanup
+    if (type_ptr != null) {
+        Py_DecRef(type_ptr);
+    }
+    if (value_ptr != null) {
+        Py_DecRef(value_ptr);
+    }
+    if (tb_ptr != null) {
+        Py_DecRef(tb_ptr);
+    }
+
+    free(type_holder);
+    free(value_holder);
+    free(tb_holder);
+
+    return { type: type_name, message, traceback };
+}
+
+// Check for Python exception and throw Hemlock exception
+export fn py_check_error(): null {
+    if (PyErr_Occurred() != null) {
+        let err = py_error_fetch();
+        throw "Python " + err.type + ": " + err.message;
+    }
+    return null;
+}
+
+// ============================================================================
+// Module Import Functions
+// ============================================================================
+
+// Import a Python module by name
+// Returns PyObj wrapping the module
+export fn py_import(module_name: string): PyObj {
+    let name_cstr = __string_to_cstr(module_name);
+    let module_ptr = PyImport_ImportModule(name_cstr);
+    free(name_cstr);
+
+    if (module_ptr == null) {
+        py_check_error();
+        throw "Failed to import module: " + module_name;
+    }
+
+    // PyImport_ImportModule returns new reference - we own it
+    return wrap_pyobj(module_ptr, true);
+}
+
+// Import a specific name from a module
+// e.g., py_from_import("transformers", "pipeline")
+export fn py_from_import(module_name: string, name: string): PyObj {
+    let module = py_import(module_name);
+    let attr = py_get(module, name);
+    py_release(module);
+    return attr;
+}
+
+// Add a path to sys.path for importing
+export fn py_add_path(path: string): null {
+    // Import sys
+    let sys_cstr = __string_to_cstr("sys");
+    let sys_module = PyImport_ImportModule(sys_cstr);
+    free(sys_cstr);
+
+    if (sys_module == null) {
+        py_check_error();
+        throw "Failed to import sys module";
+    }
+
+    // Get sys.path
+    let path_attr_cstr = __string_to_cstr("path");
+    let sys_path = PyObject_GetAttrString(sys_module, path_attr_cstr);
+    free(path_attr_cstr);
+
+    if (sys_path == null) {
+        Py_DecRef(sys_module);
+        py_check_error();
+        throw "Failed to get sys.path";
+    }
+
+    // Create Python string for path
+    let path_cstr = __string_to_cstr(path);
+    let py_path_str = PyUnicode_FromString(path_cstr);
+    free(path_cstr);
+
+    if (py_path_str == null) {
+        Py_DecRef(sys_path);
+        Py_DecRef(sys_module);
+        throw "Failed to create Python string";
+    }
+
+    // Append to sys.path
+    let result = PyList_Append(sys_path, py_path_str);
+
+    Py_DecRef(py_path_str);
+    Py_DecRef(sys_path);
+    Py_DecRef(sys_module);
+
+    if (result != 0) {
+        py_check_error();
+        throw "Failed to add path to sys.path";
+    }
+
+    return null;
+}
+
+// ============================================================================
+// Object Access Functions
+// ============================================================================
+
+// Get an attribute from a Python object
+// obj.attr_name in Python
+export fn py_get(obj: PyObj, attr_name: string): PyObj {
+    let attr_cstr = __string_to_cstr(attr_name);
+    let result = PyObject_GetAttrString(obj._ptr, attr_cstr);
+    free(attr_cstr);
+
+    if (result == null) {
+        py_check_error();
+        throw "Attribute not found: " + attr_name;
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// Set an attribute on a Python object
+// obj.attr_name = value in Python
+export fn py_set(obj: PyObj, attr_name: string, value): null {
+    let py_value = to_python(value);
+    let attr_cstr = __string_to_cstr(attr_name);
+
+    let result = PyObject_SetAttrString(obj._ptr, attr_cstr, py_value._ptr);
+
+    free(attr_cstr);
+    py_release(py_value);
+
+    if (result != 0) {
+        py_check_error();
+        throw "Failed to set attribute: " + attr_name;
+    }
+
+    return null;
+}
+
+// Check if object has an attribute
+export fn py_has(obj: PyObj, attr_name: string): bool {
+    let attr_cstr = __string_to_cstr(attr_name);
+    let result = PyObject_HasAttrString(obj._ptr, attr_cstr);
+    free(attr_cstr);
+    return result != 0;
+}
+
+// Get item by index or key (for lists/dicts)
+// obj[key] in Python
+export fn py_getitem(obj: PyObj, key): PyObj {
+    let py_key = to_python(key);
+    let result = PyObject_GetItem(obj._ptr, py_key._ptr);
+    py_release(py_key);
+
+    if (result == null) {
+        py_check_error();
+        throw "Item not found";
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// Set item by index or key
+// obj[key] = value in Python
+export fn py_setitem(obj: PyObj, key, value): null {
+    let py_key = to_python(key);
+    let py_value = to_python(value);
+
+    let result = PyObject_SetItem(obj._ptr, py_key._ptr, py_value._ptr);
+
+    py_release(py_key);
+    py_release(py_value);
+
+    if (result != 0) {
+        py_check_error();
+        throw "Failed to set item";
+    }
+
+    return null;
+}
+
+// Delete an item
+export fn py_delitem(obj: PyObj, key): null {
+    let py_key = to_python(key);
+    let result = PyObject_DelItem(obj._ptr, py_key._ptr);
+    py_release(py_key);
+
+    if (result != 0) {
+        py_check_error();
+        throw "Failed to delete item";
+    }
+
+    return null;
+}
+
+// Get length of sequence/mapping
+export fn py_len(obj: PyObj): i64 {
+    let len = PyObject_Length(obj._ptr);
+    if (len < 0) {
+        py_check_error();
+        return 0;
+    }
+    return len;
+}
+
+// ============================================================================
+// Function Call Functions
+// ============================================================================
+
+// Call a Python callable with positional arguments
+// func(*args) in Python
+export fn py_call(callable: PyObj, args?: array): PyObj {
+    // Build argument tuple
+    let arg_count: i64 = 0;
+    if (args != null) {
+        arg_count = args.length;
+    }
+
+    let tuple = PyTuple_New(arg_count);
+    if (tuple == null) {
+        throw "Failed to create argument tuple";
+    }
+
+    // Fill tuple with converted arguments
+    if (args != null) {
+        let i: i64 = 0;
+        while (i < arg_count) {
+            let py_arg = to_python(args[i]);
+            // PyTuple_SetItem steals reference, so we don't decref
+            // But we need to incref since to_python returns owned reference
+            Py_IncRef(py_arg._ptr);
+            PyTuple_SetItem(tuple, i, py_arg._ptr);
+            py_release(py_arg);
+            i = i + 1;
+        }
+    }
+
+    // Call the function
+    let result = PyObject_Call(callable._ptr, tuple, null);
+    Py_DecRef(tuple);
+
+    if (result == null) {
+        py_check_error();
+        throw "Python function call failed";
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// Call a method on an object
+// obj.method_name(*args) in Python
+export fn py_call_method(obj: PyObj, method_name: string, args?: array): PyObj {
+    let method = py_get(obj, method_name);
+    let result = py_call(method, args);
+    py_release(method);
+    return result;
+}
+
+// Call with keyword arguments
+// func(*args, **kwargs) in Python
+export fn py_call_kw(callable: PyObj, args?: array, kwargs?: object): PyObj {
+    // Build argument tuple
+    let arg_count: i64 = 0;
+    if (args != null) {
+        arg_count = args.length;
+    }
+
+    let tuple = PyTuple_New(arg_count);
+    if (tuple == null) {
+        throw "Failed to create argument tuple";
+    }
+
+    // Fill tuple
+    if (args != null) {
+        let i: i64 = 0;
+        while (i < arg_count) {
+            let py_arg = to_python(args[i]);
+            Py_IncRef(py_arg._ptr);
+            PyTuple_SetItem(tuple, i, py_arg._ptr);
+            py_release(py_arg);
+            i = i + 1;
+        }
+    }
+
+    // Build kwargs dict
+    let kw_dict: ptr = null;
+    if (kwargs != null) {
+        kw_dict = PyDict_New();
+        if (kw_dict == null) {
+            Py_DecRef(tuple);
+            throw "Failed to create kwargs dict";
+        }
+
+        // Iterate over object keys
+        let keys = __object_keys(kwargs);
+        let j = 0;
+        while (j < keys.length) {
+            let key = keys[j];
+            let value = kwargs[key];
+            let py_value = to_python(value);
+
+            let key_cstr = __string_to_cstr(key);
+            PyDict_SetItemString(kw_dict, key_cstr, py_value._ptr);
+            free(key_cstr);
+            py_release(py_value);
+
+            j = j + 1;
+        }
+    }
+
+    // Call the function
+    let result = PyObject_Call(callable._ptr, tuple, kw_dict);
+
+    Py_DecRef(tuple);
+    if (kw_dict != null) {
+        Py_DecRef(kw_dict);
+    }
+
+    if (result == null) {
+        py_check_error();
+        throw "Python function call failed";
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// ============================================================================
+// Type Conversion Functions
+// ============================================================================
+
+// Convert Hemlock value to Python object
+// Automatic type detection and conversion
+export fn to_python(value): PyObj {
+    let t = typeof(value);
+
+    // Null -> None
+    if (t == "null") {
+        let none = get_py_none();
+        Py_IncRef(none);
+        return wrap_pyobj(none, true);
+    }
+
+    // Already a PyObj - just incref and return
+    if (t == "object" && value._ptr != null && value._owned != null) {
+        Py_IncRef(value._ptr);
+        return wrap_pyobj(value._ptr, true);
+    }
+
+    // Bool -> bool
+    if (t == "bool") {
+        let int_val = 0;
+        if (value) {
+            int_val = 1;
+        }
+        let result = PyBool_FromLong(int_val);
+        if (result == null) {
+            throw "Failed to create Python bool";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    // Integer types -> int
+    if (t == "i8" || t == "i16" || t == "i32" || t == "integer") {
+        let int_val: i32 = value;
+        let result = PyLong_FromLong(int_val);
+        if (result == null) {
+            throw "Failed to create Python int";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    if (t == "i64") {
+        let int_val: i64 = value;
+        let result = PyLong_FromLongLong(int_val);
+        if (result == null) {
+            throw "Failed to create Python int";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    if (t == "u8" || t == "u16" || t == "u32") {
+        let int_val: i32 = value;
+        let result = PyLong_FromLong(int_val);
+        if (result == null) {
+            throw "Failed to create Python int";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    if (t == "u64") {
+        let int_val: u64 = value;
+        let result = PyLong_FromUnsignedLongLong(int_val);
+        if (result == null) {
+            throw "Failed to create Python int";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    // Float types -> float
+    if (t == "f32" || t == "f64" || t == "number") {
+        let float_val: f64 = value;
+        let result = PyFloat_FromDouble(float_val);
+        if (result == null) {
+            throw "Failed to create Python float";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    // String -> str
+    if (t == "string") {
+        let str_cstr = __string_to_cstr(value);
+        let result = PyUnicode_FromString(str_cstr);
+        free(str_cstr);
+        if (result == null) {
+            throw "Failed to create Python string";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    // Array -> list
+    if (t == "array") {
+        let len: i64 = value.length;
+        let result = PyList_New(len);
+        if (result == null) {
+            throw "Failed to create Python list";
+        }
+
+        let i: i64 = 0;
+        while (i < len) {
+            let py_item = to_python(value[i]);
+            // PyList_SetItem steals reference
+            Py_IncRef(py_item._ptr);
+            PyList_SetItem(result, i, py_item._ptr);
+            py_release(py_item);
+            i = i + 1;
+        }
+
+        return wrap_pyobj(result, true);
+    }
+
+    // Buffer -> bytes
+    if (t == "buffer") {
+        let len: i64 = value.length;
+        // Copy buffer data to temporary allocation
+        let data = alloc(len);
+        let i: i64 = 0;
+        while (i < len) {
+            let byte_val: u8 = value[i];
+            memset(data + i, byte_val, 1);
+            i = i + 1;
+        }
+
+        let result = PyBytes_FromStringAndSize(data, len);
+        free(data);
+
+        if (result == null) {
+            throw "Failed to create Python bytes";
+        }
+        return wrap_pyobj(result, true);
+    }
+
+    // Object -> dict
+    if (t == "object") {
+        let result = PyDict_New();
+        if (result == null) {
+            throw "Failed to create Python dict";
+        }
+
+        let keys = __object_keys(value);
+        let j = 0;
+        while (j < keys.length) {
+            let key = keys[j];
+            let val = value[key];
+            let py_val = to_python(val);
+
+            let key_cstr = __string_to_cstr(key);
+            PyDict_SetItemString(result, key_cstr, py_val._ptr);
+            free(key_cstr);
+            py_release(py_val);
+
+            j = j + 1;
+        }
+
+        return wrap_pyobj(result, true);
+    }
+
+    throw "Cannot convert type to Python: " + t;
+}
+
+// Convert Python object to Hemlock value
+// Returns appropriate Hemlock type based on Python type
+export fn from_python(obj: PyObj) {
+    let p = obj._ptr;
+
+    // None -> null
+    if (p == get_py_none()) {
+        return null;
+    }
+
+    // Check for None using comparison
+    let none = get_py_none();
+    if (PyObject_RichCompareBool(p, none, Py_EQ) == 1) {
+        return null;
+    }
+
+    // Bool (must check before int, since bool is subclass of int)
+    let builtins_cstr = __string_to_cstr("builtins");
+    let builtins = PyImport_ImportModule(builtins_cstr);
+    free(builtins_cstr);
+
+    if (builtins != null) {
+        let bool_cstr = __string_to_cstr("bool");
+        let bool_type = PyObject_GetAttrString(builtins, bool_cstr);
+        free(bool_cstr);
+        Py_DecRef(builtins);
+
+        if (bool_type != null) {
+            let obj_type = PyObject_Type(p);
+            if (obj_type == bool_type) {
+                Py_DecRef(bool_type);
+                Py_DecRef(obj_type);
+                return PyObject_IsTrue(p) != 0;
+            }
+            if (obj_type != null) {
+                Py_DecRef(obj_type);
+            }
+            Py_DecRef(bool_type);
+        }
+    }
+
+    // Int -> i64
+    if (PyLong_Check(p) != 0) {
+        return PyLong_AsLongLong(p);
+    }
+
+    // Float -> f64
+    if (PyFloat_Check(p) != 0) {
+        return PyFloat_AsDouble(p);
+    }
+
+    // String -> string
+    if (PyUnicode_Check(p) != 0) {
+        let str_ptr = PyUnicode_AsUTF8(p);
+        if (str_ptr != null) {
+            return __cstr_to_string(str_ptr);
+        }
+        return "";
+    }
+
+    // Bytes -> buffer
+    if (PyBytes_Check(p) != 0) {
+        let data_ptr = PyBytes_AsString(p);
+        let len = PyBytes_Size(p);
+
+        let buf = buffer(len);
+        let i: i64 = 0;
+        while (i < len) {
+            let word_ptr = data_ptr + (i & ~3);
+            let word = __read_u32(word_ptr);
+            let byte_offset = i % 4;
+            let byte_val = word >> byte_offset * 8 & 255;
+            buf[i] = byte_val;
+            i = i + 1;
+        }
+        return buf;
+    }
+
+    // List/Tuple -> array
+    if (PyList_Check(p) != 0) {
+        let len = PyList_Size(p);
+        let arr = [];
+        let i: i64 = 0;
+        while (i < len) {
+            let item = PyList_GetItem(p, i);  // Borrowed reference
+            Py_IncRef(item);
+            let hml_item = from_python(wrap_pyobj(item, true));
+            arr.push(hml_item);
+            i = i + 1;
+        }
+        return arr;
+    }
+
+    if (PyTuple_Check(p) != 0) {
+        let len = PyTuple_Size(p);
+        let arr = [];
+        let i: i64 = 0;
+        while (i < len) {
+            let item = PyTuple_GetItem(p, i);  // Borrowed reference
+            Py_IncRef(item);
+            let hml_item = from_python(wrap_pyobj(item, true));
+            arr.push(hml_item);
+            i = i + 1;
+        }
+        return arr;
+    }
+
+    // Dict -> object
+    if (PyDict_Check(p) != 0) {
+        let result = {};
+        let keys = PyDict_Keys(p);
+        if (keys != null) {
+            let len = PyList_Size(keys);
+            let i: i64 = 0;
+            while (i < len) {
+                let key = PyList_GetItem(keys, i);  // Borrowed
+                let key_str = "";
+
+                // Convert key to string
+                if (PyUnicode_Check(key) != 0) {
+                    let str_ptr = PyUnicode_AsUTF8(key);
+                    if (str_ptr != null) {
+                        key_str = __cstr_to_string(str_ptr);
+                    }
+                } else {
+                    // Convert to string representation
+                    let key_repr = PyObject_Str(key);
+                    if (key_repr != null) {
+                        let str_ptr = PyUnicode_AsUTF8(key_repr);
+                        if (str_ptr != null) {
+                            key_str = __cstr_to_string(str_ptr);
+                        }
+                        Py_DecRef(key_repr);
+                    }
+                }
+
+                // Get value
+                let value = PyDict_GetItem(p, key);  // Borrowed
+                if (value != null) {
+                    Py_IncRef(value);
+                    let hml_value = from_python(wrap_pyobj(value, true));
+                    result[key_str] = hml_value;
+                }
+
+                i = i + 1;
+            }
+            Py_DecRef(keys);
+        }
+        return result;
+    }
+
+    // For other types, return wrapped PyObj
+    Py_IncRef(p);
+    return wrap_pyobj(p, true);
+}
+
+// Explicit conversion functions for type control
+
+export fn py_to_int(obj: PyObj): i64 {
+    if (PyLong_Check(obj._ptr) != 0) {
+        return PyLong_AsLongLong(obj._ptr);
+    }
+    // Try to convert
+    let long_fn_cstr = __string_to_cstr("__int__");
+    if (PyObject_HasAttrString(obj._ptr, long_fn_cstr) != 0) {
+        free(long_fn_cstr);
+        let int_obj = py_call_method(obj, "__int__", []);
+        let result = PyLong_AsLongLong(int_obj._ptr);
+        py_release(int_obj);
+        return result;
+    }
+    free(long_fn_cstr);
+    throw "Cannot convert to int";
+}
+
+export fn py_to_float(obj: PyObj): f64 {
+    if (PyFloat_Check(obj._ptr) != 0) {
+        return PyFloat_AsDouble(obj._ptr);
+    }
+    if (PyLong_Check(obj._ptr) != 0) {
+        return PyLong_AsLongLong(obj._ptr);
+    }
+    throw "Cannot convert to float";
+}
+
+export fn py_to_string(obj: PyObj): string {
+    let str_obj = PyObject_Str(obj._ptr);
+    if (str_obj == null) {
+        throw "Cannot convert to string";
+    }
+    let str_ptr = PyUnicode_AsUTF8(str_obj);
+    let result = "";
+    if (str_ptr != null) {
+        result = __cstr_to_string(str_ptr);
+    }
+    Py_DecRef(str_obj);
+    return result;
+}
+
+export fn py_to_bool(obj: PyObj): bool {
+    return PyObject_IsTrue(obj._ptr) != 0;
+}
+
+export fn py_to_list(obj: PyObj): array {
+    let val = from_python(obj);
+    if (typeof(val) == "array") {
+        return val;
+    }
+    throw "Cannot convert to array";
+}
+
+export fn py_to_dict(obj: PyObj): object {
+    let val = from_python(obj);
+    if (typeof(val) == "object") {
+        return val;
+    }
+    throw "Cannot convert to object";
+}
+
+// ============================================================================
+// Type Checking Functions
+// ============================================================================
+
+// Get Python type name
+export fn py_type(obj: PyObj): string {
+    let type_obj = PyObject_Type(obj._ptr);
+    if (type_obj == null) {
+        return "unknown";
+    }
+
+    let name_cstr = __string_to_cstr("__name__");
+    let name_obj = PyObject_GetAttrString(type_obj, name_cstr);
+    free(name_cstr);
+    Py_DecRef(type_obj);
+
+    if (name_obj == null) {
+        return "unknown";
+    }
+
+    let str_ptr = PyUnicode_AsUTF8(name_obj);
+    let result = "unknown";
+    if (str_ptr != null) {
+        result = __cstr_to_string(str_ptr);
+    }
+    Py_DecRef(name_obj);
+
+    return result;
+}
+
+export fn py_is_none(obj: PyObj): bool {
+    let none = get_py_none();
+    return obj._ptr == none || PyObject_RichCompareBool(obj._ptr, none, Py_EQ) == 1;
+}
+
+export fn py_is_callable(obj: PyObj): bool {
+    return PyCallable_Check(obj._ptr) != 0;
+}
+
+export fn py_is_sequence(obj: PyObj): bool {
+    return PySequence_Check(obj._ptr) != 0;
+}
+
+export fn py_is_mapping(obj: PyObj): bool {
+    return PyMapping_Check(obj._ptr) != 0;
+}
+
+export fn py_is_int(obj: PyObj): bool {
+    return PyLong_Check(obj._ptr) != 0;
+}
+
+export fn py_is_float(obj: PyObj): bool {
+    return PyFloat_Check(obj._ptr) != 0;
+}
+
+export fn py_is_string(obj: PyObj): bool {
+    return PyUnicode_Check(obj._ptr) != 0;
+}
+
+export fn py_is_list(obj: PyObj): bool {
+    return PyList_Check(obj._ptr) != 0;
+}
+
+export fn py_is_dict(obj: PyObj): bool {
+    return PyDict_Check(obj._ptr) != 0;
+}
+
+export fn py_is_tuple(obj: PyObj): bool {
+    return PyTuple_Check(obj._ptr) != 0;
+}
+
+// ============================================================================
+// Collection Builder Functions
+// ============================================================================
+
+// Create Python list from Hemlock array
+export fn py_list(items?: array): PyObj {
+    if (items == null) {
+        let result = PyList_New(0);
+        return wrap_pyobj(result, true);
+    }
+    return to_python(items);
+}
+
+// Create Python dict from Hemlock object
+export fn py_dict(items?: object): PyObj {
+    if (items == null) {
+        let result = PyDict_New();
+        return wrap_pyobj(result, true);
+    }
+    return to_python(items);
+}
+
+// Create Python tuple from Hemlock array
+export fn py_tuple(items?: array): PyObj {
+    let len: i64 = 0;
+    if (items != null) {
+        len = items.length;
+    }
+
+    let result = PyTuple_New(len);
+    if (result == null) {
+        throw "Failed to create Python tuple";
+    }
+
+    if (items != null) {
+        let i: i64 = 0;
+        while (i < len) {
+            let py_item = to_python(items[i]);
+            Py_IncRef(py_item._ptr);
+            PyTuple_SetItem(result, i, py_item._ptr);
+            py_release(py_item);
+            i = i + 1;
+        }
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// Create Python set from Hemlock array
+export fn py_set_create(items?: array): PyObj {
+    // Import builtins.set
+    let builtins_cstr = __string_to_cstr("builtins");
+    let builtins = PyImport_ImportModule(builtins_cstr);
+    free(builtins_cstr);
+
+    if (builtins == null) {
+        throw "Failed to import builtins";
+    }
+
+    let set_cstr = __string_to_cstr("set");
+    let set_type = PyObject_GetAttrString(builtins, set_cstr);
+    free(set_cstr);
+    Py_DecRef(builtins);
+
+    if (set_type == null) {
+        throw "Failed to get set type";
+    }
+
+    // Call set() or set(items)
+    let result: ptr;
+    if (items == null) {
+        result = PyObject_CallObject(set_type, null);
+    } else {
+        let py_list = to_python(items);
+        let args = PyTuple_New(1);
+        Py_IncRef(py_list._ptr);
+        PyTuple_SetItem(args, 0, py_list._ptr);
+        result = PyObject_Call(set_type, args, null);
+        Py_DecRef(args);
+        py_release(py_list);
+    }
+
+    Py_DecRef(set_type);
+
+    if (result == null) {
+        py_check_error();
+        throw "Failed to create set";
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// ============================================================================
+// Memory Management Functions
+// ============================================================================
+
+// Manually increment reference count
+export fn py_incref(obj: PyObj): null {
+    Py_IncRef(obj._ptr);
+    return null;
+}
+
+// Manually decrement reference count
+export fn py_decref(obj: PyObj): null {
+    Py_DecRef(obj._ptr);
+    return null;
+}
+
+// Release a PyObj (decrefs if owned)
+export fn py_release(obj: PyObj): null {
+    if (obj._owned && obj._ptr != null) {
+        Py_DecRef(obj._ptr);
+    }
+    return null;
+}
+
+// ============================================================================
+// GIL Management Functions
+// ============================================================================
+
+// Acquire the GIL (for multi-threaded Hemlock)
+export fn py_gil_acquire(): PyGILState {
+    let state = PyGILState_Ensure();
+    return { _state: state };
+}
+
+// Release the GIL
+export fn py_gil_release(state: PyGILState): null {
+    PyGILState_Release(state._state);
+    return null;
+}
+
+// Execute function with GIL held
+// Automatically acquires/releases GIL around callback
+export fn py_with_gil(callback: fn) {
+    let gil = py_gil_acquire();
+    try {
+        let result = callback();
+        py_gil_release(gil);
+        return result;
+    } catch (e) {
+        py_gil_release(gil);
+        throw e;
+    }
+}
+
+// ============================================================================
+// NumPy Integration Functions
+// ============================================================================
+
+// Check if NumPy is available
+export fn numpy_available(): bool {
+    try {
+        let np = py_import("numpy");
+        py_release(np);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Create numpy array from Hemlock buffer
+// dtype: "float32", "float64", "int32", "int64", etc.
+export fn numpy_from_buffer(buf: buffer, shape: array, dtype?: "float64"): PyObj {
+    let np = py_import("numpy");
+
+    // Convert buffer to bytes
+    let py_bytes = to_python(buf);
+
+    // Get frombuffer function
+    let frombuffer = py_get(np, "frombuffer");
+
+    // Build kwargs
+    let kwargs = { dtype: dtype };
+
+    // Call np.frombuffer(bytes, dtype=dtype)
+    let arr = py_call_kw(frombuffer, [py_bytes], kwargs);
+
+    // Reshape if needed
+    if (shape.length > 1 || (shape.length == 1 && shape[0] != buf.length)) {
+        let reshape = py_get(arr, "reshape");
+        let py_shape = to_python(shape);
+        let reshaped = py_call(reshape, [py_shape]);
+        py_release(py_shape);
+        py_release(reshape);
+        py_release(arr);
+        arr = reshaped;
+    }
+
+    py_release(frombuffer);
+    py_release(py_bytes);
+    py_release(np);
+
+    return arr;
+}
+
+// Get numpy array data as Hemlock buffer
+export fn numpy_to_buffer(arr: PyObj): buffer {
+    // Get tobytes() method
+    let tobytes = py_get(arr, "tobytes");
+    let bytes_obj = py_call(tobytes, []);
+    py_release(tobytes);
+
+    // Convert to Hemlock buffer
+    let buf = from_python(bytes_obj);
+    py_release(bytes_obj);
+
+    return buf;
+}
+
+// Get numpy array shape
+export fn numpy_shape(arr: PyObj): array {
+    let shape = py_get(arr, "shape");
+    let result = from_python(shape);
+    py_release(shape);
+    return result;
+}
+
+// Get numpy array dtype as string
+export fn numpy_dtype(arr: PyObj): string {
+    let dtype = py_get(arr, "dtype");
+    let name = py_get(dtype, "name");
+    let result = py_to_string(name);
+    py_release(name);
+    py_release(dtype);
+    return result;
+}
+
+// Convert numpy array to NumpyArray struct with full metadata
+export fn numpy_to_array(arr: PyObj): NumpyArray {
+    let data = numpy_to_buffer(arr);
+    let shape = numpy_shape(arr);
+    let dtype = numpy_dtype(arr);
+
+    // Get strides
+    let strides_obj = py_get(arr, "strides");
+    let strides = from_python(strides_obj);
+    py_release(strides_obj);
+
+    return { data, shape, dtype, strides };
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Evaluate a Python expression string
+export fn py_eval(expr: string): PyObj {
+    let builtins_cstr = __string_to_cstr("builtins");
+    let builtins = PyImport_ImportModule(builtins_cstr);
+    free(builtins_cstr);
+
+    if (builtins == null) {
+        throw "Failed to import builtins";
+    }
+
+    let eval_cstr = __string_to_cstr("eval");
+    let eval_fn = PyObject_GetAttrString(builtins, eval_cstr);
+    free(eval_cstr);
+    Py_DecRef(builtins);
+
+    if (eval_fn == null) {
+        throw "Failed to get eval function";
+    }
+
+    let py_expr = to_python(expr);
+    let args = PyTuple_New(1);
+    Py_IncRef(py_expr._ptr);
+    PyTuple_SetItem(args, 0, py_expr._ptr);
+
+    let result = PyObject_Call(eval_fn, args, null);
+
+    Py_DecRef(args);
+    py_release(py_expr);
+    Py_DecRef(eval_fn);
+
+    if (result == null) {
+        py_check_error();
+        throw "Python eval failed";
+    }
+
+    return wrap_pyobj(result, true);
+}
+
+// Execute Python code (doesn't return a value)
+export fn py_exec(code: string): null {
+    let builtins_cstr = __string_to_cstr("builtins");
+    let builtins = PyImport_ImportModule(builtins_cstr);
+    free(builtins_cstr);
+
+    if (builtins == null) {
+        throw "Failed to import builtins";
+    }
+
+    let exec_cstr = __string_to_cstr("exec");
+    let exec_fn = PyObject_GetAttrString(builtins, exec_cstr);
+    free(exec_cstr);
+    Py_DecRef(builtins);
+
+    if (exec_fn == null) {
+        throw "Failed to get exec function";
+    }
+
+    let py_code = to_python(code);
+    let args = PyTuple_New(1);
+    Py_IncRef(py_code._ptr);
+    PyTuple_SetItem(args, 0, py_code._ptr);
+
+    let result = PyObject_Call(exec_fn, args, null);
+
+    Py_DecRef(args);
+    py_release(py_code);
+    Py_DecRef(exec_fn);
+
+    if (result == null) {
+        py_check_error();
+        throw "Python exec failed";
+    }
+
+    Py_DecRef(result);
+    return null;
+}
+
+// Get string representation (repr) of a Python object
+export fn py_repr(obj: PyObj): string {
+    let repr_obj = PyObject_Repr(obj._ptr);
+    if (repr_obj == null) {
+        return "<repr failed>";
+    }
+    let str_ptr = PyUnicode_AsUTF8(repr_obj);
+    let result = "";
+    if (str_ptr != null) {
+        result = __cstr_to_string(str_ptr);
+    }
+    Py_DecRef(repr_obj);
+    return result;
+}
+
+// Get string representation (str) of a Python object
+export fn py_str(obj: PyObj): string {
+    return py_to_string(obj);
+}
+
+// Print a Python object (for debugging)
+export fn py_print(obj: PyObj): null {
+    print(py_repr(obj));
+    return null;
+}

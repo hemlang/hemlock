@@ -1,0 +1,278 @@
+// Test Python type conversion edge cases
+//
+// NOTE: This test requires Python 3.11+ with development headers installed.
+
+import {
+    py_init,
+    py_import,
+    py_get,
+    py_call,
+    py_call_kw,
+    py_eval,
+    to_python,
+    from_python,
+    py_list,
+    py_dict,
+    py_tuple,
+    py_to_int,
+    py_to_float,
+    py_to_string,
+    py_to_bool,
+    py_getitem,
+    py_setitem,
+    py_len,
+    py_release,
+    py_finalize
+} from "@stdlib/python";
+
+py_init();
+
+// ============================================================================
+// Nested Structure Tests
+// ============================================================================
+
+print("Testing nested structures...");
+
+// Nested arrays
+let nested_arr = to_python([[1, 2], [3, 4], [5, 6]]);
+let back = from_python(nested_arr);
+assert(back[0][0] == 1, "Nested [0][0] should be 1");
+assert(back[1][1] == 4, "Nested [1][1] should be 4");
+assert(back[2][0] == 5, "Nested [2][0] should be 5");
+py_release(nested_arr);
+
+// Nested objects
+let nested_obj = to_python({
+    user: { name: "Alice", age: 30 },
+    settings: { theme: "dark" }
+});
+let obj_back = from_python(nested_obj);
+assert(obj_back.user.name == "Alice", "Nested user.name should be 'Alice'");
+assert(obj_back.user.age == 30, "Nested user.age should be 30");
+assert(obj_back.settings.theme == "dark", "Nested settings.theme should be 'dark'");
+py_release(nested_obj);
+
+// Mixed nesting
+let mixed = to_python({
+    items: [1, 2, 3],
+    meta: { count: 3 }
+});
+let mixed_back = from_python(mixed);
+assert(mixed_back.items[0] == 1, "mixed.items[0] should be 1");
+assert(mixed_back.meta.count == 3, "mixed.meta.count should be 3");
+py_release(mixed);
+
+print("Nested structure tests passed!");
+
+// ============================================================================
+// Collection Builder Tests
+// ============================================================================
+
+print("Testing collection builders...");
+
+// Empty list
+let empty_list = py_list(null);
+assert(py_len(empty_list) == 0, "Empty list should have length 0");
+py_release(empty_list);
+
+// List with items
+let items_list = py_list([10, 20, 30]);
+assert(py_len(items_list) == 3, "List should have 3 items");
+let item = py_getitem(items_list, 1);
+assert(from_python(item) == 20, "Item at index 1 should be 20");
+py_release(item);
+py_release(items_list);
+
+// Empty dict
+let empty_dict = py_dict(null);
+assert(py_len(empty_dict) == 0, "Empty dict should have length 0");
+py_release(empty_dict);
+
+// Dict with items
+let items_dict = py_dict({ a: 1, b: 2 });
+assert(py_len(items_dict) == 2, "Dict should have 2 items");
+let val = py_getitem(items_dict, "a");
+assert(from_python(val) == 1, "Dict['a'] should be 1");
+py_release(val);
+py_release(items_dict);
+
+// Tuple
+let my_tuple = py_tuple([1, 2, 3]);
+assert(py_len(my_tuple) == 3, "Tuple should have 3 items");
+let t_item = py_getitem(my_tuple, 0);
+assert(from_python(t_item) == 1, "Tuple[0] should be 1");
+py_release(t_item);
+py_release(my_tuple);
+
+print("Collection builder tests passed!");
+
+// ============================================================================
+// Explicit Conversion Tests
+// ============================================================================
+
+print("Testing explicit conversions...");
+
+// py_to_int
+let float_val = py_eval("3.7");
+let int_val = py_to_int(float_val);
+assert(int_val == 3, "py_to_int(3.7) should be 3");
+py_release(float_val);
+
+let str_num = py_eval("42");
+assert(py_to_int(str_num) == 42, "py_to_int of Python int should work");
+py_release(str_num);
+
+// py_to_float
+let py_pi = py_eval("3.14159");
+let float_pi = py_to_float(py_pi);
+assert(float_pi > 3.14 && float_pi < 3.15, "py_to_float should work");
+py_release(py_pi);
+
+// py_to_string
+let py_num = py_eval("42");
+let str_result = py_to_string(py_num);
+assert(str_result == "42", "py_to_string(42) should be '42'");
+py_release(py_num);
+
+let py_list_str = py_eval("[1, 2, 3]");
+let list_str = py_to_string(py_list_str);
+assert(list_str == "[1, 2, 3]", "py_to_string([1,2,3]) should be '[1, 2, 3]'");
+py_release(py_list_str);
+
+// py_to_bool
+let py_truthy = py_eval("42");
+assert(py_to_bool(py_truthy) == true, "42 should be truthy");
+py_release(py_truthy);
+
+let py_zero = py_eval("0");
+assert(py_to_bool(py_zero) == false, "0 should be falsy");
+py_release(py_zero);
+
+let py_empty_list = py_eval("[]");
+assert(py_to_bool(py_empty_list) == false, "[] should be falsy");
+py_release(py_empty_list);
+
+let py_nonempty_list = py_eval("[1]");
+assert(py_to_bool(py_nonempty_list) == true, "[1] should be truthy");
+py_release(py_nonempty_list);
+
+print("Explicit conversion tests passed!");
+
+// ============================================================================
+// Item Access Tests
+// ============================================================================
+
+print("Testing item access...");
+
+// List access
+let test_list = py_eval("[10, 20, 30, 40, 50]");
+
+let first = py_getitem(test_list, 0);
+assert(from_python(first) == 10, "list[0] should be 10");
+py_release(first);
+
+let last = py_getitem(test_list, 4);
+assert(from_python(last) == 50, "list[4] should be 50");
+py_release(last);
+
+// Negative indexing
+let neg_one = py_getitem(test_list, -1);
+assert(from_python(neg_one) == 50, "list[-1] should be 50");
+py_release(neg_one);
+
+// Set item
+py_setitem(test_list, 2, 999);
+let modified = py_getitem(test_list, 2);
+assert(from_python(modified) == 999, "list[2] should be 999 after setitem");
+py_release(modified);
+
+py_release(test_list);
+
+// Dict access
+let test_dict = py_eval("{'x': 100, 'y': 200}");
+
+let x_val = py_getitem(test_dict, "x");
+assert(from_python(x_val) == 100, "dict['x'] should be 100");
+py_release(x_val);
+
+// Set new key
+py_setitem(test_dict, "z", 300);
+let z_val = py_getitem(test_dict, "z");
+assert(from_python(z_val) == 300, "dict['z'] should be 300 after setitem");
+py_release(z_val);
+
+py_release(test_dict);
+
+print("Item access tests passed!");
+
+// ============================================================================
+// Keyword Arguments Tests
+// ============================================================================
+
+print("Testing keyword arguments...");
+
+let json = py_import("json");
+let dumps = py_get(json, "dumps");
+
+// Call with kwargs
+let obj = { b: 2, a: 1 };
+let result = py_call_kw(dumps, [obj], { sort_keys: true });
+let json_str = from_python(result);
+// With sort_keys=True, 'a' should come before 'b'
+assert(json_str.find("\"a\"") < json_str.find("\"b\""), "Keys should be sorted");
+py_release(result);
+
+py_release(dumps);
+py_release(json);
+
+print("Keyword arguments tests passed!");
+
+// ============================================================================
+// Large Numbers Tests
+// ============================================================================
+
+print("Testing large numbers...");
+
+// Large integer
+let big_int = py_eval("10 ** 18");
+let big_back = from_python(big_int);
+assert(big_back == 1000000000000000000, "10^18 should convert correctly");
+py_release(big_int);
+
+// Large negative
+let neg_big = py_eval("-10 ** 15");
+let neg_back = from_python(neg_big);
+assert(neg_back == -1000000000000000, "-10^15 should convert correctly");
+py_release(neg_big);
+
+print("Large number tests passed!");
+
+// ============================================================================
+// Unicode Tests
+// ============================================================================
+
+print("Testing unicode...");
+
+// Unicode string
+let unicode_str = to_python("Hello, 世界! 🚀");
+let unicode_back = from_python(unicode_str);
+assert(unicode_back == "Hello, 世界! 🚀", "Unicode should round-trip correctly");
+py_release(unicode_str);
+
+// Unicode in dict
+let unicode_dict = to_python({ greeting: "你好", emoji: "👋" });
+let dict_back = from_python(unicode_dict);
+assert(dict_back.greeting == "你好", "Chinese characters should work");
+assert(dict_back.emoji == "👋", "Emoji should work");
+py_release(unicode_dict);
+
+print("Unicode tests passed!");
+
+// ============================================================================
+// Cleanup
+// ============================================================================
+
+py_finalize();
+
+print("");
+print("All type conversion tests passed!");
