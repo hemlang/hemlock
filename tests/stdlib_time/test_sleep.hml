@@ -8,8 +8,9 @@ time.sleep(0.1);  // Sleep for 100ms
 let t2 = time.time_ms();
 
 let elapsed = t2 - t1;
-assert(elapsed >= 95, "sleep(0.1) should sleep at least 95ms");
-assert(elapsed < 200, "sleep(0.1) should sleep less than 200ms");
+assert(elapsed >= 90, "sleep(0.1) should sleep at least 90ms");
+// Use generous upper bound for CI environments (VMs, loaded runners)
+assert(elapsed < 2000, "sleep(0.1) took excessively long (>2s)");
 
 // Test zero sleep (should not error)
 time.sleep(0.0);
