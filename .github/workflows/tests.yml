@@ -43,7 +43,8 @@ jobs:
 
     - name: Run Python stdlib tests
       run: |
-        # Run Python interop tests
+        # Set library path and run Python interop tests
+        export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
         ./hemlock tests/stdlib_python/test_python_basic.hml
         ./hemlock tests/stdlib_python/test_python_types.hml
 

@@ -23,8 +23,8 @@
 // print(from_python(result));  // 4.0
 // py_finalize();
 
-// Import Python library (version 3.10 - Ubuntu 22.04 default)
-// Common locations: libpython3.10.so.1.0, libpython3.11.so.1.0, etc.
+// Import Python library
+// Requires: python3-dev (Debian/Ubuntu), python3-devel (Fedora/RHEL), or python3 (macOS)
 import "libpython3.10.so.1.0";
 
 // ============================================================================
