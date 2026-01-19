@@ -811,10 +811,12 @@ static TokenType identifier_type(Lexer *lex) {
             if (len == 5) {
                 if (strncmp(lex->start, "const", 5) == 0) return TOK_CONST;
                 if (strncmp(lex->start, "catch", 5) == 0) return TOK_CATCH;
+                if (strncmp(lex->start, "class", 5) == 0) return TOK_CLASS;  // Not supported
             }
             if (len == 8) return check_keyword(lex->start, 8, "continue", TOK_CONTINUE);
             break;
         case 'd':
+            if (len == 3) return check_keyword(lex->start, 3, "def", TOK_DEF);  // Python - suggest 'fn'
             if (len == 5) return check_keyword(lex->start, 5, "defer", TOK_DEFER);
             if (len == 6) return check_keyword(lex->start, 6, "define", TOK_DEFINE);
             if (len == 7) return check_keyword(lex->start, 7, "default", TOK_DEFAULT);
@@ -837,9 +839,11 @@ static TokenType identifier_type(Lexer *lex) {
                 if (strncmp(lex->start, "f32", 3) == 0) return TOK_TYPE_F32;
                 if (strncmp(lex->start, "f64", 3) == 0) return TOK_TYPE_F64;
             }
+            if (len == 4) return check_keyword(lex->start, 4, "func", TOK_FUNC);  // Go - suggest 'fn'
             // Note: 'from' is a contextual keyword, handled as identifier
             if (len == 5) return check_keyword(lex->start, 5, "false", TOK_FALSE);
             if (len == 7) return check_keyword(lex->start, 7, "finally", TOK_FINALLY);
+            if (len == 8) return check_keyword(lex->start, 8, "function", TOK_FUNCTION);  // JS - suggest 'fn'
             break;
         case 'i':
             if (len == 2) {
@@ -903,6 +907,7 @@ static TokenType identifier_type(Lexer *lex) {
             }
             break;
         case 'v':
+            if (len == 3) return check_keyword(lex->start, 3, "var", TOK_VAR);  // JS/Go - suggest 'let'
             if (len == 4) return check_keyword(lex->start, 4, "void", TOK_TYPE_VOID);
             break;
         case 'w':

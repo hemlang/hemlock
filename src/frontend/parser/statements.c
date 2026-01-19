@@ -1,6 +1,77 @@
 #include "internal.h"
 #include "frontend/annotations.h"
 
+// ========== ERROR RECOVERY HELPERS ==========
+
+// Skip balanced braces - used for error recovery to skip past blocks
+static void skip_balanced_braces(Parser *p) {
+    if (!check(p, TOK_LBRACE)) return;
+
+    advance(p);  // consume opening {
+    int depth = 1;
+
+    while (depth > 0 && !check(p, TOK_EOF)) {
+        if (check(p, TOK_LBRACE)) {
+            depth++;
+        } else if (check(p, TOK_RBRACE)) {
+            depth--;
+        }
+        advance(p);
+    }
+}
+
+// Skip a function-like construct: name(params) { body } or name(params) => expr;
+// Used for error recovery when we see keywords like 'def', 'func', 'function'
+static void skip_function_like(Parser *p) {
+    // Skip the function name (identifier) if present
+    if (check(p, TOK_IDENT)) {
+        advance(p);
+    }
+
+    // Skip parameters in parentheses
+    if (check(p, TOK_LPAREN)) {
+        advance(p);  // consume (
+        int depth = 1;
+        while (depth > 0 && !check(p, TOK_EOF)) {
+            if (check(p, TOK_LPAREN)) {
+                depth++;
+            } else if (check(p, TOK_RPAREN)) {
+                depth--;
+            }
+            advance(p);
+        }
+    }
+
+    // Skip optional return type annotation (: type)
+    if (check(p, TOK_COLON)) {
+        advance(p);
+        // Skip type tokens until we hit { or =>
+        while (!check(p, TOK_LBRACE) && !check(p, TOK_ARROW) &&
+               !check(p, TOK_SEMICOLON) && !check(p, TOK_EOF)) {
+            advance(p);
+        }
+    }
+
+    // Skip function body - either a block or arrow expression
+    if (check(p, TOK_LBRACE)) {
+        skip_balanced_braces(p);
+    } else if (check(p, TOK_ARROW)) {
+        advance(p);  // consume =>
+        // Skip until semicolon or end of statement
+        while (!check(p, TOK_SEMICOLON) && !check(p, TOK_EOF)) {
+            // Handle nested braces in arrow function body
+            if (check(p, TOK_LBRACE)) {
+                skip_balanced_braces(p);
+            } else {
+                advance(p);
+            }
+        }
+        if (check(p, TOK_SEMICOLON)) {
+            advance(p);  // consume ;
+        }
+    }
+}
+
 // ========== ANNOTATION PARSING ==========
 
 static void parse_annotation_arg_value(Parser *p, Annotation *a, const char *arg_name) {
@@ -1288,6 +1359,60 @@ Stmt* statement(Parser *p) {
     if (annotation_count > 0) {
         stmt_start_line = p->current.line;
         stmt_start_column = p->current.column;
+    }
+
+    // Check for common keywords from other languages and provide helpful errors
+    if (check(p, TOK_DEF)) {
+        error_at_current(p, "Unknown keyword 'def'. In Hemlock, use 'fn' to define functions.");
+        advance(p);  // skip 'def'
+        skip_function_like(p);  // skip the entire function definition
+        if (annotations) { free(annotations); }
+        RETURN_STMT(stmt_expr(expr_number(0)));
+    }
+
+    if (check(p, TOK_FUNC)) {
+        error_at_current(p, "Unknown keyword 'func'. In Hemlock, use 'fn' to define functions.");
+        advance(p);  // skip 'func'
+        skip_function_like(p);  // skip the entire function definition
+        if (annotations) { free(annotations); }
+        RETURN_STMT(stmt_expr(expr_number(0)));
+    }
+
+    if (check(p, TOK_FUNCTION)) {
+        error_at_current(p, "Unknown keyword 'function'. In Hemlock, use 'fn' to define functions.");
+        advance(p);  // skip 'function'
+        skip_function_like(p);  // skip the entire function definition
+        if (annotations) { free(annotations); }
+        RETURN_STMT(stmt_expr(expr_number(0)));
+    }
+
+    if (check(p, TOK_VAR)) {
+        error_at_current(p, "Unknown keyword 'var'. In Hemlock, use 'let' for variable declarations.");
+        advance(p);  // skip 'var'
+        // Skip to semicolon or end of statement
+        while (!check(p, TOK_SEMICOLON) && !check(p, TOK_EOF)) {
+            advance(p);
+        }
+        if (check(p, TOK_SEMICOLON)) {
+            advance(p);  // consume ;
+        }
+        if (annotations) { free(annotations); }
+        RETURN_STMT(stmt_expr(expr_number(0)));
+    }
+
+    if (check(p, TOK_CLASS)) {
+        error_at_current(p, "Hemlock does not have classes. Use 'define' to create object types.");
+        advance(p);  // skip 'class'
+        // Skip identifier if present
+        if (check(p, TOK_IDENT)) {
+            advance(p);
+        }
+        // Skip class body if present
+        if (check(p, TOK_LBRACE)) {
+            skip_balanced_braces(p);
+        }
+        if (annotations) { free(annotations); }
+        RETURN_STMT(stmt_expr(expr_number(0)));
     }
 
     if (match(p, TOK_LET)) {
