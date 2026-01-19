@@ -323,7 +323,6 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure) {
     }
 
     // Call the actual closure function
-    codegen_write(ctx, "");
     codegen_indent(ctx);
     if (func->as.function.rest_param) {
         // Need to capture result, release rest array, then return
@@ -358,7 +357,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "if (%sinit_done) return;", module->module_prefix);
     codegen_writeln(ctx, "%sinit_done = 1;", module->module_prefix);
-    codegen_writeln(ctx, "");
+    codegen_blank_line(ctx);
 
     // Save current module context
     CompiledModule *saved_module = ctx->current_module;
@@ -379,7 +378,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             }
         }
     }
-    codegen_writeln(ctx, "");
+    codegen_blank_line(ctx);
 
     // Generate code for each statement in the module
     for (int i = 0; i < module->num_statements; i++) {
@@ -418,9 +417,9 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             if (func->as.function.num_params > 0) {
                 int param_names_counter = ctx->temp_counter++;
                 codegen_writeln(ctx, "const char *_param_names%d[%d] = {", param_names_counter, func->as.function.num_params);
-                for (int i = 0; i < func->as.function.num_params; i++) {
-                    codegen_write(ctx, "\"%s\"", func->as.function.param_names[i]);
-                    if (i < func->as.function.num_params - 1) {
+                for (int j = 0; j < func->as.function.num_params; j++) {
+                    codegen_write(ctx, "\"%s\"", func->as.function.param_names[j]);
+                    if (j < func->as.function.num_params - 1) {
                         codegen_write(ctx, ", ");
                     }
                 }
@@ -873,13 +872,13 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_writeln(ctx, "hml_sandbox_init(%d, NULL);", ctx->sandbox_flags);
         }
     }
-    codegen_writeln(ctx, "");
+    codegen_blank_line(ctx);
 
     // Initialize global args array from command-line arguments
     // args is a static global (_main_args) so it's accessible from all functions
     codegen_writeln(ctx, "_main_args = hml_get_args();");
     codegen_add_local(ctx, "args");
-    codegen_writeln(ctx, "");
+    codegen_blank_line(ctx);
 
     // Initialize imported modules
     if (ctx->module_cache) {
@@ -896,7 +895,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 }
             }
         }
-        codegen_writeln(ctx, "");
+        codegen_blank_line(ctx);
     }
 
     // Register FFI struct types (for extern functions that use struct params/returns)
@@ -931,7 +930,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             ctx->indent--;
             codegen_writeln(ctx, "}");
         }
-        codegen_writeln(ctx, "");
+        codegen_blank_line(ctx);
     }
 
     // Initialize top-level function variables (they're static globals now)
@@ -943,7 +942,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_add_local(ctx, name);
         }
     }
-    codegen_writeln(ctx, "");
+    codegen_blank_line(ctx);
 
     // Generate all statements
     for (int i = 0; i < stmt_count; i++) {
@@ -1068,8 +1067,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     // Compound type: validate against each constituent type
                     Type *compound = stmt->as.let.type_annotation;
                     codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
-                    for (int i = 0; i < compound->num_compound_types; i++) {
-                        Type *constituent = compound->compound_types[i];
+                    for (int k = 0; k < compound->num_compound_types; k++) {
+                        Type *constituent = compound->compound_types[k];
                         if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
                             codegen_writeln(ctx, "_main_%s = hml_validate_object_type(_main_%s, \"%s\");",
                                           stmt->as.let.name, stmt->as.let.name, constituent->type_name);
@@ -1117,7 +1116,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
     }
 
-    codegen_writeln(ctx, "");
+    codegen_blank_line(ctx);
     codegen_writeln(ctx, "hml_runtime_cleanup();");
     codegen_writeln(ctx, "return 0;");
     codegen_indent_dec(ctx);

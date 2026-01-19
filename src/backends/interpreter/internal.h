@@ -370,12 +370,15 @@ void defer_stack_free(DeferStack *stack);
 
 // Runtime error with exception support (printf-style)
 // Now throws catchable exceptions when ctx is provided
+__attribute__((format(printf, 2, 3)))
 void runtime_error(ExecutionContext *ctx, const char *format, ...);
 
 // Runtime error with line number (for better error reporting)
+__attribute__((format(printf, 3, 4)))
 void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...);
 
 // Runtime error with full location (file, line, column) and source context
+__attribute__((format(printf, 5, 6)))
 void runtime_error_with_context(ExecutionContext *ctx, const char *file, int line, int column, const char *format, ...);
 
 // ========== SOURCE CODE TRACKING (for error context) ==========

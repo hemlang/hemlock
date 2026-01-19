@@ -254,15 +254,22 @@ void codegen_indent_inc(CodegenContext *ctx);
 void codegen_indent_dec(CodegenContext *ctx);
 
 // Helper: Write formatted output
+__attribute__((format(printf, 2, 3)))
 void codegen_write(CodegenContext *ctx, const char *fmt, ...);
 
 // Helper: Write a line with indentation
+__attribute__((format(printf, 2, 3)))
 void codegen_writeln(CodegenContext *ctx, const char *fmt, ...);
 
+// Helper: Write a blank line (no indentation)
+void codegen_blank_line(CodegenContext *ctx);
+
 // Helper: Report a compilation error (prints to stderr, increments error_count)
+__attribute__((format(printf, 3, 4)))
 void codegen_error(CodegenContext *ctx, int line, const char *fmt, ...);
 
 // Helper: Report a compilation warning (prints to stderr, increments warning_count)
+__attribute__((format(printf, 3, 4)))
 void codegen_warning(CodegenContext *ctx, int line, const char *fmt, ...);
 
 // Helper: Add a local variable to the tracking list
