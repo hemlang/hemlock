@@ -1362,57 +1362,60 @@ Stmt* statement(Parser *p) {
     }
 
     // Check for common keywords from other languages and provide helpful errors
-    if (check(p, TOK_DEF)) {
-        error_at_current(p, "Unknown keyword 'def'. In Hemlock, use 'fn' to define functions.");
-        advance(p);  // skip 'def'
-        skip_function_like(p);  // skip the entire function definition
-        if (annotations) { free(annotations); }
-        RETURN_STMT(stmt_expr(expr_number(0)));
-    }
+    // These are checked as identifiers since they're valid identifier names in Hemlock
+    if (check(p, TOK_IDENT)) {
+        int is_def = (p->current.length == 3 && strncmp(p->current.start, "def", 3) == 0);
+        int is_func = (p->current.length == 4 && strncmp(p->current.start, "func", 4) == 0);
+        int is_function = (p->current.length == 8 && strncmp(p->current.start, "function", 8) == 0);
+        int is_var = (p->current.length == 3 && strncmp(p->current.start, "var", 3) == 0);
+        int is_class = (p->current.length == 5 && strncmp(p->current.start, "class", 5) == 0);
 
-    if (check(p, TOK_FUNC)) {
-        error_at_current(p, "Unknown keyword 'func'. In Hemlock, use 'fn' to define functions.");
-        advance(p);  // skip 'func'
-        skip_function_like(p);  // skip the entire function definition
-        if (annotations) { free(annotations); }
-        RETURN_STMT(stmt_expr(expr_number(0)));
-    }
+        // Check if this looks like a function definition (identifier followed by '(' or identifier)
+        if ((is_def || is_func || is_function) &&
+            (p->next.type == TOK_IDENT || p->next.type == TOK_LPAREN)) {
+            if (is_def) {
+                error_at_current(p, "Unknown keyword 'def'. In Hemlock, use 'fn' to define functions.");
+            } else if (is_func) {
+                error_at_current(p, "Unknown keyword 'func'. In Hemlock, use 'fn' to define functions.");
+            } else {
+                error_at_current(p, "Unknown keyword 'function'. In Hemlock, use 'fn' to define functions.");
+            }
+            advance(p);  // skip the keyword
+            skip_function_like(p);  // skip the entire function definition
+            if (annotations) { free(annotations); }
+            RETURN_STMT(stmt_expr(expr_number(0)));
+        }
 
-    if (check(p, TOK_FUNCTION)) {
-        error_at_current(p, "Unknown keyword 'function'. In Hemlock, use 'fn' to define functions.");
-        advance(p);  // skip 'function'
-        skip_function_like(p);  // skip the entire function definition
-        if (annotations) { free(annotations); }
-        RETURN_STMT(stmt_expr(expr_number(0)));
-    }
+        // Check if this looks like a variable declaration (var followed by identifier)
+        if (is_var && p->next.type == TOK_IDENT) {
+            error_at_current(p, "Unknown keyword 'var'. In Hemlock, use 'let' for variable declarations.");
+            advance(p);  // skip 'var'
+            // Skip to semicolon or end of statement
+            while (!check(p, TOK_SEMICOLON) && !check(p, TOK_EOF)) {
+                advance(p);
+            }
+            if (check(p, TOK_SEMICOLON)) {
+                advance(p);  // consume ;
+            }
+            if (annotations) { free(annotations); }
+            RETURN_STMT(stmt_expr(expr_number(0)));
+        }
 
-    if (check(p, TOK_VAR)) {
-        error_at_current(p, "Unknown keyword 'var'. In Hemlock, use 'let' for variable declarations.");
-        advance(p);  // skip 'var'
-        // Skip to semicolon or end of statement
-        while (!check(p, TOK_SEMICOLON) && !check(p, TOK_EOF)) {
-            advance(p);
+        // Check if this looks like a class definition (class followed by identifier or '{')
+        if (is_class && (p->next.type == TOK_IDENT || p->next.type == TOK_LBRACE)) {
+            error_at_current(p, "Hemlock does not have classes. Use 'define' to create object types.");
+            advance(p);  // skip 'class'
+            // Skip identifier if present
+            if (check(p, TOK_IDENT)) {
+                advance(p);
+            }
+            // Skip class body if present
+            if (check(p, TOK_LBRACE)) {
+                skip_balanced_braces(p);
+            }
+            if (annotations) { free(annotations); }
+            RETURN_STMT(stmt_expr(expr_number(0)));
         }
-        if (check(p, TOK_SEMICOLON)) {
-            advance(p);  // consume ;
-        }
-        if (annotations) { free(annotations); }
-        RETURN_STMT(stmt_expr(expr_number(0)));
-    }
-
-    if (check(p, TOK_CLASS)) {
-        error_at_current(p, "Hemlock does not have classes. Use 'define' to create object types.");
-        advance(p);  // skip 'class'
-        // Skip identifier if present
-        if (check(p, TOK_IDENT)) {
-            advance(p);
-        }
-        // Skip class body if present
-        if (check(p, TOK_LBRACE)) {
-            skip_balanced_braces(p);
-        }
-        if (annotations) { free(annotations); }
-        RETURN_STMT(stmt_expr(expr_number(0)));
     }
 
     if (match(p, TOK_LET)) {

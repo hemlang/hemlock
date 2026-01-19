@@ -113,14 +113,16 @@ void synchronize(Parser *p) {
             case TOK_EXPORT:
             case TOK_EXTERN:
             case TOK_MATCH:
-            // Reserved keywords from other languages (avoid infinite loops)
-            case TOK_DEF:
-            case TOK_FUNC:
-            case TOK_FUNCTION:
-            case TOK_VAR:
-            case TOK_CLASS:
                 return;
             default:
+                // Check for reserved keywords from other languages (as identifiers)
+                if (p->current.type == TOK_IDENT) {
+                    if (p->current.length == 3 && strncmp(p->current.start, "def", 3) == 0) return;
+                    if (p->current.length == 4 && strncmp(p->current.start, "func", 4) == 0) return;
+                    if (p->current.length == 8 && strncmp(p->current.start, "function", 8) == 0) return;
+                    if (p->current.length == 3 && strncmp(p->current.start, "var", 3) == 0) return;
+                    if (p->current.length == 5 && strncmp(p->current.start, "class", 5) == 0) return;
+                }
                 ; // Do nothing
         }
 

@@ -130,13 +130,6 @@ typedef enum {
     TOK_TYPE,          // 'type' keyword for type aliases
     TOK_MATCH,         // 'match' keyword for pattern matching
 
-    // Reserved keywords from other languages (for helpful error messages)
-    TOK_DEF,           // Python's 'def' - suggest 'fn'
-    TOK_FUNCTION,      // JavaScript's 'function' - suggest 'fn'
-    TOK_FUNC,          // Go's 'func' - suggest 'fn'
-    TOK_VAR,           // JavaScript/Go 'var' - suggest 'let'
-    TOK_CLASS,         // Class-based OOP - not supported
-
     // Special
     TOK_EOF,
     TOK_ERROR,
