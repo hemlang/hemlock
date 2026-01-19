@@ -266,6 +266,10 @@ void codegen_writeln(CodegenContext *ctx, const char *fmt, ...) {
     fprintf(ctx->output, "\n");
 }
 
+void codegen_blank_line(CodegenContext *ctx) {
+    fprintf(ctx->output, "\n");
+}
+
 void codegen_error(CodegenContext *ctx, int line, const char *fmt, ...) {
     ctx->error_count++;
     fprintf(stderr, "error");

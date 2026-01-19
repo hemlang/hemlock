@@ -104,7 +104,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // Handle type constructor calls: i32("42"), f64("3.14"), bool("true"), etc.
         if (expr->as.call.num_args == 1) {
-            HmlValueType target_type = -1;
+            HmlValueType target_type = (HmlValueType)-1;
             if (strcmp(fn_name, "i8") == 0) target_type = HML_VAL_I8;
             else if (strcmp(fn_name, "i16") == 0) target_type = HML_VAL_I16;
             else if (strcmp(fn_name, "i32") == 0) target_type = HML_VAL_I32;
@@ -2620,7 +2620,6 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
             }
 
-            codegen_write(ctx, "");
             codegen_indent(ctx);
             fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
             // Pass regular args (up to expected_params)
@@ -2697,7 +2696,6 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     }
                 }
 
-                codegen_write(ctx, "");
                 codegen_indent(ctx);
                 fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
                 // Pass regular args (up to expected_params)
@@ -2764,7 +2762,6 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
             }
 
-            codegen_write(ctx, "");
             codegen_indent(ctx);
             // All functions use closure env as first param for uniform calling convention
             if (import_binding) {

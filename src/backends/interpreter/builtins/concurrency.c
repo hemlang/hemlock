@@ -27,12 +27,12 @@ static void* task_thread_wrapper(void* arg) {
 
     // Bind parameters (these are deep-copied, so safe to use directly)
     for (int i = 0; i < fn->num_params && i < task->num_args; i++) {
-        Value arg = task->args[i];
+        Value param_arg = task->args[i];
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
-            arg = convert_to_type(arg, fn->param_types[i], func_env, task->ctx);
+            param_arg = convert_to_type(param_arg, fn->param_types[i], func_env, task->ctx);
         }
-        env_define(func_env, fn->param_names[i], arg, 0, task->ctx);
+        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);
     }
 
     // Execute function body

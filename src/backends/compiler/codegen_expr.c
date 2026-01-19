@@ -464,49 +464,49 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s + %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %lld%s);", result, box_func, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_SUB:
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s - %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %lld%s);", result, box_func, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_MUL:
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s * %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %lld%s);", result, box_func, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_LESS:
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %g);", result, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_LESS_EQUAL:
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %g);", result, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_GREATER:
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %g);", result, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_GREATER_EQUAL:
                             if (is_float) {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %g);", result, left_var, expr->as.binary.right->as.number.float_value);
                             } else {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %lld%s);", result, left_var, expr->as.binary.right->as.number.int_value, literal_suffix);
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         default:

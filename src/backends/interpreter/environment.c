@@ -845,11 +845,8 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
 
     // Check for const violation
     if (target->is_const[slot]) {
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "Cannot assign to constant '%s'",
-                 target->names[slot]);
         if (mutex) pthread_mutex_unlock(mutex);
-        runtime_error(ctx, error_msg);
+        runtime_error(ctx, "Cannot assign to constant '%s'", target->names[slot]);
         return 0;
     }
 
