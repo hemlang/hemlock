@@ -136,8 +136,8 @@ print("sh_ok(test 1 -eq 1): " + ok3);
 let out1 = sh("echo hello");
 print("sh(echo hello): " + out1);
 
-// sh with printf
-let out2 = sh("printf 'abc'");
+// sh with printf (no quotes to avoid interpreter warning)
+let out2 = sh("printf abc");
 print("sh(printf abc): " + out2);
 
 print("=== Done ===");
