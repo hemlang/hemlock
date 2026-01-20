@@ -1,0 +1,816 @@
+// ========================================
+// DUNGEON CRAWLER ROGUELIKE
+// A fun ASCII dungeon adventure game!
+// ========================================
+
+import { rand } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
+import {
+    RED, GREEN, YELLOW, BLUE, CYAN, MAGENTA, WHITE, RESET,
+    BOLD, BRIGHT_RED, BRIGHT_GREEN, BRIGHT_YELLOW, BRIGHT_CYAN,
+    BRIGHT_MAGENTA, BRIGHT_WHITE, BG_BLACK,
+    clear
+} from "@stdlib/terminal";
+
+// ========================================
+// GAME CONSTANTS
+// ========================================
+
+let MAP_WIDTH = 50;
+let MAP_HEIGHT = 20;
+let MAX_ROOMS = 8;
+let MIN_ROOM_SIZE = 4;
+let MAX_ROOM_SIZE = 10;
+
+// Tile types
+let WALL = "#";
+let FLOOR = ".";
+let PLAYER = "@";
+let STAIRS = ">";
+let GOLD = "$";
+let POTION = "!";
+let WEAPON = "/";
+let ARMOR = "[";
+
+// Monster types
+let MONSTERS = [
+    { symbol: "r", name: "Rat", hp: 8, attack: 2, defense: 0, exp: 5, color: "brown" },
+    { symbol: "g", name: "Goblin", hp: 15, attack: 4, defense: 1, exp: 15, color: "green" },
+    { symbol: "o", name: "Orc", hp: 25, attack: 6, defense: 2, exp: 30, color: "yellow" },
+    { symbol: "S", name: "Skeleton", hp: 20, attack: 5, defense: 3, exp: 25, color: "white" },
+    { symbol: "T", name: "Troll", hp: 40, attack: 8, defense: 4, exp: 50, color: "cyan" },
+    { symbol: "D", name: "Dragon", hp: 80, attack: 15, defense: 8, exp: 200, color: "red" }
+];
+
+// ========================================
+// GAME STATE
+// ========================================
+
+let game = {
+    map: [],
+    rooms: [],
+    monsters: [],
+    items: [],
+    messages: [],
+    dungeon_level: 1,
+    turn: 0,
+    game_over: false,
+    victory: false
+};
+
+let player = {
+    x: 0,
+    y: 0,
+    hp: 100,
+    max_hp: 100,
+    attack: 5,
+    defense: 2,
+    gold: 0,
+    exp: 0,
+    level: 1,
+    potions: 3,
+    weapon_name: "Fists",
+    armor_name: "Clothes"
+};
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+
+fn randint(max: i32): i32 {
+    let f = rand() * max;
+    let result: i32 = f;
+    return result;
+}
+
+fn randrange(min: i32, max: i32): i32 {
+    return min + randint(max - min);
+}
+
+fn abs(n: i32): i32 {
+    if (n < 0) { return -n; }
+    return n;
+}
+
+fn min(a: i32, b: i32): i32 {
+    if (a < b) { return a; }
+    return b;
+}
+
+fn max(a: i32, b: i32): i32 {
+    if (a > b) { return a; }
+    return b;
+}
+
+fn add_message(msg: string) {
+    game.messages.push(msg);
+    if (game.messages.length > 5) {
+        game.messages.shift();
+    }
+}
+
+fn get_color(color_name: string): string {
+    if (color_name == "red") { return BRIGHT_RED; }
+    if (color_name == "green") { return BRIGHT_GREEN; }
+    if (color_name == "yellow") { return BRIGHT_YELLOW; }
+    if (color_name == "cyan") { return BRIGHT_CYAN; }
+    if (color_name == "magenta") { return BRIGHT_MAGENTA; }
+    if (color_name == "white") { return BRIGHT_WHITE; }
+    if (color_name == "brown") { return YELLOW; }
+    return WHITE;
+}
+
+// ========================================
+// MAP GENERATION
+// ========================================
+
+fn init_map() {
+    game.map = [];
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+        let row = [];
+        for (let x = 0; x < MAP_WIDTH; x++) {
+            row.push(WALL);
+        }
+        game.map.push(row);
+    }
+}
+
+fn create_room(x1: i32, y1: i32, x2: i32, y2: i32) {
+    for (let y = y1; y <= y2; y++) {
+        for (let x = x1; x <= x2; x++) {
+            if (x > 0 && x < MAP_WIDTH - 1 && y > 0 && y < MAP_HEIGHT - 1) {
+                game.map[y][x] = FLOOR;
+            }
+        }
+    }
+}
+
+fn create_h_tunnel(x1: i32, x2: i32, y: i32) {
+    let start = min(x1, x2);
+    let end = max(x1, x2);
+    for (let x = start; x <= end; x++) {
+        if (x > 0 && x < MAP_WIDTH - 1 && y > 0 && y < MAP_HEIGHT - 1) {
+            game.map[y][x] = FLOOR;
+        }
+    }
+}
+
+fn create_v_tunnel(y1: i32, y2: i32, x: i32) {
+    let start = min(y1, y2);
+    let end = max(y1, y2);
+    for (let y = start; y <= end; y++) {
+        if (x > 0 && x < MAP_WIDTH - 1 && y > 0 && y < MAP_HEIGHT - 1) {
+            game.map[y][x] = FLOOR;
+        }
+    }
+}
+
+fn rooms_overlap(r1: object, r2: object): bool {
+    return r1.x1 <= r2.x2 + 1 && r1.x2 >= r2.x1 - 1 &&
+           r1.y1 <= r2.y2 + 1 && r1.y2 >= r2.y1 - 1;
+}
+
+fn generate_dungeon() {
+    init_map();
+    game.rooms = [];
+    game.monsters = [];
+    game.items = [];
+
+    let num_rooms = 0;
+    let attempts = 0;
+
+    while (num_rooms < MAX_ROOMS && attempts < 100) {
+        attempts++;
+
+        let w = randrange(MIN_ROOM_SIZE, MAX_ROOM_SIZE);
+        let h = randrange(MIN_ROOM_SIZE, MAX_ROOM_SIZE - 2);
+        let x = randrange(2, MAP_WIDTH - w - 2);
+        let y = randrange(2, MAP_HEIGHT - h - 2);
+
+        let new_room = {
+            x1: x,
+            y1: y,
+            x2: x + w,
+            y2: y + h,
+            cx: x + divi(w, 2),
+            cy: y + divi(h, 2)
+        };
+
+        let overlaps = false;
+        for (let ri = 0; ri < game.rooms.length; ri++) {
+            let room = game.rooms[ri];
+            if (room != null && rooms_overlap(new_room, room)) {
+                overlaps = true;
+                break;
+            }
+        }
+
+        if (!overlaps) {
+            create_room(new_room.x1, new_room.y1, new_room.x2, new_room.y2);
+
+            if (num_rooms > 0) {
+                let prev = game.rooms[num_rooms - 1];
+                if (randint(2) == 0) {
+                    create_h_tunnel(prev.cx, new_room.cx, prev.cy);
+                    create_v_tunnel(prev.cy, new_room.cy, new_room.cx);
+                } else {
+                    create_v_tunnel(prev.cy, new_room.cy, prev.cx);
+                    create_h_tunnel(prev.cx, new_room.cx, new_room.cy);
+                }
+            }
+
+            game.rooms.push(new_room);
+            num_rooms++;
+        }
+    }
+
+    // Place player in first room
+    if (game.rooms.length > 0) {
+        player.x = game.rooms[0].cx;
+        player.y = game.rooms[0].cy;
+    }
+
+    // Place stairs in last room
+    if (game.rooms.length > 1) {
+        let last_room = game.rooms[game.rooms.length - 1];
+        game.map[last_room.cy][last_room.cx] = STAIRS;
+    }
+
+    // Spawn monsters and items
+    spawn_monsters();
+    spawn_items();
+}
+
+fn spawn_monsters() {
+    let num_monsters = game.dungeon_level + randint(3) + 2;
+
+    for (let i = 0; i < num_monsters; i++) {
+        if (game.rooms.length <= 1) { break; }
+
+        let room_idx = randrange(1, game.rooms.length);
+        let room = game.rooms[room_idx];
+
+        let mx = randrange(room.x1 + 1, room.x2);
+        let my = randrange(room.y1 + 1, room.y2);
+
+        // Select monster based on dungeon level
+        let max_monster_type = min(game.dungeon_level, MONSTERS.length);
+        let monster_idx = randint(max_monster_type);
+        let template = MONSTERS[monster_idx];
+
+        // Scale monster stats with dungeon level
+        let level_bonus = game.dungeon_level - 1;
+
+        let monster = {
+            x: mx,
+            y: my,
+            symbol: template.symbol,
+            name: template.name,
+            hp: template.hp + level_bonus * 5,
+            max_hp: template.hp + level_bonus * 5,
+            attack: template.attack + level_bonus,
+            defense: template.defense + divi(level_bonus, 2),
+            exp: template.exp + level_bonus * 10,
+            color: template.color
+        };
+
+        game.monsters.push(monster);
+    }
+}
+
+fn spawn_items() {
+    // Spawn gold
+    let num_gold = randint(5) + 3;
+    for (let i = 0; i < num_gold; i++) {
+        if (game.rooms.length == 0) { break; }
+        let room = game.rooms[randint(game.rooms.length)];
+        let ix = randrange(room.x1 + 1, room.x2);
+        let iy = randrange(room.y1 + 1, room.y2);
+        game.items.push({ x: ix, y: iy, type: "gold", amount: randint(20) + 5 + game.dungeon_level * 5 });
+    }
+
+    // Spawn potions
+    let num_potions = randint(2) + 1;
+    for (let i = 0; i < num_potions; i++) {
+        if (game.rooms.length == 0) { break; }
+        let room = game.rooms[randint(game.rooms.length)];
+        let ix = randrange(room.x1 + 1, room.x2);
+        let iy = randrange(room.y1 + 1, room.y2);
+        game.items.push({ x: ix, y: iy, type: "potion", amount: 25 + game.dungeon_level * 5 });
+    }
+
+    // Spawn weapon (rare)
+    if (randint(100) < 30 + game.dungeon_level * 5) {
+        if (game.rooms.length > 0) {
+            let room = game.rooms[randint(game.rooms.length)];
+            let bonus = randint(3) + game.dungeon_level;
+            let names = ["Dagger", "Sword", "Axe", "Mace", "Spear"];
+            game.items.push({
+                x: randrange(room.x1 + 1, room.x2),
+                y: randrange(room.y1 + 1, room.y2),
+                type: "weapon",
+                bonus: bonus,
+                name: names[randint(names.length)] + " +" + bonus
+            });
+        }
+    }
+
+    // Spawn armor (rare)
+    if (randint(100) < 25 + game.dungeon_level * 5) {
+        if (game.rooms.length > 0) {
+            let room = game.rooms[randint(game.rooms.length)];
+            let bonus = randint(2) + divi(game.dungeon_level, 2);
+            let names = ["Leather", "Chain", "Plate", "Dragon"];
+            game.items.push({
+                x: randrange(room.x1 + 1, room.x2),
+                y: randrange(room.y1 + 1, room.y2),
+                type: "armor",
+                bonus: bonus,
+                name: names[min(bonus, names.length - 1)] + " Armor +" + bonus
+            });
+        }
+    }
+}
+
+// ========================================
+// RENDERING
+// ========================================
+
+fn render_map() {
+    clear();
+
+    // Title bar
+    print(BOLD + BRIGHT_CYAN + "=== DUNGEON CRAWLER ===" + RESET + "  Level: " + BRIGHT_YELLOW + game.dungeon_level + RESET + "  Turn: " + game.turn);
+    print("");
+
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+        let row = game.map[y];
+        if (row == null) { continue; }
+
+        let line = "";
+        for (let x = 0; x < MAP_WIDTH; x++) {
+            let tile = row[x];
+            if (tile == null) { tile = WALL; }
+
+            let ch = tile;
+            let color = "";
+
+            // Check for player
+            if (x == player.x && y == player.y) {
+                ch = PLAYER;
+                color = BOLD + BRIGHT_GREEN;
+            } else {
+                // Check for monsters
+                let found_monster = false;
+                let mlen = game.monsters.length;
+                for (let mi = 0; mi < mlen; mi++) {
+                    let monster = game.monsters[mi];
+                    if (monster != null && typeof(monster) == "object" && monster.x == x && monster.y == y) {
+                        ch = monster.symbol;
+                        color = BOLD + get_color(monster.color);
+                        found_monster = true;
+                        break;
+                    }
+                }
+
+                // Check for items
+                if (!found_monster) {
+                    let ilen = game.items.length;
+                    for (let ii = 0; ii < ilen; ii++) {
+                        let item = game.items[ii];
+                        if (item != null && typeof(item) == "object" && item.x == x && item.y == y) {
+                            if (item.type == "gold") {
+                                ch = GOLD;
+                                color = BRIGHT_YELLOW;
+                            } else if (item.type == "potion") {
+                                ch = POTION;
+                                color = BRIGHT_MAGENTA;
+                            } else if (item.type == "weapon") {
+                                ch = WEAPON;
+                                color = BRIGHT_CYAN;
+                            } else if (item.type == "armor") {
+                                ch = ARMOR;
+                                color = BLUE;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Apply tile colors
+                if (color == "") {
+                    if (tile == WALL) {
+                        color = CYAN;
+                    } else if (tile == STAIRS) {
+                        color = BOLD + BRIGHT_WHITE;
+                    }
+                }
+            }
+
+            if (color != "") {
+                line = line + color + ch + RESET;
+            } else {
+                line = line + ch;
+            }
+        }
+        print(line);
+    }
+
+    print("");
+
+    // Status bar
+    let hp_color = BRIGHT_GREEN;
+    if (player.hp < player.max_hp / 3) { hp_color = BRIGHT_RED; }
+    else if (player.hp < player.max_hp * 2 / 3) { hp_color = BRIGHT_YELLOW; }
+
+    print(BOLD + "HP: " + hp_color + player.hp + "/" + player.max_hp + RESET +
+          "  " + BOLD + "ATK: " + RESET + player.attack +
+          "  " + BOLD + "DEF: " + RESET + player.defense +
+          "  " + BOLD + BRIGHT_YELLOW + "Gold: " + RESET + player.gold +
+          "  " + BOLD + "Lvl: " + RESET + player.level +
+          "  " + BOLD + "Exp: " + RESET + player.exp +
+          "  " + BOLD + BRIGHT_MAGENTA + "Potions: " + RESET + player.potions);
+
+    print(BOLD + "Weapon: " + RESET + BRIGHT_CYAN + player.weapon_name + RESET +
+          "  " + BOLD + "Armor: " + RESET + BLUE + player.armor_name + RESET);
+
+    print("");
+
+    // Messages
+    for (let mi = 0; mi < game.messages.length; mi++) {
+        let msg = game.messages[mi];
+        if (msg != null) {
+            print("  " + msg);
+        }
+    }
+
+    print("");
+    print(BOLD + "Commands:" + RESET + " [W/A/S/D] Move  [P] Drink Potion  [>] Descend Stairs  [Q] Quit");
+}
+
+// ========================================
+// GAME LOGIC
+// ========================================
+
+fn get_monster_at(x: i32, y: i32) {
+    if (typeof(game.monsters) != "array") {
+        return null;
+    }
+    let len = game.monsters.length;
+    for (let i = 0; i < len; i++) {
+        let monster = game.monsters[i];
+        if (monster != null && typeof(monster) == "object") {
+            if (monster.x == x && monster.y == y) {
+                return monster;
+            }
+        }
+    }
+    return null;
+}
+
+fn remove_monster(monster: object) {
+    if (typeof(game.monsters) != "array") {
+        return;
+    }
+    let new_monsters = [];
+    let len = game.monsters.length;
+    for (let i = 0; i < len; i++) {
+        let m = game.monsters[i];
+        if (m != null && typeof(m) == "object") {
+            if (m.x != monster.x || m.y != monster.y) {
+                new_monsters.push(m);
+            }
+        }
+    }
+    game.monsters = new_monsters;
+}
+
+fn get_item_at(x: i32, y: i32) {
+    if (typeof(game.items) != "array") {
+        return null;
+    }
+    let len = game.items.length;
+    for (let i = 0; i < len; i++) {
+        let item = game.items[i];
+        if (item != null && typeof(item) == "object") {
+            if (item.x == x && item.y == y) {
+                return item;
+            }
+        }
+    }
+    return null;
+}
+
+fn remove_item(item: object) {
+    if (typeof(game.items) != "array") {
+        return;
+    }
+    let new_items = [];
+    let len = game.items.length;
+    for (let i = 0; i < len; i++) {
+        let it = game.items[i];
+        if (it != null && typeof(it) == "object") {
+            if (it.x != item.x || it.y != item.y) {
+                new_items.push(it);
+            }
+        }
+    }
+    game.items = new_items;
+}
+
+fn attack_monster(monster: object) {
+    let damage = max(1, player.attack - monster.defense + randint(3) - 1);
+    monster.hp = monster.hp - damage;
+
+    add_message(BRIGHT_GREEN + "You hit the " + monster.name + " for " + BRIGHT_RED + damage + RESET + " damage!");
+
+    if (monster.hp <= 0) {
+        add_message(BRIGHT_YELLOW + "You defeated the " + monster.name + "! +" + monster.exp + " exp" + RESET);
+        player.exp = player.exp + monster.exp;
+        remove_monster(monster);
+        check_level_up();
+    }
+}
+
+fn monster_attack(monster: object) {
+    let damage = max(1, monster.attack - player.defense + randint(3) - 1);
+    player.hp = player.hp - damage;
+
+    add_message(BRIGHT_RED + "The " + monster.name + " hits you for " + damage + " damage!" + RESET);
+
+    if (player.hp <= 0) {
+        game.game_over = true;
+        add_message(BOLD + BRIGHT_RED + "YOU DIED!" + RESET);
+    }
+}
+
+fn check_level_up() {
+    let exp_needed = player.level * 50;
+    while (player.exp >= exp_needed) {
+        player.level++;
+        player.exp = player.exp - exp_needed;
+        player.max_hp = player.max_hp + 10;
+        player.hp = player.max_hp;
+        player.attack = player.attack + 2;
+        player.defense = player.defense + 1;
+        add_message(BOLD + BRIGHT_YELLOW + "LEVEL UP! You are now level " + player.level + "!" + RESET);
+        exp_needed = player.level * 50;
+    }
+}
+
+fn pickup_item(item: object) {
+    if (item.type == "gold") {
+        player.gold = player.gold + item.amount;
+        add_message(BRIGHT_YELLOW + "You picked up " + item.amount + " gold!" + RESET);
+    } else if (item.type == "potion") {
+        player.potions = player.potions + 1;
+        add_message(BRIGHT_MAGENTA + "You found a healing potion!" + RESET);
+    } else if (item.type == "weapon") {
+        player.attack = player.attack + item.bonus;
+        player.weapon_name = item.name;
+        add_message(BRIGHT_CYAN + "You equipped " + item.name + "!" + RESET);
+    } else if (item.type == "armor") {
+        player.defense = player.defense + item.bonus;
+        player.armor_name = item.name;
+        add_message(BLUE + "You equipped " + item.name + "!" + RESET);
+    }
+    remove_item(item);
+}
+
+fn use_potion() {
+    if (player.potions > 0) {
+        player.potions = player.potions - 1;
+        let heal = 30 + player.level * 5;
+        player.hp = min(player.max_hp, player.hp + heal);
+        add_message(BRIGHT_MAGENTA + "You drink a potion and heal " + heal + " HP!" + RESET);
+    } else {
+        add_message(RED + "You don't have any potions!" + RESET);
+    }
+}
+
+fn descend_stairs() {
+    if (game.map[player.y][player.x] == STAIRS) {
+        game.dungeon_level++;
+        if (game.dungeon_level > 10) {
+            game.victory = true;
+            game.game_over = true;
+            add_message(BOLD + BRIGHT_YELLOW + "YOU ESCAPED THE DUNGEON! VICTORY!" + RESET);
+        } else {
+            add_message(BRIGHT_CYAN + "You descend to level " + game.dungeon_level + "..." + RESET);
+            generate_dungeon();
+        }
+    } else {
+        add_message("There are no stairs here.");
+    }
+}
+
+fn move_player(dx: i32, dy: i32) {
+    let new_x = player.x + dx;
+    let new_y = player.y + dy;
+
+    // Bounds check
+    if (new_x < 0 || new_x >= MAP_WIDTH || new_y < 0 || new_y >= MAP_HEIGHT) {
+        return;
+    }
+
+    // Wall check - with safety
+    let row = game.map[new_y];
+    if (row == null) { return; }
+    let tile = row[new_x];
+    if (tile == WALL) {
+        return;
+    }
+
+    // Monster check
+    let monster = get_monster_at(new_x, new_y);
+    if (monster != null) {
+        attack_monster(monster);
+        game.turn++;
+        return;
+    }
+
+    // Move player
+    player.x = new_x;
+    player.y = new_y;
+    game.turn++;
+
+    // Item check
+    let item = get_item_at(player.x, player.y);
+    if (item != null) {
+        pickup_item(item);
+    }
+}
+
+fn update_monsters() {
+    if (typeof(game.monsters) != "array") { return; }
+    let mlen = game.monsters.length;
+    for (let mi = 0; mi < mlen; mi++) {
+        let monster = game.monsters[mi];
+        if (monster == null || typeof(monster) != "object") { continue; }
+
+        // Simple AI: move towards player if nearby
+        let dx = player.x - monster.x;
+        let dy = player.y - monster.y;
+        let dist = abs(dx) + abs(dy);
+
+        if (dist <= 1) {
+            // Adjacent - attack!
+            monster_attack(monster);
+        } else if (dist < 10) {
+            // Chase player
+            let move_x = 0;
+            let move_y = 0;
+
+            if (abs(dx) > abs(dy)) {
+                if (dx > 0) { move_x = 1; } else { move_x = -1; }
+            } else {
+                if (dy > 0) { move_y = 1; } else { move_y = -1; }
+            }
+
+            let new_x = monster.x + move_x;
+            let new_y = monster.y + move_y;
+
+            // Check if move is valid
+            if (new_x > 0 && new_x < MAP_WIDTH - 1 && new_y > 0 && new_y < MAP_HEIGHT - 1) {
+                let row = game.map[new_y];
+                if (row != null && row[new_x] != WALL) {
+                    // Check for other monsters
+                    let blocked = false;
+                    for (let oi = 0; oi < mlen; oi++) {
+                        let other = game.monsters[oi];
+                        if (other != null && typeof(other) == "object" && other.x == new_x && other.y == new_y) {
+                            blocked = true;
+                            break;
+                        }
+                    }
+                    if (!blocked && !(new_x == player.x && new_y == player.y)) {
+                        monster.x = new_x;
+                        monster.y = new_y;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn process_input(input: string): bool {
+    let lower = input.to_lower().trim();
+
+    if (lower == "q" || lower == "quit") {
+        return false;
+    }
+
+    if (lower == "w" || lower == "up") {
+        move_player(0, -1);
+    } else if (lower == "s" || lower == "down") {
+        move_player(0, 1);
+    } else if (lower == "a" || lower == "left") {
+        move_player(-1, 0);
+    } else if (lower == "d" || lower == "right") {
+        move_player(1, 0);
+    } else if (lower == "p" || lower == "potion") {
+        use_potion();
+        game.turn++;
+    } else if (lower == ">" || lower == "descend") {
+        descend_stairs();
+    }
+
+    // Monsters act after player
+    if (!game.game_over) {
+        update_monsters();
+    }
+
+    return true;
+}
+
+// ========================================
+// MAIN GAME LOOP
+// ========================================
+
+fn show_title() {
+    clear();
+    print("");
+    print(BOLD + BRIGHT_CYAN + "  ____  _   _ _   _  ____ _____ ___  _   _");
+    print(" |  _ \\| | | | \\ | |/ ___| ____/ _ \\| \\ | |");
+    print(" | | | | | | |  \\| | |  _|  _|| | | |  \\| |");
+    print(" | |_| | |_| | |\\  | |_| | |__| |_| | |\\  |");
+    print(" |____/ \\___/|_| \\_|\\____|_____\\___/|_| \\_|");
+    print("");
+    print("   ____ ____      ___        ___     _____ ____  " + RESET);
+    print(BOLD + BRIGHT_YELLOW + "  / ___|  _ \\    / \\ \\      / / |   | ____|  _ \\ ");
+    print(" | |   | |_) |  / _ \\ \\ /\\ / /| |   |  _| | |_) |");
+    print(" | |___|  _ <  / ___ \\ V  V / | |___| |___|  _ < ");
+    print("  \\____|_| \\_\\/_/   \\_\\_/\\_/  |_____|_____|_| \\_\\" + RESET);
+    print("");
+    print(BOLD + WHITE + "        A Roguelike Adventure in Hemlock" + RESET);
+    print("");
+    print("  " + BRIGHT_GREEN + "@" + RESET + " = You    " + BRIGHT_RED + "r" + RESET + " = Rat    " + BRIGHT_YELLOW + "$" + RESET + " = Gold    " + BRIGHT_MAGENTA + "!" + RESET + " = Potion");
+    print("  " + CYAN + "#" + RESET + " = Wall   " + BRIGHT_GREEN + "g" + RESET + " = Goblin " + BRIGHT_CYAN + "/" + RESET + " = Weapon  " + BLUE + "[" + RESET + " = Armor");
+    print("  " + WHITE + ">" + RESET + " = Stairs " + BRIGHT_YELLOW + "o" + RESET + " = Orc    " + BRIGHT_WHITE + "S" + RESET + " = Skeleton");
+    print("");
+    print("  " + BOLD + "Goal:" + RESET + " Reach dungeon level 10 and escape!");
+    print("");
+    print("  Controls:");
+    print("    " + BOLD + "W/A/S/D" + RESET + " - Move up/left/down/right");
+    print("    " + BOLD + "P" + RESET + "       - Drink a healing potion");
+    print("    " + BOLD + ">" + RESET + "       - Descend stairs to next level");
+    print("    " + BOLD + "Q" + RESET + "       - Quit game");
+    print("");
+    print("  " + BRIGHT_YELLOW + "Press ENTER to begin your adventure..." + RESET);
+    read_line();
+}
+
+fn show_game_over() {
+    print("");
+    if (game.victory) {
+        print(BOLD + BRIGHT_YELLOW + "========================================");
+        print("          CONGRATULATIONS!");
+        print("========================================" + RESET);
+        print("");
+        print("  You escaped the dungeon with:");
+        print("    " + BRIGHT_YELLOW + player.gold + " gold" + RESET);
+        print("    Level " + player.level + " hero");
+        print("    " + game.turn + " turns taken");
+        print("");
+        print(BRIGHT_GREEN + "  You are a TRUE DUNGEON MASTER!" + RESET);
+    } else {
+        print(BOLD + BRIGHT_RED + "========================================");
+        print("            GAME OVER");
+        print("========================================" + RESET);
+        print("");
+        print("  You died on dungeon level " + game.dungeon_level);
+        print("  Gold collected: " + BRIGHT_YELLOW + player.gold + RESET);
+        print("  Hero level: " + player.level);
+        print("  Turns survived: " + game.turn);
+        print("");
+        print(CYAN + "  Better luck next time, adventurer..." + RESET);
+    }
+    print("");
+}
+
+fn main() {
+    show_title();
+
+    add_message("Welcome to the dungeon! Find the stairs (>) to descend.");
+    add_message("Defeat monsters, collect loot, and escape!");
+
+    generate_dungeon();
+
+    while (!game.game_over) {
+        render_map();
+
+        let input = read_line();
+        if (input == null) {
+            break;
+        }
+
+        if (!process_input(input)) {
+            break;
+        }
+    }
+
+    render_map();
+    show_game_over();
+}
+
+main();
