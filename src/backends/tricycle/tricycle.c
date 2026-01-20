@@ -668,8 +668,10 @@ int tricycle_is_ptr_expr(TricycleContext *ctx, Expr *expr) {
     // If we have type context, use it
     if (ctx->type_ctx) {
         CheckedType *type = type_check_infer_expr(ctx->type_ctx, expr);
-        if (type && (type->kind == CHECKED_PTR || type->kind == CHECKED_BUFFER)) {
-            return 1;
+        if (type) {
+            int is_ptr = (type->kind == CHECKED_PTR || type->kind == CHECKED_BUFFER);
+            checked_type_free(type);
+            return is_ptr;
         }
     }
 
