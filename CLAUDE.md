@@ -531,7 +531,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (40 modules)
+## Standard Library (41 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -577,6 +577,7 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 | `sqlite` | SQLite database, query, exec, transactions |
 | `strings` | pad_left, is_alpha, reverse, lines |
 | `terminal` | ANSI colors and styles |
+| `termios` | Raw terminal input, key detection |
 | `testing` | describe, test, expect |
 | `time` | now, time_ms, sleep, clock |
 | `toml` | TOML parsing and generation |
@@ -676,7 +677,7 @@ hemlock/
 │   │   ├── lsp/          # Language Server Protocol
 │   │   └── bundler/      # Bundle/package tools
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
-├── stdlib/               # Standard library (40 modules)
+├── stdlib/               # Standard library (41 modules)
 │   └── docs/             # Module documentation
 ├── docs/                 # Full documentation
 │   ├── language-guide/   # Types, strings, arrays, etc.
@@ -886,7 +887,13 @@ make parity
 
 ## Version
 
-**v1.8.2** - Current release with:
+**v1.8.3** - Current release with:
+- **`@stdlib/termios` module** - Cross-platform raw terminal input (Linux/macOS):
+  - `enable_raw_mode()` / `disable_raw_mode()` for instant keypresses
+  - `read_key()` / `read_key_timeout(ms)` for single keypress reading
+  - Arrow keys, function keys, control keys detection
+  - `is_terminal()` to check if stdin is a TTY
+  - Documentation at `stdlib/docs/termios.md`
 - **Memory leak prevention** - Comprehensive fixes ensuring the runtime is leak-free:
   - Exception-safe expression evaluation (arrays, objects, function calls)
   - Task result proper retain/release on join()
@@ -943,7 +950,7 @@ make parity
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 40 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell)
+- 41 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, termios)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
 - FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)
