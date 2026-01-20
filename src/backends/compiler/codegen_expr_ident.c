@@ -232,6 +232,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getegid, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec") == 0 || strcmp(expr->as.ident.name, "exec") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0 || strcmp(expr->as.ident.name, "exec_argv") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
     // Handle process functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__kill") == 0 || strcmp(expr->as.ident.name, "kill") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_kill, 2, 2, 0);", result);
