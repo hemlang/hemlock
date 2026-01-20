@@ -837,7 +837,7 @@ TRICYCLE_TARGET = tricycle
 tricycle: $(BUILD_DIRS) build-tricycle
 
 build-tricycle: $(TRICYCLE_OBJS) $(LIBCOMMON)
-	$(CC) $(TRICYCLE_OBJS) $(LIBCOMMON) -o $(TRICYCLE_TARGET) -lm
+	$(CC) $(TRICYCLE_OBJS) $(LIBCOMMON) -o $(TRICYCLE_TARGET) -lm $(EXTRA_LDFLAGS)
 
 $(BUILD_DIR)/backends/tricycle/%.o: $(SRC_DIR)/backends/tricycle/%.c | $(BUILD_DIRS)
 	$(CC) $(CFLAGS) -c $< -o $@
