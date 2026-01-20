@@ -1,0 +1,143 @@
+// Parity test for @stdlib/shell module (new functions: range, expand, char_range)
+import { range, char_range, expand, sh, sh_ok, last_exit } from "@stdlib/shell";
+
+// ============================================================================
+// Test range() function
+// ============================================================================
+print("=== range() tests ===");
+
+// Basic ascending range
+let r1 = range(1, 5);
+print("range(1,5): " + r1.join(","));
+
+// Descending range (auto-detects)
+let r2 = range(5, 1);
+print("range(5,1): " + r2.join(","));
+
+// With step
+let r3 = range(0, 10, 2);
+print("range(0,10,2): " + r3.join(","));
+
+// Negative step
+let r4 = range(10, 0, -2);
+print("range(10,0,-2): " + r4.join(","));
+
+// Single element
+let r5 = range(5, 5);
+print("range(5,5): " + r5.join(","));
+
+// Empty range (invalid direction)
+let r6 = range(5, 1, 1);
+print("range(5,1,1) empty: " + r6.length);
+
+// Negative numbers
+let r7 = range(-3, 3);
+print("range(-3,3): " + r7.join(","));
+
+// ============================================================================
+// Test char_range() function
+// ============================================================================
+print("=== char_range() tests ===");
+
+// Lowercase letters
+let c1 = char_range('a', 'f');
+print("char_range(a,f): " + c1.join(","));
+
+// Uppercase letters
+let c2 = char_range('A', 'D');
+print("char_range(A,D): " + c2.join(","));
+
+// Reverse range
+let c3 = char_range('z', 'w');
+print("char_range(z,w): " + c3.join(","));
+
+// Digits
+let c4 = char_range('0', '5');
+print("char_range(0,5): " + c4.join(","));
+
+// Single character
+let c5 = char_range('x', 'x');
+print("char_range(x,x): " + c5.join(","));
+
+// ============================================================================
+// Test expand() function
+// ============================================================================
+print("=== expand() tests ===");
+
+// Simple list
+let e1 = expand("{a,b,c}");
+print("expand {a,b,c}: " + e1.join(","));
+
+// Numeric range
+let e2 = expand("{1..5}");
+print("expand {1..5}: " + e2.join(","));
+
+// Reverse numeric range
+let e3 = expand("{5..1}");
+print("expand {5..1}: " + e3.join(","));
+
+// Character range
+let e4 = expand("{a..e}");
+print("expand {a..e}: " + e4.join(","));
+
+// With prefix and suffix
+let e5 = expand("file{1..3}.txt");
+print("expand file{1..3}.txt: " + e5.join(","));
+
+// List with prefix/suffix
+let e6 = expand("test_{a,b,c}.log");
+print("expand test_{a,b,c}.log: " + e6.join(","));
+
+// Multiple braces (cartesian product)
+let e7 = expand("{a,b}{1,2}");
+print("expand {a,b}{1,2}: " + e7.join(","));
+
+// Zero-padded range
+let e8 = expand("{01..05}");
+print("expand {01..05}: " + e8.join(","));
+
+// Range with step
+let e9 = expand("{1..10..2}");
+print("expand {1..10..2}: " + e9.join(","));
+
+// No braces (unchanged)
+let e10 = expand("plain");
+print("expand plain: " + e10.join(","));
+
+// Empty braces content
+let e11 = expand("{}");
+print("expand {}: " + e11.join(","));
+
+// Complex example
+let e12 = expand("server{01..03}.local");
+print("expand server{01..03}.local: " + e12.join(","));
+
+// ============================================================================
+// Test sh() and sh_ok()
+// ============================================================================
+print("=== sh()/sh_ok() tests ===");
+
+// sh_ok with true command
+let ok1 = sh_ok("true");
+print("sh_ok(true): " + ok1);
+
+// sh_ok with false command
+let ok2 = sh_ok("false");
+print("sh_ok(false): " + ok2);
+
+// last_exit after false
+print("last_exit after false: " + last_exit());
+
+// sh_ok with test
+let ok3 = sh_ok("test 1 -eq 1");
+print("sh_ok(test 1 -eq 1): " + ok3);
+
+// sh with echo (basic)
+let out1 = sh("echo hello");
+print("sh(echo hello): " + out1);
+
+// sh with printf
+let out2 = sh("printf 'abc'");
+print("sh(printf abc): " + out2);
+
+print("=== Done ===");
