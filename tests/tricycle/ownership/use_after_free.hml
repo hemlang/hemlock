@@ -1,0 +1,6 @@
+// Test: Use after free detection
+// This should report a TRIC002 error
+
+let p = alloc(64);
+free(p);
+ptr_write_i32(p, 42);  // ERROR: use after free

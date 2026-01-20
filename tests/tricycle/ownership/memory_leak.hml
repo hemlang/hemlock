@@ -1,0 +1,9 @@
+// Test: Memory leak detection
+// This should report a TRIC004 warning
+
+fn leaky() {
+    let p = alloc(64);
+    // ERROR: p is never freed
+}
+
+leaky();

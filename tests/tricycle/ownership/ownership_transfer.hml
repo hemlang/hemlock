@@ -1,0 +1,7 @@
+// Test: Valid ownership transfer
+// This should NOT report any errors
+
+let p: ptr = alloc(64);
+let q = p;  // Ownership transfers to q
+ptr_write_i32(q, 42);
+free(q);

@@ -114,6 +114,7 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/backends/interpreter/runtime \
              $(BUILD_DIR)/backends/interpreter/profiler \
              $(BUILD_DIR)/backends/compiler \
+             $(BUILD_DIR)/backends/tricycle \
              $(BUILD_DIR)/tools \
              $(BUILD_DIR)/tools/lsp \
              $(BUILD_DIR)/tools/bundler \
@@ -816,3 +817,38 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
 	rm -rf $(DESTDIR)$(LIBDIR)
 	@echo "✓ Hemlock uninstalled"
+
+# ========== TRICYCLE MEMORY SAFETY CHECKER ==========
+
+# Tricycle source files
+TRICYCLE_SRCS = $(SRC_DIR)/backends/tricycle/main.c \
+                $(SRC_DIR)/backends/tricycle/tricycle.c \
+                $(SRC_DIR)/backends/tricycle/ownership.c
+
+TRICYCLE_OBJS = $(BUILD_DIR)/backends/tricycle/main.o \
+                $(BUILD_DIR)/backends/tricycle/tricycle.o \
+                $(BUILD_DIR)/backends/tricycle/ownership.o
+
+TRICYCLE_TARGET = tricycle
+
+.PHONY: build-tricycle tricycle-clean test-tricycle
+
+# Build tricycle - use build-tricycle target to avoid circular dependency
+tricycle: $(BUILD_DIRS) build-tricycle
+
+build-tricycle: $(TRICYCLE_OBJS) $(LIBCOMMON)
+	$(CC) $(TRICYCLE_OBJS) $(LIBCOMMON) -o $(TRICYCLE_TARGET) -lm
+
+$(BUILD_DIR)/backends/tricycle/%.o: $(SRC_DIR)/backends/tricycle/%.c | $(BUILD_DIRS)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+tricycle-clean:
+	rm -f $(TRICYCLE_TARGET) $(TRICYCLE_OBJS)
+
+# Run tricycle test suite
+test-tricycle: tricycle
+	@echo "Running Tricycle memory safety tests..."
+	@bash tests/tricycle/run_tricycle_tests.sh
+
+# Add tricycle to full clean
+fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean tricycle-clean
