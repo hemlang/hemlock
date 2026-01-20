@@ -225,6 +225,53 @@ if (result2.exit_code == 0) {
 
 **Exceptions:** Throws if command cannot be executed.
 
+### `exec_argv(argv: array<string>): object`
+
+Execute a command without shell interpretation. This is the safe alternative to `exec()` that prevents shell injection attacks and properly captures both stdout and stderr.
+
+**Parameters:**
+- `argv` - Array of strings: `["command", "arg1", "arg2", ...]`
+
+**Returns:** Object with fields:
+- `output` (string) - Command's stdout
+- `stderr` (string) - Command's stderr (properly captured!)
+- `exit_code` (i32) - Command's exit status
+
+```hemlock
+// Basic usage
+let result = exec_argv(["ls", "-la", "/tmp"]);
+print(result.output);      // stdout
+print(result.stderr);      // stderr (empty for ls)
+print(result.exit_code);   // 0
+
+// Command with stderr output
+let result2 = exec_argv(["sh", "-c", "echo out; echo err >&2"]);
+print(result2.output);     // "out\n"
+print(result2.stderr);     // "err\n"
+
+// Shell injection is prevented
+let user_input = "file.txt; rm -rf /";
+let result3 = exec_argv(["cat", user_input]);
+// This safely tries to cat a file literally named "file.txt; rm -rf /"
+// No shell interpretation occurs
+```
+
+**Key differences from `exec()`:**
+| Feature | `exec()` | `exec_argv()` |
+|---------|----------|---------------|
+| Shell interpretation | Yes | No |
+| Stderr capture | No (goes to terminal) | Yes (in `stderr` field) |
+| Shell injection risk | Yes | No |
+| Pipes/redirects | Supported | Not supported (use array elements) |
+| Glob expansion | Supported | Not supported |
+
+**When to use `exec_argv()`:**
+- User-provided arguments (prevents injection)
+- Need to capture stderr separately
+- Running commands with arguments containing special characters
+
+**Exceptions:** Throws if command cannot be found or executed.
+
 ## Usage Patterns
 
 ### Check if process exists

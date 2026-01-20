@@ -20,3 +20,8 @@ export let waitpid = __waitpid;
 
 // Command execution
 export let exec = __exec;
+
+// Safe command execution (no shell, captures stderr)
+// Takes array of strings: ["command", "arg1", "arg2", ...]
+// Returns: { output: string, stderr: string, exit_code: i32 }
+export let exec_argv = __exec_argv;

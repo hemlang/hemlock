@@ -1,0 +1,56 @@
+// Test: stdlib/shell safe execution functions
+// Tests exec_safe, run_capture_safe, run_output_safe, run_safe
+// These functions use exec_argv internally for proper stderr capture
+
+import { exec_safe, run_capture_safe, run_output_safe, run_safe } from "@stdlib/shell";
+
+// Test 1: exec_safe basic usage
+print("=== exec_safe ===");
+let result1 = exec_safe(["echo", "hello", "world"]);
+print("exit_code: " + result1.exit_code);
+print("output: " + result1.output.trim());
+print("stderr empty: " + (result1.stderr == ""));
+
+// Test 2: exec_safe with stderr output
+print("=== exec_safe with stderr ===");
+let result2 = exec_safe(["sh", "-c", "echo stdout; echo stderr >&2"]);
+print("exit_code: " + result2.exit_code);
+print("stdout: " + result2.output.trim());
+print("stderr: " + result2.stderr.trim());
+
+// Test 3: exec_safe with failing command
+print("=== exec_safe failing ===");
+let result3 = exec_safe(["sh", "-c", "exit 42"]);
+print("exit_code: " + result3.exit_code);
+
+// Test 4: run_capture_safe
+print("=== run_capture_safe ===");
+let result4 = run_capture_safe(["echo", "test"]);
+print("success: " + result4.success);
+print("stdout: " + result4.stdout.trim());
+print("code: " + result4.code);
+
+// Test 5: run_capture_safe with stderr
+print("=== run_capture_safe with stderr ===");
+let result5 = run_capture_safe(["sh", "-c", "echo out; echo err >&2; exit 1"]);
+print("success: " + result5.success);
+print("stdout: " + result5.stdout.trim());
+print("stderr: " + result5.stderr.trim());
+print("code: " + result5.code);
+
+// Test 6: run_output_safe
+print("=== run_output_safe ===");
+let output = run_output_safe(["echo", "hello"]);
+print("output: " + output.trim());
+
+// Test 7: run_safe
+print("=== run_safe ===");
+let success1 = run_safe(["true"]);
+let success2 = run_safe(["false"]);
+print("true exits 0: " + success1);
+print("false exits 1: " + !success2);
+
+// Test 8: Arguments with spaces (shell injection protection)
+print("=== shell injection protection ===");
+let result8 = exec_safe(["echo", "hello; rm -rf /"]);
+print("safe output: " + result8.output.trim());

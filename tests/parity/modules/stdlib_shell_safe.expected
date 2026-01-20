@@ -1,0 +1,26 @@
+=== exec_safe ===
+exit_code: 0
+output: hello world
+stderr empty: true
+=== exec_safe with stderr ===
+exit_code: 0
+stdout: stdout
+stderr: stderr
+=== exec_safe failing ===
+exit_code: 42
+=== run_capture_safe ===
+success: true
+stdout: test
+code: 0
+=== run_capture_safe with stderr ===
+success: false
+stdout: out
+stderr: err
+code: 1
+=== run_output_safe ===
+output: hello
+=== run_safe ===
+true exits 0: true
+false exits 1: true
+=== shell injection protection ===
+safe output: hello; rm -rf /

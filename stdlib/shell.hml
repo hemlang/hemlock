@@ -500,3 +500,85 @@ fn getenv(name: string) {
 fn setenv(name: string, value: string) {
 	__setenv(name, value);
 }
+
+// ============================================================================
+// Safe Command Execution (No Shell Injection)
+// ============================================================================
+
+// Execute command safely without shell interpretation
+// This uses fork/execvp directly, preventing shell injection attacks.
+// Stderr is captured separately from stdout.
+//
+// Parameters:
+// argv: array<string> - Command and arguments (e.g., ["git", "status"])
+// Returns: object - { output: string, stderr: string, exit_code: i32 }
+//
+// Example:
+//   let result = exec_safe(["ls", "-la", "/tmp"]);
+//   print(result.output);     // stdout
+//   print(result.stderr);     // stderr (properly captured!)
+//   print(result.exit_code);  // 0 on success
+export fn exec_safe(argv: array): object {
+	if (typeof(argv) != "array") {
+		throw "exec_safe() requires array argument";
+	}
+	if (argv.length == 0) {
+		throw "exec_safe() requires at least one element (the command)";
+	}
+	return __exec_argv(argv);
+}
+
+// Run a command safely and return structured result with proper stderr capture
+// Parameters:
+// argv: array<string> - Command and arguments
+// Returns: object - { success: bool, stdout: string, stderr: string, code: i32 }
+//
+// Example:
+//   let result = run_capture_safe(["git", "commit", "-m", "message"]);
+//   if (!result.success) {
+//       print("Error: " + result.stderr);
+//   }
+export fn run_capture_safe(argv: array): object {
+	if (typeof(argv) != "array") {
+		throw "run_capture_safe() requires array argument";
+	}
+	if (argv.length == 0) {
+		throw "run_capture_safe() requires at least one element";
+	}
+	try {
+		let result = __exec_argv(argv);
+		return {
+			success: result.exit_code == 0,
+			stdout: result.output,
+			stderr: result.stderr,
+			code: result.exit_code,
+		};
+	} catch (e) {
+		return { success: false, stdout: "", stderr: "" + e, code: -1 };
+	}
+}
+
+// Run a command safely and return stdout, or throw on failure
+// Parameters:
+// argv: array<string> - Command and arguments
+// Returns: string - Stdout output
+export fn run_output_safe(argv: array): string {
+	let result = run_capture_safe(argv);
+	if (!result.success) {
+		let error_msg = result.stderr;
+		if (error_msg == "") {
+			error_msg = "Command failed with code " + result.code;
+		}
+		throw error_msg;
+	}
+	return result.stdout;
+}
+
+// Run a command safely and return success status
+// Parameters:
+// argv: array<string> - Command and arguments
+// Returns: bool - True if command succeeded (exit code 0)
+export fn run_safe(argv: array): bool {
+	let result = run_capture_safe(argv);
+	return result.success;
+}
