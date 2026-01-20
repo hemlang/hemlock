@@ -1,0 +1,509 @@
+// Lego Loco - A train town building game
+// Inspired by the classic 1998 LEGO game
+//
+// Controls:
+//   WASD: Move cursor
+//   1-6, 7-0, -: Place track pieces
+//   B: Place building (cycles through types)
+//   T: Place/remove train
+//   SPACE: Start/stop simulation
+//   C: Clear tile
+//   R: Reset world
+//   Q: Quit
+
+import { sleep, time_ms } from "@stdlib/time";
+import {
+    CYAN, YELLOW, GREEN, RED, MAGENTA, WHITE, RESET,
+    BG_WHITE, BLACK, BOLD,
+    CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR,
+    move_to
+} from "@stdlib/terminal";
+
+// === CONSTANTS ===
+
+let WORLD_WIDTH = 40;
+let WORLD_HEIGHT = 16;
+let TICK_MS = 200;
+
+// Tile types
+let EMPTY = 0;
+let TRACK_H = 1;      // ═ horizontal
+let TRACK_V = 2;      // ║ vertical
+let TRACK_TL = 3;     // ╔ top-left corner
+let TRACK_TR = 4;     // ╗ top-right corner
+let TRACK_BL = 5;     // ╚ bottom-left corner
+let TRACK_BR = 6;     // ╝ bottom-right corner
+let TRACK_T_DOWN = 7; // ╦ T pointing down
+let TRACK_T_UP = 8;   // ╩ T pointing up
+let TRACK_T_RIGHT = 9;  // ╠ T pointing right
+let TRACK_T_LEFT = 10;  // ╣ T pointing left
+let TRACK_CROSS = 11;   // ╬ crossroads
+
+let BUILDING_HOUSE = 20;
+let BUILDING_SHOP = 21;
+let BUILDING_FACTORY = 22;
+let BUILDING_TREE = 23;
+let BUILDING_STATION = 24;
+let BUILDING_PARK = 25;
+
+// Directions
+let DIR_RIGHT = 0;
+let DIR_DOWN = 1;
+let DIR_LEFT = 2;
+let DIR_UP = 3;
+
+// === GAME STATE ===
+
+let world = [];           // 2D grid of tiles
+let trains = [];          // List of trains
+let cursor_x = 20;
+let cursor_y = 8;
+let running = false;      // Simulation running?
+let current_building = BUILDING_HOUSE;
+let last_tick = 0;
+
+// === INITIALIZATION ===
+
+fn init_world() {
+    world = [];
+    for (let y = 0; y < WORLD_HEIGHT; y++) {
+        let row = [];
+        for (let x = 0; x < WORLD_WIDTH; x++) {
+            row.push(EMPTY);
+        }
+        world.push(row);
+    }
+    trains = [];
+}
+
+// === TILE RENDERING ===
+
+fn get_tile_char(tile: i32): string {
+    if (tile == EMPTY) { return "·"; }
+    if (tile == TRACK_H) { return "═"; }
+    if (tile == TRACK_V) { return "║"; }
+    if (tile == TRACK_TL) { return "╔"; }
+    if (tile == TRACK_TR) { return "╗"; }
+    if (tile == TRACK_BL) { return "╚"; }
+    if (tile == TRACK_BR) { return "╝"; }
+    if (tile == TRACK_T_DOWN) { return "╦"; }
+    if (tile == TRACK_T_UP) { return "╩"; }
+    if (tile == TRACK_T_RIGHT) { return "╠"; }
+    if (tile == TRACK_T_LEFT) { return "╣"; }
+    if (tile == TRACK_CROSS) { return "╬"; }
+    if (tile == BUILDING_HOUSE) { return "H"; }
+    if (tile == BUILDING_SHOP) { return "S"; }
+    if (tile == BUILDING_FACTORY) { return "F"; }
+    if (tile == BUILDING_TREE) { return "T"; }
+    if (tile == BUILDING_STATION) { return "D"; }
+    if (tile == BUILDING_PARK) { return "P"; }
+    return "?";
+}
+
+fn get_tile_color(tile: i32): string {
+    if (tile >= 1 && tile <= 11) { return YELLOW; }
+    if (tile == BUILDING_HOUSE) { return CYAN; }
+    if (tile == BUILDING_SHOP) { return MAGENTA; }
+    if (tile == BUILDING_FACTORY) { return RED; }
+    if (tile == BUILDING_TREE) { return GREEN; }
+    if (tile == BUILDING_STATION) { return WHITE; }
+    if (tile == BUILDING_PARK) { return GREEN; }
+    return WHITE;
+}
+
+fn is_track(tile: i32): bool {
+    return tile >= 1 && tile <= 11;
+}
+
+// === TRACK CONNECTION LOGIC ===
+
+fn track_connects(tile: i32, dir: i32): bool {
+    if (tile == TRACK_H) { return dir == DIR_LEFT || dir == DIR_RIGHT; }
+    if (tile == TRACK_V) { return dir == DIR_UP || dir == DIR_DOWN; }
+    if (tile == TRACK_TL) { return dir == DIR_RIGHT || dir == DIR_DOWN; }
+    if (tile == TRACK_TR) { return dir == DIR_LEFT || dir == DIR_DOWN; }
+    if (tile == TRACK_BL) { return dir == DIR_RIGHT || dir == DIR_UP; }
+    if (tile == TRACK_BR) { return dir == DIR_LEFT || dir == DIR_UP; }
+    if (tile == TRACK_T_DOWN) { return dir == DIR_LEFT || dir == DIR_RIGHT || dir == DIR_DOWN; }
+    if (tile == TRACK_T_UP) { return dir == DIR_LEFT || dir == DIR_RIGHT || dir == DIR_UP; }
+    if (tile == TRACK_T_RIGHT) { return dir == DIR_UP || dir == DIR_DOWN || dir == DIR_RIGHT; }
+    if (tile == TRACK_T_LEFT) { return dir == DIR_UP || dir == DIR_DOWN || dir == DIR_LEFT; }
+    if (tile == TRACK_CROSS) { return true; }
+    return false;
+}
+
+fn opposite_dir(dir: i32): i32 {
+    if (dir == DIR_RIGHT) { return DIR_LEFT; }
+    if (dir == DIR_LEFT) { return DIR_RIGHT; }
+    if (dir == DIR_UP) { return DIR_DOWN; }
+    return DIR_UP;
+}
+
+fn next_pos(x: i32, y: i32, dir: i32): object {
+    if (dir == DIR_RIGHT) { return { x: x + 1, y: y }; }
+    if (dir == DIR_LEFT) { return { x: x - 1, y: y }; }
+    if (dir == DIR_DOWN) { return { x: x, y: y + 1 }; }
+    return { x: x, y: y - 1 };
+}
+
+fn get_exit_dir(tile: i32, entry_dir: i32): i32 {
+    let from = opposite_dir(entry_dir);
+
+    if (tile == TRACK_H || tile == TRACK_V) {
+        return entry_dir;
+    }
+
+    if (tile == TRACK_TL) {
+        if (from == DIR_RIGHT) { return DIR_DOWN; }
+        if (from == DIR_DOWN) { return DIR_RIGHT; }
+    }
+    if (tile == TRACK_TR) {
+        if (from == DIR_LEFT) { return DIR_DOWN; }
+        if (from == DIR_DOWN) { return DIR_LEFT; }
+    }
+    if (tile == TRACK_BL) {
+        if (from == DIR_RIGHT) { return DIR_UP; }
+        if (from == DIR_UP) { return DIR_RIGHT; }
+    }
+    if (tile == TRACK_BR) {
+        if (from == DIR_LEFT) { return DIR_UP; }
+        if (from == DIR_UP) { return DIR_LEFT; }
+    }
+
+    if (tile == TRACK_T_DOWN || tile == TRACK_T_UP ||
+        tile == TRACK_T_LEFT || tile == TRACK_T_RIGHT || tile == TRACK_CROSS) {
+        if (track_connects(tile, entry_dir)) {
+            return entry_dir;
+        }
+        for (let d = 0; d < 4; d++) {
+            if (d != from && track_connects(tile, d)) {
+                return d;
+            }
+        }
+    }
+
+    return entry_dir;
+}
+
+// === TRAIN LOGIC ===
+
+fn create_train(x: i32, y: i32): object {
+    return {
+        x: x,
+        y: y,
+        dir: DIR_RIGHT,
+        char: "@"
+    };
+}
+
+fn update_train(train: object) {
+    let tile = world[train.y][train.x];
+
+    if (!is_track(tile)) {
+        return;
+    }
+
+    let exit_dir = get_exit_dir(tile, train.dir);
+    let next = next_pos(train.x, train.y, exit_dir);
+
+    if (next.x < 0 || next.x >= WORLD_WIDTH || next.y < 0 || next.y >= WORLD_HEIGHT) {
+        train.dir = opposite_dir(train.dir);
+        return;
+    }
+
+    let next_tile = world[next.y][next.x];
+
+    if (is_track(next_tile) && track_connects(next_tile, opposite_dir(exit_dir))) {
+        train.x = next.x;
+        train.y = next.y;
+        train.dir = exit_dir;
+    } else {
+        train.dir = opposite_dir(train.dir);
+    }
+}
+
+fn update_trains() {
+    for (train in trains) {
+        update_train(train);
+    }
+}
+
+// === RENDERING ===
+
+fn render() {
+    let output = "";
+
+    // Move to top
+    output = output + move_to(1, 1);
+
+    // Title bar
+    output = output + CYAN + BOLD;
+    output = output + "╔════════════════════════════════════════════╗\n";
+    output = output + "║     LEGO LOCO - Train Town Builder         ║\n";
+    output = output + "╠════════════════════════════════════════════╣\n";
+    output = output + RESET;
+
+    // Game world
+    for (let y = 0; y < WORLD_HEIGHT; y++) {
+        output = output + CYAN + "║ " + RESET;
+
+        for (let x = 0; x < WORLD_WIDTH; x++) {
+            let tile = world[y][x];
+            let is_cursor = (x == cursor_x && y == cursor_y);
+            let has_train = false;
+
+            for (t in trains) {
+                if (t.x == x && t.y == y) {
+                    has_train = true;
+                    break;
+                }
+            }
+
+            if (is_cursor) {
+                output = output + BG_WHITE + BLACK;
+            } else if (has_train) {
+                output = output + RED + BOLD;
+            } else {
+                output = output + get_tile_color(tile);
+            }
+
+            if (has_train && !is_cursor) {
+                output = output + "@";
+            } else {
+                output = output + get_tile_char(tile);
+            }
+
+            output = output + RESET;
+        }
+
+        output = output + CYAN + " ║\n" + RESET;
+    }
+
+    // Bottom border
+    output = output + CYAN;
+    output = output + "╠════════════════════════════════════════════╣\n";
+    output = output + RESET;
+
+    // Status bar
+    let status = "";
+    if (running) {
+        status = GREEN + "RUNNING" + RESET;
+    } else {
+        status = YELLOW + "PAUSED " + RESET;
+    }
+
+    output = output + CYAN + "║ " + RESET;
+    output = output + status;
+    output = output + " | Pos:(" + cursor_x + "," + cursor_y + ")";
+    output = output + " | Trains:" + trains.length;
+    output = output + " | Build:" + get_tile_char(current_building);
+    output = output + "      ";
+    output = output + CYAN + "║\n" + RESET;
+
+    // Controls
+    output = output + CYAN;
+    output = output + "╠════════════════════════════════════════════╣\n";
+    output = output + "║ WASD:Move 1-6:Track B:Build T:Train SPACE  ║\n";
+    output = output + "║ 1:═ 2:║ 3:╔ 4:╗ 5:╚ 6:╝ 7:╦ 8:╩ 9:╠ 0:╣   ║\n";
+    output = output + "║ C:Clear R:Reset Q:Quit  -:╬ (crossroads)   ║\n";
+    output = output + "╚════════════════════════════════════════════╝\n";
+    output = output + RESET;
+
+    print(output);
+}
+
+// === INPUT HANDLING ===
+
+fn handle_input(key: string) {
+    if (key == "w" || key == "W") {
+        if (cursor_y > 0) { cursor_y = cursor_y - 1; }
+    }
+    if (key == "s" || key == "S") {
+        if (cursor_y < WORLD_HEIGHT - 1) { cursor_y = cursor_y + 1; }
+    }
+    if (key == "a" || key == "A") {
+        if (cursor_x > 0) { cursor_x = cursor_x - 1; }
+    }
+    if (key == "d" || key == "D") {
+        if (cursor_x < WORLD_WIDTH - 1) { cursor_x = cursor_x + 1; }
+    }
+
+    if (key == "1") { world[cursor_y][cursor_x] = TRACK_H; }
+    if (key == "2") { world[cursor_y][cursor_x] = TRACK_V; }
+    if (key == "3") { world[cursor_y][cursor_x] = TRACK_TL; }
+    if (key == "4") { world[cursor_y][cursor_x] = TRACK_TR; }
+    if (key == "5") { world[cursor_y][cursor_x] = TRACK_BL; }
+    if (key == "6") { world[cursor_y][cursor_x] = TRACK_BR; }
+    if (key == "7") { world[cursor_y][cursor_x] = TRACK_T_DOWN; }
+    if (key == "8") { world[cursor_y][cursor_x] = TRACK_T_UP; }
+    if (key == "9") { world[cursor_y][cursor_x] = TRACK_T_RIGHT; }
+    if (key == "0") { world[cursor_y][cursor_x] = TRACK_T_LEFT; }
+    if (key == "-") { world[cursor_y][cursor_x] = TRACK_CROSS; }
+
+    if (key == "b" || key == "B") {
+        world[cursor_y][cursor_x] = current_building;
+        if (current_building == BUILDING_HOUSE) { current_building = BUILDING_SHOP; }
+        else if (current_building == BUILDING_SHOP) { current_building = BUILDING_FACTORY; }
+        else if (current_building == BUILDING_FACTORY) { current_building = BUILDING_TREE; }
+        else if (current_building == BUILDING_TREE) { current_building = BUILDING_STATION; }
+        else if (current_building == BUILDING_STATION) { current_building = BUILDING_PARK; }
+        else { current_building = BUILDING_HOUSE; }
+    }
+
+    if (key == "t" || key == "T") {
+        let found_idx = -1;
+        for (let i = 0; i < trains.length; i++) {
+            if (trains[i].x == cursor_x && trains[i].y == cursor_y) {
+                found_idx = i;
+                break;
+            }
+        }
+
+        if (found_idx >= 0) {
+            trains.remove(found_idx);
+        } else if (is_track(world[cursor_y][cursor_x])) {
+            trains.push(create_train(cursor_x, cursor_y));
+        }
+    }
+
+    if (key == "c" || key == "C") {
+        world[cursor_y][cursor_x] = EMPTY;
+    }
+
+    if (key == "r" || key == "R") {
+        init_world();
+        setup_demo();
+    }
+
+    if (key == " ") {
+        running = !running;
+    }
+}
+
+// === DEMO SETUP ===
+
+fn setup_demo() {
+    // Create a simple oval track
+
+    // Bottom horizontal
+    for (let x = 5; x < 35; x++) {
+        world[12][x] = TRACK_H;
+    }
+
+    // Top horizontal
+    for (let x = 5; x < 35; x++) {
+        world[3][x] = TRACK_H;
+    }
+
+    // Left vertical
+    for (let y = 4; y < 12; y++) {
+        world[y][5] = TRACK_V;
+    }
+
+    // Right vertical
+    for (let y = 4; y < 12; y++) {
+        world[y][34] = TRACK_V;
+    }
+
+    // Corners
+    world[3][5] = TRACK_TL;
+    world[3][34] = TRACK_TR;
+    world[12][5] = TRACK_BL;
+    world[12][34] = TRACK_BR;
+
+    // Add a branch with T-junction
+    world[7][5] = TRACK_T_RIGHT;
+    for (let x = 6; x < 15; x++) {
+        world[7][x] = TRACK_H;
+    }
+    world[7][15] = TRACK_BR;
+    for (let y = 4; y < 7; y++) {
+        world[y][15] = TRACK_V;
+    }
+    world[3][15] = TRACK_T_UP;
+
+    // Add some buildings
+    world[5][10] = BUILDING_HOUSE;
+    world[5][12] = BUILDING_TREE;
+    world[9][20] = BUILDING_SHOP;
+    world[9][25] = BUILDING_FACTORY;
+    world[5][30] = BUILDING_STATION;
+    world[1][20] = BUILDING_TREE;
+    world[1][22] = BUILDING_TREE;
+    world[14][10] = BUILDING_PARK;
+    world[14][15] = BUILDING_HOUSE;
+
+    // Add a train
+    trains.push(create_train(10, 3));
+}
+
+// === MAIN ===
+
+fn main() {
+    print(CYAN + BOLD + "═══════════════════════════════════════════" + RESET);
+    print(CYAN + BOLD + "        LEGO LOCO - Train Town Builder      " + RESET);
+    print(CYAN + BOLD + "═══════════════════════════════════════════" + RESET);
+    print("");
+    print("Build your own train town! Lay tracks, place");
+    print("buildings, and watch trains chug around.");
+    print("");
+    print(YELLOW + "Controls:" + RESET);
+    print("  WASD         - Move cursor");
+    print("  1-6, 7-0, -  - Place track pieces");
+    print("  B            - Place building (cycles types)");
+    print("  T            - Place/remove train (on track)");
+    print("  SPACE        - Start/stop simulation");
+    print("  C            - Clear tile");
+    print("  R            - Reset world");
+    print("  Q            - Quit");
+    print("");
+    print(GREEN + "Track pieces:" + RESET);
+    print("  1:═  2:║  3:╔  4:╗  5:╚  6:╝");
+    print("  7:╦  8:╩  9:╠  0:╣  -:╬");
+    print("");
+    print(MAGENTA + "Buildings:" + RESET);
+    print("  H=House S=Shop F=Factory T=Tree D=Depot P=Park");
+    print("");
+    print("Press ENTER after each command.");
+    print("");
+    print(CYAN + "Press ENTER to start with demo layout..." + RESET);
+    read_line();
+
+    init_world();
+    setup_demo();
+
+    print(CLEAR_SCREEN);
+    print(HIDE_CURSOR);
+
+    let quit = false;
+
+    while (!quit) {
+        render();
+
+        if (running) {
+            let now = time_ms();
+            if (now - last_tick >= TICK_MS) {
+                update_trains();
+                last_tick = now;
+            }
+        }
+
+        let line = read_line();
+        if (line != null && line.length > 0) {
+            let key = line.char_at(0);
+            if (key == "q" || key == "Q") {
+                quit = true;
+            } else {
+                handle_input(key);
+            }
+        }
+
+        print(CLEAR_SCREEN);
+    }
+
+    print(SHOW_CURSOR);
+    print(CLEAR_SCREEN);
+    print(CYAN + "Thanks for playing Lego Loco!" + RESET);
+}
+
+main();
