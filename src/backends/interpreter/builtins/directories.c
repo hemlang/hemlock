@@ -2,20 +2,20 @@
 
 Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: make_dir() expects 1-2 arguments (path, [mode])\n");
-        exit(1);
+        runtime_error(ctx, "make_dir() expects 1-2 arguments (path, [mode]), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: make_dir() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "make_dir() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     uint32_t mode = 0755;  // Default mode
     if (num_args == 2) {
         if (args[1].type != VAL_U32) {
-            fprintf(stderr, "Runtime error: make_dir() mode must be u32\n");
-            exit(1);
+            runtime_error(ctx, "make_dir() mode must be u32, got %s", value_type_name(args[1].type));
+            return val_null();
         }
         mode = args[1].as.as_u32;
     }
@@ -23,8 +23,8 @@ Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx) {
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: make_dir() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "make_dir() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -51,20 +51,20 @@ Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_remove_dir(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: remove_dir() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "remove_dir() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: remove_dir() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "remove_dir() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: remove_dir() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "remove_dir() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -91,20 +91,20 @@ Value builtin_remove_dir(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: list_dir() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "list_dir() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: list_dir() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "list_dir() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: list_dir() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "list_dir() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -147,8 +147,8 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_cwd(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: cwd() expects 0 arguments\n");
-        exit(1);
+        runtime_error(ctx, "cwd() expects 0 arguments, got %d", num_args);
+        return val_null();
     }
 
     char buffer[PATH_MAX];
@@ -163,20 +163,20 @@ Value builtin_cwd(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_chdir(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: chdir() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "chdir() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: chdir() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "chdir() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: chdir() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "chdir() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -196,20 +196,20 @@ Value builtin_chdir(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_absolute_path(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: absolute_path() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "absolute_path() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: absolute_path() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "absolute_path() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: absolute_path() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "absolute_path() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';

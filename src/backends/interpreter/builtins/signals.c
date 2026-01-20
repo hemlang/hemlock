@@ -42,28 +42,28 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: signal() expects 2 arguments (signum, handler)\n");
-        exit(1);
+        runtime_error(ctx, "signal() expects 2 arguments (signum, handler), got %d", num_args);
+        return val_null();
     }
 
     if (!is_integer(args[0])) {
-        fprintf(stderr, "Runtime error: signal() signum must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "signal() signum must be an integer, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     int32_t signum = value_to_int(args[0]);
 
     if (signum < 0 || signum >= MAX_SIGNAL) {
-        fprintf(stderr, "Runtime error: signal() signum %d out of range [0, %d)\n", signum, MAX_SIGNAL);
-        exit(1);
+        runtime_error(ctx, "signal() signum %d out of range [0, %d)", signum, MAX_SIGNAL);
+        return val_null();
     }
 
     // Check if handler is null (reset to default) or a function
     Function *new_handler = NULL;
     if (args[1].type != VAL_NULL) {
         if (args[1].type != VAL_FUNCTION) {
-            fprintf(stderr, "Runtime error: signal() handler must be a function or null\n");
-            exit(1);
+            runtime_error(ctx, "signal() handler must be a function or null, got %s", value_type_name(args[1].type));
+            return val_null();
         }
         new_handler = args[1].as.as_function;
     }
@@ -94,8 +94,8 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
         sigemptyset(&sa.sa_mask);
         sa.sa_flags = SA_RESTART;  // Restart syscalls if possible
         if (sigaction(signum, &sa, NULL) != 0) {
-            fprintf(stderr, "Runtime error: signal() failed to install handler for signal %d: %s\n", signum, strerror(errno));
-            exit(1);
+            runtime_error(ctx, "signal() failed to install handler for signal %d: %s", signum, strerror(errno));
+            return val_null();
         }
     } else {
         // Reset to default handler
@@ -104,8 +104,8 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
         sigemptyset(&sa.sa_mask);
         sa.sa_flags = 0;
         if (sigaction(signum, &sa, NULL) != 0) {
-            fprintf(stderr, "Runtime error: signal() failed to reset handler for signal %d: %s\n", signum, strerror(errno));
-            exit(1);
+            runtime_error(ctx, "signal() failed to reset handler for signal %d: %s", signum, strerror(errno));
+            return val_null();
         }
     }
 
@@ -120,25 +120,25 @@ Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: raise() expects 1 argument (signum)\n");
-        exit(1);
+        runtime_error(ctx, "raise() expects 1 argument (signum), got %d", num_args);
+        return val_null();
     }
 
     if (!is_integer(args[0])) {
-        fprintf(stderr, "Runtime error: raise() signum must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "raise() signum must be an integer, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     int32_t signum = value_to_int(args[0]);
 
     if (signum < 0 || signum >= MAX_SIGNAL) {
-        fprintf(stderr, "Runtime error: raise() signum %d out of range [0, %d)\n", signum, MAX_SIGNAL);
-        exit(1);
+        runtime_error(ctx, "raise() signum %d out of range [0, %d)", signum, MAX_SIGNAL);
+        return val_null();
     }
 
     if (raise(signum) != 0) {
-        fprintf(stderr, "Runtime error: raise() failed for signal %d: %s\n", signum, strerror(errno));
-        exit(1);
+        runtime_error(ctx, "raise() failed for signal %d: %s", signum, strerror(errno));
+        return val_null();
     }
 
     return val_null();

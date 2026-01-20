@@ -1,5 +1,5 @@
-// Test raising invalid signal number
-// Expected: ERROR or undefined behavior
+// Test raising out-of-range signal number
+// Errors are catchable with try/catch
 
 try {
     raise(99999);
