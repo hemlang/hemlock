@@ -1,6 +1,6 @@
 // Test @stdlib/jinja module
 
-import { render, escape } from "@stdlib/jinja";
+import { render, escape, namespace } from "@stdlib/jinja";
 
 // Basic variable substitution
 print(render("Hello, {{ name }}!", { name: "World" }));
@@ -95,5 +95,43 @@ print(render("{% if items %}has items{% else %}empty{% endif %}", { items: [1] }
 
 // Nested loops
 print(render("{% for row in matrix %}[{% for col in row %}{{ col }}{% endfor %}]{% endfor %}", { matrix: [[1, 2], [3, 4]] }));
+
+// === NEW FEATURES ===
+
+// Whitespace control
+print(render("a{%- if true -%}b{%- endif -%}c", {}));
+print(render("x {{- 'y' -}} z", {}));
+
+// Type tests (is string, is number, etc.)
+print(render("{% if val is string %}str{% else %}not{% endif %}", { val: "hello" }));
+print(render("{% if val is string %}str{% else %}not{% endif %}", { val: 42 }));
+print(render("{% if val is number %}num{% endif %}", { val: 123 }));
+
+// Property check ('key' in object)
+let obj = { name: "Alice" };
+print(render("{% if 'name' in obj %}has name{% endif %}", { obj: obj }));
+print(render("{% if 'age' in obj %}has age{% else %}no age{% endif %}", { obj: obj }));
+
+// Set statement
+print(render("{% set x = 42 %}{{ x }}", {}));
+print(render("{% set msg = 'hi' %}{{ msg }}", {}));
+
+// Namespace
+print(render("{% set ns = namespace(value=0) %}{% set ns.value = ns.value + 1 %}{{ ns.value }}", {}));
+
+// String concatenation
+print(render("{{ 'a' + 'b' + 'c' }}", {}));
+
+// Numeric addition
+print(render("{{ 1 + 2 }}", {}));
+print(render("{% set x = 5 %}{{ x + 3 }}", {}));
+
+// tojson filter
+print(render("{{ data|tojson }}", { data: { a: 1 } }));
+print(render("{{ arr|tojson }}", { arr: [1, 2] }));
+
+// Array index with expression
+let msgs = [{ role: "a" }, { role: "b" }];
+print(render("{{ msgs[1].role }}", { msgs: msgs }));
 
 print("done");
