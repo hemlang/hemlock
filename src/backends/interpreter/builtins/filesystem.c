@@ -1,22 +1,21 @@
 #include "internal.h"
 
 Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: exists() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "exists() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: exists() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "exists() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: exists() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exists() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -29,20 +28,20 @@ Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: read_file() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "read_file() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: read_file() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "read_file() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: read_file() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "read_file() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -88,10 +87,10 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
     // Allocate buffer
     char *buffer = malloc(size + 1);
     if (!buffer) {
-        fprintf(stderr, "Runtime error: read_file() memory allocation failed\n");
+        runtime_error(ctx, "read_file() memory allocation failed");
         fclose(fp);
         free(cpath);
-        exit(1);
+        return val_null();
     }
 
     // Read file
@@ -106,27 +105,27 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: write_file() expects 2 arguments (path, content)\n");
-        exit(1);
+        runtime_error(ctx, "write_file() expects 2 arguments (path, content), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: write_file() requires string path\n");
-        exit(1);
+        runtime_error(ctx, "write_file() requires string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     // Accept both string and buffer content
     if (args[1].type != VAL_STRING && args[1].type != VAL_BUFFER) {
-        fprintf(stderr, "Runtime error: write_file() requires string or buffer content\n");
-        exit(1);
+        runtime_error(ctx, "write_file() requires string or buffer content, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
 
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: write_file() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "write_file() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -181,13 +180,17 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: append_file() expects 2 arguments (path, content)\n");
-        exit(1);
+        runtime_error(ctx, "append_file() expects 2 arguments (path, content), got %d", num_args);
+        return val_null();
     }
 
-    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: append_file() requires string arguments\n");
-        exit(1);
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "append_file() path must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (args[1].type != VAL_STRING) {
+        runtime_error(ctx, "append_file() content must be a string, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
@@ -195,8 +198,8 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
 
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: append_file() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "append_file() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -243,20 +246,20 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_remove_file(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: remove_file() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "remove_file() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: remove_file() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "remove_file() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: remove_file() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "remove_file() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -276,13 +279,17 @@ Value builtin_remove_file(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_rename(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: rename() expects 2 arguments (old_path, new_path)\n");
-        exit(1);
+        runtime_error(ctx, "rename() expects 2 arguments (old_path, new_path), got %d", num_args);
+        return val_null();
     }
 
-    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: rename() requires string paths\n");
-        exit(1);
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "rename() old_path must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (args[1].type != VAL_STRING) {
+        runtime_error(ctx, "rename() new_path must be a string, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     String *old_path = args[0].as.as_string;
@@ -291,8 +298,10 @@ Value builtin_rename(Value *args, int num_args, ExecutionContext *ctx) {
     char *old_cpath = malloc(old_path->length + 1);
     char *new_cpath = malloc(new_path->length + 1);
     if (!old_cpath || !new_cpath) {
-        fprintf(stderr, "Runtime error: rename() memory allocation failed\n");
-        exit(1);
+        free(old_cpath);
+        free(new_cpath);
+        runtime_error(ctx, "rename() memory allocation failed");
+        return val_null();
     }
     memcpy(old_cpath, old_path->data, old_path->length);
     old_cpath[old_path->length] = '\0';
@@ -316,13 +325,17 @@ Value builtin_rename(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: copy_file() expects 2 arguments (src, dest)\n");
-        exit(1);
+        runtime_error(ctx, "copy_file() expects 2 arguments (src, dest), got %d", num_args);
+        return val_null();
     }
 
-    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: copy_file() requires string paths\n");
-        exit(1);
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "copy_file() src must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (args[1].type != VAL_STRING) {
+        runtime_error(ctx, "copy_file() dest must be a string, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     String *src_path = args[0].as.as_string;
@@ -331,8 +344,10 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
     char *src_cpath = malloc(src_path->length + 1);
     char *dest_cpath = malloc(dest_path->length + 1);
     if (!src_cpath || !dest_cpath) {
-        fprintf(stderr, "Runtime error: copy_file() memory allocation failed\n");
-        exit(1);
+        free(src_cpath);
+        free(dest_cpath);
+        runtime_error(ctx, "copy_file() memory allocation failed");
+        return val_null();
     }
     memcpy(src_cpath, src_path->data, src_path->length);
     src_cpath[src_path->length] = '\0';
@@ -422,22 +437,21 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: is_file() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "is_file() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: is_file() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "is_file() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: is_file() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "is_file() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -453,22 +467,21 @@ Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: is_dir() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "is_dir() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: is_dir() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "is_dir() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: is_dir() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "is_dir() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
@@ -485,20 +498,20 @@ Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: file_stat() expects 1 argument (path)\n");
-        exit(1);
+        runtime_error(ctx, "file_stat() expects 1 argument (path), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: file_stat() requires a string path\n");
-        exit(1);
+        runtime_error(ctx, "file_stat() requires a string path, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *path = args[0].as.as_string;
     char *cpath = malloc(path->length + 1);
     if (!cpath) {
-        fprintf(stderr, "Runtime error: file_stat() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "file_stat() memory allocation failed");
+        return val_null();
     }
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';

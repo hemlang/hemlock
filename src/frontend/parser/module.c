@@ -16,13 +16,13 @@ static void ensure_export_capacity(Module *module) {
     if (module->num_exports >= module->export_capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
         if (module->export_capacity > INT_MAX / 2) {
-            fprintf(stderr, "Runtime error: Module export capacity overflow\n");
+            fprintf(stderr, "error: module export capacity overflow\n");
             exit(1);
         }
         module->export_capacity *= 2;
         char **new_names = realloc(module->export_names, sizeof(char*) * module->export_capacity);
         if (!new_names) {
-            fprintf(stderr, "Runtime error: Memory allocation failed for module exports\n");
+            fprintf(stderr, "error: memory allocation failed for module exports\n");
             exit(1);
         }
         module->export_names = new_names;
@@ -36,7 +36,7 @@ ModuleCache* module_cache_new(const char *initial_dir) {
     cache->capacity = 32;
     cache->resolver = module_resolution_new(initial_dir, NULL);
     if (!cache->resolver) {
-        fprintf(stderr, "Error: Failed to initialize module resolution\n");
+        fprintf(stderr, "error: failed to initialize module resolution\n");
         free(cache->modules);
         free(cache);
         exit(1);
@@ -44,7 +44,7 @@ ModuleCache* module_cache_new(const char *initial_dir) {
     module_cache_map_init(&cache->cache_map);
 
     if (!cache->resolver->stdlib_path) {
-        fprintf(stderr, "Warning: Could not locate stdlib directory. @stdlib imports will not work.\n");
+        fprintf(stderr, "warning: could not locate stdlib directory. @stdlib imports will not work.\n");
     }
 
     return cache;
@@ -96,7 +96,7 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
     // Read file
     FILE *file = fopen(path, "r");
     if (!file) {
-        fprintf(stderr, "Error: Cannot open module file '%s'\n", path);
+        fprintf(stderr, "error: cannot open module file '%s'\n", path);
         *stmt_count = 0;
         return NULL;
     }
@@ -108,12 +108,12 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
 
     char *source = malloc(file_size + 1);
     if (!source) {
-        fprintf(stderr, "Error: Failed to allocate memory for module file: %s\n", path);
+        fprintf(stderr, "error: failed to allocate memory for module file '%s'\n", path);
         fclose(file);
         return NULL;
     }
     if (fread(source, 1, file_size, file) != (size_t)file_size) {
-        fprintf(stderr, "Error: Failed to read module file: %s\n", path);
+        fprintf(stderr, "error: failed to read module file '%s'\n", path);
         free(source);
         fclose(file);
         return NULL;
@@ -133,7 +133,7 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
     free(source);
 
     if (parser.had_error) {
-        fprintf(stderr, "Error: Failed to parse module '%s'\n", path);
+        fprintf(stderr, "error: failed to parse module '%s'\n", path);
         *stmt_count = 0;
         return NULL;
     }
@@ -151,13 +151,13 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
     if (cached) {
         if (cached->state == MODULE_LOADING) {
             // Circular dependency detected!
-            fprintf(stderr, "Error: Circular dependency detected when loading '%s'\n", absolute_path);
+            fprintf(stderr, "error: circular dependency detected when loading '%s'\n", absolute_path);
             free(absolute_path);
             return NULL;
         }
         if (cached->state == MODULE_UNLOADED) {
             // Module failed to load previously (parse error or other failure)
-            fprintf(stderr, "Error: Module '%s' failed to load previously\n", absolute_path);
+            fprintf(stderr, "error: module '%s' failed to load previously\n", absolute_path);
             free(absolute_path);
             return NULL;
         }
@@ -179,7 +179,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
     if (cache->count >= cache->capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
         if (cache->capacity > INT_MAX / 2) {
-            fprintf(stderr, "Error: Module cache capacity overflow\n");
+            fprintf(stderr, "error: module cache capacity overflow\n");
             free(module->export_names);
             free(absolute_path);
             free(module);
@@ -188,7 +188,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
         cache->capacity *= 2;
         Module **new_modules = realloc(cache->modules, sizeof(Module*) * cache->capacity);
         if (!new_modules) {
-            fprintf(stderr, "Runtime error: Memory allocation failed for module cache\n");
+            fprintf(stderr, "error: memory allocation failed for module cache\n");
             free(module->export_names);
             free(absolute_path);
             free(module);
@@ -200,7 +200,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
     // Add to array and hash table for O(1) lookup
     cache->modules[cache->count++] = module;
     if (module_cache_map_set(&cache->cache_map, absolute_path, module) != 0) {
-        fprintf(stderr, "Error: Failed to cache module '%s'\n", absolute_path);
+        fprintf(stderr, "error: failed to cache module '%s'\n", absolute_path);
         cache->count--;
         free(module->export_names);
         free(module->absolute_path);
@@ -227,7 +227,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
             free(resolved);
 
             if (!imported) {
-                fprintf(stderr, "Error: Failed to load imported module '%s' from '%s'\n",
+                fprintf(stderr, "error: failed to load imported module '%s' from '%s'\n",
                         import_path, absolute_path);
                 return NULL;
             }
@@ -240,7 +240,7 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
             free(resolved);
 
             if (!reexported) {
-                fprintf(stderr, "Error: Failed to load re-exported module '%s' from '%s'\n",
+                fprintf(stderr, "error: failed to load re-exported module '%s' from '%s'\n",
                         reexport_path, absolute_path);
                 return NULL;
             }

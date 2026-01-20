@@ -1,0 +1,1 @@
+PASS: Caught invalid signal: [tests/signals/raise_outofrange.hml:5] raise() signum 99999 out of range [0, 64)

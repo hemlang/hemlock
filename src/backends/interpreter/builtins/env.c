@@ -1,20 +1,19 @@
 #include "internal.h"
 
 Value builtin_getenv(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: getenv() expects 1 argument (variable name)\n");
-        exit(1);
+        runtime_error(ctx, "getenv() expects 1 argument (variable name), got %d", num_args);
+        return val_null();
     }
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: getenv() argument must be a string\n");
-        exit(1);
+        runtime_error(ctx, "getenv() argument must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
     }
     String *name = args[0].as.as_string;
     char *cname = malloc(name->length + 1);
     if (cname == NULL) {
-        fprintf(stderr, "Runtime error: getenv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "getenv() memory allocation failed");
+        return val_null();
     }
     memcpy(cname, name->data, name->length);
     cname[name->length] = '\0';
@@ -29,14 +28,17 @@ Value builtin_getenv(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_setenv(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: setenv() expects 2 arguments (name, value)\n");
-        exit(1);
+        runtime_error(ctx, "setenv() expects 2 arguments (name, value), got %d", num_args);
+        return val_null();
     }
-    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: setenv() arguments must be strings\n");
-        exit(1);
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "setenv() name must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (args[1].type != VAL_STRING) {
+        runtime_error(ctx, "setenv() value must be a string, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     String *name = args[0].as.as_string;
@@ -45,8 +47,10 @@ Value builtin_setenv(Value *args, int num_args, ExecutionContext *ctx) {
     char *cname = malloc(name->length + 1);
     char *cvalue = malloc(value->length + 1);
     if (cname == NULL || cvalue == NULL) {
-        fprintf(stderr, "Runtime error: setenv() memory allocation failed\n");
-        exit(1);
+        free(cname);
+        free(cvalue);
+        runtime_error(ctx, "setenv() memory allocation failed");
+        return val_null();
     }
 
     memcpy(cname, name->data, name->length);
@@ -59,28 +63,27 @@ Value builtin_setenv(Value *args, int num_args, ExecutionContext *ctx) {
     free(cvalue);
 
     if (result != 0) {
-        fprintf(stderr, "Runtime error: setenv() failed: %s\n", strerror(errno));
-        exit(1);
+        runtime_error(ctx, "setenv() failed: %s", strerror(errno));
+        return val_null();
     }
     return val_null();
 }
 
 Value builtin_unsetenv(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: unsetenv() expects 1 argument (variable name)\n");
-        exit(1);
+        runtime_error(ctx, "unsetenv() expects 1 argument (variable name), got %d", num_args);
+        return val_null();
     }
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: unsetenv() argument must be a string\n");
-        exit(1);
+        runtime_error(ctx, "unsetenv() argument must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     String *name = args[0].as.as_string;
     char *cname = malloc(name->length + 1);
     if (cname == NULL) {
-        fprintf(stderr, "Runtime error: unsetenv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "unsetenv() memory allocation failed");
+        return val_null();
     }
     memcpy(cname, name->data, name->length);
     cname[name->length] = '\0';
@@ -89,24 +92,23 @@ Value builtin_unsetenv(Value *args, int num_args, ExecutionContext *ctx) {
     free(cname);
 
     if (result != 0) {
-        fprintf(stderr, "Runtime error: unsetenv() failed: %s\n", strerror(errno));
-        exit(1);
+        runtime_error(ctx, "unsetenv() failed: %s", strerror(errno));
+        return val_null();
     }
     return val_null();
 }
 
 Value builtin_exit(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args > 1) {
-        fprintf(stderr, "Runtime error: exit() expects 0 or 1 argument (exit code)\n");
-        exit(1);
+        runtime_error(ctx, "exit() expects 0 or 1 argument (exit code), got %d", num_args);
+        return val_null();
     }
 
     int exit_code = 0;
     if (num_args == 1) {
         if (!is_integer(args[0])) {
-            fprintf(stderr, "Runtime error: exit() argument must be an integer\n");
-            exit(1);
+            runtime_error(ctx, "exit() argument must be an integer, got %s", value_type_name(args[0].type));
+            return val_null();
         }
         exit_code = value_to_int(args[0]);
     }
@@ -116,10 +118,9 @@ Value builtin_exit(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_get_pid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: get_pid() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "get_pid() expects no arguments, got %d", num_args);
+        return val_null();
     }
     return val_i32((int32_t)getpid());
 }
@@ -135,20 +136,20 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: exec() expects 1-2 arguments (command string, [args array])\n");
-        exit(1);
+        runtime_error(ctx, "exec() expects 1-2 arguments (command string, [args array]), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: exec() first argument must be a string\n");
-        exit(1);
+        runtime_error(ctx, "exec() first argument must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     // If second argument is provided, use fork/execvp (safe, no shell)
     if (num_args == 2) {
         if (args[1].type != VAL_ARRAY) {
-            fprintf(stderr, "Runtime error: exec() second argument must be an array of strings\n");
-            exit(1);
+            runtime_error(ctx, "exec() second argument must be an array of strings, got %s", value_type_name(args[1].type));
+            return val_null();
         }
 
         String *command = args[0].as.as_string;
@@ -157,16 +158,16 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         // Build argv array: [command, ...args, NULL]
         char **argv = malloc((arr->length + 2) * sizeof(char*));
         if (!argv) {
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
 
         // First element is the command
         argv[0] = malloc(command->length + 1);
         if (!argv[0]) {
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
             free(argv);
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
         memcpy(argv[0], command->data, command->length);
         argv[0][command->length] = '\0';
@@ -174,18 +175,18 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         // Copy args from array
         for (int i = 0; i < arr->length; i++) {
             if (arr->elements[i].type != VAL_STRING) {
-                fprintf(stderr, "Runtime error: exec() args array elements must be strings\n");
                 for (int j = 0; j <= i; j++) free(argv[j]);
                 free(argv);
-                exit(1);
+                runtime_error(ctx, "exec() args array element %d must be a string, got %s", i, value_type_name(arr->elements[i].type));
+                return val_null();
             }
             String *s = arr->elements[i].as.as_string;
             argv[i + 1] = malloc(s->length + 1);
             if (!argv[i + 1]) {
-                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                 for (int j = 0; j <= i; j++) free(argv[j]);
                 free(argv);
-                exit(1);
+                runtime_error(ctx, "exec() memory allocation failed");
+                return val_null();
             }
             memcpy(argv[i + 1], s->data, s->length);
             argv[i + 1][s->length] = '\0';
@@ -253,12 +254,12 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         stderr_buffer = malloc(stderr_capacity);
 
         if (!output_buffer || !stderr_buffer) {
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
             free(output_buffer);
             free(stderr_buffer);
             close(stdout_pipe[0]);
             close(stderr_pipe[0]);
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
 
         struct pollfd fds[2];
@@ -283,22 +284,22 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
                 if (bytes_read > 0) {
                     while (output_size + (size_t)bytes_read > output_capacity) {
                         if (output_capacity > SIZE_MAX / 2) {
-                            fprintf(stderr, "Runtime error: exec() output too large\n");
                             free(output_buffer);
                             free(stderr_buffer);
                             close(stdout_pipe[0]);
                             close(stderr_pipe[0]);
-                            exit(1);
+                            runtime_error(ctx, "exec() output too large");
+                            return val_null();
                         }
                         output_capacity *= 2;
                         char *new_buffer = realloc(output_buffer, output_capacity);
                         if (!new_buffer) {
-                            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                             free(output_buffer);
                             free(stderr_buffer);
                             close(stdout_pipe[0]);
                             close(stderr_pipe[0]);
-                            exit(1);
+                            runtime_error(ctx, "exec() memory allocation failed");
+                            return val_null();
                         }
                         output_buffer = new_buffer;
                     }
@@ -316,22 +317,22 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
                 if (bytes_read > 0) {
                     while (stderr_size + (size_t)bytes_read > stderr_capacity) {
                         if (stderr_capacity > SIZE_MAX / 2) {
-                            fprintf(stderr, "Runtime error: exec() stderr too large\n");
                             free(output_buffer);
                             free(stderr_buffer);
                             close(stdout_pipe[0]);
                             close(stderr_pipe[0]);
-                            exit(1);
+                            runtime_error(ctx, "exec() stderr output too large");
+                            return val_null();
                         }
                         stderr_capacity *= 2;
                         char *new_buffer = realloc(stderr_buffer, stderr_capacity);
                         if (!new_buffer) {
-                            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                             free(output_buffer);
                             free(stderr_buffer);
                             close(stdout_pipe[0]);
                             close(stderr_pipe[0]);
-                            exit(1);
+                            runtime_error(ctx, "exec() memory allocation failed");
+                            return val_null();
                         }
                         stderr_buffer = new_buffer;
                     }
@@ -355,10 +356,10 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         if (output_size >= output_capacity) {
             char *new_buffer = realloc(output_buffer, output_size + 1);
             if (!new_buffer) {
-                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                 free(output_buffer);
                 free(stderr_buffer);
-                exit(1);
+                runtime_error(ctx, "exec() memory allocation failed");
+                return val_null();
             }
             output_buffer = new_buffer;
             output_capacity = output_size + 1;
@@ -369,10 +370,10 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         if (stderr_size >= stderr_capacity) {
             char *new_buffer = realloc(stderr_buffer, stderr_size + 1);
             if (!new_buffer) {
-                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                 free(output_buffer);
                 free(stderr_buffer);
-                exit(1);
+                runtime_error(ctx, "exec() memory allocation failed");
+                return val_null();
             }
             stderr_buffer = new_buffer;
             stderr_capacity = stderr_size + 1;
@@ -384,16 +385,16 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         if (!result) {
             free(output_buffer);
             free(stderr_buffer);
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
         result->field_names[0] = strdup("output");
         if (!result->field_names[0]) {
             free(output_buffer);
             free(stderr_buffer);
             object_free(result);
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
         result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
         result->num_fields++;
@@ -402,8 +403,8 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         if (!result->field_names[1]) {
             free(stderr_buffer);
             object_free(result);
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
         result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
         result->num_fields++;
@@ -411,8 +412,8 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         result->field_names[2] = strdup("exit_code");
         if (!result->field_names[2]) {
             object_free(result);
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
         result->field_values[2] = val_i32(exit_code);
         result->num_fields++;
@@ -439,8 +440,8 @@ done_warning:
 
     char *ccmd = malloc(command->length + 1);
     if (!ccmd) {
-        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec() memory allocation failed");
+        return val_null();
     }
     memcpy(ccmd, command->data, command->length);
     ccmd[command->length] = '\0';
@@ -462,10 +463,10 @@ done_warning:
     size_t output_capacity = 4096;
     output_buffer = malloc(output_capacity);
     if (!output_buffer) {
-        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
         pclose(pipe);
         free(ccmd);
-        exit(1);
+        runtime_error(ctx, "exec() memory allocation failed");
+        return val_null();
     }
 
     char chunk[4096];
@@ -475,20 +476,20 @@ done_warning:
         while (output_size + bytes_read > output_capacity) {
             // SECURITY: Check for overflow before doubling capacity
             if (output_capacity > SIZE_MAX / 2) {
-                fprintf(stderr, "Runtime error: exec() output too large\n");
                 free(output_buffer);
                 pclose(pipe);
                 free(ccmd);
-                exit(1);
+                runtime_error(ctx, "exec() output too large");
+                return val_null();
             }
             output_capacity *= 2;
             char *new_buffer = realloc(output_buffer, output_capacity);
             if (!new_buffer) {
-                fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
                 free(output_buffer);
                 pclose(pipe);
                 free(ccmd);
-                exit(1);
+                runtime_error(ctx, "exec() memory allocation failed");
+                return val_null();
             }
             output_buffer = new_buffer;
         }
@@ -506,9 +507,9 @@ done_warning:
         output_capacity = output_size + 1;
         char *new_buffer = realloc(output_buffer, output_capacity);
         if (!new_buffer) {
-            fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
             free(output_buffer);
-            exit(1);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
         }
         output_buffer = new_buffer;
     }
@@ -519,15 +520,15 @@ done_warning:
     Object *result = object_new(NULL, 3);
     if (!result) {
         free(output_buffer);
-        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec() memory allocation failed");
+        return val_null();
     }
     result->field_names[0] = strdup("output");
     if (!result->field_names[0]) {
         free(output_buffer);
         object_free(result);
-        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec() memory allocation failed");
+        return val_null();
     }
     result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
@@ -535,8 +536,8 @@ done_warning:
     result->field_names[1] = strdup("stderr");
     if (!result->field_names[1]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec() memory allocation failed");
+        return val_null();
     }
     result->field_values[1] = val_string("");
     result->num_fields++;
@@ -544,8 +545,8 @@ done_warning:
     result->field_names[2] = strdup("exit_code");
     if (!result->field_names[2]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: exec() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec() memory allocation failed");
+        return val_null();
     }
     result->field_values[2] = val_i32(exit_code);
     result->num_fields++;
@@ -564,42 +565,42 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: exec_argv() expects 1 argument (array of strings)\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() expects 1 argument (array of strings), got %d", num_args);
+        return val_null();
     }
 
     if (args[0].type != VAL_ARRAY) {
-        fprintf(stderr, "Runtime error: exec_argv() argument must be an array of strings\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() argument must be an array of strings, got %s", value_type_name(args[0].type));
+        return val_null();
     }
 
     Array *arr = args[0].as.as_array;
     if (arr->length == 0) {
-        fprintf(stderr, "Runtime error: exec_argv() array must not be empty\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() array must not be empty");
+        return val_null();
     }
 
     // Build argv array for execvp
     char **argv = malloc((arr->length + 1) * sizeof(char*));
     if (!argv) {
-        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
     }
 
     for (int i = 0; i < arr->length; i++) {
         if (arr->elements[i].type != VAL_STRING) {
-            fprintf(stderr, "Runtime error: exec_argv() array elements must be strings\n");
             for (int j = 0; j < i; j++) free(argv[j]);
             free(argv);
-            exit(1);
+            runtime_error(ctx, "exec_argv() array element %d must be a string, got %s", i, value_type_name(arr->elements[i].type));
+            return val_null();
         }
         String *s = arr->elements[i].as.as_string;
         argv[i] = malloc(s->length + 1);
         if (!argv[i]) {
-            fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
             for (int j = 0; j < i; j++) free(argv[j]);
             free(argv);
-            exit(1);
+            runtime_error(ctx, "exec_argv() memory allocation failed");
+            return val_null();
         }
         memcpy(argv[i], s->data, s->length);
         argv[i][s->length] = '\0';
@@ -667,12 +668,12 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     stderr_buffer = malloc(stderr_capacity);
 
     if (!output_buffer || !stderr_buffer) {
-        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
         free(output_buffer);
         free(stderr_buffer);
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);
-        exit(1);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
     }
 
     struct pollfd fds[2];
@@ -697,22 +698,22 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
             if (bytes_read > 0) {
                 while (output_size + (size_t)bytes_read > output_capacity) {
                     if (output_capacity > SIZE_MAX / 2) {
-                        fprintf(stderr, "Runtime error: exec_argv() output too large\n");
                         free(output_buffer);
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
-                        exit(1);
+                        runtime_error(ctx, "exec_argv() output too large");
+                        return val_null();
                     }
                     output_capacity *= 2;
                     char *new_buffer = realloc(output_buffer, output_capacity);
                     if (!new_buffer) {
-                        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
                         free(output_buffer);
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
-                        exit(1);
+                        runtime_error(ctx, "exec_argv() memory allocation failed");
+                        return val_null();
                     }
                     output_buffer = new_buffer;
                 }
@@ -730,22 +731,22 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
             if (bytes_read > 0) {
                 while (stderr_size + (size_t)bytes_read > stderr_capacity) {
                     if (stderr_capacity > SIZE_MAX / 2) {
-                        fprintf(stderr, "Runtime error: exec_argv() stderr too large\n");
                         free(output_buffer);
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
-                        exit(1);
+                        runtime_error(ctx, "exec_argv() stderr output too large");
+                        return val_null();
                     }
                     stderr_capacity *= 2;
                     char *new_buffer = realloc(stderr_buffer, stderr_capacity);
                     if (!new_buffer) {
-                        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
                         free(output_buffer);
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
-                        exit(1);
+                        runtime_error(ctx, "exec_argv() memory allocation failed");
+                        return val_null();
                     }
                     stderr_buffer = new_buffer;
                 }
@@ -769,10 +770,10 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     if (output_size >= output_capacity) {
         char *new_buffer = realloc(output_buffer, output_size + 1);
         if (!new_buffer) {
-            fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
             free(output_buffer);
             free(stderr_buffer);
-            exit(1);
+            runtime_error(ctx, "exec_argv() memory allocation failed");
+            return val_null();
         }
         output_buffer = new_buffer;
         output_capacity = output_size + 1;
@@ -783,10 +784,10 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     if (stderr_size >= stderr_capacity) {
         char *new_buffer = realloc(stderr_buffer, stderr_size + 1);
         if (!new_buffer) {
-            fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
             free(output_buffer);
             free(stderr_buffer);
-            exit(1);
+            runtime_error(ctx, "exec_argv() memory allocation failed");
+            return val_null();
         }
         stderr_buffer = new_buffer;
         stderr_capacity = stderr_size + 1;
@@ -798,16 +799,16 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     if (!result) {
         free(output_buffer);
         free(stderr_buffer);
-        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
     }
     result->field_names[0] = strdup("output");
     if (!result->field_names[0]) {
         free(output_buffer);
         free(stderr_buffer);
         object_free(result);
-        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
     }
     result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
@@ -816,8 +817,8 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     if (!result->field_names[1]) {
         free(stderr_buffer);
         object_free(result);
-        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
     }
     result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
     result->num_fields++;
@@ -825,8 +826,8 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     result->field_names[2] = strdup("exit_code");
     if (!result->field_names[2]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: exec_argv() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
     }
     result->field_values[2] = val_i32(exit_code);
     result->num_fields++;
@@ -836,50 +837,45 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_getppid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: getppid() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "getppid() expects no arguments, got %d", num_args);
+        return val_null();
     }
     return val_i32((int32_t)getppid());
 }
 
 Value builtin_getuid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: getuid() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "getuid() expects no arguments, got %d", num_args);
+        return val_null();
     }
     return val_i32((int32_t)getuid());
 }
 
 Value builtin_geteuid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: geteuid() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "geteuid() expects no arguments, got %d", num_args);
+        return val_null();
     }
     return val_i32((int32_t)geteuid());
 }
 
 Value builtin_getgid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: getgid() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "getgid() expects no arguments, got %d", num_args);
+        return val_null();
     }
     return val_i32((int32_t)getgid());
 }
 
 Value builtin_getegid(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: getegid() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "getegid() expects no arguments, got %d", num_args);
+        return val_null();
     }
     return val_i32((int32_t)getegid());
 }
@@ -892,12 +888,16 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: kill() expects 2 arguments (pid, signal)\n");
-        exit(1);
+        runtime_error(ctx, "kill() expects 2 arguments (pid, signal), got %d", num_args);
+        return val_null();
     }
-    if (!is_integer(args[0]) || !is_integer(args[1])) {
-        fprintf(stderr, "Runtime error: kill() arguments must be integers\n");
-        exit(1);
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "kill() pid must be an integer, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (!is_integer(args[1])) {
+        runtime_error(ctx, "kill() signal must be an integer, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     int pid = value_to_int(args[0]);
@@ -924,8 +924,8 @@ Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: fork() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "fork() expects no arguments, got %d", num_args);
+        return val_null();
     }
 
     pid_t pid = fork();
@@ -943,8 +943,8 @@ Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: wait() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "wait() expects no arguments, got %d", num_args);
+        return val_null();
     }
 
     int status;
@@ -960,14 +960,14 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
     // Create result object with pid and status
     Object *result = object_new(NULL, 2);
     if (!result) {
-        fprintf(stderr, "Runtime error: wait() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "wait() memory allocation failed");
+        return val_null();
     }
     result->field_names[0] = strdup("pid");
     if (!result->field_names[0]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: wait() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "wait() memory allocation failed");
+        return val_null();
     }
     result->field_values[0] = val_i32((int32_t)pid);
     result->num_fields++;
@@ -975,8 +975,8 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
     result->field_names[1] = strdup("status");
     if (!result->field_names[1]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: wait() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "wait() memory allocation failed");
+        return val_null();
     }
     result->field_values[1] = val_i32(status);
     result->num_fields++;
@@ -986,16 +986,16 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: waitpid() expects 1-2 arguments (pid, [options])\n");
-        exit(1);
+        runtime_error(ctx, "waitpid() expects 1-2 arguments (pid, [options]), got %d", num_args);
+        return val_null();
     }
     if (!is_integer(args[0])) {
-        fprintf(stderr, "Runtime error: waitpid() pid must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "waitpid() pid must be an integer, got %s", value_type_name(args[0].type));
+        return val_null();
     }
     if (num_args == 2 && !is_integer(args[1])) {
-        fprintf(stderr, "Runtime error: waitpid() options must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "waitpid() options must be an integer, got %s", value_type_name(args[1].type));
+        return val_null();
     }
 
     pid_t pid = (pid_t)value_to_int(args[0]);
@@ -1014,14 +1014,14 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     // Create result object with pid and status
     Object *result = object_new(NULL, 2);
     if (!result) {
-        fprintf(stderr, "Runtime error: waitpid() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "waitpid() memory allocation failed");
+        return val_null();
     }
     result->field_names[0] = strdup("pid");
     if (!result->field_names[0]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: waitpid() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "waitpid() memory allocation failed");
+        return val_null();
     }
     result->field_values[0] = val_i32((int32_t)result_pid);
     result->num_fields++;
@@ -1029,8 +1029,8 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     result->field_names[1] = strdup("status");
     if (!result->field_names[1]) {
         object_free(result);
-        fprintf(stderr, "Runtime error: waitpid() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "waitpid() memory allocation failed");
+        return val_null();
     }
     result->field_values[1] = val_i32(status);
     result->num_fields++;
@@ -1048,8 +1048,8 @@ Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: abort() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "abort() expects no arguments, got %d", num_args);
+        return val_null();
     }
     abort();
     return val_null();  // Never reached

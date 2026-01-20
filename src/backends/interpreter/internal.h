@@ -207,6 +207,9 @@ int64_t value_to_int64(Value val);
 double value_to_float(Value val);
 int value_is_truthy(Value val);
 
+// Get the type name of a value (for error messages)
+const char* value_type_name(ValueType type);
+
 // Fast path macro for boolean truthy check (most common case in loops)
 #define VALUE_IS_TRUTHY_FAST(val) \
     ((val).type == VAL_BOOL ? (val).as.as_bool : \

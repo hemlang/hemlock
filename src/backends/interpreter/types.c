@@ -5,6 +5,42 @@
 #include <inttypes.h>
 #include <errno.h>
 
+// ========== VALUE TYPE NAMES (for error messages) ==========
+
+const char* value_type_name(ValueType type) {
+    switch (type) {
+        case VAL_NULL: return "null";
+        case VAL_BOOL: return "bool";
+        case VAL_I8: return "i8";
+        case VAL_I16: return "i16";
+        case VAL_I32: return "i32";
+        case VAL_I64: return "i64";
+        case VAL_U8: return "u8";
+        case VAL_U16: return "u16";
+        case VAL_U32: return "u32";
+        case VAL_U64: return "u64";
+        case VAL_F32: return "f32";
+        case VAL_F64: return "f64";
+        case VAL_STRING: return "string";
+        case VAL_RUNE: return "rune";
+        case VAL_ARRAY: return "array";
+        case VAL_OBJECT: return "object";
+        case VAL_FUNCTION: return "function";
+        case VAL_BUILTIN_FN: return "builtin function";
+        case VAL_FILE: return "file";
+        case VAL_PTR: return "ptr";
+        case VAL_BUFFER: return "buffer";
+        case VAL_TASK: return "task";
+        case VAL_CHANNEL: return "channel";
+        case VAL_FFI_FUNCTION: return "ffi function";
+        case VAL_SOCKET: return "socket";
+        case VAL_WEBSOCKET: return "websocket";
+        case VAL_TYPE: return "type";
+        case VAL_REF: return "ref";
+        default: return "unknown";
+    }
+}
+
 // ========== OBJECT TYPE REGISTRY ==========
 
 ObjectTypeRegistry object_types = {0};
