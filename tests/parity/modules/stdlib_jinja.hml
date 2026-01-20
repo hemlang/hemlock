@@ -1,0 +1,99 @@
+// Test @stdlib/jinja module
+
+import { render, escape } from "@stdlib/jinja";
+
+// Basic variable substitution
+print(render("Hello, {{ name }}!", { name: "World" }));
+print(render("{{ greeting }}, {{ name }}!", { greeting: "Hi", name: "Alice" }));
+
+// Nested object access
+let user = { name: "Bob", address: { city: "Boston", zip: "02101" } };
+print(render("{{ user.name }} lives in {{ user.address.city }}", { user: user }));
+
+// Array access
+let items = ["apple", "banana", "cherry"];
+print(render("First: {{ items[0] }}, Last: {{ items[2] }}", { items: items }));
+
+// Filters
+print(render("{{ name|upper }}", { name: "alice" }));
+print(render("{{ name|lower }}", { name: "ALICE" }));
+print(render("{{ name|trim }}", { name: "  hello  " }));
+print(render("{{ name|capitalize }}", { name: "hello" }));
+print(render("{{ name|title }}", { name: "hello world" }));
+print(render("{{ name|length }}", { name: "hello" }));
+print(render("{{ items|length }}", { items: [1, 2, 3] }));
+print(render("{{ name|default('unknown') }}", { name: null }));
+print(render("{{ name|default('unknown') }}", { name: "alice" }));
+print(render("{{ items|first }}", { items: [1, 2, 3] }));
+print(render("{{ items|last }}", { items: [1, 2, 3] }));
+print(render("{{ items|join(', ') }}", { items: ["a", "b", "c"] }));
+print(render("{{ items|reverse|join('-') }}", { items: ["a", "b", "c"] }));
+print(render("{{ items|sort|join(',') }}", { items: ["c", "a", "b"] }));
+print(render("{{ text|truncate(8) }}", { text: "Hello, World!" }));
+print(render("{{ value|int }}", { value: "42" }));
+print(render("{{ value|abs }}", { value: -5 }));
+print(render("{{ value|round }}", { value: 3.7 }));
+
+// Chained filters
+print(render("{{ name|trim|upper }}", { name: "  hello  " }));
+
+// HTML escape
+print(render("{{ html|escape }}", { html: "<b>test</b>" }));
+print(escape("<script>alert('xss')</script>"));
+
+// If/else conditionals
+print(render("{% if active %}Yes{% endif %}", { active: true }));
+print(render("{% if active %}Yes{% endif %}", { active: false }));
+print(render("{% if active %}Yes{% else %}No{% endif %}", { active: true }));
+print(render("{% if active %}Yes{% else %}No{% endif %}", { active: false }));
+
+// If/elif/else
+print(render("{% if x == 1 %}one{% elif x == 2 %}two{% else %}other{% endif %}", { x: 1 }));
+print(render("{% if x == 1 %}one{% elif x == 2 %}two{% else %}other{% endif %}", { x: 2 }));
+print(render("{% if x == 1 %}one{% elif x == 2 %}two{% else %}other{% endif %}", { x: 3 }));
+
+// Comparison operators
+print(render("{% if x > 5 %}big{% else %}small{% endif %}", { x: 10 }));
+print(render("{% if x >= 5 %}ok{% endif %}", { x: 5 }));
+print(render("{% if x < 5 %}small{% endif %}", { x: 3 }));
+print(render("{% if x <= 5 %}ok{% endif %}", { x: 5 }));
+print(render("{% if x != 5 %}not five{% endif %}", { x: 3 }));
+
+// Boolean operators
+print(render("{% if a and b %}both{% endif %}", { a: true, b: true }));
+print(render("{% if a and b %}both{% else %}not both{% endif %}", { a: true, b: false }));
+print(render("{% if a or b %}either{% endif %}", { a: false, b: true }));
+print(render("{% if not active %}inactive{% endif %}", { active: false }));
+
+// In operator
+print(render("{% if 'a' in items %}found{% endif %}", { items: ["a", "b", "c"] }));
+print(render("{% if 'x' in items %}found{% else %}not found{% endif %}", { items: ["a", "b", "c"] }));
+
+// For loops
+print(render("{% for item in items %}{{ item }} {% endfor %}", { items: ["a", "b", "c"] }));
+print(render("{% for n in nums %}{{ n }}{% if not loop.last %},{% endif %}{% endfor %}", { nums: [1, 2, 3] }));
+
+// Loop variables
+print(render("{% for x in items %}{{ loop.index }}{% endfor %}", { items: ["a", "b", "c"] }));
+print(render("{% for x in items %}{{ loop.index0 }}{% endfor %}", { items: ["a", "b", "c"] }));
+print(render("{% for x in items %}{% if loop.first %}F{% endif %}{{ x }}{% if loop.last %}L{% endif %}{% endfor %}", { items: ["a", "b", "c"] }));
+
+// Comments
+print(render("Hello{# this is a comment #}, World!", {}));
+print(render("{# start comment #}Content{# end comment #}", {}));
+
+// Literals in templates
+print(render("{{ 'literal string' }}", {}));
+print(render("{% if true %}yes{% endif %}", {}));
+print(render("{% if false %}yes{% else %}no{% endif %}", {}));
+print(render("{% if null %}yes{% else %}null is falsy{% endif %}", {}));
+
+// Empty/null handling
+print(render("{{ missing|default('none') }}", {}));
+print(render("{% if items %}has items{% else %}empty{% endif %}", { items: [] }));
+print(render("{% if items %}has items{% else %}empty{% endif %}", { items: [1] }));
+
+// Nested loops
+print(render("{% for row in matrix %}[{% for col in row %}{{ col }}{% endfor %}]{% endfor %}", { matrix: [[1, 2], [3, 4]] }));
+
+print("done");
