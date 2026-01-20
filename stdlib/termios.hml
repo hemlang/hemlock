@@ -130,10 +130,10 @@ export let KEY_CTRL_Z    = 26;
 
 // ========== INTERNAL STATE ==========
 
-let _original_termios = null;   // Saved terminal state
-let _raw_termios = null;        // Raw mode state
-let _is_raw_mode = false;       // Current mode flag
-let _original_flags = 0;        // Original fcntl flags
+let _original_termios = ptr_null();  // Saved terminal state
+let _raw_termios = ptr_null();       // Raw mode state
+let _is_raw_mode = false;            // Current mode flag
+let _original_flags = 0;             // Original fcntl flags
 
 // ========== TERMINAL DETECTION ==========
 
@@ -166,8 +166,8 @@ export fn enable_raw_mode(): bool {
     if (tcgetattr(STDIN_FILENO, _original_termios) != 0) {
         free(_original_termios);
         free(_raw_termios);
-        _original_termios = null;
-        _raw_termios = null;
+        _original_termios = ptr_null();
+        _raw_termios = ptr_null();
         return false;
     }
 
@@ -198,8 +198,8 @@ export fn enable_raw_mode(): bool {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, _raw_termios) != 0) {
         free(_original_termios);
         free(_raw_termios);
-        _original_termios = null;
-        _raw_termios = null;
+        _original_termios = ptr_null();
+        _raw_termios = ptr_null();
         return false;
     }
 
@@ -210,7 +210,7 @@ export fn enable_raw_mode(): bool {
 // Disable raw mode - restore original terminal settings
 // Safe to call multiple times
 export fn disable_raw_mode(): bool {
-    if (!_is_raw_mode || _original_termios == null) {
+    if (!_is_raw_mode || _original_termios == ptr_null()) {
         return true;  // Not in raw mode or nothing to restore
     }
 
@@ -220,8 +220,8 @@ export fn disable_raw_mode(): bool {
     // Clean up
     free(_original_termios);
     free(_raw_termios);
-    _original_termios = null;
-    _raw_termios = null;
+    _original_termios = ptr_null();
+    _raw_termios = ptr_null();
     _is_raw_mode = false;
 
     return result == 0;
