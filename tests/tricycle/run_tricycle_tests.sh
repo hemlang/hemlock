@@ -4,7 +4,7 @@
 #
 # This script runs all Tricycle tests and reports results.
 
-set -e
+# Note: Don't use 'set -e' because (( PASSED++ )) returns 1 when PASSED=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HEMLOCK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
