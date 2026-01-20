@@ -1,0 +1,472 @@
+// Hemlock Standard Library: Terminal I/O Control (termios)
+// Cross-platform raw terminal input for interactive applications
+//
+// This module provides:
+// - Raw mode terminal control (disable line buffering/echo)
+// - Single keypress reading without Enter
+// - Arrow key and special key detection
+// - Safe cleanup with automatic restore on exit
+//
+// Supported platforms: Linux, macOS
+//
+// Example usage:
+//   import { enable_raw_mode, disable_raw_mode, read_key, KEY_UP } from "@stdlib/termios";
+//
+//   enable_raw_mode();
+//   defer disable_raw_mode();
+//
+//   loop {
+//       let key = read_key();
+//       if (key == KEY_UP) { print("Up!"); }
+//       if (key.char == "q") { break; }
+//   }
+
+import { platform } from "@stdlib/os";
+
+// ========== PLATFORM DETECTION ==========
+
+let _platform = platform();
+let _is_linux = _platform == "linux";
+let _is_macos = _platform == "macos";
+
+if (!_is_linux && !_is_macos) {
+    panic("termios: unsupported platform '" + _platform + "' (requires Linux or macOS)");
+}
+
+// ========== FFI LIBRARY LOADING ==========
+
+// Load platform-specific C library
+if (_is_linux) {
+    import "libc.so.6";
+} else {
+    import "libSystem.B.dylib";
+}
+
+// POSIX termios functions (available on both platforms)
+extern fn tcgetattr(fd: i32, termios_p: ptr): i32;
+extern fn tcsetattr(fd: i32, optional_actions: i32, termios_p: ptr): i32;
+extern fn read(fd: i32, buf: ptr, count: i64): i64;
+extern fn fcntl(fd: i32, cmd: i32, arg: i32): i32;
+extern fn isatty(fd: i32): i32;
+
+// ========== CONSTANTS ==========
+
+// File descriptors
+let STDIN_FILENO = 0;
+
+// tcsetattr optional_actions
+let TCSANOW = 0;      // Changes occur immediately
+let TCSADRAIN = 1;    // Changes after output is transmitted
+let TCSAFLUSH = 2;    // Changes after output transmitted, discard pending input
+
+// Local mode flags (c_lflag) - POSIX standard values
+let ECHO   = 0x0008;    // Echo input characters
+let ICANON = 0x0002;    // Canonical mode (line buffering)
+let ISIG   = 0x0001;    // Enable signals (INTR, QUIT, SUSP)
+let IEXTEN = 0x8000;    // Extended input processing
+
+// Input mode flags (c_iflag)
+let ICRNL  = 0x0100;    // Map CR to NL
+let IXON   = 0x0400;    // Enable XON/XOFF flow control
+
+// Output mode flags (c_oflag)
+let OPOST  = 0x0001;    // Post-process output
+
+// fcntl commands
+let F_GETFL = 3;
+let F_SETFL = 4;
+let O_NONBLOCK = 2048;  // Linux value; macOS is 0x0004 but we handle this
+
+// termios struct layout differs by platform
+// Linux x86_64:  c_iflag(4), c_oflag(4), c_cflag(4), c_lflag(4), c_line(1), c_cc[32], padding = ~60 bytes
+// macOS arm64:   c_iflag(8), c_oflag(8), c_cflag(8), c_lflag(8), c_cc[20], c_ispeed(8), c_ospeed(8) = ~80 bytes
+
+let _TERMIOS_SIZE = _is_linux ? 60 : 80;
+let _LFLAG_OFFSET = _is_linux ? 12 : 24;  // Offset to c_lflag field
+let _IFLAG_OFFSET = 0;
+let _OFLAG_OFFSET = _is_linux ? 4 : 8;
+
+// Platform-specific O_NONBLOCK
+let _O_NONBLOCK = _is_linux ? 2048 : 4;
+
+// ========== SPECIAL KEY CODES ==========
+
+// Key result object structure:
+// { char: string|null, code: i32, name: string }
+//
+// For printable keys: char contains the character, code is ASCII value
+// For special keys: char is null, code is KEY_* constant, name describes the key
+
+export let KEY_NONE      = 0;
+export let KEY_UP        = 256;
+export let KEY_DOWN      = 257;
+export let KEY_RIGHT     = 258;
+export let KEY_LEFT      = 259;
+export let KEY_HOME      = 260;
+export let KEY_END       = 261;
+export let KEY_INSERT    = 262;
+export let KEY_DELETE    = 263;
+export let KEY_PAGE_UP   = 264;
+export let KEY_PAGE_DOWN = 265;
+export let KEY_F1        = 266;
+export let KEY_F2        = 267;
+export let KEY_F3        = 268;
+export let KEY_F4        = 269;
+export let KEY_F5        = 270;
+export let KEY_F6        = 271;
+export let KEY_F7        = 272;
+export let KEY_F8        = 273;
+export let KEY_F9        = 274;
+export let KEY_F10       = 275;
+export let KEY_F11       = 276;
+export let KEY_F12       = 277;
+export let KEY_ESCAPE    = 27;
+export let KEY_ENTER     = 13;
+export let KEY_TAB       = 9;
+export let KEY_BACKSPACE = 127;
+export let KEY_CTRL_C    = 3;
+export let KEY_CTRL_D    = 4;
+export let KEY_CTRL_Z    = 26;
+
+// ========== INTERNAL STATE ==========
+
+let _original_termios = null;   // Saved terminal state
+let _raw_termios = null;        // Raw mode state
+let _is_raw_mode = false;       // Current mode flag
+let _original_flags = 0;        // Original fcntl flags
+
+// ========== TERMINAL DETECTION ==========
+
+// Check if stdin is connected to a terminal (not a pipe or file)
+export fn is_terminal(): bool {
+    return isatty(STDIN_FILENO) == 1;
+}
+
+// ========== CORE FUNCTIONS ==========
+
+// Enable raw mode - keypresses are available immediately without Enter
+// Disables echo and canonical mode
+// Returns false if stdin is not a terminal (e.g., piped input)
+// IMPORTANT: Always pair with disable_raw_mode() or use defer
+export fn enable_raw_mode(): bool {
+    if (_is_raw_mode) {
+        return true;  // Already in raw mode
+    }
+
+    // Check if stdin is a terminal
+    if (!is_terminal()) {
+        return false;  // Can't enable raw mode on non-terminal
+    }
+
+    // Allocate termios structures
+    _original_termios = alloc(_TERMIOS_SIZE);
+    _raw_termios = alloc(_TERMIOS_SIZE);
+
+    // Get current terminal attributes
+    if (tcgetattr(STDIN_FILENO, _original_termios) != 0) {
+        free(_original_termios);
+        free(_raw_termios);
+        _original_termios = null;
+        _raw_termios = null;
+        return false;
+    }
+
+    // Copy original to raw
+    memcpy(_raw_termios, _original_termios, _TERMIOS_SIZE);
+
+    // Modify c_lflag: disable ECHO, ICANON, ISIG, IEXTEN
+    let lflag = ptr_read_i32(_raw_termios + _LFLAG_OFFSET);
+    lflag = lflag & ~ECHO;
+    lflag = lflag & ~ICANON;
+    lflag = lflag & ~IEXTEN;
+    // Keep ISIG to allow Ctrl+C to work
+    ptr_write_i32(_raw_termios + _LFLAG_OFFSET, lflag);
+
+    // Modify c_iflag: disable ICRNL, IXON
+    let iflag = ptr_read_i32(_raw_termios + _IFLAG_OFFSET);
+    iflag = iflag & ~ICRNL;
+    iflag = iflag & ~IXON;
+    ptr_write_i32(_raw_termios + _IFLAG_OFFSET, iflag);
+
+    // Modify c_oflag: disable OPOST (for raw output)
+    // Actually, keep OPOST for now to preserve newline handling
+    // let oflag = ptr_read_i32(_raw_termios + _OFLAG_OFFSET);
+    // oflag = oflag & ~OPOST;
+    // ptr_write_i32(_raw_termios + _OFLAG_OFFSET, oflag);
+
+    // Apply raw settings
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, _raw_termios) != 0) {
+        free(_original_termios);
+        free(_raw_termios);
+        _original_termios = null;
+        _raw_termios = null;
+        return false;
+    }
+
+    _is_raw_mode = true;
+    return true;
+}
+
+// Disable raw mode - restore original terminal settings
+// Safe to call multiple times
+export fn disable_raw_mode(): bool {
+    if (!_is_raw_mode || _original_termios == null) {
+        return true;  // Not in raw mode or nothing to restore
+    }
+
+    // Restore original terminal attributes
+    let result = tcsetattr(STDIN_FILENO, TCSAFLUSH, _original_termios);
+
+    // Clean up
+    free(_original_termios);
+    free(_raw_termios);
+    _original_termios = null;
+    _raw_termios = null;
+    _is_raw_mode = false;
+
+    return result == 0;
+}
+
+// Check if currently in raw mode
+export fn is_raw_mode(): bool {
+    return _is_raw_mode;
+}
+
+// ========== KEY READING ==========
+
+// Read a single byte from stdin
+// Returns -1 if no data available (non-blocking) or on error
+fn read_byte(): i32 {
+    let buf = alloc(1);
+    let n = read(STDIN_FILENO, buf, 1);
+    let result = -1;
+    if (n == 1) {
+        result = ptr_read_u8(buf);
+    }
+    free(buf);
+    return result;
+}
+
+// Try to read a byte with very short timeout (for escape sequences)
+// Uses non-blocking read
+fn read_byte_nowait(): i32 {
+    // Get current flags
+    let flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+
+    // Set non-blocking
+    fcntl(STDIN_FILENO, F_SETFL, flags | _O_NONBLOCK);
+
+    // Try to read
+    let result = read_byte();
+
+    // Restore original flags
+    fcntl(STDIN_FILENO, F_SETFL, flags);
+
+    return result;
+}
+
+// Parse escape sequence after ESC [
+fn parse_escape_sequence(): object {
+    let byte2 = read_byte_nowait();
+    if (byte2 == -1) {
+        // Just ESC key
+        return { char: null, code: KEY_ESCAPE, name: "Escape" };
+    }
+
+    if (byte2 == 91) {  // '[' - CSI sequence
+        let byte3 = read_byte_nowait();
+        if (byte3 == -1) {
+            return { char: null, code: KEY_ESCAPE, name: "Escape" };
+        }
+
+        // Arrow keys and simple sequences
+        if (byte3 == 65) { return { char: null, code: KEY_UP, name: "Up" }; }
+        if (byte3 == 66) { return { char: null, code: KEY_DOWN, name: "Down" }; }
+        if (byte3 == 67) { return { char: null, code: KEY_RIGHT, name: "Right" }; }
+        if (byte3 == 68) { return { char: null, code: KEY_LEFT, name: "Left" }; }
+        if (byte3 == 72) { return { char: null, code: KEY_HOME, name: "Home" }; }
+        if (byte3 == 70) { return { char: null, code: KEY_END, name: "End" }; }
+
+        // Extended sequences: ESC [ <number> ~
+        if (byte3 >= 48 && byte3 <= 57) {  // '0'-'9'
+            let num = byte3 - 48;
+            let byte4 = read_byte_nowait();
+
+            // Could be two digits
+            if (byte4 >= 48 && byte4 <= 57) {
+                num = num * 10 + (byte4 - 48);
+                byte4 = read_byte_nowait();
+            }
+
+            if (byte4 == 126) {  // '~'
+                if (num == 1) { return { char: null, code: KEY_HOME, name: "Home" }; }
+                if (num == 2) { return { char: null, code: KEY_INSERT, name: "Insert" }; }
+                if (num == 3) { return { char: null, code: KEY_DELETE, name: "Delete" }; }
+                if (num == 4) { return { char: null, code: KEY_END, name: "End" }; }
+                if (num == 5) { return { char: null, code: KEY_PAGE_UP, name: "PageUp" }; }
+                if (num == 6) { return { char: null, code: KEY_PAGE_DOWN, name: "PageDown" }; }
+                if (num == 11) { return { char: null, code: KEY_F1, name: "F1" }; }
+                if (num == 12) { return { char: null, code: KEY_F2, name: "F2" }; }
+                if (num == 13) { return { char: null, code: KEY_F3, name: "F3" }; }
+                if (num == 14) { return { char: null, code: KEY_F4, name: "F4" }; }
+                if (num == 15) { return { char: null, code: KEY_F5, name: "F5" }; }
+                if (num == 17) { return { char: null, code: KEY_F6, name: "F6" }; }
+                if (num == 18) { return { char: null, code: KEY_F7, name: "F7" }; }
+                if (num == 19) { return { char: null, code: KEY_F8, name: "F8" }; }
+                if (num == 20) { return { char: null, code: KEY_F9, name: "F9" }; }
+                if (num == 21) { return { char: null, code: KEY_F10, name: "F10" }; }
+                if (num == 23) { return { char: null, code: KEY_F11, name: "F11" }; }
+                if (num == 24) { return { char: null, code: KEY_F12, name: "F12" }; }
+            }
+        }
+    }
+
+    // SS3 sequences (ESC O)
+    if (byte2 == 79) {  // 'O'
+        let byte3 = read_byte_nowait();
+        if (byte3 == 80) { return { char: null, code: KEY_F1, name: "F1" }; }
+        if (byte3 == 81) { return { char: null, code: KEY_F2, name: "F2" }; }
+        if (byte3 == 82) { return { char: null, code: KEY_F3, name: "F3" }; }
+        if (byte3 == 83) { return { char: null, code: KEY_F4, name: "F4" }; }
+    }
+
+    // Unknown escape sequence
+    return { char: null, code: KEY_ESCAPE, name: "Escape" };
+}
+
+// Read a single keypress (blocking)
+// Returns an object with:
+//   char: the character (string) or null for special keys
+//   code: ASCII code or KEY_* constant
+//   name: human-readable name
+export fn read_key(): object {
+    let byte1 = read_byte();
+
+    if (byte1 == -1) {
+        return { char: null, code: KEY_NONE, name: "None" };
+    }
+
+    // Escape sequence
+    if (byte1 == 27) {
+        return parse_escape_sequence();
+    }
+
+    // Control characters
+    if (byte1 == 13 || byte1 == 10) {
+        return { char: "\n", code: KEY_ENTER, name: "Enter" };
+    }
+    if (byte1 == 9) {
+        return { char: "\t", code: KEY_TAB, name: "Tab" };
+    }
+    if (byte1 == 127 || byte1 == 8) {
+        return { char: null, code: KEY_BACKSPACE, name: "Backspace" };
+    }
+    if (byte1 == 3) {
+        return { char: null, code: KEY_CTRL_C, name: "Ctrl+C" };
+    }
+    if (byte1 == 4) {
+        return { char: null, code: KEY_CTRL_D, name: "Ctrl+D" };
+    }
+    if (byte1 == 26) {
+        return { char: null, code: KEY_CTRL_Z, name: "Ctrl+Z" };
+    }
+
+    // Regular printable character
+    if (byte1 >= 32 && byte1 < 127) {
+        let ch = rune(byte1);
+        return { char: "" + ch, code: byte1, name: "" + ch };
+    }
+
+    // Control character (Ctrl+letter)
+    if (byte1 >= 1 && byte1 <= 26) {
+        let letter = rune(byte1 + 64);  // A=1, B=2, etc.
+        return { char: null, code: byte1, name: "Ctrl+" + letter };
+    }
+
+    // UTF-8 multi-byte sequence (simplified handling)
+    if (byte1 >= 128) {
+        // For now, return as raw byte - full UTF-8 would need more work
+        return { char: null, code: byte1, name: "UTF8:" + byte1 };
+    }
+
+    return { char: null, code: byte1, name: "Unknown:" + byte1 };
+}
+
+// Read a key with timeout (milliseconds)
+// Returns { char: null, code: KEY_NONE, name: "Timeout" } if timeout expires
+export fn read_key_timeout(timeout_ms: i32): object {
+    import { time_ms, sleep } from "@stdlib/time";
+
+    let start = time_ms();
+    let flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+
+    // Set non-blocking
+    fcntl(STDIN_FILENO, F_SETFL, flags | _O_NONBLOCK);
+
+    let result = { char: null, code: KEY_NONE, name: "Timeout" };
+
+    while (time_ms() - start < timeout_ms) {
+        let byte1 = read_byte();
+        if (byte1 != -1) {
+            // Restore blocking mode for escape sequence parsing
+            fcntl(STDIN_FILENO, F_SETFL, flags);
+
+            // Re-process the byte
+            if (byte1 == 27) {
+                result = parse_escape_sequence();
+            } else if (byte1 == 13 || byte1 == 10) {
+                result = { char: "\n", code: KEY_ENTER, name: "Enter" };
+            } else if (byte1 >= 32 && byte1 < 127) {
+                let ch = rune(byte1);
+                result = { char: "" + ch, code: byte1, name: "" + ch };
+            } else {
+                result = { char: null, code: byte1, name: "Key:" + byte1 };
+            }
+            break;
+        }
+        sleep(10);  // Sleep 10ms between polls
+    }
+
+    // Restore original flags
+    fcntl(STDIN_FILENO, F_SETFL, flags);
+
+    return result;
+}
+
+// ========== CONVENIENCE FUNCTIONS ==========
+
+// Check if a key result is a specific key code
+export fn is_key(key: object, code: i32): bool {
+    return key.code == code;
+}
+
+// Check if a key result is a printable character
+export fn is_printable(key: object): bool {
+    return key.char != null && key.code >= 32 && key.code < 127;
+}
+
+// Check if a key result is an arrow key
+export fn is_arrow(key: object): bool {
+    return key.code >= KEY_UP && key.code <= KEY_LEFT;
+}
+
+// Get key name for display
+export fn key_name(key: object): string {
+    return key.name;
+}
+
+// ========== RAW MODE SCOPE HELPER ==========
+
+// Execute a function in raw mode, automatically restoring on exit
+// Usage: with_raw_mode(fn() { ... });
+export fn with_raw_mode(callback: fn(): void) {
+    if (!enable_raw_mode()) {
+        panic("termios: failed to enable raw mode");
+    }
+
+    try {
+        callback();
+    } finally {
+        disable_raw_mode();
+    }
+}

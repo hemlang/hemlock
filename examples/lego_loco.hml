@@ -18,6 +18,11 @@ import {
     CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR,
     move_to
 } from "@stdlib/terminal";
+import {
+    enable_raw_mode, disable_raw_mode, is_terminal,
+    read_key, read_key_timeout,
+    KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_ENTER
+} from "@stdlib/termios";
 
 // === CONSTANTS ===
 
@@ -61,6 +66,7 @@ let cursor_y = 8;
 let running = false;      // Simulation running?
 let current_building = BUILDING_HOUSE;
 let last_tick = 0;
+let raw_mode = false;     // Using raw terminal input?
 
 // === INITIALIZATION ===
 
@@ -314,7 +320,37 @@ fn render() {
 
 // === INPUT HANDLING ===
 
-fn handle_input(key: string) {
+// Handle key object from termios (raw mode)
+fn handle_key(key: object): bool {
+    // Arrow keys (raw mode only)
+    if (key.code == KEY_UP) {
+        if (cursor_y > 0) { cursor_y = cursor_y - 1; }
+        return false;
+    }
+    if (key.code == KEY_DOWN) {
+        if (cursor_y < WORLD_HEIGHT - 1) { cursor_y = cursor_y + 1; }
+        return false;
+    }
+    if (key.code == KEY_LEFT) {
+        if (cursor_x > 0) { cursor_x = cursor_x - 1; }
+        return false;
+    }
+    if (key.code == KEY_RIGHT) {
+        if (cursor_x < WORLD_WIDTH - 1) { cursor_x = cursor_x + 1; }
+        return false;
+    }
+
+    // Character input
+    if (key.char != null) {
+        return handle_char_input(key.char);
+    }
+
+    return false;
+}
+
+// Handle character input (works in both modes)
+fn handle_char_input(key: string): bool {
+    // Movement (WASD)
     if (key == "w" || key == "W") {
         if (cursor_y > 0) { cursor_y = cursor_y - 1; }
     }
@@ -328,6 +364,7 @@ fn handle_input(key: string) {
         if (cursor_x < WORLD_WIDTH - 1) { cursor_x = cursor_x + 1; }
     }
 
+    // Track placement
     if (key == "1") { world[cursor_y][cursor_x] = TRACK_H; }
     if (key == "2") { world[cursor_y][cursor_x] = TRACK_V; }
     if (key == "3") { world[cursor_y][cursor_x] = TRACK_TL; }
@@ -340,6 +377,7 @@ fn handle_input(key: string) {
     if (key == "0") { world[cursor_y][cursor_x] = TRACK_T_LEFT; }
     if (key == "-") { world[cursor_y][cursor_x] = TRACK_CROSS; }
 
+    // Building placement
     if (key == "b" || key == "B") {
         world[cursor_y][cursor_x] = current_building;
         if (current_building == BUILDING_HOUSE) { current_building = BUILDING_SHOP; }
@@ -350,6 +388,7 @@ fn handle_input(key: string) {
         else { current_building = BUILDING_HOUSE; }
     }
 
+    // Train placement
     if (key == "t" || key == "T") {
         let found_idx = -1;
         for (let i = 0; i < trains.length; i++) {
@@ -366,18 +405,28 @@ fn handle_input(key: string) {
         }
     }
 
+    // Clear tile
     if (key == "c" || key == "C") {
         world[cursor_y][cursor_x] = EMPTY;
     }
 
+    // Reset
     if (key == "r" || key == "R") {
         init_world();
         setup_demo();
     }
 
+    // Toggle simulation
     if (key == " ") {
         running = !running;
     }
+
+    // Quit
+    if (key == "q" || key == "Q") {
+        return true;
+    }
+
+    return false;
 }
 
 // === DEMO SETUP ===
@@ -441,21 +490,21 @@ fn setup_demo() {
 
 fn main() {
     print(CYAN + BOLD + "═══════════════════════════════════════════" + RESET);
-    print(CYAN + BOLD + "        LEGO LOCO - Train Town Builder      " + RESET);
+    print(CYAN + BOLD + "          HEMLOCO - Train Town Builder      " + RESET);
     print(CYAN + BOLD + "═══════════════════════════════════════════" + RESET);
     print("");
     print("Build your own train town! Lay tracks, place");
     print("buildings, and watch trains chug around.");
     print("");
     print(YELLOW + "Controls:" + RESET);
-    print("  WASD         - Move cursor");
-    print("  1-6, 7-0, -  - Place track pieces");
-    print("  B            - Place building (cycles types)");
-    print("  T            - Place/remove train (on track)");
-    print("  SPACE        - Start/stop simulation");
-    print("  C            - Clear tile");
-    print("  R            - Reset world");
-    print("  Q            - Quit");
+    print("  Arrow keys / WASD  - Move cursor");
+    print("  1-6, 7-0, -        - Place track pieces");
+    print("  B                  - Place building (cycles)");
+    print("  T                  - Place/remove train");
+    print("  SPACE              - Start/stop simulation");
+    print("  C                  - Clear tile");
+    print("  R                  - Reset world");
+    print("  Q                  - Quit");
     print("");
     print(GREEN + "Track pieces:" + RESET);
     print("  1:═  2:║  3:╔  4:╗  5:╚  6:╝");
@@ -464,10 +513,27 @@ fn main() {
     print(MAGENTA + "Buildings:" + RESET);
     print("  H=House S=Shop F=Factory T=Tree D=Depot P=Park");
     print("");
-    print("Press ENTER after each command.");
+
+    // Try to enable raw mode for smooth input
+    if (is_terminal()) {
+        raw_mode = enable_raw_mode();
+    }
+
+    if (raw_mode) {
+        print(GREEN + "Raw mode enabled - instant key response!" + RESET);
+    } else {
+        print(YELLOW + "Line mode - press ENTER after each command" + RESET);
+    }
+
     print("");
     print(CYAN + "Press ENTER to start with demo layout..." + RESET);
-    read_line();
+
+    // In raw mode, wait for any key; otherwise wait for line
+    if (raw_mode) {
+        read_key();
+    } else {
+        read_line();
+    }
 
     init_world();
     setup_demo();
@@ -480,6 +546,7 @@ fn main() {
     while (!quit) {
         render();
 
+        // Update simulation
         if (running) {
             let now = time_ms();
             if (now - last_tick >= TICK_MS) {
@@ -488,22 +555,31 @@ fn main() {
             }
         }
 
-        let line = read_line();
-        if (line != null && line.length > 0) {
-            let key = line.char_at(0);
-            if (key == "q" || key == "Q") {
-                quit = true;
-            } else {
-                handle_input(key);
+        // Handle input based on mode
+        if (raw_mode) {
+            // Raw mode: use timeout to allow train updates while waiting
+            let key = read_key_timeout(50);  // 50ms timeout
+            if (key.code != 0) {  // KEY_NONE = 0
+                quit = handle_key(key);
+            }
+        } else {
+            // Line mode: blocking read
+            let line = read_line();
+            if (line != null && line.length > 0) {
+                quit = handle_char_input(line.char_at(0));
             }
         }
 
         print(CLEAR_SCREEN);
     }
 
+    // Cleanup
+    if (raw_mode) {
+        disable_raw_mode();
+    }
     print(SHOW_CURSOR);
     print(CLEAR_SCREEN);
-    print(CYAN + "Thanks for playing Lego Loco!" + RESET);
+    print(CYAN + "Thanks for playing Hemloco!" + RESET);
 }
 
 main();
