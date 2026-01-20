@@ -1,0 +1,205 @@
+// Change the World - A simulation of how small actions create ripple effects
+// Demonstrates: pattern matching, objects, arrays, terminal colors, functions
+//
+// "Never doubt that a small group of thoughtful, committed citizens can change
+//  the world; indeed, it's the only thing that ever has." - Margaret Mead
+
+import { rand } from "@stdlib/math";
+import { RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, RESET, BOLD } from "@stdlib/terminal";
+
+// Types of positive actions that spread
+let action_types = [
+    "kindness",
+    "knowledge",
+    "creativity",
+    "courage",
+    "compassion"
+];
+
+// Get color for action type using pattern matching
+fn action_color(action: string): string {
+    return match (action) {
+        "kindness" => GREEN,
+        "knowledge" => CYAN,
+        "creativity" => MAGENTA,
+        "courage" => RED,
+        "compassion" => YELLOW,
+        _ => RESET
+    };
+}
+
+// Get symbol for action type
+fn action_symbol(action: string): string {
+    return match (action) {
+        "kindness" => "<3",
+        "knowledge" => "*",
+        "creativity" => "~",
+        "courage" => "!",
+        "compassion" => "+",
+        _ => "."
+    };
+}
+
+// Random integer in [0, max)
+fn randint(max: i32): i32 {
+    let f = rand() * max;
+    let result: i32 = f;
+    return result;
+}
+
+// A person in our world
+define Person {
+    name: string,
+    inspired: bool,
+    generation: i32
+}
+
+// Create a person
+fn create_person(name: string): object {
+    return {
+        name: name,
+        inspired: false,
+        generation: 0
+    };
+}
+
+// Visualize the world changing
+fn visualize_world(total_inspired: i32, total_people: i32) {
+    let bar = "[";
+    let filled = (total_inspired * 40) / total_people;
+    for (let i = 0; i < 40; i++) {
+        if (i < filled) {
+            bar = bar + GREEN + "#" + RESET;
+        } else {
+            bar = bar + "-";
+        }
+    }
+    bar = bar + "]";
+
+    let pct = (total_inspired * 100) / total_people;
+    print(bar + " " + pct + "% inspired");
+}
+
+// Inspire a person and show the effect
+fn inspire(people: array, idx: i32, action: string, generation: i32) {
+    let person = people[idx];
+    if (person.inspired) {
+        return;
+    }
+
+    person.inspired = true;
+    person.generation = generation;
+
+    let color = action_color(action);
+    let symbol = action_symbol(action);
+    let indent = "";
+    for (let i = 0; i < generation; i++) {
+        indent = indent + "  ";
+    }
+
+    print(indent + color + symbol + " " + person.name + RESET + " was inspired to spread " + color + action + RESET);
+}
+
+// Main simulation
+fn main() {
+    print("");
+    print(CYAN + BOLD + "============================================" + RESET);
+    print(CYAN + BOLD + "         CHANGE THE WORLD" + RESET);
+    print(CYAN + BOLD + "   Small Actions, Infinite Ripples" + RESET);
+    print(CYAN + BOLD + "============================================" + RESET);
+    print("");
+
+    // Create our world of people
+    let names = [
+        "Alice", "Bob", "Charlie", "Diana", "Eve",
+        "Frank", "Grace", "Henry", "Iris", "Jack",
+        "Kate", "Leo", "Maya", "Noah", "Olivia"
+    ];
+
+    let people = [];
+    for (name in names) {
+        people.push(create_person(name));
+    }
+
+    print(YELLOW + "A world of " + people.length + " people awaits change..." + RESET);
+    print("");
+
+    // Choose a random action type
+    let action_idx = randint(action_types.length);
+    let action = action_types[action_idx];
+    let color = action_color(action);
+
+    print(BOLD + "The Ripple Begins..." + RESET);
+    print("");
+    print(color + ">>> YOU perform an act of " + action + " <<<" + RESET);
+    print("");
+
+    // First generation - you inspire some people directly
+    let gen1_count = 2 + randint(3); // 2-4 people
+    let idx = 0;
+
+    for (let i = 0; i < gen1_count && idx < people.length; i++) {
+        inspire(people, idx, action, 1);
+        idx = idx + 1;
+    }
+
+    print("");
+    visualize_world(idx, people.length);
+    print("");
+
+    // Second generation - those people inspire others
+    let gen2_count = gen1_count * (1 + randint(2)); // each inspires 1-2 more
+    for (let i = 0; i < gen2_count && idx < people.length; i++) {
+        inspire(people, idx, action, 2);
+        idx = idx + 1;
+    }
+
+    print("");
+    visualize_world(idx, people.length);
+    print("");
+
+    // Third generation - the ripple continues
+    while (idx < people.length) {
+        inspire(people, idx, action, 3);
+        idx = idx + 1;
+    }
+
+    print("");
+    visualize_world(idx, people.length);
+
+    // Count by generation
+    let gen1 = 0;
+    let gen2 = 0;
+    let gen3 = 0;
+    for (p in people) {
+        let g = p.generation;
+        if (g == 1) { gen1 = gen1 + 1; }
+        if (g == 2) { gen2 = gen2 + 1; }
+        if (g == 3) { gen3 = gen3 + 1; }
+    }
+
+    // Summary
+    print("");
+    print(CYAN + BOLD + "============================================" + RESET);
+    print(CYAN + BOLD + "              RESULTS" + RESET);
+    print(CYAN + BOLD + "============================================" + RESET);
+    print("");
+
+    print("Your single act of " + color + BOLD + action + RESET + " inspired " + GREEN + BOLD + people.length + RESET + " people!");
+    print("");
+
+    print("  Generation 1 (direct):   " + gen1 + " people");
+    print("  Generation 2 (indirect): " + gen2 + " people");
+    print("  Generation 3 (ripple):   " + gen3 + " people");
+    print("");
+
+    print(YELLOW + BOLD + "\"The best time to plant a tree was 20 years ago." + RESET);
+    print(YELLOW + BOLD + " The second best time is now.\"" + RESET);
+    print(YELLOW + "                              - Chinese Proverb" + RESET);
+    print("");
+
+    print(GREEN + BOLD + "Go change the world. Start small. Start now." + RESET);
+    print("");
+}
+
+main();
