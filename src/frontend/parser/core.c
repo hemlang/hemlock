@@ -89,13 +89,40 @@ void synchronize(Parser *p) {
 
     while (p->current.type != TOK_EOF) {
         if (p->previous.type == TOK_SEMICOLON) return;
+        if (p->previous.type == TOK_RBRACE) return;  // End of block
 
         switch (p->current.type) {
+            // Statement-starting keywords
             case TOK_LET:
+            case TOK_CONST:
             case TOK_IF:
             case TOK_WHILE:
+            case TOK_FOR:
+            case TOK_LOOP:
+            case TOK_FN:
+            case TOK_ASYNC:
+            case TOK_RETURN:
+            case TOK_DEFINE:
+            case TOK_ENUM:
+            case TOK_TYPE:
+            case TOK_TRY:
+            case TOK_THROW:
+            case TOK_DEFER:
+            case TOK_SWITCH:
+            case TOK_IMPORT:
+            case TOK_EXPORT:
+            case TOK_EXTERN:
+            case TOK_MATCH:
                 return;
             default:
+                // Check for reserved keywords from other languages (as identifiers)
+                if (p->current.type == TOK_IDENT) {
+                    if (p->current.length == 3 && strncmp(p->current.start, "def", 3) == 0) return;
+                    if (p->current.length == 4 && strncmp(p->current.start, "func", 4) == 0) return;
+                    if (p->current.length == 8 && strncmp(p->current.start, "function", 8) == 0) return;
+                    if (p->current.length == 3 && strncmp(p->current.start, "var", 3) == 0) return;
+                    if (p->current.length == 5 && strncmp(p->current.start, "class", 5) == 0) return;
+                }
                 ; // Do nothing
         }
 
