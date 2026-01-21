@@ -6,9 +6,12 @@
  * - Binary operations (+, -, *, /, %, etc.)
  * - Unary operations (-, !, ~)
  * - Type promotion helpers
+ *
+ * Uses shared modules for type utilities (type_promotion.h)
  */
 
 #include "builtins_internal.h"
+#include "type_promotion.h"
 
 // ========== TYPE OPERATIONS ==========
 
@@ -17,16 +20,10 @@ HmlValue hml_sizeof(HmlValue type_name) {
         return hml_val_i32(0);
     }
     const char *name = type_name.as.as_string->data;
-    if (strcmp(name, "i8") == 0 || strcmp(name, "u8") == 0 || strcmp(name, "byte") == 0) return hml_val_i32(1);
-    if (strcmp(name, "i16") == 0 || strcmp(name, "u16") == 0) return hml_val_i32(2);
-    if (strcmp(name, "i32") == 0 || strcmp(name, "u32") == 0 || strcmp(name, "integer") == 0) return hml_val_i32(4);
-    if (strcmp(name, "i64") == 0 || strcmp(name, "u64") == 0) return hml_val_i32(8);
-    if (strcmp(name, "f32") == 0) return hml_val_i32(4);
-    if (strcmp(name, "f64") == 0 || strcmp(name, "number") == 0) return hml_val_i32(8);
-    if (strcmp(name, "bool") == 0) return hml_val_i32(1);
-    if (strcmp(name, "ptr") == 0) return hml_val_i32(8);
-    if (strcmp(name, "rune") == 0) return hml_val_i32(4);
-    return hml_val_i32(0);
+    // Use shared type utilities for sizeof
+    HmlTypeKind tk = hml_tk_from_name(name);
+    int size = hml_tk_sizeof(tk);
+    return hml_val_i32(size);
 }
 
 // ========== BINARY OPERATIONS ==========

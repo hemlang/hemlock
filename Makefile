@@ -1,9 +1,9 @@
 CC = gcc
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -60,6 +60,9 @@ CFLAGS += -DHAVE_LIBWEBSOCKETS=1
 endif
 
 # ========== SOURCE FILES (New Structure) ==========
+# Shared: pure functions used by both interpreter and runtime
+SHARED_SRCS = $(wildcard $(SRC_DIR)/shared/*.c)
+
 # Frontend: shared lexer, parser, AST, and modules
 MODULES_SRCS = $(wildcard $(SRC_DIR)/modules/*.c)
 FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/lexer/*.c) \
@@ -89,7 +92,7 @@ TOOL_SRCS = $(wildcard $(SRC_DIR)/tools/lsp/*.c) \
 # Shared compiler utilities (used by LSP)
 TYPECHECK_SRCS = $(SRC_DIR)/backends/compiler/type_check.c
 
-COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS)
+COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(SHARED_SRCS)
 SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
 
 COMMON_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMMON_SRCS))
@@ -103,6 +106,7 @@ TARGET = hemlock
 
 # Build directories
 BUILD_DIRS = $(BUILD_DIR) \
+             $(BUILD_DIR)/shared \
              $(BUILD_DIR)/frontend \
              $(BUILD_DIR)/frontend/lexer \
              $(BUILD_DIR)/frontend/parser \

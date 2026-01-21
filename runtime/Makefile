@@ -5,7 +5,7 @@ LDFLAGS = -lm -lpthread -lffi
 
 # Platform-specific settings
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -D_DARWIN_C_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -19,7 +19,7 @@ ifeq ($(shell uname),Darwin)
         LDFLAGS += -L$(BREW_OPENSSL)/lib
     endif
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
     LIBFFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null)
     ifneq ($(LIBFFI_CFLAGS),)
@@ -52,10 +52,13 @@ endif
 SRC_DIR = src
 BUILD_DIR = build
 INCLUDE_DIR = include
+SHARED_DIR = ../src/shared
 
 # Source files
 SRCS = $(wildcard $(SRC_DIR)/*.c)
+SHARED_SRCS = $(wildcard $(SHARED_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/shared_%.o,$(SHARED_SRCS))
 
 # Library targets
 STATIC_LIB = libhemlock_runtime.a
@@ -72,17 +75,21 @@ $(BUILD_DIR):
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile shared module objects
+$(BUILD_DIR)/shared_%.o: $(SHARED_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # Static library
 static: $(BUILD_DIR)/$(STATIC_LIB)
 
-$(BUILD_DIR)/$(STATIC_LIB): $(OBJS)
+$(BUILD_DIR)/$(STATIC_LIB): $(OBJS) $(SHARED_OBJS)
 	ar rcs $@ $^
 	@echo "Built static library: $@"
 
 # Shared library
 shared: $(BUILD_DIR)/$(SHARED_LIB)
 
-$(BUILD_DIR)/$(SHARED_LIB): $(OBJS)
+$(BUILD_DIR)/$(SHARED_LIB): $(OBJS) $(SHARED_OBJS)
 	$(CC) -shared -o $@ $^ $(LDFLAGS)
 	@echo "Built shared library: $@"
 
