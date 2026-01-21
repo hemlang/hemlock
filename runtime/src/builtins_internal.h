@@ -88,9 +88,9 @@ int hml_is_float_type(HmlValue val);
 int64_t hml_val_to_int64(HmlValue val);
 double hml_val_to_double(HmlValue val);
 
-// Type promotion helpers (used by binary ops, defined in builtins.c)
-int type_priority(HmlValueType type);
-HmlValueType promote_types(HmlValueType a, HmlValueType b);
+// Type promotion helper (used by binary ops, defined in builtins_ops.c)
+// Note: type_priority() and promote_types() are now static inline in builtins_ops.c,
+// using the shared type_promotion module for the actual logic.
 HmlValue make_int_result(HmlValueType result_type, int64_t value);
 
 // UTF-8 encoder (used by string operations)
