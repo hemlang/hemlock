@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Platform support: Linux (`libc.so.6`) and macOS (`libSystem.B.dylib`)
   - Documentation at `stdlib/docs/termios.md`
 
-- **Hemloco game** (`examples/lego_loco.hml`) - Train town builder inspired by LEGO Loco (1998)
+- **Hemloco game** (`examples/hemloco.hml`) - Train town builder inspired by a classic train game
   - Terminal-based game demonstrating termios usage
   - 11 track piece types with Unicode box-drawing characters
   - Train pathfinding through track connections

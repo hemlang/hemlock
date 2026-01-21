@@ -203,4 +203,4 @@ if (raw_mode) {
 ## See Also
 
 - `@stdlib/terminal` - ANSI escape codes for colors and cursor control
-- `examples/lego_loco.hml` - Game using termios for input
+- `examples/hemloco.hml` - Game using termios for input
