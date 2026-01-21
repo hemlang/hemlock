@@ -689,6 +689,432 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     return val_ptr(resp);
 }
 
+// __lws_http_get_timeout(url: string, timeout_ms: i32): ptr
+// HTTP GET with configurable timeout
+Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *ctx) {
+    // SANDBOX: Check if network is allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_NETWORK)) {
+        sandbox_error(ctx, "HTTP requests");
+        return val_null();
+    }
+
+    lws_init_logging();
+
+    if (num_args != 2) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects 2 arguments (url, timeout_ms)");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects string URL");
+        return val_null();
+    }
+
+    // Extract timeout from second argument (accept any numeric type)
+    int timeout_ms;
+    if (args[1].type == VAL_I32) {
+        timeout_ms = args[1].as.as_i32;
+    } else if (args[1].type == VAL_I64) {
+        timeout_ms = (int)args[1].as.as_i64;
+    } else if (args[1].type == VAL_F64) {
+        timeout_ms = (int)args[1].as.as_f64;
+    } else {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects numeric timeout_ms");
+        return val_null();
+    }
+
+    // Convert timeout_ms to iterations (each iteration is ~10ms)
+    int timeout_iterations = timeout_ms / 10;
+    if (timeout_iterations < 1) timeout_iterations = 1;
+
+    const char *url = args[0].as.as_string->data;
+    char host[256], path[512];
+    int port, ssl;
+
+    if (parse_url(url, host, &port, path, &ssl) < 0) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        return val_null();
+    }
+
+    http_response_t *resp = calloc(1, sizeof(http_response_t));
+    if (!resp) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        return val_null();
+    }
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        return val_null();
+    }
+    resp->body[0] = '\0';
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols protocols[] = {
+        { "http", http_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = protocols;
+
+    struct lws_context *context = lws_create_context(&info);
+    if (!context) {
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        return val_null();
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = "GET";
+    connect_info.protocol = protocols[0].name;
+    connect_info.userdata = resp;
+
+    struct lws *wsi;
+    connect_info.pwsi = &wsi;
+
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to connect");
+        return val_null();
+    }
+
+    // Event loop with custom timeout
+    int timeout = timeout_iterations;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        if (resp->body) free(resp->body);
+        if (resp->headers) free(resp->headers);
+        if (resp->redirect_url) free(resp->redirect_url);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        return val_null();
+    }
+
+    return val_ptr(resp);
+}
+
+// __lws_http_post_timeout(url: string, body: string, content_type: string, timeout_ms: i32): ptr
+// HTTP POST with configurable timeout
+Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext *ctx) {
+    // SANDBOX: Check if network is allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_NETWORK)) {
+        sandbox_error(ctx, "HTTP requests");
+        return val_null();
+    }
+
+    lws_init_logging();
+
+    if (num_args != 4) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects 4 arguments (url, body, content_type, timeout_ms)");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING || args[2].type != VAL_STRING) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects string arguments");
+        return val_null();
+    }
+
+    // Extract timeout from fourth argument
+    int timeout_ms;
+    if (args[3].type == VAL_I32) {
+        timeout_ms = args[3].as.as_i32;
+    } else if (args[3].type == VAL_I64) {
+        timeout_ms = (int)args[3].as.as_i64;
+    } else if (args[3].type == VAL_F64) {
+        timeout_ms = (int)args[3].as.as_f64;
+    } else {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects numeric timeout_ms");
+        return val_null();
+    }
+
+    int timeout_iterations = timeout_ms / 10;
+    if (timeout_iterations < 1) timeout_iterations = 1;
+
+    const char *url = args[0].as.as_string->data;
+    (void)args[1];  // body - not fully implemented
+    (void)args[2];  // content_type
+
+    char host[256], path[512];
+    int port, ssl;
+
+    if (parse_url(url, host, &port, path, &ssl) < 0) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        return val_null();
+    }
+
+    http_response_t *resp = calloc(1, sizeof(http_response_t));
+    if (!resp) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        return val_null();
+    }
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        return val_null();
+    }
+    resp->body[0] = '\0';
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols protocols[] = {
+        { "http", http_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = protocols;
+
+    struct lws_context *context = lws_create_context(&info);
+    if (!context) {
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        return val_null();
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = "POST";
+    connect_info.protocol = protocols[0].name;
+    connect_info.userdata = resp;
+
+    struct lws *wsi;
+    connect_info.pwsi = &wsi;
+
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to connect");
+        return val_null();
+    }
+
+    // Event loop with custom timeout
+    int timeout = timeout_iterations;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        if (resp->body) free(resp->body);
+        if (resp->headers) free(resp->headers);
+        if (resp->redirect_url) free(resp->redirect_url);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        return val_null();
+    }
+
+    return val_ptr(resp);
+}
+
+// __lws_http_request_timeout(method: string, url: string, body: string, content_type: string, timeout_ms: i32): ptr
+// Generic HTTP request with configurable timeout
+Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionContext *ctx) {
+    // SANDBOX: Check if network is allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_NETWORK)) {
+        sandbox_error(ctx, "HTTP requests");
+        return val_null();
+    }
+
+    lws_init_logging();
+
+    if (num_args != 5) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects 5 arguments (method, url, body, content_type, timeout_ms)");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING ||
+        args[2].type != VAL_STRING || args[3].type != VAL_STRING) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects string arguments");
+        return val_null();
+    }
+
+    // Extract timeout from fifth argument
+    int timeout_ms;
+    if (args[4].type == VAL_I32) {
+        timeout_ms = args[4].as.as_i32;
+    } else if (args[4].type == VAL_I64) {
+        timeout_ms = (int)args[4].as.as_i64;
+    } else if (args[4].type == VAL_F64) {
+        timeout_ms = (int)args[4].as.as_f64;
+    } else {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects numeric timeout_ms");
+        return val_null();
+    }
+
+    int timeout_iterations = timeout_ms / 10;
+    if (timeout_iterations < 1) timeout_iterations = 1;
+
+    const char *method = args[0].as.as_string->data;
+    const char *url = args[1].as.as_string->data;
+    (void)args[2];  // body
+    (void)args[3];  // content_type
+
+    char host[256], path[512];
+    int port, ssl;
+
+    if (parse_url(url, host, &port, path, &ssl) < 0) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        return val_null();
+    }
+
+    http_response_t *resp = calloc(1, sizeof(http_response_t));
+    if (!resp) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        return val_null();
+    }
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        return val_null();
+    }
+    resp->body[0] = '\0';
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols protocols[] = {
+        { "http", http_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = protocols;
+
+    struct lws_context *context = lws_create_context(&info);
+    if (!context) {
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        return val_null();
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = method;
+    connect_info.protocol = protocols[0].name;
+    connect_info.userdata = resp;
+
+    struct lws *wsi;
+    connect_info.pwsi = &wsi;
+
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        free(resp->body);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to connect");
+        return val_null();
+    }
+
+    // Event loop with custom timeout
+    int timeout = timeout_iterations;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        if (resp->body) free(resp->body);
+        if (resp->headers) free(resp->headers);
+        if (resp->redirect_url) free(resp->redirect_url);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        return val_null();
+    }
+
+    return val_ptr(resp);
+}
+
 // __lws_response_status(resp: ptr): i32
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
@@ -1868,6 +2294,24 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
     runtime_error(ctx, "HTTP support not available (libwebsockets not installed)");
     return val_null();

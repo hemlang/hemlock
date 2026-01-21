@@ -134,6 +134,10 @@ static BuiltinInfo builtins[] = {
     {"__lws_http_get", builtin_lws_http_get},
     {"__lws_http_post", builtin_lws_http_post},
     {"__lws_http_request", builtin_lws_http_request},
+    // Timeout versions
+    {"__lws_http_get_timeout", builtin_lws_http_get_timeout},
+    {"__lws_http_post_timeout", builtin_lws_http_post_timeout},
+    {"__lws_http_request_timeout", builtin_lws_http_request_timeout},
     {"__lws_response_status", builtin_lws_response_status},
     {"__lws_response_body", builtin_lws_response_body},
     {"__lws_response_body_binary", builtin_lws_response_body_binary},

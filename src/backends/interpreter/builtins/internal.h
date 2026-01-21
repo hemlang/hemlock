@@ -181,6 +181,10 @@ Value call_socket_method(SocketHandle *sock, const char *method, Value *args, in
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx);
+// Timeout versions (timeout_ms as last argument)
+Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionContext *ctx);

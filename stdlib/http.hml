@@ -254,6 +254,132 @@ export fn url_encode(str) {
 	return result;
 }
 
+// ========== TIMEOUT VERSIONS ==========
+// These functions allow specifying a custom timeout in milliseconds
+// Default timeout is 30000ms (30 seconds)
+
+// Internal: HTTP request with custom timeout
+fn http_request_timeout(method, url, body, headers, timeout_ms) {
+	return http_request_timeout_with_redirects(method, url, body, headers, 0, timeout_ms);
+}
+
+fn http_request_timeout_with_redirects(method, url, body, headers, redirect_count, timeout_ms) {
+	// Limit redirects to prevent infinite loops
+	if (redirect_count > 10) {
+		throw "Too many redirects: " + url;
+	}
+
+	let resp_ptr = null;
+
+	// Determine content type from headers or use default
+	let content_type = "application/x-www-form-urlencoded";
+	if (headers != null && headers.length > 0) {
+		for (header in headers) {
+			if (header.starts_with("Content-Type:")) {
+				content_type = header.substr(14, header.length - 14).trim();
+			}
+		}
+	}
+
+	if (method == "GET") {
+		resp_ptr = __lws_http_get_timeout(url, timeout_ms);
+	} else if (method == "POST") {
+		resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms);
+	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
+		method == "OPTIONS") {
+		resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms);
+	} else {
+		throw "HTTP method not supported: " + method;
+	}
+
+	if (resp_ptr == null) {
+		throw "HTTP request failed: " + method + " " + url;
+	}
+
+	// Extract response data
+	let status = __lws_response_status(resp_ptr);
+	let redirect_url = __lws_response_redirect(resp_ptr);
+	let response_body = __lws_response_body(resp_ptr);
+	let response_headers = __lws_response_headers(resp_ptr);
+
+	// Free C response structure
+	__lws_response_free(resp_ptr);
+
+	// Handle redirects (3xx status codes)
+	if (status >= 300 && status < 400 && redirect_url != null) {
+		if (redirect_url.starts_with("/")) {
+			let scheme_end = url.index_of("://");
+			if (scheme_end >= 0) {
+				let host_start = scheme_end + 3;
+				let host_end = url.index_of("/", host_start);
+				if (host_end < 0) {
+					host_end = url.length;
+				}
+				let base = url.substr(0, host_end);
+				redirect_url = base + redirect_url;
+			}
+		}
+		return http_request_timeout_with_redirects("GET", redirect_url, "", headers, redirect_count + 1, timeout_ms);
+	}
+
+	return { status_code: status, headers: response_headers, body: response_body };
+}
+
+// GET request with custom timeout
+// Parameters:
+//   url: string - URL to request
+//   headers: array<string> - Optional headers (e.g., ["Authorization: Bearer token"])
+//   timeout_ms: i32 - Timeout in milliseconds (default 30000)
+// Returns: { status_code: i32, headers: string, body: string }
+export fn get_timeout(url, headers, timeout_ms) {
+	headers = headers ?? [];
+	timeout_ms = timeout_ms ?? 30000;
+	return http_request_timeout("GET", url, "", headers, timeout_ms);
+}
+
+// POST request with custom timeout
+export fn post_timeout(url, body, headers, timeout_ms) {
+	body = body ?? "";
+	headers = headers ?? [];
+	timeout_ms = timeout_ms ?? 30000;
+	return http_request_timeout("POST", url, body, headers, timeout_ms);
+}
+
+// PUT request with custom timeout
+export fn put_timeout(url, body, headers, timeout_ms) {
+	body = body ?? "";
+	headers = headers ?? [];
+	timeout_ms = timeout_ms ?? 30000;
+	return http_request_timeout("PUT", url, body, headers, timeout_ms);
+}
+
+// DELETE request with custom timeout
+export fn delete_timeout(url, headers, timeout_ms) {
+	headers = headers ?? [];
+	timeout_ms = timeout_ms ?? 30000;
+	return http_request_timeout("DELETE", url, "", headers, timeout_ms);
+}
+
+// Generic request with custom timeout
+// Example:
+//   let resp = request_timeout("POST", "https://api.example.com/v1/chat", body, headers, 60000);
+export fn request_timeout(method, url, body, headers, timeout_ms) {
+	body = body ?? "";
+	headers = headers ?? [];
+	timeout_ms = timeout_ms ?? 30000;
+	return http_request_timeout(method, url, body, headers, timeout_ms);
+}
+
+// POST JSON with custom timeout (useful for LLM APIs)
+// Example:
+//   let resp = post_json_timeout("https://api.openai.com/v1/chat/completions", payload, 60000);
+export fn post_json_timeout(url, data, timeout_ms) {
+	timeout_ms = timeout_ms ?? 30000;
+	let json = data.serialize();
+	let headers = ["Content-Type: application/json"];
+	return http_request_timeout("POST", url, json, headers, timeout_ms);
+}
+
 // ========== HTTP SERVER ==========
 
 import { TcpListener } from "@stdlib/net";

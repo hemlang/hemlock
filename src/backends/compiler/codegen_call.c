@@ -1936,6 +1936,57 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // __lws_http_get_timeout(url, timeout_ms)
+        if (strcmp(fn_name, "__lws_http_get_timeout") == 0 && expr->as.call.num_args == 2) {
+            char *url = codegen_expr(ctx, expr->as.call.args[0]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_get_timeout(%s, %s);", result, url, timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", url);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            free(url);
+            free(timeout_ms);
+            return result;
+        }
+
+        // __lws_http_post_timeout(url, body, content_type, timeout_ms)
+        if (strcmp(fn_name, "__lws_http_post_timeout") == 0 && expr->as.call.num_args == 4) {
+            char *url = codegen_expr(ctx, expr->as.call.args[0]);
+            char *body = codegen_expr(ctx, expr->as.call.args[1]);
+            char *content_type = codegen_expr(ctx, expr->as.call.args[2]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[3]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_post_timeout(%s, %s, %s, %s);", result, url, body, content_type, timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", url);
+            codegen_writeln(ctx, "hml_release(&%s);", body);
+            codegen_writeln(ctx, "hml_release(&%s);", content_type);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            free(url);
+            free(body);
+            free(content_type);
+            free(timeout_ms);
+            return result;
+        }
+
+        // __lws_http_request_timeout(method, url, body, content_type, timeout_ms)
+        if (strcmp(fn_name, "__lws_http_request_timeout") == 0 && expr->as.call.num_args == 5) {
+            char *method = codegen_expr(ctx, expr->as.call.args[0]);
+            char *url = codegen_expr(ctx, expr->as.call.args[1]);
+            char *body = codegen_expr(ctx, expr->as.call.args[2]);
+            char *content_type = codegen_expr(ctx, expr->as.call.args[3]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[4]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_request_timeout(%s, %s, %s, %s, %s);", result, method, url, body, content_type, timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", method);
+            codegen_writeln(ctx, "hml_release(&%s);", url);
+            codegen_writeln(ctx, "hml_release(&%s);", body);
+            codegen_writeln(ctx, "hml_release(&%s);", content_type);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            free(method);
+            free(url);
+            free(body);
+            free(content_type);
+            free(timeout_ms);
+            return result;
+        }
+
         // __lws_response_status(resp)
         if (strcmp(fn_name, "__lws_response_status") == 0 && expr->as.call.num_args == 1) {
             char *resp = codegen_expr(ctx, expr->as.call.args[0]);

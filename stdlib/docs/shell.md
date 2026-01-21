@@ -335,9 +335,76 @@ fn setup_environment() {
 }
 ```
 
+## Safe Execution (No Shell Injection)
+
+The `*_safe` functions use `exec_argv` internally, which bypasses shell interpretation entirely. This prevents shell injection attacks and properly captures both stdout and stderr separately.
+
+### exec_safe(argv: array): object
+
+Execute command without shell interpretation. Returns full result object.
+
+```hemlock
+let result = exec_safe(["ls", "-la", "/tmp"]);
+print(result.output);     // stdout
+print(result.stderr);     // stderr (properly captured!)
+print(result.exit_code);  // 0 on success
+```
+
+### run_capture_safe(argv: array): object
+
+Run command safely and return structured result with proper stderr capture.
+
+```hemlock
+let result = run_capture_safe(["git", "commit", "-m", "message"]);
+// Returns: { success: bool, stdout: string, stderr: string, code: i32 }
+
+if (!result.success) {
+    print("Git error: " + result.stderr);
+}
+```
+
+### run_output_safe(argv: array): string
+
+Run command safely and return stdout, or throw on failure.
+
+```hemlock
+let version = run_output_safe(["python3", "--version"]);
+print(version);  // "Python 3.9.7\n"
+```
+
+### run_safe(argv: array): bool
+
+Run command safely and return success status.
+
+```hemlock
+if (run_safe(["make", "build"])) {
+    print("Build succeeded!");
+}
+```
+
+### Shell Injection Protection
+
+```hemlock
+// DANGEROUS: shell interprets the semicolon
+run("echo " + user_input);  // user_input = "hello; rm -rf /"
+
+// SAFE: no shell interpretation, semicolon is literal
+run_safe(["echo", user_input]);  // Outputs: "hello; rm -rf /"
+```
+
+### When to Use Safe vs Regular Functions
+
+| Use Case | Function | Reason |
+|----------|----------|--------|
+| User-provided arguments | `*_safe` functions | Prevents injection |
+| Need stderr separate | `exec_safe`, `run_capture_safe` | Proper pipe separation |
+| Shell features needed | `run`, `run_capture` | Pipes, redirects, globs |
+| Simple commands | Either | Both work fine |
+
 ## Security Notes
 
-- Always use `quote()` or `build_command()` for user input
-- Prefer `run(["cmd", arg1, arg2])` over string concatenation
+- Always use `quote()` or `build_command()` for user input with shell functions
+- **Prefer `*_safe` functions** (`exec_safe`, `run_safe`, etc.) for untrusted input
+- Use `run(["cmd", arg1, arg2])` over string concatenation when using shell functions
 - Validate paths before file operations
 - Be cautious with `rm(..., true)` (recursive delete)

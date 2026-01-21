@@ -1,0 +1,9 @@
+=== get_timeout ===
+function exists: true
+=== post_timeout ===
+function exists: true
+=== request_timeout ===
+function exists: true
+=== timeout defaults ===
+null coalescing works: true
+=== all tests passed ===

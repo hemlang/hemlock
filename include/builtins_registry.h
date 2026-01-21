@@ -240,7 +240,7 @@ typedef struct {
     X("__waitpid",  2,  HML_BUILTIN_INTERNAL, HML_RET_I32) \
     X("__kill",     2,  HML_BUILTIN_INTERNAL, HML_RET_I32) \
     X("__exec",     1,  HML_BUILTIN_INTERNAL, HML_RET_OBJECT) \
-    X("__exec_argv", 2, HML_BUILTIN_INTERNAL, HML_RET_OBJECT) \
+    X("__exec_argv", 1, HML_BUILTIN_INTERNAL, HML_RET_OBJECT) \
     X("__abort",    0,  HML_BUILTIN_INTERNAL | HML_BUILTIN_NORETURN, HML_RET_NULL)
 
 #define HML_BUILTINS_TIME(X) \

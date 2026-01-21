@@ -202,6 +202,59 @@ Check if status code indicates client error (400-499).
 
 Check if status code indicates server error (500-599).
 
+### Timeout Functions
+
+All HTTP functions have corresponding `*_timeout` versions that accept a custom timeout in milliseconds. The default timeout is 30000ms (30 seconds).
+
+#### `get_timeout(url: string, headers?: array<string>, timeout_ms?: i32): object`
+
+GET request with custom timeout.
+
+```hemlock
+import { get_timeout } from "@stdlib/http";
+
+// 60 second timeout for slow APIs
+let response = get_timeout("https://slow-api.example.com/data", null, 60000);
+```
+
+#### `post_timeout(url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
+
+POST request with custom timeout.
+
+```hemlock
+import { post_timeout } from "@stdlib/http";
+
+let response = post_timeout("https://api.example.com/upload", large_body, null, 120000);
+```
+
+#### `request_timeout(method: string, url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
+
+Generic HTTP request with custom timeout.
+
+```hemlock
+import { request_timeout } from "@stdlib/http";
+
+let response = request_timeout("PUT", "https://api.example.com/data", body, headers, 45000);
+```
+
+#### `post_json_timeout(url: string, data: object, timeout_ms?: i32): object`
+
+POST JSON with custom timeout. Ideal for LLM APIs that may take longer to respond.
+
+```hemlock
+import { post_json_timeout } from "@stdlib/http";
+
+// OpenAI API may take 60+ seconds for large prompts
+let response = post_json_timeout(
+    "https://api.openai.com/v1/chat/completions",
+    {
+        model: "gpt-4",
+        messages: [{ role: "user", content: prompt }]
+    },
+    60000  // 60 second timeout
+);
+```
+
 ### URL Helpers
 
 #### `url_encode(str: string): string`
