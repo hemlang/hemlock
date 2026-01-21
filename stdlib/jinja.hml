@@ -360,7 +360,7 @@ fn split_filters(expr): array {
 	let current = "";
 	let paren_depth = 0;
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let i = 0;
 
 	while (i < expr.length) {
@@ -466,7 +466,7 @@ fn evaluate_expr(expr, context) {
 
 fn find_concat_operator(s): i32 {
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let paren_depth = 0;
 	let bracket_depth = 0;
 	let i = 0;
@@ -504,7 +504,7 @@ fn find_concat_operator(s): i32 {
 
 fn find_binary_operator(s, op): i32 {
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let paren_depth = 0;
 	let bracket_depth = 0;
 	let i = s.length - 1;
@@ -658,7 +658,7 @@ fn split_args(s): array {
 	let current = "";
 	let paren_depth = 0;
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let i = 0;
 
 	while (i < s.length) {
@@ -1024,7 +1024,7 @@ fn parse_filter_args(args_str, context): array {
 	let args: array = [];
 	let current = "";
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let i = 0;
 
 	while (i < args_str.length) {
@@ -1221,7 +1221,7 @@ fn split_words(s): array {
 	let words: array = [];
 	let current = "";
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let i = 0;
 
 	while (i < s.length) {
@@ -1547,7 +1547,7 @@ fn evaluate_condition(expr, context): bool {
 
 fn find_keyword(s, keyword): i32 {
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let paren_depth = 0;
 	let i = 0;
 
@@ -1579,7 +1579,7 @@ fn find_keyword(s, keyword): i32 {
 
 fn find_operator_cond(s, op): i32 {
 	let in_string = false;
-	let string_char = ' ';
+	let string_char: rune = ' ';
 	let i = 0;
 
 	while (i + op.length <= s.length) {
