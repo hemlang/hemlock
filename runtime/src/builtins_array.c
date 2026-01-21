@@ -550,3 +550,192 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
 
     return acc;
 }
+
+HmlValue hml_array_every(HmlValue arr, HmlValue predicate) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("every() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // Empty array returns true (vacuous truth)
+    if (a->length == 0) {
+        return hml_val_bool(1);
+    }
+
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[2] = { a->elements[i], hml_val_i32(i) };
+        HmlValue result = hml_call_function(predicate, args, 1);
+        int is_true = hml_to_bool(result);
+        hml_release(&result);
+        if (!is_true) {
+            return hml_val_bool(0);
+        }
+    }
+
+    return hml_val_bool(1);
+}
+
+HmlValue hml_array_some(HmlValue arr, HmlValue predicate) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("some() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // Empty array returns false
+    if (a->length == 0) {
+        return hml_val_bool(0);
+    }
+
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[2] = { a->elements[i], hml_val_i32(i) };
+        HmlValue result = hml_call_function(predicate, args, 1);
+        int is_true = hml_to_bool(result);
+        hml_release(&result);
+        if (is_true) {
+            return hml_val_bool(1);
+        }
+    }
+
+    return hml_val_bool(0);
+}
+
+HmlValue hml_array_index_of(HmlValue arr, HmlValue value) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("indexOf() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        if (hml_values_equal(a->elements[i], value)) {
+            return hml_val_i32(i);
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+// Quicksort comparator context
+typedef struct {
+    HmlValue comparator;
+    int has_comparator;
+} SortContext;
+
+// Default comparison function for sorting
+static int default_compare(HmlValue a, HmlValue b) {
+    // Compare by type first
+    if (a.type != b.type) {
+        return (int)a.type - (int)b.type;
+    }
+
+    switch (a.type) {
+        case HML_VAL_I8:  return (a.as.as_i8 < b.as.as_i8) ? -1 : (a.as.as_i8 > b.as.as_i8) ? 1 : 0;
+        case HML_VAL_I16: return (a.as.as_i16 < b.as.as_i16) ? -1 : (a.as.as_i16 > b.as.as_i16) ? 1 : 0;
+        case HML_VAL_I32: return (a.as.as_i32 < b.as.as_i32) ? -1 : (a.as.as_i32 > b.as.as_i32) ? 1 : 0;
+        case HML_VAL_I64: return (a.as.as_i64 < b.as.as_i64) ? -1 : (a.as.as_i64 > b.as.as_i64) ? 1 : 0;
+        case HML_VAL_U8:  return (a.as.as_u8 < b.as.as_u8) ? -1 : (a.as.as_u8 > b.as.as_u8) ? 1 : 0;
+        case HML_VAL_U16: return (a.as.as_u16 < b.as.as_u16) ? -1 : (a.as.as_u16 > b.as.as_u16) ? 1 : 0;
+        case HML_VAL_U32: return (a.as.as_u32 < b.as.as_u32) ? -1 : (a.as.as_u32 > b.as.as_u32) ? 1 : 0;
+        case HML_VAL_U64: return (a.as.as_u64 < b.as.as_u64) ? -1 : (a.as.as_u64 > b.as.as_u64) ? 1 : 0;
+        case HML_VAL_F32: return (a.as.as_f32 < b.as.as_f32) ? -1 : (a.as.as_f32 > b.as.as_f32) ? 1 : 0;
+        case HML_VAL_F64: return (a.as.as_f64 < b.as.as_f64) ? -1 : (a.as.as_f64 > b.as.as_f64) ? 1 : 0;
+        case HML_VAL_BOOL: return (int)a.as.as_bool - (int)b.as.as_bool;
+        case HML_VAL_STRING:
+            return strcmp(a.as.as_string->data, b.as.as_string->data);
+        default:
+            return 0;  // Objects, arrays, etc. - no default ordering
+    }
+}
+
+// Compare two values using either default or custom comparator
+static int compare_values(HmlValue a, HmlValue b, SortContext *ctx) {
+    if (!ctx->has_comparator) {
+        return default_compare(a, b);
+    }
+
+    // Call user-provided comparator
+    HmlValue args[2] = { a, b };
+    HmlValue result = hml_call_function(ctx->comparator, args, 2);
+    int cmp = hml_to_i32(result);
+    hml_release(&result);
+    return cmp;
+}
+
+// Quicksort partition
+static int partition(HmlValue *arr, int low, int high, SortContext *ctx) {
+    HmlValue pivot = arr[high];
+    int i = low - 1;
+
+    for (int j = low; j < high; j++) {
+        if (compare_values(arr[j], pivot, ctx) <= 0) {
+            i++;
+            HmlValue tmp = arr[i];
+            arr[i] = arr[j];
+            arr[j] = tmp;
+        }
+    }
+
+    HmlValue tmp = arr[i + 1];
+    arr[i + 1] = arr[high];
+    arr[high] = tmp;
+    return i + 1;
+}
+
+// Quicksort implementation
+static void quicksort(HmlValue *arr, int low, int high, SortContext *ctx) {
+    if (low < high) {
+        int pi = partition(arr, low, high, ctx);
+        quicksort(arr, low, pi - 1, ctx);
+        quicksort(arr, pi + 1, high, ctx);
+    }
+}
+
+void hml_array_sort(HmlValue arr, HmlValue comparator) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("sort() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (a->length <= 1) {
+        return;  // Already sorted
+    }
+
+    SortContext ctx;
+    ctx.comparator = comparator;
+    ctx.has_comparator = (comparator.type == HML_VAL_FUNCTION);
+
+    quicksort(a->elements, 0, a->length - 1, &ctx);
+}
+
+void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("fill() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+
+    // Get start and end indices
+    int s = (start.type == HML_VAL_NULL) ? 0 : hml_to_i32(start);
+    int e = (end.type == HML_VAL_NULL) ? a->length : hml_to_i32(end);
+
+    // Handle negative indices (from end)
+    if (s < 0) s = a->length + s;
+    if (e < 0) e = a->length + e;
+
+    // Clamp values
+    if (s < 0) s = 0;
+    if (e > a->length) e = a->length;
+    if (s >= e) return;  // Nothing to fill
+
+    // Check element type for typed arrays
+    if (a->element_type != HML_VAL_NULL && value.type != a->element_type) {
+        hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+    }
+
+    // Fill the range
+    for (int i = s; i < e; i++) {
+        hml_release(&a->elements[i]);
+        a->elements[i] = value;
+        hml_retain(&a->elements[i]);
+    }
+}

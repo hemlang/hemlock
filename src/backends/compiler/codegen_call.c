@@ -3022,6 +3022,34 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, hml_val_null());",
                               result, obj_val, arg_temps[0]);
             }
+        } else if (strcmp(method, "every") == 0 && expr->as.call.num_args == 1) {
+            codegen_writeln(ctx, "HmlValue %s = hml_array_every(%s, %s);",
+                          result, obj_val, arg_temps[0]);
+        } else if (strcmp(method, "some") == 0 && expr->as.call.num_args == 1) {
+            codegen_writeln(ctx, "HmlValue %s = hml_array_some(%s, %s);",
+                          result, obj_val, arg_temps[0]);
+        } else if (strcmp(method, "indexOf") == 0 && expr->as.call.num_args == 1) {
+            codegen_writeln(ctx, "HmlValue %s = hml_array_index_of(%s, %s);",
+                          result, obj_val, arg_temps[0]);
+        } else if (strcmp(method, "sort") == 0 && (expr->as.call.num_args == 0 || expr->as.call.num_args == 1)) {
+            if (expr->as.call.num_args == 1) {
+                codegen_writeln(ctx, "hml_array_sort(%s, %s);", obj_val, arg_temps[0]);
+            } else {
+                codegen_writeln(ctx, "hml_array_sort(%s, hml_val_null());", obj_val);
+            }
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        } else if (strcmp(method, "fill") == 0 && (expr->as.call.num_args >= 1 && expr->as.call.num_args <= 3)) {
+            if (expr->as.call.num_args == 3) {
+                codegen_writeln(ctx, "hml_array_fill(%s, %s, %s, %s);",
+                              obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+            } else if (expr->as.call.num_args == 2) {
+                codegen_writeln(ctx, "hml_array_fill(%s, %s, %s, hml_val_null());",
+                              obj_val, arg_temps[0], arg_temps[1]);
+            } else {
+                codegen_writeln(ctx, "hml_array_fill(%s, %s, hml_val_null(), hml_val_null());",
+                              obj_val, arg_temps[0]);
+            }
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
         // Channel methods (also handle socket variants)
         } else if (strcmp(method, "send") == 0 && expr->as.call.num_args == 1) {
             // Channel send or socket send

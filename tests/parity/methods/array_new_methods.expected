@@ -1,0 +1,29 @@
+=== every() ===
+All positive: true
+All even: false
+Empty every: true
+=== some() ===
+Has even: true
+Has negative: false
+Empty some: false
+=== indexOf() ===
+indexOf apple: 0
+indexOf banana: 1
+indexOf cherry: 2
+indexOf grape: -1
+indexOf 30: 2
+indexOf 99: -1
+=== sort() ===
+Sorted numbers: 1, 1, 2, 3, 4, 5, 6, 9
+Sorted words: apple, banana, cherry, date
+Sorted descending: 9, 6, 5, 4, 3, 2, 1, 1
+Sorted by length: c, aa, ddd, bbbb
+Single element: 42
+Empty sorted length: 0
+=== fill() ===
+Fill all with 0: 0, 0, 0, 0, 0
+Fill from index 2: 1, 2, 9, 9, 9
+Fill range [1,4): 1, 7, 7, 7, 5
+Fill negative [-3,-1): 1, 2, 0, 0, 5
+Fill with string: a, x, x, d
+=== DONE ===

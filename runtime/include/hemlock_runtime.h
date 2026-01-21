@@ -330,6 +330,11 @@ HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type);
 HmlValue hml_array_map(HmlValue arr, HmlValue callback);
 HmlValue hml_array_filter(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial);
+HmlValue hml_array_every(HmlValue arr, HmlValue predicate);
+HmlValue hml_array_some(HmlValue arr, HmlValue predicate);
+HmlValue hml_array_index_of(HmlValue arr, HmlValue value);
+void hml_array_sort(HmlValue arr, HmlValue comparator);
+void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end);
 
 // ========== OBJECT OPERATIONS ==========
 
