@@ -1,0 +1,1745 @@
+// @stdlib/jinja - Jinja-style template rendering
+//
+// Provides Jinja2-compatible template syntax for string interpolation,
+// control flow, and filters.
+//
+// Usage:
+// import { render, escape, namespace } from "@stdlib/jinja";
+// let result = render("Hello, {{ name }}!", { name: "World" });
+// print(result);  // "Hello, World!"
+//
+// Supported syntax:
+// - Variables: {{ variable }}, {{ object.property }}, {{ array[0] }}
+// - Expressions: {{ 'prefix' + var }}, {{ arr[idx - 1] }}
+// - Filters: {{ value|upper }}, {{ value|tojson }}
+// - Conditionals: {% if cond %}...{% elif cond %}...{% else %}...{% endif %}
+// - Type tests: {% if value is string %}...{% endif %}
+// - Loops: {% for item in items %}...{% endfor %}
+// - Loop variables: {{ loop.index }}, {{ loop.index0 }}, {{ loop.first }}, {{ loop.last }}
+// - Set variables: {% set x = value %}
+// - Namespace: {% set ns = namespace(count=0) %}, {% set ns.count = ns.count + 1 %}
+// - Comments: {# this is a comment #}
+// - Whitespace control: {%- trim left -%}, {{- trim output -}}
+
+// ============================================================================
+// Main API
+// ============================================================================
+
+// Render a Jinja-style template with the given context
+export fn render(template, context): string {
+	if (typeof(template) != "string") {
+		throw "render() requires string template";
+	}
+	if (context == null) {
+		context = {};
+	}
+	if (typeof(context) != "object") {
+		throw "render() context must be an object";
+	}
+
+	return render_template(template, context);
+}
+
+// Escape HTML special characters
+export fn escape(str): string {
+	if (typeof(str) != "string") {
+		str = "" + str;
+	}
+
+	let result = "";
+	let i = 0;
+	while (i < str.length) {
+		let c = str.char_at(i);
+		if (c == '&') {
+			result = result + "&amp;";
+		} else if (c == '<') {
+			result = result + "&lt;";
+		} else if (c == '>') {
+			result = result + "&gt;";
+		} else if (c == '"') {
+			result = result + "&quot;";
+		} else if (c == '\'') {
+			result = result + "&#39;";
+		} else {
+			result = result + c;
+		}
+		i = i + 1;
+	}
+	return result;
+}
+
+// Create a namespace object (mutable object for use in loops)
+export fn namespace(initial): object {
+	if (initial == null) {
+		return { __namespace__: true };
+	}
+	initial["__namespace__"] = true;
+	return initial;
+}
+
+// ============================================================================
+// Token Types
+// ============================================================================
+
+let TOKEN_TEXT = 0;
+let TOKEN_VAR = 1;       // {{ ... }}
+let TOKEN_BLOCK = 2;     // {% ... %}
+let TOKEN_COMMENT = 3;   // {# ... #}
+
+// ============================================================================
+// Tokenizer with Whitespace Control
+// ============================================================================
+
+fn tokenize(template): array {
+	let tokens: array = [];
+	let i = 0;
+	let text_start = 0;
+
+	while (i < template.length) {
+		if (i + 1 < template.length) {
+			let two = template.substr(i, 2);
+
+			// Variable: {{ or {{-
+			if (two == "{{") {
+				let strip_before = false;
+				let strip_after = false;
+				let content_start = i + 2;
+
+				// Check for {{-
+				if (content_start < template.length && template.char_at(content_start) == '-') {
+					strip_before = true;
+					content_start = content_start + 1;
+				}
+
+				// Save preceding text
+				if (i > text_start) {
+					let text = template.slice(text_start, i);
+					if (strip_before) {
+						text = rtrim(text);
+					}
+					if (text.length > 0) {
+						tokens.push({ type: TOKEN_TEXT, value: text });
+					}
+				}
+
+				// Find closing }}
+				let end = find_closing(template, content_start, "}}");
+				if (end < 0) {
+					throw "Unclosed variable tag starting at position " + i;
+				}
+
+				// Check for -}}
+				let content_end = end;
+				if (content_end > content_start && template.char_at(content_end - 1) == '-') {
+					strip_after = true;
+					content_end = content_end - 1;
+				}
+
+				let content = template.slice(content_start, content_end).trim();
+				tokens.push({ type: TOKEN_VAR, value: content, strip_after: strip_after });
+				i = end + 2;
+				text_start = i;
+				continue;
+			}
+
+			// Block: {% or {%-
+			if (two == "{%") {
+				let strip_before = false;
+				let strip_after = false;
+				let content_start = i + 2;
+
+				// Check for {%-
+				if (content_start < template.length && template.char_at(content_start) == '-') {
+					strip_before = true;
+					content_start = content_start + 1;
+				}
+
+				// Save preceding text
+				if (i > text_start) {
+					let text = template.slice(text_start, i);
+					if (strip_before) {
+						text = rtrim(text);
+					}
+					if (text.length > 0) {
+						tokens.push({ type: TOKEN_TEXT, value: text });
+					}
+				}
+
+				// Find closing %}
+				let end = find_closing(template, content_start, "%}");
+				if (end < 0) {
+					throw "Unclosed block tag starting at position " + i;
+				}
+
+				// Check for -%}
+				let content_end = end;
+				if (content_end > content_start && template.char_at(content_end - 1) == '-') {
+					strip_after = true;
+					content_end = content_end - 1;
+				}
+
+				let content = template.slice(content_start, content_end).trim();
+				tokens.push({ type: TOKEN_BLOCK, value: content, strip_after: strip_after });
+				i = end + 2;
+				text_start = i;
+				continue;
+			}
+
+			// Comment: {# or {#-
+			if (two == "{#") {
+				let strip_before = false;
+				let strip_after = false;
+				let content_start = i + 2;
+
+				if (content_start < template.length && template.char_at(content_start) == '-') {
+					strip_before = true;
+				}
+
+				// Save preceding text
+				if (i > text_start) {
+					let text = template.slice(text_start, i);
+					if (strip_before) {
+						text = rtrim(text);
+					}
+					if (text.length > 0) {
+						tokens.push({ type: TOKEN_TEXT, value: text });
+					}
+				}
+
+				let end = find_closing(template, content_start, "#}");
+				if (end < 0) {
+					throw "Unclosed comment tag starting at position " + i;
+				}
+
+				// Check for -#}
+				if (end > 0 && template.char_at(end - 1) == '-') {
+					strip_after = true;
+				}
+
+				// Store comment token to track strip_after
+				tokens.push({ type: TOKEN_COMMENT, value: "", strip_after: strip_after });
+				i = end + 2;
+				text_start = i;
+				continue;
+			}
+		}
+
+		i = i + 1;
+	}
+
+	// Save remaining text
+	if (text_start < template.length) {
+		tokens.push({ type: TOKEN_TEXT, value: template.slice(text_start, template.length) });
+	}
+
+	// Apply strip_after to following text tokens
+	let processed: array = [];
+	let j = 0;
+	while (j < tokens.length) {
+		let token = tokens[j];
+
+		if (token.type == TOKEN_COMMENT) {
+			// Skip comments but check strip_after
+			let strip = token["strip_after"];
+			if (strip && j + 1 < tokens.length && tokens[j + 1].type == TOKEN_TEXT) {
+				tokens[j + 1].value = ltrim(tokens[j + 1].value);
+			}
+			j = j + 1;
+			continue;
+		}
+
+		// Check if token has strip_after property (VAR and BLOCK tokens)
+		let strip = token["strip_after"];
+		if (strip && j + 1 < tokens.length && tokens[j + 1].type == TOKEN_TEXT) {
+			tokens[j + 1].value = ltrim(tokens[j + 1].value);
+		}
+
+		processed.push(token);
+		j = j + 1;
+	}
+
+	return processed;
+}
+
+fn find_closing(template, start, delim): i32 {
+	let i = start;
+	while (i + delim.length <= template.length) {
+		if (template.substr(i, delim.length) == delim) {
+			return i;
+		}
+		i = i + 1;
+	}
+	return -1;
+}
+
+fn rtrim(s): string {
+	let i = s.length - 1;
+	while (i >= 0) {
+		let c = s.char_at(i);
+		if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+			break;
+		}
+		i = i - 1;
+	}
+	return s.slice(0, i + 1);
+}
+
+fn ltrim(s): string {
+	let i = 0;
+	while (i < s.length) {
+		let c = s.char_at(i);
+		if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+			break;
+		}
+		i = i + 1;
+	}
+	return s.slice(i, s.length);
+}
+
+// ============================================================================
+// Template Rendering
+// ============================================================================
+
+fn render_template(template, context): string {
+	let tokens = tokenize(template);
+	let result = render_tokens(tokens, context, 0, tokens.length);
+	return result.output;
+}
+
+fn render_tokens(tokens, context, start, end): object {
+	let result = "";
+	let i = start;
+
+	while (i < end) {
+		let token = tokens[i];
+
+		if (token.type == TOKEN_TEXT) {
+			result = result + token.value;
+			i = i + 1;
+		} else if (token.type == TOKEN_VAR) {
+			result = result + render_variable(token.value, context);
+			i = i + 1;
+		} else if (token.type == TOKEN_BLOCK) {
+			let block_result = render_block(tokens, context, i, end);
+			result = result + block_result.output;
+			i = block_result.next_index;
+			context = block_result.context;
+		} else {
+			i = i + 1;
+		}
+	}
+
+	return { output: result, next_index: end, context: context };
+}
+
+// ============================================================================
+// Variable Rendering
+// ============================================================================
+
+fn render_variable(expr, context): string {
+	let parts = split_filters(expr);
+	let var_expr = parts[0].trim();
+
+	let value = evaluate_expr(var_expr, context);
+
+	let i = 1;
+	while (i < parts.length) {
+		let filter_expr = parts[i].trim();
+		value = apply_filter(value, filter_expr, context);
+		i = i + 1;
+	}
+
+	if (value == null) {
+		return "";
+	}
+	return "" + value;
+}
+
+fn split_filters(expr): array {
+	let parts: array = [];
+	let current = "";
+	let paren_depth = 0;
+	let in_string = false;
+	let string_char: rune = ' ';
+	let i = 0;
+
+	while (i < expr.length) {
+		let c = expr.char_at(i);
+
+		if (in_string) {
+			current = current + c;
+			if (c == string_char) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			current = current + c;
+			in_string = true;
+			string_char = c;
+		} else if (c == '(') {
+			paren_depth = paren_depth + 1;
+			current = current + c;
+		} else if (c == ')') {
+			paren_depth = paren_depth - 1;
+			current = current + c;
+		} else if (c == '|' && paren_depth == 0) {
+			parts.push(current);
+			current = "";
+		} else {
+			current = current + c;
+		}
+
+		i = i + 1;
+	}
+
+	if (current.length > 0) {
+		parts.push(current);
+	}
+
+	return parts;
+}
+
+// ============================================================================
+// Expression Evaluation
+// ============================================================================
+
+fn evaluate_expr(expr, context) {
+	let trimmed = expr.trim();
+
+	if (trimmed.length == 0) {
+		return null;
+	}
+
+	// Check for + (addition or string concatenation)
+	let plus_idx = find_concat_operator(trimmed);
+	if (plus_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, plus_idx), context);
+		let right = evaluate_expr(trimmed.slice(plus_idx + 1, trimmed.length), context);
+		// If both are numeric, do addition
+		if (is_numeric(left) && is_numeric(right)) {
+			return left + right;
+		}
+		// Otherwise, string concatenation
+		return ("" + left) + ("" + right);
+	}
+
+	// Check for arithmetic: - (subtraction)
+	let sub_idx = find_binary_operator(trimmed, "-");
+	if (sub_idx > 0) {
+		let left = evaluate_expr(trimmed.slice(0, sub_idx), context);
+		let right = evaluate_expr(trimmed.slice(sub_idx + 1, trimmed.length), context);
+		return left - right;
+	}
+
+	// Check for string literal
+	if (trimmed.length >= 2) {
+		let first = trimmed.char_at(0);
+		let last = trimmed.char_at(trimmed.length - 1);
+		if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+			return trimmed.slice(1, trimmed.length - 1);
+		}
+	}
+
+	// Check for number literal
+	if (is_number_literal(trimmed)) {
+		return parse_number(trimmed);
+	}
+
+	// Check for boolean/null literals
+	if (trimmed == "true") {
+		return true;
+	}
+	if (trimmed == "false") {
+		return false;
+	}
+	if (trimmed == "null") {
+		return null;
+	}
+
+	// Check for namespace() call
+	if (trimmed.starts_with("namespace(")) {
+		return parse_namespace_call(trimmed, context);
+	}
+
+	// Parse path with possible array indexing
+	return evaluate_path(trimmed, context);
+}
+
+fn find_concat_operator(s): i32 {
+	let in_string = false;
+	let string_char: rune = ' ';
+	let paren_depth = 0;
+	let bracket_depth = 0;
+	let i = 0;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+
+		if (in_string) {
+			if (c == string_char) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			in_string = true;
+			string_char = c;
+		} else if (c == '(') {
+			paren_depth = paren_depth + 1;
+		} else if (c == ')') {
+			paren_depth = paren_depth - 1;
+		} else if (c == '[') {
+			bracket_depth = bracket_depth + 1;
+		} else if (c == ']') {
+			bracket_depth = bracket_depth - 1;
+		} else if (c == '+' && paren_depth == 0 && bracket_depth == 0) {
+			// Make sure it's not at start (not unary)
+			if (i > 0) {
+				return i;
+			}
+		}
+
+		i = i + 1;
+	}
+
+	return -1;
+}
+
+fn find_binary_operator(s, op): i32 {
+	let in_string = false;
+	let string_char: rune = ' ';
+	let paren_depth = 0;
+	let bracket_depth = 0;
+	let i = s.length - 1;
+
+	// Search from right to left for correct precedence
+	while (i >= 0) {
+		let c = s.char_at(i);
+
+		if (in_string) {
+			if (c == string_char && (i == 0 || s.char_at(i - 1) != '\\')) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			in_string = true;
+			string_char = c;
+		} else if (c == ')') {
+			paren_depth = paren_depth + 1;
+		} else if (c == '(') {
+			paren_depth = paren_depth - 1;
+		} else if (c == ']') {
+			bracket_depth = bracket_depth + 1;
+		} else if (c == '[') {
+			bracket_depth = bracket_depth - 1;
+		} else if (c == op.char_at(0) && paren_depth == 0 && bracket_depth == 0) {
+			// Make sure we have space before (it's binary, not unary)
+			if (i > 0) {
+				let prev = s.char_at(i - 1);
+				if (prev == ' ' || prev == ')' || prev == ']' || is_alnum_char(prev)) {
+					return i;
+				}
+			}
+		}
+
+		i = i - 1;
+	}
+
+	return -1;
+}
+
+fn is_alnum_char(c): bool {
+	let code: i32 = c;
+	return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || c == '_';
+}
+
+fn evaluate_path(path, context) {
+	let value = context;
+	let current = "";
+	let i = 0;
+
+	while (i <= path.length) {
+		let c = ' ';
+		if (i < path.length) {
+			c = path.char_at(i);
+		}
+
+		if (c == '.' || c == '[' || i == path.length) {
+			if (current.length > 0) {
+				if (value == null) {
+					return null;
+				}
+				value = get_property(value, current);
+				current = "";
+			}
+
+			if (c == '[') {
+				// Find matching ]
+				let bracket_end = i + 1;
+				let bracket_depth = 1;
+				while (bracket_end < path.length && bracket_depth > 0) {
+					let bc = path.char_at(bracket_end);
+					if (bc == '[') {
+						bracket_depth = bracket_depth + 1;
+					} else if (bc == ']') {
+						bracket_depth = bracket_depth - 1;
+					}
+					bracket_end = bracket_end + 1;
+				}
+
+				let index_expr = path.slice(i + 1, bracket_end - 1);
+				let index = evaluate_expr(index_expr, context);
+
+				if (value == null) {
+					return null;
+				}
+
+				if (typeof(value) == "array") {
+					let idx: i32 = index;
+					if (idx >= 0 && idx < value.length) {
+						value = value[idx];
+					} else {
+						return null;
+					}
+				} else if (typeof(value) == "object") {
+					value = get_property(value, "" + index);
+				} else {
+					return null;
+				}
+
+				i = bracket_end;
+				continue;
+			}
+		} else {
+			current = current + c;
+		}
+
+		i = i + 1;
+	}
+
+	return value;
+}
+
+fn get_property(obj, name) {
+	if (obj == null) {
+		return null;
+	}
+	return obj[name];
+}
+
+fn parse_namespace_call(expr, context): object {
+	// namespace(key=value, ...)
+	let paren_start = expr.find("(");
+	let paren_end = expr.length - 1;
+
+	if (paren_start < 0 || expr.char_at(paren_end) != ')') {
+		return { __namespace__: true };
+	}
+
+	let args_str = expr.slice(paren_start + 1, paren_end);
+	let ns = { __namespace__: true };
+
+	if (args_str.trim().length == 0) {
+		return ns;
+	}
+
+	// Parse key=value pairs
+	let pairs = split_args(args_str);
+	for (pair in pairs) {
+		let eq_idx = pair.find("=");
+		if (eq_idx > 0) {
+			let key = pair.slice(0, eq_idx).trim();
+			let val_expr = pair.slice(eq_idx + 1, pair.length).trim();
+			ns[key] = evaluate_expr(val_expr, context);
+		}
+	}
+
+	return ns;
+}
+
+fn split_args(s): array {
+	let args: array = [];
+	let current = "";
+	let paren_depth = 0;
+	let in_string = false;
+	let string_char: rune = ' ';
+	let i = 0;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+
+		if (in_string) {
+			current = current + c;
+			if (c == string_char) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			current = current + c;
+			in_string = true;
+			string_char = c;
+		} else if (c == '(') {
+			paren_depth = paren_depth + 1;
+			current = current + c;
+		} else if (c == ')') {
+			paren_depth = paren_depth - 1;
+			current = current + c;
+		} else if (c == ',' && paren_depth == 0) {
+			if (current.trim().length > 0) {
+				args.push(current.trim());
+			}
+			current = "";
+		} else {
+			current = current + c;
+		}
+
+		i = i + 1;
+	}
+
+	if (current.trim().length > 0) {
+		args.push(current.trim());
+	}
+
+	return args;
+}
+
+fn is_numeric(value): bool {
+	let t = typeof(value);
+	return t == "i32" || t == "i64" || t == "f32" || t == "f64" ||
+		   t == "i8" || t == "i16" || t == "u8" || t == "u16" || t == "u32" || t == "u64";
+}
+
+fn is_number_literal(s): bool {
+	if (s.length == 0) {
+		return false;
+	}
+
+	let i = 0;
+	if (s.char_at(0) == '-') {
+		i = 1;
+	}
+
+	if (i >= s.length) {
+		return false;
+	}
+
+	let has_digit = false;
+	let has_dot = false;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+		let code: i32 = c;
+
+		if (code >= 48 && code <= 57) {
+			has_digit = true;
+		} else if (c == '.' && !has_dot) {
+			has_dot = true;
+		} else {
+			return false;
+		}
+
+		i = i + 1;
+	}
+
+	return has_digit;
+}
+
+fn parse_number(s) {
+	if (s.contains(".")) {
+		return parse_float_simple(s);
+	}
+	return parse_int_simple(s);
+}
+
+fn parse_int_simple(s): i32 {
+	let result: i32 = 0;
+	let negative = false;
+	let i = 0;
+	let trimmed = s.trim();
+
+	if (trimmed.length > 0 && trimmed.char_at(0) == '-') {
+		negative = true;
+		i = 1;
+	}
+
+	while (i < trimmed.length) {
+		let c = trimmed.char_at(i);
+		let code: i32 = c;
+		if (code >= 48 && code <= 57) {
+			result = result * 10 + (code - 48);
+		}
+		i = i + 1;
+	}
+
+	if (negative) {
+		return -result;
+	}
+	return result;
+}
+
+fn parse_float_simple(s): f64 {
+	let result: f64 = 0;
+	let negative = false;
+	let i = 0;
+	let decimal_place = 0;
+	let in_decimal = false;
+	let trimmed = s.trim();
+
+	if (trimmed.length > 0 && trimmed.char_at(0) == '-') {
+		negative = true;
+		i = 1;
+	}
+
+	while (i < trimmed.length) {
+		let c = trimmed.char_at(i);
+		let code: i32 = c;
+
+		if (c == '.') {
+			in_decimal = true;
+		} else if (code >= 48 && code <= 57) {
+			if (in_decimal) {
+				decimal_place = decimal_place + 1;
+				let digit: f64 = code - 48;
+				let divisor: f64 = 1;
+				let j = 0;
+				while (j < decimal_place) {
+					divisor = divisor * 10;
+					j = j + 1;
+				}
+				result = result + digit / divisor;
+			} else {
+				result = result * 10 + (code - 48);
+			}
+		}
+		i = i + 1;
+	}
+
+	if (negative) {
+		return -result;
+	}
+	return result;
+}
+
+// ============================================================================
+// Filters
+// ============================================================================
+
+fn apply_filter(value, filter_expr, context) {
+	let paren_idx = filter_expr.find("(");
+	let filter_name = filter_expr;
+	let filter_args: array = [];
+
+	if (paren_idx >= 0) {
+		filter_name = filter_expr.slice(0, paren_idx);
+		let args_str = filter_expr.slice(paren_idx + 1, filter_expr.length - 1);
+		filter_args = parse_filter_args(args_str, context);
+	}
+
+	filter_name = filter_name.trim();
+
+	if (filter_name == "upper") {
+		if (typeof(value) == "string") {
+			return value.to_upper();
+		}
+		return "" + value;
+	}
+
+	if (filter_name == "lower") {
+		if (typeof(value) == "string") {
+			return value.to_lower();
+		}
+		return "" + value;
+	}
+
+	if (filter_name == "trim") {
+		if (typeof(value) == "string") {
+			return value.trim();
+		}
+		return "" + value;
+	}
+
+	if (filter_name == "capitalize") {
+		if (typeof(value) == "string" && value.length > 0) {
+			let first = value.char_at(0);
+			let code: i32 = first;
+			if (code >= 97 && code <= 122) {
+				let upper: rune = code - 32;
+				return upper + value.slice(1, value.length);
+			}
+		}
+		return value;
+	}
+
+	if (filter_name == "title") {
+		if (typeof(value) == "string") {
+			return title_case(value);
+		}
+		return value;
+	}
+
+	if (filter_name == "length") {
+		if (typeof(value) == "string" || typeof(value) == "array") {
+			return value.length;
+		}
+		return 0;
+	}
+
+	if (filter_name == "default") {
+		if (value == null || value == "") {
+			if (filter_args.length > 0) {
+				return filter_args[0];
+			}
+			return "";
+		}
+		return value;
+	}
+
+	if (filter_name == "first") {
+		if (typeof(value) == "array" && value.length > 0) {
+			return value[0];
+		}
+		if (typeof(value) == "string" && value.length > 0) {
+			return value.char_at(0);
+		}
+		return null;
+	}
+
+	if (filter_name == "last") {
+		if (typeof(value) == "array" && value.length > 0) {
+			return value[value.length - 1];
+		}
+		if (typeof(value) == "string" && value.length > 0) {
+			return value.char_at(value.length - 1);
+		}
+		return null;
+	}
+
+	if (filter_name == "join") {
+		if (typeof(value) == "array") {
+			let sep = "";
+			if (filter_args.length > 0) {
+				sep = "" + filter_args[0];
+			}
+			return value.join(sep);
+		}
+		return "" + value;
+	}
+
+	if (filter_name == "reverse") {
+		if (typeof(value) == "array") {
+			let reversed: array = [];
+			let i = value.length - 1;
+			while (i >= 0) {
+				reversed.push(value[i]);
+				i = i - 1;
+			}
+			return reversed;
+		}
+		if (typeof(value) == "string") {
+			let result = "";
+			let i = value.length - 1;
+			while (i >= 0) {
+				result = result + value.char_at(i);
+				i = i - 1;
+			}
+			return result;
+		}
+		return value;
+	}
+
+	if (filter_name == "sort") {
+		if (typeof(value) == "array") {
+			return simple_sort(value);
+		}
+		return value;
+	}
+
+	if (filter_name == "escape" || filter_name == "e") {
+		return escape("" + value);
+	}
+
+	if (filter_name == "replace") {
+		if (typeof(value) == "string" && filter_args.length >= 2) {
+			let old_str = "" + filter_args[0];
+			let new_str = "" + filter_args[1];
+			return value.replace_all(old_str, new_str);
+		}
+		return value;
+	}
+
+	if (filter_name == "truncate") {
+		if (typeof(value) == "string" && filter_args.length > 0) {
+			let max_len: i32 = filter_args[0];
+			let suffix = "...";
+			if (filter_args.length > 1) {
+				suffix = "" + filter_args[1];
+			}
+			if (value.length > max_len) {
+				let cut_len = max_len - suffix.length;
+				if (cut_len < 0) {
+					cut_len = 0;
+				}
+				return value.slice(0, cut_len) + suffix;
+			}
+		}
+		return value;
+	}
+
+	if (filter_name == "int") {
+		return parse_int_simple("" + value);
+	}
+
+	if (filter_name == "float") {
+		return parse_float_simple("" + value);
+	}
+
+	if (filter_name == "string") {
+		return "" + value;
+	}
+
+	if (filter_name == "abs") {
+		if (value < 0) {
+			return -value;
+		}
+		return value;
+	}
+
+	if (filter_name == "round") {
+		let num: f64 = value;
+		let int_part: i64 = num;
+		let frac = num - int_part;
+		if (frac >= 0.5) {
+			return int_part + 1;
+		}
+		if (frac <= -0.5) {
+			return int_part - 1;
+		}
+		return int_part;
+	}
+
+	if (filter_name == "tojson") {
+		return to_json(value);
+	}
+
+	// Unknown filter
+	return value;
+}
+
+fn parse_filter_args(args_str, context): array {
+	let args: array = [];
+	let current = "";
+	let in_string = false;
+	let string_char: rune = ' ';
+	let i = 0;
+
+	while (i < args_str.length) {
+		let c = args_str.char_at(i);
+
+		if (in_string) {
+			if (c == string_char) {
+				in_string = false;
+				args.push(current);
+				current = "";
+			} else {
+				current = current + c;
+			}
+		} else if (c == '"' || c == '\'') {
+			in_string = true;
+			string_char = c;
+		} else if (c == ',') {
+			if (current.trim().length > 0) {
+				args.push(evaluate_expr(current.trim(), context));
+			}
+			current = "";
+		} else {
+			current = current + c;
+		}
+
+		i = i + 1;
+	}
+
+	if (current.trim().length > 0) {
+		args.push(evaluate_expr(current.trim(), context));
+	}
+
+	return args;
+}
+
+fn title_case(s): string {
+	let result = "";
+	let capitalize_next = true;
+	let i = 0;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+		let code: i32 = c;
+
+		if (c == ' ' || c == '\t' || c == '\n') {
+			capitalize_next = true;
+			result = result + c;
+		} else if (capitalize_next && code >= 97 && code <= 122) {
+			let upper: rune = code - 32;
+			result = result + upper;
+			capitalize_next = false;
+		} else {
+			result = result + c;
+			capitalize_next = false;
+		}
+
+		i = i + 1;
+	}
+
+	return result;
+}
+
+fn simple_sort(arr): array {
+	let result: array = [];
+	for (item in arr) {
+		result.push(item);
+	}
+
+	let n = result.length;
+	let i = 0;
+	while (i < n - 1) {
+		let j = 0;
+		while (j < n - i - 1) {
+			let a = "" + result[j];
+			let b = "" + result[j + 1];
+			if (a > b) {
+				let temp = result[j];
+				result[j] = result[j + 1];
+				result[j + 1] = temp;
+			}
+			j = j + 1;
+		}
+		i = i + 1;
+	}
+
+	return result;
+}
+
+fn to_json(value): string {
+	if (value == null) {
+		return "null";
+	}
+
+	let t = typeof(value);
+
+	if (t == "string") {
+		return json_escape_string(value);
+	}
+
+	if (t == "bool") {
+		if (value) {
+			return "true";
+		}
+		return "false";
+	}
+
+	if (t == "i32" || t == "i64" || t == "i16" || t == "i8" ||
+		t == "u32" || t == "u64" || t == "u16" || t == "u8" ||
+		t == "f32" || t == "f64") {
+		return "" + value;
+	}
+
+	if (t == "array") {
+		let parts: array = [];
+		for (item in value) {
+			parts.push(to_json(item));
+		}
+		return "[" + parts.join(", ") + "]";
+	}
+
+	if (t == "object") {
+		let parts: array = [];
+		let keys = value.keys();
+		for (key in keys) {
+			if (key != "__namespace__") {
+				parts.push(json_escape_string(key) + ": " + to_json(value[key]));
+			}
+		}
+		return "{" + parts.join(", ") + "}";
+	}
+
+	return "\"" + value + "\"";
+}
+
+fn json_escape_string(s): string {
+	let result = "\"";
+	let i = 0;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+
+		if (c == '"') {
+			result = result + "\\\"";
+		} else if (c == '\\') {
+			result = result + "\\\\";
+		} else if (c == '\n') {
+			result = result + "\\n";
+		} else if (c == '\r') {
+			result = result + "\\r";
+		} else if (c == '\t') {
+			result = result + "\\t";
+		} else {
+			result = result + c;
+		}
+
+		i = i + 1;
+	}
+
+	return result + "\"";
+}
+
+// ============================================================================
+// Block Rendering
+// ============================================================================
+
+fn render_block(tokens, context, start, end): object {
+	let token = tokens[start];
+	let block_content = token.value;
+
+	let parts = split_words(block_content);
+	if (parts.length == 0) {
+		return { output: "", next_index: start + 1, context: context };
+	}
+
+	let block_type = parts[0];
+
+	if (block_type == "if") {
+		return render_if_block(tokens, context, start, end, parts);
+	}
+
+	if (block_type == "for") {
+		return render_for_block(tokens, context, start, end, parts);
+	}
+
+	if (block_type == "set") {
+		return render_set_block(tokens, context, start, parts);
+	}
+
+	// Unknown block type
+	return { output: "", next_index: start + 1, context: context };
+}
+
+fn split_words(s): array {
+	let words: array = [];
+	let current = "";
+	let in_string = false;
+	let string_char: rune = ' ';
+	let i = 0;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+
+		if (in_string) {
+			current = current + c;
+			if (c == string_char) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			current = current + c;
+			in_string = true;
+			string_char = c;
+		} else if (c == ' ' || c == '\t') {
+			if (current.length > 0) {
+				words.push(current);
+				current = "";
+			}
+		} else {
+			current = current + c;
+		}
+
+		i = i + 1;
+	}
+
+	if (current.length > 0) {
+		words.push(current);
+	}
+
+	return words;
+}
+
+// ============================================================================
+// Set Statement
+// ============================================================================
+
+fn render_set_block(tokens, context, start, parts): object {
+	// {% set var = value %}
+	// {% set ns.prop = value %}
+
+	// Find = sign
+	let full_expr = "";
+	let i = 1;
+	while (i < parts.length) {
+		if (i > 1) {
+			full_expr = full_expr + " ";
+		}
+		full_expr = full_expr + parts[i];
+		i = i + 1;
+	}
+
+	let eq_idx = full_expr.find("=");
+	if (eq_idx < 0) {
+		return { output: "", next_index: start + 1, context: context };
+	}
+
+	let lhs = full_expr.slice(0, eq_idx).trim();
+	let rhs = full_expr.slice(eq_idx + 1, full_expr.length).trim();
+
+	let value = evaluate_expr(rhs, context);
+
+	// Check if lhs is a dotted path (e.g., ns.prop)
+	let dot_idx = lhs.find(".");
+	if (dot_idx >= 0) {
+		let obj_name = lhs.slice(0, dot_idx);
+		let prop_name = lhs.slice(dot_idx + 1, lhs.length);
+		let obj = context[obj_name];
+		if (obj != null) {
+			obj[prop_name] = value;
+		}
+	} else {
+		context[lhs] = value;
+	}
+
+	return { output: "", next_index: start + 1, context: context };
+}
+
+// ============================================================================
+// If Block
+// ============================================================================
+
+fn find_end_block(tokens, start, end, end_tag): i32 {
+	let depth = 1;
+	let i = start + 1;
+
+	let start_tag = "";
+	if (end_tag == "endif") {
+		start_tag = "if";
+	} else if (end_tag == "endfor") {
+		start_tag = "for";
+	}
+
+	while (i < end) {
+		let token = tokens[i];
+		if (token.type == TOKEN_BLOCK) {
+			let parts = split_words(token.value);
+			if (parts.length > 0) {
+				if (parts[0] == start_tag) {
+					depth = depth + 1;
+				} else if (parts[0] == end_tag) {
+					depth = depth - 1;
+					if (depth == 0) {
+						return i;
+					}
+				}
+			}
+		}
+		i = i + 1;
+	}
+
+	return -1;
+}
+
+fn find_else_block(tokens, start, end_idx): object {
+	let depth = 1;
+	let i = start + 1;
+
+	while (i < end_idx) {
+		let token = tokens[i];
+		if (token.type == TOKEN_BLOCK) {
+			let parts = split_words(token.value);
+			if (parts.length > 0) {
+				if (parts[0] == "if") {
+					depth = depth + 1;
+				} else if (parts[0] == "endif") {
+					depth = depth - 1;
+				} else if (depth == 1 && (parts[0] == "else" || parts[0] == "elif")) {
+					return { found: true, index: i, type: parts[0], parts: parts };
+				}
+			}
+		}
+		i = i + 1;
+	}
+
+	return { found: false, index: -1, type: "", parts: [] };
+}
+
+fn render_if_block(tokens, context, start, end, parts): object {
+	let endif_idx = find_end_block(tokens, start, end, "endif");
+	if (endif_idx < 0) {
+		throw "Missing {% endif %} for {% if %}";
+	}
+
+	let condition_str = "";
+	let j = 1;
+	while (j < parts.length) {
+		if (j > 1) {
+			condition_str = condition_str + " ";
+		}
+		condition_str = condition_str + parts[j];
+		j = j + 1;
+	}
+
+	let condition_result = evaluate_condition(condition_str, context);
+
+	if (condition_result) {
+		let else_info = find_else_block(tokens, start, endif_idx);
+		let body_end = endif_idx;
+		if (else_info.found) {
+			body_end = else_info.index;
+		}
+
+		let result = render_tokens(tokens, context, start + 1, body_end);
+		return { output: result.output, next_index: endif_idx + 1, context: result.context };
+	} else {
+		let else_info = find_else_block(tokens, start, endif_idx);
+
+		if (else_info.found) {
+			if (else_info.type == "elif") {
+				return render_if_block(tokens, context, else_info.index, end, else_info.parts);
+			} else {
+				let result = render_tokens(tokens, context, else_info.index + 1, endif_idx);
+				return { output: result.output, next_index: endif_idx + 1, context: result.context };
+			}
+		}
+
+		return { output: "", next_index: endif_idx + 1, context: context };
+	}
+}
+
+// ============================================================================
+// Condition Evaluation
+// ============================================================================
+
+fn evaluate_condition(expr, context): bool {
+	let trimmed = expr.trim();
+
+	// Handle "not" prefix
+	if (trimmed.starts_with("not ")) {
+		let inner = trimmed.slice(4, trimmed.length);
+		return !evaluate_condition(inner, context);
+	}
+
+	// Handle parentheses
+	if (trimmed.starts_with("(") && trimmed.ends_with(")")) {
+		// Check if these parens wrap the whole expression
+		let depth = 0;
+		let all_wrapped = true;
+		let i = 0;
+		while (i < trimmed.length - 1) {
+			let c = trimmed.char_at(i);
+			if (c == '(') {
+				depth = depth + 1;
+			} else if (c == ')') {
+				depth = depth - 1;
+			}
+			if (depth == 0 && i < trimmed.length - 1) {
+				all_wrapped = false;
+				break;
+			}
+			i = i + 1;
+		}
+		if (all_wrapped) {
+			return evaluate_condition(trimmed.slice(1, trimmed.length - 1), context);
+		}
+	}
+
+	// Handle "and"
+	let and_idx = find_keyword(trimmed, " and ");
+	if (and_idx >= 0) {
+		let left = trimmed.slice(0, and_idx);
+		let right = trimmed.slice(and_idx + 5, trimmed.length);
+		return evaluate_condition(left, context) && evaluate_condition(right, context);
+	}
+
+	// Handle "or"
+	let or_idx = find_keyword(trimmed, " or ");
+	if (or_idx >= 0) {
+		let left = trimmed.slice(0, or_idx);
+		let right = trimmed.slice(or_idx + 4, trimmed.length);
+		return evaluate_condition(left, context) || evaluate_condition(right, context);
+	}
+
+	// Handle "is" type tests
+	let is_idx = find_keyword(trimmed, " is ");
+	if (is_idx >= 0) {
+		let value_expr = trimmed.slice(0, is_idx);
+		let type_test = trimmed.slice(is_idx + 4, trimmed.length).trim();
+		let value = evaluate_expr(value_expr, context);
+		return check_type_test(value, type_test);
+	}
+
+	// Handle comparisons
+	let eq_idx = find_operator_cond(trimmed, "==");
+	if (eq_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, eq_idx).trim(), context);
+		let right = evaluate_expr(trimmed.slice(eq_idx + 2, trimmed.length).trim(), context);
+		return left == right;
+	}
+
+	let ne_idx = find_operator_cond(trimmed, "!=");
+	if (ne_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, ne_idx).trim(), context);
+		let right = evaluate_expr(trimmed.slice(ne_idx + 2, trimmed.length).trim(), context);
+		return left != right;
+	}
+
+	let gte_idx = find_operator_cond(trimmed, ">=");
+	if (gte_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, gte_idx).trim(), context);
+		let right = evaluate_expr(trimmed.slice(gte_idx + 2, trimmed.length).trim(), context);
+		return left >= right;
+	}
+
+	let lte_idx = find_operator_cond(trimmed, "<=");
+	if (lte_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, lte_idx).trim(), context);
+		let right = evaluate_expr(trimmed.slice(lte_idx + 2, trimmed.length).trim(), context);
+		return left <= right;
+	}
+
+	let gt_idx = find_operator_cond(trimmed, ">");
+	if (gt_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, gt_idx).trim(), context);
+		let right = evaluate_expr(trimmed.slice(gt_idx + 1, trimmed.length).trim(), context);
+		return left > right;
+	}
+
+	let lt_idx = find_operator_cond(trimmed, "<");
+	if (lt_idx >= 0) {
+		let left = evaluate_expr(trimmed.slice(0, lt_idx).trim(), context);
+		let right = evaluate_expr(trimmed.slice(lt_idx + 1, trimmed.length).trim(), context);
+		return left < right;
+	}
+
+	// Handle "in" operator (for both arrays and object property checks)
+	let in_idx = find_keyword(trimmed, " in ");
+	if (in_idx >= 0) {
+		let needle_expr = trimmed.slice(0, in_idx).trim();
+		let haystack_expr = trimmed.slice(in_idx + 4, trimmed.length).trim();
+		let needle = evaluate_expr(needle_expr, context);
+		let haystack = evaluate_expr(haystack_expr, context);
+
+		if (typeof(haystack) == "array") {
+			for (item in haystack) {
+				if (item == needle) {
+					return true;
+				}
+			}
+			return false;
+		}
+		if (typeof(haystack) == "string" && typeof(needle) == "string") {
+			return haystack.contains(needle);
+		}
+		if (typeof(haystack) == "object") {
+			// Check if needle is a key in the object
+			let keys = haystack.keys();
+			for (key in keys) {
+				if (key == needle) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
+	}
+
+	// Simple truthiness check
+	let value = evaluate_expr(trimmed, context);
+	return is_truthy(value);
+}
+
+fn find_keyword(s, keyword): i32 {
+	let in_string = false;
+	let string_char: rune = ' ';
+	let paren_depth = 0;
+	let i = 0;
+
+	while (i + keyword.length <= s.length) {
+		let c = s.char_at(i);
+
+		if (in_string) {
+			if (c == string_char) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			in_string = true;
+			string_char = c;
+		} else if (c == '(') {
+			paren_depth = paren_depth + 1;
+		} else if (c == ')') {
+			paren_depth = paren_depth - 1;
+		} else if (paren_depth == 0) {
+			if (s.substr(i, keyword.length) == keyword) {
+				return i;
+			}
+		}
+
+		i = i + 1;
+	}
+
+	return -1;
+}
+
+fn find_operator_cond(s, op): i32 {
+	let in_string = false;
+	let string_char: rune = ' ';
+	let i = 0;
+
+	while (i + op.length <= s.length) {
+		let c = s.char_at(i);
+
+		if (in_string) {
+			if (c == string_char) {
+				in_string = false;
+			}
+		} else if (c == '"' || c == '\'') {
+			in_string = true;
+			string_char = c;
+		} else {
+			if (s.substr(i, op.length) == op) {
+				return i;
+			}
+		}
+
+		i = i + 1;
+	}
+
+	return -1;
+}
+
+fn check_type_test(value, type_test): bool {
+	let t = typeof(value);
+
+	if (type_test == "string") {
+		return t == "string";
+	}
+	if (type_test == "number") {
+		return t == "i32" || t == "i64" || t == "f32" || t == "f64" ||
+			   t == "i8" || t == "i16" || t == "u8" || t == "u16" || t == "u32" || t == "u64";
+	}
+	if (type_test == "integer") {
+		return t == "i32" || t == "i64" || t == "i8" || t == "i16" ||
+			   t == "u8" || t == "u16" || t == "u32" || t == "u64";
+	}
+	if (type_test == "float") {
+		return t == "f32" || t == "f64";
+	}
+	if (type_test == "boolean" || type_test == "bool") {
+		return t == "bool";
+	}
+	if (type_test == "sequence" || type_test == "iterable") {
+		return t == "array" || t == "string";
+	}
+	if (type_test == "mapping") {
+		return t == "object";
+	}
+	if (type_test == "none" || type_test == "null") {
+		return value == null;
+	}
+	if (type_test == "defined") {
+		return value != null;
+	}
+	if (type_test == "undefined") {
+		return value == null;
+	}
+	if (type_test == "sameas") {
+		// This would need another value, skip for now
+		return false;
+	}
+
+	return false;
+}
+
+fn is_truthy(value): bool {
+	if (value == null) {
+		return false;
+	}
+	if (value == false) {
+		return false;
+	}
+	if (value == 0) {
+		return false;
+	}
+	if (value == "") {
+		return false;
+	}
+	if (typeof(value) == "array" && value.length == 0) {
+		return false;
+	}
+	return true;
+}
+
+// ============================================================================
+// For Block
+// ============================================================================
+
+fn render_for_block(tokens, context, start, end, parts): object {
+	// {% for item in items %}
+	if (parts.length < 4 || parts[2] != "in") {
+		throw "Invalid for loop syntax. Expected: {% for item in items %}";
+	}
+
+	let var_name = parts[1];
+	let iter_expr = "";
+	let k = 3;
+	while (k < parts.length) {
+		if (k > 3) {
+			iter_expr = iter_expr + " ";
+		}
+		iter_expr = iter_expr + parts[k];
+		k = k + 1;
+	}
+
+	let endfor_idx = find_end_block(tokens, start, end, "endfor");
+	if (endfor_idx < 0) {
+		throw "Missing {% endfor %} for {% for %}";
+	}
+
+	let iterable = evaluate_expr(iter_expr, context);
+
+	if (iterable == null) {
+		return { output: "", next_index: endfor_idx + 1, context: context };
+	}
+
+	let items: array = [];
+	if (typeof(iterable) == "array") {
+		items = iterable;
+	} else if (typeof(iterable) == "string") {
+		let i = 0;
+		while (i < iterable.length) {
+			items.push(iterable.char_at(i));
+			i = i + 1;
+		}
+	} else {
+		items.push(iterable);
+	}
+
+	let output = "";
+	let idx = 0;
+	let total = items.length;
+
+	for (item in items) {
+		let loop_ctx = create_context_copy(context);
+		loop_ctx[var_name] = item;
+
+		loop_ctx["loop"] = {
+			index: idx + 1,
+			index0: idx,
+			first: idx == 0,
+			last: idx == total - 1,
+			length: total
+		};
+
+		let result = render_tokens(tokens, loop_ctx, start + 1, endfor_idx);
+		output = output + result.output;
+		idx = idx + 1;
+	}
+
+	return { output: output, next_index: endfor_idx + 1, context: context };
+}
+
+fn create_context_copy(ctx): object {
+	let copy = {};
+	let keys = ctx.keys();
+	for (key in keys) {
+		copy[key] = ctx[key];
+	}
+	return copy;
+}
