@@ -1,0 +1,102 @@
+// Test new array methods: every, some, indexOf, sort, fill
+
+// ========== every() ==========
+print("=== every() ===");
+
+let nums = [1, 2, 3, 4, 5];
+let allPositive = nums.every(fn(x) { return x > 0; });
+print("All positive: " + allPositive);
+
+let allEven = nums.every(fn(x) { return x % 2 == 0; });
+print("All even: " + allEven);
+
+let empty: array = [];
+let emptyEvery = empty.every(fn(x) { return x > 0; });
+print("Empty every: " + emptyEvery);
+
+// ========== some() ==========
+print("=== some() ===");
+
+let hasEven = nums.some(fn(x) { return x % 2 == 0; });
+print("Has even: " + hasEven);
+
+let hasNegative = nums.some(fn(x) { return x < 0; });
+print("Has negative: " + hasNegative);
+
+let emptySome = empty.some(fn(x) { return x > 0; });
+print("Empty some: " + emptySome);
+
+// ========== indexOf() ==========
+print("=== indexOf() ===");
+
+let arr = ["apple", "banana", "cherry", "banana"];
+print("indexOf apple: " + arr.indexOf("apple"));
+print("indexOf banana: " + arr.indexOf("banana"));
+print("indexOf cherry: " + arr.indexOf("cherry"));
+print("indexOf grape: " + arr.indexOf("grape"));
+
+let intArr = [10, 20, 30, 40, 50];
+print("indexOf 30: " + intArr.indexOf(30));
+print("indexOf 99: " + intArr.indexOf(99));
+
+// ========== sort() ==========
+print("=== sort() ===");
+
+// Default sort (ascending for numbers)
+let unsorted = [3, 1, 4, 1, 5, 9, 2, 6];
+unsorted.sort();
+print("Sorted numbers: " + unsorted.join(", "));
+
+// String sort (lexicographic)
+let words = ["banana", "apple", "cherry", "date"];
+words.sort();
+print("Sorted words: " + words.join(", "));
+
+// Custom comparator (descending)
+let descNums = [3, 1, 4, 1, 5, 9, 2, 6];
+descNums.sort(fn(a, b) { return b - a; });
+print("Sorted descending: " + descNums.join(", "));
+
+// Sort by string length using .length property
+let byLength = ["aa", "bbbb", "c", "ddd"];
+byLength.sort(fn(a, b) { return a.length - b.length; });
+print("Sorted by length: " + byLength.join(", "));
+
+// Empty and single-element arrays
+let single = [42];
+single.sort();
+print("Single element: " + single.join(", "));
+
+let emptySort: array = [];
+emptySort.sort();
+print("Empty sorted length: " + emptySort.length);
+
+// ========== fill() ==========
+print("=== fill() ===");
+
+// Fill entire array
+let fillAll = [1, 2, 3, 4, 5];
+fillAll.fill(0);
+print("Fill all with 0: " + fillAll.join(", "));
+
+// Fill with start index
+let fillFrom = [1, 2, 3, 4, 5];
+fillFrom.fill(9, 2);
+print("Fill from index 2: " + fillFrom.join(", "));
+
+// Fill with start and end
+let fillRange = [1, 2, 3, 4, 5];
+fillRange.fill(7, 1, 4);
+print("Fill range [1,4): " + fillRange.join(", "));
+
+// Fill with negative indices
+let fillNeg = [1, 2, 3, 4, 5];
+fillNeg.fill(0, -3, -1);
+print("Fill negative [-3,-1): " + fillNeg.join(", "));
+
+// Fill with string value
+let fillStr = ["a", "b", "c", "d"];
+fillStr.fill("x", 1, 3);
+print("Fill with string: " + fillStr.join(", "));
+
+print("=== DONE ===");

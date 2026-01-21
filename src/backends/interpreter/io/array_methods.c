@@ -176,6 +176,106 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         break;
 
     case 's':
+        // some(predicate) - check if any element satisfies the predicate
+        if (method[1] == 'o' && strcmp(method, "some") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "some() expects 1 argument (predicate function)");
+            }
+            if (args[0].type != VAL_FUNCTION) {
+                return throw_runtime_error(ctx, "some() argument must be a function");
+            }
+
+            // Empty array returns false
+            if (arr->length == 0) {
+                return val_bool(0);
+            }
+
+            for (int i = 0; i < arr->length; i++) {
+                Value callback_args[2];
+                callback_args[0] = arr->elements[i];
+                callback_args[1] = val_i32(i);
+
+                Value result = call_function_value(args[0], callback_args, 1, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    return val_null();
+                }
+
+                int is_true = value_is_truthy(result);
+                value_release(result);
+                if (is_true) {
+                    return val_bool(1);
+                }
+            }
+            return val_bool(0);
+        }
+        // sort(comparator?) - sort array in-place
+        if (method[1] == 'o' && strcmp(method, "sort") == 0) {
+            if (num_args > 1) {
+                return throw_runtime_error(ctx, "sort() expects 0 or 1 argument (optional comparator function)");
+            }
+            if (num_args == 1 && args[0].type != VAL_FUNCTION) {
+                return throw_runtime_error(ctx, "sort() argument must be a function");
+            }
+
+            if (arr->length <= 1) {
+                return val_null();  // Already sorted
+            }
+
+            // Simple insertion sort (stable, good for small arrays)
+            int has_comparator = (num_args == 1);
+
+            for (int i = 1; i < arr->length; i++) {
+                Value key = arr->elements[i];
+                int j = i - 1;
+
+                while (j >= 0) {
+                    int cmp;
+                    if (has_comparator) {
+                        Value cmp_args[2];
+                        cmp_args[0] = arr->elements[j];
+                        cmp_args[1] = key;
+                        Value cmp_result = call_function_value(args[0], cmp_args, 2, ctx);
+                        if (ctx->exception_state.is_throwing) {
+                            return val_null();
+                        }
+                        cmp = value_to_int(cmp_result);
+                        value_release(cmp_result);
+                    } else {
+                        // Default comparison by value type
+                        Value a = arr->elements[j];
+                        Value b = key;
+
+                        // Compare by type first
+                        if (a.type != b.type) {
+                            cmp = (int)a.type - (int)b.type;
+                        } else {
+                            switch (a.type) {
+                                case VAL_I8:  cmp = (a.as.as_i8 < b.as.as_i8) ? -1 : (a.as.as_i8 > b.as.as_i8) ? 1 : 0; break;
+                                case VAL_I16: cmp = (a.as.as_i16 < b.as.as_i16) ? -1 : (a.as.as_i16 > b.as.as_i16) ? 1 : 0; break;
+                                case VAL_I32: cmp = (a.as.as_i32 < b.as.as_i32) ? -1 : (a.as.as_i32 > b.as.as_i32) ? 1 : 0; break;
+                                case VAL_I64: cmp = (a.as.as_i64 < b.as.as_i64) ? -1 : (a.as.as_i64 > b.as.as_i64) ? 1 : 0; break;
+                                case VAL_U8:  cmp = (a.as.as_u8 < b.as.as_u8) ? -1 : (a.as.as_u8 > b.as.as_u8) ? 1 : 0; break;
+                                case VAL_U16: cmp = (a.as.as_u16 < b.as.as_u16) ? -1 : (a.as.as_u16 > b.as.as_u16) ? 1 : 0; break;
+                                case VAL_U32: cmp = (a.as.as_u32 < b.as.as_u32) ? -1 : (a.as.as_u32 > b.as.as_u32) ? 1 : 0; break;
+                                case VAL_U64: cmp = (a.as.as_u64 < b.as.as_u64) ? -1 : (a.as.as_u64 > b.as.as_u64) ? 1 : 0; break;
+                                case VAL_F32: cmp = (a.as.as_f32 < b.as.as_f32) ? -1 : (a.as.as_f32 > b.as.as_f32) ? 1 : 0; break;
+                                case VAL_F64: cmp = (a.as.as_f64 < b.as.as_f64) ? -1 : (a.as.as_f64 > b.as.as_f64) ? 1 : 0; break;
+                                case VAL_BOOL: cmp = (int)a.as.as_bool - (int)b.as.as_bool; break;
+                                case VAL_STRING: cmp = strcmp(a.as.as_string->data, b.as.as_string->data); break;
+                                default: cmp = 0; break;  // Objects, arrays, etc. - no default ordering
+                            }
+                        }
+                    }
+
+                    if (cmp <= 0) break;
+
+                    arr->elements[j + 1] = arr->elements[j];
+                    j--;
+                }
+                arr->elements[j + 1] = key;
+            }
+            return val_null();
+        }
         // serialize() - convert array to JSON string
         if (method[1] == 'e' && strcmp(method, "serialize") == 0) {
             if (num_args != 0) {
@@ -281,6 +381,18 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         break;
 
     case 'i':
+        // indexOf(value) - find first index of value, or -1 if not found
+        if (method[1] == 'n' && strcmp(method, "indexOf") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "indexOf() expects 1 argument (value)");
+            }
+            for (int i = 0; i < arr->length; i++) {
+                if (values_equal(arr->elements[i], args[0])) {
+                    return val_i32(i);
+                }
+            }
+            return val_i32(-1);
+        }
         // insert(index, value) - insert element at index
         if (strcmp(method, "insert") == 0) {
             if (num_args != 2) {
@@ -425,6 +537,52 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         break;
 
     case 'f':
+        // fill(value, start?, end?) - fill array with value
+        if (method[1] == 'i' && method[2] == 'l' && strcmp(method, "fill") == 0) {
+            if (num_args < 1 || num_args > 3) {
+                return throw_runtime_error(ctx, "fill() expects 1 to 3 arguments (value, optional start, optional end)");
+            }
+
+            // Get start and end indices
+            int start = 0;
+            int end = arr->length;
+
+            if (num_args >= 2) {
+                if (!is_integer(args[1])) {
+                    return throw_runtime_error(ctx, "fill() start index must be an integer");
+                }
+                start = value_to_int(args[1]);
+            }
+            if (num_args >= 3) {
+                if (!is_integer(args[2])) {
+                    return throw_runtime_error(ctx, "fill() end index must be an integer");
+                }
+                end = value_to_int(args[2]);
+            }
+
+            // Handle negative indices (from end)
+            if (start < 0) start = arr->length + start;
+            if (end < 0) end = arr->length + end;
+
+            // Clamp values
+            if (start < 0) start = 0;
+            if (end > arr->length) end = arr->length;
+            if (start >= end) return val_null();  // Nothing to fill
+
+            // Check type constraint
+            Value check_result = check_array_element_type_for_method(arr, args[0], ctx);
+            if (ctx->exception_state.is_throwing) {
+                return check_result;
+            }
+
+            // Fill the range
+            for (int i = start; i < end; i++) {
+                value_release(arr->elements[i]);
+                arr->elements[i] = args[0];
+                value_retain(args[0]);
+            }
+            return val_null();
+        }
         // find(value) - find first occurrence, return index or -1
         if (method[1] == 'i' && method[2] == 'n' && strcmp(method, "find") == 0) {
             if (num_args != 1) {
@@ -659,6 +817,41 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 value_release(mapped);  // array_push retains, so we can release
             }
             return val_array(result);
+        }
+        break;
+
+    case 'e':
+        // every(predicate) - check if all elements satisfy the predicate
+        if (strcmp(method, "every") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "every() expects 1 argument (predicate function)");
+            }
+            if (args[0].type != VAL_FUNCTION) {
+                return throw_runtime_error(ctx, "every() argument must be a function");
+            }
+
+            // Empty array returns true (vacuous truth)
+            if (arr->length == 0) {
+                return val_bool(1);
+            }
+
+            for (int i = 0; i < arr->length; i++) {
+                Value callback_args[2];
+                callback_args[0] = arr->elements[i];
+                callback_args[1] = val_i32(i);
+
+                Value result = call_function_value(args[0], callback_args, 1, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    return val_null();
+                }
+
+                int is_true = value_is_truthy(result);
+                value_release(result);
+                if (!is_true) {
+                    return val_bool(0);
+                }
+            }
+            return val_bool(1);
         }
         break;
 

@@ -522,10 +522,33 @@ print(s.length);       // 7 (character/rune count)
 print(s.byte_length);  // 10 (byte count - emoji is 4 bytes UTF-8)
 ```
 
-## Array Methods (18)
+## Array Methods (23)
 
 `push`, `pop`, `shift`, `unshift`, `insert`, `remove`, `find`, `contains`,
-`slice`, `join`, `concat`, `reverse`, `first`, `last`, `clear`, `map`, `filter`, `reduce`
+`slice`, `join`, `concat`, `reverse`, `first`, `last`, `clear`, `map`, `filter`, `reduce`,
+`every`, `some`, `indexOf`, `sort`, `fill`
+
+```hemlock
+// every(predicate) - true if all elements satisfy predicate
+let allPositive = [1, 2, 3].every(fn(x) { return x > 0; });  // true
+
+// some(predicate) - true if any element satisfies predicate
+let hasEven = [1, 2, 3].some(fn(x) { return x % 2 == 0; });  // true
+
+// indexOf(value) - find first index of value, or -1
+let idx = ["a", "b", "c"].indexOf("b");  // 1
+
+// sort(comparator?) - sort in-place, optional comparator
+let nums = [3, 1, 4, 1, 5];
+nums.sort();                              // [1, 1, 3, 4, 5]
+nums.sort(fn(a, b) { return b - a; });    // descending
+
+// fill(value, start?, end?) - fill with value
+let arr = [1, 2, 3, 4, 5];
+arr.fill(0);        // [0, 0, 0, 0, 0]
+arr.fill(9, 2);     // [0, 0, 9, 9, 9]
+arr.fill(7, 1, 4);  // [0, 7, 7, 7, 9]
+```
 
 Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
@@ -939,7 +962,7 @@ make parity
 - Unified type system with unboxing optimization hints
 - Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
 - UTF-8 strings with 19 methods
-- Arrays with 18 methods including map/filter/reduce
+- Arrays with 23 methods including map/filter/reduce/every/some/indexOf/sort/fill
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
