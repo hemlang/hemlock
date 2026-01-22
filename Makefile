@@ -134,13 +134,6 @@ $(LIBTOOLS): $(TOOL_OBJS)
 $(TARGET): $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 	$(CC) $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON) -o $(TARGET) $(LDFLAGS)
 
-# Special rule for ffi.c - compile with -O0 to work around an optimizer bug
-# that causes infinite loops when FFI functions are called from Hemlock code
-# with while loops in helper functions. The root cause appears to be undefined
-# behavior exposed only at -O1/-O2/-O3 optimization levels.
-$(BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c | $(BUILD_DIRS)
-	$(CC) $(subst -O3,-O0,$(CFLAGS)) -c $< -o $@
-
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIRS)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -603,11 +596,6 @@ $(RELEASE_BUILD_DIR)/hemlock: $(RELEASE_OBJS)
 	$(CC) $(RELEASE_OBJS) -o $@ $(LDFLAGS)
 	strip $@
 
-# Special rule for release build - ffi.c needs O0 to avoid optimizer bugs
-$(RELEASE_BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c
-	@mkdir -p $(dir $@)
-	$(CC) $(subst -O3,-O0,$(RELEASE_CFLAGS)) -c $< -o $@
-
 $(RELEASE_BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(RELEASE_CFLAGS) -c $< -o $@
@@ -744,11 +732,6 @@ else
 	$(CC) -static $(STATIC_COMPILER_OBJS) -o $@ -lm
 endif
 	strip $@
-
-# Special rule for static build - ffi.c needs O0 to avoid optimizer bugs
-$(STATIC_BUILD_DIR)/backends/interpreter/ffi.o: $(SRC_DIR)/backends/interpreter/ffi.c
-	@mkdir -p $(dir $@)
-	$(CC) $(subst -O3,-O0,$(RELEASE_CFLAGS)) -c $< -o $@
 
 $(STATIC_BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
