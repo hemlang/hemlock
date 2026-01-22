@@ -1,0 +1,475 @@
+// Sorting Algorithm Benchmark for Hemlock
+// Compares performance of various sorting algorithms
+//
+// Algorithms tested:
+// - Bubble Sort      O(n²)     - Simple comparison-based
+// - Selection Sort   O(n²)     - Find minimum, swap to front
+// - Insertion Sort   O(n²)     - Good for small/nearly sorted
+// - Shell Sort       O(n^1.5)  - Improved insertion sort
+// - Merge Sort       O(n log n) - Divide and conquer, stable
+// - Quick Sort       O(n log n) - Divide and conquer, in-place
+// - Heap Sort        O(n log n) - In-place, not stable
+// - Built-in sort()  O(n log n) - Hemlock's native implementation
+
+import { time_ms } from "@stdlib/time";
+import { randint, set_seed, shuffle } from "@stdlib/random";
+
+// ============================================================================
+// Sorting Algorithm Implementations
+// ============================================================================
+
+// Bubble Sort - O(n²)
+// Repeatedly swap adjacent elements if they're in wrong order
+fn bubble_sort(arr: array): array {
+    let n = arr.length;
+    for (let i = 0; i < n - 1; i++) {
+        let swapped = false;
+        for (let j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                let temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+                swapped = true;
+            }
+        }
+        // Optimization: if no swaps, array is sorted
+        if (!swapped) {
+            break;
+        }
+    }
+    return arr;
+}
+
+// Selection Sort - O(n²)
+// Find minimum element and swap to current position
+fn selection_sort(arr: array): array {
+    let n = arr.length;
+    for (let i = 0; i < n - 1; i++) {
+        let min_idx = i;
+        for (let j = i + 1; j < n; j++) {
+            if (arr[j] < arr[min_idx]) {
+                min_idx = j;
+            }
+        }
+        if (min_idx != i) {
+            let temp = arr[i];
+            arr[i] = arr[min_idx];
+            arr[min_idx] = temp;
+        }
+    }
+    return arr;
+}
+
+// Insertion Sort - O(n²)
+// Build sorted portion by inserting elements in correct position
+fn insertion_sort(arr: array): array {
+    let n = arr.length;
+    for (let i = 1; i < n; i++) {
+        let key = arr[i];
+        let j = i - 1;
+        while (j >= 0 && arr[j] > key) {
+            arr[j + 1] = arr[j];
+            j = j - 1;
+        }
+        arr[j + 1] = key;
+    }
+    return arr;
+}
+
+// Shell Sort - O(n^1.5) average
+// Improved insertion sort using gap sequences
+fn shell_sort(arr: array): array {
+    let n = arr.length;
+    // Use Knuth's gap sequence: 1, 4, 13, 40, 121, ...
+    let gap = 1;
+    while (gap < n / 3) {
+        gap = gap * 3 + 1;
+    }
+
+    while (gap >= 1) {
+        // Gapped insertion sort
+        for (let i = gap; i < n; i++) {
+            let temp = arr[i];
+            let j = i;
+            while (j >= gap && arr[j - gap] > temp) {
+                arr[j] = arr[j - gap];
+                j = j - gap;
+            }
+            arr[j] = temp;
+        }
+        gap = divi(gap, 3);
+    }
+    return arr;
+}
+
+// Merge Sort - O(n log n)
+// Divide array, sort halves, merge
+fn merge_sort(arr: array): array {
+    merge_sort_recursive(arr, 0, arr.length - 1);
+    return arr;
+}
+
+fn merge_sort_recursive(arr: array, left: i32, right: i32) {
+    if (left < right) {
+        let mid = divi(left + right, 2);
+        merge_sort_recursive(arr, left, mid);
+        merge_sort_recursive(arr, mid + 1, right);
+        merge_in_place(arr, left, mid, right);
+    }
+}
+
+fn merge_in_place(arr: array, left: i32, mid: i32, right: i32) {
+    // Create temp arrays
+    let left_size = mid - left + 1;
+    let right_size = right - mid;
+
+    let left_arr: array = [];
+    let right_arr: array = [];
+
+    // Copy data to temp arrays
+    for (let i = 0; i < left_size; i++) {
+        left_arr.push(arr[left + i]);
+    }
+    for (let j = 0; j < right_size; j++) {
+        right_arr.push(arr[mid + 1 + j]);
+    }
+
+    // Merge the temp arrays back
+    let i = 0;
+    let j = 0;
+    let k = left;
+
+    while (i < left_size && j < right_size) {
+        if (left_arr[i] <= right_arr[j]) {
+            arr[k] = left_arr[i];
+            i++;
+        } else {
+            arr[k] = right_arr[j];
+            j++;
+        }
+        k++;
+    }
+
+    // Copy remaining elements
+    while (i < left_size) {
+        arr[k] = left_arr[i];
+        i++;
+        k++;
+    }
+    while (j < right_size) {
+        arr[k] = right_arr[j];
+        j++;
+        k++;
+    }
+}
+
+// Quick Sort - O(n log n) average
+// Partition around pivot, sort partitions
+fn quick_sort(arr: array): array {
+    quick_sort_helper(arr, 0, arr.length - 1);
+    return arr;
+}
+
+fn quick_sort_helper(arr: array, low: i32, high: i32) {
+    if (low < high) {
+        let pivot_idx = partition(arr, low, high);
+        quick_sort_helper(arr, low, pivot_idx - 1);
+        quick_sort_helper(arr, pivot_idx + 1, high);
+    }
+}
+
+fn partition(arr: array, low: i32, high: i32): i32 {
+    // Use median-of-three pivot selection
+    let mid = divi(low + high, 2);
+
+    // Sort low, mid, high to find median
+    if (arr[low] > arr[mid]) {
+        let temp = arr[low];
+        arr[low] = arr[mid];
+        arr[mid] = temp;
+    }
+    if (arr[mid] > arr[high]) {
+        let temp = arr[mid];
+        arr[mid] = arr[high];
+        arr[high] = temp;
+    }
+    if (arr[low] > arr[mid]) {
+        let temp = arr[low];
+        arr[low] = arr[mid];
+        arr[mid] = temp;
+    }
+
+    // Use mid as pivot, move to high-1
+    let temp = arr[mid];
+    arr[mid] = arr[high - 1];
+    arr[high - 1] = temp;
+
+    let pivot = arr[high - 1];
+    let i = low;
+
+    for (let j = low; j < high - 1; j++) {
+        if (arr[j] <= pivot) {
+            let swap = arr[i];
+            arr[i] = arr[j];
+            arr[j] = swap;
+            i++;
+        }
+    }
+
+    // Move pivot to final position
+    let swap = arr[i];
+    arr[i] = arr[high - 1];
+    arr[high - 1] = swap;
+
+    return i;
+}
+
+// Heap Sort - O(n log n)
+// Build max heap, extract max repeatedly
+fn heap_sort(arr: array): array {
+    let n = arr.length;
+
+    // Build max heap
+    for (let i = divi(n, 2) - 1; i >= 0; i--) {
+        heapify(arr, n, i);
+    }
+
+    // Extract elements from heap
+    for (let i = n - 1; i > 0; i--) {
+        // Move root to end
+        let temp = arr[0];
+        arr[0] = arr[i];
+        arr[i] = temp;
+
+        // Heapify reduced heap
+        heapify(arr, i, 0);
+    }
+
+    return arr;
+}
+
+fn heapify(arr: array, n: i32, i: i32) {
+    let largest = i;
+    let left = 2 * i + 1;
+    let right = 2 * i + 2;
+
+    if (left < n && arr[left] > arr[largest]) {
+        largest = left;
+    }
+
+    if (right < n && arr[right] > arr[largest]) {
+        largest = right;
+    }
+
+    if (largest != i) {
+        let temp = arr[i];
+        arr[i] = arr[largest];
+        arr[largest] = temp;
+
+        heapify(arr, n, largest);
+    }
+}
+
+// Built-in sort wrapper
+fn builtin_sort(arr: array): array {
+    arr.sort();
+    return arr;
+}
+
+// ============================================================================
+// Benchmark Utilities
+// ============================================================================
+
+// Copy an array
+fn copy_array(arr: array): array {
+    let result: array = [];
+    for (item in arr) {
+        result.push(item);
+    }
+    return result;
+}
+
+// Generate random array of integers
+fn generate_random_array(size: i32, max_val: i32): array {
+    let arr: array = [];
+    for (let i = 0; i < size; i++) {
+        arr.push(randint(0, max_val));
+    }
+    return arr;
+}
+
+// Generate sorted array
+fn generate_sorted_array(size: i32): array {
+    let arr: array = [];
+    for (let i = 0; i < size; i++) {
+        arr.push(i);
+    }
+    return arr;
+}
+
+// Generate reverse sorted array
+fn generate_reverse_array(size: i32): array {
+    let arr: array = [];
+    for (let i = size - 1; i >= 0; i--) {
+        arr.push(i);
+    }
+    return arr;
+}
+
+// Generate nearly sorted array (90% sorted, 10% random swaps)
+fn generate_nearly_sorted(size: i32): array {
+    let arr = generate_sorted_array(size);
+    let swaps = divi(size, 10);
+    for (let i = 0; i < swaps; i++) {
+        let idx1 = randint(0, size - 1);
+        let idx2 = randint(0, size - 1);
+        let temp = arr[idx1];
+        arr[idx1] = arr[idx2];
+        arr[idx2] = temp;
+    }
+    return arr;
+}
+
+// Verify array is sorted
+fn is_sorted(arr: array): bool {
+    for (let i = 1; i < arr.length; i++) {
+        if (arr[i] < arr[i - 1]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Format time in ms with padding
+fn format_time(ms: i64): string {
+    let s = "" + ms;
+    while (s.length < 8) {
+        s = " " + s;
+    }
+    return s + " ms";
+}
+
+// Format name with padding
+fn format_name(name: string): string {
+    while (name.length < 18) {
+        name = name + " ";
+    }
+    return name;
+}
+
+// ============================================================================
+// Benchmark Runner
+// ============================================================================
+
+fn run_benchmark(name: string, sort_fn, arr: array): i64 {
+    let test_arr = copy_array(arr);
+    let start = time_ms();
+    sort_fn(test_arr);
+    let end = time_ms();
+    let elapsed = end - start;
+
+    // Verify correctness
+    if (!is_sorted(test_arr)) {
+        print("  ERROR: " + name + " did not produce sorted output!");
+    }
+
+    return elapsed;
+}
+
+fn benchmark_all(size: i32, arr: array, skip_slow: bool) {
+    print("  " + format_name("Algorithm") + "Time");
+    print("  " + "-".repeat(30));
+
+    // O(n²) algorithms - skip for large arrays
+    if (!skip_slow) {
+        let t1 = run_benchmark("Bubble Sort", bubble_sort, arr);
+        print("  " + format_name("Bubble Sort") + format_time(t1));
+
+        let t2 = run_benchmark("Selection Sort", selection_sort, arr);
+        print("  " + format_name("Selection Sort") + format_time(t2));
+
+        let t3 = run_benchmark("Insertion Sort", insertion_sort, arr);
+        print("  " + format_name("Insertion Sort") + format_time(t3));
+    } else {
+        print("  " + format_name("Bubble Sort") + "  (skipped - O(n^2))");
+        print("  " + format_name("Selection Sort") + "  (skipped - O(n^2))");
+        print("  " + format_name("Insertion Sort") + "  (skipped - O(n^2))");
+    }
+
+    // O(n^1.5) algorithms
+    let t4 = run_benchmark("Shell Sort", shell_sort, arr);
+    print("  " + format_name("Shell Sort") + format_time(t4));
+
+    // O(n log n) algorithms
+    let t5 = run_benchmark("Merge Sort", merge_sort, arr);
+    print("  " + format_name("Merge Sort") + format_time(t5));
+
+    let t6 = run_benchmark("Quick Sort", quick_sort, arr);
+    print("  " + format_name("Quick Sort") + format_time(t6));
+
+    let t7 = run_benchmark("Heap Sort", heap_sort, arr);
+    print("  " + format_name("Heap Sort") + format_time(t7));
+
+    let t8 = run_benchmark("Built-in sort()", builtin_sort, arr);
+    print("  " + format_name("Built-in sort()") + format_time(t8));
+}
+
+// ============================================================================
+// Main Benchmark
+// ============================================================================
+
+print("=".repeat(60));
+print("      HEMLOCK SORTING ALGORITHM BENCHMARK");
+print("=".repeat(60));
+print("");
+
+// Set seed for reproducibility
+set_seed(42);
+
+// Test sizes
+let sizes = [100, 500, 1000, 5000, 10000];
+
+for (size in sizes) {
+    let skip_slow = size > 1000;  // Skip O(n²) for large arrays
+
+    // Random data
+    print("--- Random Array (n=" + size + ") ---");
+    let random_arr = generate_random_array(size, 10000);
+    benchmark_all(size, random_arr, skip_slow);
+    print("");
+
+    // Already sorted
+    print("--- Already Sorted (n=" + size + ") ---");
+    let sorted_arr = generate_sorted_array(size);
+    benchmark_all(size, sorted_arr, skip_slow);
+    print("");
+
+    // Reverse sorted (worst case for some algorithms)
+    print("--- Reverse Sorted (n=" + size + ") ---");
+    let reverse_arr = generate_reverse_array(size);
+    benchmark_all(size, reverse_arr, skip_slow);
+    print("");
+
+    // Nearly sorted
+    print("--- Nearly Sorted (n=" + size + ") ---");
+    let nearly_arr = generate_nearly_sorted(size);
+    benchmark_all(size, nearly_arr, skip_slow);
+    print("");
+
+    print("=".repeat(60));
+    print("");
+}
+
+// Summary
+print("ALGORITHM COMPLEXITY SUMMARY:");
+print("-".repeat(40));
+print("  Bubble Sort      O(n^2)     - Simple but slow");
+print("  Selection Sort   O(n^2)     - Simple, fewer swaps");
+print("  Insertion Sort   O(n^2)     - Great for small/sorted");
+print("  Shell Sort       O(n^1.5)   - Improved insertion");
+print("  Merge Sort       O(n log n) - Stable, extra space");
+print("  Quick Sort       O(n log n) - Fast average case");
+print("  Heap Sort        O(n log n) - In-place, consistent");
+print("  Built-in sort()  O(n log n) - Optimized native");
+print("");
+print("Benchmark complete!");
