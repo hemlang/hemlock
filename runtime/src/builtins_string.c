@@ -9,23 +9,14 @@
  * - concat3, concat4, concat5, concat_many
  * - UTF-8 operations (chars, bytes, rune_at, char_count)
  * - Buffer operations
+ *
+ * Uses shared UTF-8 module for encoding/decoding.
  */
 
 #include "builtins_internal.h"
+#include "utf8.h"
 
 // ========== STRING METHODS ==========
-
-// Count UTF-8 codepoints (characters) in a string
-static int utf8_count_codepoints(const char *data, int byte_length) {
-    int count = 0;
-    for (int i = 0; i < byte_length; i++) {
-        // Count bytes that are NOT continuation bytes (10xxxxxx)
-        if ((data[i] & 0xC0) != 0x80) {
-            count++;
-        }
-    }
-    return count;
-}
 
 HmlValue hml_string_length(HmlValue str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
@@ -33,7 +24,7 @@ HmlValue hml_string_length(HmlValue str) {
     }
     HmlString *s = str.as.as_string;
     // Return character (codepoint) count, not byte count
-    return hml_val_i32(utf8_count_codepoints(s->data, s->length));
+    return hml_val_i32(hml_utf8_count_codepoints(s->data, s->length));
 }
 
 HmlValue hml_string_byte_length(HmlValue str) {
@@ -49,11 +40,23 @@ HmlValue hml_string_char_at(HmlValue str, HmlValue index) {
     }
     HmlString *s = str.as.as_string;
     int32_t idx = hml_to_i32(index);
-    if (idx < 0 || idx >= s->length) {
+
+    // Compute character length if not cached
+    int char_len = s->char_length;
+    if (char_len < 0) {
+        char_len = hml_utf8_count_codepoints(s->data, s->length);
+        s->char_length = char_len;
+    }
+
+    if (idx < 0 || idx >= char_len) {
         return hml_val_null();
     }
-    // Return as rune (byte value for ASCII)
-    return hml_val_rune((uint32_t)(unsigned char)s->data[idx]);
+
+    // Find byte offset of the character and decode the codepoint
+    int byte_pos = hml_utf8_byte_offset(s->data, s->length, idx);
+    uint32_t codepoint = hml_utf8_decode_at(s->data, byte_pos);
+
+    return hml_val_rune(codepoint);
 }
 
 HmlValue hml_string_byte_at(HmlValue str, HmlValue index) {
@@ -555,47 +558,13 @@ HmlValue hml_string_index(HmlValue str, HmlValue index) {
 }
 
 // ========== UTF-8 HELPERS ==========
-
-// Helper: get byte length needed to encode a Unicode codepoint as UTF-8
-static int utf8_encode_len(uint32_t codepoint) {
-    if (codepoint < 0x80) return 1;
-    if (codepoint < 0x800) return 2;
-    if (codepoint < 0x10000) return 3;
-    return 4;
-}
-
-// Helper: encode a Unicode codepoint as UTF-8, returns bytes written
-static int utf8_encode(char *buf, uint32_t codepoint) {
-    if (codepoint < 0x80) {
-        buf[0] = (char)codepoint;
-        return 1;
-    } else if (codepoint < 0x800) {
-        buf[0] = (char)(0xC0 | (codepoint >> 6));
-        buf[1] = (char)(0x80 | (codepoint & 0x3F));
-        return 2;
-    } else if (codepoint < 0x10000) {
-        buf[0] = (char)(0xE0 | (codepoint >> 12));
-        buf[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
-        buf[2] = (char)(0x80 | (codepoint & 0x3F));
-        return 3;
-    } else {
-        buf[0] = (char)(0xF0 | (codepoint >> 18));
-        buf[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
-        buf[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
-        buf[3] = (char)(0x80 | (codepoint & 0x3F));
-        return 4;
-    }
-}
+// Note: Most UTF-8 functions are now in the shared utf8.h module.
+// The functions below are thin wrappers or use the shared module directly.
 
 // Helper: get byte length of UTF-8 character at position
 static int utf8_char_len_at(const char *s, int pos, int len) {
     if (pos >= len) return 0;
-    unsigned char c = (unsigned char)s[pos];
-    if ((c & 0x80) == 0) return 1;        // ASCII
-    if ((c & 0xE0) == 0xC0) return 2;     // 2-byte
-    if ((c & 0xF0) == 0xE0) return 3;     // 3-byte
-    if ((c & 0xF8) == 0xF0) return 4;     // 4-byte
-    return 1;  // Invalid, treat as single byte
+    return hml_utf8_char_byte_len((unsigned char)s[pos]);
 }
 
 void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
@@ -625,7 +594,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     }
 
     // Calculate bytes needed for new rune and current character at position
-    int new_len = utf8_encode_len(rune_val);
+    int new_len = hml_utf8_encode_len(rune_val);
     int old_len = utf8_char_len_at(s->data, idx, s->length);
 
     // Ensure we don't read past end of string
@@ -635,7 +604,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
 
     if (new_len == old_len) {
         // Same size - just overwrite in place
-        utf8_encode(s->data + idx, rune_val);
+        hml_utf8_encode(rune_val, s->data + idx);
     } else {
         // Different size - need to resize string
         int new_total = s->length - old_len + new_len;
@@ -648,7 +617,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
         memcpy(new_data, s->data, idx);
 
         // Encode new rune
-        utf8_encode(new_data + idx, rune_val);
+        hml_utf8_encode(rune_val, new_data + idx);
 
         // Copy suffix (after old character)
         int suffix_start = idx + old_len;
@@ -667,35 +636,10 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     }
 }
 
-// UTF-8 helper: get byte length of character starting at given byte
-static int utf8_char_len(unsigned char c) {
-    if ((c & 0x80) == 0) return 1;        // ASCII
-    if ((c & 0xE0) == 0xC0) return 2;     // 2-byte
-    if ((c & 0xF0) == 0xE0) return 3;     // 3-byte
-    if ((c & 0xF8) == 0xF0) return 4;     // 4-byte
-    return 1;  // Invalid, treat as single byte
-}
-
-// UTF-8 helper: decode codepoint at position
-static uint32_t utf8_decode_char(const char *s, int *bytes_read) {
-    unsigned char c = (unsigned char)s[0];
-    uint32_t codepoint;
-    int len = utf8_char_len(c);
-
-    if (len == 1) {
-        codepoint = c;
-    } else if (len == 2) {
-        codepoint = ((c & 0x1F) << 6) | (s[1] & 0x3F);
-    } else if (len == 3) {
-        codepoint = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
-    } else {
-        codepoint = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) |
-                    ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
-    }
-
-    *bytes_read = len;
-    return codepoint;
-}
+// UTF-8 helper wrappers for legacy code
+// These use the shared UTF-8 module
+#define utf8_char_len(c)  hml_utf8_char_byte_len(c)
+#define utf8_decode_char(s, bytes_read)  hml_utf8_decode(s, bytes_read)
 
 // Count UTF-8 codepoints in a string
 HmlValue hml_string_char_count(HmlValue str) {

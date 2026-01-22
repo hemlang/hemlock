@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "type_promotion.h"
 #include <stdatomic.h>
 
 // Helper: Get the size of a type
@@ -243,37 +244,21 @@ Value builtin_sizeof(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-    TypeKind kind;
-
     if (args[0].type == VAL_TYPE) {
-        kind = args[0].as.as_type;
+        // Internal type value - use interpreter's representation
+        TypeKind kind = args[0].as.as_type;
+        int size = get_type_size(kind);
+        return val_i32(size);
     } else if (args[0].type == VAL_STRING) {
-        // Also accept string arguments for parity with compiler
+        // String type name - use shared type utilities for consistency with compiler
         const char *type_name = args[0].as.as_string->data;
-        if (strcmp(type_name, "i8") == 0) kind = TYPE_I8;
-        else if (strcmp(type_name, "i16") == 0) kind = TYPE_I16;
-        else if (strcmp(type_name, "i32") == 0 || strcmp(type_name, "integer") == 0) kind = TYPE_I32;
-        else if (strcmp(type_name, "i64") == 0) kind = TYPE_I64;
-        else if (strcmp(type_name, "u8") == 0 || strcmp(type_name, "byte") == 0) kind = TYPE_U8;
-        else if (strcmp(type_name, "u16") == 0) kind = TYPE_U16;
-        else if (strcmp(type_name, "u32") == 0) kind = TYPE_U32;
-        else if (strcmp(type_name, "u64") == 0) kind = TYPE_U64;
-        else if (strcmp(type_name, "f32") == 0) kind = TYPE_F32;
-        else if (strcmp(type_name, "f64") == 0 || strcmp(type_name, "number") == 0) kind = TYPE_F64;
-        else if (strcmp(type_name, "bool") == 0) kind = TYPE_BOOL;
-        else if (strcmp(type_name, "ptr") == 0) kind = TYPE_PTR;
-        else if (strcmp(type_name, "rune") == 0) kind = TYPE_RUNE;
-        else {
-            // Unknown type - return 0 for parity with compiler
-            return val_i32(0);
-        }
+        HmlTypeKind tk = hml_tk_from_name(type_name);
+        int size = hml_tk_sizeof(tk);
+        return val_i32(size);
     } else {
         fprintf(stderr, "Runtime error: sizeof() requires a type argument\n");
         exit(1);
     }
-
-    int size = get_type_size(kind);
-    return val_i32(size);
 }
 
 Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {

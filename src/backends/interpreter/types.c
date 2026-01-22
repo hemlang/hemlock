@@ -1,9 +1,58 @@
 #include "internal.h"
+#include "type_promotion.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
 #include <errno.h>
+
+/* ========== TYPE CONVERSION HELPERS ==========
+ *
+ * Convert between ValueType (interpreter) and HmlTypeKind (shared module).
+ * This allows us to use the shared type promotion logic.
+ */
+
+static inline HmlTypeKind val_to_tk(ValueType vt) {
+    switch (vt) {
+        case VAL_NULL:   return HML_TK_NULL;
+        case VAL_BOOL:   return HML_TK_BOOL;
+        case VAL_I8:     return HML_TK_I8;
+        case VAL_I16:    return HML_TK_I16;
+        case VAL_I32:    return HML_TK_I32;
+        case VAL_I64:    return HML_TK_I64;
+        case VAL_U8:     return HML_TK_U8;
+        case VAL_U16:    return HML_TK_U16;
+        case VAL_U32:    return HML_TK_U32;
+        case VAL_U64:    return HML_TK_U64;
+        case VAL_F32:    return HML_TK_F32;
+        case VAL_F64:    return HML_TK_F64;
+        case VAL_RUNE:   return HML_TK_RUNE;
+        case VAL_STRING: return HML_TK_STRING;
+        case VAL_PTR:    return HML_TK_PTR;
+        default:         return HML_TK_OTHER;
+    }
+}
+
+static inline ValueType tk_to_val(HmlTypeKind tk) {
+    switch (tk) {
+        case HML_TK_NULL:   return VAL_NULL;
+        case HML_TK_BOOL:   return VAL_BOOL;
+        case HML_TK_I8:     return VAL_I8;
+        case HML_TK_I16:    return VAL_I16;
+        case HML_TK_I32:    return VAL_I32;
+        case HML_TK_I64:    return VAL_I64;
+        case HML_TK_U8:     return VAL_U8;
+        case HML_TK_U16:    return VAL_U16;
+        case HML_TK_U32:    return VAL_U32;
+        case HML_TK_U64:    return VAL_U64;
+        case HML_TK_F32:    return VAL_F32;
+        case HML_TK_F64:    return VAL_F64;
+        case HML_TK_RUNE:   return VAL_RUNE;
+        case HML_TK_STRING: return VAL_STRING;
+        case HML_TK_PTR:    return VAL_PTR;
+        default:            return VAL_NULL;
+    }
+}
 
 // ========== VALUE TYPE NAMES (for error messages) ==========
 
@@ -987,61 +1036,21 @@ static const char* value_type_to_string(ValueType type) {
     }
 }
 
-// Get the "rank" of a type for promotion rules
+/*
+ * Type promotion using shared module.
+ * These wrapper functions convert between ValueType and HmlTypeKind,
+ * use the shared implementation, then convert back.
+ */
+
+// Get the "rank" of a type for promotion rules (using shared module)
 int type_rank(ValueType type) {
-    switch (type) {
-        case VAL_I8: return 0;
-        case VAL_U8: return 1;
-        case VAL_I16: return 2;
-        case VAL_U16: return 3;
-        case VAL_I32: return 4;
-        case VAL_U32: return 5;
-        case VAL_I64: return 6;
-        case VAL_U64: return 7;
-        case VAL_F32: return 8;
-        case VAL_F64: return 9;
-        default: return -1;
-    }
+    return hml_tk_priority(val_to_tk(type));
 }
 
-// Determine the result type for binary operations
+// Determine the result type for binary operations (using shared module)
 ValueType promote_types(ValueType left, ValueType right) {
-    // If types are the same, no promotion needed
-    if (left == right) return left;
-
-    // Check if either operand is a float
-    int left_is_float = is_float((Value){.type = left});
-    int right_is_float = is_float((Value){.type = right});
-
-    if (left_is_float && right_is_float) {
-        // Both floats - take the larger
-        return (left == VAL_F64 || right == VAL_F64) ? VAL_F64 : VAL_F32;
-    }
-
-    if (left_is_float || right_is_float) {
-        // Mixed float and integer
-        // To avoid precision loss, promote to f64 when mixing i64/u64 with f32
-        ValueType float_type = left_is_float ? left : right;
-        ValueType int_type = left_is_float ? right : left;
-
-        // If either operand is f64, result is f64
-        if (float_type == VAL_F64) return VAL_F64;
-
-        // f32 with i64/u64 should promote to f64 to preserve precision
-        // (f32 has only 24-bit mantissa, i64/u64 need 53+ bits)
-        if (int_type == VAL_I64 || int_type == VAL_U64) {
-            return VAL_F64;
-        }
-
-        // f32 with smaller integers is fine
-        return VAL_F32;
-    }
-
-    // Both are integers - promote to higher rank
-    int left_rank = type_rank(left);
-    int right_rank = type_rank(right);
-
-    return (left_rank > right_rank) ? left : right;
+    HmlTypeKind result = hml_tk_promote(val_to_tk(left), val_to_tk(right));
+    return tk_to_val(result);
 }
 
 // Convert a value to a specific ValueType (for promotions during operations)

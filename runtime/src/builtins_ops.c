@@ -6,9 +6,60 @@
  * - Binary operations (+, -, *, /, %, etc.)
  * - Unary operations (-, !, ~)
  * - Type promotion helpers
+ *
+ * Uses shared modules for type utilities (type_promotion.h)
  */
 
 #include "builtins_internal.h"
+#include "type_promotion.h"
+
+/* ========== TYPE CONVERSION HELPERS ==========
+ *
+ * Convert between HmlValueType (runtime) and HmlTypeKind (shared module).
+ * This allows us to use the shared type promotion logic.
+ */
+
+static inline HmlTypeKind hml_val_to_tk(HmlValueType vt) {
+    switch (vt) {
+        case HML_VAL_NULL:   return HML_TK_NULL;
+        case HML_VAL_BOOL:   return HML_TK_BOOL;
+        case HML_VAL_I8:     return HML_TK_I8;
+        case HML_VAL_I16:    return HML_TK_I16;
+        case HML_VAL_I32:    return HML_TK_I32;
+        case HML_VAL_I64:    return HML_TK_I64;
+        case HML_VAL_U8:     return HML_TK_U8;
+        case HML_VAL_U16:    return HML_TK_U16;
+        case HML_VAL_U32:    return HML_TK_U32;
+        case HML_VAL_U64:    return HML_TK_U64;
+        case HML_VAL_F32:    return HML_TK_F32;
+        case HML_VAL_F64:    return HML_TK_F64;
+        case HML_VAL_RUNE:   return HML_TK_RUNE;
+        case HML_VAL_STRING: return HML_TK_STRING;
+        case HML_VAL_PTR:    return HML_TK_PTR;
+        default:             return HML_TK_OTHER;
+    }
+}
+
+static inline HmlValueType hml_tk_to_val(HmlTypeKind tk) {
+    switch (tk) {
+        case HML_TK_NULL:   return HML_VAL_NULL;
+        case HML_TK_BOOL:   return HML_VAL_BOOL;
+        case HML_TK_I8:     return HML_VAL_I8;
+        case HML_TK_I16:    return HML_VAL_I16;
+        case HML_TK_I32:    return HML_VAL_I32;
+        case HML_TK_I64:    return HML_VAL_I64;
+        case HML_TK_U8:     return HML_VAL_U8;
+        case HML_TK_U16:    return HML_VAL_U16;
+        case HML_TK_U32:    return HML_VAL_U32;
+        case HML_TK_U64:    return HML_VAL_U64;
+        case HML_TK_F32:    return HML_VAL_F32;
+        case HML_TK_F64:    return HML_VAL_F64;
+        case HML_TK_RUNE:   return HML_VAL_RUNE;
+        case HML_TK_STRING: return HML_VAL_STRING;
+        case HML_TK_PTR:    return HML_VAL_PTR;
+        default:            return HML_VAL_NULL;
+    }
+}
 
 // ========== TYPE OPERATIONS ==========
 
@@ -17,59 +68,26 @@ HmlValue hml_sizeof(HmlValue type_name) {
         return hml_val_i32(0);
     }
     const char *name = type_name.as.as_string->data;
-    if (strcmp(name, "i8") == 0 || strcmp(name, "u8") == 0 || strcmp(name, "byte") == 0) return hml_val_i32(1);
-    if (strcmp(name, "i16") == 0 || strcmp(name, "u16") == 0) return hml_val_i32(2);
-    if (strcmp(name, "i32") == 0 || strcmp(name, "u32") == 0 || strcmp(name, "integer") == 0) return hml_val_i32(4);
-    if (strcmp(name, "i64") == 0 || strcmp(name, "u64") == 0) return hml_val_i32(8);
-    if (strcmp(name, "f32") == 0) return hml_val_i32(4);
-    if (strcmp(name, "f64") == 0 || strcmp(name, "number") == 0) return hml_val_i32(8);
-    if (strcmp(name, "bool") == 0) return hml_val_i32(1);
-    if (strcmp(name, "ptr") == 0) return hml_val_i32(8);
-    if (strcmp(name, "rune") == 0) return hml_val_i32(4);
-    return hml_val_i32(0);
+    // Use shared type utilities for sizeof
+    HmlTypeKind tk = hml_tk_from_name(name);
+    int size = hml_tk_sizeof(tk);
+    return hml_val_i32(size);
 }
 
 // ========== BINARY OPERATIONS ==========
 
-// Type promotion table (higher number = higher priority)
-int type_priority(HmlValueType type) {
-    switch (type) {
-        case HML_VAL_I8:   return 1;
-        case HML_VAL_U8:   return 2;
-        case HML_VAL_I16:  return 3;
-        case HML_VAL_U16:  return 4;
-        case HML_VAL_I32:  return 5;
-        case HML_VAL_RUNE: return 5;  // Runes promote like i32
-        case HML_VAL_U32:  return 6;
-        case HML_VAL_I64:  return 7;
-        case HML_VAL_U64:  return 8;
-        case HML_VAL_F32:  return 9;
-        case HML_VAL_F64:  return 10;
-        default:          return 0;
-    }
+/*
+ * Type promotion using shared module.
+ * These wrapper functions convert between HmlValueType and HmlTypeKind,
+ * use the shared implementation, then convert back.
+ */
+static inline int type_priority(HmlValueType type) {
+    return hml_tk_priority(hml_val_to_tk(type));
 }
 
-HmlValueType promote_types(HmlValueType a, HmlValueType b) {
-    // If either is f64, result is f64
-    if (a == HML_VAL_F64 || b == HML_VAL_F64) return HML_VAL_F64;
-
-    // f32 with i64/u64 should promote to f64 to preserve precision
-    // (f32 has only 24-bit mantissa, i64/u64 need 53+ bits)
-    if (a == HML_VAL_F32 || b == HML_VAL_F32) {
-        HmlValueType other = (a == HML_VAL_F32) ? b : a;
-        if (other == HML_VAL_I64 || other == HML_VAL_U64) {
-            return HML_VAL_F64;
-        }
-        return HML_VAL_F32;
-    }
-
-    // Runes promote to i32 when combined with other types
-    if (a == HML_VAL_RUNE && b == HML_VAL_RUNE) return HML_VAL_I32;
-    if (a == HML_VAL_RUNE) return (type_priority(HML_VAL_I32) >= type_priority(b)) ? HML_VAL_I32 : b;
-    if (b == HML_VAL_RUNE) return (type_priority(HML_VAL_I32) >= type_priority(a)) ? HML_VAL_I32 : a;
-
-    // Otherwise, higher priority wins
-    return (type_priority(a) >= type_priority(b)) ? a : b;
+static inline HmlValueType promote_types(HmlValueType a, HmlValueType b) {
+    HmlTypeKind result = hml_tk_promote(hml_val_to_tk(a), hml_val_to_tk(b));
+    return hml_tk_to_val(result);
 }
 
 // Create an integer result value with the correct type
