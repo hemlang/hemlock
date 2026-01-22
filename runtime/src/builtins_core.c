@@ -8,9 +8,12 @@
  * - Print/eprint
  * - Type checking and conversion
  * - Assertions and panic
+ *
+ * Uses shared UTF-8 module for encoding.
  */
 
 #include "builtins_internal.h"
+#include "utf8.h"
 
 // ========== GLOBAL STATE ==========
 
@@ -136,33 +139,16 @@ HmlValue hml_get_args(void) {
 }
 
 // ========== UTF-8 ENCODING ==========
+// Uses shared UTF-8 module for encoding
 
 // Encode a Unicode codepoint to UTF-8, returns the number of bytes written
 int utf8_encode_rune(uint32_t codepoint, char *out) {
-    if (codepoint < 0x80) {
-        out[0] = (char)codepoint;
-        return 1;
-    } else if (codepoint < 0x800) {
-        out[0] = (char)(0xC0 | (codepoint >> 6));
-        out[1] = (char)(0x80 | (codepoint & 0x3F));
-        return 2;
-    } else if (codepoint < 0x10000) {
-        out[0] = (char)(0xE0 | (codepoint >> 12));
-        out[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
-        out[2] = (char)(0x80 | (codepoint & 0x3F));
-        return 3;
-    } else {
-        out[0] = (char)(0xF0 | (codepoint >> 18));
-        out[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
-        out[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
-        out[3] = (char)(0x80 | (codepoint & 0x3F));
-        return 4;
-    }
+    return hml_utf8_encode(codepoint, out);
 }
 
 // Alias for compatibility with string operations
 int encode_utf8(uint32_t cp, char *out) {
-    return utf8_encode_rune(cp, out);
+    return hml_utf8_encode(cp, out);
 }
 
 // ========== PRINT IMPLEMENTATION ==========
