@@ -456,7 +456,7 @@ void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, ExecutionConte
             return NULL;
         }
 
-        Value field_val = o->field_values[field_idx];
+        Value field_val = o->fields[field_idx].value;
 
         // Convert and write field value
         switch (field->hemlock_type) {
@@ -602,8 +602,8 @@ Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) {
         }
 
         // Add field to object
-        obj->field_names[obj->num_fields] = strdup(field->name);
-        obj->field_values[obj->num_fields] = field_val;
+        obj->fields[obj->num_fields].name = strdup(field->name);
+        obj->fields[obj->num_fields].value = field_val;
         obj->num_fields++;
     }
 

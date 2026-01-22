@@ -136,23 +136,23 @@ Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ct
         runtime_error(ctx, "__ecdsa_generate_key() memory allocation failed");
         return val_null();
     }
-    obj->field_names[0] = strdup("private_key");
-    if (!obj->field_names[0]) {
+    obj->fields[0].name = strdup("private_key");
+    if (!obj->fields[0].name) {
         EVP_PKEY_free(pkey);
         object_free(obj);
         runtime_error(ctx, "__ecdsa_generate_key() memory allocation failed");
         return val_null();
     }
-    obj->field_values[0] = val_ptr(pkey);
+    obj->fields[0].value = val_ptr(pkey);
     obj->num_fields++;
-    obj->field_names[1] = strdup("public_key");
-    if (!obj->field_names[1]) {
+    obj->fields[1].name = strdup("public_key");
+    if (!obj->fields[1].name) {
         EVP_PKEY_free(pkey);
         object_free(obj);
         runtime_error(ctx, "__ecdsa_generate_key() memory allocation failed");
         return val_null();
     }
-    obj->field_values[1] = val_ptr(pkey);
+    obj->fields[1].value = val_ptr(pkey);
     obj->num_fields++;
 
     return val_object(obj);
@@ -164,7 +164,7 @@ static Value object_get_field(Object *obj, const char *name) {
     if (idx < 0) {
         return val_null();
     }
-    return obj->field_values[idx];
+    return obj->fields[idx].value;
 }
 
 // __ecdsa_free_key(keypair) -> null

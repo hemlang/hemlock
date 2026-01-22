@@ -36,9 +36,9 @@ static void object_hash_rebuild(HmlObject *obj) {
         obj->hash_table[i] = -1;
     }
 
-    // Rehash all existing fields
+    // Rehash all existing fields (using unified field storage)
     for (int i = 0; i < obj->num_fields; i++) {
-        uint32_t hash = djb2_hash(obj->field_names[i]);
+        uint32_t hash = djb2_hash(obj->fields[i].name);
         int slot = hash % new_capacity;
 
         // Linear probing to find empty slot
@@ -64,10 +64,10 @@ static int object_lookup_field(HmlObject *obj, const char *name) {
     int slot = hash % obj->hash_capacity;
     int start_slot = slot;
 
-    // Linear probing
+    // Linear probing (using unified field storage)
     while (obj->hash_table[slot] != -1) {
         int idx = obj->hash_table[slot];
-        if (strcmp(obj->field_names[idx], name) == 0) {
+        if (strcmp(obj->fields[idx].name, name) == 0) {
             return idx;  // Found
         }
         slot = (slot + 1) % obj->hash_capacity;
@@ -87,7 +87,7 @@ HmlValue hml_object_get_field(HmlValue obj, const char *field) {
     HmlObject *o = obj.as.as_object;
     int idx = object_lookup_field(o, field);
     if (idx >= 0) {
-        HmlValue result = o->field_values[idx];
+        HmlValue result = o->fields[idx].value;
         hml_retain(&result);
         return result;
     }
@@ -105,7 +105,7 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
     HmlObject *o = obj.as.as_object;
     int idx = object_lookup_field(o, field);
     if (idx >= 0) {
-        HmlValue result = o->field_values[idx];
+        HmlValue result = o->fields[idx].value;
         hml_retain(&result);
         return result;
     }
@@ -124,23 +124,22 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
     // Check if field exists using hash lookup
     int idx = object_lookup_field(o, field);
     if (idx >= 0) {
-        hml_release(&o->field_values[idx]);
-        o->field_values[idx] = val;
-        hml_retain(&o->field_values[idx]);
+        hml_release(&o->fields[idx].value);
+        o->fields[idx].value = val;
+        hml_retain(&o->fields[idx].value);
         return;
     }
 
-    // Add new field
+    // Add new field - single realloc for unified storage (reduces fragmentation)
     if (o->num_fields >= o->capacity) {
         int new_cap = (o->capacity == 0) ? 4 : o->capacity * 2;
-        o->field_names = realloc(o->field_names, new_cap * sizeof(char*));
-        o->field_values = realloc(o->field_values, new_cap * sizeof(HmlValue));
+        o->fields = realloc(o->fields, new_cap * sizeof(HmlFieldEntry));
         o->capacity = new_cap;
     }
 
-    o->field_names[o->num_fields] = strdup(field);
-    o->field_values[o->num_fields] = val;
-    hml_retain(&o->field_values[o->num_fields]);
+    o->fields[o->num_fields].name = strdup(field);
+    o->fields[o->num_fields].value = val;
+    hml_retain(&o->fields[o->num_fields].value);
     o->num_fields++;
 
     // Invalidate hash table - will be rebuilt on next lookup
@@ -171,14 +170,13 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
         return 0;  // Not found
     }
 
-    // Release the value and free the field name
-    hml_release(&o->field_values[found_index]);
-    free(o->field_names[found_index]);
+    // Release the value and free the field name (unified storage)
+    hml_release(&o->fields[found_index].value);
+    free(o->fields[found_index].name);
 
-    // Shift remaining fields down
+    // Shift remaining field entries down (single memmove for unified storage)
     for (int i = found_index; i < o->num_fields - 1; i++) {
-        o->field_names[i] = o->field_names[i + 1];
-        o->field_values[i] = o->field_values[i + 1];
+        o->fields[i] = o->fields[i + 1];
     }
 
     o->num_fields--;
@@ -208,7 +206,7 @@ HmlValue hml_object_key_at(HmlValue obj, int index) {
     if (index < 0 || index >= o->num_fields) {
         hml_runtime_error("Object key index out of bounds");
     }
-    return hml_val_string(o->field_names[index]);
+    return hml_val_string(o->fields[index].name);
 }
 
 // Get field value at index
@@ -220,7 +218,7 @@ HmlValue hml_object_value_at(HmlValue obj, int index) {
     if (index < 0 || index >= o->num_fields) {
         hml_runtime_error("Object value index out of bounds");
     }
-    HmlValue result = o->field_values[index];
+    HmlValue result = o->fields[index].value;
     hml_retain(&result);
     return result;
 }
@@ -235,9 +233,9 @@ HmlValue hml_object_keys(HmlValue obj) {
     // Create a new array to hold the keys
     HmlValue arr = hml_val_array();
 
-    // Add each field name to the array
+    // Add each field name to the array (using unified storage)
     for (int i = 0; i < o->num_fields; i++) {
-        hml_array_push(arr, hml_val_string(o->field_names[i]));
+        hml_array_push(arr, hml_val_string(o->fields[i].name));
     }
 
     return arr;

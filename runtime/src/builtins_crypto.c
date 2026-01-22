@@ -470,19 +470,18 @@ static HmlValue create_keypair_object(void *pkey) {
     HmlObject *obj = malloc(sizeof(HmlObject));
     obj->type_name = NULL;
     obj->capacity = 2;
-    obj->field_names = malloc(sizeof(char*) * 2);
-    obj->field_values = malloc(sizeof(HmlValue) * 2);
+    obj->fields = malloc(sizeof(HmlFieldEntry) * 2);
     obj->num_fields = 0;
     obj->ref_count = 1;
     atomic_store(&obj->freed, 0);
     obj->hash_table = NULL;  // Lazy initialization
     obj->hash_capacity = 0;
 
-    obj->field_names[0] = strdup("private_key");
-    obj->field_values[0] = hml_val_ptr(pkey);
+    obj->fields[0].name = strdup("private_key");
+    obj->fields[0].value = hml_val_ptr(pkey);
     obj->num_fields++;
-    obj->field_names[1] = strdup("public_key");
-    obj->field_values[1] = hml_val_ptr(pkey);
+    obj->fields[1].name = strdup("public_key");
+    obj->fields[1].value = hml_val_ptr(pkey);
     obj->num_fields++;
 
     HmlValue result;
@@ -494,8 +493,8 @@ static HmlValue create_keypair_object(void *pkey) {
 // Helper: Get field value from object
 static HmlValue object_get_field_rt(HmlObject *obj, const char *name) {
     for (int i = 0; i < obj->num_fields; i++) {
-        if (obj->field_names[i] && strcmp(obj->field_names[i], name) == 0) {
-            return obj->field_values[i];
+        if (obj->fields[i].name && strcmp(obj->fields[i].name, name) == 0) {
+            return obj->fields[i].value;
         }
     }
     return hml_val_null();

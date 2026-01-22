@@ -318,8 +318,8 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                         Value val = env_get(imported->exports_env, export_name, ctx);
 
                         // Add to namespace object
-                        ns->field_names[ns->num_fields] = strdup(export_name);
-                        ns->field_values[ns->num_fields] = val;
+                        ns->fields[ns->num_fields].name = strdup(export_name);
+                        ns->fields[ns->num_fields].value = val;
                         ns->num_fields++;
                     }
 

@@ -105,11 +105,13 @@ typedef struct {
     int ref_count;       // Reference count for memory management
 } WebSocketHandle;
 
+// Forward declaration for FieldEntry (full definition after Value)
+typedef struct FieldEntry FieldEntry;
+
 // Object struct (JavaScript-style object)
 typedef struct {
-    char *type_name;  // NULL for anonymous
-    char **field_names;
-    Value *field_values;
+    char *type_name;     // NULL for anonymous
+    FieldEntry *fields;  // Unified array of field entries (reduces fragmentation)
     int num_fields;
     int capacity;
     int ref_count;       // Reference count for memory management
@@ -241,6 +243,13 @@ struct Value {
         Channel *as_channel;
         Reference *as_ref;      // Reference for pass-by-reference
     } as;
+};
+
+// Field entry struct - unified storage for name and value (reduces fragmentation)
+// Defined after Value since it contains a Value member
+struct FieldEntry {
+    char *name;          // Field name (owned)
+    Value value;         // Field value
 };
 
 #endif // HEMLOCK_RUNTIME_TYPES_H

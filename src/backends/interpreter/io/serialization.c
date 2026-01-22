@@ -213,12 +213,12 @@ static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *
                 }
 
                 // Field name (escaped)
-                const char *name = obj->field_names[i];
+                const char *name = obj->fields[i].name;
                 if (!jbuf_append_escaped_string(buf, name, strlen(name))) goto alloc_fail;
                 if (!jbuf_append_char(buf, ':')) goto alloc_fail;
 
                 // Field value
-                if (!serialize_to_buffer(obj->field_values[i], buf, visited, ctx)) {
+                if (!serialize_to_buffer(obj->fields[i].value, buf, visited, ctx)) {
                     return 0;
                 }
             }
@@ -599,8 +599,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     }
     p->pos++;  // skip opening brace
 
-    char **field_names = malloc(sizeof(char*) * 32);
-    Value *field_values = malloc(sizeof(Value) * 32);
+    FieldEntry *fields = malloc(sizeof(FieldEntry) * 32);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -609,8 +608,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     if (p->input[p->pos] == '}') {
         p->pos++;
         Object *obj = malloc(sizeof(Object));
-        obj->field_names = field_names;
-        obj->field_values = field_values;
+        obj->fields = fields;
         obj->num_fields = 0;
         obj->capacity = 32;
         obj->type_name = NULL;
@@ -629,14 +627,13 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         if (ctx->exception_state.is_throwing) {
             // Clean up and propagate error
             for (int i = 0; i < num_fields; i++) {
-                free(field_names[i]);
-                value_release(field_values[i]);
+                free(fields[i].name);
+                value_release(fields[i].value);
             }
-            free(field_names);
-            free(field_values);
+            free(fields);
             return val_null();
         }
-        field_names[num_fields] = strdup(name_val.as.as_string->data);
+        fields[num_fields].name = strdup(name_val.as.as_string->data);
         value_release(name_val);  // Release the temporary string after copying
 
         json_skip_whitespace(p);
@@ -645,11 +642,10 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         if (p->input[p->pos] != ':') {
             // Clean up allocated memory before error
             for (int i = 0; i < num_fields; i++) {
-                free(field_names[i]);
-                value_release(field_values[i]);
+                free(fields[i].name);
+                value_release(fields[i].value);
             }
-            free(field_names);
-            free(field_values);
+            free(fields);
             return throw_runtime_error(ctx, "Expected ':' in JSON object");
         }
         p->pos++;
@@ -657,15 +653,14 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         json_skip_whitespace(p);
 
         // Parse field value
-        field_values[num_fields] = json_parse_value(p, ctx);
+        fields[num_fields].value = json_parse_value(p, ctx);
         if (ctx->exception_state.is_throwing) {
             // Clean up and propagate error
             for (int i = 0; i < num_fields; i++) {
-                free(field_names[i]);
-                value_release(field_values[i]);
+                free(fields[i].name);
+                value_release(fields[i].value);
             }
-            free(field_names);
-            free(field_values);
+            free(fields);
             return val_null();
         }
         num_fields++;
@@ -678,11 +673,10 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         } else if (p->input[p->pos] != '}') {
             // Clean up allocated memory
             for (int i = 0; i < num_fields; i++) {
-                free(field_names[i]);
-                value_release(field_values[i]);
+                free(fields[i].name);
+                value_release(fields[i].value);
             }
-            free(field_names);
-            free(field_values);
+            free(fields);
             return throw_runtime_error(ctx, "Expected ',' or '}' in JSON object");
         }
     }
@@ -690,18 +684,16 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     if (p->input[p->pos] != '}') {
         // Clean up allocated memory
         for (int i = 0; i < num_fields; i++) {
-            free(field_names[i]);
-            value_release(field_values[i]);
+            free(fields[i].name);
+            value_release(fields[i].value);
         }
-        free(field_names);
-        free(field_values);
+        free(fields);
         return throw_runtime_error(ctx, "Unterminated object in JSON");
     }
     p->pos++;  // skip closing brace
 
     Object *obj = malloc(sizeof(Object));
-    obj->field_names = field_names;
-    obj->field_values = field_values;
+    obj->fields = fields;
     obj->num_fields = num_fields;
     obj->capacity = 32;
     obj->type_name = NULL;
@@ -815,7 +807,7 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         // Create array of keys
         Array *keys_array = array_new();
         for (int i = 0; i < obj->num_fields; i++) {
-            Value key_val = val_string(obj->field_names[i]);
+            Value key_val = val_string(obj->fields[i].name);
             array_push(keys_array, key_val);
             value_release(key_val);  // array_push retains, so release our reference
         }
@@ -835,7 +827,7 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
 
         const char *key = args[0].as.as_string->data;
         for (int i = 0; i < obj->num_fields; i++) {
-            if (strcmp(obj->field_names[i], key) == 0) {
+            if (strcmp(obj->fields[i].name, key) == 0) {
                 return val_bool(1);
             }
         }
@@ -881,7 +873,7 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         // Find the field index
         int found_index = -1;
         for (int i = 0; i < obj->num_fields; i++) {
-            if (strcmp(obj->field_names[i], key) == 0) {
+            if (strcmp(obj->fields[i].name, key) == 0) {
                 found_index = i;
                 break;
             }
@@ -892,15 +884,14 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         }
 
         // Release the value being deleted
-        VALUE_RELEASE(obj->field_values[found_index]);
+        VALUE_RELEASE(obj->fields[found_index].value);
 
         // Free the field name
-        free(obj->field_names[found_index]);
+        free(obj->fields[found_index].name);
 
         // Shift remaining fields down
         for (int i = found_index; i < obj->num_fields - 1; i++) {
-            obj->field_names[i] = obj->field_names[i + 1];
-            obj->field_values[i] = obj->field_values[i + 1];
+            obj->fields[i] = obj->fields[i + 1];
         }
 
         obj->num_fields--;
@@ -914,7 +905,7 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
             // Rehash all remaining fields
             for (int i = 0; i < obj->num_fields; i++) {
                 uint32_t hash = 5381;  // DJB2 hash
-                const char *str = obj->field_names[i];
+                const char *str = obj->fields[i].name;
                 int c;
                 while ((c = *str++)) {
                     hash = ((hash << 5) + hash) + c;

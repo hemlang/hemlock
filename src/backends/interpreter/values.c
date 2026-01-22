@@ -579,9 +579,9 @@ static void object_hash_rebuild(Object *obj) {
         obj->hash_table[i] = -1;
     }
 
-    // Rehash all existing fields
+    // Rehash all existing fields (using unified field storage)
     for (int i = 0; i < obj->num_fields; i++) {
-        uint32_t hash = djb2_hash(obj->field_names[i]);
+        uint32_t hash = djb2_hash(obj->fields[i].name);
         int slot = hash % new_capacity;
 
         // Linear probing to find empty slot
@@ -608,10 +608,10 @@ int object_lookup_field(Object *obj, const char *name) {
     int slot = hash % obj->hash_capacity;
     int start_slot = slot;
 
-    // Linear probing
+    // Linear probing (using unified field storage)
     while (obj->hash_table[slot] != -1) {
         int idx = obj->hash_table[slot];
-        if (strcmp(obj->field_names[idx], name) == 0) {
+        if (strcmp(obj->fields[idx].name, name) == 0) {
             return idx;  // Found
         }
         slot = (slot + 1) % obj->hash_capacity;
@@ -638,10 +638,10 @@ int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash) 
     int slot = hash % obj->hash_capacity;
     int start_slot = slot;
 
-    // Linear probing
+    // Linear probing (using unified field storage)
     while (obj->hash_table[slot] != -1) {
         int idx = obj->hash_table[slot];
-        if (strcmp(obj->field_names[idx], name) == 0) {
+        if (strcmp(obj->fields[idx].name, name) == 0) {
             return idx;  // Found
         }
         slot = (slot + 1) % obj->hash_capacity;
@@ -655,9 +655,9 @@ int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash) 
 // Validate that a cached field index is still valid for the given object and property
 // Returns 1 if valid, 0 if cache is stale
 int object_validate_ic(Object *obj, int cached_idx, const char *name) {
-    // Check if index is in bounds and name matches
+    // Check if index is in bounds and name matches (using unified field storage)
     if (cached_idx >= 0 && cached_idx < obj->num_fields) {
-        return strcmp(obj->field_names[cached_idx], name) == 0;
+        return strcmp(obj->fields[cached_idx].name, name) == 0;
     }
     return 0;
 }
@@ -674,16 +674,9 @@ Object* object_new(char *type_name, int initial_capacity) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
-    obj->field_names = malloc(sizeof(char*) * initial_capacity);
-    if (!obj->field_names) {
-        free(obj->type_name);
-        free(obj);
-        fprintf(stderr, "Runtime error: Memory allocation failed\n");
-        exit(1);
-    }
-    obj->field_values = malloc(sizeof(Value) * initial_capacity);
-    if (!obj->field_values) {
-        free(obj->field_names);
+    // Unified field storage - single allocation for all fields (reduces fragmentation)
+    obj->fields = malloc(sizeof(FieldEntry) * initial_capacity);
+    if (!obj->fields) {
         free(obj->type_name);
         free(obj);
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
@@ -1417,7 +1410,7 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
 
     if (atomic_load(&obj->freed)) {
         // Object was manually freed via builtin_free().
-        // Internal data (type_name, field_names, field_values, hash_table) was
+        // Internal data (type_name, fields, hash_table) was
         // already freed there. Only free the struct wrapper itself.
         free(obj);
         return;
@@ -1431,15 +1424,14 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
     // Mark as visited
     visited_set_add(visited, obj);
 
-    // Free object contents
+    // Free object contents (using unified field storage)
     if (obj->type_name) free(obj->type_name);
     for (int i = 0; i < obj->num_fields; i++) {
-        free(obj->field_names[i]);
+        free(obj->fields[i].name);
         // Release field values (decrements ref_counts)
-        value_release(obj->field_values[i]);
+        value_release(obj->fields[i].value);
     }
-    free(obj->field_names);
-    free(obj->field_values);
+    free(obj->fields);  // Single allocation for all fields
     // Free hash table
     if (obj->hash_table) free(obj->hash_table);
     free(obj);
@@ -1782,9 +1774,9 @@ Value value_deep_copy(Value val) {
             if (val.as.as_object) {
                 Object *src = val.as.as_object;
                 Object *dst = object_new(src->type_name, src->capacity);
-                // Deep copy each field
+                // Deep copy each field (using unified field storage)
                 for (int i = 0; i < src->num_fields; i++) {
-                    // Grow if needed
+                    // Grow if needed - single realloc for unified storage
                     if (dst->num_fields >= dst->capacity) {
                         // SECURITY: Check for integer overflow before doubling
                         if (dst->capacity > INT_MAX / 2) {
@@ -1792,20 +1784,18 @@ Value value_deep_copy(Value val) {
                             exit(1);
                         }
                         int new_capacity = dst->capacity * 2;
-                        char **new_names = realloc(dst->field_names, sizeof(char*) * (size_t)new_capacity);
-                        Value *new_values = realloc(dst->field_values, sizeof(Value) * (size_t)new_capacity);
-                        if (!new_names || !new_values) {
+                        FieldEntry *new_fields = realloc(dst->fields, sizeof(FieldEntry) * (size_t)new_capacity);
+                        if (!new_fields) {
                             fprintf(stderr, "Runtime error: Memory allocation failed during object growth\n");
                             exit(1);
                         }
                         dst->capacity = new_capacity;
-                        dst->field_names = new_names;
-                        dst->field_values = new_values;
+                        dst->fields = new_fields;
                     }
-                    dst->field_names[dst->num_fields] = strdup(src->field_names[i]);
-                    Value field_copy = value_deep_copy(src->field_values[i]);
+                    dst->fields[dst->num_fields].name = strdup(src->fields[i].name);
+                    Value field_copy = value_deep_copy(src->fields[i].value);
                     value_retain(field_copy);
-                    dst->field_values[dst->num_fields] = field_copy;
+                    dst->fields[dst->num_fields].value = field_copy;
                     dst->num_fields++;
                 }
                 result.type = VAL_OBJECT;
@@ -1943,7 +1933,7 @@ Value ref_deref(Reference *ref, ExecutionContext *ctx) {
                 runtime_error(ctx, "Object has no property '%s'", ref->as.object_property.property);
                 return val_null();
             }
-            Value val = obj->field_values[idx];
+            Value val = obj->fields[idx].value;
             VALUE_RETAIN(val);
             return val;
         }
@@ -1963,9 +1953,9 @@ void ref_assign(Reference *ref, Value value, ExecutionContext *ctx) {
             Object *obj = ref->as.object_property.object;
             int idx = object_lookup_field(obj, ref->as.object_property.property);
             if (idx >= 0) {
-                VALUE_RELEASE(obj->field_values[idx]);
+                VALUE_RELEASE(obj->fields[idx].value);
                 VALUE_RETAIN(value);
-                obj->field_values[idx] = value;
+                obj->fields[idx].value = value;
             } else {
                 // Property doesn't exist - this shouldn't happen for refs
                 // since we created the ref from an existing property

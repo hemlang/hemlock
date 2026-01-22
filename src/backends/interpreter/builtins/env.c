@@ -388,34 +388,34 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
             runtime_error(ctx, "exec() memory allocation failed");
             return val_null();
         }
-        result->field_names[0] = strdup("output");
-        if (!result->field_names[0]) {
+        result->fields[0].name = strdup("output");
+        if (!result->fields[0].name) {
             free(output_buffer);
             free(stderr_buffer);
             object_free(result);
             runtime_error(ctx, "exec() memory allocation failed");
             return val_null();
         }
-        result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
+        result->fields[0].value = val_string_take(output_buffer, output_size, output_capacity);
         result->num_fields++;
 
-        result->field_names[1] = strdup("stderr");
-        if (!result->field_names[1]) {
+        result->fields[1].name = strdup("stderr");
+        if (!result->fields[1].name) {
             free(stderr_buffer);
             object_free(result);
             runtime_error(ctx, "exec() memory allocation failed");
             return val_null();
         }
-        result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
+        result->fields[1].value = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
         result->num_fields++;
 
-        result->field_names[2] = strdup("exit_code");
-        if (!result->field_names[2]) {
+        result->fields[2].name = strdup("exit_code");
+        if (!result->fields[2].name) {
             object_free(result);
             runtime_error(ctx, "exec() memory allocation failed");
             return val_null();
         }
-        result->field_values[2] = val_i32(exit_code);
+        result->fields[2].value = val_i32(exit_code);
         result->num_fields++;
 
         return val_object(result);
@@ -523,32 +523,32 @@ done_warning:
         runtime_error(ctx, "exec() memory allocation failed");
         return val_null();
     }
-    result->field_names[0] = strdup("output");
-    if (!result->field_names[0]) {
+    result->fields[0].name = strdup("output");
+    if (!result->fields[0].name) {
         free(output_buffer);
         object_free(result);
         runtime_error(ctx, "exec() memory allocation failed");
         return val_null();
     }
-    result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
+    result->fields[0].value = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
 
-    result->field_names[1] = strdup("stderr");
-    if (!result->field_names[1]) {
+    result->fields[1].name = strdup("stderr");
+    if (!result->fields[1].name) {
         object_free(result);
         runtime_error(ctx, "exec() memory allocation failed");
         return val_null();
     }
-    result->field_values[1] = val_string("");
+    result->fields[1].value = val_string("");
     result->num_fields++;
 
-    result->field_names[2] = strdup("exit_code");
-    if (!result->field_names[2]) {
+    result->fields[2].name = strdup("exit_code");
+    if (!result->fields[2].name) {
         object_free(result);
         runtime_error(ctx, "exec() memory allocation failed");
         return val_null();
     }
-    result->field_values[2] = val_i32(exit_code);
+    result->fields[2].value = val_i32(exit_code);
     result->num_fields++;
 
     return val_object(result);
@@ -802,34 +802,34 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "exec_argv() memory allocation failed");
         return val_null();
     }
-    result->field_names[0] = strdup("output");
-    if (!result->field_names[0]) {
+    result->fields[0].name = strdup("output");
+    if (!result->fields[0].name) {
         free(output_buffer);
         free(stderr_buffer);
         object_free(result);
         runtime_error(ctx, "exec_argv() memory allocation failed");
         return val_null();
     }
-    result->field_values[0] = val_string_take(output_buffer, output_size, output_capacity);
+    result->fields[0].value = val_string_take(output_buffer, output_size, output_capacity);
     result->num_fields++;
 
-    result->field_names[1] = strdup("stderr");
-    if (!result->field_names[1]) {
+    result->fields[1].name = strdup("stderr");
+    if (!result->fields[1].name) {
         free(stderr_buffer);
         object_free(result);
         runtime_error(ctx, "exec_argv() memory allocation failed");
         return val_null();
     }
-    result->field_values[1] = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
+    result->fields[1].value = val_string_take(stderr_buffer, stderr_size, stderr_capacity);
     result->num_fields++;
 
-    result->field_names[2] = strdup("exit_code");
-    if (!result->field_names[2]) {
+    result->fields[2].name = strdup("exit_code");
+    if (!result->fields[2].name) {
         object_free(result);
         runtime_error(ctx, "exec_argv() memory allocation failed");
         return val_null();
     }
-    result->field_values[2] = val_i32(exit_code);
+    result->fields[2].value = val_i32(exit_code);
     result->num_fields++;
 
     return val_object(result);
@@ -963,22 +963,22 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "wait() memory allocation failed");
         return val_null();
     }
-    result->field_names[0] = strdup("pid");
-    if (!result->field_names[0]) {
+    result->fields[0].name = strdup("pid");
+    if (!result->fields[0].name) {
         object_free(result);
         runtime_error(ctx, "wait() memory allocation failed");
         return val_null();
     }
-    result->field_values[0] = val_i32((int32_t)pid);
+    result->fields[0].value = val_i32((int32_t)pid);
     result->num_fields++;
 
-    result->field_names[1] = strdup("status");
-    if (!result->field_names[1]) {
+    result->fields[1].name = strdup("status");
+    if (!result->fields[1].name) {
         object_free(result);
         runtime_error(ctx, "wait() memory allocation failed");
         return val_null();
     }
-    result->field_values[1] = val_i32(status);
+    result->fields[1].value = val_i32(status);
     result->num_fields++;
 
     return val_object(result);
@@ -1017,22 +1017,22 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "waitpid() memory allocation failed");
         return val_null();
     }
-    result->field_names[0] = strdup("pid");
-    if (!result->field_names[0]) {
+    result->fields[0].name = strdup("pid");
+    if (!result->fields[0].name) {
         object_free(result);
         runtime_error(ctx, "waitpid() memory allocation failed");
         return val_null();
     }
-    result->field_values[0] = val_i32((int32_t)result_pid);
+    result->fields[0].value = val_i32((int32_t)result_pid);
     result->num_fields++;
 
-    result->field_names[1] = strdup("status");
-    if (!result->field_names[1]) {
+    result->fields[1].name = strdup("status");
+    if (!result->fields[1].name) {
         object_free(result);
         runtime_error(ctx, "waitpid() memory allocation failed");
         return val_null();
     }
-    result->field_values[1] = val_i32(status);
+    result->fields[1].value = val_i32(status);
     result->num_fields++;
 
     return val_object(result);

@@ -125,16 +125,14 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
 
         // Release all field values (decrements their ref_counts)
         for (int i = 0; i < obj->num_fields; i++) {
-            value_release(obj->field_values[i]);
-            free(obj->field_names[i]);
+            value_release(obj->fields[i].value);
+            free(obj->fields[i].name);
         }
         // Free internal data but keep struct alive for cleanup to check freed flag
-        free(obj->field_names);
-        free(obj->field_values);
+        free(obj->fields);
         if (obj->type_name) free(obj->type_name);
         if (obj->hash_table) free(obj->hash_table);
-        obj->field_names = NULL;
-        obj->field_values = NULL;
+        obj->fields = NULL;
         obj->type_name = NULL;
         obj->hash_table = NULL;
         obj->num_fields = 0;

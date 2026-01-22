@@ -227,8 +227,7 @@ HmlValue hml_val_object(void) {
 
     HmlObject *o = malloc(sizeof(HmlObject));
     o->type_name = NULL;
-    o->field_names = NULL;
-    o->field_values = NULL;
+    o->fields = NULL;            // Unified field storage (reduces fragmentation)
     o->num_fields = 0;
     o->capacity = 0;
     o->ref_count = 1;
@@ -467,15 +466,14 @@ static void array_free(HmlArray *arr) {
 
 static void object_free(HmlObject *obj) {
     if (obj) {
-        // Free field names and release field values
+        // Free field entries (unified storage)
         for (int i = 0; i < obj->num_fields; i++) {
-            free(obj->field_names[i]);
-            hml_release(&obj->field_values[i]);
+            free(obj->fields[i].name);
+            hml_release(&obj->fields[i].value);
         }
-        free(obj->field_names);
-        free(obj->field_values);
+        free(obj->fields);       // Single allocation for all fields
         free(obj->type_name);
-        free(obj->hash_table);  // Free hash table
+        free(obj->hash_table);   // Free hash table
         free(obj);
     }
 }
@@ -637,8 +635,8 @@ HmlValue hml_value_deep_copy(HmlValue val) {
 
                 // Deep copy each field
                 for (int i = 0; i < src->num_fields; i++) {
-                    HmlValue field_copy = hml_value_deep_copy(src->field_values[i]);
-                    hml_object_set_field(result, src->field_names[i], field_copy);
+                    HmlValue field_copy = hml_value_deep_copy(src->fields[i].value);
+                    hml_object_set_field(result, src->fields[i].name, field_copy);
                     hml_release(&field_copy);  // set_field retains
                 }
             } else {
