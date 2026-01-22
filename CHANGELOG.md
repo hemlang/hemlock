@@ -5,6 +5,28 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.3] - 2026-01-20
+
+### Added
+
+- **`@stdlib/termios` module** - Cross-platform raw terminal input for interactive applications
+  - `enable_raw_mode()` / `disable_raw_mode()` - Toggle canonical mode for instant keypresses
+  - `read_key()` - Blocking single keypress read returning `{char, code, name}` object
+  - `read_key_timeout(ms)` - Non-blocking read with timeout for game loops
+  - Arrow key detection (`KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`)
+  - Function keys F1-F12, navigation keys (Home, End, PageUp, PageDown)
+  - Control key detection (Ctrl+C, Ctrl+D, Ctrl+Z)
+  - `is_terminal()` - Check if stdin is a TTY
+  - `with_raw_mode(callback)` - RAII-style scope helper with automatic cleanup
+  - Platform support: Linux (`libc.so.6`) and macOS (`libSystem.B.dylib`)
+  - Documentation at `stdlib/docs/termios.md`
+
+- **Hemloco game** (`examples/hemloco.hml`) - Train town builder inspired by a classic train game
+  - Terminal-based game demonstrating termios usage
+  - 11 track piece types with Unicode box-drawing characters
+  - Train pathfinding through track connections
+  - Automatic fallback to line mode when not running in a terminal
+
 ## [1.8.2] - 2026-01-18
 
 ### Added
