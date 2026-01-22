@@ -145,8 +145,8 @@ Value builtin_gmtime(Value *args, int num_args, ExecutionContext *ctx) {
 static Value get_object_field(Object *obj, const char *name) {
     int i;
     for (i = 0; i < obj->num_fields; i++) {
-        if (strcmp(obj->field_names[i], name) == 0) {
-            return obj->field_values[i];
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return obj->fields[i].value;
         }
     }
     return val_null();
@@ -156,19 +156,14 @@ static Value get_object_field(Object *obj, const char *name) {
 static void set_object_field(Object *obj, const char *name, Value value) {
     if (obj->num_fields >= obj->capacity) {
         obj->capacity *= 2;
-        char **new_field_names = realloc(obj->field_names, obj->capacity * sizeof(char *));
-        Value *new_field_values = realloc(obj->field_values, obj->capacity * sizeof(Value));
-        if (!new_field_names || !new_field_values) {
-            // On failure, free any successfully allocated buffer
-            if (new_field_names && new_field_names != obj->field_names) free(new_field_names);
-            if (new_field_values && new_field_values != obj->field_values) free(new_field_values);
+        FieldEntry *new_fields = realloc(obj->fields, obj->capacity * sizeof(FieldEntry));
+        if (!new_fields) {
             return;  // Keep original data on allocation failure
         }
-        obj->field_names = new_field_names;
-        obj->field_values = new_field_values;
+        obj->fields = new_fields;
     }
-    obj->field_names[obj->num_fields] = strdup(name);
-    obj->field_values[obj->num_fields] = value;
+    obj->fields[obj->num_fields].name = strdup(name);
+    obj->fields[obj->num_fields].value = value;
     obj->num_fields++;
 }
 

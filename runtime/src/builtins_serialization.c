@@ -228,11 +228,11 @@ static int serialize_to_buffer_impl(HmlValue val, HmlJsonBuffer *buf, HmlVisited
             for (int i = 0; i < obj->num_fields; i++) {
                 if (i > 0) hjbuf_append_char(buf, ',');
 
-                const char *name = obj->field_names[i];
+                const char *name = obj->fields[i].name;
                 hjbuf_append_escaped_string(buf, name, strlen(name));
                 hjbuf_append_char(buf, ':');
 
-                if (!serialize_to_buffer_impl(obj->field_values[i], buf, visited)) {
+                if (!serialize_to_buffer_impl(obj->fields[i].value, buf, visited)) {
                     return 0;
                 }
             }
@@ -493,10 +493,9 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     }
     p->pos++;
 
-    // Pre-allocate arrays for direct building (O(n) instead of O(n²))
+    // Pre-allocate unified fields array for direct building (O(n) instead of O(n²))
     int capacity = 8;
-    char **field_names = malloc(sizeof(char*) * capacity);
-    HmlValue *field_values = malloc(sizeof(HmlValue) * capacity);
+    HmlFieldEntry *fields = malloc(sizeof(HmlFieldEntry) * capacity);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -506,8 +505,7 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         // Build empty object directly
         HmlObject *obj = malloc(sizeof(HmlObject));
         obj->type_name = NULL;
-        obj->field_names = field_names;
-        obj->field_values = field_values;
+        obj->fields = fields;
         obj->num_fields = 0;
         obj->capacity = capacity;
         obj->ref_count = 1;
@@ -525,30 +523,25 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
 
         HmlValue name_val = json_parse_string(p);
 
-        // Grow arrays if needed
+        // Grow array if needed
         if (num_fields >= capacity) {
             int new_capacity = capacity * 2;
-            char **new_names = realloc(field_names, sizeof(char*) * new_capacity);
-            HmlValue *new_values = realloc(field_values, sizeof(HmlValue) * new_capacity);
-            if (!new_names || !new_values) {
-                // Cleanup on OOM - use whichever succeeded
-                if (new_names) field_names = new_names;
-                if (new_values) field_values = new_values;
+            HmlFieldEntry *new_fields = realloc(fields, sizeof(HmlFieldEntry) * new_capacity);
+            if (!new_fields) {
+                // Cleanup on OOM
                 for (int i = 0; i < num_fields; i++) {
-                    free(field_names[i]);
-                    hml_release(&field_values[i]);
+                    free(fields[i].name);
+                    hml_release(&fields[i].value);
                 }
-                free(field_names);
-                free(field_values);
+                free(fields);
                 hml_runtime_error("Out of memory parsing JSON object");
             }
-            field_names = new_names;
-            field_values = new_values;
+            fields = new_fields;
             capacity = new_capacity;
         }
 
         // Direct assignment - no duplicate check needed for JSON parsing
-        field_names[num_fields] = strdup(name_val.as.as_string->data);
+        fields[num_fields].name = strdup(name_val.as.as_string->data);
         hml_release(&name_val);
 
         json_skip_whitespace(p);
@@ -556,11 +549,10 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         if (p->input[p->pos] != ':') {
             // Cleanup on error
             for (int i = 0; i < num_fields; i++) {
-                free(field_names[i]);
-                hml_release(&field_values[i]);
+                free(fields[i].name);
+                hml_release(&fields[i].value);
             }
-            free(field_names);
-            free(field_values);
+            free(fields);
             hml_runtime_error("Expected ':' in JSON object");
         }
         p->pos++;
@@ -568,7 +560,7 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         json_skip_whitespace(p);
 
         // Parse value directly into the array (already has ref_count=1)
-        field_values[num_fields] = json_parse_value(p);
+        fields[num_fields].value = json_parse_value(p);
         num_fields++;
 
         json_skip_whitespace(p);
@@ -578,11 +570,10 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         } else if (p->input[p->pos] != '}') {
             // Cleanup on error
             for (int i = 0; i < num_fields; i++) {
-                free(field_names[i]);
-                hml_release(&field_values[i]);
+                free(fields[i].name);
+                hml_release(&fields[i].value);
             }
-            free(field_names);
-            free(field_values);
+            free(fields);
             hml_runtime_error("Expected ',' or '}' in JSON object");
         }
     }
@@ -590,20 +581,18 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     if (p->input[p->pos] != '}') {
         // Cleanup on error
         for (int i = 0; i < num_fields; i++) {
-            free(field_names[i]);
-            hml_release(&field_values[i]);
+            free(fields[i].name);
+            hml_release(&fields[i].value);
         }
-        free(field_names);
-        free(field_values);
+        free(fields);
         hml_runtime_error("Unterminated object in JSON");
     }
     p->pos++;
 
-    // Build object directly with pre-populated arrays
+    // Build object directly with pre-populated fields array
     HmlObject *obj = malloc(sizeof(HmlObject));
     obj->type_name = NULL;
-    obj->field_names = field_names;
-    obj->field_values = field_values;
+    obj->fields = fields;
     obj->num_fields = num_fields;
     obj->capacity = capacity;
     obj->ref_count = 1;

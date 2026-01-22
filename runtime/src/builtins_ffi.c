@@ -549,8 +549,8 @@ void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type) {
         // Look up field in object
         HmlValue field_val = hml_val_null();
         for (int j = 0; j < o->num_fields; j++) {
-            if (strcmp(o->field_names[j], field->name) == 0) {
-                field_val = o->field_values[j];
+            if (strcmp(o->fields[j].name, field->name) == 0) {
+                field_val = o->fields[j].value;
                 break;
             }
         }

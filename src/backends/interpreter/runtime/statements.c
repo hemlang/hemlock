@@ -361,13 +361,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Bind variables
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_string(obj->field_names[i]), ctx);
+                        env_set(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), ctx);
                         // Check for exception from env_set
                         if (ctx->exception_state.is_throwing) {
                             break;
                         }
                     }
-                    env_set(iter_env, stmt->as.for_in.value_var, obj->field_values[i], ctx);
+                    env_set(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, ctx);
                     // Check for exception from env_set
                     if (ctx->exception_state.is_throwing) {
                         break;
@@ -675,16 +675,15 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             obj->type_name = strdup(type->name);
             obj->num_fields = type->num_variants;
             obj->capacity = type->num_variants;
-            obj->field_names = malloc(sizeof(char*) * type->num_variants);
-            obj->field_values = malloc(sizeof(Value) * type->num_variants);
+            obj->fields = malloc(sizeof(FieldEntry) * type->num_variants);
             obj->ref_count = 1;
             atomic_store(&obj->freed, 0);  // Not freed
             obj->hash_table = NULL;  // No hash table - use linear search fallback
             obj->hash_capacity = 0;
 
             for (int i = 0; i < type->num_variants; i++) {
-                obj->field_names[i] = strdup(type->variant_names[i]);
-                obj->field_values[i] = val_i32(type->variant_values[i]);
+                obj->fields[i].name = strdup(type->variant_names[i]);
+                obj->fields[i].value = val_i32(type->variant_values[i]);
             }
 
             Value enum_obj;

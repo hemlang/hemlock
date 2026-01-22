@@ -95,11 +95,10 @@ void hml_free(HmlValue ptr_or_buffer) {
             HmlObject *obj = ptr_or_buffer.as.as_object;
             // Release all field values and free names
             for (int i = 0; i < obj->num_fields; i++) {
-                hml_release(&obj->field_values[i]);
-                free(obj->field_names[i]);
+                hml_release(&obj->fields[i].value);
+                free(obj->fields[i].name);
             }
-            free(obj->field_names);
-            free(obj->field_values);
+            free(obj->fields);
             if (obj->type_name) free(obj->type_name);
             free(obj);
         }

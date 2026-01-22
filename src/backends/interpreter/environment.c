@@ -238,7 +238,7 @@ static void value_break_cycles_internal(Value val, VisitedSet *visited) {
 
                 // Recursively process all field values
                 for (int i = 0; i < obj->num_fields; i++) {
-                    value_break_cycles_internal(obj->field_values[i], visited);
+                    value_break_cycles_internal(obj->fields[i].value, visited);
                 }
             }
             break;

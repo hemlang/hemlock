@@ -188,7 +188,7 @@ static int match_pattern(Pattern *pattern, Value value, Environment *env, Execut
                     return 0;
                 }
 
-                Value field_val = obj->field_values[field_idx];
+                Value field_val = obj->fields[field_idx].value;
 
                 if (field_pat->pattern) {
                     // Explicit pattern for this field
@@ -207,7 +207,7 @@ static int match_pattern(Pattern *pattern, Value value, Environment *env, Execut
                 // Create a new object with remaining fields
                 Object *rest_obj = object_new(NULL, 8);
                 for (int i = 0; i < obj->num_fields; i++) {
-                    const char *key = obj->field_names[i];
+                    const char *key = obj->fields[i].name;
                     if (!key) continue;
 
                     // Check if this key was matched by a field pattern
@@ -220,17 +220,16 @@ static int match_pattern(Pattern *pattern, Value value, Environment *env, Execut
                     }
 
                     if (!was_matched) {
-                        Value v = obj->field_values[i];
+                        Value v = obj->fields[i].value;
                         VALUE_RETAIN(v);
-                        // Add field to rest object (inline to avoid external dependency)
+                        // Add field to rest object (unified storage - single realloc)
                         if (rest_obj->num_fields >= rest_obj->capacity) {
                             int new_capacity = rest_obj->capacity * 2;
-                            rest_obj->field_names = realloc(rest_obj->field_names, sizeof(char*) * new_capacity);
-                            rest_obj->field_values = realloc(rest_obj->field_values, sizeof(Value) * new_capacity);
+                            rest_obj->fields = realloc(rest_obj->fields, sizeof(FieldEntry) * new_capacity);
                             rest_obj->capacity = new_capacity;
                         }
-                        rest_obj->field_names[rest_obj->num_fields] = strdup(key);
-                        rest_obj->field_values[rest_obj->num_fields] = v;
+                        rest_obj->fields[rest_obj->num_fields].name = strdup(key);
+                        rest_obj->fields[rest_obj->num_fields].value = v;
                         rest_obj->num_fields++;
                     }
                 }
@@ -669,7 +668,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         Object *obj = method_self.as.as_object;
                         int has_user_method = 0;
                         int method_idx = object_lookup_field(obj, method);
-                        if (method_idx >= 0 && obj->field_values[method_idx].type == VAL_FUNCTION) {
+                        if (method_idx >= 0 && obj->fields[method_idx].value.type == VAL_FUNCTION) {
                             has_user_method = 1;
                         }
 
@@ -710,7 +709,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Object *obj = method_self.as.as_object;
                 int method_idx = object_lookup_field(obj, method_name);
                 if (method_idx >= 0) {
-                    func = obj->field_values[method_idx];
+                    func = obj->fields[method_idx].value;
                     VALUE_RETAIN(func);
                 } else {
                     runtime_error_at(ctx, expr->line, "Object has no method '%s'", method_name);
@@ -1363,7 +1362,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 if (idx >= 0) {
-                    result = obj->field_values[idx];
+                    result = obj->fields[idx].value;
                     // Retain the field value so it survives object release
                     VALUE_RETAIN(result);
 
@@ -1446,7 +1445,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Look up field by key using hash table
                 int idx = object_lookup_field(obj, key);
                 if (idx >= 0) {
-                    result = obj->field_values[idx];
+                    result = obj->fields[idx].value;
                     VALUE_RETAIN(result);
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
@@ -1553,9 +1552,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Look for existing field using hash table
                 int idx = object_lookup_field(obj, key);
                 if (idx >= 0) {
-                    // Update existing field
-                    VALUE_RELEASE(obj->field_values[idx]);
-                    obj->field_values[idx] = value;
+                    // Update existing field (unified storage)
+                    VALUE_RELEASE(obj->fields[idx].value);
+                    obj->fields[idx].value = value;
                     VALUE_RETAIN(value);
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
@@ -1569,21 +1568,18 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     obj->hash_capacity = 0;
                 }
                 int new_num_fields = obj->num_fields + 1;
-                char **new_names = realloc(obj->field_names, new_num_fields * sizeof(char *));
-                Value *new_values = realloc(obj->field_values, new_num_fields * sizeof(Value));
-                if (!new_names || !new_values) {
-                    if (new_names) obj->field_names = new_names;
-                    if (new_values) obj->field_values = new_values;
+                // Single realloc for unified storage (reduces fragmentation)
+                FieldEntry *new_fields = realloc(obj->fields, new_num_fields * sizeof(FieldEntry));
+                if (!new_fields) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Failed to expand object fields");
                     return val_null();
                 }
-                obj->field_names = new_names;
-                obj->field_values = new_values;
+                obj->fields = new_fields;
                 obj->num_fields = new_num_fields;
-                obj->field_names[obj->num_fields - 1] = strdup(key);
-                obj->field_values[obj->num_fields - 1] = value;
+                obj->fields[obj->num_fields - 1].name = strdup(key);
+                obj->fields[obj->num_fields - 1].value = value;
                 VALUE_RETAIN(value);
                 VALUE_RELEASE(object);
                 VALUE_RELEASE(index_val);
@@ -1969,44 +1965,40 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
                     Object *spread_obj = spread_val.as.as_object;
 
-                    // Copy all fields from spread object
+                    // Copy all fields from spread object (using unified storage)
                     for (int j = 0; j < spread_obj->num_fields; j++) {
                         // Check if field already exists (overwrite if so)
                         int existing_idx = -1;
                         for (int k = 0; k < obj->num_fields; k++) {
-                            if (strcmp(obj->field_names[k], spread_obj->field_names[j]) == 0) {
+                            if (strcmp(obj->fields[k].name, spread_obj->fields[j].name) == 0) {
                                 existing_idx = k;
                                 break;
                             }
                         }
 
                         if (existing_idx >= 0) {
-                            // Overwrite existing field
-                            VALUE_RELEASE(obj->field_values[existing_idx]);
-                            obj->field_values[existing_idx] = spread_obj->field_values[j];
-                            VALUE_RETAIN(obj->field_values[existing_idx]);
+                            // Overwrite existing field (unified storage)
+                            VALUE_RELEASE(obj->fields[existing_idx].value);
+                            obj->fields[existing_idx].value = spread_obj->fields[j].value;
+                            VALUE_RETAIN(obj->fields[existing_idx].value);
                         } else {
-                            // Add new field - grow if needed
+                            // Add new field - grow if needed (single realloc for unified storage)
                             if (obj->num_fields >= obj->capacity) {
                                 int new_capacity = obj->capacity * 2;
-                                char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                                Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                                if (!new_names || !new_values) {
-                                    if (new_names) obj->field_names = new_names;
-                                    if (new_values) obj->field_values = new_values;
+                                FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                                if (!new_fields) {
                                     VALUE_RELEASE(spread_val);
                                     Value obj_val = val_object(obj);
                                     VALUE_RELEASE(obj_val);
                                     runtime_error(ctx, "Failed to expand object fields");
                                     return val_null();
                                 }
-                                obj->field_names = new_names;
-                                obj->field_values = new_values;
+                                obj->fields = new_fields;
                                 obj->capacity = new_capacity;
                             }
-                            obj->field_names[obj->num_fields] = strdup(spread_obj->field_names[j]);
-                            obj->field_values[obj->num_fields] = spread_obj->field_values[j];
-                            VALUE_RETAIN(obj->field_values[obj->num_fields]);
+                            obj->fields[obj->num_fields].name = strdup(spread_obj->fields[j].name);
+                            obj->fields[obj->num_fields].value = spread_obj->fields[j].value;
+                            VALUE_RETAIN(obj->fields[obj->num_fields].value);
                             obj->num_fields++;
                         }
                     }
@@ -2016,7 +2008,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Check if field already exists (from previous spread)
                     int existing_idx = -1;
                     for (int k = 0; k < obj->num_fields; k++) {
-                        if (strcmp(obj->field_names[k], expr->as.object_literal.field_names[i]) == 0) {
+                        if (strcmp(obj->fields[k].name, expr->as.object_literal.field_names[i]) == 0) {
                             existing_idx = k;
                             break;
                         }
@@ -2032,30 +2024,26 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     if (existing_idx >= 0) {
-                        // Overwrite existing field (from spread)
-                        VALUE_RELEASE(obj->field_values[existing_idx]);
-                        obj->field_values[existing_idx] = field_val;
+                        // Overwrite existing field (from spread) - unified storage
+                        VALUE_RELEASE(obj->fields[existing_idx].value);
+                        obj->fields[existing_idx].value = field_val;
                     } else {
-                        // Add new field - grow if needed
+                        // Add new field - grow if needed (single realloc for unified storage)
                         if (obj->num_fields >= obj->capacity) {
                             int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
-                            char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                            Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                            if (!new_names || !new_values) {
-                                if (new_names) obj->field_names = new_names;
-                                if (new_values) obj->field_values = new_values;
+                            FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                            if (!new_fields) {
                                 VALUE_RELEASE(field_val);
                                 Value obj_val = val_object(obj);
                                 VALUE_RELEASE(obj_val);
                                 runtime_error(ctx, "Failed to expand object fields");
                                 return val_null();
                             }
-                            obj->field_names = new_names;
-                            obj->field_values = new_values;
+                            obj->fields = new_fields;
                             obj->capacity = new_capacity;
                         }
-                        obj->field_names[obj->num_fields] = strdup(expr->as.object_literal.field_names[i]);
-                        obj->field_values[obj->num_fields] = field_val;
+                        obj->fields[obj->num_fields].name = strdup(expr->as.object_literal.field_names[i]);
+                        obj->fields[obj->num_fields].value = field_val;
                         obj->num_fields++;
                     }
                 }
@@ -2081,9 +2069,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Look for existing field using hash table
             int idx = object_lookup_field(obj, property);
             if (idx >= 0) {
-                // Release old value, store new value (object now owns it)
-                VALUE_RELEASE(obj->field_values[idx]);
-                obj->field_values[idx] = value;
+                // Release old value, store new value (unified storage)
+                VALUE_RELEASE(obj->fields[idx].value);
+                obj->fields[idx].value = value;
                 // eval_expr gave us ownership, object now owns the value
                 // Return the value (retained for caller)
                 VALUE_RETAIN(value);
@@ -2100,31 +2088,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             if (obj->num_fields >= obj->capacity) {
-                // Grow arrays (handle capacity=0 case)
+                // Grow unified field array (single realloc - reduces fragmentation)
                 int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
-                char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                if (!new_names) {
+                FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                if (!new_fields) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(value);
                     runtime_error(ctx, "Failed to grow object capacity");
                     return val_null();
                 }
-                obj->field_names = new_names;
-
-                Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                if (!new_values) {
-                    VALUE_RELEASE(object);
-                    VALUE_RELEASE(value);
-                    runtime_error(ctx, "Failed to grow object capacity");
-                    return val_null();
-                }
-                obj->field_values = new_values;
+                obj->fields = new_fields;
                 obj->capacity = new_capacity;
             }
 
-            obj->field_names[obj->num_fields] = strdup(property);
+            obj->fields[obj->num_fields].name = strdup(property);
             // Store value (object now owns it)
-            obj->field_values[obj->num_fields] = value;
+            obj->fields[obj->num_fields].value = value;
             obj->num_fields++;
 
             // Return the value (retained for caller)
@@ -2181,10 +2160,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], property) == 0) {
-                        Value old_val = obj->field_values[i];
+                    if (strcmp(obj->fields[i].name, property) == 0) {
+                        Value old_val = obj->fields[i].value;
                         Value new_val = value_add_one(old_val, ctx);
-                        obj->field_values[i] = new_val;
+                        obj->fields[i].value = new_val;
                         VALUE_RELEASE(object);
                         return new_val;
                     }
@@ -2242,10 +2221,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], property) == 0) {
-                        Value old_val = obj->field_values[i];
+                    if (strcmp(obj->fields[i].name, property) == 0) {
+                        Value old_val = obj->fields[i].value;
                         Value new_val = value_sub_one(old_val, ctx);
-                        obj->field_values[i] = new_val;
+                        obj->fields[i].value = new_val;
                         VALUE_RELEASE(object);
                         return new_val;
                     }
@@ -2304,10 +2283,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], property) == 0) {
-                        Value old_val = obj->field_values[i];
+                    if (strcmp(obj->fields[i].name, property) == 0) {
+                        Value old_val = obj->fields[i].value;
                         Value new_val = value_add_one(old_val, ctx);
-                        obj->field_values[i] = new_val;
+                        obj->fields[i].value = new_val;
                         VALUE_RETAIN(old_val);  // Retain for caller
                         VALUE_RELEASE(object);
                         return old_val;
@@ -2367,10 +2346,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 Object *obj = object.as.as_object;
                 for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->field_names[i], property) == 0) {
-                        Value old_val = obj->field_values[i];
+                    if (strcmp(obj->fields[i].name, property) == 0) {
+                        Value old_val = obj->fields[i].value;
                         Value new_val = value_sub_one(old_val, ctx);
-                        obj->field_values[i] = new_val;
+                        obj->fields[i].value = new_val;
                         VALUE_RETAIN(old_val);  // Retain for caller
                         VALUE_RELEASE(object);
                         return old_val;
@@ -2539,8 +2518,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 } else if (object_val.type == VAL_OBJECT) {
                     Object *obj = object_val.as.as_object;
                     for (int i = 0; i < obj->num_fields; i++) {
-                        if (strcmp(obj->field_names[i], property) == 0) {
-                            result = obj->field_values[i];
+                        if (strcmp(obj->fields[i].name, property) == 0) {
+                            result = obj->fields[i].value;
                             VALUE_RETAIN(result);
                             VALUE_RELEASE(object_val);
                             return result;

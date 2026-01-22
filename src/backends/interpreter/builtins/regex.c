@@ -147,37 +147,37 @@ Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
             }
 
             // Set fields
-            match->field_names[0] = strdup("start");
-            if (!match->field_names[0]) {
+            match->fields[0].name = strdup("start");
+            if (!match->fields[0].name) {
                 if (matched) free(matched);
                 object_free(match);
                 free(pmatch);
                 array_free(result);
                 return val_null();
             }
-            match->field_values[0] = val_i32((int32_t)pmatch[i].rm_so);
+            match->fields[0].value = val_i32((int32_t)pmatch[i].rm_so);
             match->num_fields++;
 
-            match->field_names[1] = strdup("end");
-            if (!match->field_names[1]) {
+            match->fields[1].name = strdup("end");
+            if (!match->fields[1].name) {
                 if (matched) free(matched);
                 object_free(match);
                 free(pmatch);
                 array_free(result);
                 return val_null();
             }
-            match->field_values[1] = val_i32((int32_t)pmatch[i].rm_eo);
+            match->fields[1].value = val_i32((int32_t)pmatch[i].rm_eo);
             match->num_fields++;
 
-            match->field_names[2] = strdup("text");
-            if (!match->field_names[2]) {
+            match->fields[2].name = strdup("text");
+            if (!match->fields[2].name) {
                 if (matched) free(matched);
                 object_free(match);
                 free(pmatch);
                 array_free(result);
                 return val_null();
             }
-            match->field_values[2] = matched ? val_string(matched) : val_null();
+            match->fields[2].value = matched ? val_string(matched) : val_null();
             match->num_fields++;
 
             if (matched) free(matched);

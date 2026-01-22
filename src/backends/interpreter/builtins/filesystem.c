@@ -544,8 +544,8 @@ Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
     };
 
     for (int i = 0; i < 7; i++) {
-        stat_obj->field_names[i] = strdup(field_names[i]);
-        stat_obj->field_values[i] = field_values[i];
+        stat_obj->fields[i].name = strdup(field_names[i]);
+        stat_obj->fields[i].value = field_values[i];
         stat_obj->num_fields++;
     }
 

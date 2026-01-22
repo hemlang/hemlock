@@ -742,9 +742,9 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
         Value field_value;
         int field_index = -1;
         for (int j = 0; j < obj->num_fields; j++) {
-            if (strcmp(obj->field_names[j], field_name) == 0) {
+            if (strcmp(obj->fields[j].name, field_name) == 0) {
                 found = 1;
-                field_value = obj->field_values[j];
+                field_value = obj->fields[j].value;
                 field_index = j;
                 break;
             }
@@ -756,21 +756,13 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                 // Add field with default value or null
                 if (obj->num_fields >= obj->capacity) {
                     int new_capacity = obj->capacity * 2;
-                    char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                    if (!new_names) {
+                    FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                    if (!new_fields) {
                         free_substituted_type(substituted_field_type, field_type);
-                        fprintf(stderr, "Runtime error: Failed to expand object field names\n");
+                        fprintf(stderr, "Runtime error: Failed to expand object fields\n");
                         exit(1);
                     }
-                    obj->field_names = new_names;
-
-                    Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                    if (!new_values) {
-                        free_substituted_type(substituted_field_type, field_type);
-                        fprintf(stderr, "Runtime error: Failed to expand object field values\n");
-                        exit(1);
-                    }
-                    obj->field_values = new_values;
+                    obj->fields = new_fields;
                     obj->capacity = new_capacity;
                 }
 
@@ -780,11 +772,11 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                     fprintf(stderr, "Runtime error: Failed to allocate field name\n");
                     exit(1);
                 }
-                obj->field_names[obj->num_fields] = name_copy;
+                obj->fields[obj->num_fields].name = name_copy;
                 if (object_type->field_defaults[i]) {
-                    obj->field_values[obj->num_fields] = eval_expr(object_type->field_defaults[i], env, ctx);
+                    obj->fields[obj->num_fields].value = eval_expr(object_type->field_defaults[i], env, ctx);
                 } else {
-                    obj->field_values[obj->num_fields] = val_null();
+                    obj->fields[obj->num_fields].value = val_null();
                 }
                 obj->num_fields++;
             } else {
@@ -798,7 +790,7 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
             // Type check the field using the (possibly substituted) type
             // Use convert_to_type for recursive type checking (handles arrays, objects, etc.)
             Value converted = convert_to_type(field_value, substituted_field_type, env, ctx);
-            obj->field_values[field_index] = converted;
+            obj->fields[field_index].value = converted;
         }
 
         // Free substituted type if it was newly allocated
@@ -814,9 +806,9 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
         int found = 0;
         Value method_value;
         for (int j = 0; j < obj->num_fields; j++) {
-            if (strcmp(obj->field_names[j], method_name) == 0) {
+            if (strcmp(obj->fields[j].name, method_name) == 0) {
                 found = 1;
-                method_value = obj->field_values[j];
+                method_value = obj->fields[j].value;
                 break;
             }
         }
@@ -829,19 +821,12 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                     // Add method with default implementation
                     if (obj->num_fields >= obj->capacity) {
                         int new_capacity = obj->capacity * 2;
-                        char **new_names = realloc(obj->field_names, sizeof(char*) * new_capacity);
-                        if (!new_names) {
-                            fprintf(stderr, "Runtime error: Failed to expand object field names for method\n");
+                        FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                        if (!new_fields) {
+                            fprintf(stderr, "Runtime error: Failed to expand object fields for method\n");
                             exit(1);
                         }
-                        obj->field_names = new_names;
-
-                        Value *new_values = realloc(obj->field_values, sizeof(Value) * new_capacity);
-                        if (!new_values) {
-                            fprintf(stderr, "Runtime error: Failed to expand object field values for method\n");
-                            exit(1);
-                        }
-                        obj->field_values = new_values;
+                        obj->fields = new_fields;
                         obj->capacity = new_capacity;
                     }
 
@@ -850,8 +835,8 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                         fprintf(stderr, "Runtime error: Failed to allocate method name\n");
                         exit(1);
                     }
-                    obj->field_names[obj->num_fields] = name_copy;
-                    obj->field_values[obj->num_fields] = eval_expr(object_type->method_defaults[i], env, ctx);
+                    obj->fields[obj->num_fields].name = name_copy;
+                    obj->fields[obj->num_fields].value = eval_expr(object_type->method_defaults[i], env, ctx);
                     obj->num_fields++;
                 }
                 // If no default, optional methods are simply not required

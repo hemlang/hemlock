@@ -87,11 +87,11 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
         // Find field in object
         int found = 0;
         for (int j = 0; j < o->num_fields; j++) {
-            if (strcmp(o->field_names[j], field->name) == 0) {
+            if (strcmp(o->fields[j].name, field->name) == 0) {
                 found = 1;
                 // Type check if field has a specific type
                 if (field->type_kind >= 0) {
-                    HmlValue val = o->field_values[j];
+                    HmlValue val = o->fields[j].value;
                     int type_ok = 0;
 
                     switch (field->type_kind) {

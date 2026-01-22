@@ -585,36 +585,36 @@ Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_args, Exec
     Value data_val;
     data_val.type = VAL_BUFFER;
     data_val.as.as_buffer = buf;
-    result->field_names[result->num_fields] = strdup("data");
-    if (!result->field_names[result->num_fields]) {
+    result->fields[result->num_fields].name = strdup("data");
+    if (!result->fields[result->num_fields].name) {
         free(buf->data);
         free(buf);
         object_free(result);
         return throw_runtime_error(ctx, "Memory allocation failed for field name");
     }
-    result->field_values[result->num_fields] = data_val;
+    result->fields[result->num_fields].value = data_val;
     result->num_fields++;
 
     // Add address field
-    result->field_names[result->num_fields] = strdup("address");
-    if (!result->field_names[result->num_fields]) {
+    result->fields[result->num_fields].name = strdup("address");
+    if (!result->fields[result->num_fields].name) {
         free(buf->data);
         free(buf);
         object_free(result);
         return throw_runtime_error(ctx, "Memory allocation failed for field name");
     }
-    result->field_values[result->num_fields] = val_string(addr_str);
+    result->fields[result->num_fields].value = val_string(addr_str);
     result->num_fields++;
 
     // Add port field
-    result->field_names[result->num_fields] = strdup("port");
-    if (!result->field_names[result->num_fields]) {
+    result->fields[result->num_fields].name = strdup("port");
+    if (!result->fields[result->num_fields].name) {
         free(buf->data);
         free(buf);
         object_free(result);
         return throw_runtime_error(ctx, "Memory allocation failed for field name");
     }
-    result->field_values[result->num_fields] = val_i32(src_port);
+    result->fields[result->num_fields].value = val_i32(src_port);
     result->num_fields++;
 
     return val_object(result);
@@ -923,10 +923,10 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
         Value fd_val = val_null();
         Value events_val = val_null();
         for (int j = 0; j < obj->num_fields; j++) {
-            if (strcmp(obj->field_names[j], "fd") == 0) {
-                fd_val = obj->field_values[j];
-            } else if (strcmp(obj->field_names[j], "events") == 0) {
-                events_val = obj->field_values[j];
+            if (strcmp(obj->fields[j].name, "fd") == 0) {
+                fd_val = obj->fields[j].value;
+            } else if (strcmp(obj->fields[j].name, "events") == 0) {
+                events_val = obj->fields[j].value;
             }
         }
 
@@ -991,8 +991,8 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
                 return throw_runtime_error(ctx, "Memory allocation failed for poll result");
             }
 
-            res_obj->field_names[0] = strdup("fd");
-            if (!res_obj->field_names[0]) {
+            res_obj->fields[0].name = strdup("fd");
+            if (!res_obj->fields[0].name) {
                 object_free(res_obj);
                 for (int j = 0; j < fds_arr->length; j++) {
                     value_release(original_fds[j]);
@@ -1002,12 +1002,12 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
                 array_free(result_arr);
                 return throw_runtime_error(ctx, "Memory allocation failed for field name");
             }
-            res_obj->field_values[0] = original_fds[i];
+            res_obj->fields[0].value = original_fds[i];
             value_retain(original_fds[i]);
             res_obj->num_fields = 1;
 
-            res_obj->field_names[1] = strdup("revents");
-            if (!res_obj->field_names[1]) {
+            res_obj->fields[1].name = strdup("revents");
+            if (!res_obj->fields[1].name) {
                 object_free(res_obj);
                 for (int j = 0; j < fds_arr->length; j++) {
                     value_release(original_fds[j]);
@@ -1017,7 +1017,7 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
                 array_free(result_arr);
                 return throw_runtime_error(ctx, "Memory allocation failed for field name");
             }
-            res_obj->field_values[1] = val_i32(pfds[i].revents);
+            res_obj->fields[1].value = val_i32(pfds[i].revents);
             res_obj->num_fields = 2;
 
             Value obj_val = val_object(res_obj);

@@ -120,11 +120,16 @@ struct HmlArray {
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
 };
 
+// Field entry struct - unified storage for name and value (reduces fragmentation)
+typedef struct HmlFieldEntry {
+    char *name;             // Field name (owned)
+    HmlValue value;         // Field value
+} HmlFieldEntry;
+
 // Object struct (JavaScript-style)
 struct HmlObject {
     char *type_name;        // NULL for anonymous
-    char **field_names;
-    HmlValue *field_values;
+    HmlFieldEntry *fields;  // Unified array of field entries (reduces fragmentation)
     int num_fields;
     int capacity;
     int ref_count;
