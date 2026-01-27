@@ -659,6 +659,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // But user-defined methods take precedence over built-ins
                 if (method_self.type == VAL_OBJECT) {
                     const char *method = expr->as.call.func->as.get_property.property;
+                    PropertyIC *ic = &expr->as.call.func->as.get_property.ic;
 
                     // Only handle built-in object methods here (serialize, keys, has, delete)
                     // BUT first check if the object has a user-defined method with this name
@@ -667,7 +668,45 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         // Check if object has a user-defined function with this name
                         Object *obj = method_self.as.as_object;
                         int has_user_method = 0;
-                        int method_idx = object_lookup_field(obj, method);
+                        int method_idx = -1;
+
+                        // INLINE CACHE FAST PATH for method lookup
+                        if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                            ic->cached_object == (void*)obj &&
+                            ic->cached_field_index >= 0) {
+                            if (object_validate_ic(obj, ic->cached_field_index, method)) {
+                                method_idx = ic->cached_field_index;
+                            } else {
+                                ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                                ic->cached_object = NULL;
+                                ic->cached_field_index = -1;
+                            }
+                        }
+
+                        // CACHE MISS: Do full lookup
+                        if (method_idx < 0) {
+                            if (ic->cached_hash == 0) {
+                                ic->cached_hash = hash_string(method);
+                            }
+                            method_idx = object_lookup_field_with_hash(obj, method, ic->cached_hash);
+                            if (method_idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                                if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                                    ic->cached_object = (void*)obj;
+                                    ic->cached_field_index = method_idx;
+                                    ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                                    ic->miss_count = 0;
+                                } else if (ic->cached_object != (void*)obj) {
+                                    ic->miss_count++;
+                                    if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                        ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                                    } else {
+                                        ic->cached_object = (void*)obj;
+                                        ic->cached_field_index = method_idx;
+                                    }
+                                }
+                            }
+                        }
+
                         if (method_idx >= 0 && obj->fields[method_idx].value.type == VAL_FUNCTION) {
                             has_user_method = 1;
                         }
@@ -704,10 +743,49 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // For method calls, we already have method_self - don't re-evaluate the object
             Value func;
             if (is_method_call && method_self.type == VAL_OBJECT) {
-                // Get the method from the object directly
+                // Get the method from the object directly using inline cache
                 const char *method_name = expr->as.call.func->as.get_property.property;
                 Object *obj = method_self.as.as_object;
-                int method_idx = object_lookup_field(obj, method_name);
+                PropertyIC *ic = &expr->as.call.func->as.get_property.ic;
+                int method_idx = -1;
+
+                // INLINE CACHE FAST PATH for method lookup
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    if (object_validate_ic(obj, ic->cached_field_index, method_name)) {
+                        method_idx = ic->cached_field_index;
+                    } else {
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
+                    }
+                }
+
+                // CACHE MISS: Do full lookup
+                if (method_idx < 0) {
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(method_name);
+                    }
+                    method_idx = object_lookup_field_with_hash(obj, method_name, ic->cached_hash);
+                    if (method_idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = method_idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = method_idx;
+                            }
+                        }
+                    }
+                }
+
                 if (method_idx >= 0) {
                     func = obj->fields[method_idx].value;
                     VALUE_RETAIN(func);
@@ -2065,9 +2143,56 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             Object *obj = object.as.as_object;
+            PropertyIC *ic = &expr->as.set_property.ic;
+            int idx = -1;
 
-            // Look for existing field using hash table
-            int idx = object_lookup_field(obj, property);
+            // INLINE CACHE FAST PATH:
+            // If we're accessing the same object and the cache is valid, use cached index
+            if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                ic->cached_object == (void*)obj &&
+                ic->cached_field_index >= 0) {
+                // Validate the cached index still points to the correct field
+                if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                    idx = ic->cached_field_index;  // Cache hit!
+                } else {
+                    // Cache is stale (object was modified), invalidate
+                    ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                    ic->cached_object = NULL;
+                    ic->cached_field_index = -1;
+                }
+            }
+
+            // CACHE MISS: Do full lookup and update cache
+            if (idx < 0) {
+                // Compute hash if not cached
+                if (ic->cached_hash == 0) {
+                    ic->cached_hash = hash_string(property);
+                }
+                idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+
+                // Update inline cache if field exists and not megamorphic
+                if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                    if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                        // First access - initialize cache
+                        ic->cached_object = (void*)obj;
+                        ic->cached_field_index = idx;
+                        ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                        ic->miss_count = 0;
+                    } else if (ic->cached_object != (void*)obj) {
+                        // Different object - this is polymorphic
+                        ic->miss_count++;
+                        if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                            // Too many different objects, go megamorphic
+                            ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                        } else {
+                            // Update cache to new object
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                        }
+                    }
+                }
+            }
+
             if (idx >= 0) {
                 // Release old value, store new value (unified storage)
                 VALUE_RELEASE(obj->fields[idx].value);
@@ -2080,6 +2205,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             // Field doesn't exist - add it dynamically!
+            // Invalidate inline cache (field indices will change after rehash)
+            ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+            ic->cached_object = NULL;
+            ic->cached_field_index = -1;
+
             // Invalidate hash table (will be rebuilt on next lookup)
             if (obj->hash_table) {
                 free(obj->hash_table);
@@ -2150,7 +2280,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
-                // Object property: ++obj.field
+                // Object property: ++obj.field (use inline cache from child expression)
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
@@ -2159,14 +2289,52 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
                 Object *obj = object.as.as_object;
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->fields[i].name, property) == 0) {
-                        Value old_val = obj->fields[i].value;
-                        Value new_val = value_add_one(old_val, ctx);
-                        obj->fields[i].value = new_val;
-                        VALUE_RELEASE(object);
-                        return new_val;
+                PropertyIC *ic = &operand->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;
+                    } else {
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
                     }
+                }
+
+                // CACHE MISS: Do full lookup
+                if (idx < 0) {
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
+                if (idx >= 0) {
+                    Value old_val = obj->fields[idx].value;
+                    Value new_val = value_add_one(old_val, ctx);
+                    obj->fields[idx].value = new_val;
+                    VALUE_RELEASE(object);
+                    return new_val;
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);
@@ -2212,6 +2380,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
+                // Object property: --obj.field (use inline cache from child expression)
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
@@ -2220,14 +2389,52 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
                 Object *obj = object.as.as_object;
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->fields[i].name, property) == 0) {
-                        Value old_val = obj->fields[i].value;
-                        Value new_val = value_sub_one(old_val, ctx);
-                        obj->fields[i].value = new_val;
-                        VALUE_RELEASE(object);
-                        return new_val;
+                PropertyIC *ic = &operand->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;
+                    } else {
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
                     }
+                }
+
+                // CACHE MISS: Do full lookup
+                if (idx < 0) {
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
+                if (idx >= 0) {
+                    Value old_val = obj->fields[idx].value;
+                    Value new_val = value_sub_one(old_val, ctx);
+                    obj->fields[idx].value = new_val;
+                    VALUE_RELEASE(object);
+                    return new_val;
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);
@@ -2274,6 +2481,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
+                // Object property: obj.field++ (use inline cache from child expression)
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
@@ -2282,15 +2490,53 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
                 Object *obj = object.as.as_object;
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->fields[i].name, property) == 0) {
-                        Value old_val = obj->fields[i].value;
-                        Value new_val = value_add_one(old_val, ctx);
-                        obj->fields[i].value = new_val;
-                        VALUE_RETAIN(old_val);  // Retain for caller
-                        VALUE_RELEASE(object);
-                        return old_val;
+                PropertyIC *ic = &operand->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;
+                    } else {
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
                     }
+                }
+
+                // CACHE MISS: Do full lookup
+                if (idx < 0) {
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
+                if (idx >= 0) {
+                    Value old_val = obj->fields[idx].value;
+                    Value new_val = value_add_one(old_val, ctx);
+                    obj->fields[idx].value = new_val;
+                    VALUE_RETAIN(old_val);  // Retain for caller
+                    VALUE_RELEASE(object);
+                    return old_val;
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);
@@ -2337,6 +2583,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
             } else if (operand->type == EXPR_GET_PROPERTY) {
+                // Object property: obj.field-- (use inline cache from child expression)
                 Value object = eval_expr(operand->as.get_property.object, env, ctx);
                 const char *property = operand->as.get_property.property;
                 if (object.type != VAL_OBJECT) {
@@ -2345,15 +2592,53 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
                 Object *obj = object.as.as_object;
-                for (int i = 0; i < obj->num_fields; i++) {
-                    if (strcmp(obj->fields[i].name, property) == 0) {
-                        Value old_val = obj->fields[i].value;
-                        Value new_val = value_sub_one(old_val, ctx);
-                        obj->fields[i].value = new_val;
-                        VALUE_RETAIN(old_val);  // Retain for caller
-                        VALUE_RELEASE(object);
-                        return old_val;
+                PropertyIC *ic = &operand->as.get_property.ic;
+                int idx = -1;
+
+                // INLINE CACHE FAST PATH
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;
+                    } else {
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
                     }
+                }
+
+                // CACHE MISS: Do full lookup
+                if (idx < 0) {
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            ic->cached_object = (void*)obj;
+                            ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
+                        }
+                    }
+                }
+
+                if (idx >= 0) {
+                    Value old_val = obj->fields[idx].value;
+                    Value new_val = value_sub_one(old_val, ctx);
+                    obj->fields[idx].value = new_val;
+                    VALUE_RETAIN(old_val);  // Retain for caller
+                    VALUE_RELEASE(object);
+                    return old_val;
                 }
                 VALUE_RELEASE(object);
                 runtime_error(ctx, "Property '%s' not found", property);

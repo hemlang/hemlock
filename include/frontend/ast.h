@@ -150,6 +150,7 @@ struct Expr {
             Expr *object;
             char *property;
             Expr *value;
+            PropertyIC ic;  // Inline cache for property write
         } set_property;
         struct {
             Expr *object;

@@ -161,6 +161,12 @@ Expr* expr_set_property(Expr *object, const char *property, Expr *value) {
     expr->as.set_property.object = object;
     expr->as.set_property.property = strdup(property);
     expr->as.set_property.value = value;
+    // Initialize inline cache for property write
+    expr->as.set_property.ic.cached_object = NULL;
+    expr->as.set_property.ic.cached_field_index = -1;
+    expr->as.set_property.ic.cached_hash = 0;
+    expr->as.set_property.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.set_property.ic.miss_count = 0;
     return expr;
 }
 
