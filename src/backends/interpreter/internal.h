@@ -149,15 +149,11 @@ extern TypeAliasRegistry type_aliases;
 // ========== VISITED SET (for cycle detection) ==========
 
 // Internal structure for tracking visited objects/arrays during cycle detection
-// Uses hash table for O(1) lookup instead of O(n) linear search
 // Used by both environment.c (cycle breaking) and values.c (cycle-safe deallocation)
 typedef struct {
-    void **pointers;      // Array of pointers for iteration (if needed)
+    void **pointers;
     int count;
     int capacity;
-    // Hash table for O(1) contains check (pointer address as hash key)
-    int *hash_table;      // Maps hash slots to pointer indices (-1 = empty)
-    int hash_capacity;    // Size of hash table
 } VisitedSet;
 
 VisitedSet* visited_set_new(void);

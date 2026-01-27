@@ -1377,47 +1377,7 @@ char* value_to_string(Value val) {
 
 // ========== CYCLE DETECTION FOR DEALLOCATION ==========
 
-// Hash function for pointer addresses - use the pointer value directly
-// Pointers are naturally well-distributed (aligned), so we scramble a bit
-static inline uint32_t ptr_hash(void *ptr) {
-    uintptr_t val = (uintptr_t)ptr;
-    // Mix bits using FNV-style multiplicative hash
-    val = val ^ (val >> 16);
-    val = val * 0x85ebca6b;
-    val = val ^ (val >> 13);
-    return (uint32_t)val;
-}
-
-// Rebuild hash table for visited set
-static void visited_set_hash_rebuild(VisitedSet *set) {
-    int new_capacity = set->count < 8 ? 16 : set->count * 2;
-
-    free(set->hash_table);
-    set->hash_capacity = new_capacity;
-    set->hash_table = malloc(sizeof(int) * new_capacity);
-    if (!set->hash_table) {
-        fprintf(stderr, "Runtime error: Failed to allocate visited set hash table\n");
-        exit(1);
-    }
-
-    // Initialize all slots to -1 (empty)
-    for (int i = 0; i < new_capacity; i++) {
-        set->hash_table[i] = -1;
-    }
-
-    // Rehash all pointers
-    for (int i = 0; i < set->count; i++) {
-        uint32_t hash = ptr_hash(set->pointers[i]);
-        int slot = hash % new_capacity;
-        while (set->hash_table[slot] != -1) {
-            slot = (slot + 1) % new_capacity;
-        }
-        set->hash_table[slot] = i;
-    }
-}
-
 // Shared VisitedSet implementation (declared in internal.h)
-// Uses hash table for O(1) contains check
 // Used by both values.c and environment.c for cycle detection
 VisitedSet* visited_set_new(void) {
     VisitedSet *set = malloc(sizeof(VisitedSet));
@@ -1429,44 +1389,26 @@ VisitedSet* visited_set_new(void) {
         free(set);
         return NULL;
     }
-    // Hash table is built lazily on first add
-    set->hash_table = NULL;
-    set->hash_capacity = 0;
     return set;
 }
 
 void visited_set_free(VisitedSet *set) {
     if (set) {
         free(set->pointers);
-        free(set->hash_table);
         free(set);
     }
 }
 
-// O(1) average case contains check using hash table
 int visited_set_contains(VisitedSet *set, void *ptr) {
-    // No hash table yet means set is empty
-    if (!set->hash_table || set->hash_capacity == 0 || set->count == 0) {
-        return 0;
-    }
-
-    uint32_t hash = ptr_hash(ptr);
-    int slot = hash % set->hash_capacity;
-    int start_slot = slot;
-
-    while (set->hash_table[slot] != -1) {
-        int idx = set->hash_table[slot];
-        if (set->pointers[idx] == ptr) {
-            return 1;  // Found
+    for (int i = 0; i < set->count; i++) {
+        if (set->pointers[i] == ptr) {
+            return 1;
         }
-        slot = (slot + 1) % set->hash_capacity;
-        if (slot == start_slot) break;  // Full circle
     }
-    return 0;  // Not found
+    return 0;
 }
 
 void visited_set_add(VisitedSet *set, void *ptr) {
-    // Grow pointer array if needed
     if (set->count >= set->capacity) {
         // SECURITY: Check for integer overflow before doubling
         if (set->capacity > INT_MAX / 2) {
@@ -1486,22 +1428,7 @@ void visited_set_add(VisitedSet *set, void *ptr) {
         set->capacity = new_capacity;
         set->pointers = new_pointers;
     }
-
-    int idx = set->count;
-    set->pointers[idx] = ptr;
-    set->count++;
-
-    // Insert into hash table (rebuild if load factor > 0.7 or first add)
-    if (set->hash_table == NULL || set->count * 10 > set->hash_capacity * 7) {
-        visited_set_hash_rebuild(set);
-    } else {
-        uint32_t hash = ptr_hash(ptr);
-        int slot = hash % set->hash_capacity;
-        while (set->hash_table[slot] != -1) {
-            slot = (slot + 1) % set->hash_capacity;
-        }
-        set->hash_table[slot] = idx;
-    }
+    set->pointers[set->count++] = ptr;
 }
 
 // Forward declarations for internal versions
