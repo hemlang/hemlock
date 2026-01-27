@@ -608,31 +608,51 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     } else {
         // Different size - need to resize string
         int new_total = s->length - old_len + new_len;
-        char *new_data = malloc(new_total + 1);
-        if (!new_data) {
-            hml_runtime_error("Failed to allocate memory for string resize");
+
+        // Check if we can keep using SSO
+        if (new_total <= HML_SSO_THRESHOLD && s->is_sso) {
+            // Stay in SSO mode - shift data in inline buffer
+            int suffix_start = idx + old_len;
+            int suffix_len = s->length - suffix_start;
+            if (suffix_len > 0) {
+                memmove(s->inline_data + idx + new_len, s->inline_data + suffix_start, suffix_len);
+            }
+            hml_utf8_encode(rune_val, s->inline_data + idx);
+            s->inline_data[new_total] = '\0';
+            s->length = new_total;
+            s->char_length = -1;
+        } else {
+            // Need heap allocation
+            char *new_data = malloc(new_total + 1);
+            if (!new_data) {
+                hml_runtime_error("Failed to allocate memory for string resize");
+            }
+
+            // Copy prefix (before idx)
+            memcpy(new_data, s->data, idx);
+
+            // Encode new rune
+            hml_utf8_encode(rune_val, new_data + idx);
+
+            // Copy suffix (after old character)
+            int suffix_start = idx + old_len;
+            int suffix_len = s->length - suffix_start;
+            if (suffix_len > 0) {
+                memcpy(new_data + idx + new_len, s->data + suffix_start, suffix_len);
+            }
+
+            new_data[new_total] = '\0';
+
+            // Replace string data - only free if not SSO
+            if (!s->is_sso) {
+                free(s->data);
+            }
+            s->data = new_data;
+            s->length = new_total;
+            s->capacity = new_total + 1;
+            s->is_sso = 0;
+            s->char_length = -1;  // Invalidate cached character count
         }
-
-        // Copy prefix (before idx)
-        memcpy(new_data, s->data, idx);
-
-        // Encode new rune
-        hml_utf8_encode(rune_val, new_data + idx);
-
-        // Copy suffix (after old character)
-        int suffix_start = idx + old_len;
-        int suffix_len = s->length - suffix_start;
-        if (suffix_len > 0) {
-            memcpy(new_data + idx + new_len, s->data + suffix_start, suffix_len);
-        }
-
-        new_data[new_total] = '\0';
-
-        // Replace string data
-        free(s->data);
-        s->data = new_data;
-        s->length = new_total;
-        s->char_length = -1;  // Invalidate cached character count
     }
 }
 

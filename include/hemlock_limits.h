@@ -164,6 +164,20 @@
 // Initial buffer size for AST serialization
 #define HML_AST_SERIALIZE_INITIAL_BUFFER 4096
 
+// ========== MEMORY OPTIMIZATION CONSTANTS ==========
+
+// Small String Optimization (SSO) threshold
+// Strings up to this length are stored inline in the HmlString struct
+// 23 bytes chosen to fit well in typical allocator size classes (32-byte slot)
+#define HML_SSO_THRESHOLD 23
+
+// String interning table size for object field names
+// Should be a prime number for better hash distribution
+#define HML_INTERN_TABLE_SIZE 1021
+
+// Maximum interned string length (longer strings bypass interning)
+#define HML_INTERN_MAX_LENGTH 64
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch
