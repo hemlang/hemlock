@@ -68,7 +68,10 @@ JSONValue *json_object(void) {
 // ============================================================================
 
 void json_array_push(JSONValue *arr, JSONValue *item) {
-    if (arr->type != JSON_ARRAY) return;
+    if (arr->type != JSON_ARRAY) {
+        json_free(item);  // Free item to prevent leak if type is wrong
+        return;
+    }
 
     JSONArray *a = arr->as.array;
     if (a->count >= a->capacity) {
@@ -76,6 +79,7 @@ void json_array_push(JSONValue *arr, JSONValue *item) {
         JSONValue **new_items = realloc(a->items, new_capacity * sizeof(JSONValue *));
         if (!new_items) {
             fprintf(stderr, "json_array_push: realloc failed\n");
+            json_free(item);  // Free item to prevent leak on allocation failure
             return;
         }
         a->items = new_items;

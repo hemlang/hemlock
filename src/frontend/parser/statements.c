@@ -1452,6 +1452,7 @@ Stmt* statement(Parser *p) {
             type_params = malloc(sizeof(char*) * param_capacity);
             if (!type_params) {
                 free(name);
+                if (annotations) { free(annotations); }
                 error(p, "Memory allocation failed for type parameters");
                 RETURN_STMT(stmt_expr(expr_number(0)));
             }
@@ -1494,6 +1495,8 @@ Stmt* statement(Parser *p) {
 
         Stmt *stmt = stmt_type_alias(name, type_params, num_type_params, aliased_type);
         free(name);
+        // Type aliases don't support annotations, free them
+        if (annotations) { free(annotations); }
         RETURN_STMT(stmt);
     }
 
