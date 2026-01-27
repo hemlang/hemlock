@@ -6,7 +6,6 @@
 // Usage:
 // import { join, dirname, basename, extname } from "@stdlib/path";
 // import { normalize, is_absolute, parse, format } from "@stdlib/path";
-import { platform } from "@stdlib/os";
 
 // ============================================================================
 // Platform Detection
