@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdatomic.h>
+#include <pthread.h>
 
 // Forward declarations for heap-allocated types
 typedef struct HmlString HmlString;
@@ -92,13 +93,20 @@ typedef struct HmlValue {
     } as;
 } HmlValue;
 
-// String struct (heap-allocated, UTF-8)
+// Small String Optimization threshold (strings up to this size are stored inline)
+#define HML_SSO_THRESHOLD 23
+
+// String struct (UTF-8, with Small String Optimization)
+// Small strings (<=23 bytes) are stored inline in inline_data to reduce allocations.
+// The `data` pointer always points to valid string data (either inline_data or heap).
 struct HmlString {
-    char *data;
-    int length;          // Byte length
-    int char_length;     // Codepoint length (-1 if uncalculated)
-    int capacity;
+    char *data;              // Points to inline_data (SSO) or heap allocation
+    int length;              // Byte length
+    int char_length;         // Codepoint length (-1 if uncalculated)
+    int capacity;            // For heap: allocated size; for SSO: HML_SSO_THRESHOLD+1
     int ref_count;
+    int is_sso;              // 1 if using inline storage, 0 if heap allocated
+    char inline_data[HML_SSO_THRESHOLD + 1];  // Inline storage for small strings
 };
 
 // Buffer struct (safe pointer wrapper)
@@ -160,6 +168,14 @@ struct HmlFileHandle {
     int closed;
 };
 
+// Task synchronization block - all pthread objects in one allocation
+// This reduces fragmentation by combining mutex, cond, and thread into single block
+typedef struct HmlTaskSync {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    pthread_t thread;
+} HmlTaskSync;
+
 // Task (async)
 struct HmlTask {
     int id;
@@ -167,15 +183,22 @@ struct HmlTask {
     HmlValue result;
     int joined;
     int detached;
-    void *thread;           // pthread_t
-    void *mutex;            // pthread_mutex_t
-    void *cond;             // pthread_cond_t for join
+    HmlTaskSync *sync;      // Single allocation for all sync primitives (reduces fragmentation)
     int ref_count;
     // For storing function and args to call
     HmlValue function;
     HmlValue *args;
     int num_args;
 };
+
+// Channel synchronization block - all pthread objects in one allocation
+// This reduces fragmentation by combining all sync primitives into single block
+typedef struct HmlChannelSync {
+    pthread_mutex_t mutex;
+    pthread_cond_t not_empty;
+    pthread_cond_t not_full;
+    pthread_cond_t rendezvous;
+} HmlChannelSync;
 
 // Channel (for async communication)
 struct HmlChannel {
@@ -185,15 +208,12 @@ struct HmlChannel {
     int tail;
     int count;
     int closed;
-    void *mutex;            // pthread_mutex_t
-    void *not_empty;        // pthread_cond_t
-    void *not_full;         // pthread_cond_t
+    HmlChannelSync *sync;        // Single allocation for all sync primitives (reduces fragmentation)
     int ref_count;
     // Unbuffered channel support (rendezvous)
-    HmlValue *unbuffered_value;  // Pointer to value being transferred in rendezvous
+    HmlValue unbuffered_value;   // Value being transferred in rendezvous (inline, no separate alloc)
     int sender_waiting;          // Flag: sender is blocked waiting for receiver
     int receiver_waiting;        // Flag: receiver is blocked waiting for sender
-    void *rendezvous;            // pthread_cond_t for rendezvous completion
 };
 
 // Socket (TCP/UDP networking)

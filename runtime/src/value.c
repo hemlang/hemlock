@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <pthread.h>
 
 // ========== VALUE CONSTRUCTORS ==========
 
@@ -91,25 +92,27 @@ HmlValue hml_val_bool(int val) {
 }
 
 // Pre-allocated single-character ASCII strings (immortal, never freed)
+// Uses SSO - data stored inline in each HmlString struct
 static HmlString *ascii_strings[128] = {0};
-static char ascii_data[128][2];  // Single char + null terminator
 
 static void init_ascii_strings(void) {
     static int initialized = 0;
     if (initialized) return;
     for (int i = 0; i < 128; i++) {
-        ascii_data[i][0] = (char)i;
-        ascii_data[i][1] = '\0';
         ascii_strings[i] = malloc(sizeof(HmlString));
         if (!ascii_strings[i]) {
             // Fatal error during initialization - cannot continue
             fprintf(stderr, "Fatal: Failed to allocate ASCII string pool\n");
             exit(1);
         }
-        ascii_strings[i]->data = ascii_data[i];
+        // Use SSO for ASCII cache - store data inline
+        ascii_strings[i]->inline_data[0] = (char)i;
+        ascii_strings[i]->inline_data[1] = '\0';
+        ascii_strings[i]->data = ascii_strings[i]->inline_data;
         ascii_strings[i]->length = 1;
         ascii_strings[i]->char_length = 1;
-        ascii_strings[i]->capacity = 2;
+        ascii_strings[i]->capacity = HML_SSO_THRESHOLD + 1;
+        ascii_strings[i]->is_sso = 1;
         ascii_strings[i]->ref_count = 1000000;  // Immortal - never freed
     }
     initialized = 1;
@@ -128,24 +131,39 @@ HmlValue hml_val_string(const char *str) {
         return v;
     }
 
-    int capacity = len + 1;
-
     HmlString *s = malloc(sizeof(HmlString));
     if (!s) {
         hml_runtime_error("Out of memory allocating string");
     }
-    s->data = malloc(capacity);
-    if (!s->data) {
-        free(s);
-        hml_runtime_error("Out of memory allocating string data");
+
+    // Small String Optimization: store small strings inline
+    if (len <= HML_SSO_THRESHOLD) {
+        // Use inline storage - no separate heap allocation
+        if (str != NULL) {
+            memcpy(s->inline_data, str, len);
+        }
+        s->inline_data[len] = '\0';
+        s->data = s->inline_data;
+        s->capacity = HML_SSO_THRESHOLD + 1;
+        s->is_sso = 1;
+    } else {
+        // Large string - allocate on heap
+        int capacity = len + 1;
+        s->data = malloc(capacity);
+        if (!s->data) {
+            free(s);
+            hml_runtime_error("Out of memory allocating string data");
+        }
+        if (str != NULL) {
+            memcpy(s->data, str, len);
+        }
+        s->data[len] = '\0';
+        s->capacity = capacity;
+        s->is_sso = 0;
     }
-    if (str != NULL) {
-        memcpy(s->data, str, len);
-    }
-    s->data[len] = '\0';
+
     s->length = len;
     s->char_length = -1;  // Uncalculated
-    s->capacity = capacity;
     s->ref_count = 1;
 
     v.as.as_string = s;
@@ -160,10 +178,27 @@ HmlValue hml_val_string_owned(char *str, int length, int capacity) {
     if (!s) {
         hml_runtime_error("Out of memory allocating string");
     }
-    s->data = str;
+
+    // Small String Optimization: if string is small, copy to inline storage
+    // and free the original heap allocation to reduce fragmentation
+    if (length <= HML_SSO_THRESHOLD) {
+        // Copy to inline storage
+        memcpy(s->inline_data, str, length);
+        s->inline_data[length] = '\0';
+        s->data = s->inline_data;
+        s->capacity = HML_SSO_THRESHOLD + 1;
+        s->is_sso = 1;
+        // Free the original heap allocation
+        free(str);
+    } else {
+        // Use the provided heap allocation
+        s->data = str;
+        s->capacity = capacity;
+        s->is_sso = 0;
+    }
+
     s->length = length;
     s->char_length = -1;
-    s->capacity = capacity;
     s->ref_count = 1;
 
     v.as.as_string = s;
@@ -441,7 +476,10 @@ void hml_retain(HmlValue *val) {
 
 static void string_free(HmlString *str) {
     if (str) {
-        free(str->data);
+        // Only free data if it's heap-allocated (not using SSO)
+        if (!str->is_sso) {
+            free(str->data);
+        }
         free(str);
     }
 }
@@ -482,8 +520,62 @@ static void function_free(HmlFunction *fn) {
     if (fn) {
         // Free the function name if set
         free(fn->name);
+        // Free parameter names if present
+        if (fn->param_names) {
+            for (int i = 0; i < fn->num_params; i++) {
+                free(fn->param_names[i]);
+            }
+            free(fn->param_names);
+        }
         // Note: closure_env is not freed here - it may be shared
         free(fn);
+    }
+}
+
+static void task_free(HmlTask *task) {
+    if (task) {
+        // Release the stored function
+        hml_release(&task->function);
+        // Release the result
+        hml_release(&task->result);
+        // Free the args array
+        if (task->args) {
+            for (int i = 0; i < task->num_args; i++) {
+                hml_release(&task->args[i]);
+            }
+            free(task->args);
+        }
+        // Free the consolidated sync structure (contains mutex, cond, thread)
+        if (task->sync) {
+            pthread_mutex_destroy(&task->sync->mutex);
+            pthread_cond_destroy(&task->sync->cond);
+            free(task->sync);
+        }
+        free(task);
+    }
+}
+
+static void channel_free(HmlChannel *ch) {
+    if (ch) {
+        // Release any buffered values
+        if (ch->buffer) {
+            for (int i = 0; i < ch->count; i++) {
+                int idx = (ch->head + i) % ch->capacity;
+                hml_release(&ch->buffer[idx]);
+            }
+            free(ch->buffer);
+        }
+        // Release unbuffered value if present
+        hml_release(&ch->unbuffered_value);
+        // Free the consolidated sync structure
+        if (ch->sync) {
+            pthread_mutex_destroy(&ch->sync->mutex);
+            pthread_cond_destroy(&ch->sync->not_empty);
+            pthread_cond_destroy(&ch->sync->not_full);
+            pthread_cond_destroy(&ch->sync->rendezvous);
+            free(ch->sync);
+        }
+        free(ch);
     }
 }
 
@@ -536,6 +628,24 @@ void hml_release(HmlValue *val) {
                 val->as.as_function = NULL;
             }
             break;
+        case HML_VAL_TASK:
+            if (val->as.as_task) {
+                val->as.as_task->ref_count--;
+                if (val->as.as_task->ref_count <= 0) {
+                    task_free(val->as.as_task);
+                }
+                val->as.as_task = NULL;
+            }
+            break;
+        case HML_VAL_CHANNEL:
+            if (val->as.as_channel) {
+                val->as.as_channel->ref_count--;
+                if (val->as.as_channel->ref_count <= 0) {
+                    channel_free(val->as.as_channel);
+                }
+                val->as.as_channel = NULL;
+            }
+            break;
         default:
             break;  // Primitive types don't need reference counting
     }
@@ -573,14 +683,24 @@ HmlValue hml_value_deep_copy(HmlValue val) {
         case HML_VAL_STRING:
             if (val.as.as_string) {
                 HmlString *src = val.as.as_string;
-                // Create a new string with copied data
+                // Create a new string with copied data using SSO if possible
                 HmlString *dst = malloc(sizeof(HmlString));
                 dst->length = src->length;
                 dst->char_length = src->char_length;
-                dst->capacity = src->length + 1;
                 dst->ref_count = 1;
-                dst->data = malloc(dst->capacity);
-                memcpy(dst->data, src->data, src->length + 1);
+
+                // Use SSO for small strings
+                if (src->length <= HML_SSO_THRESHOLD) {
+                    memcpy(dst->inline_data, src->data, src->length + 1);
+                    dst->data = dst->inline_data;
+                    dst->capacity = HML_SSO_THRESHOLD + 1;
+                    dst->is_sso = 1;
+                } else {
+                    dst->capacity = src->length + 1;
+                    dst->data = malloc(dst->capacity);
+                    memcpy(dst->data, src->data, src->length + 1);
+                    dst->is_sso = 0;
+                }
 
                 result.type = HML_VAL_STRING;
                 result.as.as_string = dst;

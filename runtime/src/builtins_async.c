@@ -81,9 +81,9 @@ static void* task_thread_wrapper(void* arg) {
     HmlTask *task = (HmlTask*)arg;
 
     // Mark as running
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_lock(&task->sync->mutex);
     task->state = HML_TASK_RUNNING;
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_unlock(&task->sync->mutex);
 
     // Get function info
     HmlFunction *fn = task->function.as.as_function;
@@ -106,11 +106,11 @@ static void* task_thread_wrapper(void* arg) {
     }
 
     // Store result and mark as completed
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_lock(&task->sync->mutex);
     task->result = result;
     task->state = HML_TASK_COMPLETED;
-    pthread_cond_signal((pthread_cond_t*)task->cond);
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+    pthread_cond_signal(&task->sync->cond);
+    pthread_mutex_unlock(&task->sync->mutex);
 
     return NULL;
 }
@@ -151,15 +151,13 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
         task->args = NULL;
     }
 
-    // Initialize mutex and condition variable
-    task->mutex = malloc(sizeof(pthread_mutex_t));
-    task->cond = malloc(sizeof(pthread_cond_t));
-    pthread_mutex_init((pthread_mutex_t*)task->mutex, NULL);
-    pthread_cond_init((pthread_cond_t*)task->cond, NULL);
+    // Initialize sync structures in single allocation (reduces fragmentation)
+    task->sync = malloc(sizeof(HmlTaskSync));
+    pthread_mutex_init(&task->sync->mutex, NULL);
+    pthread_cond_init(&task->sync->cond, NULL);
 
     // Create thread
-    task->thread = malloc(sizeof(pthread_t));
-    pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+    pthread_create(&task->sync->thread, NULL, task_thread_wrapper, task);
 
     // Return task value
     HmlValue result;
@@ -177,15 +175,15 @@ HmlValue hml_join(HmlValue task_val) {
 
     // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
     // Multiple threads calling join() simultaneously must be serialized
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_lock(&task->sync->mutex);
 
     if (task->joined) {
-        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+        pthread_mutex_unlock(&task->sync->mutex);
         hml_runtime_error("task handle already joined");
     }
 
     if (task->detached) {
-        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+        pthread_mutex_unlock(&task->sync->mutex);
         hml_runtime_error("cannot join detached task");
     }
 
@@ -194,17 +192,17 @@ HmlValue hml_join(HmlValue task_val) {
 
     // Wait for task to complete
     while (task->state != HML_TASK_COMPLETED) {
-        pthread_cond_wait((pthread_cond_t*)task->cond, (pthread_mutex_t*)task->mutex);
+        pthread_cond_wait(&task->sync->cond, &task->sync->mutex);
     }
 
     // Get result while holding mutex
     HmlValue result = task->result;
     hml_retain(&result);
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_unlock(&task->sync->mutex);
 
     // Join the thread (outside mutex to avoid blocking other operations)
-    pthread_join(*(pthread_t*)task->thread, NULL);
+    pthread_join(task->sync->thread, NULL);
 
     return result;
 }
@@ -218,25 +216,25 @@ void hml_detach(HmlValue task_val) {
 
     // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
     // Multiple threads calling detach() or join()/detach() simultaneously must be serialized
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_lock(&task->sync->mutex);
 
     if (task->joined) {
-        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+        pthread_mutex_unlock(&task->sync->mutex);
         hml_runtime_error("cannot detach already joined task");
     }
 
     if (task->detached) {
-        pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+        pthread_mutex_unlock(&task->sync->mutex);
         return; // Already detached
     }
 
     // Mark as detached while holding mutex to prevent concurrent join/detach
     task->detached = 1;
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_unlock(&task->sync->mutex);
 
     // Detach the pthread (outside mutex - this is a pthread operation)
-    pthread_detach(*(pthread_t*)task->thread);
+    pthread_detach(task->sync->thread);
 }
 
 // task_debug_info(task) - Print debug information about a task
@@ -248,7 +246,7 @@ void hml_task_debug_info(HmlValue task_val) {
     HmlTask *task = task_val.as.as_task;
 
     // Lock mutex to safely read task state
-    pthread_mutex_lock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_lock(&task->sync->mutex);
 
     printf("=== Task Debug Info ===\n");
     printf("Task ID: %d\n", task->id);
@@ -265,7 +263,7 @@ void hml_task_debug_info(HmlValue task_val) {
     printf("Has Result: %s\n", task->result.type != HML_VAL_NULL ? "true" : "false");
     printf("======================\n");
 
-    pthread_mutex_unlock((pthread_mutex_t*)task->mutex);
+    pthread_mutex_unlock(&task->sync->mutex);
 }
 
 // apply(fn, args_array) - Call a function with an array of arguments
@@ -302,20 +300,15 @@ HmlValue hml_channel(int32_t capacity) {
         ch->buffer = NULL;
     }
 
-    ch->mutex = malloc(sizeof(pthread_mutex_t));
-    ch->not_empty = malloc(sizeof(pthread_cond_t));
-    ch->not_full = malloc(sizeof(pthread_cond_t));
-    ch->rendezvous = malloc(sizeof(pthread_cond_t));
-    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->rendezvous, NULL);
+    // Initialize sync structures in single allocation (reduces fragmentation)
+    ch->sync = malloc(sizeof(HmlChannelSync));
+    pthread_mutex_init(&ch->sync->mutex, NULL);
+    pthread_cond_init(&ch->sync->not_empty, NULL);
+    pthread_cond_init(&ch->sync->not_full, NULL);
+    pthread_cond_init(&ch->sync->rendezvous, NULL);
 
-    // Initialize unbuffered channel fields
-    ch->unbuffered_value = malloc(sizeof(HmlValue));
-    if (ch->unbuffered_value) {
-        *(ch->unbuffered_value) = hml_val_null();
-    }
+    // Initialize unbuffered channel fields (value is inline, no separate alloc)
+    ch->unbuffered_value = hml_val_null();
     ch->sender_waiting = 0;
     ch->receiver_waiting = 0;
 
@@ -332,49 +325,49 @@ void hml_channel_send(HmlValue channel, HmlValue value) {
 
     HmlChannel *ch = channel.as.as_channel;
 
-    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    pthread_mutex_lock(&ch->sync->mutex);
 
     // Check if channel is closed
     if (ch->closed) {
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         hml_runtime_error("cannot send to closed channel");
     }
 
     if (ch->capacity == 0) {
         // Unbuffered channel - rendezvous with receiver
         hml_retain(&value);
-        *(ch->unbuffered_value) = value;
+        ch->unbuffered_value = value;
         ch->sender_waiting = 1;
 
         // Signal any waiting receiver that data is available
-        pthread_cond_signal((pthread_cond_t*)ch->not_empty);
+        pthread_cond_signal(&ch->sync->not_empty);
 
         // Wait for receiver to pick up the value
         while (ch->sender_waiting && !ch->closed) {
-            pthread_cond_wait((pthread_cond_t*)ch->rendezvous, (pthread_mutex_t*)ch->mutex);
+            pthread_cond_wait(&ch->sync->rendezvous, &ch->sync->mutex);
         }
 
         // Check if we were woken because channel closed
         if (ch->closed && ch->sender_waiting) {
             ch->sender_waiting = 0;
-            hml_release(ch->unbuffered_value);
-            *(ch->unbuffered_value) = hml_val_null();
-            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            hml_release(&ch->unbuffered_value);
+            ch->unbuffered_value = hml_val_null();
+            pthread_mutex_unlock(&ch->sync->mutex);
             hml_runtime_error("cannot send to closed channel");
         }
 
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         return;
     }
 
     // Buffered channel - wait while buffer is full
     while (ch->count >= ch->capacity && !ch->closed) {
-        pthread_cond_wait((pthread_cond_t*)ch->not_full, (pthread_mutex_t*)ch->mutex);
+        pthread_cond_wait(&ch->sync->not_full, &ch->sync->mutex);
     }
 
     // Check again if closed after waking up
     if (ch->closed) {
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         hml_runtime_error("cannot send to closed channel");
     }
 
@@ -384,8 +377,8 @@ void hml_channel_send(HmlValue channel, HmlValue value) {
     ch->tail = (ch->tail + 1) % ch->capacity;
     ch->count++;
 
-    pthread_cond_signal((pthread_cond_t*)ch->not_empty);
-    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+    pthread_cond_signal(&ch->sync->not_empty);
+    pthread_mutex_unlock(&ch->sync->mutex);
 }
 
 HmlValue hml_channel_recv(HmlValue channel) {
@@ -395,40 +388,40 @@ HmlValue hml_channel_recv(HmlValue channel) {
 
     HmlChannel *ch = channel.as.as_channel;
 
-    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    pthread_mutex_lock(&ch->sync->mutex);
 
     if (ch->capacity == 0) {
         // Unbuffered channel - rendezvous with sender
         // Wait for sender to have data available
         while (!ch->sender_waiting && !ch->closed) {
-            pthread_cond_wait((pthread_cond_t*)ch->not_empty, (pthread_mutex_t*)ch->mutex);
+            pthread_cond_wait(&ch->sync->not_empty, &ch->sync->mutex);
         }
 
         // If channel is closed and no sender waiting, return null
         if (!ch->sender_waiting && ch->closed) {
-            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            pthread_mutex_unlock(&ch->sync->mutex);
             return hml_val_null();
         }
 
         // Get the value from sender
-        HmlValue value = *(ch->unbuffered_value);
-        *(ch->unbuffered_value) = hml_val_null();
+        HmlValue value = ch->unbuffered_value;
+        ch->unbuffered_value = hml_val_null();
         ch->sender_waiting = 0;
 
         // Signal sender that value was received
-        pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_cond_signal(&ch->sync->rendezvous);
+        pthread_mutex_unlock(&ch->sync->mutex);
 
         return value;
     }
 
     // Buffered channel - wait while buffer is empty
     while (ch->count == 0 && !ch->closed) {
-        pthread_cond_wait((pthread_cond_t*)ch->not_empty, (pthread_mutex_t*)ch->mutex);
+        pthread_cond_wait(&ch->sync->not_empty, &ch->sync->mutex);
     }
 
     if (ch->count == 0 && ch->closed) {
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         return hml_val_null();
     }
 
@@ -437,8 +430,8 @@ HmlValue hml_channel_recv(HmlValue channel) {
     ch->head = (ch->head + 1) % ch->capacity;
     ch->count--;
 
-    pthread_cond_signal((pthread_cond_t*)ch->not_full);
-    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+    pthread_cond_signal(&ch->sync->not_full);
+    pthread_mutex_unlock(&ch->sync->mutex);
 
     return value;
 }
@@ -462,50 +455,50 @@ HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_val) {
         deadline.tv_nsec -= 1000000000;
     }
 
-    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    pthread_mutex_lock(&ch->sync->mutex);
 
     if (ch->capacity == 0) {
         // Unbuffered channel with timeout - rendezvous with sender
         // Wait for sender to have data available (with timeout)
         while (!ch->sender_waiting && !ch->closed) {
-            int rc = pthread_cond_timedwait((pthread_cond_t*)ch->not_empty,
-                                            (pthread_mutex_t*)ch->mutex, &deadline);
+            int rc = pthread_cond_timedwait(&ch->sync->not_empty,
+                                            &ch->sync->mutex, &deadline);
             if (rc == ETIMEDOUT) {
-                pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+                pthread_mutex_unlock(&ch->sync->mutex);
                 return hml_val_null();  // Timeout
             }
         }
 
         // If channel is closed and no sender waiting, return null
         if (!ch->sender_waiting && ch->closed) {
-            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            pthread_mutex_unlock(&ch->sync->mutex);
             return hml_val_null();
         }
 
         // Get the value from sender
-        HmlValue value = *(ch->unbuffered_value);
-        *(ch->unbuffered_value) = hml_val_null();
+        HmlValue value = ch->unbuffered_value;
+        ch->unbuffered_value = hml_val_null();
         ch->sender_waiting = 0;
 
         // Signal sender that value was received
-        pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_cond_signal(&ch->sync->rendezvous);
+        pthread_mutex_unlock(&ch->sync->mutex);
 
         return value;
     }
 
     // Buffered channel - wait while buffer is empty
     while (ch->count == 0 && !ch->closed) {
-        int rc = pthread_cond_timedwait((pthread_cond_t*)ch->not_empty,
-                                        (pthread_mutex_t*)ch->mutex, &deadline);
+        int rc = pthread_cond_timedwait(&ch->sync->not_empty,
+                                        &ch->sync->mutex, &deadline);
         if (rc == ETIMEDOUT) {
-            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            pthread_mutex_unlock(&ch->sync->mutex);
             return hml_val_null();  // Timeout
         }
     }
 
     if (ch->count == 0 && ch->closed) {
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         return hml_val_null();
     }
 
@@ -514,8 +507,8 @@ HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_val) {
     ch->head = (ch->head + 1) % ch->capacity;
     ch->count--;
 
-    pthread_cond_signal((pthread_cond_t*)ch->not_full);
-    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+    pthread_cond_signal(&ch->sync->not_full);
+    pthread_mutex_unlock(&ch->sync->mutex);
 
     return value;
 }
@@ -539,33 +532,33 @@ HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue tim
         deadline.tv_nsec -= 1000000000;
     }
 
-    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    pthread_mutex_lock(&ch->sync->mutex);
 
     // Check if channel is closed
     if (ch->closed) {
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         hml_runtime_error("cannot send to closed channel");
     }
 
     if (ch->capacity == 0) {
         // Unbuffered channel with timeout - rendezvous with receiver
         hml_retain(&value);
-        *(ch->unbuffered_value) = value;
+        ch->unbuffered_value = value;
         ch->sender_waiting = 1;
 
         // Signal any waiting receiver that data is available
-        pthread_cond_signal((pthread_cond_t*)ch->not_empty);
+        pthread_cond_signal(&ch->sync->not_empty);
 
         // Wait for receiver to pick up the value (with timeout)
         while (ch->sender_waiting && !ch->closed) {
-            int rc = pthread_cond_timedwait((pthread_cond_t*)ch->rendezvous,
-                                            (pthread_mutex_t*)ch->mutex, &deadline);
+            int rc = pthread_cond_timedwait(&ch->sync->rendezvous,
+                                            &ch->sync->mutex, &deadline);
             if (rc == ETIMEDOUT) {
                 // Timeout - clean up and return failure
                 ch->sender_waiting = 0;
-                hml_release(ch->unbuffered_value);
-                *(ch->unbuffered_value) = hml_val_null();
-                pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+                hml_release(&ch->unbuffered_value);
+                ch->unbuffered_value = hml_val_null();
+                pthread_mutex_unlock(&ch->sync->mutex);
                 return hml_val_bool(0);  // Timeout - send failed
             }
         }
@@ -573,29 +566,29 @@ HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue tim
         // Check if we were woken because channel closed
         if (ch->closed && ch->sender_waiting) {
             ch->sender_waiting = 0;
-            hml_release(ch->unbuffered_value);
-            *(ch->unbuffered_value) = hml_val_null();
-            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            hml_release(&ch->unbuffered_value);
+            ch->unbuffered_value = hml_val_null();
+            pthread_mutex_unlock(&ch->sync->mutex);
             hml_runtime_error("cannot send to closed channel");
         }
 
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         return hml_val_bool(1);  // Success
     }
 
     // Buffered channel - wait while buffer is full
     while (ch->count >= ch->capacity && !ch->closed) {
-        int rc = pthread_cond_timedwait((pthread_cond_t*)ch->not_full,
-                                        (pthread_mutex_t*)ch->mutex, &deadline);
+        int rc = pthread_cond_timedwait(&ch->sync->not_full,
+                                        &ch->sync->mutex, &deadline);
         if (rc == ETIMEDOUT) {
-            pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+            pthread_mutex_unlock(&ch->sync->mutex);
             return hml_val_bool(0);  // Timeout - send failed
         }
     }
 
     // Check again if closed after waking up
     if (ch->closed) {
-        pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+        pthread_mutex_unlock(&ch->sync->mutex);
         hml_runtime_error("cannot send to closed channel");
     }
 
@@ -605,8 +598,8 @@ HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue tim
     ch->tail = (ch->tail + 1) % ch->capacity;
     ch->count++;
 
-    pthread_cond_signal((pthread_cond_t*)ch->not_empty);
-    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+    pthread_cond_signal(&ch->sync->not_empty);
+    pthread_mutex_unlock(&ch->sync->mutex);
 
     return hml_val_bool(1);  // Success
 }
@@ -618,14 +611,14 @@ void hml_channel_close(HmlValue channel) {
 
     HmlChannel *ch = channel.as.as_channel;
 
-    pthread_mutex_lock((pthread_mutex_t*)ch->mutex);
+    pthread_mutex_lock(&ch->sync->mutex);
     ch->closed = 1;
     // Wake up all waiting threads
-    pthread_cond_broadcast((pthread_cond_t*)ch->not_empty);
-    pthread_cond_broadcast((pthread_cond_t*)ch->not_full);
+    pthread_cond_broadcast(&ch->sync->not_empty);
+    pthread_cond_broadcast(&ch->sync->not_full);
     // Also wake up any unbuffered channel senders waiting on rendezvous
-    pthread_cond_broadcast((pthread_cond_t*)ch->rendezvous);
-    pthread_mutex_unlock((pthread_mutex_t*)ch->mutex);
+    pthread_cond_broadcast(&ch->sync->rendezvous);
+    pthread_mutex_unlock(&ch->sync->mutex);
 }
 
 // select(channels, timeout_ms?) - wait on multiple channels
@@ -671,20 +664,19 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
         // Check each channel for available data
         for (int i = 0; i < arr->length; i++) {
             HmlChannel *ch = arr->elements[i].as.as_channel;
-            pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
 
-            pthread_mutex_lock(mutex);
+            pthread_mutex_lock(&ch->sync->mutex);
 
             // Check for unbuffered channel with sender waiting (rendezvous pattern)
             if (ch->capacity == 0 && ch->sender_waiting) {
                 // Get the value from sender
-                HmlValue msg = *(ch->unbuffered_value);
-                *(ch->unbuffered_value) = hml_val_null();
+                HmlValue msg = ch->unbuffered_value;
+                ch->unbuffered_value = hml_val_null();
                 ch->sender_waiting = 0;
 
                 // Signal sender that value was received
-                pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
-                pthread_mutex_unlock(mutex);
+                pthread_cond_signal(&ch->sync->rendezvous);
+                pthread_mutex_unlock(&ch->sync->mutex);
 
                 // Create result object { channel, value }
                 HmlValue result = hml_val_object();
@@ -701,8 +693,8 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
                 ch->count--;
 
                 // Signal that buffer is not full
-                pthread_cond_signal((pthread_cond_t*)ch->not_full);
-                pthread_mutex_unlock(mutex);
+                pthread_cond_signal(&ch->sync->not_full);
+                pthread_mutex_unlock(&ch->sync->mutex);
 
                 // Create result object { channel, value }
                 HmlValue result = hml_val_object();
@@ -713,7 +705,7 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
 
             // Check if channel is closed and empty
             if (ch->closed) {
-                pthread_mutex_unlock(mutex);
+                pthread_mutex_unlock(&ch->sync->mutex);
                 // Return object with null value for closed channel
                 HmlValue result = hml_val_object();
                 hml_object_set_field(result, "channel", arr->elements[i]);
@@ -721,7 +713,7 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
                 return result;
             }
 
-            pthread_mutex_unlock(mutex);
+            pthread_mutex_unlock(&ch->sync->mutex);
         }
 
         // Check timeout
