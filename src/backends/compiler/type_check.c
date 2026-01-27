@@ -3489,6 +3489,9 @@ void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block) {
 
 // ========== TAIL CALL OPTIMIZATION ==========
 
+// Forward declaration for statement recursion check
+static int stmt_contains_recursive_call(Stmt *stmt, const char *func_name);
+
 // Helper: Check if expression contains a call to the given function (non-tail position)
 static int contains_recursive_call(Expr *expr, const char *func_name) {
     if (!expr) return 0;
@@ -3542,6 +3545,115 @@ static int contains_recursive_call(Expr *expr, const char *func_name) {
 
         case EXPR_ASSIGN:
             return contains_recursive_call(expr->as.assign.value, func_name);
+
+        case EXPR_MATCH:
+            // Check the scrutinee expression
+            if (contains_recursive_call(expr->as.match_expr.scrutinee, func_name)) return 1;
+            // Check all match arms (guards and bodies)
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                if (arm->guard && contains_recursive_call(arm->guard, func_name)) return 1;
+                if (contains_recursive_call(arm->body, func_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_NULL_COALESCE:
+            return contains_recursive_call(expr->as.null_coalesce.left, func_name) ||
+                   contains_recursive_call(expr->as.null_coalesce.right, func_name);
+
+        case EXPR_OPTIONAL_CHAIN:
+            if (contains_recursive_call(expr->as.optional_chain.object, func_name)) return 1;
+            if (expr->as.optional_chain.index &&
+                contains_recursive_call(expr->as.optional_chain.index, func_name)) return 1;
+            // Check method call arguments
+            for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                if (expr->as.optional_chain.args &&
+                    contains_recursive_call(expr->as.optional_chain.args[i], func_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_GET_PROPERTY:
+            return contains_recursive_call(expr->as.get_property.object, func_name);
+
+        case EXPR_SET_PROPERTY:
+            return contains_recursive_call(expr->as.set_property.object, func_name) ||
+                   contains_recursive_call(expr->as.set_property.value, func_name);
+
+        default:
+            return 0;
+    }
+}
+
+// Helper: Check if a statement contains a recursive call anywhere (for loop analysis)
+static int stmt_contains_recursive_call(Stmt *stmt, const char *func_name) {
+    if (!stmt) return 0;
+
+    switch (stmt->type) {
+        case STMT_EXPR:
+            return contains_recursive_call(stmt->as.expr, func_name);
+
+        case STMT_LET:
+        case STMT_CONST:
+            return stmt->as.let.value && contains_recursive_call(stmt->as.let.value, func_name);
+
+        case STMT_RETURN:
+            return stmt->as.return_stmt.value &&
+                   contains_recursive_call(stmt->as.return_stmt.value, func_name);
+
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (stmt_contains_recursive_call(stmt->as.block.statements[i], func_name)) return 1;
+            }
+            return 0;
+
+        case STMT_IF:
+            if (contains_recursive_call(stmt->as.if_stmt.condition, func_name)) return 1;
+            if (stmt_contains_recursive_call(stmt->as.if_stmt.then_branch, func_name)) return 1;
+            if (stmt->as.if_stmt.else_branch &&
+                stmt_contains_recursive_call(stmt->as.if_stmt.else_branch, func_name)) return 1;
+            return 0;
+
+        case STMT_WHILE:
+            if (contains_recursive_call(stmt->as.while_stmt.condition, func_name)) return 1;
+            return stmt_contains_recursive_call(stmt->as.while_stmt.body, func_name);
+
+        case STMT_LOOP:
+            return stmt_contains_recursive_call(stmt->as.loop_stmt.body, func_name);
+
+        case STMT_FOR:
+            if (stmt->as.for_loop.initializer && stmt_contains_recursive_call(stmt->as.for_loop.initializer, func_name)) return 1;
+            if (stmt->as.for_loop.condition &&
+                contains_recursive_call(stmt->as.for_loop.condition, func_name)) return 1;
+            if (stmt->as.for_loop.increment &&
+                contains_recursive_call(stmt->as.for_loop.increment, func_name)) return 1;
+            return stmt_contains_recursive_call(stmt->as.for_loop.body, func_name);
+
+        case STMT_FOR_IN:
+            if (contains_recursive_call(stmt->as.for_in.iterable, func_name)) return 1;
+            return stmt_contains_recursive_call(stmt->as.for_in.body, func_name);
+
+        case STMT_SWITCH:
+            if (contains_recursive_call(stmt->as.switch_stmt.expr, func_name)) return 1;
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (stmt->as.switch_stmt.case_values[i] &&
+                    contains_recursive_call(stmt->as.switch_stmt.case_values[i], func_name)) return 1;
+                if (stmt_contains_recursive_call(stmt->as.switch_stmt.case_bodies[i], func_name)) return 1;
+            }
+            return 0;
+
+        case STMT_TRY:
+            if (stmt_contains_recursive_call(stmt->as.try_stmt.try_block, func_name)) return 1;
+            if (stmt->as.try_stmt.catch_block &&
+                stmt_contains_recursive_call(stmt->as.try_stmt.catch_block, func_name)) return 1;
+            if (stmt->as.try_stmt.finally_block &&
+                stmt_contains_recursive_call(stmt->as.try_stmt.finally_block, func_name)) return 1;
+            return 0;
+
+        case STMT_THROW:
+            return contains_recursive_call(stmt->as.throw_stmt.value, func_name);
+
+        case STMT_DEFER:
+            return contains_recursive_call(stmt->as.defer_stmt.call, func_name);
 
         default:
             return 0;
@@ -3603,20 +3715,61 @@ static int stmt_is_tail_recursive(Stmt *stmt, const char *func_name) {
             return 1;
 
         case STMT_WHILE:
+            // Loops are OK for TCO if they don't contain recursive calls
+            // This allows patterns like: for (init) { ... } return f(x);
+            if (stmt_contains_recursive_call(stmt, func_name)) return 0;
+            return 1;
+
         case STMT_LOOP:
+            // Loop statements are OK if they don't contain recursive calls
+            if (stmt_contains_recursive_call(stmt, func_name)) return 0;
+            return 1;
+
         case STMT_FOR:
+            // For loops are OK if they don't contain recursive calls
+            if (stmt_contains_recursive_call(stmt, func_name)) return 0;
+            return 1;
+
         case STMT_FOR_IN:
-            // Loops are not compatible with tail call optimization
-            // (they could contain recursive calls in non-tail position)
-            return 0;
+            // For-in loops are OK if they don't contain recursive calls
+            if (stmt_contains_recursive_call(stmt, func_name)) return 0;
+            return 1;
+
+        case STMT_SWITCH:
+            // Switch is compatible with TCO if condition doesn't recurse
+            // and all case bodies are tail recursive
+            if (contains_recursive_call(stmt->as.switch_stmt.expr, func_name)) return 0;
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                // Check case values for recursive calls
+                if (stmt->as.switch_stmt.case_values[i] &&
+                    contains_recursive_call(stmt->as.switch_stmt.case_values[i], func_name)) {
+                    return 0;
+                }
+                // Check case bodies are tail recursive
+                if (!stmt_is_tail_recursive(stmt->as.switch_stmt.case_bodies[i], func_name)) {
+                    return 0;
+                }
+            }
+            return 1;
 
         case STMT_TRY:
             // Try-catch is not compatible with simple tail call optimization
+            // because we need to maintain the exception handler on the stack
             return 0;
 
         case STMT_DEFER:
             // Defer is not compatible with tail call optimization
+            // because defers must execute before the function returns
             return 0;
+
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            // Control flow statements are fine
+            return 1;
+
+        case STMT_THROW:
+            // Throw just needs to not contain recursive calls
+            return !contains_recursive_call(stmt->as.throw_stmt.value, func_name);
 
         default:
             return 1;

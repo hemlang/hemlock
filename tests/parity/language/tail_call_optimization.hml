@@ -1,0 +1,165 @@
+// Test tail call optimization (TCO)
+// These patterns should be optimized to use goto instead of actual function calls
+
+// Basic tail recursion - classic sum
+fn sum_tail(n, acc) {
+    if (n <= 0) {
+        return acc;
+    }
+    return sum_tail(n - 1, acc + n);
+}
+
+print(sum_tail(100, 0));  // 5050
+
+// Tail recursion with multiple base cases
+fn fib_tail(n, a, b) {
+    if (n == 0) {
+        return a;
+    }
+    if (n == 1) {
+        return b;
+    }
+    return fib_tail(n - 1, b, a + b);
+}
+
+print(fib_tail(10, 0, 1));  // 55
+
+// Tail recursion with loop BEFORE the tail call (should now be optimized)
+fn process_with_loop(items, idx, acc) {
+    // This loop doesn't contain recursive calls, so TCO should still apply
+    let sum = 0;
+    for (let i = 0; i < 3; i++) {
+        sum = sum + 1;
+    }
+
+    if (idx >= items.length) {
+        return acc + sum;
+    }
+    return process_with_loop(items, idx + 1, acc + items[idx]);
+}
+
+print(process_with_loop([1, 2, 3, 4, 5], 0, 0));  // 15 + 3 = 18
+
+// Tail recursion with switch statement
+fn classify_and_recurse(n, acc) {
+    if (n <= 0) {
+        return acc;
+    }
+
+    let add = 0;
+    switch (n % 3) {
+        case 0:
+            add = 3;
+            break;
+        case 1:
+            add = 1;
+            break;
+        default:
+            add = 2;
+            break;
+    }
+
+    return classify_and_recurse(n - 1, acc + add);
+}
+
+print(classify_and_recurse(10, 0));  // Expected: sum of adds
+
+// Tail recursion with named arguments
+fn sum_named(n: i32, acc?: 0) {
+    if (n <= 0) {
+        return acc;
+    }
+    return sum_named(n: n - 1, acc: acc + n);
+}
+
+print(sum_named(n: 10));  // 55
+
+// Tail recursion with default parameter values
+fn countdown(n, step?: 1) {
+    if (n <= 0) {
+        return 0;
+    }
+    return countdown(n - step, step);
+}
+
+print(countdown(10));  // 0
+
+// Tail recursion through if-else chains
+fn categorize(n) {
+    if (n < 0) {
+        return "negative";
+    } else if (n == 0) {
+        return "zero";
+    } else if (n < 10) {
+        return categorize(n - 1);  // Tail call in else-if branch
+    } else {
+        return "large";
+    }
+}
+
+print(categorize(5));  // "zero"
+print(categorize(-1)); // "negative"
+print(categorize(100)); // "large"
+
+// Tail recursion with ternary in condition (not in return)
+fn ternary_cond(n, flag, acc) {
+    let limit = flag ? 0 : 5;
+    if (n <= limit) {
+        return acc;
+    }
+    return ternary_cond(n - 1, flag, acc + n);
+}
+
+print(ternary_cond(10, true, 0));  // 55
+print(ternary_cond(10, false, 0)); // 45 (10+9+8+7+6)
+
+// Non-tail recursive function (should NOT be optimized, but still work)
+fn factorial_non_tail(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial_non_tail(n - 1);  // NOT tail call - multiplication after
+}
+
+print(factorial_non_tail(5));  // 120
+
+// Tail recursive factorial
+fn factorial_tail(n, acc) {
+    if (n <= 1) {
+        return acc;
+    }
+    return factorial_tail(n - 1, n * acc);  // IS tail call
+}
+
+print(factorial_tail(5, 1));  // 120
+
+// Test with while loop before tail call
+fn while_then_tail(n, acc) {
+    let count = 0;
+    while (count < 2) {
+        count = count + 1;
+    }
+    if (n <= 0) {
+        return acc + count;
+    }
+    return while_then_tail(n - 1, acc + n);
+}
+
+print(while_then_tail(5, 0));  // 15 + 2 = 17
+
+// Test with for-in loop before tail call
+fn forin_then_tail(n, acc) {
+    let arr = [1, 2];
+    let sum = 0;
+    for (x in arr) {
+        sum = sum + x;
+    }
+    if (n <= 0) {
+        return acc + sum;
+    }
+    return forin_then_tail(n - 1, acc + n);
+}
+
+print(forin_then_tail(5, 0));  // 15 + 3 = 18
+
+print("done");
