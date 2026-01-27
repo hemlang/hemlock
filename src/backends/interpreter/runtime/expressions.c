@@ -2205,18 +2205,6 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             // Field doesn't exist - add it dynamically!
-            // Invalidate inline cache (field indices will change after rehash)
-            ic->ic_state = HML_IC_STATE_UNINITIALIZED;
-            ic->cached_object = NULL;
-            ic->cached_field_index = -1;
-
-            // Invalidate hash table (will be rebuilt on next lookup)
-            if (obj->hash_table) {
-                free(obj->hash_table);
-                obj->hash_table = NULL;
-                obj->hash_capacity = 0;
-            }
-
             if (obj->num_fields >= obj->capacity) {
                 // Grow unified field array (single realloc - reduces fragmentation)
                 int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
@@ -2231,10 +2219,20 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 obj->capacity = new_capacity;
             }
 
-            obj->fields[obj->num_fields].name = strdup(property);
+            int new_field_index = obj->num_fields;
+            obj->fields[new_field_index].name = strdup(property);
             // Store value (object now owns it)
-            obj->fields[obj->num_fields].value = value;
+            obj->fields[new_field_index].value = value;
             obj->num_fields++;
+
+            // Insert new field into hash table (grows table if needed, avoids full rebuild)
+            object_hash_insert(obj, property, new_field_index);
+
+            // Update inline cache to point to the new field
+            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+            ic->cached_object = (void*)obj;
+            ic->cached_field_index = new_field_index;
+            ic->miss_count = 0;
 
             // Return the value (retained for caller)
             VALUE_RETAIN(value);
@@ -2801,14 +2799,56 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         return val_null();
                     }
                 } else if (object_val.type == VAL_OBJECT) {
+                    // Use inline cache for O(1) property access (same as EXPR_GET_PROPERTY)
                     Object *obj = object_val.as.as_object;
-                    for (int i = 0; i < obj->num_fields; i++) {
-                        if (strcmp(obj->fields[i].name, property) == 0) {
-                            result = obj->fields[i].value;
-                            VALUE_RETAIN(result);
-                            VALUE_RELEASE(object_val);
-                            return result;
+                    PropertyIC *ic = &expr->as.optional_chain.ic;
+                    int idx = -1;
+
+                    // INLINE CACHE FAST PATH
+                    if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                        ic->cached_object == (void*)obj &&
+                        ic->cached_field_index >= 0) {
+                        if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                            idx = ic->cached_field_index;  // Cache hit!
+                        } else {
+                            // Cache is stale, invalidate
+                            ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                            ic->cached_object = NULL;
+                            ic->cached_field_index = -1;
                         }
+                    }
+
+                    // CACHE MISS: Do full lookup with hash table
+                    if (idx < 0) {
+                        if (ic->cached_hash == 0) {
+                            ic->cached_hash = hash_string(property);
+                        }
+                        idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+
+                        // Update inline cache if not megamorphic
+                        if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                            if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                                ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                                ic->miss_count = 0;
+                            } else if (ic->cached_object != (void*)obj) {
+                                ic->miss_count++;
+                                if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                    ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                                } else {
+                                    ic->cached_object = (void*)obj;
+                                    ic->cached_field_index = idx;
+                                }
+                            }
+                        }
+                    }
+
+                    if (idx >= 0) {
+                        result = obj->fields[idx].value;
+                        VALUE_RETAIN(result);
+                        VALUE_RELEASE(object_val);
+                        return result;
                     }
                     // For optional chaining, return null for missing properties
                     VALUE_RELEASE(object_val);
@@ -2969,12 +3009,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return val_null();
             }
 
+            // Create environment once and reuse across arms (optimization)
+            // This avoids allocating/freeing for each non-matching arm
+            Environment *match_env = env_new(env);
+
             // Try each arm in order
             for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
                 MatchArm *arm = &expr->as.match_expr.arms[i];
 
-                // Create a new environment for pattern bindings
-                Environment *match_env = env_new(env);
+                // Clear environment for this arm's bindings
+                env_clear(match_env);
 
                 // Try to match the pattern
                 int matched = match_pattern(arm->pattern, scrutinee, match_env, ctx);
@@ -2993,7 +3037,6 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                         if (!guard_passed) {
                             // Guard failed, try next arm
-                            env_free(match_env);
                             continue;
                         }
                     }
@@ -3005,11 +3048,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(scrutinee);
                     return result;
                 }
-
-                env_free(match_env);
             }
 
-            // No arm matched - this is a runtime error
+            // No arm matched - clean up and error
+            env_free(match_env);
             VALUE_RELEASE(scrutinee);
             runtime_error(ctx, "No pattern matched in match expression");
             return val_null();

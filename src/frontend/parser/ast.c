@@ -300,6 +300,12 @@ Expr* expr_optional_chain_property(Expr *object, const char *property) {
     expr->as.optional_chain.num_args = 0;
     expr->as.optional_chain.is_property = 1;
     expr->as.optional_chain.is_call = 0;
+    // Initialize inline cache for property access
+    expr->as.optional_chain.ic.cached_object = NULL;
+    expr->as.optional_chain.ic.cached_field_index = -1;
+    expr->as.optional_chain.ic.cached_hash = 0;
+    expr->as.optional_chain.ic.ic_state = 0;  // HML_IC_STATE_UNINITIALIZED
+    expr->as.optional_chain.ic.miss_count = 0;
     return expr;
 }
 
@@ -316,6 +322,9 @@ Expr* expr_optional_chain_index(Expr *object, Expr *index) {
     expr->as.optional_chain.num_args = 0;
     expr->as.optional_chain.is_property = 0;
     expr->as.optional_chain.is_call = 0;
+    // Initialize IC (unused for index, but avoid uninitialized memory)
+    memset(&expr->as.optional_chain.ic, 0, sizeof(PropertyIC));
+    expr->as.optional_chain.ic.cached_field_index = -1;
     return expr;
 }
 
@@ -332,6 +341,9 @@ Expr* expr_optional_chain_call(Expr *object, Expr **args, char **arg_names, int 
     expr->as.optional_chain.num_args = num_args;
     expr->as.optional_chain.is_property = 0;
     expr->as.optional_chain.is_call = 1;
+    // Initialize IC (unused for call, but avoid uninitialized memory)
+    memset(&expr->as.optional_chain.ic, 0, sizeof(PropertyIC));
+    expr->as.optional_chain.ic.cached_field_index = -1;
     return expr;
 }
 

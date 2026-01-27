@@ -662,6 +662,36 @@ int object_validate_ic(Object *obj, int cached_idx, const char *name) {
     return 0;
 }
 
+// Insert a new field into the hash table (called after field is added to fields array)
+// Grows the hash table if load factor is too high
+// Returns the field index on success
+int object_hash_insert(Object *obj, const char *name, int field_index) {
+    // If no hash table yet, build it (includes the new field since it's already in fields array)
+    if (!obj->hash_table || obj->hash_capacity == 0) {
+        object_hash_rebuild(obj);
+        return field_index;
+    }
+
+    // Check load factor: if > 0.7, rebuild with larger capacity
+    // This maintains O(1) average lookup time
+    if (obj->num_fields * 10 > obj->hash_capacity * 7) {
+        object_hash_rebuild(obj);
+        return field_index;
+    }
+
+    // Insert into existing hash table
+    uint32_t hash = djb2_hash(name);
+    int slot = hash % obj->hash_capacity;
+
+    // Linear probing to find empty slot
+    while (obj->hash_table[slot] != -1) {
+        slot = (slot + 1) % obj->hash_capacity;
+    }
+    obj->hash_table[slot] = field_index;
+
+    return field_index;
+}
+
 Object* object_new(char *type_name, int initial_capacity) {
     Object *obj = malloc(sizeof(Object));
     if (!obj) {

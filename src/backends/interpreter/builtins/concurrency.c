@@ -415,15 +415,27 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
         deadline_ptr = &deadline;
     }
 
-    // Polling loop with sleep
-    // Check all channels, if none ready, sleep briefly and retry
+    // Adaptive polling with exponential backoff
+    // Start with short sleep, increase up to max if no data found
+    // This reduces CPU usage while maintaining low latency for active channels
+    long sleep_ns = 50000;           // Start at 50us (much lower latency than 1ms)
+    const long max_sleep_ns = HML_POLL_SLEEP_NS;  // Max 1ms
+    const long min_sleep_ns = 50000; // Min 50us
+
     while (1) {
+        int all_closed = 1;  // Track if all channels are closed
+
         // Check each channel for available data
         for (int i = 0; i < channels->length; i++) {
             Channel *ch = channels->elements[i].as.as_channel;
             pthread_mutex_t *mutex = (pthread_mutex_t*)ch->mutex;
 
             pthread_mutex_lock(mutex);
+
+            // Track if any channel is still open
+            if (!ch->closed) {
+                all_closed = 0;
+            }
 
             // Check for unbuffered channel with sender waiting (rendezvous pattern)
             if (ch->capacity == 0 && ch->sender_waiting) {
@@ -534,6 +546,11 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
             pthread_mutex_unlock(mutex);
         }
 
+        // If all channels are closed, return null immediately
+        if (all_closed) {
+            return val_null();
+        }
+
         // Check timeout
         if (deadline_ptr != NULL) {
             struct timespec now;
@@ -544,9 +561,20 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
             }
         }
 
-        // Brief sleep before retrying (1ms)
-        struct timespec sleep_time = { 0, HML_POLL_SLEEP_NS };
+        // Adaptive sleep with exponential backoff
+        // Start short for low latency, increase if no activity
+        struct timespec sleep_time = { 0, sleep_ns };
         nanosleep(&sleep_time, NULL);
+
+        // Exponential backoff: double sleep time up to max
+        sleep_ns *= 2;
+        if (sleep_ns > max_sleep_ns) {
+            sleep_ns = max_sleep_ns;
+        }
+
+        // Note: sleep_ns is reset when we find data (we return immediately)
+        // If we had a "soft" check (data found but not taken), we could reset here
+        (void)min_sleep_ns;  // Suppress unused warning
     }
 }
 

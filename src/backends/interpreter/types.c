@@ -90,15 +90,57 @@ const char* value_type_name(ValueType type) {
     }
 }
 
+// ========== TYPE REGISTRY HASH TABLE ==========
+
+// DJB2 hash function for type names
+static uint32_t type_hash(const char *str) {
+    uint32_t hash = HML_DJB2_HASH_SEED;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;
+    }
+    return hash;
+}
+
 // ========== OBJECT TYPE REGISTRY ==========
 
 ObjectTypeRegistry object_types = {0};
+
+// Rebuild object type hash table
+static void object_types_hash_rebuild(void) {
+    int new_capacity = object_types.count < 8 ? 16 : object_types.count * 2;
+
+    free(object_types.hash_table);
+    object_types.hash_capacity = new_capacity;
+    object_types.hash_table = malloc(sizeof(int) * new_capacity);
+    if (!object_types.hash_table) {
+        fprintf(stderr, "Fatal: Failed to allocate type registry hash table\n");
+        exit(1);
+    }
+
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < new_capacity; i++) {
+        object_types.hash_table[i] = -1;
+    }
+
+    // Rehash all types
+    for (int i = 0; i < object_types.count; i++) {
+        uint32_t hash = type_hash(object_types.types[i]->name);
+        int slot = hash % new_capacity;
+        while (object_types.hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        object_types.hash_table[slot] = i;
+    }
+}
 
 void init_object_types(void) {
     if (object_types.types == NULL) {
         object_types.capacity = 16;
         object_types.types = malloc(sizeof(ObjectType*) * object_types.capacity);
         object_types.count = 0;
+        object_types.hash_table = NULL;
+        object_types.hash_capacity = 0;
     }
 }
 
@@ -114,17 +156,40 @@ void register_object_type(ObjectType *type) {
         object_types.types = new_types;
         object_types.capacity = new_capacity;
     }
-    object_types.types[object_types.count++] = type;
+    int idx = object_types.count;
+    object_types.types[idx] = type;
+    object_types.count++;
+
+    // Insert into hash table (rebuild if load factor > 0.7)
+    if (object_types.hash_table == NULL ||
+        object_types.count * 10 > object_types.hash_capacity * 7) {
+        object_types_hash_rebuild();
+    } else {
+        uint32_t hash = type_hash(type->name);
+        int slot = hash % object_types.hash_capacity;
+        while (object_types.hash_table[slot] != -1) {
+            slot = (slot + 1) % object_types.hash_capacity;
+        }
+        object_types.hash_table[slot] = idx;
+    }
 }
 
 ObjectType* lookup_object_type(const char *name) {
-    if (name == NULL) {
+    if (name == NULL || object_types.hash_table == NULL || object_types.hash_capacity == 0) {
         return NULL;
     }
-    for (int i = 0; i < object_types.count; i++) {
-        if (strcmp(object_types.types[i]->name, name) == 0) {
-            return object_types.types[i];
+
+    uint32_t hash = type_hash(name);
+    int slot = hash % object_types.hash_capacity;
+    int start_slot = slot;
+
+    while (object_types.hash_table[slot] != -1) {
+        int idx = object_types.hash_table[slot];
+        if (strcmp(object_types.types[idx]->name, name) == 0) {
+            return object_types.types[idx];
         }
+        slot = (slot + 1) % object_types.hash_capacity;
+        if (slot == start_slot) break;
     }
     return NULL;
 }
@@ -178,24 +243,55 @@ void cleanup_object_types(void) {
         }
     }
 
-    // Free the types array
+    // Free the types array and hash table
     free(object_types.types);
+    free(object_types.hash_table);
 
     // Reset the registry
     object_types.types = NULL;
     object_types.count = 0;
     object_types.capacity = 0;
+    object_types.hash_table = NULL;
+    object_types.hash_capacity = 0;
 }
 
 // ========== ENUM TYPE REGISTRY ==========
 
 EnumTypeRegistry enum_types = {0};
 
+// Rebuild enum type hash table
+static void enum_types_hash_rebuild(void) {
+    int new_capacity = enum_types.count < 8 ? 16 : enum_types.count * 2;
+
+    free(enum_types.hash_table);
+    enum_types.hash_capacity = new_capacity;
+    enum_types.hash_table = malloc(sizeof(int) * new_capacity);
+    if (!enum_types.hash_table) {
+        fprintf(stderr, "Fatal: Failed to allocate enum type hash table\n");
+        exit(1);
+    }
+
+    for (int i = 0; i < new_capacity; i++) {
+        enum_types.hash_table[i] = -1;
+    }
+
+    for (int i = 0; i < enum_types.count; i++) {
+        uint32_t hash = type_hash(enum_types.types[i]->name);
+        int slot = hash % new_capacity;
+        while (enum_types.hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        enum_types.hash_table[slot] = i;
+    }
+}
+
 void init_enum_types(void) {
     if (enum_types.types == NULL) {
         enum_types.capacity = 16;
         enum_types.types = malloc(sizeof(EnumType*) * enum_types.capacity);
         enum_types.count = 0;
+        enum_types.hash_table = NULL;
+        enum_types.hash_capacity = 0;
     }
 }
 
@@ -211,17 +307,40 @@ void register_enum_type(EnumType *type) {
         enum_types.types = new_types;
         enum_types.capacity = new_capacity;
     }
-    enum_types.types[enum_types.count++] = type;
+    int idx = enum_types.count;
+    enum_types.types[idx] = type;
+    enum_types.count++;
+
+    // Insert into hash table
+    if (enum_types.hash_table == NULL ||
+        enum_types.count * 10 > enum_types.hash_capacity * 7) {
+        enum_types_hash_rebuild();
+    } else {
+        uint32_t hash = type_hash(type->name);
+        int slot = hash % enum_types.hash_capacity;
+        while (enum_types.hash_table[slot] != -1) {
+            slot = (slot + 1) % enum_types.hash_capacity;
+        }
+        enum_types.hash_table[slot] = idx;
+    }
 }
 
 EnumType* lookup_enum_type(const char *name) {
-    if (name == NULL) {
+    if (name == NULL || enum_types.hash_table == NULL || enum_types.hash_capacity == 0) {
         return NULL;
     }
-    for (int i = 0; i < enum_types.count; i++) {
-        if (strcmp(enum_types.types[i]->name, name) == 0) {
-            return enum_types.types[i];
+
+    uint32_t hash = type_hash(name);
+    int slot = hash % enum_types.hash_capacity;
+    int start_slot = slot;
+
+    while (enum_types.hash_table[slot] != -1) {
+        int idx = enum_types.hash_table[slot];
+        if (strcmp(enum_types.types[idx]->name, name) == 0) {
+            return enum_types.types[idx];
         }
+        slot = (slot + 1) % enum_types.hash_capacity;
+        if (slot == start_slot) break;
     }
     return NULL;
 }
@@ -252,24 +371,55 @@ void cleanup_enum_types(void) {
         }
     }
 
-    // Free the types array
+    // Free the types array and hash table
     free(enum_types.types);
+    free(enum_types.hash_table);
 
     // Reset the registry
     enum_types.types = NULL;
     enum_types.count = 0;
     enum_types.capacity = 0;
+    enum_types.hash_table = NULL;
+    enum_types.hash_capacity = 0;
 }
 
 // ========== TYPE ALIAS REGISTRY ==========
 
 TypeAliasRegistry type_aliases = {0};
 
+// Rebuild type alias hash table
+static void type_aliases_hash_rebuild(void) {
+    int new_capacity = type_aliases.count < 8 ? 16 : type_aliases.count * 2;
+
+    free(type_aliases.hash_table);
+    type_aliases.hash_capacity = new_capacity;
+    type_aliases.hash_table = malloc(sizeof(int) * new_capacity);
+    if (!type_aliases.hash_table) {
+        fprintf(stderr, "Fatal: Failed to allocate type alias hash table\n");
+        exit(1);
+    }
+
+    for (int i = 0; i < new_capacity; i++) {
+        type_aliases.hash_table[i] = -1;
+    }
+
+    for (int i = 0; i < type_aliases.count; i++) {
+        uint32_t hash = type_hash(type_aliases.aliases[i]->name);
+        int slot = hash % new_capacity;
+        while (type_aliases.hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        type_aliases.hash_table[slot] = i;
+    }
+}
+
 void init_type_aliases(void) {
     if (type_aliases.aliases == NULL) {
         type_aliases.capacity = 16;
         type_aliases.aliases = malloc(sizeof(TypeAlias*) * type_aliases.capacity);
         type_aliases.count = 0;
+        type_aliases.hash_table = NULL;
+        type_aliases.hash_capacity = 0;
     }
 }
 
@@ -285,17 +435,40 @@ void register_type_alias(TypeAlias *alias) {
         type_aliases.aliases = new_aliases;
         type_aliases.capacity = new_capacity;
     }
-    type_aliases.aliases[type_aliases.count++] = alias;
+    int idx = type_aliases.count;
+    type_aliases.aliases[idx] = alias;
+    type_aliases.count++;
+
+    // Insert into hash table
+    if (type_aliases.hash_table == NULL ||
+        type_aliases.count * 10 > type_aliases.hash_capacity * 7) {
+        type_aliases_hash_rebuild();
+    } else {
+        uint32_t hash = type_hash(alias->name);
+        int slot = hash % type_aliases.hash_capacity;
+        while (type_aliases.hash_table[slot] != -1) {
+            slot = (slot + 1) % type_aliases.hash_capacity;
+        }
+        type_aliases.hash_table[slot] = idx;
+    }
 }
 
 TypeAlias* lookup_type_alias(const char *name) {
-    if (name == NULL) {
+    if (name == NULL || type_aliases.hash_table == NULL || type_aliases.hash_capacity == 0) {
         return NULL;
     }
-    for (int i = 0; i < type_aliases.count; i++) {
-        if (strcmp(type_aliases.aliases[i]->name, name) == 0) {
-            return type_aliases.aliases[i];
+
+    uint32_t hash = type_hash(name);
+    int slot = hash % type_aliases.hash_capacity;
+    int start_slot = slot;
+
+    while (type_aliases.hash_table[slot] != -1) {
+        int idx = type_aliases.hash_table[slot];
+        if (strcmp(type_aliases.aliases[idx]->name, name) == 0) {
+            return type_aliases.aliases[idx];
         }
+        slot = (slot + 1) % type_aliases.hash_capacity;
+        if (slot == start_slot) break;
     }
     return NULL;
 }
@@ -327,13 +500,16 @@ void cleanup_type_aliases(void) {
         }
     }
 
-    // Free the aliases array
+    // Free the aliases array and hash table
     free(type_aliases.aliases);
+    free(type_aliases.hash_table);
 
     // Reset the registry
     type_aliases.aliases = NULL;
     type_aliases.count = 0;
     type_aliases.capacity = 0;
+    type_aliases.hash_table = NULL;
+    type_aliases.hash_capacity = 0;
 }
 
 // ========== TYPE PARAMETER SUBSTITUTION ==========
