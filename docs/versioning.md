@@ -30,9 +30,9 @@ The version is defined in `include/version.h`:
 ```c
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 4
+#define HEMLOCK_VERSION_PATCH 5
 
-#define HEMLOCK_VERSION "1.8.4"
+#define HEMLOCK_VERSION "1.8.5"
 ```
 
 ### Checking Versions
@@ -93,6 +93,7 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **1.8.5** | 2026 | 5 new array methods (every, some, indexOf, sort, fill), major performance optimizations, memory leak fixes |
 | **1.8.4** | 2026 | Graceful handling for reserved keywords (def, func, var, class), fix flaky CI tests |
 | **1.8.3** | 2026 | Code polish: consolidate magic numbers, standardize error messages |
 | **1.8.2** | 2026 | Memory leak prevention: exception-safe eval, task/channel cleanup, optimizer fixes |

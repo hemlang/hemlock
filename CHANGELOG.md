@@ -5,6 +5,37 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2026-01-27
+
+### Added
+
+- **Five new array methods** - Expanding array functionality to 23 methods total:
+  - `every(predicate)` - Returns true if all elements satisfy the predicate
+  - `some(predicate)` - Returns true if any element satisfies the predicate
+  - `indexOf(value)` - Returns the first index of a value, or -1 if not found
+  - `sort(comparator?)` - Sorts array in-place with optional custom comparator
+  - `fill(value, start?, end?)` - Fills array elements with a value
+- **Sorting algorithm benchmark** (`examples/sorting_benchmark.hml`) - Compares 8 different sorting algorithms
+
+### Changed
+
+- **Major runtime performance optimizations**:
+  - Inline caching extended to all object property access sites
+  - Small string optimization (SSO) for reduced memory fragmentation
+  - Unified field storage for objects reduces allocation overhead
+  - Improved tail call optimization in hemlockc compiler
+  - Consolidated sync structures for better memory layout
+- **Shared code modules** - Reduced interpreter/compiler duplication:
+  - Shared UTF-8 handling module
+  - Unified type promotion logic across backends
+
+### Fixed
+
+- **6 memory leaks** identified by clang static analyzer
+- **macOS double-free bug** - Reverted VisitedSet hash table optimization that caused crashes on macOS
+- Removed unused `@stdlib/os` import from path module
+- Removed obsolete FFI -O0 workaround
+
 ## [1.8.3] - 2026-01-20
 
 ### Added
