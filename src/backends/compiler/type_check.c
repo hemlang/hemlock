@@ -1282,8 +1282,10 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
             CheckedType *ret = func->as.function.return_type
                 ? checked_type_from_ast_ctx(ctx, func->as.function.return_type)
                 : checked_type_primitive(CHECKED_ANY);
-            return checked_type_function(param_types, func->as.function.num_params,
+            CheckedType *result = checked_type_function(param_types, func->as.function.num_params,
                                          ret, func->as.function.rest_param != NULL);
+            free(param_types);  // Free the temporary array (elements were transferred)
+            return result;
         }
 
         case EXPR_INDEX: {
@@ -2598,6 +2600,9 @@ static void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int
                 stmt->as.define_object.method_names, method_types,
                 stmt->as.define_object.method_optional,
                 stmt->as.define_object.num_methods);
+            // Free the temporary arrays (elements were transferred to the object def)
+            free(field_types);
+            free(method_types);
         }
 
         // Handle enum definitions

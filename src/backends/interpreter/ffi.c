@@ -960,6 +960,8 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
                 // Slow path: struct needs heap allocation
                 void *heap_storage = hemlock_to_c_value(args[i], param_type, ctx);
                 if (ctx->exception_state.is_throwing) {
+                    // Free current heap_storage that was just allocated
+                    if (heap_storage) free(heap_storage);
                     // Cleanup already-allocated structs
                     for (int j = 0; j < i; j++) {
                         if (struct_storage[j]) free(struct_storage[j]);
