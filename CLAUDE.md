@@ -910,7 +910,7 @@ make parity
 
 ## Version
 
-**v1.8.3** - Current release with:
+**v1.8.5** - Current release with:
 - **`@stdlib/termios` module** - Cross-platform raw terminal input (Linux/macOS):
   - `enable_raw_mode()` / `disable_raw_mode()` for instant keypresses
   - `read_key()` / `read_key_timeout(ms)` for single keypress reading
