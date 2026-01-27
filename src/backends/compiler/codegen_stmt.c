@@ -814,18 +814,49 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     Expr *call_expr = stmt->as.return_stmt.value;
                     Expr *func = ctx->tail_call_func_expr;
                     int num_params = func->as.function.num_params;
+                    int num_call_args = call_expr->as.call.num_args;
 
                     // Evaluate new argument values first (before releasing old ones)
+                    // Handle both positional and named arguments
                     char **new_arg_vals = malloc(num_params * sizeof(char*));
-                    // Initialize all elements to avoid uninitialized access warnings
-                    for (int i = 0; i < num_params; i++) {
-                        if (i < call_expr->as.call.num_args) {
-                            new_arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
+                    int *arg_provided = calloc(num_params, sizeof(int));  // Track which params have values
+
+                    // First pass: handle positional arguments (until we hit a named one)
+                    int pos_idx = 0;
+                    for (int i = 0; i < num_call_args; i++) {
+                        if (call_expr->as.call.arg_names && call_expr->as.call.arg_names[i]) {
+                            // Named argument - find matching parameter
+                            const char *arg_name = call_expr->as.call.arg_names[i];
+                            for (int p = 0; p < num_params; p++) {
+                                if (strcmp(func->as.function.param_names[p], arg_name) == 0) {
+                                    new_arg_vals[p] = codegen_expr(ctx, call_expr->as.call.args[i]);
+                                    arg_provided[p] = 1;
+                                    break;
+                                }
+                            }
                         } else {
-                            // Fill in defaults for missing args
-                            new_arg_vals[i] = strdup("hml_val_null()");
+                            // Positional argument
+                            if (pos_idx < num_params) {
+                                new_arg_vals[pos_idx] = codegen_expr(ctx, call_expr->as.call.args[i]);
+                                arg_provided[pos_idx] = 1;
+                                pos_idx++;
+                            }
                         }
                     }
+
+                    // Second pass: fill in defaults or null for unprovided parameters
+                    for (int i = 0; i < num_params; i++) {
+                        if (!arg_provided[i]) {
+                            // Check if there's a default value
+                            if (func->as.function.param_defaults &&
+                                func->as.function.param_defaults[i]) {
+                                new_arg_vals[i] = codegen_expr(ctx, func->as.function.param_defaults[i]);
+                            } else {
+                                new_arg_vals[i] = strdup("hml_val_null()");
+                            }
+                        }
+                    }
+                    free(arg_provided);
 
                     // Release old parameter values and assign new ones
                     for (int i = 0; i < num_params; i++) {
