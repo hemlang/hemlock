@@ -99,6 +99,9 @@ typedef struct {
     ObjectType **types;
     int count;
     int capacity;
+    // Hash table for O(1) lookup by name
+    int *hash_table;          // Maps hash slots to type indices (-1 = empty)
+    int hash_capacity;        // Size of hash table
 } ObjectTypeRegistry;
 
 extern ObjectTypeRegistry object_types;
@@ -116,6 +119,9 @@ typedef struct {
     EnumType **types;
     int count;
     int capacity;
+    // Hash table for O(1) lookup by name
+    int *hash_table;
+    int hash_capacity;
 } EnumTypeRegistry;
 
 extern EnumTypeRegistry enum_types;
@@ -133,6 +139,9 @@ typedef struct {
     TypeAlias **aliases;
     int count;
     int capacity;
+    // Hash table for O(1) lookup by name
+    int *hash_table;
+    int hash_capacity;
 } TypeAliasRegistry;
 
 extern TypeAliasRegistry type_aliases;
@@ -140,11 +149,15 @@ extern TypeAliasRegistry type_aliases;
 // ========== VISITED SET (for cycle detection) ==========
 
 // Internal structure for tracking visited objects/arrays during cycle detection
+// Uses hash table for O(1) lookup instead of O(n) linear search
 // Used by both environment.c (cycle breaking) and values.c (cycle-safe deallocation)
 typedef struct {
-    void **pointers;
+    void **pointers;      // Array of pointers for iteration (if needed)
     int count;
     int capacity;
+    // Hash table for O(1) contains check (pointer address as hash key)
+    int *hash_table;      // Maps hash slots to pointer indices (-1 = empty)
+    int hash_capacity;    // Size of hash table
 } VisitedSet;
 
 VisitedSet* visited_set_new(void);
@@ -177,6 +190,7 @@ String* string_new(const char *cstr);
 int object_lookup_field(Object *obj, const char *name);  // O(1) field lookup using hash table
 int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash);  // With pre-computed hash
 int object_validate_ic(Object *obj, int cached_idx, const char *name);  // Validate IC cache entry
+int object_hash_insert(Object *obj, const char *name, int field_index);  // Insert field into hash table
 
 // Value cleanup and reference counting
 void value_free(Value val);

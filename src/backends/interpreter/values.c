@@ -662,6 +662,36 @@ int object_validate_ic(Object *obj, int cached_idx, const char *name) {
     return 0;
 }
 
+// Insert a new field into the hash table (called after field is added to fields array)
+// Grows the hash table if load factor is too high
+// Returns the field index on success
+int object_hash_insert(Object *obj, const char *name, int field_index) {
+    // If no hash table yet, build it (includes the new field since it's already in fields array)
+    if (!obj->hash_table || obj->hash_capacity == 0) {
+        object_hash_rebuild(obj);
+        return field_index;
+    }
+
+    // Check load factor: if > 0.7, rebuild with larger capacity
+    // This maintains O(1) average lookup time
+    if (obj->num_fields * 10 > obj->hash_capacity * 7) {
+        object_hash_rebuild(obj);
+        return field_index;
+    }
+
+    // Insert into existing hash table
+    uint32_t hash = djb2_hash(name);
+    int slot = hash % obj->hash_capacity;
+
+    // Linear probing to find empty slot
+    while (obj->hash_table[slot] != -1) {
+        slot = (slot + 1) % obj->hash_capacity;
+    }
+    obj->hash_table[slot] = field_index;
+
+    return field_index;
+}
+
 Object* object_new(char *type_name, int initial_capacity) {
     Object *obj = malloc(sizeof(Object));
     if (!obj) {
@@ -1347,7 +1377,47 @@ char* value_to_string(Value val) {
 
 // ========== CYCLE DETECTION FOR DEALLOCATION ==========
 
+// Hash function for pointer addresses - use the pointer value directly
+// Pointers are naturally well-distributed (aligned), so we scramble a bit
+static inline uint32_t ptr_hash(void *ptr) {
+    uintptr_t val = (uintptr_t)ptr;
+    // Mix bits using FNV-style multiplicative hash
+    val = val ^ (val >> 16);
+    val = val * 0x85ebca6b;
+    val = val ^ (val >> 13);
+    return (uint32_t)val;
+}
+
+// Rebuild hash table for visited set
+static void visited_set_hash_rebuild(VisitedSet *set) {
+    int new_capacity = set->count < 8 ? 16 : set->count * 2;
+
+    free(set->hash_table);
+    set->hash_capacity = new_capacity;
+    set->hash_table = malloc(sizeof(int) * new_capacity);
+    if (!set->hash_table) {
+        fprintf(stderr, "Runtime error: Failed to allocate visited set hash table\n");
+        exit(1);
+    }
+
+    // Initialize all slots to -1 (empty)
+    for (int i = 0; i < new_capacity; i++) {
+        set->hash_table[i] = -1;
+    }
+
+    // Rehash all pointers
+    for (int i = 0; i < set->count; i++) {
+        uint32_t hash = ptr_hash(set->pointers[i]);
+        int slot = hash % new_capacity;
+        while (set->hash_table[slot] != -1) {
+            slot = (slot + 1) % new_capacity;
+        }
+        set->hash_table[slot] = i;
+    }
+}
+
 // Shared VisitedSet implementation (declared in internal.h)
+// Uses hash table for O(1) contains check
 // Used by both values.c and environment.c for cycle detection
 VisitedSet* visited_set_new(void) {
     VisitedSet *set = malloc(sizeof(VisitedSet));
@@ -1359,26 +1429,44 @@ VisitedSet* visited_set_new(void) {
         free(set);
         return NULL;
     }
+    // Hash table is built lazily on first add
+    set->hash_table = NULL;
+    set->hash_capacity = 0;
     return set;
 }
 
 void visited_set_free(VisitedSet *set) {
     if (set) {
         free(set->pointers);
+        free(set->hash_table);
         free(set);
     }
 }
 
+// O(1) average case contains check using hash table
 int visited_set_contains(VisitedSet *set, void *ptr) {
-    for (int i = 0; i < set->count; i++) {
-        if (set->pointers[i] == ptr) {
-            return 1;
-        }
+    // No hash table yet means set is empty
+    if (!set->hash_table || set->hash_capacity == 0 || set->count == 0) {
+        return 0;
     }
-    return 0;
+
+    uint32_t hash = ptr_hash(ptr);
+    int slot = hash % set->hash_capacity;
+    int start_slot = slot;
+
+    while (set->hash_table[slot] != -1) {
+        int idx = set->hash_table[slot];
+        if (set->pointers[idx] == ptr) {
+            return 1;  // Found
+        }
+        slot = (slot + 1) % set->hash_capacity;
+        if (slot == start_slot) break;  // Full circle
+    }
+    return 0;  // Not found
 }
 
 void visited_set_add(VisitedSet *set, void *ptr) {
+    // Grow pointer array if needed
     if (set->count >= set->capacity) {
         // SECURITY: Check for integer overflow before doubling
         if (set->capacity > INT_MAX / 2) {
@@ -1398,7 +1486,22 @@ void visited_set_add(VisitedSet *set, void *ptr) {
         set->capacity = new_capacity;
         set->pointers = new_pointers;
     }
-    set->pointers[set->count++] = ptr;
+
+    int idx = set->count;
+    set->pointers[idx] = ptr;
+    set->count++;
+
+    // Insert into hash table (rebuild if load factor > 0.7 or first add)
+    if (set->hash_table == NULL || set->count * 10 > set->hash_capacity * 7) {
+        visited_set_hash_rebuild(set);
+    } else {
+        uint32_t hash = ptr_hash(ptr);
+        int slot = hash % set->hash_capacity;
+        while (set->hash_table[slot] != -1) {
+            slot = (slot + 1) % set->hash_capacity;
+        }
+        set->hash_table[slot] = idx;
+    }
 }
 
 // Forward declarations for internal versions

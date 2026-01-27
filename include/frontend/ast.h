@@ -212,6 +212,7 @@ struct Expr {
             int num_args;        // Number of arguments (0 if not a call)
             int is_property;     // 1 for property access, 0 for indexing/call
             int is_call;         // 1 for method call, 0 for property/indexing
+            PropertyIC ic;       // Inline cache for property access (obj?.property)
         } optional_chain;
         struct {
             Expr *left;          // Left operand
