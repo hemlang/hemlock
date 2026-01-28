@@ -155,6 +155,13 @@
         }
     }
 
+    // stat compatibility for Windows
+    #include <sys/types.h>
+    #include <sys/stat.h>
+    #define stat _stat
+    #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+    #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+
     // strndup compatibility for Windows
     static inline char* hml_strndup(const char *s, size_t n) {
         size_t len = strnlen(s, n);

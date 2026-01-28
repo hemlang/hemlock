@@ -369,12 +369,29 @@ HmlValue hml_platform(void) {
 }
 
 HmlValue hml_arch(void) {
+#ifdef HML_WINDOWS
+    SYSTEM_INFO si;
+    GetNativeSystemInfo(&si);
+    switch (si.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_AMD64:
+            return hml_val_string("x86_64");
+        case PROCESSOR_ARCHITECTURE_ARM64:
+            return hml_val_string("aarch64");
+        case PROCESSOR_ARCHITECTURE_INTEL:
+            return hml_val_string("i686");
+        case PROCESSOR_ARCHITECTURE_ARM:
+            return hml_val_string("arm");
+        default:
+            return hml_val_string("unknown");
+    }
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         fprintf(stderr, "Error: arch() failed: %s\n", strerror(errno));
         exit(1);
     }
     return hml_val_string(info.machine);
+#endif
 }
 
 HmlValue hml_hostname(void) {
@@ -387,6 +404,20 @@ HmlValue hml_hostname(void) {
 }
 
 HmlValue hml_username(void) {
+#ifdef HML_WINDOWS
+    // Try GetUserNameA first
+    char username[256];
+    DWORD size = sizeof(username);
+    if (GetUserNameA(username, &size)) {
+        return hml_val_string(username);
+    }
+
+    // Fall back to USERNAME environment variable
+    char *env_user = getenv("USERNAME");
+    if (env_user != NULL) {
+        return hml_val_string(env_user);
+    }
+#else
     // Try getlogin_r first
     char username[256];
     if (getlogin_r(username, sizeof(username)) == 0) {
@@ -404,12 +435,29 @@ HmlValue hml_username(void) {
     if (env_user != NULL) {
         return hml_val_string(env_user);
     }
+#endif
 
     fprintf(stderr, "Error: username() failed: could not determine username\n");
     exit(1);
 }
 
 HmlValue hml_homedir(void) {
+#ifdef HML_WINDOWS
+    // Try USERPROFILE environment variable first (standard on Windows)
+    char *home = getenv("USERPROFILE");
+    if (home != NULL) {
+        return hml_val_string(home);
+    }
+
+    // Fall back to HOMEDRIVE + HOMEPATH
+    char *drive = getenv("HOMEDRIVE");
+    char *path = getenv("HOMEPATH");
+    if (drive != NULL && path != NULL) {
+        char homedir[512];
+        snprintf(homedir, sizeof(homedir), "%s%s", drive, path);
+        return hml_val_string(homedir);
+    }
+#else
     // Try HOME environment variable first
     char *home = getenv("HOME");
     if (home != NULL) {
@@ -421,21 +469,36 @@ HmlValue hml_homedir(void) {
     if (pw != NULL && pw->pw_dir != NULL) {
         return hml_val_string(pw->pw_dir);
     }
+#endif
 
     fprintf(stderr, "Error: homedir() failed: could not determine home directory\n");
     exit(1);
 }
 
 HmlValue hml_cpu_count(void) {
+#ifdef HML_WINDOWS
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return hml_val_i32((int32_t)si.dwNumberOfProcessors);
+#else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
     if (nprocs < 1) {
         nprocs = 1;  // Default to 1 if we can't determine
     }
     return hml_val_i32((int32_t)nprocs);
+#endif
 }
 
 HmlValue hml_total_memory(void) {
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (!GlobalMemoryStatusEx(&memInfo)) {
+        fprintf(stderr, "Error: total_memory() failed: could not determine memory\n");
+        exit(1);
+    }
+    return hml_val_i64((int64_t)memInfo.ullTotalPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: total_memory() failed: %s\n", strerror(errno));
@@ -464,7 +527,15 @@ HmlValue hml_total_memory(void) {
 }
 
 HmlValue hml_free_memory(void) {
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (!GlobalMemoryStatusEx(&memInfo)) {
+        fprintf(stderr, "Error: free_memory() failed: could not determine free memory\n");
+        exit(1);
+    }
+    return hml_val_i64((int64_t)memInfo.ullAvailPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: free_memory() failed: %s\n", strerror(errno));
@@ -504,21 +575,37 @@ HmlValue hml_free_memory(void) {
 }
 
 HmlValue hml_os_version(void) {
+#ifdef HML_WINDOWS
+    OSVERSIONINFOA osvi;
+    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOA);
+    if (GetVersionExA(&osvi)) {
+        char version[64];
+        snprintf(version, sizeof(version), "%lu.%lu.%lu",
+                 osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber);
+        return hml_val_string(version);
+    }
+    return hml_val_string("unknown");
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         fprintf(stderr, "Error: os_version() failed: %s\n", strerror(errno));
         exit(1);
     }
     return hml_val_string(info.release);
+#endif
 }
 
 HmlValue hml_os_name(void) {
+#ifdef HML_WINDOWS
+    return hml_val_string("Windows");
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         fprintf(stderr, "Error: os_name() failed: %s\n", strerror(errno));
         exit(1);
     }
     return hml_val_string(info.sysname);
+#endif
 }
 
 HmlValue hml_tmpdir(void) {
@@ -534,11 +621,29 @@ HmlValue hml_tmpdir(void) {
     if (tmpdir != NULL && tmpdir[0] != '\0') {
         return hml_val_string(tmpdir);
     }
+#ifdef HML_WINDOWS
+    // On Windows, use GetTempPath as fallback
+    char temp_path[MAX_PATH];
+    DWORD len = GetTempPathA(MAX_PATH, temp_path);
+    if (len > 0 && len < MAX_PATH) {
+        // Remove trailing backslash if present
+        if (len > 0 && temp_path[len - 1] == '\\') {
+            temp_path[len - 1] = '\0';
+        }
+        return hml_val_string(temp_path);
+    }
+    return hml_val_string("C:\\Windows\\Temp");
+#else
     return hml_val_string("/tmp");
+#endif
 }
 
 HmlValue hml_uptime(void) {
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    // GetTickCount64 returns milliseconds since system boot
+    ULONGLONG uptime_ms = GetTickCount64();
+    return hml_val_i64((int64_t)(uptime_ms / 1000));
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: uptime() failed: %s\n", strerror(errno));
@@ -878,7 +983,7 @@ HmlValue hml_list_dir(HmlValue path) {
         exit(1);
     }
 
-    DIR *dir = opendir(path.as.as_string->data);
+    hml_dir_t *dir = hml_opendir(path.as.as_string->data);
     if (!dir) {
         fprintf(stderr, "Error: Failed to open directory '%s': %s\n",
             path.as.as_string->data, strerror(errno));
@@ -886,8 +991,8 @@ HmlValue hml_list_dir(HmlValue path) {
     }
 
     HmlValue arr = hml_val_array();
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
+    hml_dirent_t *entry;
+    while ((entry = hml_readdir(dir)) != NULL) {
         // Skip "." and ".."
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -895,7 +1000,7 @@ HmlValue hml_list_dir(HmlValue path) {
         hml_array_push(arr, hml_val_string(entry->d_name));
     }
 
-    closedir(dir);
+    hml_closedir(dir);
     return arr;
 }
 
