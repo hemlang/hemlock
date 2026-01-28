@@ -30,6 +30,121 @@
 static int vm_trace_enabled = 0;
 
 // ============================================
+// Type Registry for define types with defaults
+// ============================================
+
+typedef struct VMTypeField {
+    char *name;
+    bool optional;
+    Value default_value;         // Pre-computed default (for simple cases)
+    bool has_default;
+} VMTypeField;
+
+typedef struct VMTypeDef {
+    char *name;
+    VMTypeField *fields;
+    int num_fields;
+} VMTypeDef;
+
+typedef struct VMTypeRegistry {
+    VMTypeDef **types;
+    int count;
+    int capacity;
+} VMTypeRegistry;
+
+static VMTypeRegistry g_vm_type_registry = {0};
+
+static void vm_type_registry_init(void) {
+    g_vm_type_registry.types = NULL;
+    g_vm_type_registry.count = 0;
+    g_vm_type_registry.capacity = 0;
+}
+
+static void vm_type_registry_free(void) {
+    for (int i = 0; i < g_vm_type_registry.count; i++) {
+        VMTypeDef *t = g_vm_type_registry.types[i];
+        free(t->name);
+        for (int j = 0; j < t->num_fields; j++) {
+            free(t->fields[j].name);
+        }
+        free(t->fields);
+        free(t);
+    }
+    free(g_vm_type_registry.types);
+    g_vm_type_registry.types = NULL;
+    g_vm_type_registry.count = 0;
+    g_vm_type_registry.capacity = 0;
+}
+
+static void vm_register_type(const char *name, VMTypeField *fields, int num_fields) {
+    // Check if type already exists (update it)
+    for (int i = 0; i < g_vm_type_registry.count; i++) {
+        if (strcmp(g_vm_type_registry.types[i]->name, name) == 0) {
+            // Update existing type
+            VMTypeDef *t = g_vm_type_registry.types[i];
+            for (int j = 0; j < t->num_fields; j++) {
+                free(t->fields[j].name);
+            }
+            free(t->fields);
+            t->fields = fields;
+            t->num_fields = num_fields;
+            return;
+        }
+    }
+
+    // Add new type
+    if (g_vm_type_registry.count >= g_vm_type_registry.capacity) {
+        int new_cap = g_vm_type_registry.capacity == 0 ? 16 : g_vm_type_registry.capacity * 2;
+        g_vm_type_registry.types = realloc(g_vm_type_registry.types, sizeof(VMTypeDef*) * new_cap);
+        g_vm_type_registry.capacity = new_cap;
+    }
+
+    VMTypeDef *t = malloc(sizeof(VMTypeDef));
+    t->name = strdup(name);
+    t->fields = fields;
+    t->num_fields = num_fields;
+    g_vm_type_registry.types[g_vm_type_registry.count++] = t;
+}
+
+static VMTypeDef* vm_lookup_type(const char *name) {
+    for (int i = 0; i < g_vm_type_registry.count; i++) {
+        if (strcmp(g_vm_type_registry.types[i]->name, name) == 0) {
+            return g_vm_type_registry.types[i];
+        }
+    }
+    return NULL;
+}
+
+// Apply default values from a type definition to an object
+static void vm_apply_type_defaults(Object *obj, VMTypeDef *type) {
+    for (int i = 0; i < type->num_fields; i++) {
+        VMTypeField *field = &type->fields[i];
+        if (!field->optional || !field->has_default) continue;
+
+        // Check if field already exists in object
+        bool found = false;
+        for (int j = 0; j < obj->num_fields; j++) {
+            if (strcmp(obj->field_names[j], field->name) == 0) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            // Add field with default value
+            if (obj->num_fields >= obj->capacity) {
+                obj->capacity *= 2;
+                obj->field_names = realloc(obj->field_names, sizeof(char*) * obj->capacity);
+                obj->field_values = realloc(obj->field_values, sizeof(Value) * obj->capacity);
+            }
+            obj->field_names[obj->num_fields] = strdup(field->name);
+            obj->field_values[obj->num_fields] = field->default_value;
+            obj->num_fields++;
+        }
+    }
+}
+
+// ============================================
 // Math Builtin Implementations for stdlib
 // ============================================
 
@@ -3016,7 +3131,43 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         free(o->type_name);
                     }
                     o->type_name = strdup(c.as.string.data);
+
+                    // Apply default values from type definition
+                    VMTypeDef *type = vm_lookup_type(c.as.string.data);
+                    if (type) {
+                        vm_apply_type_defaults(o, type);
+                    }
                 }
+                break;
+            }
+
+            case BC_DEFINE_TYPE: {
+                // Define type: [num_fields:16]
+                // Stack: [name, field1_name, opt1, default1, field2_name, opt2, default2, ...]
+                // Each field has: name (string), optional (bool), default (value or null)
+                uint16_t num_fields = READ_SHORT();
+
+                // Allocate fields array
+                VMTypeField *fields = malloc(sizeof(VMTypeField) * num_fields);
+
+                // Pop fields in reverse order (stack is LIFO)
+                for (int i = num_fields - 1; i >= 0; i--) {
+                    Value default_val = POP();
+                    Value opt_val = POP();
+                    Value name_val = POP();
+
+                    fields[i].name = strdup(name_val.as.as_string->data);
+                    fields[i].optional = (opt_val.type == VAL_BOOL && opt_val.as.as_bool);
+                    fields[i].has_default = (default_val.type != VAL_NULL);
+                    fields[i].default_value = default_val;
+                }
+
+                // Pop type name
+                Value type_name_val = POP();
+                const char *type_name = type_name_val.as.as_string->data;
+
+                // Register the type
+                vm_register_type(type_name, fields, num_fields);
                 break;
             }
 
@@ -3074,10 +3225,18 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         PUSH(vm_null_value());
                     }
                 } else if (obj.type == VAL_STRING && obj.as.as_string) {
-                    // String properties: length
+                    // String properties: length, byte_length
                     const char *key = c.as.string.data;
+                    String *str = obj.as.as_string;
                     if (strcmp(key, "length") == 0) {
-                        PUSH(val_i32_vm(obj.as.as_string->length));
+                        // Compute character length if not cached
+                        if (str->char_length < 0) {
+                            str->char_length = utf8_count_codepoints(str->data, str->length);
+                        }
+                        PUSH(val_i32_vm(str->char_length));
+                    } else if (strcmp(key, "byte_length") == 0) {
+                        // Return byte count
+                        PUSH(val_i32_vm(str->length));
                     } else {
                         PUSH(vm_null_value());
                     }
@@ -6286,9 +6445,47 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         THROW_ERROR_FMT("Channel has no method '%s'", method);
                     }
                 } else if (receiver.type == VAL_OBJECT && receiver.as.as_object) {
-                    // Object method call - first check for built-in methods
+                    // Object method call
                     Object *obj = receiver.as.as_object;
 
+                    // First, check for user-defined method (takes priority over built-ins)
+                    Value method_val = vm_null_value();
+                    bool found_user_method = false;
+
+                    for (int i = 0; i < obj->num_fields; i++) {
+                        if (strcmp(obj->field_names[i], method) == 0) {
+                            method_val = obj->field_values[i];
+                            found_user_method = true;
+                            break;
+                        }
+                    }
+
+                    if (found_user_method && is_vm_closure(method_val)) {
+                        // Call user-defined method
+                        VMClosure *closure = as_vm_closure(method_val);
+
+                        // Save frame state before calling closure
+                        frame->ip = ip;
+
+                        // Set method_self so 'self' can be accessed inside the method
+                        Value prev_self = vm->method_self;
+                        vm->method_self = receiver;
+
+                        // Call the method with the provided arguments
+                        result = vm_call_closure(vm, closure, args, argc);
+
+                        // Restore previous self
+                        vm->method_self = prev_self;
+
+                        // Restore frame state
+                        frame = &vm->frames[vm->frame_count - 1];
+                        ip = frame->ip;
+                        slots = frame->slots;
+
+                        goto object_method_done;
+                    }
+
+                    // Not a user-defined method - check built-in methods
                     if (strcmp(method, "keys") == 0) {
                         // Return array of property names
                         Array *arr = malloc(sizeof(Array));
@@ -6309,7 +6506,7 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         result.as.as_array = arr;
                         goto object_method_done;
                     } else if (strcmp(method, "has") == 0 && argc >= 1) {
-                        // Check if property exists
+                        // Built-in has: check if property exists
                         if (args[0].type != VAL_STRING) {
                             result = val_bool_vm(false);
                         } else {
@@ -6330,46 +6527,12 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         goto object_method_done;
                     }
 
-                    // Not a built-in method - look up method property
-                    Value method_val = vm_null_value();
-                    bool found = false;
-
-                    // Find the method in object properties
-                    for (int i = 0; i < obj->num_fields; i++) {
-                        if (strcmp(obj->field_names[i], method) == 0) {
-                            method_val = obj->field_values[i];
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found) {
+                    // Method not found
+                    if (found_user_method) {
+                        THROW_ERROR_FMT("Property '%s' is not a function", method);
+                    } else {
                         THROW_ERROR_FMT("Object has no method '%s'", method);
                     }
-
-                    if (!is_vm_closure(method_val)) {
-                        THROW_ERROR_FMT("Property '%s' is not a function", method);
-                    }
-
-                    VMClosure *closure = as_vm_closure(method_val);
-
-                    // Save frame state before calling closure
-                    frame->ip = ip;
-
-                    // Set method_self so 'self' can be accessed inside the method
-                    Value prev_self = vm->method_self;
-                    vm->method_self = receiver;
-
-                    // Call the method with the provided arguments
-                    result = vm_call_closure(vm, closure, args, argc);
-
-                    // Restore previous self
-                    vm->method_self = prev_self;
-
-                    // Restore frame state
-                    frame = &vm->frames[vm->frame_count - 1];
-                    ip = frame->ip;
-                    slots = frame->slots;
 
                 object_method_done:;
                 } else {

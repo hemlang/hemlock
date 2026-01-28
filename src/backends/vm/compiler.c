@@ -1562,6 +1562,41 @@ static void compile_statement(Compiler *compiler, Stmt *stmt) {
             compiler_add_defined_global(compiler, stmt->as.enum_decl.name);
             break;
         }
+        case STMT_DEFINE_OBJECT: {
+            // Define type statement: define Person { name: string, age: i32, active?: true }
+            // Push type name
+            const char *type_name = stmt->as.define_object.name;
+            int name_idx = chunk_add_string(compiler->builder->chunk, type_name, strlen(type_name));
+            emit_byte(compiler, BC_CONST);
+            emit_short(compiler, name_idx);
+
+            int num_fields = stmt->as.define_object.num_fields;
+
+            // Push each field: name, optional, default
+            for (int i = 0; i < num_fields; i++) {
+                // Field name
+                const char *field_name = stmt->as.define_object.field_names[i];
+                int field_idx = chunk_add_string(compiler->builder->chunk, field_name, strlen(field_name));
+                emit_byte(compiler, BC_CONST);
+                emit_short(compiler, field_idx);
+
+                // Optional flag
+                int is_optional = stmt->as.define_object.field_optional[i];
+                emit_byte(compiler, is_optional ? BC_TRUE : BC_FALSE);
+
+                // Default value (or null if none)
+                if (stmt->as.define_object.field_defaults && stmt->as.define_object.field_defaults[i]) {
+                    compile_expression(compiler, stmt->as.define_object.field_defaults[i]);
+                } else {
+                    emit_byte(compiler, BC_NULL);
+                }
+            }
+
+            // Emit BC_DEFINE_TYPE with field count
+            emit_byte(compiler, BC_DEFINE_TYPE);
+            emit_short(compiler, (uint16_t)num_fields);
+            break;
+        }
         default:
             // TODO: Handle other statement types
             break;

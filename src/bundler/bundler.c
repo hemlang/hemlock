@@ -958,8 +958,71 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
 
         // Handle import statements: generate alias assignments for aliased imports
         if (stmt->type == STMT_IMPORT) {
-            // For each aliased import, generate: let alias = original;
-            if (!stmt->as.import_stmt.is_namespace && stmt->as.import_stmt.import_aliases) {
+            if (stmt->as.import_stmt.is_namespace && stmt->as.import_stmt.namespace_name) {
+                // Namespace import: import * as name from "module"
+                // Generate: let name = { export1: export1, export2: export2, ... }
+                const char *import_path = stmt->as.import_stmt.module_path;
+                BundledModule *imported = NULL;
+
+                // Skip leading "./" for relative paths
+                const char *match_path = import_path;
+                if (strncmp(import_path, "./", 2) == 0) {
+                    match_path = import_path + 2;
+                }
+
+                // Find the imported module
+                for (int j = 0; j < bundle->num_modules; j++) {
+                    BundledModule *dep = bundle->modules[j];
+                    int matches = 0;
+
+                    if (strncmp(match_path, "@stdlib/", 8) == 0) {
+                        const char *module_name = match_path + 8;
+                        char expected[256];
+                        snprintf(expected, sizeof(expected), "/stdlib/%s.hml", module_name);
+                        if (strstr(dep->absolute_path, expected)) {
+                            matches = 1;
+                        }
+                    } else {
+                        size_t path_len = strlen(dep->absolute_path);
+                        size_t import_len = strlen(match_path);
+                        char expected_suffix[256];
+                        if (import_len >= 4 && strcmp(match_path + import_len - 4, ".hml") == 0) {
+                            snprintf(expected_suffix, sizeof(expected_suffix), "/%s", match_path);
+                        } else {
+                            snprintf(expected_suffix, sizeof(expected_suffix), "/%s.hml", match_path);
+                        }
+                        size_t suffix_len = strlen(expected_suffix);
+                        if (path_len >= suffix_len) {
+                            const char *actual_suffix = dep->absolute_path + path_len - suffix_len;
+                            if (strcmp(actual_suffix, expected_suffix) == 0) {
+                                matches = 1;
+                            }
+                        }
+                    }
+
+                    if (matches) {
+                        imported = dep;
+                        break;
+                    }
+                }
+
+                if (imported && imported->num_exports > 0) {
+                    // Create object literal with all exports
+                    // { export1: export1, export2: export2, ... }
+                    char **field_names = malloc(sizeof(char*) * imported->num_exports);
+                    Expr **field_values = malloc(sizeof(Expr*) * imported->num_exports);
+
+                    for (int j = 0; j < imported->num_exports; j++) {
+                        field_names[j] = strdup(imported->export_names[j]);
+                        field_values[j] = expr_ident(imported->export_names[j]);
+                    }
+
+                    Expr *obj_literal = expr_object_literal(field_names, field_values, imported->num_exports);
+                    Stmt *let_stmt = stmt_let(stmt->as.import_stmt.namespace_name, obj_literal);
+                    add_flattened_stmt(bundle, let_stmt);
+                }
+            } else if (!stmt->as.import_stmt.is_namespace && stmt->as.import_stmt.import_aliases) {
+                // For each aliased import, generate: let alias = original;
                 for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
                     char *alias = stmt->as.import_stmt.import_aliases[j];
                     char *original = stmt->as.import_stmt.import_names[j];
