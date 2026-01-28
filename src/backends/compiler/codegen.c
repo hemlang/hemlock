@@ -26,6 +26,10 @@ static int safe_double_capacity(int current, int min_default) {
 
 CodegenContext* codegen_new(FILE *output) {
     CodegenContext *ctx = malloc(sizeof(CodegenContext));
+    if (!ctx) {
+        fprintf(stderr, "error: Memory allocation failed for codegen context\n");
+        return NULL;
+    }
     ctx->output = output;
     ctx->indent = 0;
     ctx->temp_counter = 0;
@@ -300,18 +304,30 @@ void codegen_warning(CodegenContext *ctx, int line, const char *fmt, ...) {
 
 char* codegen_temp(CodegenContext *ctx) {
     char *name = malloc(32);
+    if (!name) {
+        codegen_error(ctx, 0, "Memory allocation failed for temp variable name");
+        return strdup("_tmp_error");
+    }
     snprintf(name, 32, "_tmp%d", ctx->temp_counter++);
     return name;
 }
 
 char* codegen_label(CodegenContext *ctx) {
     char *name = malloc(32);
+    if (!name) {
+        codegen_error(ctx, 0, "Memory allocation failed for label name");
+        return strdup("_L_error");
+    }
     snprintf(name, 32, "_L%d", ctx->label_counter++);
     return name;
 }
 
 char* codegen_anon_func(CodegenContext *ctx) {
     char *name = malloc(32);
+    if (!name) {
+        codegen_error(ctx, 0, "Memory allocation failed for anonymous function name");
+        return strdup("hml_fn_anon_error");
+    }
     snprintf(name, 32, "hml_fn_anon_%d", ctx->func_counter++);
     return name;
 }
@@ -833,8 +849,10 @@ void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params
     // Copy param_is_ref array
     if (param_is_ref && num_params > 0) {
         ctx->main_func_param_is_ref[ctx->num_main_funcs] = malloc(num_params * sizeof(int));
-        for (int i = 0; i < num_params; i++) {
-            ctx->main_func_param_is_ref[ctx->num_main_funcs][i] = param_is_ref[i];
+        if (ctx->main_func_param_is_ref[ctx->num_main_funcs]) {
+            for (int i = 0; i < num_params; i++) {
+                ctx->main_func_param_is_ref[ctx->num_main_funcs][i] = param_is_ref[i];
+            }
         }
     } else {
         ctx->main_func_param_is_ref[ctx->num_main_funcs] = NULL;
@@ -994,6 +1012,10 @@ char* codegen_sanitize_ident(const char *name) {
         // Add "_v_" prefix to escape the conflict
         size_t len = strlen(name) + 4;  // "_v_" + name + null
         char *escaped = malloc(len);
+        if (!escaped) {
+            fprintf(stderr, "error: Memory allocation failed for sanitized identifier\n");
+            return strdup(name);  // Fallback to unsanitized
+        }
         snprintf(escaped, len, "_v_%s", name);
         return escaped;
     }
@@ -1009,6 +1031,10 @@ char* codegen_escape_string(const char *str) {
     int len = strlen(str);
     // Worst case: every char needs escaping (2x) + quotes + null
     char *escaped = malloc(len * 2 + 3);
+    if (!escaped) {
+        fprintf(stderr, "error: Memory allocation failed for escaped string\n");
+        return strdup("");
+    }
     char *p = escaped;
 
     while (*str) {
@@ -1087,6 +1113,10 @@ const char* codegen_hml_unary_op(UnaryOp op) {
 
 Scope* scope_new(Scope *parent) {
     Scope *s = malloc(sizeof(Scope));
+    if (!s) {
+        fprintf(stderr, "error: Memory allocation failed for scope\n");
+        return NULL;
+    }
     s->vars = NULL;
     s->num_vars = 0;
     s->capacity = 0;
@@ -1159,6 +1189,10 @@ void codegen_pop_scope(CodegenContext *ctx) {
 
 void codegen_defer_push(CodegenContext *ctx, Expr *expr) {
     DeferEntry *entry = malloc(sizeof(DeferEntry));
+    if (!entry) {
+        codegen_error(ctx, 0, "Memory allocation failed for defer entry");
+        return;
+    }
     entry->expr = expr;
     entry->next = ctx->defer_stack;
     entry->scope_depth = 0;  // Not currently used

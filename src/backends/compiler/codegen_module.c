@@ -10,6 +10,10 @@
 
 CompilerModuleCache* compiler_module_cache_new(const char *main_file_path) {
     CompilerModuleCache *cache = malloc(sizeof(CompilerModuleCache));
+    if (!cache) {
+        fprintf(stderr, "error: Memory allocation failed for module cache\n");
+        exit(1);
+    }
     cache->modules = NULL;
     cache->module_counter = 0;
 
@@ -189,6 +193,10 @@ int module_is_extern_fn(CompiledModule *module, const char *name) {
 
 char* module_gen_prefix(CompilerModuleCache *cache) {
     char *prefix = malloc(32);
+    if (!prefix) {
+        fprintf(stderr, "error: Memory allocation failed for module prefix\n");
+        return NULL;
+    }
     snprintf(prefix, 32, "_mod%d_", cache->module_counter++);
     return prefix;
 }
@@ -209,10 +217,22 @@ Stmt** parse_module_file(const char *path, int *stmt_count) {
     // Read entire file
     fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
+    if (file_size < 0) {
+        fprintf(stderr, "error: Failed to determine size of module file '%s'\n", path);
+        fclose(file);
+        *stmt_count = 0;
+        return NULL;
+    }
     fseek(file, 0, SEEK_SET);
 
-    char *source = malloc(file_size + 1);
-    size_t bytes_read = fread(source, 1, file_size, file);
+    char *source = malloc((size_t)file_size + 1);
+    if (!source) {
+        fprintf(stderr, "error: Memory allocation failed for module source (%ld bytes)\n", file_size);
+        fclose(file);
+        *stmt_count = 0;
+        return NULL;
+    }
+    size_t bytes_read = fread(source, 1, (size_t)file_size, file);
     source[bytes_read] = '\0';
     fclose(file);
 
@@ -251,8 +271,22 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
 
     // Create new module
     CompiledModule *module = malloc(sizeof(CompiledModule));
+    if (!module) {
+        fprintf(stderr, "error: Memory allocation failed for compiled module\n");
+        return NULL;
+    }
     module->absolute_path = strdup(absolute_path);
+    if (!module->absolute_path) {
+        fprintf(stderr, "error: Memory allocation failed for module path\n");
+        free(module);
+        return NULL;
+    }
     module->module_prefix = module_gen_prefix(cache);
+    if (!module->module_prefix) {
+        free(module->absolute_path);
+        free(module);
+        return NULL;
+    }
     module->state = CMOD_LOADING;
     module->exports = NULL;
     module->num_exports = 0;

@@ -2643,12 +2643,19 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             int expected_params = codegen_get_main_func_params(ctx, fn_name);
             int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
             int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, fn_name);
-            char **arg_temps = expr->as.call.num_args > 0
-                ? malloc(expr->as.call.num_args * sizeof(char*))
-                : NULL;
-            int *arg_is_ref = expr->as.call.num_args > 0
-                ? calloc(expr->as.call.num_args, sizeof(int))
-                : NULL;
+            char **arg_temps = NULL;
+            int *arg_is_ref = NULL;
+            if (expr->as.call.num_args > 0) {
+                arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                arg_is_ref = calloc(expr->as.call.num_args, sizeof(int));
+                if (!arg_temps || !arg_is_ref) {
+                    free(arg_temps);
+                    free(arg_is_ref);
+                    codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
+                    free(result);
+                    return strdup("hml_val_null()");
+                }
+            }
             for (int i = 0; i < expr->as.call.num_args; i++) {
                 // For ref params, use codegen_ref_arg to get address of actual variable
                 if (param_is_ref && i < expected_params && param_is_ref[i]) {
@@ -2719,12 +2726,19 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 int expected_params = codegen_get_main_func_params(ctx, fn_name);
                 int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
                 int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, fn_name);
-                char **arg_temps = expr->as.call.num_args > 0
-                    ? malloc(expr->as.call.num_args * sizeof(char*))
-                    : NULL;
-                int *arg_is_ref = expr->as.call.num_args > 0
-                    ? calloc(expr->as.call.num_args, sizeof(int))
-                    : NULL;
+                char **arg_temps = NULL;
+                int *arg_is_ref = NULL;
+                if (expr->as.call.num_args > 0) {
+                    arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                    arg_is_ref = calloc(expr->as.call.num_args, sizeof(int));
+                    if (!arg_temps || !arg_is_ref) {
+                        free(arg_temps);
+                        free(arg_is_ref);
+                        codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
+                        free(result);
+                        return strdup("hml_val_null()");
+                    }
+                }
                 for (int i = 0; i < expr->as.call.num_args; i++) {
                     // For ref params, use codegen_ref_arg to get address of actual variable
                     if (param_is_ref && i < expected_params && param_is_ref[i]) {
@@ -2808,7 +2822,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             }
 
             // Try to call as hml_fn_<name> directly with NULL for closure env
-            char **arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+            char **arg_temps = NULL;
+            if (expr->as.call.num_args > 0) {
+                arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                if (!arg_temps) {
+                    codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
+                    free(result);
+                    return strdup("hml_val_null()");
+                }
+            }
             for (int i = 0; i < expr->as.call.num_args; i++) {
                 arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
             }
