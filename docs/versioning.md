@@ -30,9 +30,9 @@ The version is defined in `include/version.h`:
 ```c
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 7
+#define HEMLOCK_VERSION_PATCH 8
 
-#define HEMLOCK_VERSION "1.8.7"
+#define HEMLOCK_VERSION "1.8.8"
 ```
 
 ### Checking Versions
@@ -93,6 +93,7 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **1.8.8** | 2026 | Version bump |
 | **1.8.7** | 2026 | Fix multi-argument print/eprint in compiler codegen |
 | **1.8.6** | 2026 | Fix segfault in hml_string_append_inplace for SSO strings |
 | **1.8.5** | 2026 | 5 new array methods (every, some, indexOf, sort, fill), major performance optimizations, memory leak fixes |
