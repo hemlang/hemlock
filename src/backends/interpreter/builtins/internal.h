@@ -93,10 +93,8 @@
     #define POLLOUT POLLWRNORM
     #endif
 
-    // ssize_t compatibility
-    #ifndef ssize_t
-    typedef long ssize_t;
-    #endif
+    // ssize_t is provided by sys/types.h on MinGW
+    // No need to define it ourselves
 
     // Directory compatibility types
     typedef struct hml_dirent {
