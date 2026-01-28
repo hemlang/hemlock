@@ -1,5 +1,8 @@
 #include "internal.h"
+
+#ifndef HML_WINDOWS
 #include <poll.h>
+#endif
 
 // Structure to hold builtin function info
 typedef struct {
