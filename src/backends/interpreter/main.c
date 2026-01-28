@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <zlib.h>
 #include "frontend.h"
 #include "interpreter.h"
@@ -11,6 +10,20 @@
 #include "tools/bundler/bundler.h"
 #include "version.h"
 #include "profiler/profiler.h"
+
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <io.h>
+    #define access _access
+#else
+    #include <unistd.h>
+#endif
+
+#ifdef __APPLE__
+    #include <mach-o/dyld.h>
+#endif
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -120,24 +133,39 @@ static void run_source(const char *source, int argc, char **argv, int stack_dept
     free(statements);
 }
 
+// Get the path to the current executable (cross-platform)
+// Returns 0 on success, -1 on failure
+static int get_executable_path(char *buf, size_t bufsize) {
+#ifdef HML_WINDOWS
+    DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)bufsize);
+    if (len == 0 || len >= bufsize) {
+        return -1;
+    }
+    return 0;
+#elif defined(__APPLE__)
+    uint32_t size = (uint32_t)bufsize;
+    if (_NSGetExecutablePath(buf, &size) != 0) {
+        return -1;
+    }
+    return 0;
+#else
+    // Linux: read /proc/self/exe
+    ssize_t len = readlink("/proc/self/exe", buf, bufsize - 1);
+    if (len == -1) {
+        return -1;
+    }
+    buf[len] = '\0';
+    return 0;
+#endif
+}
+
 // Check if this executable has an embedded HMLB payload
 // Returns the payload data (caller must free) or NULL if not packaged
 static uint8_t* check_embedded_payload(size_t *out_size) {
     // Read our own executable path
     char exe_path[4096];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len == -1) {
-        // Try macOS alternative
-        #ifdef __APPLE__
-        uint32_t bufsize = sizeof(exe_path);
-        if (_NSGetExecutablePath(exe_path, &bufsize) != 0) {
-            return NULL;
-        }
-        #else
+    if (get_executable_path(exe_path, sizeof(exe_path)) != 0) {
         return NULL;
-        #endif
-    } else {
-        exe_path[len] = '\0';
     }
 
     FILE *f = fopen(exe_path, "rb");
@@ -689,24 +717,11 @@ static int package_file(const char *input_path, const char *output_path, int ver
 
     // Read our own executable
     char exe_path[4096];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len == -1) {
-        #ifdef __APPLE__
-        uint32_t bufsize = sizeof(exe_path);
-        if (_NSGetExecutablePath(exe_path, &bufsize) != 0) {
-            fprintf(stderr, "Cannot determine executable path\n");
-            free(hmlb_payload);
-            bundle_free(bundle);
-            return 1;
-        }
-        #else
+    if (get_executable_path(exe_path, sizeof(exe_path)) != 0) {
         fprintf(stderr, "Cannot determine executable path\n");
         free(hmlb_payload);
         bundle_free(bundle);
         return 1;
-        #endif
-    } else {
-        exe_path[len] = '\0';
     }
 
     FILE *exe_file = fopen(exe_path, "rb");
