@@ -23,10 +23,24 @@ Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx) {
         fprintf(stderr, "Runtime error: time_ms() expects no arguments\n");
         exit(1);
     }
+#ifdef HML_WINDOWS
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    // FILETIME is 100-nanosecond intervals since January 1, 1601
+    // Convert to milliseconds since Unix epoch (January 1, 1970)
+    ULARGE_INTEGER uli;
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    // Subtract difference between 1601 and 1970 (in 100-ns intervals)
+    // 116444736000000000 = number of 100-ns intervals from 1601 to 1970
+    int64_t ms = (int64_t)((uli.QuadPart - 116444736000000000ULL) / 10000);
+    return val_i64(ms);
+#else
     struct timeval tv;
     gettimeofday(&tv, NULL);
     int64_t ms = (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
     return val_i64(ms);
+#endif
 }
 
 Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
