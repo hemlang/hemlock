@@ -818,8 +818,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
                     // Evaluate new argument values first (before releasing old ones)
                     // Handle both positional and named arguments
-                    char **new_arg_vals = malloc(num_params * sizeof(char*));
-                    int *arg_provided = calloc(num_params, sizeof(int));  // Track which params have values
+                    char **new_arg_vals = NULL;
+                    int *arg_provided = NULL;
+                    if (num_params > 0) {
+                        new_arg_vals = malloc(num_params * sizeof(char*));
+                        arg_provided = calloc(num_params, sizeof(int));  // Track which params have values
+                        if (!new_arg_vals || !arg_provided) {
+                            free(new_arg_vals);
+                            free(arg_provided);
+                            codegen_error(ctx, 0, "Memory allocation failed for tail call arguments");
+                            break;
+                        }
+                    }
 
                     // First pass: handle positional arguments (until we hit a named one)
                     int pos_idx = 0;
@@ -1092,7 +1102,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             // Generate unique labels for this switch
-            char **case_labels = malloc(num_cases * sizeof(char*));
+            char **case_labels = NULL;
+            if (num_cases > 0) {
+                case_labels = malloc(num_cases * sizeof(char*));
+                if (!case_labels) {
+                    codegen_error(ctx, 0, "Memory allocation failed for switch case labels");
+                    free(expr_val);
+                    break;
+                }
+            }
             for (int i = 0; i < num_cases; i++) {
                 case_labels[i] = codegen_label(ctx);
             }
@@ -1105,7 +1123,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_inc(ctx);
 
             // Pre-generate all case values to avoid scoping issues
-            char **case_vals = malloc(num_cases * sizeof(char*));
+            char **case_vals = NULL;
+            if (num_cases > 0) {
+                case_vals = malloc(num_cases * sizeof(char*));
+                if (!case_vals) {
+                    codegen_error(ctx, 0, "Memory allocation failed for switch case values");
+                    for (int i = 0; i < num_cases; i++) {
+                        free(case_labels[i]);
+                    }
+                    free(case_labels);
+                    free(expr_val);
+                    break;
+                }
+            }
             for (int i = 0; i < num_cases; i++) {
                 if (stmt->as.switch_stmt.case_values[i] == NULL) {
                     case_vals[i] = NULL;
@@ -1183,6 +1213,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 } else {
                     // Has arguments - evaluate them and push with args
                     char **arg_vals = malloc(sizeof(char*) * num_args);
+                    if (!arg_vals) {
+                        codegen_error(ctx, 0, "Memory allocation failed for defer call arguments");
+                        free(fn_val);
+                        break;
+                    }
                     for (int i = 0; i < num_args; i++) {
                         arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
                     }
@@ -1234,7 +1269,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "%s = hml_val_object();", enum_name);
 
             // Track variant values for registration
-            int *variant_values = malloc(sizeof(int) * stmt->as.enum_decl.num_variants);
+            int *variant_values = NULL;
+            if (stmt->as.enum_decl.num_variants > 0) {
+                variant_values = malloc(sizeof(int) * stmt->as.enum_decl.num_variants);
+                if (!variant_values) {
+                    codegen_error(ctx, 0, "Memory allocation failed for enum variant values");
+                    break;
+                }
+            }
             int next_value = 0;
             for (int i = 0; i < stmt->as.enum_decl.num_variants; i++) {
                 char *variant_name = stmt->as.enum_decl.variant_names[i];

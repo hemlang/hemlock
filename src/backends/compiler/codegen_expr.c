@@ -1437,7 +1437,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             // Register closure for later code generation
             // If using shared environment, store indices into shared env in captured_vars
             ClosureInfo *closure = malloc(sizeof(ClosureInfo));
+            if (!closure) {
+                codegen_error(ctx, 0, "Memory allocation failed for closure info");
+                free(result);
+                return strdup("hml_val_null()");
+            }
             closure->func_name = strdup(func_name);
+            if (!closure->func_name) {
+                codegen_error(ctx, 0, "Memory allocation failed for closure function name");
+                free(closure);
+                free(result);
+                return strdup("hml_val_null()");
+            }
             closure->func_expr = expr;
             closure->source_module = ctx->current_module;  // Save module context for function resolution
             closure->next = ctx->closures;
@@ -1483,10 +1494,19 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Store the captured variable names and their shared env indices
                 closure->captured_vars = malloc(captured->num_vars * sizeof(char*));
                 closure->shared_env_indices = malloc(captured->num_vars * sizeof(int));
-                closure->num_captured = captured->num_vars;
-                for (int i = 0; i < captured->num_vars; i++) {
-                    closure->captured_vars[i] = strdup(captured->vars[i]);
-                    closure->shared_env_indices[i] = shared_env_get_index(ctx, captured->vars[i]);
+                if (!closure->captured_vars || !closure->shared_env_indices) {
+                    codegen_error(ctx, 0, "Memory allocation failed for closure captured vars");
+                    free(closure->captured_vars);
+                    free(closure->shared_env_indices);
+                    closure->captured_vars = NULL;
+                    closure->shared_env_indices = NULL;
+                    closure->num_captured = 0;
+                } else {
+                    closure->num_captured = captured->num_vars;
+                    for (int i = 0; i < captured->num_vars; i++) {
+                        closure->captured_vars[i] = strdup(captured->vars[i]);
+                        closure->shared_env_indices[i] = shared_env_get_index(ctx, captured->vars[i]);
+                    }
                 }
 
                 // Update the shared environment with current values of captured variables
@@ -1540,16 +1560,25 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     free(ctx->last_closure_captured);
                 }
                 ctx->last_closure_captured = malloc(sizeof(char*) * captured->num_vars);
-                ctx->last_closure_num_captured = captured->num_vars;
-                for (int i = 0; i < captured->num_vars; i++) {
-                    ctx->last_closure_captured[i] = strdup(captured->vars[i]);
+                if (ctx->last_closure_captured) {
+                    ctx->last_closure_num_captured = captured->num_vars;
+                    for (int i = 0; i < captured->num_vars; i++) {
+                        ctx->last_closure_captured[i] = strdup(captured->vars[i]);
+                    }
+                } else {
+                    ctx->last_closure_num_captured = 0;
                 }
             } else {
                 // No shared environment - create a per-closure environment (original behavior)
                 closure->captured_vars = malloc(captured->num_vars * sizeof(char*));
-                closure->num_captured = captured->num_vars;
+                if (!closure->captured_vars) {
+                    codegen_error(ctx, 0, "Memory allocation failed for closure captured vars");
+                    closure->num_captured = 0;
+                } else {
+                    closure->num_captured = captured->num_vars;
+                }
                 closure->shared_env_indices = NULL;  // Not using shared environment
-                for (int i = 0; i < captured->num_vars; i++) {
+                for (int i = 0; i < closure->num_captured; i++) {
                     closure->captured_vars[i] = strdup(captured->vars[i]);
                 }
 
@@ -1604,9 +1633,13 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     free(ctx->last_closure_captured);
                 }
                 ctx->last_closure_captured = malloc(sizeof(char*) * captured->num_vars);
-                ctx->last_closure_num_captured = captured->num_vars;
-                for (int i = 0; i < captured->num_vars; i++) {
-                    ctx->last_closure_captured[i] = strdup(captured->vars[i]);
+                if (ctx->last_closure_captured) {
+                    ctx->last_closure_num_captured = captured->num_vars;
+                    for (int i = 0; i < captured->num_vars; i++) {
+                        ctx->last_closure_captured[i] = strdup(captured->vars[i]);
+                    }
+                } else {
+                    ctx->last_closure_num_captured = 0;
                 }
             }
 
@@ -2082,7 +2115,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 int args_counter = ctx->temp_counter++;
 
                 // Evaluate arguments
-                char **arg_temps = malloc(num_args * sizeof(char*));
+                char **arg_temps = NULL;
+                if (num_args > 0) {
+                    arg_temps = malloc(num_args * sizeof(char*));
+                    if (!arg_temps) {
+                        codegen_error(ctx, 0, "Memory allocation failed for optional chain call arguments");
+                        free(result);
+                        free(obj);
+                        return strdup("hml_val_null()");
+                    }
+                }
                 for (int i = 0; i < num_args; i++) {
                     arg_temps[i] = codegen_expr(ctx, expr->as.optional_chain.args[i]);
                 }
@@ -2142,7 +2184,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "HmlValue %s;", result);
 
             // Generate labels for each arm and the end
-            char **arm_labels = malloc(expr->as.match_expr.num_arms * sizeof(char*));
+            char **arm_labels = NULL;
+            if (expr->as.match_expr.num_arms > 0) {
+                arm_labels = malloc(expr->as.match_expr.num_arms * sizeof(char*));
+                if (!arm_labels) {
+                    codegen_error(ctx, 0, "Memory allocation failed for match expression arm labels");
+                    free(result);
+                    free(scrutinee);
+                    return strdup("hml_val_null()");
+                }
+            }
             char *end_label = codegen_label(ctx);
             char *no_match_label = codegen_label(ctx);
 
