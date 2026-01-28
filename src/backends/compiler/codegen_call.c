@@ -73,23 +73,37 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
     if (expr->as.call.func->type == EXPR_IDENT) {
         const char *fn_name = expr->as.call.func->as.ident.name;
 
-        // Handle print builtin
-        if (strcmp(fn_name, "print") == 0 && expr->as.call.num_args == 1) {
-            char *arg = codegen_expr(ctx, expr->as.call.args[0]);
-            codegen_writeln(ctx, "hml_print(%s);", arg);
-            codegen_writeln(ctx, "hml_release(&%s);", arg);
+        // Handle print builtin (supports any number of arguments)
+        if (strcmp(fn_name, "print") == 0 && expr->as.call.num_args >= 1) {
+            // Print each argument, with space separator between them
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                char *arg = codegen_expr(ctx, expr->as.call.args[i]);
+                if (i > 0) {
+                    codegen_writeln(ctx, "hml_print_value(hml_val_string(\" \"));");
+                }
+                codegen_writeln(ctx, "hml_print_value(%s);", arg);
+                codegen_writeln(ctx, "hml_release(&%s);", arg);
+                free(arg);
+            }
+            codegen_writeln(ctx, "hml_print_newline();");
             codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-            free(arg);
             return result;
         }
 
-        // Handle eprint builtin
-        if (strcmp(fn_name, "eprint") == 0 && expr->as.call.num_args == 1) {
-            char *arg = codegen_expr(ctx, expr->as.call.args[0]);
-            codegen_writeln(ctx, "hml_eprint(%s);", arg);
-            codegen_writeln(ctx, "hml_release(&%s);", arg);
+        // Handle eprint builtin (supports any number of arguments)
+        if (strcmp(fn_name, "eprint") == 0 && expr->as.call.num_args >= 1) {
+            // Print each argument to stderr, with space separator between them
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                char *arg = codegen_expr(ctx, expr->as.call.args[i]);
+                if (i > 0) {
+                    codegen_writeln(ctx, "hml_eprint_value(hml_val_string(\" \"));");
+                }
+                codegen_writeln(ctx, "hml_eprint_value(%s);", arg);
+                codegen_writeln(ctx, "hml_release(&%s);", arg);
+                free(arg);
+            }
+            codegen_writeln(ctx, "hml_eprint_newline();");
             codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-            free(arg);
             return result;
         }
 
