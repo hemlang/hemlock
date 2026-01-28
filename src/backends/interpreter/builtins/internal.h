@@ -33,6 +33,7 @@
     #include <io.h>
     #include <process.h>
     #include <direct.h>
+    #include <fcntl.h>  // For O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_APPEND
     #include <sys/stat.h>
     #include <sys/types.h>
 
@@ -57,6 +58,7 @@
     #define access _access
 
     // Windows file descriptor functions
+    #define open _open
     #define close _close
     #define read _read
     #define write _write
@@ -64,6 +66,7 @@
     #define dup2 _dup2
     #define fileno _fileno
     #define isatty _isatty
+    #define lseek _lseek
 
     // Windows process functions
     #define getpid _getpid

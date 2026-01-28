@@ -20,16 +20,6 @@ static int hml_unsetenv(const char *name) {
     return _putenv_s(name, "");
 }
 
-// Windows getpid is _getpid
-#define getpid _getpid
-
-// Windows doesn't have these POSIX functions - provide stubs or implementations
-#define getppid() ((int)0)  // Windows has no parent PID concept like Unix
-#define getuid() ((int)0)   // No Unix UIDs on Windows
-#define geteuid() ((int)0)
-#define getgid() ((int)0)
-#define getegid() ((int)0)
-
 // Status macros for process exit codes (Windows simplified)
 #define WIFEXITED(status) (1)
 #define WEXITSTATUS(status) (status)
