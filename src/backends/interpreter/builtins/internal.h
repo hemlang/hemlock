@@ -197,13 +197,7 @@
     }
     #define getline hml_getline
 
-    // Sleep compatibility for Windows
-    // MinGW provides nanosleep via time.h, but usleep may not be available
-    #ifndef usleep
-    static inline void usleep(unsigned int usec) {
-        Sleep(usec / 1000);  // Convert microseconds to milliseconds
-    }
-    #endif
+    // MinGW provides nanosleep and usleep via time.h and unistd.h
 
     // Signal compatibility - limited on Windows
     #include <signal.h>
