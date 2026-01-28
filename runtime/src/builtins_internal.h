@@ -67,47 +67,20 @@
     #define hml_socket_error() WSAGetLastError()
 
     // poll() compatibility - use WSAPoll on Windows
+    // Note: MinGW's winsock2.h provides POLLIN/POLLOUT, so we don't redefine them
     #define poll WSAPoll
-    #define POLLIN POLLRDNORM
-    #define POLLOUT POLLWRNORM
 
     // usleep compatibility (Windows uses Sleep with milliseconds)
-    static inline void usleep(unsigned int usec) {
+    // MinGW provides usleep via unistd.h, but we provide a fallback
+    #ifndef usleep
+    static inline void hml_usleep(unsigned int usec) {
         Sleep(usec / 1000);
     }
-
-    // nanosleep compatibility
-    struct timespec_compat {
-        long tv_sec;
-        long tv_nsec;
-    };
-    #ifndef timespec
-    #define timespec timespec_compat
+    #define usleep hml_usleep
     #endif
-    static inline int nanosleep(const struct timespec *req, struct timespec *rem) {
-        (void)rem;
-        DWORD ms = (DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000);
-        Sleep(ms);
-        return 0;
-    }
 
-    // clock_gettime compatibility
-    #ifndef CLOCK_REALTIME
-    #define CLOCK_REALTIME 0
-    #endif
-    static inline int clock_gettime(int clk_id, struct timespec *tp) {
-        (void)clk_id;
-        FILETIME ft;
-        GetSystemTimeAsFileTime(&ft);
-        ULARGE_INTEGER uli;
-        uli.LowPart = ft.dwLowDateTime;
-        uli.HighPart = ft.dwHighDateTime;
-        // Convert to Unix epoch (100-ns intervals since 1601 to nanoseconds since 1970)
-        uli.QuadPart -= 116444736000000000ULL;
-        tp->tv_sec = (long)(uli.QuadPart / 10000000);
-        tp->tv_nsec = (long)((uli.QuadPart % 10000000) * 100);
-        return 0;
-    }
+    // MinGW provides nanosleep and clock_gettime via pthread_time.h
+    // No need to redefine them
 
     // Dynamic library loading compatibility
     #define dlopen(path, mode) ((void*)LoadLibraryA(path))
@@ -218,10 +191,7 @@
     #define getline hml_getline
     #endif
 
-    // ssize_t compatibility
-    #ifndef ssize_t
-    typedef long ssize_t;
-    #endif
+    // MinGW provides ssize_t via corecrt.h
 
 #else
     // POSIX systems
