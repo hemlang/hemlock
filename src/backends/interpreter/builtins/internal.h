@@ -27,9 +27,9 @@
 // ========== WINDOWS COMPATIBILITY ==========
 #ifdef HML_WINDOWS
     #define WIN32_LEAN_AND_MEAN
-    #include <windows.h>
     #include <winsock2.h>
     #include <ws2tcpip.h>
+    #include <windows.h>
     #include <io.h>
     #include <process.h>
     #include <direct.h>
@@ -168,37 +168,7 @@
     #define strndup hml_strndup
     #endif
 
-    // getline compatibility for Windows
-    static inline ssize_t hml_getline(char **lineptr, size_t *n, FILE *stream) {
-        if (!lineptr || !n || !stream) return -1;
-
-        size_t pos = 0;
-        int c;
-
-        if (*lineptr == NULL || *n == 0) {
-            *n = 128;
-            *lineptr = malloc(*n);
-            if (!*lineptr) return -1;
-        }
-
-        while ((c = fgetc(stream)) != EOF) {
-            if (pos + 1 >= *n) {
-                size_t new_size = *n * 2;
-                char *new_ptr = realloc(*lineptr, new_size);
-                if (!new_ptr) return -1;
-                *lineptr = new_ptr;
-                *n = new_size;
-            }
-            (*lineptr)[pos++] = (char)c;
-            if (c == '\n') break;
-        }
-
-        if (pos == 0 && c == EOF) return -1;
-
-        (*lineptr)[pos] = '\0';
-        return (ssize_t)pos;
-    }
-    #define getline hml_getline
+    // getline compatibility is provided by ../internal.h (hml_getline)
 
     // MinGW provides nanosleep and usleep via time.h and unistd.h
 
