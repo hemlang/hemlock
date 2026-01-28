@@ -7,6 +7,7 @@
  */
 
 #include "builtins_internal.h"
+#include <limits.h>
 
 // ========== TYPE DEFINITIONS (DUCK TYPING) ==========
 
@@ -24,8 +25,12 @@ void hml_register_type(const char *name, HmlTypeField *fields, int num_fields) {
 
     // Grow if needed
     if (g_type_count >= g_type_capacity) {
-        size_t new_capacity = g_type_capacity * 2;
-        HmlTypeDef *new_registry = realloc(g_type_registry, sizeof(HmlTypeDef) * new_capacity);
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (g_type_capacity > INT_MAX / 2) {
+            hml_runtime_error("Type registry capacity overflow");
+        }
+        int new_capacity = g_type_capacity * 2;
+        HmlTypeDef *new_registry = realloc(g_type_registry, sizeof(HmlTypeDef) * (size_t)new_capacity);
         if (!new_registry) {
             hml_runtime_error("Out of memory expanding type registry");
         }

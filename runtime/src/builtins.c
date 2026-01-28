@@ -52,7 +52,13 @@ HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src) {
 
         // Grow capacity if needed
         if (new_len + 1 > sd->capacity) {
-            int new_capacity = sd->capacity * 2;
+            // SECURITY: Check for integer overflow before doubling capacity
+            int new_capacity;
+            if (sd->capacity > INT_MAX / 2) {
+                new_capacity = new_len + 1;  // Fall back to exact size needed
+            } else {
+                new_capacity = sd->capacity * 2;
+            }
             if (new_capacity < new_len + 1) new_capacity = new_len + 1;
             if (new_capacity < 32) new_capacity = 32;
 
@@ -98,7 +104,13 @@ HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src) {
 
     // Grow capacity if needed (with 2x growth factor for amortized O(1))
     if (new_len + 1 > sd->capacity) {
-        int new_capacity = sd->capacity * 2;
+        // SECURITY: Check for integer overflow before doubling capacity
+        int new_capacity;
+        if (sd->capacity > INT_MAX / 2) {
+            new_capacity = new_len + 1;  // Fall back to exact size needed
+        } else {
+            new_capacity = sd->capacity * 2;
+        }
         if (new_capacity < new_len + 1) new_capacity = new_len + 1;
         if (new_capacity < 32) new_capacity = 32;  // Minimum capacity
 

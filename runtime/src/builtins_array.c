@@ -32,6 +32,10 @@ void hml_array_push(HmlValue arr, HmlValue val) {
 
     // Grow if needed
     if (a->length >= a->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (a->capacity > INT_MAX / 2) {
+            hml_runtime_error("Array capacity overflow");
+        }
         int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
         HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
         if (!new_elements) {
@@ -85,6 +89,10 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
     while (idx >= a->length) {
         // Grow capacity if needed
         if (a->length >= a->capacity) {
+            // SECURITY: Check for integer overflow before doubling capacity
+            if (a->capacity > INT_MAX / 2) {
+                hml_runtime_error("Array capacity overflow");
+            }
             int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
             HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
             if (!new_elements) {
@@ -159,6 +167,10 @@ void hml_array_unshift(HmlValue arr, HmlValue val) {
 
     // Grow if needed
     if (a->length >= a->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (a->capacity > INT_MAX / 2) {
+            hml_runtime_error("Array capacity overflow");
+        }
         int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
         HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
         if (!new_elements) {
@@ -197,6 +209,10 @@ void hml_array_insert(HmlValue arr, HmlValue index, HmlValue val) {
 
     // Grow if needed
     if (a->length >= a->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (a->capacity > INT_MAX / 2) {
+            hml_runtime_error("Array capacity overflow");
+        }
         int new_cap = (a->capacity == 0) ? 8 : a->capacity * 2;
         HmlValue *new_elements = realloc(a->elements, new_cap * sizeof(HmlValue));
         if (!new_elements) {

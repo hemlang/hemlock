@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <inttypes.h>
+#include <limits.h>
 
 // ========== RUNTIME ERROR HELPER ==========
 
@@ -37,6 +38,10 @@ static inline void jbuf_init(JsonBuffer *buf, size_t initial_capacity) {
 static inline int jbuf_ensure(JsonBuffer *buf, size_t additional) {
     size_t needed = buf->len + additional;
     if (needed > buf->capacity) {
+        // SECURITY: Check for overflow before doubling capacity
+        if (buf->capacity > SIZE_MAX / 2) {
+            return 0;  // Would overflow
+        }
         // Grow by at least 2x or to fit needed
         size_t new_cap = buf->capacity * 2;
         if (new_cap < needed) new_cap = needed;
@@ -281,6 +286,10 @@ int serialize_visited_contains(SerializeVisitedSet *set, Object *obj) {
 // Returns 1 on success, 0 on allocation failure
 int serialize_visited_add(SerializeVisitedSet *set, Object *obj) {
     if (set->count >= set->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (set->capacity > INT_MAX / 2) {
+            return 0;  // Would overflow
+        }
         int new_capacity = set->capacity * 2;
         Object **new_visited = realloc(set->visited, sizeof(Object*) * new_capacity);
         if (!new_visited) {

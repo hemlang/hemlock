@@ -43,6 +43,10 @@ static int visited_contains(HmlVisitedSet *set, void *ptr) {
 
 static void visited_add(HmlVisitedSet *set, void *ptr) {
     if (set->count >= set->capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (set->capacity > INT_MAX / 2) {
+            hml_runtime_error("Visited set capacity overflow");
+        }
         int new_cap = (set->capacity == 0) ? 16 : set->capacity * 2;
         void **new_items = realloc(set->items, new_cap * sizeof(void*));
         if (!new_items) {
@@ -70,6 +74,10 @@ static inline void hjbuf_init(HmlJsonBuffer *buf, size_t initial_capacity) {
 static inline void hjbuf_ensure(HmlJsonBuffer *buf, size_t additional) {
     size_t needed = buf->len + additional;
     if (needed > buf->capacity) {
+        // SECURITY: Check for overflow before doubling capacity
+        if (buf->capacity > SIZE_MAX / 2) {
+            hml_runtime_error("JSON buffer capacity overflow");
+        }
         size_t new_cap = buf->capacity * 2;
         if (new_cap < needed) new_cap = needed;
         char *new_data = realloc(buf->data, new_cap);
@@ -525,6 +533,15 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
 
         // Grow array if needed
         if (num_fields >= capacity) {
+            // SECURITY: Check for integer overflow before doubling capacity
+            if (capacity > INT_MAX / 2) {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    hml_release(&fields[i].value);
+                }
+                free(fields);
+                hml_runtime_error("JSON object field capacity overflow");
+            }
             int new_capacity = capacity * 2;
             HmlFieldEntry *new_fields = realloc(fields, sizeof(HmlFieldEntry) * new_capacity);
             if (!new_fields) {
@@ -640,6 +657,14 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
 
         // Grow if needed
         if (length >= capacity) {
+            // SECURITY: Check for integer overflow before doubling capacity
+            if (capacity > INT_MAX / 2) {
+                for (int i = 0; i < length; i++) {
+                    hml_release(&elements[i]);
+                }
+                free(elements);
+                hml_runtime_error("JSON array capacity overflow");
+            }
             int new_capacity = capacity * 2;
             HmlValue *new_elements = realloc(elements, sizeof(HmlValue) * new_capacity);
             if (!new_elements) {
