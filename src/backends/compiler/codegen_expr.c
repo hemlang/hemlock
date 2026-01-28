@@ -100,6 +100,7 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
         case EXPR_IDENT:
             // Check if this is an unboxable typed variable
             // IMPORTANT: Skip main-level variables - they're pre-declared as HmlValue
+            // and can change type at runtime (Hemlock is dynamically typed)
             if (ctx->optimize && ctx->type_ctx &&
                 !codegen_is_func_param(ctx, expr->as.ident.name) &&
                 !codegen_is_main_var(ctx, expr->as.ident.name)) {
@@ -122,11 +123,8 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
                     default:
                         break;
                 }
-            }
-            // Also check type context lookup (for inlined parameters with known types)
-            // Note: Only match exact i32/i64/f64 to preserve Hemlock's type promotion rules
-            // (e.g., i8 + i16 should return i16, not i32)
-            if (ctx->type_ctx) {
+                // Also check type context lookup for function-local variables
+                // Note: Only match exact i32/i64/f64 to preserve Hemlock's type promotion rules
                 CheckedType *var_type = type_check_lookup(ctx->type_ctx, expr->as.ident.name);
                 if (var_type) {
                     switch (var_type->kind) {
@@ -143,6 +141,8 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
                     }
                 }
             }
+            // Main-level variables and function parameters can change type at runtime,
+            // so return UNKNOWN to use runtime type checks
             return INFER_UNKNOWN;
 
         case EXPR_BINARY:
@@ -790,10 +790,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 InferredNumericType right_type = infer_numeric_type(ctx, expr->as.binary.right);
                 if (left_type == INFER_I32 && right_type == INFER_I32) {
                     both_i32 = 1;
-                } else if ((left_type == INFER_I64 || left_type == INFER_I32) &&
-                           (right_type == INFER_I64 || right_type == INFER_I32) &&
-                           (left_type == INFER_I64 || right_type == INFER_I64)) {
-                    // One or both are i64, neither is unknown or float
+                } else if (left_type == INFER_I64 && right_type == INFER_I64) {
+                    // Both must be i64 for the i64 fast path - mixed types go through generic path
                     both_i64 = 1;
                 }
             }
