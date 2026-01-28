@@ -1324,6 +1324,155 @@ static Value vm_deep_copy(Value v) {
 }
 
 // ============================================
+// JSON Serialization Helper
+// ============================================
+
+// Forward declaration
+static void vm_json_serialize_value(Value v, char **buf, size_t *pos, size_t *cap);
+
+static void vm_json_ensure_space(char **buf, size_t *pos, size_t *cap, size_t needed) {
+    while (*pos + needed >= *cap) {
+        *cap *= 2;
+        *buf = realloc(*buf, *cap);
+    }
+}
+
+static void vm_json_append(char **buf, size_t *pos, size_t *cap, const char *str) {
+    size_t len = strlen(str);
+    vm_json_ensure_space(buf, pos, cap, len + 1);
+    memcpy(*buf + *pos, str, len);
+    *pos += len;
+}
+
+static void vm_json_append_escaped(char **buf, size_t *pos, size_t *cap, const char *str) {
+    vm_json_ensure_space(buf, pos, cap, 1);
+    (*buf)[(*pos)++] = '"';
+    while (*str) {
+        vm_json_ensure_space(buf, pos, cap, 2);
+        if (*str == '"' || *str == '\\') {
+            (*buf)[(*pos)++] = '\\';
+        } else if (*str == '\n') {
+            (*buf)[(*pos)++] = '\\';
+            (*buf)[(*pos)++] = 'n';
+            str++;
+            continue;
+        } else if (*str == '\r') {
+            (*buf)[(*pos)++] = '\\';
+            (*buf)[(*pos)++] = 'r';
+            str++;
+            continue;
+        } else if (*str == '\t') {
+            (*buf)[(*pos)++] = '\\';
+            (*buf)[(*pos)++] = 't';
+            str++;
+            continue;
+        }
+        (*buf)[(*pos)++] = *str++;
+    }
+    vm_json_ensure_space(buf, pos, cap, 1);
+    (*buf)[(*pos)++] = '"';
+}
+
+static void vm_json_serialize_value(Value v, char **buf, size_t *pos, size_t *cap) {
+    switch (v.type) {
+        case VAL_NULL:
+            vm_json_append(buf, pos, cap, "null");
+            break;
+        case VAL_BOOL:
+            vm_json_append(buf, pos, cap, v.as.as_bool ? "true" : "false");
+            break;
+        case VAL_I8: case VAL_I16: case VAL_I32: case VAL_I64:
+        case VAL_U8: case VAL_U16: case VAL_U32: case VAL_U64: {
+            char num[32];
+            snprintf(num, sizeof(num), "%lld", (long long)value_to_i64(v));
+            vm_json_append(buf, pos, cap, num);
+            break;
+        }
+        case VAL_F32: case VAL_F64: {
+            char num[64];
+            double d = value_to_f64(v);
+            snprintf(num, sizeof(num), "%g", d);
+            // Ensure it looks like a number (has decimal or exponent)
+            if (strchr(num, '.') == NULL && strchr(num, 'e') == NULL) {
+                strcat(num, ".0");
+            }
+            vm_json_append(buf, pos, cap, num);
+            break;
+        }
+        case VAL_STRING:
+            if (v.as.as_string) {
+                vm_json_append_escaped(buf, pos, cap, v.as.as_string->data);
+            } else {
+                vm_json_append(buf, pos, cap, "null");
+            }
+            break;
+        case VAL_ARRAY:
+            if (v.as.as_array) {
+                Array *arr = v.as.as_array;
+                vm_json_ensure_space(buf, pos, cap, 1);
+                (*buf)[(*pos)++] = '[';
+                for (int i = 0; i < arr->length; i++) {
+                    if (i > 0) {
+                        vm_json_ensure_space(buf, pos, cap, 1);
+                        (*buf)[(*pos)++] = ',';
+                    }
+                    vm_json_serialize_value(arr->elements[i], buf, pos, cap);
+                }
+                vm_json_ensure_space(buf, pos, cap, 1);
+                (*buf)[(*pos)++] = ']';
+            } else {
+                vm_json_append(buf, pos, cap, "null");
+            }
+            break;
+        case VAL_OBJECT:
+            if (v.as.as_object) {
+                Object *obj = v.as.as_object;
+                vm_json_ensure_space(buf, pos, cap, 1);
+                (*buf)[(*pos)++] = '{';
+                for (int i = 0; i < obj->num_fields; i++) {
+                    if (i > 0) {
+                        vm_json_ensure_space(buf, pos, cap, 1);
+                        (*buf)[(*pos)++] = ',';
+                    }
+                    vm_json_append_escaped(buf, pos, cap, obj->field_names[i]);
+                    vm_json_ensure_space(buf, pos, cap, 1);
+                    (*buf)[(*pos)++] = ':';
+                    vm_json_serialize_value(obj->field_values[i], buf, pos, cap);
+                }
+                vm_json_ensure_space(buf, pos, cap, 1);
+                (*buf)[(*pos)++] = '}';
+            } else {
+                vm_json_append(buf, pos, cap, "null");
+            }
+            break;
+        default:
+            vm_json_append(buf, pos, cap, "null");
+            break;
+    }
+}
+
+static Value vm_json_serialize(Value v) {
+    size_t cap = 256;
+    size_t pos = 0;
+    char *buf = malloc(cap);
+
+    vm_json_serialize_value(v, &buf, &pos, &cap);
+
+    buf[pos] = '\0';
+    String *s = malloc(sizeof(String));
+    s->data = buf;
+    s->length = pos;
+    s->char_length = pos;
+    s->capacity = cap;
+    s->ref_count = 1;
+
+    Value result;
+    result.type = VAL_STRING;
+    result.as.as_string = s;
+    return result;
+}
+
+// ============================================
 // Simple JSON Parser for deserialize()
 // ============================================
 
@@ -5642,26 +5791,38 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                                 arr->length++;
                             }
                         } else {
-                            // Split by separator
-                            char *copy = strdup(str->data);
-                            char *token = strtok(copy, sep);
-                            while (token) {
+                            // Split by separator - proper implementation that preserves empty strings
+                            int sep_len = strlen(sep);
+                            const char *start = str->data;
+                            const char *end = str->data + str->length;
+                            const char *pos = start;
+
+                            while (pos <= end) {
+                                // Find next separator
+                                const char *found = strstr(pos, sep);
+                                const char *token_end = found ? found : end;
+                                int token_len = token_end - pos;
+
+                                // Add element to array
                                 if (arr->length >= arr->capacity) {
                                     arr->capacity *= 2;
                                     arr->elements = realloc(arr->elements, sizeof(Value) * arr->capacity);
                                 }
                                 String *s = malloc(sizeof(String));
-                                s->data = strdup(token);
-                                s->length = strlen(token);
-                                s->char_length = s->length;
-                                s->capacity = s->length + 1;
+                                s->data = malloc(token_len + 1);
+                                memcpy(s->data, pos, token_len);
+                                s->data[token_len] = '\0';
+                                s->length = token_len;
+                                s->char_length = token_len;
+                                s->capacity = token_len + 1;
                                 s->ref_count = 1;
                                 arr->elements[arr->length].type = VAL_STRING;
                                 arr->elements[arr->length].as.as_string = s;
                                 arr->length++;
-                                token = strtok(NULL, sep);
+
+                                if (!found) break;  // No more separators
+                                pos = found + sep_len;
                             }
-                            free(copy);
                         }
                         result.type = VAL_ARRAY;
                         result.as.as_array = arr;
@@ -6164,33 +6325,8 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         }
                         goto object_method_done;
                     } else if (strcmp(method, "serialize") == 0) {
-                        // Simple JSON serialization
-                        size_t buf_size = 1024;
-                        char *buf = malloc(buf_size);
-                        size_t pos = 0;
-                        buf[pos++] = '{';
-                        for (int i = 0; i < obj->num_fields; i++) {
-                            if (i > 0) buf[pos++] = ',';
-                            pos += snprintf(buf + pos, buf_size - pos, "\"%s\":", obj->field_names[i]);
-                            Value v = obj->field_values[i];
-                            char *val_str = value_to_string_alloc(v);
-                            if (v.type == VAL_STRING) {
-                                pos += snprintf(buf + pos, buf_size - pos, "\"%s\"", val_str);
-                            } else {
-                                pos += snprintf(buf + pos, buf_size - pos, "%s", val_str);
-                            }
-                            free(val_str);
-                        }
-                        buf[pos++] = '}';
-                        buf[pos] = '\0';
-                        String *s = malloc(sizeof(String));
-                        s->data = buf;
-                        s->length = pos;
-                        s->char_length = pos;
-                        s->capacity = buf_size;
-                        s->ref_count = 1;
-                        result.type = VAL_STRING;
-                        result.as.as_string = s;
+                        // Recursive JSON serialization
+                        result = vm_json_serialize(receiver);
                         goto object_method_done;
                     }
 
