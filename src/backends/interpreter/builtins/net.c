@@ -669,7 +669,7 @@ Value socket_method_setsockopt(SocketHandle *sock, Value *args, int num_args, Ex
     int option = value_to_int(args[1]);
     int value = value_to_int(args[2]);
 
-    if (setsockopt(sock->fd, level, option, &value, sizeof(value)) < 0) {
+    if (setsockopt(sock->fd, level, option, (const char*)&value, sizeof(value)) < 0) {
         return throw_runtime_error(ctx, "Failed to set socket option: %s", strerror(errno));
     }
 
@@ -692,6 +692,18 @@ Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_args, E
 
     double seconds = value_to_float(args[0]);
 
+#ifdef HML_WINDOWS
+    // Windows uses DWORD milliseconds for socket timeouts
+    DWORD timeout_ms = (DWORD)(seconds * 1000);
+
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set receive timeout: %d", WSAGetLastError());
+    }
+
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set send timeout: %d", WSAGetLastError());
+    }
+#else
     struct timeval timeout;
     timeout.tv_sec = (long)seconds;
     timeout.tv_usec = (long)((seconds - timeout.tv_sec) * 1000000);
@@ -704,6 +716,7 @@ Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_args, E
     if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
         return throw_runtime_error(ctx, "Failed to set send timeout: %s", strerror(errno));
     }
+#endif
 
     return val_null();
 }
