@@ -56,7 +56,17 @@ HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src) {
             if (new_capacity < new_len + 1) new_capacity = new_len + 1;
             if (new_capacity < 32) new_capacity = 32;
 
-            char *new_data = realloc(sd->data, new_capacity);
+            char *new_data;
+            if (sd->is_sso) {
+                // SSO strings use inline storage - must allocate new heap buffer
+                new_data = malloc(new_capacity);
+                if (new_data) {
+                    memcpy(new_data, sd->data, sd->length);
+                    sd->is_sso = 0;
+                }
+            } else {
+                new_data = realloc(sd->data, new_capacity);
+            }
             if (!new_data) {
                 HmlValue result = hml_string_concat(*dest, src);
                 hml_release(dest);
@@ -92,7 +102,17 @@ HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src) {
         if (new_capacity < new_len + 1) new_capacity = new_len + 1;
         if (new_capacity < 32) new_capacity = 32;  // Minimum capacity
 
-        char *new_data = realloc(sd->data, new_capacity);
+        char *new_data;
+        if (sd->is_sso) {
+            // SSO strings use inline storage - must allocate new heap buffer
+            new_data = malloc(new_capacity);
+            if (new_data) {
+                memcpy(new_data, sd->data, sd->length);
+                sd->is_sso = 0;
+            }
+        } else {
+            new_data = realloc(sd->data, new_capacity);
+        }
         if (!new_data) {
             // Allocation failed - fall back to regular concat
             if (src.type != HML_VAL_STRING) hml_release(&str_src);
