@@ -224,8 +224,18 @@ static int match_pattern(Pattern *pattern, Value value, Environment *env, Execut
                         VALUE_RETAIN(v);
                         // Add field to rest object (unified storage - single realloc)
                         if (rest_obj->num_fields >= rest_obj->capacity) {
+                            // SECURITY: Check for integer overflow before doubling capacity
+                            if (rest_obj->capacity > INT_MAX / 2) {
+                                runtime_error(ctx, "Object field capacity overflow");
+                                return 0;
+                            }
                             int new_capacity = rest_obj->capacity * 2;
-                            rest_obj->fields = realloc(rest_obj->fields, sizeof(FieldEntry) * new_capacity);
+                            FieldEntry *new_fields = realloc(rest_obj->fields, sizeof(FieldEntry) * new_capacity);
+                            if (!new_fields) {
+                                runtime_error(ctx, "Out of memory expanding object fields");
+                                return 0;
+                            }
+                            rest_obj->fields = new_fields;
                             rest_obj->capacity = new_capacity;
                         }
                         rest_obj->fields[rest_obj->num_fields].name = strdup(key);
@@ -2062,6 +2072,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         } else {
                             // Add new field - grow if needed (single realloc for unified storage)
                             if (obj->num_fields >= obj->capacity) {
+                                // SECURITY: Check for integer overflow before doubling capacity
+                                if (obj->capacity > INT_MAX / 2) {
+                                    VALUE_RELEASE(spread_val);
+                                    Value obj_val = val_object(obj);
+                                    VALUE_RELEASE(obj_val);
+                                    runtime_error(ctx, "Object field capacity overflow");
+                                    return val_null();
+                                }
                                 int new_capacity = obj->capacity * 2;
                                 FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
                                 if (!new_fields) {
@@ -2108,6 +2126,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     } else {
                         // Add new field - grow if needed (single realloc for unified storage)
                         if (obj->num_fields >= obj->capacity) {
+                            // SECURITY: Check for integer overflow before doubling capacity
+                            if (obj->capacity > INT_MAX / 2) {
+                                VALUE_RELEASE(field_val);
+                                Value obj_val = val_object(obj);
+                                VALUE_RELEASE(obj_val);
+                                runtime_error(ctx, "Object field capacity overflow");
+                                return val_null();
+                            }
                             int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
                             FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
                             if (!new_fields) {
@@ -2206,6 +2232,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // Field doesn't exist - add it dynamically!
             if (obj->num_fields >= obj->capacity) {
+                // SECURITY: Check for integer overflow before doubling capacity
+                if (obj->capacity > INT_MAX / 2) {
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(value);
+                    runtime_error(ctx, "Object field capacity overflow");
+                    return val_null();
+                }
                 // Grow unified field array (single realloc - reduces fragmentation)
                 int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
                 FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);

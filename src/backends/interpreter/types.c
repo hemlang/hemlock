@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <limits.h>
 
 /* ========== TYPE CONVERSION HELPERS ==========
  *
@@ -147,6 +148,11 @@ void init_object_types(void) {
 void register_object_type(ObjectType *type) {
     init_object_types();
     if (object_types.count >= object_types.capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (object_types.capacity > INT_MAX / 2) {
+            fprintf(stderr, "Fatal: Object type registry capacity overflow\n");
+            exit(1);
+        }
         int new_capacity = object_types.capacity * 2;
         ObjectType **new_types = realloc(object_types.types, sizeof(ObjectType*) * new_capacity);
         if (!new_types) {
@@ -298,6 +304,11 @@ void init_enum_types(void) {
 void register_enum_type(EnumType *type) {
     init_enum_types();
     if (enum_types.count >= enum_types.capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (enum_types.capacity > INT_MAX / 2) {
+            fprintf(stderr, "Fatal: Enum type registry capacity overflow\n");
+            exit(1);
+        }
         int new_capacity = enum_types.capacity * 2;
         EnumType **new_types = realloc(enum_types.types, sizeof(EnumType*) * new_capacity);
         if (!new_types) {
@@ -426,6 +437,11 @@ void init_type_aliases(void) {
 void register_type_alias(TypeAlias *alias) {
     init_type_aliases();
     if (type_aliases.count >= type_aliases.capacity) {
+        // SECURITY: Check for integer overflow before doubling capacity
+        if (type_aliases.capacity > INT_MAX / 2) {
+            fprintf(stderr, "Fatal: Type alias registry capacity overflow\n");
+            exit(1);
+        }
         int new_capacity = type_aliases.capacity * 2;
         TypeAlias **new_aliases = realloc(type_aliases.aliases, sizeof(TypeAlias*) * new_capacity);
         if (!new_aliases) {
@@ -931,6 +947,12 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
             if (field_optional) {
                 // Add field with default value or null
                 if (obj->num_fields >= obj->capacity) {
+                    // SECURITY: Check for integer overflow before doubling capacity
+                    if (obj->capacity > INT_MAX / 2) {
+                        free_substituted_type(substituted_field_type, field_type);
+                        fprintf(stderr, "Runtime error: Object field capacity overflow\n");
+                        exit(1);
+                    }
                     int new_capacity = obj->capacity * 2;
                     FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
                     if (!new_fields) {
@@ -996,6 +1018,11 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                 if (object_type->method_defaults[i]) {
                     // Add method with default implementation
                     if (obj->num_fields >= obj->capacity) {
+                        // SECURITY: Check for integer overflow before doubling capacity
+                        if (obj->capacity > INT_MAX / 2) {
+                            fprintf(stderr, "Runtime error: Object field capacity overflow for method\n");
+                            exit(1);
+                        }
                         int new_capacity = obj->capacity * 2;
                         FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
                         if (!new_fields) {
