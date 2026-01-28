@@ -197,6 +197,24 @@
     }
     #define getline hml_getline
 
+    // Sleep compatibility for Windows
+    // Windows Sleep() uses milliseconds, nanosleep uses timespec
+    struct timespec {
+        long tv_sec;
+        long tv_nsec;
+    };
+
+    static inline int nanosleep(const struct timespec *req, struct timespec *rem) {
+        (void)rem;
+        DWORD ms = (DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000);
+        Sleep(ms);
+        return 0;
+    }
+
+    static inline void usleep(unsigned int usec) {
+        Sleep(usec / 1000);  // Convert microseconds to milliseconds
+    }
+
     // Signal compatibility - limited on Windows
     #include <signal.h>
 
