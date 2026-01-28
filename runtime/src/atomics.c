@@ -7,6 +7,19 @@
 
 #include "../include/hemlock_runtime.h"
 #include <stdatomic.h>
+#include <stdint.h>
+
+// Helper macros for alignment checking
+// Atomic operations require naturally aligned pointers to guarantee atomicity
+#define CHECK_ALIGNMENT_I32(ptr_val) \
+    if ((uintptr_t)(ptr_val).as.as_ptr % _Alignof(_Atomic int32_t) != 0) { \
+        hml_runtime_error("atomic operation: misaligned pointer (must be 4-byte aligned)"); \
+    }
+
+#define CHECK_ALIGNMENT_I64(ptr_val) \
+    if ((uintptr_t)(ptr_val).as.as_ptr % _Alignof(_Atomic int64_t) != 0) { \
+        hml_runtime_error("atomic operation: misaligned pointer (must be 8-byte aligned)"); \
+    }
 
 // Helper to convert HmlValue to int32_t
 static int32_t value_to_i32(HmlValue val) {
@@ -46,6 +59,7 @@ HmlValue hml_atomic_load_i32(HmlValue ptr) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_load_i32() expects a pointer argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t value = atomic_load(p);
     return hml_val_i32(value);
@@ -55,6 +69,7 @@ HmlValue hml_atomic_store_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_store_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     atomic_store(p, val);
@@ -65,6 +80,7 @@ HmlValue hml_atomic_add_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_add_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     int32_t old = atomic_fetch_add(p, val);
@@ -75,6 +91,7 @@ HmlValue hml_atomic_sub_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_sub_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     int32_t old = atomic_fetch_sub(p, val);
@@ -85,6 +102,7 @@ HmlValue hml_atomic_and_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_and_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     int32_t old = atomic_fetch_and(p, val);
@@ -95,6 +113,7 @@ HmlValue hml_atomic_or_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_or_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     int32_t old = atomic_fetch_or(p, val);
@@ -105,6 +124,7 @@ HmlValue hml_atomic_xor_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_xor_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     int32_t old = atomic_fetch_xor(p, val);
@@ -115,6 +135,7 @@ HmlValue hml_atomic_cas_i32(HmlValue ptr, HmlValue expected, HmlValue desired) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_cas_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t exp = value_to_i32(expected);
     int32_t des = value_to_i32(desired);
@@ -126,6 +147,7 @@ HmlValue hml_atomic_exchange_i32(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_exchange_i32() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I32(ptr);
     _Atomic int32_t *p = (_Atomic int32_t *)ptr.as.as_ptr;
     int32_t val = value_to_i32(value);
     int32_t old = atomic_exchange(p, val);
@@ -138,6 +160,7 @@ HmlValue hml_atomic_load_i64(HmlValue ptr) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_load_i64() expects a pointer argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t value = atomic_load(p);
     return hml_val_i64(value);
@@ -147,6 +170,7 @@ HmlValue hml_atomic_store_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_store_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     atomic_store(p, val);
@@ -157,6 +181,7 @@ HmlValue hml_atomic_add_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_add_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     int64_t old = atomic_fetch_add(p, val);
@@ -167,6 +192,7 @@ HmlValue hml_atomic_sub_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_sub_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     int64_t old = atomic_fetch_sub(p, val);
@@ -177,6 +203,7 @@ HmlValue hml_atomic_and_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_and_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     int64_t old = atomic_fetch_and(p, val);
@@ -187,6 +214,7 @@ HmlValue hml_atomic_or_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_or_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     int64_t old = atomic_fetch_or(p, val);
@@ -197,6 +225,7 @@ HmlValue hml_atomic_xor_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_xor_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     int64_t old = atomic_fetch_xor(p, val);
@@ -207,6 +236,7 @@ HmlValue hml_atomic_cas_i64(HmlValue ptr, HmlValue expected, HmlValue desired) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_cas_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t exp = value_to_i64(expected);
     int64_t des = value_to_i64(desired);
@@ -218,6 +248,7 @@ HmlValue hml_atomic_exchange_i64(HmlValue ptr, HmlValue value) {
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("atomic_exchange_i64() expects a pointer as first argument");
     }
+    CHECK_ALIGNMENT_I64(ptr);
     _Atomic int64_t *p = (_Atomic int64_t *)ptr.as.as_ptr;
     int64_t val = value_to_i64(value);
     int64_t old = atomic_exchange(p, val);

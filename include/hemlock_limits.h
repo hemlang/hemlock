@@ -178,6 +178,13 @@
 // Maximum interned string length (longer strings bypass interning)
 #define HML_INTERN_MAX_LENGTH 64
 
+// ========== ATOMIC OPERATION CONSTANTS ==========
+
+// Required alignment for atomic operations
+// Atomic operations require naturally aligned pointers to guarantee atomicity
+#define HML_ATOMIC_I32_ALIGNMENT 4   // _Alignof(_Atomic int32_t)
+#define HML_ATOMIC_I64_ALIGNMENT 8   // _Alignof(_Atomic int64_t)
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch

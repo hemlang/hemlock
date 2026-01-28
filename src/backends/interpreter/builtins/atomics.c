@@ -17,6 +17,21 @@
 
 #include "internal.h"
 #include <stdatomic.h>
+#include <stdint.h>
+
+// Helper macros for alignment checking
+// Atomic operations require naturally aligned pointers to guarantee atomicity
+#define CHECK_ALIGNMENT_I32(ptr, fn_name) \
+    if ((uintptr_t)(ptr) % _Alignof(_Atomic int32_t) != 0) { \
+        runtime_error(ctx, fn_name "(): misaligned pointer (must be 4-byte aligned)"); \
+        return val_null(); \
+    }
+
+#define CHECK_ALIGNMENT_I64(ptr, fn_name) \
+    if ((uintptr_t)(ptr) % _Alignof(_Atomic int64_t) != 0) { \
+        runtime_error(ctx, fn_name "(): misaligned pointer (must be 8-byte aligned)"); \
+        return val_null(); \
+    }
 
 // ========== i32 ATOMIC OPERATIONS ==========
 
@@ -32,6 +47,8 @@ Value builtin_atomic_load_i32(Value *args, int num_args, ExecutionContext *ctx) 
         runtime_error(ctx, "atomic_load_i32() expects a pointer argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_load_i32");
 
     _Atomic int32_t *ptr = (_Atomic int32_t *)args[0].as.as_ptr;
     int32_t value = atomic_load(ptr);
@@ -50,6 +67,8 @@ Value builtin_atomic_store_i32(Value *args, int num_args, ExecutionContext *ctx)
         runtime_error(ctx, "atomic_store_i32() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_store_i32");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_store_i32() expects an integer as second argument");
@@ -75,6 +94,8 @@ Value builtin_atomic_add_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_add_i32");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_add_i32() expects an integer as second argument");
         return val_null();
@@ -98,6 +119,8 @@ Value builtin_atomic_sub_i32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "atomic_sub_i32() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_sub_i32");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_sub_i32() expects an integer as second argument");
@@ -123,6 +146,8 @@ Value builtin_atomic_and_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_and_i32");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_and_i32() expects an integer as second argument");
         return val_null();
@@ -146,6 +171,8 @@ Value builtin_atomic_or_i32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "atomic_or_i32() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_or_i32");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_or_i32() expects an integer as second argument");
@@ -171,6 +198,8 @@ Value builtin_atomic_xor_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_xor_i32");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_xor_i32() expects an integer as second argument");
         return val_null();
@@ -195,6 +224,8 @@ Value builtin_atomic_cas_i32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "atomic_cas_i32() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_cas_i32");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_cas_i32() expects an integer as second argument (expected)");
@@ -228,6 +259,8 @@ Value builtin_atomic_exchange_i32(Value *args, int num_args, ExecutionContext *c
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I32(args[0].as.as_ptr, "atomic_exchange_i32");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_exchange_i32() expects an integer as second argument");
         return val_null();
@@ -253,6 +286,8 @@ Value builtin_atomic_load_i64(Value *args, int num_args, ExecutionContext *ctx) 
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_load_i64");
+
     _Atomic int64_t *ptr = (_Atomic int64_t *)args[0].as.as_ptr;
     int64_t value = atomic_load(ptr);
     return val_i64(value);
@@ -269,6 +304,8 @@ Value builtin_atomic_store_i64(Value *args, int num_args, ExecutionContext *ctx)
         runtime_error(ctx, "atomic_store_i64() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_store_i64");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_store_i64() expects an integer as second argument");
@@ -293,6 +330,8 @@ Value builtin_atomic_add_i64(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_add_i64");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_add_i64() expects an integer as second argument");
         return val_null();
@@ -315,6 +354,8 @@ Value builtin_atomic_sub_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "atomic_sub_i64() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_sub_i64");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_sub_i64() expects an integer as second argument");
@@ -339,6 +380,8 @@ Value builtin_atomic_and_i64(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_and_i64");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_and_i64() expects an integer as second argument");
         return val_null();
@@ -361,6 +404,8 @@ Value builtin_atomic_or_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "atomic_or_i64() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_or_i64");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_or_i64() expects an integer as second argument");
@@ -385,6 +430,8 @@ Value builtin_atomic_xor_i64(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_xor_i64");
+
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_xor_i64() expects an integer as second argument");
         return val_null();
@@ -407,6 +454,8 @@ Value builtin_atomic_cas_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "atomic_cas_i64() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_cas_i64");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_cas_i64() expects an integer as second argument (expected)");
@@ -437,6 +486,8 @@ Value builtin_atomic_exchange_i64(Value *args, int num_args, ExecutionContext *c
         runtime_error(ctx, "atomic_exchange_i64() expects a pointer as first argument");
         return val_null();
     }
+
+    CHECK_ALIGNMENT_I64(args[0].as.as_ptr, "atomic_exchange_i64");
 
     if (!is_integer(args[1])) {
         runtime_error(ctx, "atomic_exchange_i64() expects an integer as second argument");
