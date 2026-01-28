@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 5
+#define HEMLOCK_VERSION_PATCH 6
 
-#define HEMLOCK_VERSION "1.8.5"
+#define HEMLOCK_VERSION "1.8.6"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.8.6 - Fix segfault in hml_string_append_inplace for SSO strings
  *   1.8.5 - 5 new array methods (every, some, indexOf, sort, fill), major performance optimizations, memory leak fixes
  *   1.8.4 - Graceful handling for reserved keywords (def, func, var, class), fix flaky CI tests
  *   1.8.3 - Code polish: consolidate magic numbers, standardize error messages
