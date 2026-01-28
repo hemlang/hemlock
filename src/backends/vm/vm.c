@@ -21,6 +21,10 @@
 #include <time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <termios.h>
 
 // Debug tracing
 static int vm_trace_enabled = 0;
@@ -338,6 +342,17 @@ static Value vm_builtin_unsetenv(Value *args, int argc, void *ctx) {
     }
     unsetenv(args[0].as.as_string->data);
     return stdlib_val_null();
+}
+
+// Pointer read builtins
+static Value vm_builtin_read_ptr(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_PTR || !args[0].as.as_ptr) {
+        return stdlib_val_null();
+    }
+    void **ptr = (void**)args[0].as.as_ptr;
+    Value v = {.type = VAL_PTR, .as.as_ptr = *ptr};
+    return v;
 }
 
 // Time builtins
@@ -1790,6 +1805,9 @@ static void vm_init_stdlib(VM *vm) {
     // String builtins
     vm_define_global(vm, "__strlen", vm_val_builtin_fn((BuiltinFn)vm_builtin_strlen), true);
 
+    // Pointer read builtins
+    vm_define_global(vm, "__read_ptr", vm_val_builtin_fn((BuiltinFn)vm_builtin_read_ptr), true);
+
     // Hash builtins
     vm_define_global(vm, "__sha256", vm_val_builtin_fn((BuiltinFn)vm_builtin_sha256), true);
     vm_define_global(vm, "__sha512", vm_val_builtin_fn((BuiltinFn)vm_builtin_sha512), true);
@@ -1806,6 +1824,63 @@ static void vm_init_stdlib(VM *vm) {
     vm_define_global(vm, "__make_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_make_dir), true);
     vm_define_global(vm, "__remove_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_remove_dir), true);
     vm_define_global(vm, "__list_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_list_dir), true);
+
+    // Poll constants
+    vm_define_global(vm, "POLLIN", val_i32_vm(POLLIN), true);
+    vm_define_global(vm, "POLLOUT", val_i32_vm(POLLOUT), true);
+    vm_define_global(vm, "POLLERR", val_i32_vm(POLLERR), true);
+    vm_define_global(vm, "POLLHUP", val_i32_vm(POLLHUP), true);
+    vm_define_global(vm, "POLLNVAL", val_i32_vm(POLLNVAL), true);
+    vm_define_global(vm, "POLLPRI", val_i32_vm(POLLPRI), true);
+
+    // Socket constants
+    vm_define_global(vm, "AF_INET", val_i32_vm(AF_INET), true);
+    vm_define_global(vm, "AF_INET6", val_i32_vm(AF_INET6), true);
+    vm_define_global(vm, "AF_UNIX", val_i32_vm(AF_UNIX), true);
+    vm_define_global(vm, "SOCK_STREAM", val_i32_vm(SOCK_STREAM), true);
+    vm_define_global(vm, "SOCK_DGRAM", val_i32_vm(SOCK_DGRAM), true);
+    vm_define_global(vm, "SOCK_RAW", val_i32_vm(SOCK_RAW), true);
+    vm_define_global(vm, "IPPROTO_TCP", val_i32_vm(IPPROTO_TCP), true);
+    vm_define_global(vm, "IPPROTO_UDP", val_i32_vm(IPPROTO_UDP), true);
+    vm_define_global(vm, "SOL_SOCKET", val_i32_vm(SOL_SOCKET), true);
+    vm_define_global(vm, "SO_REUSEADDR", val_i32_vm(SO_REUSEADDR), true);
+    vm_define_global(vm, "SO_KEEPALIVE", val_i32_vm(SO_KEEPALIVE), true);
+    vm_define_global(vm, "SO_RCVBUF", val_i32_vm(SO_RCVBUF), true);
+    vm_define_global(vm, "SO_SNDBUF", val_i32_vm(SO_SNDBUF), true);
+    vm_define_global(vm, "SO_ERROR", val_i32_vm(SO_ERROR), true);
+    vm_define_global(vm, "TCP_NODELAY", val_i32_vm(1), true);  // Typically 1
+    vm_define_global(vm, "MSG_DONTWAIT", val_i32_vm(MSG_DONTWAIT), true);
+    vm_define_global(vm, "MSG_PEEK", val_i32_vm(MSG_PEEK), true);
+    vm_define_global(vm, "SHUT_RD", val_i32_vm(SHUT_RD), true);
+    vm_define_global(vm, "SHUT_WR", val_i32_vm(SHUT_WR), true);
+    vm_define_global(vm, "SHUT_RDWR", val_i32_vm(SHUT_RDWR), true);
+
+    // Signal constants
+    vm_define_global(vm, "SIGINT", val_i32_vm(SIGINT), true);
+    vm_define_global(vm, "SIGTERM", val_i32_vm(SIGTERM), true);
+    vm_define_global(vm, "SIGKILL", val_i32_vm(SIGKILL), true);
+    vm_define_global(vm, "SIGHUP", val_i32_vm(SIGHUP), true);
+    vm_define_global(vm, "SIGQUIT", val_i32_vm(SIGQUIT), true);
+    vm_define_global(vm, "SIGPIPE", val_i32_vm(SIGPIPE), true);
+    vm_define_global(vm, "SIGALRM", val_i32_vm(SIGALRM), true);
+    vm_define_global(vm, "SIGUSR1", val_i32_vm(SIGUSR1), true);
+    vm_define_global(vm, "SIGUSR2", val_i32_vm(SIGUSR2), true);
+    vm_define_global(vm, "SIGCHLD", val_i32_vm(SIGCHLD), true);
+    vm_define_global(vm, "SIGCONT", val_i32_vm(SIGCONT), true);
+    vm_define_global(vm, "SIGSTOP", val_i32_vm(SIGSTOP), true);
+    vm_define_global(vm, "SIGTSTP", val_i32_vm(SIGTSTP), true);
+    vm_define_global(vm, "SIGTTIN", val_i32_vm(SIGTTIN), true);
+    vm_define_global(vm, "SIGTTOU", val_i32_vm(SIGTTOU), true);
+
+    // TTY constants
+    vm_define_global(vm, "STDIN_FILENO", val_i32_vm(STDIN_FILENO), true);
+    vm_define_global(vm, "STDOUT_FILENO", val_i32_vm(STDOUT_FILENO), true);
+    vm_define_global(vm, "STDERR_FILENO", val_i32_vm(STDERR_FILENO), true);
+    vm_define_global(vm, "TCSANOW", val_i32_vm(TCSANOW), true);
+    vm_define_global(vm, "TCSADRAIN", val_i32_vm(TCSADRAIN), true);
+    vm_define_global(vm, "TCSAFLUSH", val_i32_vm(TCSAFLUSH), true);
+    vm_define_global(vm, "ECHO", val_i32_vm(ECHO), true);
+    vm_define_global(vm, "ICANON", val_i32_vm(ICANON), true);
 }
 
 // ============================================
@@ -2263,6 +2338,20 @@ static Value binary_add(VM *vm, Value a, Value b) {
         return val_int_typed(value_to_i64(a) + value_to_i64(b), result_type);
     }
 
+    // Pointer arithmetic: ptr + int or int + ptr
+    if (a.type == VAL_PTR && is_numeric(b.type)) {
+        uint8_t *ptr = (uint8_t*)a.as.as_ptr;
+        int64_t offset = value_to_i64(b);
+        Value v = {.type = VAL_PTR, .as.as_ptr = ptr + offset};
+        return v;
+    }
+    if (is_numeric(a.type) && b.type == VAL_PTR) {
+        int64_t offset = value_to_i64(a);
+        uint8_t *ptr = (uint8_t*)b.as.as_ptr;
+        Value v = {.type = VAL_PTR, .as.as_ptr = ptr + offset};
+        return v;
+    }
+
     SET_ERROR_FMT(vm, "Cannot add %s and %s",
                   val_type_name(a.type), val_type_name(b.type));
     return vm_null_value();
@@ -2283,6 +2372,17 @@ static Value binary_sub(VM *vm, Value a, Value b) {
         }
         ValueType result_type = promote_types(a.type, b.type);
         return val_int_typed(value_to_i64(a) - value_to_i64(b), result_type);
+    }
+    // Pointer arithmetic: ptr - int = ptr, ptr - ptr = i64
+    if (a.type == VAL_PTR && is_numeric(b.type)) {
+        uint8_t *ptr = (uint8_t*)a.as.as_ptr;
+        int64_t offset = value_to_i64(b);
+        Value v = {.type = VAL_PTR, .as.as_ptr = ptr - offset};
+        return v;
+    }
+    if (a.type == VAL_PTR && b.type == VAL_PTR) {
+        int64_t diff = (uint8_t*)a.as.as_ptr - (uint8_t*)b.as.as_ptr;
+        return val_i64_vm(diff);
     }
     SET_ERROR_FMT(vm, "Cannot subtract %s and %s",
                   val_type_name(a.type), val_type_name(b.type));
@@ -2390,6 +2490,9 @@ static Value binary_lt(VM *vm, Value a, Value b) {
     }
     if (a.type == VAL_RUNE && b.type == VAL_RUNE) {
         return val_bool_vm(a.as.as_rune < b.as.as_rune);
+    }
+    if (a.type == VAL_PTR && b.type == VAL_PTR) {
+        return val_bool_vm(a.as.as_ptr < b.as.as_ptr);
     }
     SET_ERROR_FMT(vm, "Cannot compare %s and %s",
                   val_type_name(a.type), val_type_name(b.type));
@@ -2946,6 +3049,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     }
                     uint8_t *data = (uint8_t*)buf->data;
                     PUSH(val_i32_vm(data[i]));
+                } else if (obj.type == VAL_PTR && obj.as.as_ptr) {
+                    // Pointer indexing - returns byte at offset as i32
+                    uint8_t *data = (uint8_t*)obj.as.as_ptr;
+                    int i = (int)value_to_i64(idx);
+                    PUSH(val_i32_vm(data[i]));
                 } else if (obj.type == VAL_OBJECT && obj.as.as_object) {
                     Object *o = obj.as.as_object;
                     if (idx.type == VAL_STRING && idx.as.as_string) {
@@ -3027,6 +3135,12 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         THROW_ERROR_FMT("Buffer index out of bounds: %d", i);
                     }
                     uint8_t *data = (uint8_t*)buf->data;
+                    data[i] = (uint8_t)value_to_i64(val);
+                    PUSH(val);
+                } else if (obj.type == VAL_PTR && obj.as.as_ptr) {
+                    // Pointer indexing - write byte at offset
+                    uint8_t *data = (uint8_t*)obj.as.as_ptr;
+                    int i = (int)value_to_i64(idx);
                     data[i] = (uint8_t)value_to_i64(val);
                     PUSH(val);
                 } else {
@@ -4951,6 +5065,26 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         atomic_store(&info->freed, 0);
                         result.type = VAL_OBJECT;
                         result.as.as_object = info;
+                        break;
+                    }
+
+                    // ========== Stack Limit ==========
+                    // Global variable to track stack limit (shared between set/get)
+                    static int64_t g_vm_stack_limit = 10000;
+
+                    case BUILTIN_SET_STACK_LIMIT: {
+                        // set_stack_limit(limit) - set recursion limit
+                        if (argc != 1) {
+                            THROW_ERROR("set_stack_limit() expects 1 argument (limit)");
+                        }
+                        g_vm_stack_limit = value_to_i64(args[0]);
+                        result = args[0];
+                        break;
+                    }
+
+                    case BUILTIN_GET_STACK_LIMIT: {
+                        // get_stack_limit() - get current recursion limit
+                        result = val_i32_vm((int)g_vm_stack_limit);
                         break;
                     }
 
