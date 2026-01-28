@@ -459,6 +459,100 @@ static Value vm_builtin_unsetenv(Value *args, int argc, void *ctx) {
     return stdlib_val_null();
 }
 
+// String from bytes - convert array of bytes to string
+static Value vm_builtin_string_from_bytes(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (argc < 1) return stdlib_val_null();
+
+    char *data = NULL;
+    int length = 0;
+
+    if (args[0].type == VAL_BUFFER) {
+        Buffer *buf = args[0].as.as_buffer;
+        if (!buf || !buf->data) return vm_make_string("", 0);
+        length = buf->length;
+        data = malloc(length + 1);
+        if (!data) return stdlib_val_null();
+        memcpy(data, buf->data, length);
+        data[length] = '\0';
+    } else if (args[0].type == VAL_ARRAY) {
+        Array *arr = args[0].as.as_array;
+        if (!arr || arr->length == 0) return vm_make_string("", 0);
+        length = arr->length;
+        data = malloc(length + 1);
+        if (!data) return stdlib_val_null();
+        for (int i = 0; i < length; i++) {
+            Value elem = arr->elements[i];
+            int byte_val = 0;
+            switch (elem.type) {
+                case VAL_I8: byte_val = (unsigned char)elem.as.as_i8; break;
+                case VAL_I16: byte_val = (unsigned char)elem.as.as_i16; break;
+                case VAL_I32: byte_val = (unsigned char)elem.as.as_i32; break;
+                case VAL_I64: byte_val = (unsigned char)elem.as.as_i64; break;
+                case VAL_U8: byte_val = elem.as.as_u8; break;
+                case VAL_U16: byte_val = (unsigned char)elem.as.as_u16; break;
+                case VAL_U32: byte_val = (unsigned char)elem.as.as_u32; break;
+                case VAL_U64: byte_val = (unsigned char)elem.as.as_u64; break;
+                default: byte_val = 0;
+            }
+            data[i] = (char)byte_val;
+        }
+        data[length] = '\0';
+    } else {
+        return stdlib_val_null();
+    }
+
+    // Create string value
+    String *s = malloc(sizeof(String));
+    s->data = data;
+    s->length = length;
+    s->char_length = -1;
+    s->capacity = length + 1;
+    s->ref_count = 1;
+
+    Value v = {.type = VAL_STRING, .as.as_string = s};
+    return v;
+}
+
+// File copy builtin
+static Value vm_builtin_copy_file(Value *args, int argc, void *ctx) {
+    (void)ctx;
+    if (argc < 2) return val_bool_vm(false);
+    if (args[0].type != VAL_STRING || !args[0].as.as_string ||
+        args[1].type != VAL_STRING || !args[1].as.as_string) {
+        return val_bool_vm(false);
+    }
+
+    const char *src = args[0].as.as_string->data;
+    const char *dest = args[1].as.as_string->data;
+
+    // Open source file
+    FILE *src_fp = fopen(src, "rb");
+    if (!src_fp) return val_bool_vm(false);
+
+    // Open destination file
+    FILE *dest_fp = fopen(dest, "wb");
+    if (!dest_fp) {
+        fclose(src_fp);
+        return val_bool_vm(false);
+    }
+
+    // Copy contents
+    char buffer[8192];
+    size_t bytes_read;
+    bool success = true;
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), src_fp)) > 0) {
+        if (fwrite(buffer, 1, bytes_read, dest_fp) != bytes_read) {
+            success = false;
+            break;
+        }
+    }
+
+    fclose(src_fp);
+    fclose(dest_fp);
+    return val_bool_vm(success);
+}
+
 // Pointer read builtins
 static Value vm_builtin_read_ptr(Value *args, int argc, void *ctx) {
     (void)ctx; (void)argc;
@@ -663,6 +757,65 @@ static Value vm_builtin_is_dir(Value *args, int argc, void *ctx) {
     struct stat st;
     if (stat(args[0].as.as_string->data, &st) != 0) return val_bool_vm(0);
     return val_bool_vm(S_ISDIR(st.st_mode));
+}
+
+// File stat - returns object with file information
+static Value vm_builtin_file_stat(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+
+    struct stat st;
+    if (stat(args[0].as.as_string->data, &st) != 0) {
+        return stdlib_val_null();
+    }
+
+    // Create object with stat info
+    Object *obj = malloc(sizeof(Object));
+    obj->field_names = malloc(sizeof(char*) * 8);
+    obj->field_values = malloc(sizeof(Value) * 8);
+    obj->num_fields = 6;
+    obj->capacity = 8;
+    obj->type_name = NULL;
+
+    obj->field_names[0] = strdup("size");
+    obj->field_values[0] = stdlib_val_i64((int64_t)st.st_size);
+
+    obj->field_names[1] = strdup("mode");
+    Value mode_v = {.type = VAL_I32, .as.as_i32 = (int)st.st_mode};
+    obj->field_values[1] = mode_v;
+
+    obj->field_names[2] = strdup("is_file");
+    Value is_file_v = {.type = VAL_BOOL, .as.as_bool = S_ISREG(st.st_mode)};
+    obj->field_values[2] = is_file_v;
+
+    obj->field_names[3] = strdup("is_dir");
+    Value is_dir_v = {.type = VAL_BOOL, .as.as_bool = S_ISDIR(st.st_mode)};
+    obj->field_values[3] = is_dir_v;
+
+    obj->field_names[4] = strdup("mtime");
+    obj->field_values[4] = stdlib_val_i64((int64_t)st.st_mtime);
+
+    obj->field_names[5] = strdup("ctime");
+    obj->field_values[5] = stdlib_val_i64((int64_t)st.st_ctime);
+
+    Value v = {.type = VAL_OBJECT, .as.as_object = obj};
+    return v;
+}
+
+// Absolute path - resolve to absolute path
+static Value vm_builtin_absolute_path(Value *args, int argc, void *ctx) {
+    (void)ctx; (void)argc;
+    if (args[0].type != VAL_STRING || !args[0].as.as_string) {
+        return stdlib_val_null();
+    }
+
+    char resolved[4096];
+    char *result = realpath(args[0].as.as_string->data, resolved);
+    if (!result) return stdlib_val_null();
+
+    return vm_make_string(resolved, strlen(resolved));
 }
 
 // Process builtins
@@ -2031,6 +2184,12 @@ static void vm_init_stdlib(VM *vm) {
     vm_define_global(vm, "setenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_setenv), true);
     vm_define_global(vm, "unsetenv", vm_val_builtin_fn((BuiltinFn)vm_builtin_unsetenv), true);
 
+    // String conversion builtins
+    vm_define_global(vm, "__string_from_bytes", vm_val_builtin_fn((BuiltinFn)vm_builtin_string_from_bytes), true);
+
+    // File operations
+    vm_define_global(vm, "__copy_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_copy_file), true);
+
     // Time builtins
     vm_define_global(vm, "__now", vm_val_builtin_fn((BuiltinFn)vm_builtin_now), true);
     vm_define_global(vm, "__time_ms", vm_val_builtin_fn((BuiltinFn)vm_builtin_time_ms), true);
@@ -2057,6 +2216,8 @@ static void vm_init_stdlib(VM *vm) {
     vm_define_global(vm, "__exists", vm_val_builtin_fn((BuiltinFn)vm_builtin_exists), true);
     vm_define_global(vm, "__is_file", vm_val_builtin_fn((BuiltinFn)vm_builtin_is_file), true);
     vm_define_global(vm, "__is_dir", vm_val_builtin_fn((BuiltinFn)vm_builtin_is_dir), true);
+    vm_define_global(vm, "__file_stat", vm_val_builtin_fn((BuiltinFn)vm_builtin_file_stat), true);
+    vm_define_global(vm, "__absolute_path", vm_val_builtin_fn((BuiltinFn)vm_builtin_absolute_path), true);
 
     // Process builtins
     vm_define_global(vm, "__get_pid", vm_val_builtin_fn((BuiltinFn)vm_builtin_get_pid), true);
