@@ -8,7 +8,17 @@
 #ifndef HEMLOCK_CODEGEN_INTERNAL_H
 #define HEMLOCK_CODEGEN_INTERNAL_H
 
+// Platform detection
+#if defined(_WIN32) || defined(_WIN64)
+    #ifndef HML_WINDOWS
+    #define HML_WINDOWS 1
+    #endif
+#endif
+
+#ifndef HML_WINDOWS
 #define _GNU_SOURCE
+#endif
+
 #include "codegen.h"
 #include "frontend.h"
 #include "hemlock_limits.h"
@@ -17,9 +27,84 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <unistd.h>
-#include <libgen.h>
 #include <limits.h>
+
+// ========== WINDOWS COMPATIBILITY ==========
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <io.h>
+    #include <direct.h>
+
+    #define access _access
+    #define F_OK 0
+    #define getcwd _getcwd
+    #define getpid _getpid
+    #define mkdir(path, mode) _mkdir(path)
+
+    // ssize_t compatibility
+    #ifndef ssize_t
+    typedef long ssize_t;
+    #endif
+
+    // PATH_MAX for Windows
+    #ifndef PATH_MAX
+    #define PATH_MAX MAX_PATH
+    #endif
+
+    // basename implementation for Windows
+    static inline char* hml_basename(char *path) {
+        char *base = strrchr(path, '\\');
+        if (!base) base = strrchr(path, '/');
+        return base ? base + 1 : path;
+    }
+    #define basename hml_basename
+
+    // dirname implementation for Windows
+    static inline char* hml_dirname(char *path) {
+        static char buf[MAX_PATH];
+        strncpy(buf, path, MAX_PATH - 1);
+        buf[MAX_PATH - 1] = '\0';
+        char *last_sep = strrchr(buf, '\\');
+        if (!last_sep) last_sep = strrchr(buf, '/');
+        if (last_sep) {
+            *last_sep = '\0';
+        } else {
+            buf[0] = '.';
+            buf[1] = '\0';
+        }
+        return buf;
+    }
+    #define dirname hml_dirname
+
+    // realpath implementation for Windows
+    static inline char* hml_realpath(const char *path, char *resolved) {
+        if (!resolved) {
+            resolved = malloc(MAX_PATH);
+            if (!resolved) return NULL;
+        }
+        if (GetFullPathNameA(path, MAX_PATH, resolved, NULL) == 0) {
+            return NULL;
+        }
+        return resolved;
+    }
+    #define realpath hml_realpath
+
+    // open_memstream compatibility (Windows doesn't have it)
+    // We'll use a tmpfile-based fallback
+    static inline FILE* hml_open_memstream(char **ptr, size_t *sizeloc) {
+        // On Windows, use tmpfile instead
+        (void)ptr;
+        (void)sizeloc;
+        return tmpfile();
+    }
+    #define open_memstream hml_open_memstream
+
+#else
+    // POSIX systems
+    #include <unistd.h>
+    #include <libgen.h>
+#endif
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>

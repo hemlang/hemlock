@@ -11,16 +11,56 @@ BLUE='\033[0;34m'
 DIM='\033[2m'
 NC='\033[0m' # No Color
 
+# Platform detection
+detect_platform() {
+    case "$OSTYPE" in
+        darwin*)  echo "macos" ;;
+        linux*)   echo "linux" ;;
+        msys*|mingw*|cygwin*) echo "windows" ;;
+        *)        echo "linux" ;;  # Default to linux-like
+    esac
+}
+
+PLATFORM=$(detect_platform)
+
 # Cross-platform millisecond timestamp
 # macOS date doesn't support %N, so we need alternatives
 get_time_ms() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS: use perl for millisecond precision
         perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'
+    elif [[ "$PLATFORM" == "windows" ]]; then
+        # Windows: use date +%s and multiply (less precision)
+        echo $(( $(date +%s) * 1000 ))
     else
         # Linux: use date with nanoseconds
         date +%s%3N
     fi
+}
+
+# Check if a test is Windows-incompatible
+is_windows_incompatible() {
+    local test_file="$1"
+    # Tests that use POSIX-specific features not available on Windows
+    if [[ "$PLATFORM" == "windows" ]]; then
+        # Signal tests (limited signal support on Windows)
+        if [[ "$test_file" =~ signals/ ]]; then
+            return 0
+        fi
+        # Fork tests (no fork on Windows)
+        if [[ "$test_file" =~ fork ]]; then
+            return 0
+        fi
+        # Unix socket tests
+        if [[ "$test_file" =~ unix_socket ]]; then
+            return 0
+        fi
+        # Termios tests (terminal control)
+        if [[ "$test_file" =~ termios ]]; then
+            return 0
+        fi
+    fi
+    return 1
 }
 
 # Counters
@@ -28,6 +68,7 @@ PASS_COUNT=0
 FAIL_COUNT=0
 ERROR_TEST_COUNT=0
 UNEXPECTED_FAIL_COUNT=0
+SKIP_COUNT=0
 
 # Track failed tests for summary
 FAILED_TESTS=()
@@ -131,6 +172,21 @@ for test_file in $TEST_FILES; do
         fi
     fi
 
+    # Skip Windows-incompatible tests
+    if is_windows_incompatible "$test_file"; then
+        # Print category header if changed
+        if [ "$category" != "$CURRENT_CATEGORY" ]; then
+            if [ -n "$CURRENT_CATEGORY" ]; then
+                echo ""
+            fi
+            echo -e "${BLUE}[$category]${NC}"
+            CURRENT_CATEGORY="$category"
+        fi
+        echo -e "${YELLOW}⊘${NC} $test_name ${DIM}(skipped on Windows)${NC}"
+        ((SKIP_COUNT++))
+        continue
+    fi
+
     # Print category header if changed
     if [ "$category" != "$CURRENT_CATEGORY" ]; then
         if [ -n "$CURRENT_CATEGORY" ]; then
@@ -189,6 +245,9 @@ echo "======================================"
 total_time_str=$(format_time $TOTAL_TIME_MS)
 echo -e "${GREEN}Passed:${NC}           $PASS_COUNT"
 echo -e "${YELLOW}Error tests:${NC}      $ERROR_TEST_COUNT ${YELLOW}(expected failures)${NC}"
+if [ $SKIP_COUNT -gt 0 ]; then
+    echo -e "${YELLOW}Skipped:${NC}          $SKIP_COUNT ${YELLOW}(platform-specific)${NC}"
+fi
 echo -e "${RED}Failed:${NC}           $FAIL_COUNT"
 if [ $UNEXPECTED_FAIL_COUNT -gt 0 ]; then
     echo -e "${RED}Unexpected:${NC}       $UNEXPECTED_FAIL_COUNT ${RED}(error tests that passed!)${NC}"

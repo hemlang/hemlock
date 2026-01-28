@@ -1,9 +1,18 @@
 #ifndef BUILTINS_INTERNAL_H
 #define BUILTINS_INTERNAL_H
 
-// Define feature test macros before including system headers
+// Platform detection
+#if defined(_WIN32) || defined(_WIN64)
+    #ifndef HML_WINDOWS
+    #define HML_WINDOWS 1
+    #endif
+#endif
+
+// Define feature test macros before including system headers (POSIX only)
+#ifndef HML_WINDOWS
 #define _XOPEN_SOURCE 700
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../internal.h"
 #include <stdio.h>
@@ -11,20 +20,183 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <dirent.h>
-#include <unistd.h>
 #include <limits.h>
 #include <math.h>
 #include <time.h>
-#include <sys/time.h>
-#include <signal.h>
-#include <fcntl.h>  // For O_NOFOLLOW symlink protection
-#include <poll.h>   // For poll() in exec functions
+
+// ========== WINDOWS COMPATIBILITY ==========
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <io.h>
+    #include <process.h>
+    #include <direct.h>
+    #include <sys/stat.h>
+    #include <sys/types.h>
+
+    // Windows doesn't have unistd.h - provide compatibility
+    #ifndef F_OK
+    #define F_OK 0
+    #define R_OK 4
+    #define W_OK 2
+    #define X_OK 1
+    #endif
+
+    // Windows doesn't have O_NOFOLLOW
+    #ifndef O_NOFOLLOW
+    #define O_NOFOLLOW 0
+    #endif
+
+    // Windows directory functions
+    #define getcwd _getcwd
+    #define chdir _chdir
+    #define mkdir(path, mode) _mkdir(path)
+    #define rmdir _rmdir
+    #define access _access
+
+    // Windows file descriptor functions
+    #define close _close
+    #define read _read
+    #define write _write
+    #define dup _dup
+    #define dup2 _dup2
+    #define fileno _fileno
+    #define isatty _isatty
+
+    // Windows process functions
+    #define getpid _getpid
+    #define getppid() 0
+    #define getuid() 0
+    #define getgid() 0
+    #define geteuid() 0
+    #define getegid() 0
+    #define fork() (-1)
+
+    // Windows doesn't have realpath - provide a simple implementation
+    static inline char* realpath(const char *path, char *resolved) {
+        if (!resolved) {
+            resolved = malloc(MAX_PATH);
+            if (!resolved) return NULL;
+        }
+        if (GetFullPathNameA(path, MAX_PATH, resolved, NULL) == 0) {
+            return NULL;
+        }
+        return resolved;
+    }
+
+    // poll() compatibility - use WSAPoll on Windows
+    #define poll WSAPoll
+    #ifndef POLLIN
+    #define POLLIN POLLRDNORM
+    #define POLLOUT POLLWRNORM
+    #endif
+
+    // ssize_t compatibility
+    #ifndef ssize_t
+    typedef long ssize_t;
+    #endif
+
+    // Directory compatibility types
+    typedef struct hml_dirent {
+        char d_name[260];  // MAX_PATH
+    } hml_dirent_t;
+
+    typedef struct hml_dir {
+        HANDLE hFind;
+        WIN32_FIND_DATAA data;
+        int first;
+        hml_dirent_t entry;
+    } hml_dir_t;
+
+    static inline hml_dir_t* hml_opendir(const char *path) {
+        hml_dir_t *dir = malloc(sizeof(hml_dir_t));
+        if (!dir) return NULL;
+
+        char search_path[MAX_PATH];
+        snprintf(search_path, MAX_PATH, "%s\\*", path);
+
+        dir->hFind = FindFirstFileA(search_path, &dir->data);
+        if (dir->hFind == INVALID_HANDLE_VALUE) {
+            free(dir);
+            return NULL;
+        }
+        dir->first = 1;
+        return dir;
+    }
+
+    static inline hml_dirent_t* hml_readdir(hml_dir_t *dir) {
+        if (!dir) return NULL;
+        if (dir->first) {
+            dir->first = 0;
+            strncpy(dir->entry.d_name, dir->data.cFileName, 260);
+            return &dir->entry;
+        }
+        if (FindNextFileA(dir->hFind, &dir->data)) {
+            strncpy(dir->entry.d_name, dir->data.cFileName, 260);
+            return &dir->entry;
+        }
+        return NULL;
+    }
+
+    static inline void hml_closedir(hml_dir_t *dir) {
+        if (dir) {
+            FindClose(dir->hFind);
+            free(dir);
+        }
+    }
+
+    // Socket compatibility
+    typedef SOCKET hml_socket_t;
+    #define HML_INVALID_SOCKET INVALID_SOCKET
+    #define hml_closesocket(s) closesocket(s)
+    #define hml_socket_error() WSAGetLastError()
+
+    // strndup compatibility for Windows
+    static inline char* hml_strndup(const char *s, size_t n) {
+        size_t len = strnlen(s, n);
+        char *result = malloc(len + 1);
+        if (result) {
+            memcpy(result, s, len);
+            result[len] = '\0';
+        }
+        return result;
+    }
+    #ifndef strndup
+    #define strndup hml_strndup
+    #endif
+
+    // Signal compatibility - limited on Windows
+    #include <signal.h>
+
+#else
+    // POSIX systems
+    #include <sys/stat.h>
+    #include <sys/wait.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <dirent.h>
+    #include <unistd.h>
+    #include <sys/time.h>
+    #include <signal.h>
+    #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+    #include <poll.h>   // For poll() in exec functions
+
+    // POSIX compatibility types
+    typedef struct dirent hml_dirent_t;
+    typedef DIR hml_dir_t;
+    #define hml_opendir opendir
+    #define hml_readdir readdir
+    #define hml_closedir closedir
+
+    // POSIX socket compatibility
+    typedef int hml_socket_t;
+    #define HML_INVALID_SOCKET (-1)
+    #define hml_closesocket(s) close(s)
+    #define hml_socket_error() errno
+#endif
 
 // Define math constants if not available
 #ifndef M_PI
