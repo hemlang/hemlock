@@ -238,6 +238,8 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
             if (exp) {
                 is_module_export = 1;
                 codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, exp->mangled_name);
+                // Retain since we'll release at function end
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_var);
             }
         }
 
@@ -248,12 +250,16 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
                 // Use the module-prefixed imported symbol directly
                 codegen_writeln(ctx, "HmlValue %s = %s%s;", safe_var,
                               import->module_prefix, import->original_name);
+                // Retain since we'll release at function end
+                codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_var);
             } else {
                 int env_index = closure->shared_env_indices ? closure->shared_env_indices[i] : i;
 
                 if (env_index == -1) {
                     if (codegen_is_main_var(ctx, var_name)) {
                         codegen_writeln(ctx, "HmlValue %s = _main_%s;", safe_var, var_name);
+                        // Retain since we'll release at function end
+                        codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_var);
                     } else {
                         codegen_writeln(ctx, "HmlValue %s = %s;", safe_var, safe_var);
                     }
@@ -437,14 +443,66 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             char mangled[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.let.name);
             char *value = codegen_expr(ctx, stmt->as.let.value);
-            codegen_writeln(ctx, "%s = %s;", mangled, value);
+
+            // Handle type annotations (same as codegen_stmt for local variables)
+            if (stmt->as.let.type_annotation) {
+                if (stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
+                    // Typed array: let arr: array<type> = [...]
+                    Type *elem_type = stmt->as.let.type_annotation->element_type;
+                    const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                    if (!arr_type) arr_type = "HML_VAL_NULL";
+                    codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                  mangled, value, arr_type);
+                } else if (stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                           stmt->as.let.type_annotation->type_name) {
+                    // Custom object type for duck typing
+                    codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                  mangled, value, stmt->as.let.type_annotation->type_name);
+                } else {
+                    // Primitive type annotation: let x: rune = 27;
+                    // Convert value to the annotated type
+                    const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
+                    if (hml_type) {
+                        codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);",
+                                      mangled, value, hml_type);
+                    } else {
+                        codegen_writeln(ctx, "%s = %s;", mangled, value);
+                    }
+                }
+            } else {
+                codegen_writeln(ctx, "%s = %s;", mangled, value);
+            }
             free(value);
         } else if (stmt->type == STMT_CONST && stmt->as.const_stmt.value) {
             // Const statement - assign to module global
             char mangled[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.const_stmt.name);
             char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
-            codegen_writeln(ctx, "%s = %s;", mangled, value);
+
+            // Handle type annotations for const statements too
+            if (stmt->as.const_stmt.type_annotation) {
+                if (stmt->as.const_stmt.type_annotation->kind == TYPE_ARRAY) {
+                    Type *elem_type = stmt->as.const_stmt.type_annotation->element_type;
+                    const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                    if (!arr_type) arr_type = "HML_VAL_NULL";
+                    codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                  mangled, value, arr_type);
+                } else if (stmt->as.const_stmt.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
+                           stmt->as.const_stmt.type_annotation->type_name) {
+                    codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                  mangled, value, stmt->as.const_stmt.type_annotation->type_name);
+                } else {
+                    const char *hml_type = type_kind_to_hml_val(stmt->as.const_stmt.type_annotation->kind);
+                    if (hml_type) {
+                        codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);",
+                                      mangled, value, hml_type);
+                    } else {
+                        codegen_writeln(ctx, "%s = %s;", mangled, value);
+                    }
+                }
+            } else {
+                codegen_writeln(ctx, "%s = %s;", mangled, value);
+            }
             free(value);
         } else {
             // Regular statement (import bindings, etc.)
