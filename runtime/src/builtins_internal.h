@@ -82,6 +82,17 @@
     // MinGW provides nanosleep and clock_gettime via pthread_time.h
     // No need to redefine them
 
+    // realpath compatibility for Windows
+    static inline char* hml_realpath(const char *path, char *resolved_path) {
+        DWORD len = GetFullPathNameA(path, PATH_MAX, resolved_path, NULL);
+        if (len == 0 || len > PATH_MAX) return NULL;
+        // Check if the file/directory actually exists
+        DWORD attrs = GetFileAttributesA(resolved_path);
+        if (attrs == INVALID_FILE_ATTRIBUTES) return NULL;
+        return resolved_path;
+    }
+    #define realpath hml_realpath
+
     // Dynamic library loading compatibility
     #define dlopen(path, mode) ((void*)LoadLibraryA(path))
     #define dlsym(handle, name) ((void*)GetProcAddress((HMODULE)(handle), name))
