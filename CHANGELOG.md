@@ -5,6 +5,12 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.7] - 2026-01-28
+
+### Fixed
+
+- **Multi-argument print/eprint in compiler** - Fixed compiler codegen for `print()` and `eprint()` with multiple arguments (e.g., `print("x:", x, y)`). Previously, only single-argument calls were handled as builtins; multi-argument calls incorrectly generated invalid `hml_fn_print` function calls. Added `hml_print_value`, `hml_eprint_value`, `hml_print_newline`, and `hml_eprint_newline` runtime functions to support proper multi-argument printing with space separators.
+
 ## [1.8.6] - 2026-01-28
 
 ### Fixed

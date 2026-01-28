@@ -89,6 +89,10 @@ HmlValue hml_unary_op(HmlUnaryOp op, HmlValue operand);
 // I/O
 void hml_print(HmlValue val);
 void hml_eprint(HmlValue val);
+void hml_print_value(HmlValue val);    // Print without newline
+void hml_eprint_value(HmlValue val);   // Print to stderr without newline
+void hml_print_newline(void);          // Print newline only
+void hml_eprint_newline(void);         // Print newline to stderr only
 HmlValue hml_read_line(void);
 
 // I/O builtins as first-class functions (for defer, higher-order functions, etc.)

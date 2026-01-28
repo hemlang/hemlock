@@ -269,6 +269,28 @@ void hml_eprint(HmlValue val) {
     fflush(stderr);
 }
 
+// Print without newline (for multi-argument print support)
+void hml_print_value(HmlValue val) {
+    print_value_to(stdout, val);
+    fflush(stdout);
+}
+
+void hml_eprint_value(HmlValue val) {
+    print_value_to(stderr, val);
+    fflush(stderr);
+}
+
+// Print newline only (for multi-argument print support)
+void hml_print_newline(void) {
+    printf("\n");
+    fflush(stdout);
+}
+
+void hml_eprint_newline(void) {
+    fprintf(stderr, "\n");
+    fflush(stderr);
+}
+
 // I/O builtins as first-class functions
 HmlValue hml_builtin_print(HmlClosureEnv *env, HmlValue val) {
     (void)env;
