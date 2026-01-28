@@ -1,14 +1,19 @@
 #include "internal.h"
+
+// POSIX socket headers - Windows equivalents are in internal.h
+#ifndef HML_WINDOWS
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <poll.h>
+#endif
+
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
 #include <stdarg.h>
-#include <poll.h>
 #include <stdatomic.h>
 
 // ========== SOCKET BUILTINS ==========
@@ -46,7 +51,7 @@ void socket_free(SocketHandle *sock) {
 
     // Close socket if still open
     if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
+        hml_closesocket(sock->fd);
     }
 
     // Free allocated strings
@@ -96,7 +101,7 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
 
     SocketHandle *sock = malloc(sizeof(SocketHandle));
     if (!sock) {
-        close(fd);
+        hml_closesocket(fd);
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
@@ -235,7 +240,7 @@ Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, Execut
     // Create new socket for client connection
     SocketHandle *client_sock = malloc(sizeof(SocketHandle));
     if (!client_sock) {
-        close(client_fd);
+        hml_closesocket(client_fd);
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
@@ -253,7 +258,7 @@ Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, Execut
         inet_ntop(AF_INET6, &addr6->sin6_addr, addr_str, sizeof(addr_str));
         client_sock->address = strdup(addr_str);
         if (!client_sock->address) {
-            close(client_fd);
+            hml_closesocket(client_fd);
             free(client_sock);
             return throw_runtime_error(ctx, "Memory allocation failed for client address");
         }
@@ -264,7 +269,7 @@ Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, Execut
         inet_ntop(AF_INET, &addr4->sin_addr, addr_str, sizeof(addr_str));
         client_sock->address = strdup(addr_str);
         if (!client_sock->address) {
-            close(client_fd);
+            hml_closesocket(client_fd);
             free(client_sock);
             return throw_runtime_error(ctx, "Memory allocation failed for client address");
         }
@@ -719,6 +724,12 @@ Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int num_arg
 
     int enable = args[0].as.as_bool;
 
+#ifdef HML_WINDOWS
+    u_long mode = enable ? 1 : 0;
+    if (ioctlsocket(sock->fd, FIONBIO, &mode) != 0) {
+        return throw_runtime_error(ctx, "Failed to set socket non-blocking mode: %d", WSAGetLastError());
+    }
+#else
     int flags = fcntl(sock->fd, F_GETFL, 0);
     if (flags < 0) {
         return throw_runtime_error(ctx, "Failed to get socket flags: %s", strerror(errno));
@@ -733,6 +744,7 @@ Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int num_arg
     if (fcntl(sock->fd, F_SETFL, flags) < 0) {
         return throw_runtime_error(ctx, "Failed to set socket flags: %s", strerror(errno));
     }
+#endif
 
     sock->nonblocking = enable;
     return val_null();
@@ -749,7 +761,7 @@ Value socket_method_close(SocketHandle *sock, Value *args, int num_args, Executi
 
     // Idempotent - safe to call multiple times
     if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
+        hml_closesocket(sock->fd);
         sock->fd = -1;
         sock->closed = 1;
     }
