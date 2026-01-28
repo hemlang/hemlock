@@ -910,7 +910,8 @@ make parity
 
 ## Version
 
-**v1.8.5** - Current release with:
+**v1.8.6** - Current release with:
+- **SSO string fix** - Fixed segfault in `hml_string_append_inplace` when growing strings using Small String Optimization
 - **`@stdlib/termios` module** - Cross-platform raw terminal input (Linux/macOS):
   - `enable_raw_mode()` / `disable_raw_mode()` for instant keypresses
   - `read_key()` / `read_key_timeout(ms)` for single keypress reading
