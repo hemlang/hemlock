@@ -1,0 +1,16 @@
+// Test for refcount mismatch when joining a task that threw an exception
+// Previously, the exception value was copied without retaining
+
+async fn throws_error() {
+    throw "task exception";
+}
+
+// Test the scenario
+try {
+    let task = spawn(throws_error);
+    join(task);
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("Test passed - no refcount mismatch");

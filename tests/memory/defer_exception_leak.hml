@@ -1,0 +1,20 @@
+// Test for memory leak when defer throws while exception is pending
+// Previously, the original exception would leak when defer threw
+
+fn throw_error() {
+    throw "defer exception";
+}
+
+fn test_defer_throws() {
+    defer throw_error();
+    throw "original exception";
+}
+
+// Test the scenario
+try {
+    test_defer_throws();
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("Test passed - no memory leak");

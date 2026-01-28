@@ -447,6 +447,9 @@ void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx) {
         int was_throwing = ctx->exception_state.is_throwing;
         Value saved_exception = ctx->exception_state.exception_value;
 
+        // Retain saved exception to prevent it from being freed during defer execution
+        VALUE_RETAIN(saved_exception);
+
         // Temporarily clear exception state to allow defer to run
         ctx->exception_state.is_throwing = 0;
 
@@ -458,6 +461,11 @@ void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx) {
         if (!ctx->exception_state.is_throwing) {
             ctx->exception_state.is_throwing = was_throwing;
             ctx->exception_state.exception_value = saved_exception;
+            // Release our extra reference since we're restoring the value
+            VALUE_RELEASE(saved_exception);
+        } else {
+            // Defer threw a new exception - release saved exception since it won't be used
+            VALUE_RELEASE(saved_exception);
         }
 
         // Clean up the deferred expression and release environment
