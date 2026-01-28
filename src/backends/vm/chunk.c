@@ -329,6 +329,7 @@ ChunkBuilder* chunk_builder_new(ChunkBuilder *enclosing) {
     builder->locals = malloc(sizeof(*builder->locals) * BUILDER_LOCALS_INITIAL);
     builder->local_count = 0;
     builder->local_capacity = BUILDER_LOCALS_INITIAL;
+    builder->max_local_count = 0;
     builder->scope_depth = 0;
 
     builder->upvalues = NULL;
@@ -373,7 +374,8 @@ Chunk* chunk_builder_finish(ChunkBuilder *builder) {
         chunk->upvalue_count = builder->upvalue_count;
     }
 
-    chunk->local_count = builder->local_count;
+    // Use max_local_count to ensure all nested scopes have enough slots
+    chunk->local_count = builder->max_local_count;
 
     // Don't free the chunk, we're returning it
     builder->chunk = NULL;
@@ -393,15 +395,18 @@ void builder_begin_scope(ChunkBuilder *builder) {
 void builder_end_scope(ChunkBuilder *builder) {
     builder->scope_depth--;
 
-    // Pop locals in this scope
+    // Handle locals going out of scope
+    // Note: Locals are stored in slots via BC_SET_LOCAL, so we don't pop them.
+    // We only need to close upvalues for captured locals.
     while (builder->local_count > 0 &&
            builder->locals[builder->local_count - 1].depth > builder->scope_depth) {
-        // Close upvalues if captured
-        if (builder->locals[builder->local_count - 1].is_captured) {
+        int slot = builder->local_count - 1;
+        // Close upvalues if captured - emit slot index so VM knows where to close
+        if (builder->locals[slot].is_captured) {
             chunk_write_byte(builder->chunk, BC_CLOSE_UPVALUE, 0);
-        } else {
-            chunk_write_byte(builder->chunk, BC_POP, 0);
+            chunk_write_byte(builder->chunk, (uint8_t)slot, 0);
         }
+        // Don't emit BC_POP - locals are in slots, not on expression stack
         builder->local_count--;
     }
 }
@@ -436,6 +441,11 @@ int builder_declare_local(ChunkBuilder *builder, const char *name, bool is_const
     builder->locals[slot].is_const = is_const;
     builder->locals[slot].type = type;
     builder->local_count++;
+
+    // Track maximum for slot allocation
+    if (builder->local_count > builder->max_local_count) {
+        builder->max_local_count = builder->local_count;
+    }
 
     return slot;
 }
@@ -542,14 +552,15 @@ void builder_emit_break(ChunkBuilder *builder) {
 
     int i = builder->loop_count - 1;
 
-    // Pop locals to loop scope
+    // Close upvalues for captured locals going out of scope
+    // Note: Non-captured locals are in slots, not on expression stack, so no POP needed
     int depth = builder->loops[i].scope_depth;
     for (int j = builder->local_count - 1; j >= 0 && builder->locals[j].depth > depth; j--) {
         if (builder->locals[j].is_captured) {
             chunk_write_byte(builder->chunk, BC_CLOSE_UPVALUE, 0);
-        } else {
-            chunk_write_byte(builder->chunk, BC_POP, 0);
+            chunk_write_byte(builder->chunk, (uint8_t)j, 0);
         }
+        // Don't emit BC_POP - locals are in slots, not on expression stack
     }
 
     // Emit break as jump (to be patched)
@@ -567,14 +578,15 @@ void builder_emit_continue(ChunkBuilder *builder) {
 
     int i = builder->loop_count - 1;
 
-    // Pop locals to loop scope
+    // Close upvalues for captured locals going out of scope
+    // Note: Non-captured locals are in slots, not on expression stack, so no POP needed
     int depth = builder->loops[i].scope_depth;
     for (int j = builder->local_count - 1; j >= 0 && builder->locals[j].depth > depth; j--) {
         if (builder->locals[j].is_captured) {
             chunk_write_byte(builder->chunk, BC_CLOSE_UPVALUE, 0);
-        } else {
-            chunk_write_byte(builder->chunk, BC_POP, 0);
+            chunk_write_byte(builder->chunk, (uint8_t)j, 0);
         }
+        // Don't emit BC_POP - locals are in slots, not on expression stack
     }
 
     if (builder->loops[i].continue_target >= 0) {

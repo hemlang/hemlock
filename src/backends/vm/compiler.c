@@ -876,16 +876,10 @@ static void compile_function(Compiler *compiler, Expr *expr) {
     emit_byte(fn_compiler, BC_NULL);
     emit_byte(fn_compiler, BC_RETURN);
 
-    // Save the local count BEFORE ending scope (end_scope decrements it)
-    int saved_local_count = fn_compiler->builder->local_count;
-
-    // End scope (will emit POPs for locals - but we saved local_count above)
+    // End scope
     builder_end_scope(fn_compiler->builder);
 
-    // Restore the local count for the chunk (needed for stack setup)
-    fn_compiler->builder->local_count = saved_local_count;
-
-    // Finish building the function chunk
+    // Finish building the function chunk (uses max_local_count for slot allocation)
     Chunk *fn_chunk = chunk_builder_finish(fn_compiler->builder);
     fn_compiler->builder = NULL;
 
@@ -1043,7 +1037,10 @@ static void compile_let(Compiler *compiler, Stmt *stmt, bool is_const) {
             compiler_error(compiler, "Variable already declared in this scope");
         }
         builder_mark_initialized(compiler->builder);
-        // Value is already on stack in the right slot
+        // Store the value from the expression stack into the local slot
+        emit_byte(compiler, BC_SET_LOCAL);
+        emit_byte(compiler, (uint8_t)slot);
+        emit_byte(compiler, BC_POP);  // Pop the value from expression stack
     } else {
         // Global variable
         int idx = chunk_add_identifier(compiler->builder->chunk, name);
@@ -1174,15 +1171,21 @@ static void compile_for_in(Compiler *compiler, Stmt *stmt) {
     // Compile iterable expression -> array/object on stack
     compile_expression(compiler, stmt->as.for_in.iterable);
 
-    // Reserve hidden local for iterable
+    // Reserve hidden local for iterable and store it
     int iterable_slot = builder_declare_local(compiler->builder, " iter", false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
+    emit_byte(compiler, BC_SET_LOCAL);
+    emit_byte(compiler, (uint8_t)iterable_slot);
+    emit_byte(compiler, BC_POP);
 
-    // Push initial index 0 and reserve local
+    // Push initial index 0 and store in local
     emit_byte(compiler, BC_CONST_BYTE);
     emit_byte(compiler, 0);
     int index_slot = builder_declare_local(compiler->builder, " idx", false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
+    emit_byte(compiler, BC_SET_LOCAL);
+    emit_byte(compiler, (uint8_t)index_slot);
+    emit_byte(compiler, BC_POP);
 
     // Declare key variable if present (for "for (let key, value in obj)")
     int key_slot = -1;
@@ -1190,12 +1193,18 @@ static void compile_for_in(Compiler *compiler, Stmt *stmt) {
         emit_byte(compiler, BC_NULL);
         key_slot = builder_declare_local(compiler->builder, stmt->as.for_in.key_var, false, TYPE_ID_NULL);
         builder_mark_initialized(compiler->builder);
+        emit_byte(compiler, BC_SET_LOCAL);
+        emit_byte(compiler, (uint8_t)key_slot);
+        emit_byte(compiler, BC_POP);
     }
 
-    // Push placeholder for value variable and reserve local
+    // Push placeholder for value variable and store in local
     emit_byte(compiler, BC_NULL);
     int var_slot = builder_declare_local(compiler->builder, stmt->as.for_in.value_var, false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
+    emit_byte(compiler, BC_SET_LOCAL);
+    emit_byte(compiler, (uint8_t)var_slot);
+    emit_byte(compiler, BC_POP);
 
     // Loop start: check if index < iterable.length
     int loop_start = compiler->builder->chunk->code_count;
@@ -1278,6 +1287,9 @@ static void compile_switch(Compiler *compiler, Stmt *stmt) {
     // Store in a hidden local so we can compare multiple times
     int switch_slot = builder_declare_local(compiler->builder, " switch", false, TYPE_ID_NULL);
     builder_mark_initialized(compiler->builder);
+    emit_byte(compiler, BC_SET_LOCAL);
+    emit_byte(compiler, (uint8_t)switch_slot);
+    emit_byte(compiler, BC_POP);
 
     // Register as pseudo-loop so break works (exits switch, not enclosing loop)
     builder_begin_loop(compiler->builder);
@@ -1378,10 +1390,14 @@ static void compile_try(Compiler *compiler, Stmt *stmt) {
         // Begin a scope for the catch parameter
         builder_begin_scope(compiler->builder);
 
-        // Declare catch parameter
+        // Declare catch parameter and store exception value in it
         if (stmt->as.try_stmt.catch_param) {
-            builder_declare_local(compiler->builder, stmt->as.try_stmt.catch_param, false, TYPE_ID_STRING);
+            int catch_slot = builder_declare_local(compiler->builder, stmt->as.try_stmt.catch_param, false, TYPE_ID_STRING);
             builder_mark_initialized(compiler->builder);
+            // Exception value is on stack from throw - store it in local slot
+            emit_byte(compiler, BC_SET_LOCAL);
+            emit_byte(compiler, (uint8_t)catch_slot);
+            emit_byte(compiler, BC_POP);
         } else {
             // No parameter - just pop the exception
             emit_byte(compiler, BC_POP);

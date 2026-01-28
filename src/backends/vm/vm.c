@@ -145,6 +145,68 @@ static void vm_apply_type_defaults(Object *obj, VMTypeDef *type) {
 }
 
 // ============================================
+// Signal Handling Infrastructure
+// ============================================
+
+#include <signal.h>
+
+#define MAX_SIGNALS 64
+
+// Signal handler registry
+static struct {
+    VMClosure *handlers[MAX_SIGNALS];  // VM closures for each signal
+    volatile sig_atomic_t pending[MAX_SIGNALS];  // Flags for pending signals
+    VM *vm;  // Current VM (for calling handlers)
+} g_signal_registry = {0};
+
+// Forward declaration for vm_call_closure (defined later)
+static Value vm_call_closure(VM *vm, VMClosure *closure, Value *args, int argc);
+
+// C signal handler - just sets the pending flag
+static void vm_signal_handler(int signum) {
+    if (signum >= 0 && signum < MAX_SIGNALS) {
+        g_signal_registry.pending[signum] = 1;
+    }
+}
+
+// Check and handle pending signals (call this periodically in VM loop)
+static void vm_check_signals(VM *vm) {
+    for (int i = 0; i < MAX_SIGNALS; i++) {
+        if (g_signal_registry.pending[i] && g_signal_registry.handlers[i]) {
+            g_signal_registry.pending[i] = 0;
+
+            // Call the VM closure with signal number as argument
+            VMClosure *handler = g_signal_registry.handlers[i];
+            Value sig_arg = {.type = VAL_I32, .as.as_i32 = i};
+            vm_call_closure(vm, handler, &sig_arg, 1);
+        }
+    }
+}
+
+// Register a signal handler
+static void vm_register_signal(int signum, VMClosure *handler) {
+    if (signum < 0 || signum >= MAX_SIGNALS) return;
+
+    g_signal_registry.handlers[signum] = handler;
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+
+    if (handler) {
+        // Register our C handler using sigaction for reliable behavior
+        sa.sa_handler = vm_signal_handler;
+        sa.sa_flags = SA_RESTART;  // Restart interrupted syscalls
+        sigemptyset(&sa.sa_mask);
+        sigaction(signum, &sa, NULL);
+    } else {
+        // Reset to default
+        sa.sa_handler = SIG_DFL;
+        sigemptyset(&sa.sa_mask);
+        sigaction(signum, &sa, NULL);
+    }
+}
+
+// ============================================
 // Math Builtin Implementations for stdlib
 // ============================================
 
@@ -2963,6 +3025,9 @@ static Value vm_call_closure(VM *vm, VMClosure *closure, Value *args, int argc) 
     // Store closure in slot 0 for upvalue access
     new_frame->slots[0] = closure_val;
 
+    // Advance stack_top to allocate space for all local variables
+    vm->stack_top = new_frame->slots + fn_chunk->local_count;
+
     // Execute until we return to base frame
     VMResult result = vm_execute(vm, base_frame_count);
 
@@ -3451,10 +3516,11 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
             }
 
             case BC_CLOSE_UPVALUE: {
-                // Close the upvalue at the top of the stack
+                // Close upvalues at the specified local slot
                 // This is called when a captured variable goes out of scope
-                vm_close_upvalues(vm, vm->stack_top - 1);
-                POP();  // Pop the closed value
+                uint8_t slot = READ_BYTE();
+                vm_close_upvalues(vm, &slots[slot]);
+                // Don't pop - locals are in slots, not on expression stack
                 break;
             }
 
@@ -5124,15 +5190,25 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                     // ========== Signal Handling ==========
                     case BUILTIN_SIGNAL: {
                         // signal(signum, handler) - register signal handler
-                        // For now, we support basic signal handling
                         if (argc != 2) {
                             THROW_ERROR("signal() expects 2 arguments (signum, handler)");
                         }
                         int signum = (int)value_to_i64(args[0]);
-                        // Just acknowledge the signal registration for now
-                        // Full signal handling would require storing handlers and calling them
+
+                        // Store reference to current VM for signal callbacks
+                        g_signal_registry.vm = vm;
+
+                        if (args[1].type == VAL_NULL) {
+                            // Reset to default handler
+                            vm_register_signal(signum, NULL);
+                        } else if (is_vm_closure(args[1])) {
+                            // Register VM closure as handler
+                            VMClosure *handler = as_vm_closure(args[1]);
+                            vm_register_signal(signum, handler);
+                        } else {
+                            THROW_ERROR("signal() handler must be a function or null");
+                        }
                         result = vm_null_value();
-                        (void)signum;  // Silence unused warning
                         break;
                     }
 
@@ -5195,6 +5271,9 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         new_frame->slots = vm->stack_top - call_argc - 1;  // Include the closure slot
                         new_frame->upvalues = NULL;
                         new_frame->slot_count = fn_chunk->local_count;
+
+                        // Advance stack_top to allocate space for all local variables
+                        vm->stack_top = new_frame->slots + fn_chunk->local_count;
 
                         // Update frame pointers
                         frame = new_frame;
@@ -5316,6 +5395,8 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                         if (raise(signum) != 0) {
                             THROW_ERROR_FMT("raise() failed for signal %d: %s", signum, strerror(errno));
                         }
+                        // Process any pending signals (including the one just raised)
+                        vm_check_signals(vm);
                         result = vm_null_value();
                         break;
                     }
@@ -5676,6 +5757,10 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                 new_frame->slots = vm->stack_top - argc - 1;  // Include the callee slot
                 new_frame->upvalues = NULL;  // TODO: support upvalues
                 new_frame->slot_count = fn_chunk->local_count;
+
+                // Advance stack_top to allocate space for all local variables
+                // This ensures local slots don't overlap with the expression stack
+                vm->stack_top = new_frame->slots + fn_chunk->local_count;
 
                 // Update frame pointers
                 frame = new_frame;
@@ -6591,6 +6676,139 @@ static VMResult vm_execute(VM *vm, int base_frame_count) {
                                 pthread_mutex_unlock(mutex);
                             }
                         }
+                    } else if (strcmp(method, "recv_timeout") == 0) {
+                        // recv_timeout(ms) - receive with timeout, returns null on timeout
+                        if (argc != 1) {
+                            THROW_ERROR("recv_timeout() expects 1 argument (milliseconds)");
+                        }
+                        int64_t timeout_ms = value_to_i64(args[0]);
+
+                        struct timespec deadline;
+                        clock_gettime(CLOCK_REALTIME, &deadline);
+                        deadline.tv_sec += timeout_ms / 1000;
+                        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+                        if (deadline.tv_nsec >= 1000000000) {
+                            deadline.tv_sec++;
+                            deadline.tv_nsec -= 1000000000;
+                        }
+
+                        pthread_mutex_lock(mutex);
+                        if (ch->capacity == 0) {
+                            // Unbuffered channel
+                            while (!ch->sender_waiting && !ch->closed) {
+                                int rc = pthread_cond_timedwait(not_empty, mutex, &deadline);
+                                if (rc == ETIMEDOUT) {
+                                    pthread_mutex_unlock(mutex);
+                                    result = vm_null_value();
+                                    goto recv_timeout_done;
+                                }
+                            }
+                            if (!ch->sender_waiting && ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                result = vm_null_value();
+                            } else {
+                                result = *(ch->unbuffered_value);
+                                *(ch->unbuffered_value) = vm_null_value();
+                                ch->sender_waiting = 0;
+                                pthread_cond_signal(rendezvous);
+                                pthread_mutex_unlock(mutex);
+                            }
+                        } else {
+                            // Buffered channel
+                            while (ch->count == 0 && !ch->closed) {
+                                int rc = pthread_cond_timedwait(not_empty, mutex, &deadline);
+                                if (rc == ETIMEDOUT) {
+                                    pthread_mutex_unlock(mutex);
+                                    result = vm_null_value();
+                                    goto recv_timeout_done;
+                                }
+                            }
+                            if (ch->count == 0 && ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                result = vm_null_value();
+                            } else {
+                                result = ch->buffer[ch->head];
+                                ch->head = (ch->head + 1) % ch->capacity;
+                                ch->count--;
+                                pthread_cond_signal(not_full);
+                                pthread_mutex_unlock(mutex);
+                            }
+                        }
+                        recv_timeout_done:;
+                    } else if (strcmp(method, "send_timeout") == 0) {
+                        // send_timeout(value, ms) - send with timeout, returns false on timeout
+                        if (argc != 2) {
+                            THROW_ERROR("send_timeout() expects 2 arguments (value, milliseconds)");
+                        }
+                        Value msg = args[0];
+                        int64_t timeout_ms = value_to_i64(args[1]);
+
+                        struct timespec deadline;
+                        clock_gettime(CLOCK_REALTIME, &deadline);
+                        deadline.tv_sec += timeout_ms / 1000;
+                        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+                        if (deadline.tv_nsec >= 1000000000) {
+                            deadline.tv_sec++;
+                            deadline.tv_nsec -= 1000000000;
+                        }
+
+                        pthread_mutex_lock(mutex);
+                        if (ch->closed) {
+                            pthread_mutex_unlock(mutex);
+                            THROW_ERROR("cannot send to closed channel");
+                        }
+
+                        if (ch->capacity == 0) {
+                            // Unbuffered channel - rendezvous with receiver
+                            while (ch->sender_waiting && !ch->closed) {
+                                int rc = pthread_cond_timedwait(rendezvous, mutex, &deadline);
+                                if (rc == ETIMEDOUT) {
+                                    pthread_mutex_unlock(mutex);
+                                    result = val_bool_vm(false);
+                                    goto send_timeout_done;
+                                }
+                            }
+                            if (ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                THROW_ERROR("cannot send to closed channel");
+                            }
+                            *(ch->unbuffered_value) = msg;
+                            ch->sender_waiting = 1;
+                            pthread_cond_signal(not_empty);
+                            while (ch->sender_waiting && !ch->closed) {
+                                int rc = pthread_cond_timedwait(rendezvous, mutex, &deadline);
+                                if (rc == ETIMEDOUT) {
+                                    // Timeout waiting for receiver - rollback
+                                    ch->sender_waiting = 0;
+                                    pthread_mutex_unlock(mutex);
+                                    result = val_bool_vm(false);
+                                    goto send_timeout_done;
+                                }
+                            }
+                            pthread_mutex_unlock(mutex);
+                            result = val_bool_vm(true);
+                        } else {
+                            // Buffered channel - wait while full
+                            while (ch->count >= ch->capacity && !ch->closed) {
+                                int rc = pthread_cond_timedwait(not_full, mutex, &deadline);
+                                if (rc == ETIMEDOUT) {
+                                    pthread_mutex_unlock(mutex);
+                                    result = val_bool_vm(false);
+                                    goto send_timeout_done;
+                                }
+                            }
+                            if (ch->closed) {
+                                pthread_mutex_unlock(mutex);
+                                THROW_ERROR("cannot send to closed channel");
+                            }
+                            ch->buffer[ch->tail] = msg;
+                            ch->tail = (ch->tail + 1) % ch->capacity;
+                            ch->count++;
+                            pthread_cond_signal(not_empty);
+                            pthread_mutex_unlock(mutex);
+                            result = val_bool_vm(true);
+                        }
+                        send_timeout_done:;
                     } else if (strcmp(method, "close") == 0) {
                         // close() - close the channel
                         if (argc != 0) {
@@ -7027,6 +7245,9 @@ VMResult vm_run(VM *vm, Chunk *chunk) {
     initial_frame->slots = vm->stack;
     initial_frame->upvalues = NULL;
     initial_frame->slot_count = chunk->local_count;
+
+    // Advance stack_top past local slots (just like BC_CALL does)
+    vm->stack_top = initial_frame->slots + chunk->local_count;
 
     // Execute from base frame 0
     return vm_execute(vm, 0);

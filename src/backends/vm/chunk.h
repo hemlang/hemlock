@@ -157,6 +157,7 @@ typedef struct ChunkBuilder {
     } *locals;
     int local_count;
     int local_capacity;
+    int max_local_count;    // Maximum local_count ever reached (for slot allocation)
     int scope_depth;
 
     // Upvalue tracking
