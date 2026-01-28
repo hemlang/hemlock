@@ -8,14 +8,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <limits.h>
 #include "frontend.h"
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
 #include "codegen.h"
 #include "compiler/type_check.h"
+
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <io.h>
+    #include <process.h>
+    #define access _access
+    #define unlink _unlink
+    #define close _close
+    #define popen _popen
+    #define pclose _pclose
+    #define R_OK 4
+    #define W_OK 2
+    #define F_OK 0
+#else
+    #include <unistd.h>
+    #include <sys/wait.h>
+#endif
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__

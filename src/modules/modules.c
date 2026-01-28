@@ -3,12 +3,29 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <libgen.h>
 #include <limits.h>
 
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <io.h>
+    #include <direct.h>
+    #define access _access
+    #define getcwd _getcwd
+    #define F_OK 0
+    #define R_OK 4
+    // Windows implementations of dirname/basename (in codegen_internal.h)
+    #include "backends/compiler/codegen_internal.h"
+    #define dirname hml_dirname
+    #define basename hml_basename
+#else
+    #include <unistd.h>
+    #include <libgen.h>
+#endif
+
 #ifdef __APPLE__
-#include <mach-o/dyld.h>
+    #include <mach-o/dyld.h>
 #endif
 
 // ========== SHARED CACHE MAP ==========
@@ -172,7 +189,12 @@ static char* find_stdlib_path(void) {
     char resolved[PATH_MAX];
     int found_exe = 0;
 
-#ifdef __APPLE__
+#ifdef HML_WINDOWS
+    DWORD len = GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
+    if (len > 0 && len < sizeof(exe_path)) {
+        found_exe = 1;
+    }
+#elif defined(__APPLE__)
     uint32_t size = sizeof(exe_path);
     if (_NSGetExecutablePath(exe_path, &size) == 0) {
         char *real = realpath(exe_path, NULL);

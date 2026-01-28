@@ -1,5 +1,12 @@
 #include "internal.h"
-#include <unistd.h>
+
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #include <direct.h>
+    #define getcwd _getcwd
+#else
+    #include <unistd.h>
+#endif
 
 // ========== CURRENT SOURCE FILE TRACKING ==========
 

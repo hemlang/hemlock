@@ -6,8 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <limits.h>
+
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #include <direct.h>
+    #define getcwd _getcwd
+#else
+    #include <unistd.h>
+#endif
 
 // ========== MODULE CACHE ==========
 
