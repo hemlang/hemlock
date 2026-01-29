@@ -393,7 +393,7 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
 
     // Allow address reuse
     int opt = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
 
     // Bind
     struct sockaddr_in addr = {

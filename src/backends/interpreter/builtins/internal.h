@@ -25,11 +25,8 @@
 #include <time.h>
 
 // ========== WINDOWS COMPATIBILITY ==========
+// Note: winsock2.h and windows.h are included by ../internal.h
 #ifdef HML_WINDOWS
-    #define WIN32_LEAN_AND_MEAN
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
-    #include <windows.h>
     #include <io.h>
     #include <process.h>
     #include <direct.h>
