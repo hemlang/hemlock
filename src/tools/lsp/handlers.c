@@ -13,6 +13,22 @@
 #include <string.h>
 #include <stdio.h>
 
+// ========== WINDOWS COMPATIBILITY ==========
+#ifdef HML_WINDOWS
+// strndup compatibility for Windows
+static inline char* hml_strndup(const char *s, size_t n) {
+    size_t len = 0;
+    while (len < n && s[len] != '\0') len++;
+    char *result = malloc(len + 1);
+    if (result) {
+        memcpy(result, s, len);
+        result[len] = '\0';
+    }
+    return result;
+}
+#define strndup hml_strndup
+#endif
+
 // ============================================================================
 // Symbol Table for Go-to-Definition and Find References
 // ============================================================================
