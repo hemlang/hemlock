@@ -12,11 +12,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <errno.h>
+
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <windows.h>
+    #include <io.h>
+    #define STDIN_FILENO 0
+    #define STDOUT_FILENO 1
+    #define close(fd) closesocket(fd)
+    typedef int socklen_t;
+#else
+    #include <unistd.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+#endif
 
 // ============================================================================
 // LSP Server Lifecycle
