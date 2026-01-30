@@ -231,7 +231,7 @@ for test_file in $TEST_FILES; do
             ((PASS_COUNT++))
         else
             echo -e "${RED}✗${NC} $test_name ${DIM}(${time_str})${NC}"
-            echo "  Error: $output"
+            printf '  Error: %s\n' "$output"
             FAILED_TESTS+=("$test_name|failed|$output")
             ((FAIL_COUNT++))
         fi
@@ -275,7 +275,7 @@ if [ ${#FAILED_TESTS[@]} -gt 0 ]; then
             if [ ${#error_output} -gt 200 ]; then
                 error_output="${error_output:0:200}..."
             fi
-            echo -e "  ${DIM}Error:${NC} ${error_output}"
+            printf '  Error: %s\n' "$error_output"
         fi
     done
     echo ""
