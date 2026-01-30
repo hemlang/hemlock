@@ -12,6 +12,8 @@
 
 // ========== WINDOWS COMPATIBILITY ==========
 #ifdef HML_WINDOWS
+    #include <fcntl.h>  // For _O_BINARY
+
     // Windows exit status macros
     #ifndef WIFEXITED
     #define WIFEXITED(status) (1)
@@ -29,19 +31,19 @@
     #define kill(pid, sig) (-1)
     #define fork() (-1)
 
-    // Windows environment functions
-    static inline int hml_setenv(const char *name, const char *value, int overwrite) {
+    // Windows environment functions (compatibility wrappers for POSIX setenv/unsetenv)
+    static inline int hml_compat_setenv(const char *name, const char *value, int overwrite) {
         if (!overwrite) {
             char *existing = getenv(name);
             if (existing != NULL) return 0;
         }
         return _putenv_s(name, value);
     }
-    static inline int hml_unsetenv(const char *name) {
+    static inline int hml_compat_unsetenv(const char *name) {
         return _putenv_s(name, "");
     }
-    #define setenv hml_setenv
-    #define unsetenv hml_unsetenv
+    #define setenv hml_compat_setenv
+    #define unsetenv hml_compat_unsetenv
 
     // Windows signal compatibility - uses basic signal() in hml_signal()
     // sigaction() is replaced with signal() via #ifdef in the function

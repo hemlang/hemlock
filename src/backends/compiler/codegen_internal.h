@@ -42,10 +42,8 @@
     #define getpid _getpid
     #define mkdir(path, mode) _mkdir(path)
 
-    // ssize_t compatibility
-    #ifndef ssize_t
-    typedef long ssize_t;
-    #endif
+    // ssize_t is already defined by MinGW in sys/types.h or crtdefs.h
+    // No need to define it ourselves
 
     // PATH_MAX for Windows
     #ifndef PATH_MAX

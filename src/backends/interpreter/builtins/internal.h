@@ -6,6 +6,10 @@
     #ifndef HML_WINDOWS
     #define HML_WINDOWS 1
     #endif
+    // Set minimum Windows version to Vista BEFORE any Windows headers
+    #ifndef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+    #endif
 #endif
 
 // Define feature test macros before including system headers (POSIX only)
@@ -87,14 +91,107 @@
     }
 
     // poll() compatibility - use WSAPoll on Windows
+    // Note: WSAPoll may not be available on older MinGW, stubbed if needed
+    #ifndef WSAPoll
+    // Stub: poll() not available on this Windows SDK - returns error
+    static inline int hml_poll_stub(struct pollfd *fds, unsigned long nfds, int timeout) {
+        (void)fds; (void)nfds; (void)timeout;
+        WSASetLastError(WSAEOPNOTSUPP);
+        return -1;
+    }
+    #define poll hml_poll_stub
+    #else
     #define poll WSAPoll
+    #endif
+
+    // POLL constants - define with actual values for compatibility
     #ifndef POLLIN
-    #define POLLIN POLLRDNORM
-    #define POLLOUT POLLWRNORM
+    #define POLLIN   0x0100  // POLLRDNORM
+    #endif
+    #ifndef POLLOUT
+    #define POLLOUT  0x0010  // POLLWRNORM
+    #endif
+    #ifndef POLLERR
+    #define POLLERR  0x0001
+    #endif
+    #ifndef POLLHUP
+    #define POLLHUP  0x0002
+    #endif
+    #ifndef POLLNVAL
+    #define POLLNVAL 0x0004
+    #endif
+    #ifndef POLLPRI
+    #define POLLPRI  0x0400  // POLLRDBAND
+    #endif
+
+    // inet_pton/inet_ntop compatibility for older MinGW
+    #ifndef InetPtonA
+    static inline int hml_inet_pton(int af, const char *src, void *dst) {
+        struct sockaddr_storage ss;
+        int size = sizeof(ss);
+        char src_copy[INET6_ADDRSTRLEN + 1];
+        strncpy(src_copy, src, INET6_ADDRSTRLEN);
+        src_copy[INET6_ADDRSTRLEN] = '\0';
+
+        if (WSAStringToAddressA(src_copy, af, NULL, (struct sockaddr *)&ss, &size) == 0) {
+            if (af == AF_INET) {
+                *(struct in_addr *)dst = ((struct sockaddr_in *)&ss)->sin_addr;
+                return 1;
+            } else if (af == AF_INET6) {
+                *(struct in6_addr *)dst = ((struct sockaddr_in6 *)&ss)->sin6_addr;
+                return 1;
+            }
+        }
+        return 0;
+    }
+    #define inet_pton hml_inet_pton
+    #endif
+
+    #ifndef InetNtopA
+    static inline const char *hml_inet_ntop(int af, const void *src, char *dst, size_t size) {
+        struct sockaddr_storage ss;
+        int ss_size;
+
+        memset(&ss, 0, sizeof(ss));
+        if (af == AF_INET) {
+            struct sockaddr_in *sa = (struct sockaddr_in *)&ss;
+            sa->sin_family = AF_INET;
+            sa->sin_addr = *(struct in_addr *)src;
+            ss_size = sizeof(struct sockaddr_in);
+        } else if (af == AF_INET6) {
+            struct sockaddr_in6 *sa = (struct sockaddr_in6 *)&ss;
+            sa->sin6_family = AF_INET6;
+            sa->sin6_addr = *(struct in6_addr *)src;
+            ss_size = sizeof(struct sockaddr_in6);
+        } else {
+            return NULL;
+        }
+
+        DWORD dw_size = (DWORD)size;
+        if (WSAAddressToStringA((struct sockaddr *)&ss, ss_size, NULL, dst, &dw_size) == 0) {
+            // WSAAddressToStringA includes port, strip it for AF_INET
+            char *colon = strrchr(dst, ':');
+            if (af == AF_INET && colon) {
+                *colon = '\0';
+            }
+            return dst;
+        }
+        return NULL;
+    }
+    #define inet_ntop hml_inet_ntop
     #endif
 
     // ssize_t is provided by sys/types.h on MinGW
     // No need to define it ourselves
+
+    // GetTickCount64 compatibility for older MinGW
+    #ifndef GetTickCount64
+    static inline ULONGLONG hml_GetTickCount64(void) {
+        // Fallback to GetTickCount (32-bit, wraps after ~49 days)
+        return (ULONGLONG)GetTickCount();
+    }
+    #define GetTickCount64 hml_GetTickCount64
+    #endif
 
     // Directory compatibility types
     typedef struct hml_dirent {

@@ -103,10 +103,19 @@ Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx) {
 // ECDSA KEY GENERATION (OpenSSL 3.0+)
 // ============================================================================
 
+// Check for OpenSSL 3.0+ which has EVP_EC_gen
+#include <openssl/opensslv.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#define HML_OPENSSL3 1
+#else
+#define HML_OPENSSL3 0
+#endif
+
 // __ecdsa_generate_key(curve?: string) -> { private_key: ptr, public_key: ptr }
 // Generate an ECDSA key pair using the specified curve (default: P-256/prime256v1)
 // Returns an object with private_key and public_key pointers (both point to same EVP_PKEY)
 Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ctx) {
+#if HML_OPENSSL3
     (void)ctx;
 
     // Default curve is P-256 (prime256v1)
@@ -156,6 +165,13 @@ Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ct
     obj->num_fields++;
 
     return val_object(obj);
+#else
+    // OpenSSL < 3.0 - ECDSA not supported
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "__ecdsa_generate_key() requires OpenSSL 3.0+ (not available on this system)");
+    return val_null();
+#endif
 }
 
 // Helper: Get field value from object by name

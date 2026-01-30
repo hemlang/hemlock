@@ -19,10 +19,15 @@
 
 // ========== WINDOWS COMPATIBILITY ==========
 #ifdef HML_WINDOWS
+    // Set minimum Windows version to Vista for WSAPoll, etc. BEFORE any Windows headers
+    #ifndef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+    #endif
     #define WIN32_LEAN_AND_MEAN
-    #include <windows.h>
+    // IMPORTANT: winsock2.h MUST be included before windows.h
     #include <winsock2.h>
     #include <ws2tcpip.h>
+    #include <windows.h>
     #include <io.h>
     #include <process.h>
     #include <direct.h>
@@ -66,9 +71,24 @@
     #define hml_closesocket(s) closesocket(s)
     #define hml_socket_error() WSAGetLastError()
 
-    // poll() compatibility - use WSAPoll on Windows
-    // Note: MinGW's winsock2.h provides POLLIN/POLLOUT, so we don't redefine them
+    // poll() compatibility - use WSAPoll on Windows (available with _WIN32_WINNT >= 0x0600)
     #define poll WSAPoll
+    // Define POLL constants if not available
+    #ifndef POLLIN
+    #define POLLIN   0x0100
+    #endif
+    #ifndef POLLOUT
+    #define POLLOUT  0x0010
+    #endif
+    #ifndef POLLERR
+    #define POLLERR  0x0001
+    #endif
+    #ifndef POLLHUP
+    #define POLLHUP  0x0002
+    #endif
+    #ifndef POLLNVAL
+    #define POLLNVAL 0x0004
+    #endif
 
     // usleep compatibility (Windows uses Sleep with milliseconds)
     // MinGW provides usleep via unistd.h, but we provide a fallback

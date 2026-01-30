@@ -9,10 +9,19 @@
 
 // ========== WINDOWS COMPATIBILITY ==========
 #ifdef HML_WINDOWS
+// Set minimum Windows version to Vista for WSAPoll, GetTickCount64, etc.
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+
+// Define PROCESSOR_ARCHITECTURE_ARM64 if not available (older SDK)
+#ifndef PROCESSOR_ARCHITECTURE_ARM64
+#define PROCESSOR_ARCHITECTURE_ARM64 12
+#endif
 
 // getline compatibility for Windows
 static inline ssize_t hml_getline(char **lineptr, size_t *n, FILE *stream) {

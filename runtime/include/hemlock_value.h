@@ -8,6 +8,9 @@
 #ifndef HEMLOCK_VALUE_H
 #define HEMLOCK_VALUE_H
 
+// Include Windows compatibility header FIRST to ensure correct include order
+#include "hemlock_compat.h"
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdatomic.h>

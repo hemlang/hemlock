@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make clean:*)",
+      "Bash(make:*)",
+      "Bash(./hemlock.exe:*)",
+      "Bash(./hemlockc.exe:*)"
+    ]
+  }
+}
