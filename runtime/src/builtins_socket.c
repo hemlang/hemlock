@@ -30,6 +30,28 @@ static void hml_winsock_cleanup(void) {
 #define hml_winsock_cleanup()
 #endif
 
+// ========== SOCKET ERROR HELPER ==========
+
+// Get socket error message (cross-platform)
+static const char* socket_error_msg(void) {
+#ifdef HML_WINDOWS
+    static char msg_buf[256];
+    int err = WSAGetLastError();
+    FormatMessageA(
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        msg_buf, sizeof(msg_buf), NULL);
+    // Remove trailing newline if present
+    size_t len = strlen(msg_buf);
+    while (len > 0 && (msg_buf[len-1] == '\n' || msg_buf[len-1] == '\r')) {
+        msg_buf[--len] = '\0';
+    }
+    return msg_buf;
+#else
+    return strerror(errno);
+#endif
+}
+
 // ========== SOCKET OPERATIONS ==========
 
 // socket_create(domain, type, protocol) -> socket
@@ -94,7 +116,7 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
 
     if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         fprintf(stderr, "Runtime error: Failed to bind socket to %s:%d: %s\n",
-                addr_str, p, strerror(errno));
+                addr_str, p, socket_error_msg());
         exit(1);
     }
 
@@ -116,7 +138,7 @@ void hml_socket_listen(HmlValue socket_val, HmlValue backlog) {
 
     int bl = hml_to_i32(backlog);
     if (listen(sock->fd, bl) < 0) {
-        hml_runtime_error("Failed to listen on socket: %s", strerror(errno));
+        hml_runtime_error("Failed to listen on socket: %s", socket_error_msg());
     }
 
     sock->listening = 1;
@@ -142,7 +164,7 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
 
     int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
     if (client_fd < 0) {
-        hml_runtime_error("Failed to accept connection: %s", strerror(errno));
+        hml_runtime_error("Failed to accept connection: %s", socket_error_msg());
     }
 
     HmlSocket *client_sock = malloc(sizeof(HmlSocket));
@@ -191,7 +213,7 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
 
     if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         fprintf(stderr, "Runtime error: Failed to connect to %s:%d: %s\n",
-                addr_str, p, strerror(errno));
+                addr_str, p, socket_error_msg());
         exit(1);
     }
 
@@ -226,7 +248,7 @@ HmlValue hml_socket_send(HmlValue socket_val, HmlValue data) {
 
     ssize_t sent = send(sock->fd, buf, len, 0);
     if (sent < 0) {
-        hml_runtime_error("Failed to send data: %s", strerror(errno));
+        hml_runtime_error("Failed to send data: %s", socket_error_msg());
     }
 
     return hml_val_i32((int32_t)sent);
@@ -252,7 +274,7 @@ HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
     ssize_t received = recv(sock->fd, buf, sz, 0);
     if (received < 0) {
         free(buf);
-        hml_runtime_error("Failed to receive data: %s", strerror(errno));
+        hml_runtime_error("Failed to receive data: %s", socket_error_msg());
     }
 
     HmlBuffer *hbuf = malloc(sizeof(HmlBuffer));
@@ -313,7 +335,7 @@ HmlValue hml_socket_sendto(HmlValue socket_val, HmlValue address, HmlValue port,
 
     if (sent < 0) {
         fprintf(stderr, "Runtime error: Failed to sendto %s:%d: %s\n",
-                addr_str, p, strerror(errno));
+                addr_str, p, socket_error_msg());
         exit(1);
     }
 
@@ -345,7 +367,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
 
     if (received < 0) {
         free(buf);
-        hml_runtime_error("Failed to recvfrom: %s", strerror(errno));
+        hml_runtime_error("Failed to recvfrom: %s", socket_error_msg());
     }
 
     // Create buffer for data
@@ -390,7 +412,7 @@ void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option,
     int val = hml_to_i32(value);
 
     if (setsockopt(sock->fd, lvl, opt, (const char *)&val, sizeof(val)) < 0) {
-        hml_runtime_error("Failed to set socket option: %s", strerror(errno));
+        hml_runtime_error("Failed to set socket option: %s", socket_error_msg());
     }
 }
 
@@ -425,11 +447,11 @@ void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds_val) {
 
     // Set both recv and send timeouts
     if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        hml_runtime_error("Failed to set receive timeout: %s", strerror(errno));
+        hml_runtime_error("Failed to set receive timeout: %s", socket_error_msg());
     }
 
     if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
-        hml_runtime_error("Failed to set send timeout: %s", strerror(errno));
+        hml_runtime_error("Failed to set send timeout: %s", socket_error_msg());
     }
 #endif
 }
@@ -457,7 +479,7 @@ void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
     // POSIX uses fcntl for non-blocking mode
     int flags = fcntl(sock->fd, F_GETFL, 0);
     if (flags < 0) {
-        hml_runtime_error("Failed to get socket flags: %s", strerror(errno));
+        hml_runtime_error("Failed to get socket flags: %s", socket_error_msg());
     }
 
     if (enable) {
@@ -467,7 +489,7 @@ void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
     }
 
     if (fcntl(sock->fd, F_SETFL, flags) < 0) {
-        hml_runtime_error("Failed to set socket flags: %s", strerror(errno));
+        hml_runtime_error("Failed to set socket flags: %s", socket_error_msg());
     }
 #endif
 
