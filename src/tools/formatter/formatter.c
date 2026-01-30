@@ -1,9 +1,36 @@
+// Windows compatibility
+#if defined(_WIN32) || defined(_WIN64)
+    #ifndef HML_WINDOWS
+    #define HML_WINDOWS 1
+    #endif
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include "frontend.h"
+
+#ifdef HML_WINDOWS
+    #include <windows.h>
+    #include <direct.h>
+    // realpath is not available on Windows - use _fullpath
+    static inline char* hml_realpath(const char *path, char *resolved) {
+        if (resolved) {
+            return _fullpath(resolved, path, _MAX_PATH);
+        } else {
+            char *buf = malloc(_MAX_PATH);
+            if (!buf) return NULL;
+            if (_fullpath(buf, path, _MAX_PATH) == NULL) {
+                free(buf);
+                return NULL;
+            }
+            return buf;
+        }
+    }
+    #define realpath hml_realpath
+#endif
 
 // ========== STRING BUFFER ==========
 
