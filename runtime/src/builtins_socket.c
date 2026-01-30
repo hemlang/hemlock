@@ -389,7 +389,7 @@ void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option,
     int opt = hml_to_i32(option);
     int val = hml_to_i32(value);
 
-    if (setsockopt(sock->fd, lvl, opt, &val, sizeof(val)) < 0) {
+    if (setsockopt(sock->fd, lvl, opt, (const char *)&val, sizeof(val)) < 0) {
         hml_runtime_error("Failed to set socket option: %s", strerror(errno));
     }
 }
