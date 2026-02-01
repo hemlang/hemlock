@@ -49,8 +49,9 @@ These features return errors or stubs on Windows:
 
 ### Fully Supported
 
-- Interpreter execution
-- Compiler (hemlockc)
+- Interpreter execution (`hemlock.exe`)
+- Compiler C code generation (`hemlockc.exe -c`)
+- Type checking (`hemlockc.exe --check`)
 - Async/await and channels
 - Networking (sockets, HTTP)
 - File I/O

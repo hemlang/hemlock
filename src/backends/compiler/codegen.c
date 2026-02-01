@@ -1543,6 +1543,28 @@ void membuf_flush_to(MemBuffer *buf, FILE *output) {
     if (buf->stream) {
         fflush(buf->stream);
     }
+
+#ifdef HML_WINDOWS
+    // On Windows, open_memstream doesn't exist, so we use tmpfile
+    // We need to read the file content and write it to output
+    if (buf->stream && (!buf->data || buf->size == 0)) {
+        long pos = ftell(buf->stream);
+        if (pos > 0) {
+            fseek(buf->stream, 0, SEEK_SET);
+            char *temp = malloc(pos);
+            if (temp) {
+                size_t read_bytes = fread(temp, 1, pos, buf->stream);
+                if (read_bytes > 0) {
+                    fwrite(temp, 1, read_bytes, output);
+                }
+                free(temp);
+            }
+            fseek(buf->stream, 0, SEEK_END);
+        }
+        return;
+    }
+#endif
+
     // Write all buffered data to output
     if (buf->data && buf->size > 0) {
         fwrite(buf->data, 1, buf->size, output);

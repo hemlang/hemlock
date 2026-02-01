@@ -15,10 +15,11 @@
     #define getcwd _getcwd
     #define F_OK 0
     #define R_OK 4
-    // Windows implementations of dirname/basename (in codegen_internal.h)
+    // Windows implementations of dirname/basename/realpath (in codegen_internal.h)
     #include "backends/compiler/codegen_internal.h"
     #define dirname hml_dirname
     #define basename hml_basename
+    #define realpath hml_realpath
 #else
     #include <unistd.h>
     #include <libgen.h>

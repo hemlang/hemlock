@@ -88,13 +88,29 @@
     }
     #define realpath hml_realpath
 
-    // open_memstream compatibility (Windows doesn't have it)
-    // We'll use a tmpfile-based fallback
+    // open_memstream compatibility for Windows
+    // Windows doesn't have open_memstream, so we create a temp file
+    // membuf_flush_to() in codegen.c handles reading from tmpfile on Windows
     static inline FILE* hml_open_memstream(char **ptr, size_t *sizeloc) {
-        // On Windows, use tmpfile instead
-        (void)ptr;
-        (void)sizeloc;
-        return tmpfile();
+        *ptr = NULL;
+        *sizeloc = 0;
+
+        // Get temp directory
+        char tmpdir[MAX_PATH];
+        DWORD len = GetTempPathA(MAX_PATH, tmpdir);
+        if (len == 0 || len >= MAX_PATH) {
+            return NULL;
+        }
+
+        // Create unique temp filename
+        char tmpname[MAX_PATH];
+        if (GetTempFileNameA(tmpdir, "hml", 0, tmpname) == 0) {
+            return NULL;
+        }
+
+        // Open for read/write in binary mode
+        // Note: temp file isn't auto-deleted, but gets cleaned up by system eventually
+        return fopen(tmpname, "w+b");
     }
     #define open_memstream hml_open_memstream
 
