@@ -16,13 +16,37 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev python3-dev
 
     - name: Build
       run: make clean && make && make stdlib
 
     - name: Run tests
       run: make test
+
+  # Python stdlib tests
+  python-stdlib:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libpython3.10-dev
+        sudo ldconfig
+        # Verify library is available
+        ldconfig -p | grep python3.10
+
+    - name: Build
+      run: make clean && make && make stdlib
+
+    - name: Run Python stdlib tests
+      run: |
+        # Set library path and run Python interop tests
+        export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+        ./hemlock tests/stdlib_python/test_python_basic.hml
+        ./hemlock tests/stdlib_python/test_python_types.hml
 
   # Compiler tests
   compiler:

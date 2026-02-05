@@ -1,0 +1,266 @@
+// Test basic Python interop operations
+//
+// MANUAL TEST: This test requires Python 3.11+ with libpython3.11.so available.
+// Run manually when Python is installed - not included in automated test suite.
+//
+// Install Python dev on:
+// - Ubuntu/Debian: sudo apt-get install python3-dev libpython3.11
+// - Fedora/RHEL: sudo dnf install python3-devel
+// - macOS: brew install python3
+//
+// Run with: ./hemlock tests/manual/test_python_basic.hml
+
+import {
+    py_init,
+    py_is_initialized,
+    py_version,
+    py_import,
+    py_get,
+    py_call,
+    py_call_method,
+    to_python,
+    from_python,
+    py_type,
+    py_is_int,
+    py_is_float,
+    py_is_string,
+    py_is_list,
+    py_is_dict,
+    py_len,
+    py_eval,
+    py_release,
+    py_finalize
+} from "@stdlib/python";
+
+// ============================================================================
+// Initialization Tests
+// ============================================================================
+
+print("Testing Python initialization...");
+
+let init_result = py_init();
+assert(init_result == true, "py_init should return true");
+assert(py_is_initialized() == true, "Python should be initialized");
+
+let version = py_version();
+assert(version.length > 0, "py_version should return a version string");
+print("Python version: " + version);
+
+// ============================================================================
+// Module Import Tests
+// ============================================================================
+
+print("Testing module import...");
+
+let math = py_import("math");
+assert(math != null, "Should import math module");
+
+let pi = py_get(math, "pi");
+let pi_value = from_python(pi);
+assert(pi_value > 3.14 && pi_value < 3.15, "pi should be approximately 3.14159");
+print("math.pi = " + pi_value);
+py_release(pi);
+
+let e = py_get(math, "e");
+let e_value = from_python(e);
+assert(e_value > 2.71 && e_value < 2.72, "e should be approximately 2.71828");
+print("math.e = " + e_value);
+py_release(e);
+
+py_release(math);
+
+// ============================================================================
+// Function Call Tests
+// ============================================================================
+
+print("Testing function calls...");
+
+math = py_import("math");
+
+// Test sqrt
+let sqrt_fn = py_get(math, "sqrt");
+let sqrt_result = py_call(sqrt_fn, [16]);
+let sqrt_value = from_python(sqrt_result);
+assert(sqrt_value == 4.0, "sqrt(16) should be 4.0");
+print("sqrt(16) = " + sqrt_value);
+py_release(sqrt_result);
+py_release(sqrt_fn);
+
+// Test pow
+let pow_fn = py_get(math, "pow");
+let pow_result = py_call(pow_fn, [2, 10]);
+let pow_value = from_python(pow_result);
+assert(pow_value == 1024.0, "pow(2, 10) should be 1024.0");
+print("pow(2, 10) = " + pow_value);
+py_release(pow_result);
+py_release(pow_fn);
+
+// Test floor
+let floor_fn = py_get(math, "floor");
+let floor_result = py_call(floor_fn, [3.7]);
+let floor_value = from_python(floor_result);
+assert(floor_value == 3, "floor(3.7) should be 3");
+print("floor(3.7) = " + floor_value);
+py_release(floor_result);
+py_release(floor_fn);
+
+py_release(math);
+
+// ============================================================================
+// Type Conversion Tests
+// ============================================================================
+
+print("Testing type conversion...");
+
+// Test integer conversion
+let py_int = to_python(42);
+assert(py_is_int(py_int), "42 should be Python int");
+assert(from_python(py_int) == 42, "Should convert back to 42");
+py_release(py_int);
+
+// Test float conversion
+let py_float = to_python(3.14);
+assert(py_is_float(py_float), "3.14 should be Python float");
+let float_back = from_python(py_float);
+assert(float_back > 3.13 && float_back < 3.15, "Should convert back to ~3.14");
+py_release(py_float);
+
+// Test string conversion
+let py_str = to_python("hello");
+assert(py_is_string(py_str), "'hello' should be Python str");
+assert(from_python(py_str) == "hello", "Should convert back to 'hello'");
+py_release(py_str);
+
+// Test array to list conversion
+let py_list = to_python([1, 2, 3]);
+assert(py_is_list(py_list), "[1,2,3] should be Python list");
+assert(py_len(py_list) == 3, "List should have 3 elements");
+let list_back = from_python(py_list);
+assert(list_back[0] == 1, "First element should be 1");
+assert(list_back[1] == 2, "Second element should be 2");
+assert(list_back[2] == 3, "Third element should be 3");
+py_release(py_list);
+
+// Test object to dict conversion
+let py_dict = to_python({ name: "Alice", age: 30 });
+assert(py_is_dict(py_dict), "Object should be Python dict");
+let dict_back = from_python(py_dict);
+assert(dict_back.name == "Alice", "name should be 'Alice'");
+assert(dict_back.age == 30, "age should be 30");
+py_release(py_dict);
+
+// Test null conversion
+let py_none = to_python(null);
+assert(from_python(py_none) == null, "null should convert to None and back");
+py_release(py_none);
+
+// Test bool conversion
+let py_true = to_python(true);
+let py_false = to_python(false);
+assert(from_python(py_true) == true, "true should convert to True and back");
+assert(from_python(py_false) == false, "false should convert to False and back");
+py_release(py_true);
+py_release(py_false);
+
+print("Type conversion tests passed!");
+
+// ============================================================================
+// Type Checking Tests
+// ============================================================================
+
+print("Testing type checking...");
+
+let test_int = py_eval("42");
+assert(py_type(test_int) == "int", "Type of 42 should be 'int'");
+py_release(test_int);
+
+let test_float = py_eval("3.14");
+assert(py_type(test_float) == "float", "Type of 3.14 should be 'float'");
+py_release(test_float);
+
+let test_str = py_eval("'hello'");
+assert(py_type(test_str) == "str", "Type of 'hello' should be 'str'");
+py_release(test_str);
+
+let test_list = py_eval("[1, 2, 3]");
+assert(py_type(test_list) == "list", "Type of [1,2,3] should be 'list'");
+py_release(test_list);
+
+let test_dict = py_eval("{'a': 1}");
+assert(py_type(test_dict) == "dict", "Type of {'a':1} should be 'dict'");
+py_release(test_dict);
+
+print("Type checking tests passed!");
+
+// ============================================================================
+// py_eval Tests
+// ============================================================================
+
+print("Testing py_eval...");
+
+// Arithmetic
+let eval_result = py_eval("2 ** 10");
+assert(from_python(eval_result) == 1024, "2**10 should be 1024");
+py_release(eval_result);
+
+// List comprehension
+let list_comp = py_eval("[x**2 for x in range(5)]");
+let list_values = from_python(list_comp);
+assert(list_values[0] == 0, "0**2 = 0");
+assert(list_values[1] == 1, "1**2 = 1");
+assert(list_values[2] == 4, "2**2 = 4");
+assert(list_values[3] == 9, "3**2 = 9");
+assert(list_values[4] == 16, "4**2 = 16");
+py_release(list_comp);
+
+// String operations
+let str_result = py_eval("'hello'.upper()");
+assert(from_python(str_result) == "HELLO", "'hello'.upper() should be 'HELLO'");
+py_release(str_result);
+
+print("py_eval tests passed!");
+
+// ============================================================================
+// Method Call Tests
+// ============================================================================
+
+print("Testing method calls...");
+
+let my_list = py_eval("[3, 1, 4, 1, 5, 9]");
+
+// Test len via py_len
+assert(py_len(my_list) == 6, "List should have 6 elements");
+
+// Test sort method
+py_call_method(my_list, "sort", []);
+let sorted_list = from_python(my_list);
+assert(sorted_list[0] == 1, "First element should be 1 after sort");
+assert(sorted_list[5] == 9, "Last element should be 9 after sort");
+
+py_release(my_list);
+
+// Test string methods
+let my_str = py_eval("'hello world'");
+let upper = py_call_method(my_str, "upper", []);
+assert(from_python(upper) == "HELLO WORLD", "upper() should work");
+py_release(upper);
+
+let split = py_call_method(my_str, "split", []);
+let words = from_python(split);
+assert(words[0] == "hello", "First word should be 'hello'");
+assert(words[1] == "world", "Second word should be 'world'");
+py_release(split);
+
+py_release(my_str);
+
+print("Method call tests passed!");
+
+// ============================================================================
+// Cleanup
+// ============================================================================
+
+py_finalize();
+assert(py_is_initialized() == false, "Python should be finalized");
+
+print("");
+print("All Python interop tests passed!");
