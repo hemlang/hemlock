@@ -76,12 +76,12 @@ let pid = getpid();
 | **Types** | i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object |
 | **Memory** | alloc, free, memset, memcpy, realloc, talloc, sizeof |
 | **Strings** | UTF-8, mutable, 19 methods (substr, split, trim, replace, etc.) |
-| **Arrays** | Dynamic, 18 methods (push, pop, map, filter, reduce, etc.) |
+| **Arrays** | Dynamic, 23 methods (push, pop, map, filter, reduce, sort, fill, etc.) |
 | **Concurrency** | async/await, real OS threads (pthreads), channels |
 | **FFI** | Call C functions from shared libraries, export extern |
 | **Error Handling** | try/catch/finally/throw, panic() |
 | **I/O** | File API, signal handling, command execution |
-| **Stdlib** | 39 modules (math, net, crypto, http, json, and more) |
+| **Stdlib** | 41 modules (math, net, crypto, http, json, termios, and more) |
 | **Packages** | [hpm](https://github.com/hemlang/hpm) package manager with GitHub registry |
 
 ## Building
@@ -157,8 +157,14 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.7.2 is released with:
+Hemlock v1.8.8 is released with:
 
+- **Pattern matching** (`match` expressions) with destructuring, guards, OR patterns, and rest syntax
+- **Expression-bodied functions** (`fn double(x): i32 => x * 2;`)
+- **Compiler helper annotations** - `@inline`, `@hot`, `@pure`, `@optimize(level)`, and more
+- **Ref parameters** (`fn(ref x: i32)`) for pass-by-reference mutation
+- **Compile-time type checking** in hemlockc (enabled by default)
+- **`@stdlib/termios` module** for raw terminal input (Linux/macOS)
 - **Single-line statements** - braceless `if`, `while`, `for` syntax
 - **Type aliases** (`type Name = Type;`) for complex types
 - **Function type annotations** (`fn(i32): i32`) for first-class function types
@@ -173,12 +179,12 @@ Hemlock v1.7.2 is released with:
 - Manual memory management with safe and unsafe options
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 39 stdlib modules
+- 41 stdlib modules
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - Compiler backend (C code generation) with 100% interpreter parity
 - LSP server with go-to-definition and find-references
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- 690+ tests with 121 parity tests (100% pass rate)
+- 628+ tests with 188 parity tests (100% pass rate)
 
 ## Philosophy
 
