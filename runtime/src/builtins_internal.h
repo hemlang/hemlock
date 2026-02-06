@@ -22,6 +22,7 @@
 #include <sys/utsname.h>
 #include <dirent.h>
 #include <limits.h>
+#include <inttypes.h>
 #include <dlfcn.h>
 #include <ffi.h>
 #include <pwd.h>

@@ -166,7 +166,7 @@ void print_value_to(FILE *out, HmlValue val) {
             fprintf(out, "%d", val.as.as_i32);
             break;
         case HML_VAL_I64:
-            fprintf(out, "%ld", val.as.as_i64);
+            fprintf(out, "%" PRId64, val.as.as_i64);
             break;
         case HML_VAL_U8:
             fprintf(out, "%u", val.as.as_u8);
@@ -178,7 +178,7 @@ void print_value_to(FILE *out, HmlValue val) {
             fprintf(out, "%u", val.as.as_u32);
             break;
         case HML_VAL_U64:
-            fprintf(out, "%lu", val.as.as_u64);
+            fprintf(out, "%" PRIu64, val.as.as_u64);
             break;
         case HML_VAL_F32:
             fprintf(out, "%g", val.as.as_f32);
@@ -465,21 +465,21 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         case HML_VAL_I8:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < -128 || int_val > 127) {
-                hml_runtime_error("Value %ld out of range for i8 [-128, 127]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for i8 [-128, 127]", int_val);
             }
             return hml_val_i8((int8_t)int_val);
 
         case HML_VAL_I16:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < -32768 || int_val > 32767) {
-                hml_runtime_error("Value %ld out of range for i16 [-32768, 32767]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for i16 [-32768, 32767]", int_val);
             }
             return hml_val_i16((int16_t)int_val);
 
         case HML_VAL_I32:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < -2147483648LL || int_val > 2147483647LL) {
-                hml_runtime_error("Value %ld out of range for i32 [-2147483648, 2147483647]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for i32 [-2147483648, 2147483647]", int_val);
             }
             return hml_val_i32((int32_t)int_val);
 
@@ -490,28 +490,28 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         case HML_VAL_U8:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 255) {
-                hml_runtime_error("Value %ld out of range for u8 [0, 255]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u8 [0, 255]", int_val);
             }
             return hml_val_u8((uint8_t)int_val);
 
         case HML_VAL_U16:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 65535) {
-                hml_runtime_error("Value %ld out of range for u16 [0, 65535]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u16 [0, 65535]", int_val);
             }
             return hml_val_u16((uint16_t)int_val);
 
         case HML_VAL_U32:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0 || int_val > 4294967295LL) {
-                hml_runtime_error("Value %ld out of range for u32 [0, 4294967295]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u32 [0, 4294967295]", int_val);
             }
             return hml_val_u32((uint32_t)int_val);
 
         case HML_VAL_U64:
             if (is_source_float) int_val = (int64_t)float_val;
             if (int_val < 0) {
-                hml_runtime_error("Value %ld out of range for u64 [0, 18446744073709551615]", int_val);
+                hml_runtime_error("Value %" PRId64 " out of range for u64 [0, 18446744073709551615]", int_val);
             }
             return hml_val_u64((uint64_t)int_val);
 
@@ -559,7 +559,7 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
             // Allow conversion from numeric types to string
             if (hml_is_integer_type(val)) {
                 char buf[32];
-                snprintf(buf, sizeof(buf), "%ld", hml_val_to_int64(val));
+                snprintf(buf, sizeof(buf), "%" PRId64, hml_val_to_int64(val));
                 return hml_val_string(buf);
             }
             if (hml_is_float_type(val)) {
@@ -648,21 +648,21 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
             case HML_VAL_I8:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < -128 || int_val > 127) {
-                    hml_runtime_error("Value %ld out of range for i8 [-128, 127]", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for i8 [-128, 127]", int_val);
                 }
                 return hml_val_i8((int8_t)int_val);
 
             case HML_VAL_I16:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < -32768 || int_val > 32767) {
-                    hml_runtime_error("Value %ld out of range for i16 [-32768, 32767]", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for i16 [-32768, 32767]", int_val);
                 }
                 return hml_val_i16((int16_t)int_val);
 
             case HML_VAL_I32:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < -2147483648LL || int_val > 2147483647LL) {
-                    hml_runtime_error("Value %ld out of range for i32", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for i32", int_val);
                 }
                 return hml_val_i32((int32_t)int_val);
 
@@ -673,28 +673,28 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
             case HML_VAL_U8:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0 || int_val > 255) {
-                    hml_runtime_error("Value %ld out of range for u8 [0, 255]", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for u8 [0, 255]", int_val);
                 }
                 return hml_val_u8((uint8_t)int_val);
 
             case HML_VAL_U16:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0 || int_val > 65535) {
-                    hml_runtime_error("Value %ld out of range for u16 [0, 65535]", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for u16 [0, 65535]", int_val);
                 }
                 return hml_val_u16((uint16_t)int_val);
 
             case HML_VAL_U32:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0 || int_val > 4294967295LL) {
-                    hml_runtime_error("Value %ld out of range for u32", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for u32", int_val);
                 }
                 return hml_val_u32((uint32_t)int_val);
 
             case HML_VAL_U64:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0) {
-                    hml_runtime_error("Value %ld out of range for u64", int_val);
+                    hml_runtime_error("Value %" PRId64 " out of range for u64", int_val);
                 }
                 return hml_val_u64((uint64_t)int_val);
 

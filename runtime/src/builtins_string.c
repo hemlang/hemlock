@@ -579,7 +579,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     } else if (hml_is_integer_type(val)) {
         int64_t int_val = hml_val_to_int64(val);
         if (int_val < 0 || int_val > 0x10FFFF) {
-            hml_runtime_error("Integer value %ld out of range for rune [0, 0x10FFFF]", int_val);
+            hml_runtime_error("Integer value %" PRId64 " out of range for rune [0, 0x10FFFF]", int_val);
         }
         rune_val = (uint32_t)int_val;
     } else {

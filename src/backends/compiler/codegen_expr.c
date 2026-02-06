@@ -267,7 +267,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 if (expr->as.number.int_value >= INT32_MIN && expr->as.number.int_value <= INT32_MAX) {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)expr->as.number.int_value);
                 } else {
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, expr->as.number.int_value);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, expr->as.number.int_value);
                 }
             }
             break;
@@ -604,7 +604,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     } else if (const_result >= INT32_MIN && const_result <= INT32_MAX) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)const_result);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, const_result);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, const_result);
                     }
                     break;
                 }
@@ -902,7 +902,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (val >= INT32_MIN && val <= INT32_MAX) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)val);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, val);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, val);
                     }
                     break;
                 }

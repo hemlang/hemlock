@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <libgen.h>
 #include <limits.h>
+#include <inttypes.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
