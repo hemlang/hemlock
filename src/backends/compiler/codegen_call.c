@@ -2601,8 +2601,10 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     if (ctx->type_ctx) {
                         CheckedType *arg_type = type_check_infer_expr(ctx->type_ctx, expr->as.call.args[i]);
                         if (arg_type && arg_type->kind != CHECKED_UNKNOWN && arg_type->kind != CHECKED_ANY) {
-                            // Bind parameter name to inferred type (is_const=0, is_param=0, line=0)
-                            type_check_bind(ctx->type_ctx, func_ast->as.function.param_names[i], arg_type, 0, 0, 0);
+                            // Bind parameter name to inferred type (is_const=0, is_param=1, line=0)
+                            // is_param=1 prevents unboxing optimization from treating
+                            // inlined params as native C types (they are HmlValue)
+                            type_check_bind(ctx->type_ctx, func_ast->as.function.param_names[i], arg_type, 0, 1, 0);
                         }
                     }
 

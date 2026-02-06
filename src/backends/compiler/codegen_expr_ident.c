@@ -570,8 +570,10 @@ handle_variable:
         // If so, convert the native C type back to HmlValue
         // IMPORTANT: Skip this for function parameters - they are always HmlValue
         // IMPORTANT: Skip this for main-level variables - they're pre-declared as HmlValue, not unboxed
+        // IMPORTANT: Skip this for shadow variables (inlined params) - they are HmlValue, not unboxed
         if (ctx->optimize && ctx->type_ctx && !codegen_is_func_param(ctx, expr->as.ident.name) &&
-            !codegen_is_main_var(ctx, expr->as.ident.name)) {
+            !codegen_is_main_var(ctx, expr->as.ident.name) &&
+            !codegen_is_shadow(ctx, expr->as.ident.name)) {
             CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, expr->as.ident.name);
             if (native_type != CHECKED_UNKNOWN) {
                 // Variable is unboxed - box it for use in HmlValue context

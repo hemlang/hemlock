@@ -101,9 +101,11 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
             // Check if this is an unboxable typed variable
             // IMPORTANT: Skip main-level variables - they're pre-declared as HmlValue
             // and can change type at runtime (Hemlock is dynamically typed)
+            // IMPORTANT: Skip shadow variables (inlined params) - they are HmlValue
             if (ctx->optimize && ctx->type_ctx &&
                 !codegen_is_func_param(ctx, expr->as.ident.name) &&
-                !codegen_is_main_var(ctx, expr->as.ident.name)) {
+                !codegen_is_main_var(ctx, expr->as.ident.name) &&
+                !codegen_is_shadow(ctx, expr->as.ident.name)) {
                 CheckedTypeKind native_type = type_check_get_unboxable(
                     ctx->type_ctx, expr->as.ident.name);
                 switch (native_type) {
