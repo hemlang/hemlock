@@ -910,7 +910,10 @@ make parity
 
 ## Version
 
-**v1.8.7** - Current release with:
+**v1.8.8** - Current release with:
+- **Compiler inlining fixes** - Fixed nested call argument corruption and unboxing collision with loop counters during function inlining (fixes hemloco compilation)
+- **Pointer subtraction** - Compiler type checker now allows `ptr - integer` for pointer arithmetic
+- **Catchable `open()` exceptions** - `open()` throws via `hml_throw()` instead of `exit(1)`, enabling try/catch error handling
 - **Multi-argument print/eprint fix** - Fixed compiler codegen for `print()` and `eprint()` with multiple arguments (e.g., `print("x:", x, y)`)
 - **SSO string fix** - Fixed segfault in `hml_string_append_inplace` when growing strings using Small String Optimization
 - **`@stdlib/termios` module** - Cross-platform raw terminal input (Linux/macOS):

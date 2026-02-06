@@ -5,6 +5,19 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.8] - 2026-02-06
+
+### Fixed
+
+- **Compiler inlining: nested call argument corruption** - Fixed a bug where nested function calls as arguments (e.g., `foo(x, bar(ptr_arg, ...))`) corrupted parameters during inlining. Arguments are now fully evaluated before parameter binding, preventing name shadowing between outer and inner inlined calls.
+- **Compiler inlining: unboxing collision with loop counters** - Fixed a bug where inlined function parameters with the same name as a prior unboxed loop counter (e.g., `for (let x: i32 = 0; ...)` followed by inlined `create_thing(x, y)`) were incorrectly wrapped with `hml_val_i32()`. Inlined params are now registered as shadows and marked `is_param=1` to prevent the unboxing optimization from treating them as native C types. This fixes hemloco compilation.
+- **Compiler `ptr - integer` type checking** - The type checker now allows pointer subtraction (`ptr - int`) for pointer arithmetic, matching the existing support for `ptr + int`.
+- **Catchable `open()` exceptions** - `open()` now throws catchable exceptions via `hml_throw()` instead of calling `exit(1)` on failure. Error messages match the interpreter format: `"Failed to open '%s' with mode '%s': %s"`.
+
+### Added
+
+- Parity tests for pointer subtraction, open() exception handling, and nested inline function calls.
+
 ## [1.8.7] - 2026-01-28
 
 ### Fixed
