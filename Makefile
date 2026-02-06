@@ -466,6 +466,11 @@ COMPILER_TARGET = hemlockc
 # Runtime library
 RUNTIME_DIR = runtime
 RUNTIME_LIB = libhemlock_runtime.a
+ifeq ($(shell uname),Darwin)
+    RUNTIME_SHARED = libhemlock_runtime.dylib
+else
+    RUNTIME_SHARED = libhemlock_runtime.so
+endif
 
 .PHONY: compiler runtime runtime-clean compiler-clean
 
@@ -484,18 +489,18 @@ runtime:
 	@echo "Building Hemlock runtime library..."
 	$(MAKE) -C $(RUNTIME_DIR) static shared
 	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_DIR)/build/libhemlock_runtime.so ./
-	@echo "✓ Runtime library built: $(RUNTIME_LIB) + libhemlock_runtime.so"
+	cp $(RUNTIME_DIR)/build/$(RUNTIME_SHARED) ./
+	@echo "✓ Runtime library built: $(RUNTIME_LIB) + $(RUNTIME_SHARED)"
 
 # File target for runtime library (used as dependency)
 $(RUNTIME_LIB):
 	$(MAKE) -C $(RUNTIME_DIR) static shared
 	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_DIR)/build/libhemlock_runtime.so ./
+	cp $(RUNTIME_DIR)/build/$(RUNTIME_SHARED) ./
 
 runtime-clean:
 	$(MAKE) -C $(RUNTIME_DIR) clean
-	rm -f $(RUNTIME_LIB) libhemlock_runtime.so
+	rm -f $(RUNTIME_LIB) $(RUNTIME_SHARED)
 
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
