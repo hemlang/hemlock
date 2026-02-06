@@ -1076,7 +1076,7 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
             // Also check for type constructors (not in registry as builtins)
             static const char *type_constructors[] = {
                 "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
-                "f32", "f64", "bool", "string", "integer", "number", "byte",
+                "f32", "f64", "bool", "rune", "string", "integer", "number", "byte",
                 NULL
             };
             for (int i = 0; type_constructors[i]; i++) {

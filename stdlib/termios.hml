@@ -241,7 +241,7 @@ fn read_byte(): i32 {
     let n = read(STDIN_FILENO, buf, 1);
     let result = -1;
     if (n == 1) {
-        result = ptr_read_u8(buf);
+        result = ptr_deref_u8(buf);
     }
     free(buf);
     return result;

@@ -313,6 +313,7 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "f32", val_type(TYPE_F32), ctx);
     env_set(env, "f64", val_type(TYPE_F64), ctx);
     env_set(env, "bool", val_type(TYPE_BOOL), ctx);
+    env_set(env, "rune", val_type(TYPE_RUNE), ctx);
     env_set(env, "ptr", val_type(TYPE_PTR), ctx);
 
     // Type aliases

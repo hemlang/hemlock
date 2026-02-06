@@ -130,6 +130,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             else if (strcmp(fn_name, "f32") == 0) target_type = HML_VAL_F32;
             else if (strcmp(fn_name, "f64") == 0) target_type = HML_VAL_F64;
             else if (strcmp(fn_name, "bool") == 0) target_type = HML_VAL_BOOL;
+            else if (strcmp(fn_name, "rune") == 0) target_type = HML_VAL_RUNE;
             else if (strcmp(fn_name, "integer") == 0) target_type = HML_VAL_I32;  // alias
             else if (strcmp(fn_name, "number") == 0) target_type = HML_VAL_F64;   // alias
             else if (strcmp(fn_name, "byte") == 0) target_type = HML_VAL_U8;      // alias
