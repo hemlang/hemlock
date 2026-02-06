@@ -2584,9 +2584,18 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     type_check_push_scope(ctx->type_ctx);
                 }
 
-                // Bind arguments to parameter names and register their types
+                // Evaluate all arguments FIRST (before any parameter binding)
+                // This prevents inlined param names from shadowing variables used
+                // in later argument expressions (e.g., add(result, inner(a, b, i))
+                // where add's param 'a' would shadow the outer 'a' during inner's eval)
                 int consumed_checkpoint = codegen_consumed_checkpoint(ctx);
                 int num_params = func_ast->as.function.num_params;
+                char **arg_vals = malloc(num_params * sizeof(char*));
+                for (int i = 0; i < num_params; i++) {
+                    arg_vals[i] = codegen_expr(ctx, expr->as.call.args[i]);
+                }
+
+                // Now bind all parameters to their evaluated argument values
                 for (int i = 0; i < num_params; i++) {
                     // Infer argument type for type specialization
                     if (ctx->type_ctx) {
@@ -2597,13 +2606,16 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                         }
                     }
 
-                    char *arg_val = codegen_expr(ctx, expr->as.call.args[i]);
                     char *param_name = codegen_sanitize_ident(func_ast->as.function.param_names[i]);
-                    codegen_writeln(ctx, "HmlValue %s = %s;", param_name, arg_val);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", param_name, arg_vals[i]);
                     codegen_add_local(ctx, func_ast->as.function.param_names[i]);
-                    free(arg_val);
+                    // Also add as shadow so inlined params shadow main-level vars
+                    // (without this, `a` resolves to `_main_a` during main-scope inlining)
+                    codegen_add_shadow(ctx, func_ast->as.function.param_names[i]);
+                    free(arg_vals[i]);
                     free(param_name);
                 }
+                free(arg_vals);
 
                 // Generate the inlined expression
                 char *inline_result = NULL;
@@ -2631,6 +2643,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                         codegen_writeln(ctx, "hml_release_if_needed(&%s);", param_name);
                     }
                     codegen_remove_local(ctx, func_ast->as.function.param_names[i]);
+                    codegen_remove_shadow(ctx, func_ast->as.function.param_names[i]);
                     free(param_name);
                 }
                 free(inline_result);

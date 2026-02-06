@@ -1585,12 +1585,25 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                     break;
 
                 case OP_SUB:
+                    // Allow pointer - integer (pointer arithmetic)
+                    // Allow numeric - numeric
+                    {
+                        int is_ptr_arith = (left->kind == CHECKED_PTR && type_is_integer(right));
+                        int is_numeric_op = type_is_numeric(left) && type_is_numeric(right);
+                        int is_any = left->kind == CHECKED_ANY || right->kind == CHECKED_ANY;
+                        if (!is_ptr_arith && !is_numeric_op && !is_any) {
+                            type_error(ctx, expr->line,
+                                "cannot subtract '%s' and '%s'",
+                                checked_type_name(left), checked_type_name(right));
+                        }
+                    }
+                    break;
+
                 case OP_MUL:
                 case OP_MOD:
                     if (!type_is_numeric(left) || !type_is_numeric(right)) {
                         if (left->kind != CHECKED_ANY && right->kind != CHECKED_ANY) {
-                            const char *op_name = op == OP_SUB ? "subtract" :
-                                                  op == OP_MUL ? "multiply" : "modulo";
+                            const char *op_name = op == OP_MUL ? "multiply" : "modulo";
                             type_error(ctx, expr->line,
                                 "cannot %s '%s' and '%s'",
                                 op_name, checked_type_name(left), checked_type_name(right));

@@ -35,8 +35,7 @@ HmlValue hml_read_line(void) {
 
 HmlValue hml_open(HmlValue path, HmlValue mode) {
     if (path.type != HML_VAL_STRING) {
-        fprintf(stderr, "Error: open() expects string path\n");
-        exit(1);
+        hml_throw(hml_val_string("open() expects string path"));
     }
 
     const char *path_str = path.as.as_string->data;
@@ -60,8 +59,10 @@ HmlValue hml_open(HmlValue path, HmlValue mode) {
 
     FILE *fp = fopen(path_str, mode_str);
     if (!fp) {
-        fprintf(stderr, "Error: Failed to open '%s'\n", path_str);
-        exit(1);
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "Failed to open '%s' with mode '%s': %s",
+                path_str, mode_str, strerror(errno));
+        hml_throw(hml_val_string(err_buf));
     }
 
     HmlFileHandle *fh = malloc(sizeof(HmlFileHandle));
