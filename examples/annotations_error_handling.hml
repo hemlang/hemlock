@@ -21,10 +21,10 @@ fn try_open(path: string): object {
 }
 
 // Important computations that should not be silently ignored
-fn validate_checksum(data: buffer, size: i32): bool {
+fn validate_checksum(data: ptr, size: i32): bool {
 	let sum = 0;
 	for (let i = 0; i < size; i++) {
-		sum = sum + ptr_read_u8(data, i);
+		sum = sum + ptr_deref_u8(ptr_offset(data, i, 1));
 	}
 	return sum % 256 == 0;
 }
@@ -32,24 +32,26 @@ fn validate_checksum(data: buffer, size: i32): bool {
 // OK: Return value used
 let memory = safe_alloc(1024);
 ptr_write_i32(memory, 42);
-print("Allocated and wrote value:", ptr_deref_i32(memory));
+print(`Allocated and wrote value: ${ptr_deref_i32(memory)}`);
 
-// OK: Return value checked
-let result = try_open("test.txt");
+// OK: Return value checked - write a temp file, then try to open it
+import { write_file } from "@stdlib/fs";
+write_file("/tmp/hml_test_warn_unused.txt", "test data");
+let result = try_open("/tmp/hml_test_warn_unused.txt");
 if (result.success) {
 	print("File opened successfully");
 	result.file.close();
 } else {
-	print("Failed to open file:", result.error);
+	print(`Failed to open file: ${result.error}`);
 }
 
 // OK: Validation result used
-let data = buffer(16);
+let data = alloc(16);
 for (let i = 0; i < 16; i++) {
-	ptr_write_u8(data, i, i * 10);
+	ptr_write_u8(ptr_offset(data, i, 1), i * 10);
 }
 let valid = validate_checksum(data, 16);
-print("Checksum valid:", valid);
+print(`Checksum valid: ${valid}`);
 
 // WARNING: If you uncomment these, compiler will warn
 // safe_alloc(256);              // warning: ignoring return value

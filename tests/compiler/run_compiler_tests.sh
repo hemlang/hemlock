@@ -116,7 +116,7 @@ for test_file in "$TEST_DIR"/*.hml; do
     # libcrypto is always required for hash functions
     CRYPTO_FLAG="-lcrypto"
     exe_file="$TEMP_DIR/${test_name}"
-    if ! gcc -o "$exe_file" "$c_file" -I./runtime/include -L. -lhemlock_runtime -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG $CRYPTO_FLAG > /tmp/gcc_err.log 2>&1; then
+    if ! gcc -o "$exe_file" "$c_file" -I./runtime/include ./libhemlock_runtime.a -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG $CRYPTO_FLAG > /tmp/gcc_err.log 2>&1; then
         echo -e "${RED}✗${NC} $test_name ${RED}(C compilation failed)${NC}"
         cat /tmp/gcc_err.log
         ((FAIL_COUNT++))

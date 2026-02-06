@@ -3,11 +3,11 @@
 import { time_ms } from "@stdlib/time";
 
 // Debug function - no optimization for easier debugging
-fn debug_dump(label: string, ptr: ptr, size: i32): void {
-	print("[DEBUG]", label);
+fn debug_dump(label: string, p: ptr, size: i32) {
+	print(`[DEBUG] ${label}`);
 	for (let i = 0; i < size; i++) {
-		let val = ptr_read_u8(ptr, i);
-		print("  [", i, "]:", val, "(0x", val, ")");
+		let val = ptr_deref_u8(ptr_offset(p, i, 1));
+		print(`  [${i}]: ${val} (0x${val})`);
 	}
 }
 
@@ -34,11 +34,11 @@ fn process_transaction(amount: i32, fee: i32): object {
 }
 
 // Aggressive optimization - performance-critical computation
-fn matrix_multiply_row(a: buffer, b: buffer, row: i32, size: i32): i32 {
+fn matrix_multiply_row(a: ptr, b: ptr, row: i32, size: i32): i32 {
 	let sum = 0;
 	for (let i = 0; i < size; i++) {
-		let a_val = ptr_read_i32(a, (row * size + i) * 4);
-		let b_val = ptr_read_i32(b, i * 4);
+		let a_val = ptr_deref_i32(ptr_offset(a, row * size + i, 4));
+		let b_val = ptr_deref_i32(ptr_offset(b, i, 4));
 		sum = sum + a_val * b_val;
 	}
 	return sum;
@@ -58,11 +58,11 @@ print("=== Mixed Optimization Level Demo ===\n");
 
 // 1. Debug function (O0) - easy to debug, slow
 print("1. Debug Function (@optimize(\"0\"))");
-let test_data = buffer(4);
-ptr_write_u8(test_data, 0, 222);
-ptr_write_u8(test_data, 1, 173);
-ptr_write_u8(test_data, 2, 190);
-ptr_write_u8(test_data, 3, 239);
+let test_data = alloc(4);
+ptr_write_u8(test_data, 222);
+ptr_write_u8(ptr_offset(test_data, 1, 1), 173);
+ptr_write_u8(ptr_offset(test_data, 2, 1), 190);
+ptr_write_u8(ptr_offset(test_data, 3, 1), 239);
 debug_dump("Test Buffer", test_data, 4);
 print("");
 
@@ -80,21 +80,21 @@ print("");
 print("3. Business Logic (@optimize(\"2\"))");
 let transaction = process_transaction(100, 5);
 print("Transaction processed:");
-print("  Subtotal:", transaction.subtotal);
-print("  Fee:", transaction.fee);
-print("  Tax:", transaction.tax);
-print("  Total:", transaction.total);
+print(`  Subtotal: ${transaction.subtotal}`);
+print(`  Fee: ${transaction.fee}`);
+print(`  Tax: ${transaction.tax}`);
+print(`  Total: ${transaction.total}`);
 print("");
 
 // 4. Performance-critical computation (O3) - maximum speed
 print("4. Matrix Computation (@optimize(\"3\"))");
-let matrix_a = buffer(16);  // 2x2 matrix
-let matrix_b = buffer(8);  // 2x1 vector
+let matrix_a = alloc(16);  // 2x2 matrix
+let matrix_b = alloc(8);  // 2x1 vector
 for (let i = 0; i < 4; i++) {
-	ptr_write_i32(matrix_a, i * 4, i + 1);
+	ptr_write_i32(ptr_offset(matrix_a, i, 4), i + 1);
 }
-ptr_write_i32(matrix_b, 0, 10);
-ptr_write_i32(matrix_b, 4, 20);
+ptr_write_i32(matrix_b, 10);
+ptr_write_i32(ptr_offset(matrix_b, 1, 4), 20);
 
 let start = time_ms();
 let iterations = 10000;
@@ -102,16 +102,16 @@ for (let i = 0; i < iterations; i++) {
 	matrix_multiply_row(matrix_a, matrix_b, 0, 2);
 }
 let elapsed = time_ms() - start;
-print("Matrix row multiply (", iterations, " iterations):", elapsed, "ms");
+print(`Matrix row multiply (${iterations} iterations): ${elapsed}ms`);
 print("");
 
 // 5. Fast-math physics (Ofast) - maximum speed, relaxed precision
 print("5. Physics Calculation (@optimize(\"fast\"))");
 let physics = calculate_physics(10.5, 20.3, 0.016);
 print("Physics step:");
-print("  Velocity X:", physics.vx);
-print("  Velocity Y:", physics.vy);
-print("  Acceleration:", physics.accel);
+print(`  Velocity X: ${physics.vx}`);
+print(`  Velocity Y: ${physics.vy}`);
+print(`  Acceleration: ${physics.accel}`);
 print("");
 
 // Cleanup

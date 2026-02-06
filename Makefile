@@ -482,18 +482,20 @@ $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_D
 # Build runtime library (phony target for explicit invocation)
 runtime:
 	@echo "Building Hemlock runtime library..."
-	$(MAKE) -C $(RUNTIME_DIR) static
+	$(MAKE) -C $(RUNTIME_DIR) static shared
 	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	@echo "✓ Runtime library built: $(RUNTIME_LIB)"
+	cp $(RUNTIME_DIR)/build/libhemlock_runtime.so ./
+	@echo "✓ Runtime library built: $(RUNTIME_LIB) + libhemlock_runtime.so"
 
 # File target for runtime library (used as dependency)
 $(RUNTIME_LIB):
-	$(MAKE) -C $(RUNTIME_DIR) static
+	$(MAKE) -C $(RUNTIME_DIR) static shared
 	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
+	cp $(RUNTIME_DIR)/build/libhemlock_runtime.so ./
 
 runtime-clean:
 	$(MAKE) -C $(RUNTIME_DIR) clean
-	rm -f $(RUNTIME_LIB)
+	rm -f $(RUNTIME_LIB) libhemlock_runtime.so
 
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
