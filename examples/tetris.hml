@@ -1,0 +1,589 @@
+// Tetris - Classic falling blocks puzzle game
+// Clear lines by filling rows completely!
+//
+// Controls:
+//   Left/Right or A/D: Move piece
+//   Up or W: Rotate piece
+//   Down or S: Soft drop (faster fall)
+//   Space: Hard drop (instant)
+//   P: Pause/unpause
+//   Q: Quit
+//
+// Demonstrates: 2D grid manipulation, rotation matrices,
+//   collision detection, line clearing, game loop, raw terminal input
+
+import { sleep, time_ms } from "@stdlib/time";
+import {
+    GREEN, RED, YELLOW, CYAN, WHITE, MAGENTA, BLUE, RESET,
+    BOLD, DIM, BG_RED, BG_GREEN, BG_BLUE, BG_YELLOW, BG_MAGENTA, BG_CYAN, BG_WHITE,
+    CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR,
+    move_to
+} from "@stdlib/terminal";
+import {
+    enable_raw_mode, disable_raw_mode, is_terminal,
+    read_key, read_key_timeout,
+    KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT
+} from "@stdlib/termios";
+import { randint } from "@stdlib/random";
+
+// === CONSTANTS ===
+
+let BOARD_WIDTH = 10;
+let BOARD_HEIGHT = 20;
+let TICK_MS = 500;          // Initial fall speed (ms)
+let SPEED_LEVEL = 50;       // ms faster per level
+let LINES_PER_LEVEL = 10;   // Lines to clear per level
+
+// Piece types (7 standard tetrominoes)
+// Each piece is an array of 4 rotations
+// Each rotation is an array of {x, y} offsets from piece origin
+
+// I-piece
+let PIECE_I = [
+    [{x:0,y:1}, {x:1,y:1}, {x:2,y:1}, {x:3,y:1}],
+    [{x:2,y:0}, {x:2,y:1}, {x:2,y:2}, {x:2,y:3}],
+    [{x:0,y:2}, {x:1,y:2}, {x:2,y:2}, {x:3,y:2}],
+    [{x:1,y:0}, {x:1,y:1}, {x:1,y:2}, {x:1,y:3}]
+];
+
+// O-piece (square)
+let PIECE_O = [
+    [{x:1,y:0}, {x:2,y:0}, {x:1,y:1}, {x:2,y:1}],
+    [{x:1,y:0}, {x:2,y:0}, {x:1,y:1}, {x:2,y:1}],
+    [{x:1,y:0}, {x:2,y:0}, {x:1,y:1}, {x:2,y:1}],
+    [{x:1,y:0}, {x:2,y:0}, {x:1,y:1}, {x:2,y:1}]
+];
+
+// T-piece
+let PIECE_T = [
+    [{x:1,y:0}, {x:0,y:1}, {x:1,y:1}, {x:2,y:1}],
+    [{x:1,y:0}, {x:1,y:1}, {x:2,y:1}, {x:1,y:2}],
+    [{x:0,y:1}, {x:1,y:1}, {x:2,y:1}, {x:1,y:2}],
+    [{x:1,y:0}, {x:0,y:1}, {x:1,y:1}, {x:1,y:2}]
+];
+
+// S-piece
+let PIECE_S = [
+    [{x:1,y:0}, {x:2,y:0}, {x:0,y:1}, {x:1,y:1}],
+    [{x:1,y:0}, {x:1,y:1}, {x:2,y:1}, {x:2,y:2}],
+    [{x:1,y:1}, {x:2,y:1}, {x:0,y:2}, {x:1,y:2}],
+    [{x:0,y:0}, {x:0,y:1}, {x:1,y:1}, {x:1,y:2}]
+];
+
+// Z-piece
+let PIECE_Z = [
+    [{x:0,y:0}, {x:1,y:0}, {x:1,y:1}, {x:2,y:1}],
+    [{x:2,y:0}, {x:1,y:1}, {x:2,y:1}, {x:1,y:2}],
+    [{x:0,y:1}, {x:1,y:1}, {x:1,y:2}, {x:2,y:2}],
+    [{x:1,y:0}, {x:0,y:1}, {x:1,y:1}, {x:0,y:2}]
+];
+
+// L-piece
+let PIECE_L = [
+    [{x:2,y:0}, {x:0,y:1}, {x:1,y:1}, {x:2,y:1}],
+    [{x:1,y:0}, {x:1,y:1}, {x:1,y:2}, {x:2,y:2}],
+    [{x:0,y:1}, {x:1,y:1}, {x:2,y:1}, {x:0,y:2}],
+    [{x:0,y:0}, {x:1,y:0}, {x:1,y:1}, {x:1,y:2}]
+];
+
+// J-piece
+let PIECE_J = [
+    [{x:0,y:0}, {x:0,y:1}, {x:1,y:1}, {x:2,y:1}],
+    [{x:1,y:0}, {x:2,y:0}, {x:1,y:1}, {x:1,y:2}],
+    [{x:0,y:1}, {x:1,y:1}, {x:2,y:1}, {x:2,y:2}],
+    [{x:1,y:0}, {x:1,y:1}, {x:0,y:2}, {x:1,y:2}]
+];
+
+let ALL_PIECES = [PIECE_I, PIECE_O, PIECE_T, PIECE_S, PIECE_Z, PIECE_L, PIECE_J];
+let PIECE_COLORS = [CYAN, YELLOW, MAGENTA, GREEN, RED, BLUE, WHITE];
+let PIECE_CHARS = ["█", "█", "█", "█", "█", "█", "█"];
+
+// === GAME STATE ===
+
+let board = [];              // 2D grid: 0=empty, 1-7=piece color index
+let current_piece = 0;       // Index into ALL_PIECES
+let current_rotation = 0;    // 0-3
+let piece_x = 0;            // Piece position on board
+let piece_y = 0;
+let next_piece = 0;          // Next piece index
+let score = 0;
+let level = 1;
+let lines_cleared = 0;
+let game_over = false;
+let paused = false;
+let tick_speed = TICK_MS;
+let raw_mode = false;
+
+// === INITIALIZATION ===
+
+fn create_board(): array {
+    let b = [];
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+        let row = [];
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            row.push(0);
+        }
+        b.push(row);
+    }
+    return b;
+}
+
+fn init_game() {
+    board = create_board();
+    score = 0;
+    level = 1;
+    lines_cleared = 0;
+    game_over = false;
+    paused = false;
+    tick_speed = TICK_MS;
+
+    next_piece = randint(0, 6);
+    spawn_piece();
+}
+
+fn spawn_piece() {
+    current_piece = next_piece;
+    next_piece = randint(0, 6);
+    current_rotation = 0;
+    piece_x = 3;  // Center horizontally
+    piece_y = 0;
+
+    // Check if spawn position is blocked (game over)
+    if (!is_valid_position(piece_x, piece_y, current_rotation)) {
+        game_over = true;
+    }
+}
+
+// === PIECE LOGIC ===
+
+fn get_blocks(piece_idx: i32, rotation: i32): array {
+    return ALL_PIECES[piece_idx][rotation];
+}
+
+fn is_valid_position(px: i32, py: i32, rot: i32): bool {
+    let blocks = get_blocks(current_piece, rot);
+    for (block in blocks) {
+        let bx = px + block.x;
+        let by = py + block.y;
+
+        // Check bounds
+        if (bx < 0 || bx >= BOARD_WIDTH || by < 0 || by >= BOARD_HEIGHT) {
+            return false;
+        }
+
+        // Check collision with placed pieces
+        if (board[by][bx] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn lock_piece() {
+    let blocks = get_blocks(current_piece, current_rotation);
+    let color_idx = current_piece + 1;  // 1-indexed for board
+
+    for (block in blocks) {
+        let bx = piece_x + block.x;
+        let by = piece_y + block.y;
+        if (by >= 0 && by < BOARD_HEIGHT && bx >= 0 && bx < BOARD_WIDTH) {
+            board[by][bx] = color_idx;
+        }
+    }
+
+    clear_lines();
+    spawn_piece();
+}
+
+fn clear_lines() {
+    let cleared = 0;
+
+    let y = BOARD_HEIGHT - 1;
+    while (y >= 0) {
+        let full = true;
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            if (board[y][x] == 0) {
+                full = false;
+                break;
+            }
+        }
+
+        if (full) {
+            // Remove this row
+            board.remove(y);
+            // Add empty row at top
+            let new_row = [];
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+                new_row.push(0);
+            }
+            board.unshift(new_row);
+            cleared = cleared + 1;
+            // Don't decrement y - check same position again
+        } else {
+            y = y - 1;
+        }
+    }
+
+    if (cleared > 0) {
+        lines_cleared = lines_cleared + cleared;
+
+        // Scoring: 100, 300, 500, 800 for 1, 2, 3, 4 lines
+        if (cleared == 1) { score = score + 100 * level; }
+        if (cleared == 2) { score = score + 300 * level; }
+        if (cleared == 3) { score = score + 500 * level; }
+        if (cleared >= 4) { score = score + 800 * level; }
+
+        // Level up
+        let new_level = divi(lines_cleared, LINES_PER_LEVEL) + 1;
+        if (new_level > level) {
+            level = new_level;
+            tick_speed = TICK_MS - (level - 1) * SPEED_LEVEL;
+            if (tick_speed < 50) { tick_speed = 50; }
+        }
+    }
+}
+
+fn move_piece(dx: i32, dy: i32): bool {
+    if (is_valid_position(piece_x + dx, piece_y + dy, current_rotation)) {
+        piece_x = piece_x + dx;
+        piece_y = piece_y + dy;
+        return true;
+    }
+    return false;
+}
+
+fn rotate_piece() {
+    let new_rot = (current_rotation + 1) % 4;
+    if (is_valid_position(piece_x, piece_y, new_rot)) {
+        current_rotation = new_rot;
+        return;
+    }
+    // Wall kick: try shifting left or right
+    if (is_valid_position(piece_x - 1, piece_y, new_rot)) {
+        piece_x = piece_x - 1;
+        current_rotation = new_rot;
+        return;
+    }
+    if (is_valid_position(piece_x + 1, piece_y, new_rot)) {
+        piece_x = piece_x + 1;
+        current_rotation = new_rot;
+        return;
+    }
+    // Can't rotate
+}
+
+fn hard_drop() {
+    while (is_valid_position(piece_x, piece_y + 1, current_rotation)) {
+        piece_y = piece_y + 1;
+        score = score + 2;  // Bonus points for hard drop
+    }
+    lock_piece();
+}
+
+fn soft_drop(): bool {
+    if (move_piece(0, 1)) {
+        score = score + 1;  // Bonus for soft drop
+        return true;
+    }
+    return false;
+}
+
+// === RENDERING ===
+
+fn get_color_for_index(idx: i32): string {
+    if (idx == 0) { return ""; }
+    return PIECE_COLORS[idx - 1];
+}
+
+fn render_next_piece(): string {
+    let out = "";
+    let blocks = get_blocks(next_piece, 0);
+    let color = PIECE_COLORS[next_piece];
+
+    // Render in a 4x4 grid
+    for (let y = 0; y < 4; y++) {
+        out = out + "  ";
+        for (let x = 0; x < 4; x++) {
+            let found = false;
+            for (block in blocks) {
+                if (block.x == x && block.y == y) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                out = out + color + "█" + RESET;
+            } else {
+                out = out + " ";
+            }
+        }
+        out = out + "\n";
+    }
+    return out;
+}
+
+fn render() {
+    let output = "";
+    output = output + move_to(1, 1);
+
+    // Title
+    output = output + CYAN + BOLD;
+    output = output + "╔══════════════════════╗\n";
+    output = output + "║       TETRIS         ║\n";
+    output = output + "╠══════════════════════╣\n";
+    output = output + RESET;
+
+    // Build current piece overlay
+    let piece_grid = [];
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+        let row = [];
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            row.push(0);
+        }
+        piece_grid.push(row);
+    }
+
+    // Calculate ghost piece position (drop preview)
+    let ghost_y = piece_y;
+    while (is_valid_position(piece_x, ghost_y + 1, current_rotation)) {
+        ghost_y = ghost_y + 1;
+    }
+
+    // Mark ghost piece on grid (use -1)
+    if (!game_over) {
+        let ghost_blocks = get_blocks(current_piece, current_rotation);
+        for (block in ghost_blocks) {
+            let gx = piece_x + block.x;
+            let gy = ghost_y + block.y;
+            if (gy >= 0 && gy < BOARD_HEIGHT && gx >= 0 && gx < BOARD_WIDTH) {
+                piece_grid[gy][gx] = -1;
+            }
+        }
+    }
+
+    // Mark current piece on grid
+    if (!game_over) {
+        let blocks = get_blocks(current_piece, current_rotation);
+        for (block in blocks) {
+            let bx = piece_x + block.x;
+            let by = piece_y + block.y;
+            if (by >= 0 && by < BOARD_HEIGHT && bx >= 0 && bx < BOARD_WIDTH) {
+                piece_grid[by][bx] = current_piece + 1;
+            }
+        }
+    }
+
+    // Render board
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+        output = output + CYAN + "║" + RESET;
+
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            let board_cell = board[y][x];
+            let piece_cell = piece_grid[y][x];
+
+            if (piece_cell > 0) {
+                // Active piece
+                let color = PIECE_COLORS[piece_cell - 1];
+                output = output + color + BOLD + "█" + RESET;
+            } else if (board_cell > 0) {
+                // Locked piece
+                let color = get_color_for_index(board_cell);
+                output = output + color + "█" + RESET;
+            } else if (piece_cell == -1) {
+                // Ghost piece
+                output = output + DIM + "░" + RESET;
+            } else {
+                // Empty
+                output = output + DIM + "·" + RESET;
+            }
+        }
+
+        output = output + CYAN + "║" + RESET;
+
+        // Side panel info
+        if (y == 0) { output = output + "  " + YELLOW + BOLD + "NEXT:" + RESET; }
+        if (y >= 1 && y <= 4) {
+            // Render next piece preview inline
+            let blocks = get_blocks(next_piece, 0);
+            let color = PIECE_COLORS[next_piece];
+            let preview_y = y - 1;
+            output = output + "  ";
+            for (let px = 0; px < 4; px++) {
+                let found = false;
+                for (block in blocks) {
+                    if (block.x == px && block.y == preview_y) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    output = output + color + "█" + RESET;
+                } else {
+                    output = output + " ";
+                }
+            }
+        }
+        if (y == 6) { output = output + "  " + YELLOW + "Score:" + RESET; }
+        if (y == 7) { output = output + "  " + BOLD + score + RESET; }
+        if (y == 9) { output = output + "  " + YELLOW + "Level:" + RESET; }
+        if (y == 10) { output = output + "  " + BOLD + level + RESET; }
+        if (y == 12) { output = output + "  " + YELLOW + "Lines:" + RESET; }
+        if (y == 13) { output = output + "  " + BOLD + lines_cleared + RESET; }
+
+        output = output + "\n";
+    }
+
+    // Bottom border
+    output = output + CYAN;
+    output = output + "╠══════════════════════╣\n";
+    output = output + RESET;
+
+    // Game state
+    output = output + CYAN + "║" + RESET;
+    if (game_over) {
+        output = output + BG_RED + WHITE + BOLD + " GAME OVER " + RESET + "  R:Again";
+    } else if (paused) {
+        output = output + YELLOW + BOLD + " PAUSED " + RESET + "    P:Resume";
+    } else {
+        output = output + " ←→:Move ↑:Rot ▼:Drop";
+    }
+    output = output + CYAN + "║\n" + RESET;
+
+    output = output + CYAN + "║" + RESET;
+    output = output + " Space:Drop P:Pause Q:Q";
+    output = output + CYAN + "║\n" + RESET;
+
+    output = output + CYAN;
+    output = output + "╚══════════════════════╝\n";
+    output = output + RESET;
+
+    print(output);
+}
+
+// === INPUT HANDLING ===
+
+fn handle_key(key: object): bool {
+    if (game_over) {
+        if (key.char != null) {
+            if (key.char == "r" || key.char == "R") { init_game(); return false; }
+            if (key.char == "q" || key.char == "Q") { return true; }
+        }
+        return false;
+    }
+
+    // Arrow keys
+    if (key.code == KEY_LEFT) { if (!paused) { move_piece(-1, 0); } return false; }
+    if (key.code == KEY_RIGHT) { if (!paused) { move_piece(1, 0); } return false; }
+    if (key.code == KEY_UP) { if (!paused) { rotate_piece(); } return false; }
+    if (key.code == KEY_DOWN) { if (!paused) { soft_drop(); } return false; }
+
+    if (key.char != null) {
+        let ch = key.char;
+
+        // Movement
+        if (ch == "a" || ch == "A") { if (!paused) { move_piece(-1, 0); } }
+        if (ch == "d" || ch == "D") { if (!paused) { move_piece(1, 0); } }
+        if (ch == "w" || ch == "W") { if (!paused) { rotate_piece(); } }
+        if (ch == "s" || ch == "S") { if (!paused) { soft_drop(); } }
+
+        // Hard drop
+        if (ch == " ") { if (!paused) { hard_drop(); } }
+
+        // Pause
+        if (ch == "p" || ch == "P") { paused = !paused; }
+
+        // Restart
+        if (ch == "r" || ch == "R") { init_game(); }
+
+        // Quit
+        if (ch == "q" || ch == "Q") { return true; }
+    }
+
+    return false;
+}
+
+// === GAME LOOP ===
+
+fn game_tick() {
+    if (paused || game_over) { return; }
+
+    // Try to move piece down
+    if (!move_piece(0, 1)) {
+        // Piece can't move down - lock it
+        lock_piece();
+    }
+}
+
+// === MAIN ===
+
+fn main() {
+    print(CYAN + BOLD + "═══════════════════════" + RESET);
+    print(CYAN + BOLD + "        TETRIS" + RESET);
+    print(CYAN + BOLD + "═══════════════════════" + RESET);
+    print("");
+    print("Classic falling blocks puzzle!");
+    print("Clear lines by filling rows completely.");
+    print("");
+    print(YELLOW + "Controls:" + RESET);
+    print("  Arrow keys / WASD  - Move & rotate");
+    print("  Space              - Hard drop");
+    print("  P                  - Pause/unpause");
+    print("  R                  - Restart");
+    print("  Q                  - Quit");
+    print("");
+    print(CYAN + "Scoring:" + RESET);
+    print("  1 line = 100 × level");
+    print("  2 lines = 300 × level");
+    print("  3 lines = 500 × level");
+    print("  4 lines (Tetris!) = 800 × level");
+    print("");
+
+    if (is_terminal()) {
+        raw_mode = enable_raw_mode();
+    }
+
+    if (!raw_mode) {
+        print(RED + "Error: Raw terminal mode required for Tetris." + RESET);
+        print("Please run in an interactive terminal.");
+        return;
+    }
+
+    print(GREEN + "Press any key to start..." + RESET);
+    read_key();
+
+    init_game();
+
+    print(CLEAR_SCREEN);
+    print(HIDE_CURSOR);
+
+    let quit = false;
+    let last_tick = time_ms();
+
+    while (!quit) {
+        render();
+
+        // Game tick (gravity)
+        let now = time_ms();
+        if (now - last_tick >= tick_speed) {
+            game_tick();
+            last_tick = now;
+        }
+
+        // Input (non-blocking)
+        let key = read_key_timeout(30);
+        if (key.code != 0) {
+            quit = handle_key(key);
+        }
+    }
+
+    // Cleanup
+    disable_raw_mode();
+    print(SHOW_CURSOR);
+    print(CLEAR_SCREEN);
+    print(CYAN + "Thanks for playing Tetris!" + RESET);
+    print("Final score: " + BOLD + score + RESET);
+    print("Level: " + BOLD + level + RESET);
+    print("Lines cleared: " + BOLD + lines_cleared + RESET);
+}
+
+main();
