@@ -46,8 +46,9 @@ if (_is_linux) {
 extern fn tcgetattr(fd: i32, termios_p: ptr): i32;
 extern fn tcsetattr(fd: i32, optional_actions: i32, termios_p: ptr): i32;
 extern fn read(fd: i32, buf: ptr, count: i64): i64;
-extern fn fcntl(fd: i32, cmd: i32, arg: i32): i32;
 extern fn isatty(fd: i32): i32;
+// Note: fcntl() is variadic in C and crashes on arm64 macOS through FFI.
+// We use VMIN/VTIME termios settings for non-blocking reads instead.
 
 // ========== CONSTANTS ==========
 
@@ -59,23 +60,19 @@ let TCSANOW = 0;      // Changes occur immediately
 let TCSADRAIN = 1;    // Changes after output is transmitted
 let TCSAFLUSH = 2;    // Changes after output transmitted, discard pending input
 
-// Local mode flags (c_lflag) - POSIX standard values
-let ECHO   = 0x0008;    // Echo input characters
-let ICANON = 0x0002;    // Canonical mode (line buffering)
-let ISIG   = 0x0001;    // Enable signals (INTR, QUIT, SUSP)
-let IEXTEN = 0x8000;    // Extended input processing
+// Local mode flags (c_lflag) - platform-specific values
+// Linux and macOS use DIFFERENT bit positions for these flags!
+let ECHO   = 0x0008;                           // Echo input characters (same on both)
+let ICANON = _is_linux ? 0x0002 : 0x0100;      // Canonical mode (line buffering)
+let ISIG   = _is_linux ? 0x0001 : 0x0080;      // Enable signals (INTR, QUIT, SUSP)
+let IEXTEN = _is_linux ? 0x8000 : 0x0400;      // Extended input processing
 
 // Input mode flags (c_iflag)
-let ICRNL  = 0x0100;    // Map CR to NL
-let IXON   = 0x0400;    // Enable XON/XOFF flow control
+let ICRNL  = 0x0100;                           // Map CR to NL (same on both)
+let IXON   = _is_linux ? 0x0400 : 0x0200;      // Enable XON/XOFF flow control
 
 // Output mode flags (c_oflag)
-let OPOST  = 0x0001;    // Post-process output
-
-// fcntl commands
-let F_GETFL = 3;
-let F_SETFL = 4;
-let O_NONBLOCK = 2048;  // Linux value; macOS is 0x0004 but we handle this
+let OPOST  = 0x0001;    // Post-process output (same on both)
 
 // termios struct layout differs by platform
 // Linux x86_64:  c_iflag(4), c_oflag(4), c_cflag(4), c_lflag(4), c_line(1), c_cc[32], padding = ~60 bytes
@@ -86,8 +83,12 @@ let _LFLAG_OFFSET = _is_linux ? 12 : 24;  // Offset to c_lflag field
 let _IFLAG_OFFSET = 0;
 let _OFLAG_OFFSET = _is_linux ? 4 : 8;
 
-// Platform-specific O_NONBLOCK
-let _O_NONBLOCK = _is_linux ? 2048 : 4;
+// c_cc array offset and VMIN/VTIME indices (used for non-blocking reads)
+// Linux: c_cc starts after c_lflag(4) + c_line(1) = offset 17, VMIN=6, VTIME=5
+// macOS: c_cc starts after c_lflag(8) = offset 32, VMIN=16, VTIME=17
+let _CC_OFFSET  = _is_linux ? 17 : 32;
+let _VMIN_IDX   = _is_linux ? 6 : 16;
+let _VTIME_IDX  = _is_linux ? 5 : 17;
 
 // ========== SPECIAL KEY CODES ==========
 
@@ -133,7 +134,7 @@ export let KEY_CTRL_Z    = 26;
 let _original_termios = ptr_null();  // Saved terminal state
 let _raw_termios = ptr_null();       // Raw mode state
 let _is_raw_mode = false;            // Current mode flag
-let _original_flags = 0;             // Original fcntl flags
+// (_original_flags removed - no longer using fcntl)
 
 // ========== TERMINAL DETECTION ==========
 
@@ -175,24 +176,39 @@ export fn enable_raw_mode(): bool {
     memcpy(_raw_termios, _original_termios, _TERMIOS_SIZE);
 
     // Modify c_lflag: disable ECHO, ICANON, ISIG, IEXTEN
-    let lflag = ptr_read_i32(_raw_termios + _LFLAG_OFFSET);
-    lflag = lflag & ~ECHO;
-    lflag = lflag & ~ICANON;
-    lflag = lflag & ~IEXTEN;
-    // Keep ISIG to allow Ctrl+C to work
-    ptr_write_i32(_raw_termios + _LFLAG_OFFSET, lflag);
+    // macOS uses 8-byte tcflag_t, Linux uses 4-byte
+    if (_is_macos) {
+        let lflag = ptr_read_i64(_raw_termios + _LFLAG_OFFSET);
+        lflag = lflag & ~ECHO;
+        lflag = lflag & ~ICANON;
+        lflag = lflag & ~IEXTEN;
+        // Keep ISIG to allow Ctrl+C to work
+        ptr_write_i64(_raw_termios + _LFLAG_OFFSET, lflag);
 
-    // Modify c_iflag: disable ICRNL, IXON
-    let iflag = ptr_read_i32(_raw_termios + _IFLAG_OFFSET);
-    iflag = iflag & ~ICRNL;
-    iflag = iflag & ~IXON;
-    ptr_write_i32(_raw_termios + _IFLAG_OFFSET, iflag);
+        // Modify c_iflag: disable ICRNL, IXON
+        let iflag = ptr_read_i64(_raw_termios + _IFLAG_OFFSET);
+        iflag = iflag & ~ICRNL;
+        iflag = iflag & ~IXON;
+        ptr_write_i64(_raw_termios + _IFLAG_OFFSET, iflag);
+    } else {
+        let lflag = ptr_read_i32(_raw_termios + _LFLAG_OFFSET);
+        lflag = lflag & ~ECHO;
+        lflag = lflag & ~ICANON;
+        lflag = lflag & ~IEXTEN;
+        // Keep ISIG to allow Ctrl+C to work
+        ptr_write_i32(_raw_termios + _LFLAG_OFFSET, lflag);
 
-    // Modify c_oflag: disable OPOST (for raw output)
-    // Actually, keep OPOST for now to preserve newline handling
-    // let oflag = ptr_read_i32(_raw_termios + _OFLAG_OFFSET);
-    // oflag = oflag & ~OPOST;
-    // ptr_write_i32(_raw_termios + _OFLAG_OFFSET, oflag);
+        // Modify c_iflag: disable ICRNL, IXON
+        let iflag = ptr_read_i32(_raw_termios + _IFLAG_OFFSET);
+        iflag = iflag & ~ICRNL;
+        iflag = iflag & ~IXON;
+        ptr_write_i32(_raw_termios + _IFLAG_OFFSET, iflag);
+    }
+
+    // Set VMIN=1 (wait for at least 1 byte) and VTIME=0 (no timeout) for blocking reads
+    // This is the standard raw mode configuration; we toggle VMIN for non-blocking reads
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
 
     // Apply raw settings
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, _raw_termios) != 0) {
@@ -248,19 +264,20 @@ fn read_byte(): i32 {
 }
 
 // Try to read a byte with very short timeout (for escape sequences)
-// Uses non-blocking read
+// Uses VMIN=0/VTIME=1 to avoid variadic fcntl() which crashes on arm64 macOS
 fn read_byte_nowait(): i32 {
-    // Get current flags
-    let flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-
-    // Set non-blocking
-    fcntl(STDIN_FILENO, F_SETFL, flags | _O_NONBLOCK);
+    // Temporarily set non-blocking: VMIN=0, VTIME=1 (0.1s timeout)
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 0);
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 1);
+    tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
 
     // Try to read
     let result = read_byte();
 
-    // Restore original flags
-    fcntl(STDIN_FILENO, F_SETFL, flags);
+    // Restore blocking mode: VMIN=1, VTIME=0
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+    tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
 
     return result;
 }
@@ -394,14 +411,16 @@ export fn read_key(): object {
 
 // Read a key with timeout (milliseconds)
 // Returns { char: null, code: KEY_NONE, name: "Timeout" } if timeout expires
+// Uses VMIN/VTIME termios settings instead of fcntl (avoids variadic function issues on arm64)
 export fn read_key_timeout(timeout_ms: i32): object {
     import { time_ms, sleep } from "@stdlib/time";
 
     let start = time_ms();
-    let flags = fcntl(STDIN_FILENO, F_GETFL, 0);
 
-    // Set non-blocking
-    fcntl(STDIN_FILENO, F_SETFL, flags | _O_NONBLOCK);
+    // Set non-blocking: VMIN=0, VTIME=0 (return immediately if no data)
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 0);
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+    tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
 
     let result = { char: null, code: KEY_NONE, name: "Timeout" };
 
@@ -409,7 +428,9 @@ export fn read_key_timeout(timeout_ms: i32): object {
         let byte1 = read_byte();
         if (byte1 != -1) {
             // Restore blocking mode for escape sequence parsing
-            fcntl(STDIN_FILENO, F_SETFL, flags);
+            ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
+            ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+            tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
 
             // Re-process the byte
             if (byte1 == 27) {
@@ -422,13 +443,15 @@ export fn read_key_timeout(timeout_ms: i32): object {
             } else {
                 result = { char: null, code: byte1, name: "Key:" + byte1 };
             }
-            break;
+            return result;
         }
-        sleep(10);  // Sleep 10ms between polls
+        sleep(0.01);  // Sleep 10ms between polls
     }
 
-    // Restore original flags
-    fcntl(STDIN_FILENO, F_SETFL, flags);
+    // Restore blocking mode: VMIN=1, VTIME=0
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
+    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+    tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
 
     return result;
 }

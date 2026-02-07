@@ -1,0 +1,358 @@
+// Snake - Classic snake game
+// Eat food to grow, don't hit walls or yourself!
+//
+// Controls:
+//   Arrow keys / WASD: Change direction
+//   P: Pause/unpause
+//   Q: Quit
+//
+// Demonstrates: game loop, 2D grid, linked-list-like movement,
+//   raw terminal input, collision detection, random placement
+
+import { sleep, time_ms } from "@stdlib/time";
+import {
+    GREEN, RED, YELLOW, CYAN, WHITE, MAGENTA, RESET,
+    BOLD, DIM, BG_RED, BG_GREEN,
+    CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR,
+    move_to
+} from "@stdlib/terminal";
+import {
+    enable_raw_mode, disable_raw_mode, is_terminal,
+    read_key, read_key_timeout,
+    KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT
+} from "@stdlib/termios";
+import { randint } from "@stdlib/random";
+
+// === CONSTANTS ===
+
+let BOARD_WIDTH = 30;
+let BOARD_HEIGHT = 20;
+let INITIAL_LENGTH = 3;
+let TICK_MS = 150;          // Base speed (ms per tick)
+let SPEED_INCREASE = 5;     // ms faster per food eaten
+
+// Directions
+let DIR_UP = 0;
+let DIR_DOWN = 1;
+let DIR_LEFT = 2;
+let DIR_RIGHT = 3;
+
+// === GAME STATE ===
+
+let snake = [];             // Array of {x, y} segments (head is index 0)
+let dir = DIR_RIGHT;        // Current direction
+let next_dir = DIR_RIGHT;   // Buffered next direction (prevents 180 turns)
+let food_x = 0;
+let food_y = 0;
+let score = 0;
+let high_score = 0;
+let game_over = false;
+let paused = false;
+let tick_speed = TICK_MS;
+let raw_mode = false;
+
+// === INITIALIZATION ===
+
+fn init_game() {
+    snake = [];
+    let start_x = divi(BOARD_WIDTH, 2);
+    let start_y = divi(BOARD_HEIGHT, 2);
+
+    // Create initial snake (head first)
+    for (let i = 0; i < INITIAL_LENGTH; i++) {
+        snake.push({ x: start_x - i, y: start_y });
+    }
+
+    dir = DIR_RIGHT;
+    next_dir = DIR_RIGHT;
+    score = 0;
+    game_over = false;
+    paused = false;
+    tick_speed = TICK_MS;
+
+    place_food();
+}
+
+fn place_food() {
+    // Place food at random position not occupied by snake
+    loop {
+        food_x = randint(0, BOARD_WIDTH - 1);
+        food_y = randint(0, BOARD_HEIGHT - 1);
+
+        let on_snake = false;
+        for (seg in snake) {
+            if (seg.x == food_x && seg.y == food_y) {
+                on_snake = true;
+                break;
+            }
+        }
+        if (!on_snake) { break; }
+    }
+}
+
+// === GAME LOGIC ===
+
+fn update() {
+    if (paused || game_over) { return; }
+
+    // Apply buffered direction
+    dir = next_dir;
+
+    // Calculate new head position
+    let head = snake[0];
+    let new_x = head.x;
+    let new_y = head.y;
+
+    if (dir == DIR_UP) { new_y = new_y - 1; }
+    if (dir == DIR_DOWN) { new_y = new_y + 1; }
+    if (dir == DIR_LEFT) { new_x = new_x - 1; }
+    if (dir == DIR_RIGHT) { new_x = new_x + 1; }
+
+    // Check wall collision
+    if (new_x < 0 || new_x >= BOARD_WIDTH || new_y < 0 || new_y >= BOARD_HEIGHT) {
+        game_over = true;
+        if (score > high_score) { high_score = score; }
+        return;
+    }
+
+    // Check self collision (skip tail since it will move)
+    for (let i = 0; i < snake.length - 1; i++) {
+        if (snake[i].x == new_x && snake[i].y == new_y) {
+            game_over = true;
+            if (score > high_score) { high_score = score; }
+            return;
+        }
+    }
+
+    // Move snake: insert new head
+    snake.unshift({ x: new_x, y: new_y });
+
+    // Check food collision
+    if (new_x == food_x && new_y == food_y) {
+        score = score + 1;
+        // Speed up slightly
+        if (tick_speed > 50) {
+            tick_speed = tick_speed - SPEED_INCREASE;
+        }
+        place_food();
+        // Don't remove tail = snake grows
+    } else {
+        // Remove tail = snake moves
+        snake.pop();
+    }
+}
+
+// === RENDERING ===
+
+fn render() {
+    let output = "";
+    output = output + move_to(1, 1);
+
+    // Title
+    output = output + CYAN + BOLD;
+    output = output + "╔════════════════════════════════╗\n";
+    output = output + "║         SNAKE GAME             ║\n";
+    output = output + "╠════════════════════════════════╣\n";
+    output = output + RESET;
+
+    // Build a lookup set for snake positions
+    // We'll use a flat array as a grid for fast lookup
+    let grid = [];
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+        let row = [];
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            row.push(0);
+        }
+        grid.push(row);
+    }
+
+    // Mark snake on grid: 1=body, 2=head
+    for (let i = 0; i < snake.length; i++) {
+        let seg = snake[i];
+        if (i == 0) {
+            grid[seg.y][seg.x] = 2;  // head
+        } else {
+            grid[seg.y][seg.x] = 1;  // body
+        }
+    }
+
+    // Render board
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+        output = output + CYAN + "║" + RESET;
+
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            let cell = grid[y][x];
+
+            if (cell == 2) {
+                // Snake head
+                output = output + BG_GREEN + BOLD + "@" + RESET;
+            } else if (cell == 1) {
+                // Snake body
+                output = output + GREEN + "█" + RESET;
+            } else if (x == food_x && y == food_y) {
+                // Food
+                output = output + RED + BOLD + "●" + RESET;
+            } else {
+                // Empty space
+                output = output + DIM + "·" + RESET;
+            }
+        }
+
+        output = output + CYAN + "║\n" + RESET;
+    }
+
+    // Bottom border
+    output = output + CYAN;
+    output = output + "╠════════════════════════════════╣\n";
+    output = output + RESET;
+
+    // Status line
+    output = output + CYAN + "║ " + RESET;
+    output = output + YELLOW + "Score: " + RESET + BOLD + score + RESET;
+    output = output + "  " + MAGENTA + "Best: " + RESET + high_score;
+    output = output + "  " + WHITE + "Len: " + RESET + snake.length;
+
+    // Pad to fill the box
+    let status_len = 28;
+    let info = "" + score;
+    let padding = "";
+    for (let i = 0; i < 4; i++) {
+        padding = padding + " ";
+    }
+    output = output + padding;
+    output = output + CYAN + "║\n" + RESET;
+
+    // Game state indicator
+    output = output + CYAN + "║ " + RESET;
+    if (game_over) {
+        output = output + BG_RED + WHITE + BOLD + " GAME OVER " + RESET;
+        output = output + "  Press R to restart  ";
+    } else if (paused) {
+        output = output + YELLOW + BOLD + "  PAUSED" + RESET;
+        output = output + "  Press P to resume   ";
+    } else {
+        output = output + GREEN + "  Playing" + RESET;
+        output = output + "                      ";
+    }
+    output = output + CYAN + "║\n" + RESET;
+
+    // Controls
+    output = output + CYAN;
+    output = output + "╠════════════════════════════════╣\n";
+    output = output + "║ " + RESET + "Arrow/WASD: Move  P: Pause" + CYAN + "   ║\n";
+    output = output + "║ " + RESET + "R: Restart  Q: Quit" + CYAN + "          ║\n";
+    output = output + "╚════════════════════════════════╝\n";
+    output = output + RESET;
+
+    print(output);
+}
+
+// === INPUT HANDLING ===
+
+fn handle_key(key: object): bool {
+    // Arrow keys
+    if (key.code == KEY_UP) { set_direction(DIR_UP); return false; }
+    if (key.code == KEY_DOWN) { set_direction(DIR_DOWN); return false; }
+    if (key.code == KEY_LEFT) { set_direction(DIR_LEFT); return false; }
+    if (key.code == KEY_RIGHT) { set_direction(DIR_RIGHT); return false; }
+
+    // Character keys
+    if (key.char != null) {
+        let ch = key.char;
+
+        // WASD movement
+        if (ch == "w" || ch == "W") { set_direction(DIR_UP); }
+        if (ch == "s" || ch == "S") { set_direction(DIR_DOWN); }
+        if (ch == "a" || ch == "A") { set_direction(DIR_LEFT); }
+        if (ch == "d" || ch == "D") { set_direction(DIR_RIGHT); }
+
+        // Pause
+        if (ch == "p" || ch == "P") { paused = !paused; }
+
+        // Restart
+        if (ch == "r" || ch == "R") { init_game(); }
+
+        // Quit
+        if (ch == "q" || ch == "Q") { return true; }
+    }
+
+    return false;
+}
+
+fn set_direction(new_dir: i32) {
+    // Prevent 180-degree turns (can't reverse into yourself)
+    if (new_dir == DIR_UP && dir == DIR_DOWN) { return; }
+    if (new_dir == DIR_DOWN && dir == DIR_UP) { return; }
+    if (new_dir == DIR_LEFT && dir == DIR_RIGHT) { return; }
+    if (new_dir == DIR_RIGHT && dir == DIR_LEFT) { return; }
+
+    next_dir = new_dir;
+}
+
+// === MAIN ===
+
+fn main() {
+    print(GREEN + BOLD + "═══════════════════════════════" + RESET);
+    print(GREEN + BOLD + "        SNAKE GAME" + RESET);
+    print(GREEN + BOLD + "═══════════════════════════════" + RESET);
+    print("");
+    print("Eat the " + RED + "●" + RESET + " food to grow!");
+    print("Don't hit the walls or yourself.");
+    print("");
+    print(YELLOW + "Controls:" + RESET);
+    print("  Arrow keys / WASD  - Change direction");
+    print("  P                  - Pause/unpause");
+    print("  R                  - Restart");
+    print("  Q                  - Quit");
+    print("");
+
+    if (is_terminal()) {
+        raw_mode = enable_raw_mode();
+    }
+
+    if (!raw_mode) {
+        print(RED + "Error: Raw terminal mode required for Snake." + RESET);
+        print("Please run in an interactive terminal.");
+        return;
+    }
+
+    print(GREEN + "Press any key to start..." + RESET);
+    read_key();
+
+    init_game();
+
+    print(CLEAR_SCREEN);
+    print(HIDE_CURSOR);
+
+    let quit = false;
+    let last_update = time_ms();
+
+    while (!quit) {
+        render();
+
+        // Game tick
+        let now = time_ms();
+        if (now - last_update >= tick_speed) {
+            update();
+            last_update = now;
+        }
+
+        // Input (non-blocking with timeout)
+        let key = read_key_timeout(30);
+        if (key.code != 0) {
+            quit = handle_key(key);
+        }
+    }
+
+    // Cleanup
+    disable_raw_mode();
+    print(SHOW_CURSOR);
+    print(CLEAR_SCREEN);
+    print(GREEN + "Thanks for playing Snake!" + RESET);
+    print("Final score: " + BOLD + score + RESET);
+    if (high_score > 0) {
+        print("High score: " + BOLD + high_score + RESET);
+    }
+}
+
+main();
