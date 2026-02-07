@@ -59,15 +59,15 @@ let TCSANOW = 0;      // Changes occur immediately
 let TCSADRAIN = 1;    // Changes after output is transmitted
 let TCSAFLUSH = 2;    // Changes after output transmitted, discard pending input
 
-// Local mode flags (c_lflag) - POSIX standard values
-let ECHO   = 0x0008;    // Echo input characters
-let ICANON = 0x0002;    // Canonical mode (line buffering)
-let ISIG   = 0x0001;    // Enable signals (INTR, QUIT, SUSP)
-let IEXTEN = 0x8000;    // Extended input processing
+// Local mode flags (c_lflag) - Platform-specific values
+let ECHO   = _is_linux ? 0x0008 : 0x0008;    // Echo input characters (same on both)
+let ICANON = _is_linux ? 0x0002 : 0x0100;    // Canonical mode (line buffering)
+let ISIG   = _is_linux ? 0x0001 : 0x0080;    // Enable signals (INTR, QUIT, SUSP)
+let IEXTEN = _is_linux ? 0x8000 : 0x0400;    // Extended input processing
 
 // Input mode flags (c_iflag)
-let ICRNL  = 0x0100;    // Map CR to NL
-let IXON   = 0x0400;    // Enable XON/XOFF flow control
+let ICRNL  = _is_linux ? 0x0100 : 0x0100;    // Map CR to NL (same on both)
+let IXON   = _is_linux ? 0x0400 : 0x0200;    // Enable XON/XOFF flow control
 
 // Output mode flags (c_oflag)
 let OPOST  = 0x0001;    // Post-process output
@@ -79,9 +79,9 @@ let O_NONBLOCK = 2048;  // Linux value; macOS is 0x0004 but we handle this
 
 // termios struct layout differs by platform
 // Linux x86_64:  c_iflag(4), c_oflag(4), c_cflag(4), c_lflag(4), c_line(1), c_cc[32], padding = ~60 bytes
-// macOS arm64:   c_iflag(8), c_oflag(8), c_cflag(8), c_lflag(8), c_cc[20], c_ispeed(8), c_ospeed(8) = ~80 bytes
+// macOS arm64:   c_iflag(8), c_oflag(8), c_cflag(8), c_lflag(8), c_cc[20], c_ispeed(8), c_ospeed(8) = 72 bytes
 
-let _TERMIOS_SIZE = _is_linux ? 60 : 80;
+let _TERMIOS_SIZE = _is_linux ? 60 : 72;
 let _LFLAG_OFFSET = _is_linux ? 12 : 24;  // Offset to c_lflag field
 let _IFLAG_OFFSET = 0;
 let _OFLAG_OFFSET = _is_linux ? 4 : 8;
@@ -175,18 +175,34 @@ export fn enable_raw_mode(): bool {
     memcpy(_raw_termios, _original_termios, _TERMIOS_SIZE);
 
     // Modify c_lflag: disable ECHO, ICANON, ISIG, IEXTEN
-    let lflag = ptr_read_i32(_raw_termios + _LFLAG_OFFSET);
-    lflag = lflag & ~ECHO;
-    lflag = lflag & ~ICANON;
-    lflag = lflag & ~IEXTEN;
-    // Keep ISIG to allow Ctrl+C to work
-    ptr_write_i32(_raw_termios + _LFLAG_OFFSET, lflag);
+    // macOS uses 8-byte tcflag_t, Linux uses 4-byte
+    if (_is_macos) {
+        let lflag = ptr_read_i64(_raw_termios + _LFLAG_OFFSET);
+        lflag = lflag & ~ECHO;
+        lflag = lflag & ~ICANON;
+        lflag = lflag & ~IEXTEN;
+        // Keep ISIG to allow Ctrl+C to work
+        ptr_write_i64(_raw_termios + _LFLAG_OFFSET, lflag);
 
-    // Modify c_iflag: disable ICRNL, IXON
-    let iflag = ptr_read_i32(_raw_termios + _IFLAG_OFFSET);
-    iflag = iflag & ~ICRNL;
-    iflag = iflag & ~IXON;
-    ptr_write_i32(_raw_termios + _IFLAG_OFFSET, iflag);
+        // Modify c_iflag: disable ICRNL, IXON
+        let iflag = ptr_read_i64(_raw_termios + _IFLAG_OFFSET);
+        iflag = iflag & ~ICRNL;
+        iflag = iflag & ~IXON;
+        ptr_write_i64(_raw_termios + _IFLAG_OFFSET, iflag);
+    } else {
+        let lflag = ptr_read_i32(_raw_termios + _LFLAG_OFFSET);
+        lflag = lflag & ~ECHO;
+        lflag = lflag & ~ICANON;
+        lflag = lflag & ~IEXTEN;
+        // Keep ISIG to allow Ctrl+C to work
+        ptr_write_i32(_raw_termios + _LFLAG_OFFSET, lflag);
+
+        // Modify c_iflag: disable ICRNL, IXON
+        let iflag = ptr_read_i32(_raw_termios + _IFLAG_OFFSET);
+        iflag = iflag & ~ICRNL;
+        iflag = iflag & ~IXON;
+        ptr_write_i32(_raw_termios + _IFLAG_OFFSET, iflag);
+    }
 
     // Modify c_oflag: disable OPOST (for raw output)
     // Actually, keep OPOST for now to preserve newline handling
