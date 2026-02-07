@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <time.h>
 #include <limits.h>
+#include <inttypes.h>
 #include <ffi.h>
 
 // ========== WINDOWS COMPATIBILITY ==========

@@ -43,6 +43,13 @@ else
     PLATFORM = linux
 endif
 
+# OpenSSL is required for crypto builtins (SHA256, SHA512, MD5, ECDSA)
+# On macOS, -L path is set above; on Linux, system paths suffice
+# On Windows, OpenSSL is linked via LDFLAGS above
+ifneq ($(PLATFORM),windows)
+    LDFLAGS += -lssl -lcrypto
+endif
+
 # Check if zlib is available (both header AND library must exist) - skip on Windows for now
 ifneq ($(PLATFORM),windows)
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)
@@ -63,7 +70,7 @@ else
     LWS_HEADER_CHECK := $(shell test -f /usr/include/libwebsockets.h && echo yes)
     ifeq ($(LWS_HEADER_CHECK),yes)
         CFLAGS += -DHML_HAVE_LIBWEBSOCKETS
-        LDFLAGS += -lwebsockets -lssl -lcrypto
+        LDFLAGS += -lwebsockets
     endif
 endif
 endif
@@ -81,7 +88,11 @@ SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/shared_%.o,$(SHARED_SRCS
 
 # Library targets
 STATIC_LIB = libhemlock_runtime.a
-SHARED_LIB = libhemlock_runtime.so
+ifeq ($(shell uname),Darwin)
+    SHARED_LIB = libhemlock_runtime.dylib
+else
+    SHARED_LIB = libhemlock_runtime.so
+endif
 
 .PHONY: all clean static shared
 

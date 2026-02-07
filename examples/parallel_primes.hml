@@ -117,7 +117,7 @@ fn main() {
 	print(MAGENTA + BOLD + "============================================" + RESET);
 	print("");
 
-	if (seq_time > 0) {
+	if (seq_time > 0 && parallel_time > 0) {
 		let speedup = seq_time / parallel_time;
 		print(GREEN + "Speedup: " + speedup + "x faster with " + num_workers + " workers" + RESET);
 	}

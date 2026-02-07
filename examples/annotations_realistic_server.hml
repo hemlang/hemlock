@@ -98,21 +98,21 @@ fn check_error_condition(response: object): bool {
 	return response.status >= 400;
 }
 
-fn handle_error(response: object): void {
+fn handle_error(response: object) {
 	eprint("[ERROR] Request failed");
-	eprint("  Method:", response.method);
-	eprint("  Path:", response.path);
-	eprint("  Status:", response.status);
-	eprint("  Handler:", response.handler);
+	eprint(`  Method: ${response.method}`);
+	eprint(`  Path: ${response.path}`);
+	eprint(`  Status: ${response.status}`);
+	eprint(`  Handler: ${response.handler}`);
 }
 
 // In real server: log to file, notify monitoring, etc.
 
-fn handle_panic(message: string): void {
+fn handle_panic(message: string) {
 	eprint("=================================");
 	eprint("CRITICAL ERROR: Server Panic");
 	eprint("=================================");
-	eprint("Message:", message);
+	eprint(`Message: ${message}`);
 	eprint("Stack trace: [not implemented]");
 	eprint("=================================");
 	panic(message);
@@ -190,10 +190,10 @@ print("");
 // 3. Metrics (normal path)
 print("=== Server Metrics ===");
 let metrics = record_metrics(responses);
-print("Total Requests:", metrics.total_requests);
-print("Avg Response Time:", metrics.avg_response_time, "ms");
-print("Error Count:", metrics.error_count);
-print("Error Rate:", metrics.error_rate, "%");
+print(`Total Requests: ${metrics.total_requests}`);
+print(`Avg Response Time: ${metrics.avg_response_time}ms`);
+print(`Error Count: ${metrics.error_count}`);
+print(`Error Rate: ${metrics.error_rate}%`);
 print("");
 
 // 4. Performance test (hot path)
@@ -205,8 +205,8 @@ for (let i = 0; i < iterations; i++) {
 }
 let elapsed = time_ms() - start;
 let rps = iterations * 1000 / elapsed;
-print("Processed", iterations, "requests in", elapsed, "ms");
-print("Throughput:", rps, "requests/second");
+print(`Processed ${iterations} requests in ${elapsed}ms`);
+print(`Throughput: ${rps} requests/second`);
 print("");
 
 print("=== Annotation Strategy Used ===");

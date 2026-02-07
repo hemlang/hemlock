@@ -101,9 +101,11 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
             // Check if this is an unboxable typed variable
             // IMPORTANT: Skip main-level variables - they're pre-declared as HmlValue
             // and can change type at runtime (Hemlock is dynamically typed)
+            // IMPORTANT: Skip shadow variables (inlined params) - they are HmlValue
             if (ctx->optimize && ctx->type_ctx &&
                 !codegen_is_func_param(ctx, expr->as.ident.name) &&
-                !codegen_is_main_var(ctx, expr->as.ident.name)) {
+                !codegen_is_main_var(ctx, expr->as.ident.name) &&
+                !codegen_is_shadow(ctx, expr->as.ident.name)) {
                 CheckedTypeKind native_type = type_check_get_unboxable(
                     ctx->type_ctx, expr->as.ident.name);
                 switch (native_type) {
@@ -265,7 +267,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 if (expr->as.number.int_value >= INT32_MIN && expr->as.number.int_value <= INT32_MAX) {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)expr->as.number.int_value);
                 } else {
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, expr->as.number.int_value);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, expr->as.number.int_value);
                 }
             }
             break;
@@ -602,7 +604,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     } else if (const_result >= INT32_MIN && const_result <= INT32_MAX) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)const_result);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, const_result);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, const_result);
                     }
                     break;
                 }
@@ -900,7 +902,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (val >= INT32_MIN && val <= INT32_MAX) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)val);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%ldL);", result, val);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, val);
                     }
                     break;
                 }

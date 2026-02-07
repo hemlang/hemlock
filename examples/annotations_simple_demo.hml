@@ -16,13 +16,13 @@ let sum = 0;
 for (let i = 0; i < 1000; i++) {
 	sum = sum + fast_compute(i);
 }
-print("   Computed sum:", sum, "in", time_ms() - start, "ms");
+print(`   Computed sum: ${sum} in ${time_ms() - start}ms`);
 print("   (Inlined into loop, optimized for hot path)\n");
 
 // ============ 2. @cold and @noinline ============
 
-fn error_handler(code: i32, msg: string): void {
-	eprint("[ERROR", code, "]", msg);
+fn error_handler(code: i32, msg: string) {
+	eprint(`[ERROR ${code}] ${msg}`);
 	eprint("This function is rarely called");
 }
 
@@ -45,9 +45,9 @@ fn scale(x: i32): i32 {
 }
 
 print("3. @const and @pure - Pure functions");
-print("   square(7) =", square(7), "(no side effects)");
-print("   add(10, 20) =", add(10, 20), "(no side effects)");
-print("   scale(5) =", scale(5), "(reads global:", global_factor, ")\n");
+print(`   square(7) = ${square(7)} (no side effects)`);
+print(`   add(10, 20) = ${add(10, 20)} (no side effects)`);
+print(`   scale(5) = ${scale(5)} (reads global: ${global_factor})\n`);
 
 // ============ 4. @optimize(level) ============
 
@@ -68,9 +68,9 @@ fn no_optimize(x: i32): i32 {
 }
 
 print("4. @optimize(level) - Per-function optimization");
-print("   @optimize(\"3\"):", aggressive_optimize(100));
-print("   @optimize(\"s\"):", size_optimize());
-print("   @optimize(\"0\"):", no_optimize(42), "\n");
+print(`   @optimize("3"): ${aggressive_optimize(100)}`);
+print(`   @optimize("s"): ${size_optimize()}`);
+print(`   @optimize("0"): ${no_optimize(42)}\n`);
 
 // ============ 5. @flatten ============
 
@@ -86,7 +86,7 @@ fn pipeline(n: i32): i32 {
 }
 
 print("5. @flatten - Inline all calls");
-print("   pipeline(10) =", pipeline(10));
+print(`   pipeline(10) = ${pipeline(10)}`);
 print("   (helper_a and helper_b both inlined)\n");
 
 // ============ 6. @section ============
@@ -94,12 +94,12 @@ print("   (helper_a and helper_b both inlined)\n");
 fn critical_path(x: i32): i32 {
 	return x * x;
 }
-fn rare_path(): void {
+fn rare_path() {
 	print("   Rarely executed code");
 }
 
 print("6. @section - Custom ELF sections");
-print("   critical_path(8) =", critical_path(8), "(in .text.hot)");
+print(`   critical_path(8) = ${critical_path(8)} (in .text.hot)`);
 rare_path();
 print("   (Improves cache locality)\n");
 
@@ -111,7 +111,7 @@ fn must_check(x: i32): bool {
 
 print("7. @warn_unused - Enforce error checking");
 let checked = must_check(42);
-print("   Result checked:", checked);
+print(`   Result checked: ${checked}`);
 print("   (Compiler warns if return value ignored)\n");
 
 // ============ Summary ============

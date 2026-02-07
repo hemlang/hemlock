@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <limits.h>
+#include <inttypes.h>
 
 // ========== WINDOWS COMPATIBILITY ==========
 #ifdef HML_WINDOWS

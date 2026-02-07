@@ -1,0 +1,11 @@
+// Test: open() throws catchable exception on missing file
+let caught = false;
+let msg = "";
+try {
+    let f = open("/tmp/nonexistent_file_hemlock_test_12345.txt", "r");
+} catch (e) {
+    caught = true;
+    msg = e;
+}
+print(caught);
+print(msg.starts_with("Failed to open"));

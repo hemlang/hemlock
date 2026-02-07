@@ -209,7 +209,7 @@ HmlValue hml_to_string(HmlValue val) {
             snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
             break;
         case HML_VAL_I64:
-            snprintf(buffer, sizeof(buffer), "%ld", val.as.as_i64);
+            snprintf(buffer, sizeof(buffer), "%" PRId64, val.as.as_i64);
             break;
         case HML_VAL_U8:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
@@ -221,7 +221,7 @@ HmlValue hml_to_string(HmlValue val) {
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
             break;
         case HML_VAL_U64:
-            snprintf(buffer, sizeof(buffer), "%lu", val.as.as_u64);
+            snprintf(buffer, sizeof(buffer), "%" PRIu64, val.as.as_u64);
             break;
         case HML_VAL_F32:
             snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);

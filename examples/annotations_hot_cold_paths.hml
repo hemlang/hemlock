@@ -4,7 +4,7 @@ import { time_ms } from "@stdlib/time";
 
 // Critical initialization - runs once at startup
 // Place in special startup section for better locality
-fn initialize_system(): void {
+fn initialize_system() {
 	print("System initialized");
 }
 
@@ -25,17 +25,17 @@ fn normal_operation(n: i32): i32 {
 
 // Cold path: error handling, rarely executed
 // Optimize for size, not speed
-fn handle_error(code: i32, message: string): void {
-	eprint("ERROR [", code, "]: ", message);
+fn handle_error(code: i32, message: string) {
+	eprint(`ERROR [${code}]: ${message}`);
 	eprint("Stack trace would go here...");
 	eprint("Diagnostic information...");
 	eprint("Recovery suggestions...");
 }
 
 // Cold path: assertion failure handler
-fn assertion_failed(condition: string, file: string, line: i32): void {
+fn assertion_failed(condition: string, file: string, line: i32) {
 	handle_error(1, "Assertion failed: " + condition);
-	eprint("  at ", file, ":", line);
+	eprint(`  at ${file}:${line}`);
 	panic("Assertion failure");
 }
 
@@ -65,14 +65,14 @@ for (let i = 0; i < iterations; i++) {
 let elapsed = time_ms() - start;
 
 print("Hot path computation:");
-print("  Iterations:", iterations);
-print("  Time:", elapsed, "ms");
-print("  Result:", sum);
+print(`  Iterations: ${iterations}`);
+print(`  Time: ${elapsed}ms`);
+print(`  Result: ${sum}`);
 print("");
 
 // Normal path
 let normal_result = normal_operation(100);
-print("Normal operation result:", normal_result);
+print(`Normal operation result: ${normal_result}`);
 print("");
 
 // Demonstrate cold path (error handling)
@@ -82,8 +82,8 @@ print("");
 
 // Demonstrate validation (hot path with cold error case)
 print("Validation tests:");
-print("  Valid range:", validate_range(50, 0, 100));
-print("  Invalid range:", validate_range(150, 0, 100));
+print(`  Valid range: ${validate_range(50, 0, 100)}`);
+print(`  Invalid range: ${validate_range(150, 0, 100)}`);
 
 print("\n=== Code Organization ===");
 print("@section(\".text.startup\"): initialize_system()");

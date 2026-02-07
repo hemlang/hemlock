@@ -424,7 +424,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         case EXPR_TERNARY: {
             Value condition = eval_expr(expr->as.ternary.condition, env, ctx);
-            Value result = {0};
+            Value result;
             if (value_is_truthy(condition)) {
                 result = eval_expr(expr->as.ternary.true_expr, env, ctx);
             } else {
@@ -1507,7 +1507,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             Value object = eval_expr(expr->as.index.object, env, ctx);
             Value index_val = eval_expr(expr->as.index.index, env, ctx);
-            Value result = {0};
+            Value result;
 
             // Restore line for any errors in this expression
             ctx->current_line = saved_line;
@@ -2782,7 +2782,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.optional_chain.is_property) {
                 // Optional property access: obj?.property
                 const char *property = expr->as.optional_chain.property;
-                Value result = {0};
+                Value result;
 
                 // Handle property access for different types (similar to EXPR_GET_PROPERTY)
                 if (object_val.type == VAL_STRING) {
@@ -2905,7 +2905,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
                 }
 
-                Value result = {0};
+                Value result;
                 if (object_val.type == VAL_FUNCTION) {
                     Function *fn = object_val.as.as_function;
 
@@ -2966,7 +2966,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 int32_t index = value_to_int(index_val);
-                Value result = {0};
+                Value result;
 
                 if (object_val.type == VAL_ARRAY) {
                     result = array_get(object_val.as.as_array, index, ctx);

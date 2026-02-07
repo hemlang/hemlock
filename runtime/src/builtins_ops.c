@@ -81,10 +81,6 @@ HmlValue hml_sizeof(HmlValue type_name) {
  * These wrapper functions convert between HmlValueType and HmlTypeKind,
  * use the shared implementation, then convert back.
  */
-static inline int type_priority(HmlValueType type) {
-    return hml_tk_priority(hml_val_to_tk(type));
-}
-
 static inline HmlValueType promote_types(HmlValueType a, HmlValueType b) {
     HmlTypeKind result = hml_tk_promote(hml_val_to_tk(a), hml_val_to_tk(b));
     return hml_tk_to_val(result);
