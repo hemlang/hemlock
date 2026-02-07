@@ -23,6 +23,8 @@
 
 import { platform } from "@stdlib/os";
 
+import { time_ms, sleep } from "@stdlib/time";
+
 // ========== PLATFORM DETECTION ==========
 
 let _platform = platform();
@@ -176,9 +178,10 @@ export fn enable_raw_mode(): bool {
     memcpy(_raw_termios, _original_termios, _TERMIOS_SIZE);
 
     // Modify c_lflag: disable ECHO, ICANON, ISIG, IEXTEN
-    // macOS uses 8-byte tcflag_t, Linux uses 4-byte
+    // macOS uses 8-byte tcflag_t (unsigned long), Linux uses 4-byte (unsigned int)
+    // Use ptr_deref_* for direct struct field access (single dereference)
     if (_is_macos) {
-        let lflag = ptr_read_i64(_raw_termios + _LFLAG_OFFSET);
+        let lflag = ptr_deref_i64(_raw_termios + _LFLAG_OFFSET);
         lflag = lflag & ~ECHO;
         lflag = lflag & ~ICANON;
         lflag = lflag & ~IEXTEN;
@@ -186,12 +189,12 @@ export fn enable_raw_mode(): bool {
         ptr_write_i64(_raw_termios + _LFLAG_OFFSET, lflag);
 
         // Modify c_iflag: disable ICRNL, IXON
-        let iflag = ptr_read_i64(_raw_termios + _IFLAG_OFFSET);
+        let iflag = ptr_deref_i64(_raw_termios + _IFLAG_OFFSET);
         iflag = iflag & ~ICRNL;
         iflag = iflag & ~IXON;
         ptr_write_i64(_raw_termios + _IFLAG_OFFSET, iflag);
     } else {
-        let lflag = ptr_read_i32(_raw_termios + _LFLAG_OFFSET);
+        let lflag = ptr_deref_i32(_raw_termios + _LFLAG_OFFSET);
         lflag = lflag & ~ECHO;
         lflag = lflag & ~ICANON;
         lflag = lflag & ~IEXTEN;
@@ -199,7 +202,7 @@ export fn enable_raw_mode(): bool {
         ptr_write_i32(_raw_termios + _LFLAG_OFFSET, lflag);
 
         // Modify c_iflag: disable ICRNL, IXON
-        let iflag = ptr_read_i32(_raw_termios + _IFLAG_OFFSET);
+        let iflag = ptr_deref_i32(_raw_termios + _IFLAG_OFFSET);
         iflag = iflag & ~ICRNL;
         iflag = iflag & ~IXON;
         ptr_write_i32(_raw_termios + _IFLAG_OFFSET, iflag);
@@ -413,8 +416,6 @@ export fn read_key(): object {
 // Returns { char: null, code: KEY_NONE, name: "Timeout" } if timeout expires
 // Uses VMIN/VTIME termios settings instead of fcntl (avoids variadic function issues on arm64)
 export fn read_key_timeout(timeout_ms: i32): object {
-    import { time_ms, sleep } from "@stdlib/time";
-
     let start = time_ms();
 
     // Set non-blocking: VMIN=0, VTIME=0 (return immediately if no data)
