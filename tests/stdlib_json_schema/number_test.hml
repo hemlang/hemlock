@@ -1,0 +1,48 @@
+// Test @stdlib/json_schema - number constraints
+
+import { validate, is_valid } from "@stdlib/json_schema";
+
+// --- minimum ---
+let min_schema = { type: "number", minimum: 0 };
+assert(is_valid(0, min_schema) == true, "minimum: 0 is >= 0");
+assert(is_valid(10, min_schema) == true, "minimum: 10 is >= 0");
+assert(is_valid(-1, min_schema) == false, "minimum: -1 is not >= 0");
+
+// --- maximum ---
+let max_schema = { type: "number", maximum: 100 };
+assert(is_valid(100, max_schema) == true, "maximum: 100 is <= 100");
+assert(is_valid(50, max_schema) == true, "maximum: 50 is <= 100");
+assert(is_valid(101, max_schema) == false, "maximum: 101 is not <= 100");
+
+// --- range ---
+let range_schema = { type: "number", minimum: 1, maximum: 10 };
+assert(is_valid(1, range_schema) == true, "range: 1 in [1,10]");
+assert(is_valid(5, range_schema) == true, "range: 5 in [1,10]");
+assert(is_valid(10, range_schema) == true, "range: 10 in [1,10]");
+assert(is_valid(0, range_schema) == false, "range: 0 not in [1,10]");
+assert(is_valid(11, range_schema) == false, "range: 11 not in [1,10]");
+
+// --- exclusiveMinimum ---
+let emin_schema = { type: "number", exclusiveMinimum: 0 };
+assert(is_valid(1, emin_schema) == true, "exclusiveMinimum: 1 > 0");
+assert(is_valid(0, emin_schema) == false, "exclusiveMinimum: 0 is not > 0");
+assert(is_valid(-1, emin_schema) == false, "exclusiveMinimum: -1 is not > 0");
+
+// --- exclusiveMaximum ---
+let emax_schema = { type: "number", exclusiveMaximum: 100 };
+assert(is_valid(99, emax_schema) == true, "exclusiveMaximum: 99 < 100");
+assert(is_valid(100, emax_schema) == false, "exclusiveMaximum: 100 is not < 100");
+
+// --- multipleOf ---
+let mult_schema = { type: "integer", multipleOf: 3 };
+assert(is_valid(0, mult_schema) == true, "multipleOf: 0 is multiple of 3");
+assert(is_valid(3, mult_schema) == true, "multipleOf: 3 is multiple of 3");
+assert(is_valid(9, mult_schema) == true, "multipleOf: 9 is multiple of 3");
+assert(is_valid(4, mult_schema) == false, "multipleOf: 4 is not multiple of 3");
+
+// --- error details for number ---
+let result = validate(-5, min_schema);
+assert(result.valid == false, "validate number out of range");
+assert(result.errors[0].message.contains("minimum"), "error mentions minimum");
+
+print("All number constraint tests passed!");

@@ -1,0 +1,76 @@
+// Test @stdlib/json_schema - validate_json (string input) and format_errors
+
+import { validate_json, validate, format_errors, is_valid } from "@stdlib/json_schema";
+
+// --- validate_json with valid JSON string ---
+let schema = {
+	type: "object",
+	properties: {
+		name: { type: "string" },
+		value: { type: "integer" }
+	},
+	required: ["name"]
+};
+
+let result1 = validate_json("{\"name\":\"test\",\"value\":42}", schema);
+assert(result1.valid == true, "validate_json: valid input");
+assert(result1.errors.length == 0, "validate_json: no errors");
+
+// --- validate_json with invalid JSON ---
+let result2 = validate_json("{bad json", schema);
+assert(result2.valid == false, "validate_json: invalid JSON");
+assert(result2.errors.length == 1, "validate_json: one parse error");
+assert(result2.errors[0].message.contains("invalid JSON"), "validate_json: error mentions invalid JSON");
+
+// --- validate_json with valid JSON but schema mismatch ---
+let result3 = validate_json("{\"value\":42}", schema);
+assert(result3.valid == false, "validate_json: missing required");
+assert(result3.errors.length == 1, "validate_json: one schema error");
+
+// --- format_errors ---
+let result4 = validate({ name: 42, extra: true }, {
+	type: "object",
+	properties: { name: { type: "string" } },
+	additionalProperties: false
+});
+assert(result4.valid == false, "format_errors: has errors");
+let formatted = format_errors(result4.errors);
+assert(typeof(formatted) == "string", "format_errors: returns string");
+assert(formatted.length > 0, "format_errors: non-empty");
+
+// --- format_errors with no errors ---
+let empty = format_errors([]);
+assert(empty == "no errors", "format_errors: empty returns 'no errors'");
+
+// --- error path tracing ---
+let deep_schema = {
+	type: "object",
+	properties: {
+		users: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					name: { type: "string" }
+				},
+				required: ["name"]
+			}
+		}
+	}
+};
+
+let deep_data = {
+	users: [
+		{ name: "Alice" },
+		{ name: 42 },
+		{}
+	]
+};
+
+let result5 = validate(deep_data, deep_schema);
+assert(result5.valid == false, "deep errors: invalid");
+// Should have error for users[1].name type and users[2] missing name
+let err_text = format_errors(result5.errors);
+assert(err_text.contains("name"), "deep errors: mentions name");
+
+print("All validate_json and format_errors tests passed!");

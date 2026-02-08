@@ -1,0 +1,81 @@
+// Test @stdlib/json_schema - type validation
+
+import { validate, is_valid } from "@stdlib/json_schema";
+
+// --- string type ---
+let str_schema = { type: "string" };
+assert(is_valid("hello", str_schema) == true, "string validates string");
+assert(is_valid("", str_schema) == true, "string validates empty string");
+assert(is_valid(42, str_schema) == false, "string rejects number");
+assert(is_valid(true, str_schema) == false, "string rejects bool");
+assert(is_valid(null, str_schema) == false, "string rejects null");
+assert(is_valid([], str_schema) == false, "string rejects array");
+assert(is_valid({}, str_schema) == false, "string rejects object");
+
+// --- number type ---
+let num_schema = { type: "number" };
+assert(is_valid(42, num_schema) == true, "number validates integer");
+assert(is_valid(3.14, num_schema) == true, "number validates float");
+assert(is_valid(0, num_schema) == true, "number validates zero");
+assert(is_valid("42", num_schema) == false, "number rejects string");
+assert(is_valid(true, num_schema) == false, "number rejects bool");
+
+// --- integer type ---
+let int_schema = { type: "integer" };
+assert(is_valid(42, int_schema) == true, "integer validates i32");
+assert(is_valid(0, int_schema) == true, "integer validates zero");
+assert(is_valid(3.14, int_schema) == false, "integer rejects float");
+assert(is_valid("42", int_schema) == false, "integer rejects string");
+
+// --- boolean type ---
+let bool_schema = { type: "boolean" };
+assert(is_valid(true, bool_schema) == true, "boolean validates true");
+assert(is_valid(false, bool_schema) == true, "boolean validates false");
+assert(is_valid(1, bool_schema) == false, "boolean rejects number");
+assert(is_valid("true", bool_schema) == false, "boolean rejects string");
+
+// --- null type ---
+let null_schema = { type: "null" };
+assert(is_valid(null, null_schema) == true, "null validates null");
+assert(is_valid(0, null_schema) == false, "null rejects zero");
+assert(is_valid("", null_schema) == false, "null rejects empty string");
+assert(is_valid(false, null_schema) == false, "null rejects false");
+
+// --- array type ---
+let arr_schema = { type: "array" };
+assert(is_valid([], arr_schema) == true, "array validates empty array");
+assert(is_valid([1, 2, 3], arr_schema) == true, "array validates non-empty");
+assert(is_valid({}, arr_schema) == false, "array rejects object");
+assert(is_valid("[]", arr_schema) == false, "array rejects string");
+
+// --- object type ---
+let obj_schema = { type: "object" };
+assert(is_valid({}, obj_schema) == true, "object validates empty object");
+assert(is_valid({ x: 10 }, obj_schema) == true, "object validates non-empty");
+assert(is_valid([], obj_schema) == false, "object rejects array");
+assert(is_valid("object", obj_schema) == false, "object rejects string");
+
+// --- union types ---
+let nullable_str = { type: ["string", "null"] };
+assert(is_valid("hello", nullable_str) == true, "union accepts string");
+assert(is_valid(null, nullable_str) == true, "union accepts null");
+assert(is_valid(42, nullable_str) == false, "union rejects number");
+
+let str_or_num = { type: ["string", "number"] };
+assert(is_valid("hello", str_or_num) == true, "string|number accepts string");
+assert(is_valid(42, str_or_num) == true, "string|number accepts number");
+assert(is_valid(true, str_or_num) == false, "string|number rejects bool");
+
+// --- validate() returns error details ---
+let result = validate(42, str_schema);
+assert(result.valid == false, "validate returns valid=false");
+assert(result.errors.length == 1, "validate returns 1 error");
+assert(result.errors[0].message.contains("expected type"), "error message mentions type");
+
+// --- boolean schemas ---
+assert(is_valid("anything", true) == true, "boolean true schema accepts anything");
+assert(is_valid(42, true) == true, "boolean true schema accepts number");
+assert(is_valid("anything", false) == false, "boolean false schema rejects everything");
+assert(is_valid(null, false) == false, "boolean false schema rejects null");
+
+print("All type validation tests passed!");

@@ -174,6 +174,21 @@ Full-featured JSON manipulation library:
 
 See [docs/json.md](docs/json.md) for detailed documentation.
 
+### JSON Schema (`@stdlib/json_schema`)
+**Status:** Complete
+
+JSON Schema validation for structured output (pure Hemlock, built on `@stdlib/json`):
+- **Core:** validate, is_valid, validate_json
+- **Schema keywords:** type, enum, const, required, properties, items, additionalProperties
+- **Number constraints:** minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf
+- **String constraints:** minLength, maxLength
+- **Array constraints:** minItems, maxItems, uniqueItems
+- **Composition:** allOf, anyOf, oneOf, not, if/then/else
+- **Builders:** string_type, number_type, integer_type, boolean_type, null_type, array_type, object_type, nullable, enum_type, const_type, any_of, one_of, all_of, not_schema
+- **Use cases:** LLM structured output validation, API response checking, config validation
+
+See [docs/json_schema.md](docs/json_schema.md) for detailed documentation.
+
 ### Strings (`@stdlib/strings`)
 **Status:** Complete
 
@@ -502,6 +517,7 @@ stdlib/
 ├── websocket.hml       # WebSocket client/server (via libwebsockets FFI)
 ├── websocket_pure.hml  # WebSocket pure Hemlock implementation (educational)
 ├── json.hml            # JSON module (pure Hemlock)
+├── json_schema.hml     # JSON Schema validation (pure Hemlock)
 ├── strings.hml         # String utilities module (pure Hemlock)
 ├── encoding.hml        # Encoding module (pure Hemlock)
 ├── testing.hml         # Testing framework (pure Hemlock)
@@ -519,6 +535,7 @@ stdlib/
     ├── http.md         # HTTP API reference
     ├── websocket.md    # WebSocket API reference
     ├── json.md         # JSON API reference
+    ├── json_schema.md  # JSON Schema API reference
     ├── strings.md      # Strings API reference
     ├── encoding.md     # Encoding API reference
     └── testing.md      # Testing API reference
@@ -564,6 +581,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | http | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 280 | High |
 | websocket | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 318 | High |
 | json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
+| json_schema | ✅ Complete | ✅ Complete | ✅ Comprehensive | 400+ | High |
 | strings | ✅ Complete | ✅ Complete | ✅ Comprehensive | 293 | High |
 | encoding | ✅ Complete | ✅ Complete | ✅ Comprehensive | 370 | High |
 | testing | ✅ Complete | ✅ Complete | ✅ Good | 410 | High |

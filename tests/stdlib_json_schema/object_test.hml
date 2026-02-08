@@ -1,0 +1,81 @@
+// Test @stdlib/json_schema - object validation
+
+import { validate, is_valid } from "@stdlib/json_schema";
+
+// --- required properties ---
+let req_schema = {
+	type: "object",
+	required: ["name", "age"]
+};
+assert(is_valid({ name: "Alice", age: 30 }, req_schema) == true, "required: both present");
+assert(is_valid({ name: "Alice", age: 30, extra: true }, req_schema) == true, "required: extra ok");
+assert(is_valid({ name: "Alice" }, req_schema) == false, "required: missing age");
+assert(is_valid({}, req_schema) == false, "required: empty object");
+
+// --- properties validation ---
+let props_schema = {
+	type: "object",
+	properties: {
+		name: { type: "string" },
+		age: { type: "integer", minimum: 0 },
+		active: { type: "boolean" }
+	}
+};
+assert(is_valid({ name: "Alice", age: 30, active: true }, props_schema) == true, "properties: all valid");
+assert(is_valid({ name: "Alice" }, props_schema) == true, "properties: partial ok (not required)");
+assert(is_valid({ name: 42 }, props_schema) == false, "properties: wrong type for name");
+assert(is_valid({ age: -1 }, props_schema) == false, "properties: age below minimum");
+
+// --- additionalProperties: false ---
+let strict_schema = {
+	type: "object",
+	properties: {
+		x: { type: "number" },
+		y: { type: "number" }
+	},
+	additionalProperties: false
+};
+assert(is_valid({ x: 1, y: 2 }, strict_schema) == true, "additional false: exact match");
+assert(is_valid({ x: 1 }, strict_schema) == true, "additional false: subset ok");
+assert(is_valid({ x: 1, y: 2, z: 3 }, strict_schema) == false, "additional false: extra z");
+
+// --- additionalProperties as schema ---
+let typed_extra_schema = {
+	type: "object",
+	properties: {
+		name: { type: "string" }
+	},
+	additionalProperties: { type: "integer" }
+};
+assert(is_valid({ name: "test", count: 5 }, typed_extra_schema) == true, "additional schema: integer extra ok");
+assert(is_valid({ name: "test", count: "five" }, typed_extra_schema) == false, "additional schema: string extra fails");
+
+// --- minProperties / maxProperties ---
+let size_schema = { type: "object", minProperties: 1, maxProperties: 3 };
+assert(is_valid({ a: 1 }, size_schema) == true, "minProperties: 1 ok");
+assert(is_valid({ a: 1, b: 2, c: 3 }, size_schema) == true, "maxProperties: 3 ok");
+assert(is_valid({}, size_schema) == false, "minProperties: 0 too few");
+assert(is_valid({ a: 1, b: 2, c: 3, d: 4 }, size_schema) == false, "maxProperties: 4 too many");
+
+// --- combined required + properties ---
+let user_schema = {
+	type: "object",
+	properties: {
+		name: { type: "string", minLength: 1 },
+		email: { type: "string" },
+		age: { type: "integer", minimum: 0, maximum: 150 }
+	},
+	required: ["name", "email"]
+};
+assert(is_valid({ name: "Alice", email: "alice@test.com", age: 30 }, user_schema) == true, "user: valid");
+assert(is_valid({ name: "Alice", email: "a@b.com" }, user_schema) == true, "user: without optional age");
+assert(is_valid({ name: "", email: "a@b.com" }, user_schema) == false, "user: empty name");
+assert(is_valid({ email: "a@b.com" }, user_schema) == false, "user: missing name");
+
+// --- error paths for nested objects ---
+let result = validate({ name: 42, age: -1 }, user_schema);
+assert(result.valid == false, "nested errors detected");
+// Should have errors for: name type, age minimum, missing email
+assert(result.errors.length >= 2, "multiple errors reported");
+
+print("All object validation tests passed!");

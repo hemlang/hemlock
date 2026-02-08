@@ -1,0 +1,144 @@
+// Test @stdlib/json_schema - schema builder helpers
+
+import {
+	validate, is_valid,
+	string_type, number_type, integer_type, boolean_type, null_type,
+	array_type, object_type, nullable, enum_type, const_type,
+	any_of, one_of, all_of, not_schema
+} from "@stdlib/json_schema";
+
+// --- string_type ---
+let s1 = string_type();
+assert(is_valid("hello", s1) == true, "string_type: basic");
+
+let s2 = string_type({ minLength: 3, maxLength: 10 });
+assert(is_valid("abc", s2) == true, "string_type: opts ok");
+assert(is_valid("ab", s2) == false, "string_type: too short");
+
+// --- number_type ---
+let n1 = number_type();
+assert(is_valid(3.14, n1) == true, "number_type: basic");
+
+let n2 = number_type({ minimum: 0, maximum: 100 });
+assert(is_valid(50, n2) == true, "number_type: in range");
+assert(is_valid(-1, n2) == false, "number_type: below min");
+
+// --- integer_type ---
+let i1 = integer_type();
+assert(is_valid(42, i1) == true, "integer_type: basic");
+assert(is_valid(3.14, i1) == false, "integer_type: rejects float");
+
+let i2 = integer_type({ minimum: 1, maximum: 10 });
+assert(is_valid(5, i2) == true, "integer_type: in range");
+assert(is_valid(0, i2) == false, "integer_type: below min");
+
+// --- boolean_type ---
+assert(is_valid(true, boolean_type()) == true, "boolean_type: true");
+assert(is_valid(42, boolean_type()) == false, "boolean_type: number");
+
+// --- null_type ---
+assert(is_valid(null, null_type()) == true, "null_type: null");
+assert(is_valid(0, null_type()) == false, "null_type: zero");
+
+// --- array_type ---
+let a1 = array_type();
+assert(is_valid([1, 2], a1) == true, "array_type: basic");
+
+let a2 = array_type(string_type(), { minItems: 1, maxItems: 5 });
+assert(is_valid(["a", "b"], a2) == true, "array_type: string items");
+assert(is_valid([], a2) == false, "array_type: empty below min");
+assert(is_valid([1, 2], a2) == false, "array_type: wrong item type");
+
+// --- object_type ---
+let o1 = object_type(
+	{
+		name: string_type(),
+		age: integer_type({ minimum: 0 })
+	},
+	["name"],
+	{ additional: false }
+);
+assert(is_valid({ name: "Alice", age: 30 }, o1) == true, "object_type: valid");
+assert(is_valid({ name: "Alice" }, o1) == true, "object_type: without optional");
+assert(is_valid({}, o1) == false, "object_type: missing required");
+assert(is_valid({ name: "Alice", extra: true }, o1) == false, "object_type: extra prop");
+
+// --- nullable ---
+let ns = nullable(string_type());
+assert(is_valid("hello", ns) == true, "nullable: string ok");
+assert(is_valid(null, ns) == true, "nullable: null ok");
+assert(is_valid(42, ns) == false, "nullable: number rejected");
+
+// --- enum_type ---
+let e1 = enum_type(["a", "b", "c"]);
+assert(is_valid("a", e1) == true, "enum_type: valid");
+assert(is_valid("d", e1) == false, "enum_type: invalid");
+
+// --- const_type ---
+let c1 = const_type(42);
+assert(is_valid(42, c1) == true, "const_type: match");
+assert(is_valid(43, c1) == false, "const_type: no match");
+
+// --- any_of ---
+let ao = any_of([string_type(), integer_type()]);
+assert(is_valid("hi", ao) == true, "any_of: string");
+assert(is_valid(42, ao) == true, "any_of: integer");
+assert(is_valid(true, ao) == false, "any_of: bool");
+
+// --- not_schema ---
+let ns2 = not_schema(string_type());
+assert(is_valid(42, ns2) == true, "not_schema: number ok");
+assert(is_valid("hi", ns2) == false, "not_schema: string rejected");
+
+// --- complex LLM response schema ---
+let llm_schema = object_type(
+	{
+		model: string_type(),
+		choices: array_type(
+			object_type(
+				{
+					index: integer_type({ minimum: 0 }),
+					message: object_type(
+						{
+							role: enum_type(["assistant", "system", "user"]),
+							content: string_type({ minLength: 1 })
+						},
+						["role", "content"]
+					),
+					finish_reason: enum_type(["stop", "length", "content_filter"])
+				},
+				["index", "message", "finish_reason"]
+			),
+			{ minItems: 1 }
+		)
+	},
+	["model", "choices"]
+);
+
+let valid_response = {
+	model: "gpt-4",
+	choices: [
+		{
+			index: 0,
+			message: { role: "assistant", content: "Hello!" },
+			finish_reason: "stop"
+		}
+	]
+};
+
+assert(is_valid(valid_response, llm_schema) == true, "LLM response: valid");
+
+let bad_response = {
+	model: "gpt-4",
+	choices: [
+		{
+			index: 0,
+			message: { role: "unknown", content: "" },
+			finish_reason: "stop"
+		}
+	]
+};
+
+assert(is_valid(bad_response, llm_schema) == false, "LLM response: bad role + empty content");
+
+print("All builder tests passed!");
