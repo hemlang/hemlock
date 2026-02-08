@@ -392,8 +392,6 @@ while (i <= 3) {
 
 ### Current Limitations
 
-⚠️ **Status code parsing** - Simplified (returns 200 for now, full parsing pending)
-⚠️ **Response headers** - Not extracted (body only)
 ⚠️ **Binary responses** - Text-focused (works for most APIs)
 ⚠️ **Progress callbacks** - Not supported
 ⚠️ **Concurrent requests** - Sequential only (use async/spawn for concurrency)
@@ -489,6 +487,158 @@ sudo yum install curl
 
 # macOS (usually pre-installed)
 brew install curl
+```
+
+## Streaming HTTP
+
+Hemlock supports streaming HTTP responses for chunked transfer encoding and Server-Sent Events (SSE). This is essential for consuming streaming LLM APIs (OpenAI, Anthropic, etc.) where tokens arrive incrementally.
+
+### `stream(method: string, url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
+
+Open a streaming HTTP connection that delivers response data incrementally as chunks arrive.
+
+```hemlock
+import { stream } from "@stdlib/http";
+
+let s = stream("GET", "https://example.com/stream", null, null, 60000);
+print(`Status: ${s.status_code}`);
+
+while (!s.done) {
+    let chunk = s.read(30000);
+    if (chunk != null) {
+        print(chunk);
+    }
+}
+s.close();
+```
+
+**Returns:** A stream object with:
+- `status_code: i32` - HTTP status code
+- `headers: string` - Response headers
+- `done: bool` - Whether the stream is finished
+- `read(timeout_ms?: i32): string|null` - Read next chunk (null when done)
+- `close()` - Close the connection and free resources
+
+### `stream_get(url: string, headers?: array<string>, timeout_ms?: i32): object`
+
+Convenience function for streaming GET requests.
+
+```hemlock
+import { stream_get } from "@stdlib/http";
+
+let s = stream_get("https://example.com/events", null, 60000);
+while (!s.done) {
+    let chunk = s.read();
+    if (chunk != null) { print(chunk); }
+}
+s.close();
+```
+
+### `stream_post(url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
+
+Convenience function for streaming POST requests.
+
+### `post_json_stream(url: string, data: object, timeout_ms?: i32): object`
+
+POST JSON data and stream the response. Automatically serializes the data and sets `Content-Type: application/json`. Designed for streaming LLM API responses.
+
+```hemlock
+import { post_json_stream } from "@stdlib/http";
+
+// Stream tokens from an LLM API
+let s = post_json_stream("https://api.openai.com/v1/chat/completions", {
+    model: "gpt-4",
+    messages: [{ role: "user", content: "Tell me a story" }],
+    stream: true
+}, 120000);
+
+if (s.status_code != 200) {
+    print("Error: HTTP " + s.status_code);
+} else {
+    while (!s.done) {
+        let chunk = s.read(30000);
+        if (chunk != null) {
+            // Each chunk is a raw SSE line like: data: {"choices":[...]}
+            print(chunk);
+        }
+    }
+}
+s.close();
+```
+
+### `stream_sse(url: string, headers?: array<string>, timeout_ms?: i32): object`
+
+Stream Server-Sent Events with automatic SSE protocol parsing. Each call to `next_event()` returns a parsed event object.
+
+```hemlock
+import { stream_sse } from "@stdlib/http";
+
+let sse = stream_sse("https://api.example.com/events", [
+    "Authorization: Bearer token123"
+], 120000);
+
+while (!sse.done) {
+    let event = sse.next_event();
+    if (event != null) {
+        print("Type: " + event.event);   // "message", "update", etc.
+        print("Data: " + event.data);    // Event payload
+        print("ID: " + event.id);        // Event ID (if any)
+    }
+}
+sse.close();
+```
+
+**SSE Event object:**
+```hemlock
+{
+    event: string,   // Event type (default: "message")
+    data: string,    // Event data (may be multi-line)
+    id: string       // Event ID
+}
+```
+
+**SSE Protocol:** The parser handles the standard SSE format:
+```
+event: message
+data: {"text":"hello"}
+id: 123
+
+```
+
+Fields are separated by newlines, events by double newlines. Lines starting with `:` are comments and are ignored.
+
+### Streaming LLM Example (Complete)
+
+```hemlock
+import { post_json_stream } from "@stdlib/http";
+import { parse } from "@stdlib/json";
+
+let api_key = getenv("OPENAI_API_KEY");
+
+let s = post_json_stream("https://api.openai.com/v1/chat/completions", {
+    model: "gpt-4",
+    messages: [{ role: "user", content: "Write a haiku about programming" }],
+    stream: true
+});
+
+while (!s.done) {
+    let chunk = s.read(30000);
+    if (chunk != null) {
+        // Parse SSE data lines
+        let lines = chunk.split("\n");
+        for (line in lines) {
+            if (line.starts_with("data: ") && line != "data: [DONE]") {
+                let json_str = line.substr(6, line.length - 6);
+                let obj = parse(json_str);
+                let content = obj.choices[0].delta.content;
+                if (content != null) {
+                    print(content);  // Print each token as it arrives
+                }
+            }
+        }
+    }
+}
+s.close();
 ```
 
 ## HTTP Server

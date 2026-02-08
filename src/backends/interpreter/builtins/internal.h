@@ -191,6 +191,12 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
 Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_redirect(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx);
+// Streaming HTTP builtins
+Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_stream_status(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_stream_headers(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_stream_close(Value *args, int num_args, ExecutionContext *ctx);
 // WebSocket builtins
 Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx);

@@ -859,6 +859,20 @@ HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_redirect(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp);
 
+// Streaming HTTP functions (chunked/SSE responses)
+HmlValue hml_lws_http_stream_start(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
+HmlValue hml_lws_http_stream_read(HmlValue stream, HmlValue timeout_ms);
+HmlValue hml_lws_http_stream_status(HmlValue stream);
+HmlValue hml_lws_http_stream_headers(HmlValue stream);
+HmlValue hml_lws_http_stream_close(HmlValue stream);
+
+// Streaming HTTP builtin wrappers
+HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout);
+HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout);
+HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream);
+HmlValue hml_builtin_lws_http_stream_headers(HmlClosureEnv *env, HmlValue stream);
+HmlValue hml_builtin_lws_http_stream_close(HmlClosureEnv *env, HmlValue stream);
+
 // WebSocket client functions
 HmlValue hml_lws_ws_connect(HmlValue url);
 HmlValue hml_lws_ws_send_text(HmlValue conn, HmlValue text);

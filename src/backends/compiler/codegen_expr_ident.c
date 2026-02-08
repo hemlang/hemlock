@@ -362,6 +362,17 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_redirect, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_response_body_binary") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_response_body_binary, 1, 1, 0);", result);
+    // Streaming HTTP builtins
+    } else if (strcmp(expr->as.ident.name, "__lws_http_stream_start") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_start, 5, 5, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_http_stream_read") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_read, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_http_stream_status") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_status, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_http_stream_headers") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_headers, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_http_stream_close") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_close, 1, 1, 0);", result);
     // Cryptographic hash builtins
     } else if (strcmp(expr->as.ident.name, "__sha256") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha256, 1, 1, 0);", result);
