@@ -185,6 +185,18 @@ extern fn usearch_rename(index: ptr, from_key: i64, to_key: i64, error: ptr): i6
 extern fn usearch_search(index: ptr, query: ptr, kind: i32, count: i64,
 	keys: ptr, distances: ptr, error: ptr): i64;
 
+// size_t usearch_filtered_search(usearch_index_t, void const*, usearch_scalar_kind_t, size_t,
+//                                int (*filter)(usearch_key_t, void*), void* filter_state,
+//                                usearch_key_t*, usearch_distance_t*, usearch_error_t*)
+extern fn usearch_filtered_search(index: ptr, query: ptr, kind: i32, count: i64,
+	filter: ptr, filter_state: ptr,
+	keys: ptr, distances: ptr, error: ptr): i64;
+
+// void usearch_change_metric(usearch_index_t, usearch_metric_t, void* state,
+//                            usearch_metric_kind_t, usearch_error_t*)
+extern fn usearch_change_metric(index: ptr, metric: ptr, state: ptr,
+	kind: i32, error: ptr): void;
+
 // usearch_distance_t usearch_distance(void const*, void const*, usearch_scalar_kind_t, size_t,
 //                                     usearch_metric_kind_t, usearch_error_t*)
 extern fn usearch_distance(a: ptr, b: ptr, kind: i32, dims: i64,
@@ -659,6 +671,70 @@ export fn search(idx: VectorIndex, query: array, k?: 10, scalar?: 1): array {
 	return results;
 }
 
+// Search for k nearest neighbors with a filter predicate
+// Only vectors whose keys pass the filter function are considered
+//
+// idx: VectorIndex
+// query: Query vector (array of numbers, length must match dimensions)
+// k: Number of nearest neighbors to return (default: 10)
+// filter: Function(key: i64): bool — return true to include, false to skip
+// scalar: Scalar type of query data (default: SCALAR_F32)
+// Returns: Array of { key, distance } objects, sorted by distance ascending
+export fn search_filtered(idx: VectorIndex, query: array, k: i64, filter, scalar?: 1): array {
+	_check_alive(idx);
+	if (query.length != idx._dims) {
+		throw "query length " + query.length + " does not match index dimensions " + idx._dims;
+	}
+	if (k <= 0) {
+		throw "k must be positive, got " + k;
+	}
+
+	let query_buf = _pack_vector(query, idx._dims, scalar);
+
+	// Wrap the user's filter (key) -> bool into the C signature (key, state) -> i32
+	let filter_wrapper = fn(key: i64, state: ptr): i32 {
+		if (filter(key)) {
+			return 1;
+		}
+		return 0;
+	};
+	let filter_cb = callback(filter_wrapper, ["i64", "ptr"], "i32");
+
+	// Allocate output buffers
+	let keys_buf = alloc(k * SIZEOF_U64);
+	let dists_buf = alloc(k * SIZEOF_F32);
+
+	let err = _make_err_holder();
+	let found = usearch_filtered_search(idx._handle, query_buf, scalar, k,
+		filter_cb, ptr_null(), keys_buf, dists_buf, err);
+	free(query_buf);
+	callback_free(filter_cb);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(keys_buf);
+		free(dists_buf);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	// Unpack results
+	let results = [];
+	let i = 0;
+	while (i < found) {
+		let key = ptr_read_u64(keys_buf + i * SIZEOF_U64);
+		let dist = ptr_read_f32(dists_buf + i * SIZEOF_F32);
+		results.push({ key: key, distance: dist });
+		i = i + 1;
+	}
+
+	free(keys_buf);
+	free(dists_buf);
+	return results;
+}
+
 // Batch search for k nearest neighbors of multiple queries
 //
 // idx: VectorIndex
@@ -902,12 +978,35 @@ export fn set_threads_search(idx: VectorIndex, threads: i64): null {
 	return null;
 }
 
-// Change the distance metric
+// Change the distance metric to a built-in metric kind
 export fn set_metric(idx: VectorIndex, metric: i32): null {
 	_check_alive(idx);
 	let err = _make_err_holder();
 	usearch_change_metric_kind(idx._handle, metric, err);
 	_check_err(err);
+	return null;
+}
+
+// Set a user-defined distance metric function
+// The function receives two raw pointers to vector data and must return a f32 distance.
+// The pointers point to contiguous float data (f32 by default) with idx.dimensions() elements.
+//
+// metric_fn: Function(a: ptr, b: ptr): f32 — compute distance between two vectors
+// metric_kind: Metric kind hint for USearch internals (default: METRIC_UNKNOWN)
+// Returns: The callback pointer — caller MUST keep this alive and call free_custom_metric()
+//          when done, or when setting a different metric
+export fn set_custom_metric(idx: VectorIndex, metric_fn, metric_kind?: 0): ptr {
+	_check_alive(idx);
+	let metric_cb = callback(metric_fn, ["ptr", "ptr"], "f32");
+	let err = _make_err_holder();
+	usearch_change_metric(idx._handle, metric_cb, ptr_null(), metric_kind, err);
+	_check_err(err);
+	return metric_cb;
+}
+
+// Free a custom metric callback created by set_custom_metric()
+export fn free_custom_metric(metric_cb: ptr): null {
+	callback_free(metric_cb);
 	return null;
 }
 

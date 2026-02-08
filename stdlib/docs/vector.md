@@ -285,6 +285,44 @@ let batch_results = search_batch(idx, [
 free_index(idx);
 ```
 
+### search_filtered(idx, query, k, filter, scalar?)
+
+Searches for k nearest neighbors, only considering vectors whose keys pass the filter predicate. Uses Hemlock's FFI callback system to pass the filter function to USearch.
+
+**Parameters:**
+- `idx: VectorIndex` — Index to search
+- `query: array` — Query vector
+- `k: i64` — Number of nearest neighbors (required)
+- `filter: fn(key: i64): bool` — Return `true` to include a key, `false` to skip
+- `scalar: i32` — Scalar type (default: `SCALAR_F32`)
+
+**Returns:** `array` of `{ key, distance }` objects
+
+```hemlock
+import { create_index, add_batch, search_filtered, free_index } from "@stdlib/vector";
+
+let idx = create_index(3);
+add_batch(idx, [1, 2, 3, 4, 5], [
+    [1.0, 0.0, 0.0],
+    [0.9, 0.1, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+    [0.5, 0.5, 0.0],
+]);
+
+// Only consider keys > 2
+let results = search_filtered(idx, [1.0, 0.0, 0.0], 3, fn(key) {
+    return key > 2;
+});
+
+for (r in results) {
+    print("key:", r.key, "distance:", r.distance);
+}
+// Keys 1 and 2 will never appear in results
+
+free_index(idx);
+```
+
 ### remove(idx, key)
 
 Removes a vector by key.
@@ -496,7 +534,52 @@ Sets the number of threads for parallel search.
 
 ### set_metric(idx, metric)
 
-Changes the distance metric at runtime.
+Changes the distance metric to a built-in metric kind at runtime.
+
+### set_custom_metric(idx, metric_fn, metric_kind?)
+
+Sets a user-defined distance metric function using Hemlock's FFI callback system. The function receives two raw pointers to vector data and returns a `f32` distance.
+
+**Parameters:**
+- `idx: VectorIndex` — Target index
+- `metric_fn: fn(a: ptr, b: ptr): f32` — Distance function. Pointers point to contiguous scalar data with `dimensions(idx)` elements
+- `metric_kind: i32` — Metric kind hint for USearch internals (default: `METRIC_UNKNOWN`)
+
+**Returns:** `ptr` — The callback pointer. Caller **must** keep this alive and call `free_custom_metric()` when done.
+
+```hemlock
+import { create_index, add, search, set_custom_metric, free_custom_metric,
+         free_index, METRIC_L2SQ } from "@stdlib/vector";
+
+let idx = create_index(3, metric: METRIC_L2SQ);
+add(idx, 1, [1.0, 0.0, 0.0]);
+add(idx, 2, [0.0, 1.0, 0.0]);
+
+// Custom L1 (Manhattan) distance
+let cb = set_custom_metric(idx, fn(a: ptr, b: ptr): f32 {
+    let d0 = ptr_read_f32(a) - ptr_read_f32(b);
+    let d1 = ptr_read_f32(a + 4) - ptr_read_f32(b + 4);
+    let d2 = ptr_read_f32(a + 8) - ptr_read_f32(b + 8);
+    if (d0 < 0.0) { d0 = 0.0 - d0; }
+    if (d1 < 0.0) { d1 = 0.0 - d1; }
+    if (d2 < 0.0) { d2 = 0.0 - d2; }
+    let result: f32 = d0 + d1 + d2;
+    return result;
+});
+
+let results = search(idx, [1.0, 0.0, 0.0], k: 2);
+print("Nearest:", results[0].key);
+
+free_custom_metric(cb);  // MUST free before freeing index
+free_index(idx);
+```
+
+### free_custom_metric(metric_cb)
+
+Frees a custom metric callback created by `set_custom_metric()`. Must be called before `free_index()`.
+
+**Parameters:**
+- `metric_cb: ptr` — Callback pointer returned by `set_custom_metric()`
 
 ### reserve(idx, capacity)
 
