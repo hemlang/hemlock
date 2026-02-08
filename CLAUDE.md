@@ -554,7 +554,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (42 modules)
+## Standard Library (43 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -589,6 +589,7 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 | `logging` | Logger with levels |
 | `math` | sin, cos, sqrt, pow, rand, PI, E |
 | `net` | TcpListener, TcpStream, UdpSocket |
+| `onnx` | ONNX Runtime inference (local ML models) |
 | `os` | platform, arch, cpu_count, hostname |
 | `path` | File path manipulation |
 | `process` | fork, exec, wait, kill |
@@ -979,7 +980,7 @@ make parity
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 42 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, termios, vector)
+- 43 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, termios, vector, onnx)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
 - FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)

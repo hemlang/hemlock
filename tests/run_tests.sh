@@ -144,6 +144,21 @@ for test_file in $TEST_FILES; do
             fi
             continue
         fi
+
+    # Skip ONNX tests if libonnxruntime isn't installed
+    elif [[ "$category" == "stdlib_onnx" ]]; then
+        if ! ldconfig -p 2>/dev/null | grep -q libonnxruntime; then
+            if [ "$category" != "$CURRENT_CATEGORY" ]; then
+                if [ -n "$CURRENT_CATEGORY" ]; then
+                    echo ""
+                fi
+                echo -e "${BLUE}[$category]${NC}"
+                echo -e "${YELLOW}⊘${NC} Skipping $category tests (libonnxruntime not installed)"
+                echo "  See stdlib/docs/onnx.md for installation instructions"
+                CURRENT_CATEGORY="$category"
+            fi
+            continue
+        fi
     fi
 
     # Print category header if changed

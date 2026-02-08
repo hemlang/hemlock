@@ -35,6 +35,14 @@ ifeq ($(shell uname),Darwin)
     else
         HAS_LIBWEBSOCKETS := 0
     endif
+
+    # On macOS, check for ONNX Runtime
+    BREW_ONNXRUNTIME := $(shell brew --prefix onnxruntime 2>/dev/null)
+    ifneq ($(BREW_ONNXRUNTIME),)
+        HAS_ONNXRUNTIME := $(shell test -f $(BREW_ONNXRUNTIME)/lib/libonnxruntime.dylib && echo 1 || echo 0)
+    else
+        HAS_ONNXRUNTIME := 0
+    endif
 else
     # On Linux, use pkg-config if available
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
@@ -48,6 +56,9 @@ else
 
     # Check if libwebsockets is available on Linux
     HAS_LIBWEBSOCKETS := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo 1 || (test -f /usr/include/libwebsockets.h && echo 1 || echo 0))
+
+    # Check if ONNX Runtime is available on Linux
+    HAS_ONNXRUNTIME := $(shell pkg-config --exists libonnxruntime 2>/dev/null && echo 1 || (test -f /usr/local/include/onnxruntime_c_api.h && echo 1 || (test -f /usr/include/onnxruntime/core/session/onnxruntime_c_api.h && echo 1 || echo 0)))
 endif
 
 # Base libraries (always required)
@@ -177,6 +188,17 @@ else
 	$(CC) -shared -fPIC -o stdlib/c/libffi_struct_test.so stdlib/c/ffi_struct_test.c
 endif
 	@echo "✓ libffi_struct_test built successfully"
+ifeq ($(HAS_ONNXRUNTIME),1)
+	@echo "Building stdlib/c/libhemlock_onnx..."
+ifeq ($(shell uname),Darwin)
+	$(CC) -shared -fPIC -I$(BREW_ONNXRUNTIME)/include -o stdlib/c/libhemlock_onnx.dylib stdlib/c/onnx_wrapper.c -L$(BREW_ONNXRUNTIME)/lib -lonnxruntime
+else
+	$(CC) -shared -fPIC -o stdlib/c/libhemlock_onnx.so stdlib/c/onnx_wrapper.c -lonnxruntime
+endif
+	@echo "✓ libhemlock_onnx built successfully"
+else
+	@echo "⊘ Skipping libhemlock_onnx (libonnxruntime not installed)"
+endif
 
 # Clean stdlib builds
 .PHONY: stdlib-clean

@@ -1,0 +1,208 @@
+// Test basic ONNX Runtime module functionality
+//
+// This test validates the module's API surface without requiring a model file.
+// It tests constants, tensor creation, tensor inspection, and error handling.
+//
+// Requires: libonnxruntime.so and libhemlock_onnx.so
+
+import {
+	version, api_version, dtype_name,
+	create_tensor_f32, create_tensor_f64, create_tensor_i32, create_tensor_i64,
+	tensor_shape, tensor_element_count, tensor_type,
+	tensor_data_f32, tensor_data_f64, tensor_data_i32, tensor_data_i64,
+	free_tensor,
+	DTYPE_FLOAT, DTYPE_DOUBLE, DTYPE_INT32, DTYPE_INT64,
+	DTYPE_UINT8, DTYPE_BOOL, DTYPE_STRING,
+	LOG_VERBOSE, LOG_INFO, LOG_WARNING, LOG_ERROR, LOG_FATAL,
+	OPT_DISABLE, OPT_BASIC, OPT_EXTENDED, OPT_ALL
+} from "@stdlib/onnx";
+
+// ============================================================================
+// Test constants
+// ============================================================================
+
+assert(DTYPE_FLOAT == 1, "DTYPE_FLOAT should be 1");
+assert(DTYPE_DOUBLE == 11, "DTYPE_DOUBLE should be 11");
+assert(DTYPE_INT32 == 6, "DTYPE_INT32 should be 6");
+assert(DTYPE_INT64 == 7, "DTYPE_INT64 should be 7");
+
+assert(LOG_VERBOSE == 0, "LOG_VERBOSE should be 0");
+assert(LOG_INFO == 1, "LOG_INFO should be 1");
+assert(LOG_WARNING == 2, "LOG_WARNING should be 2");
+assert(LOG_ERROR == 3, "LOG_ERROR should be 3");
+assert(LOG_FATAL == 4, "LOG_FATAL should be 4");
+
+assert(OPT_DISABLE == 0, "OPT_DISABLE should be 0");
+assert(OPT_BASIC == 1, "OPT_BASIC should be 1");
+assert(OPT_EXTENDED == 2, "OPT_EXTENDED should be 2");
+assert(OPT_ALL == 99, "OPT_ALL should be 99");
+
+print("Constants OK");
+
+// ============================================================================
+// Test dtype_name
+// ============================================================================
+
+assert(dtype_name(DTYPE_FLOAT) == "float32", "dtype_name(DTYPE_FLOAT)");
+assert(dtype_name(DTYPE_DOUBLE) == "float64", "dtype_name(DTYPE_DOUBLE)");
+assert(dtype_name(DTYPE_INT32) == "int32", "dtype_name(DTYPE_INT32)");
+assert(dtype_name(DTYPE_INT64) == "int64", "dtype_name(DTYPE_INT64)");
+assert(dtype_name(DTYPE_UINT8) == "uint8", "dtype_name(DTYPE_UINT8)");
+assert(dtype_name(DTYPE_BOOL) == "bool", "dtype_name(DTYPE_BOOL)");
+assert(dtype_name(DTYPE_STRING) == "string", "dtype_name(DTYPE_STRING)");
+assert(dtype_name(0) == "undefined", "dtype_name(0)");
+
+print("dtype_name OK");
+
+// ============================================================================
+// Test version
+// ============================================================================
+
+let ver = version();
+assert(typeof(ver) == "string", "version() should return string");
+assert(ver.length > 0, "version() should not be empty");
+print("ONNX Runtime version: " + ver);
+
+let api_ver = api_version();
+assert(typeof(api_ver) == "i32", "api_version() should return i32");
+assert(api_ver > 0, "api_version() should be positive");
+print("API version: " + api_ver);
+
+// ============================================================================
+// Test tensor creation and inspection - f32
+// ============================================================================
+
+let t1 = create_tensor_f32([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [2, 3]);
+assert(t1 != null, "create_tensor_f32 should return a tensor");
+
+let shape1 = tensor_shape(t1);
+assert(shape1.length == 2, "shape should have 2 dimensions");
+assert(shape1[0] == 2, "first dimension should be 2");
+assert(shape1[1] == 3, "second dimension should be 3");
+
+let count1 = tensor_element_count(t1);
+assert(count1 == 6, "element count should be 6");
+
+let type1 = tensor_type(t1);
+assert(type1 == DTYPE_FLOAT, "element type should be DTYPE_FLOAT");
+
+let data1 = tensor_data_f32(t1);
+assert(data1.length == 6, "data should have 6 elements");
+// Check approximate values (f32 precision)
+assert(data1[0] > 0.99 && data1[0] < 1.01, "data[0] should be ~1.0");
+assert(data1[5] > 5.99 && data1[5] < 6.01, "data[5] should be ~6.0");
+
+free_tensor(t1);
+
+print("Tensor f32 OK");
+
+// ============================================================================
+// Test tensor creation - f64
+// ============================================================================
+
+let t2 = create_tensor_f64([1.5, 2.5, 3.5], [1, 3]);
+let shape2 = tensor_shape(t2);
+assert(shape2[0] == 1, "f64 first dim should be 1");
+assert(shape2[1] == 3, "f64 second dim should be 3");
+assert(tensor_type(t2) == DTYPE_DOUBLE, "f64 type should be DTYPE_DOUBLE");
+
+let data2 = tensor_data_f64(t2);
+assert(data2.length == 3, "f64 data should have 3 elements");
+assert(data2[0] > 1.49 && data2[0] < 1.51, "f64 data[0] should be ~1.5");
+
+free_tensor(t2);
+
+print("Tensor f64 OK");
+
+// ============================================================================
+// Test tensor creation - i32
+// ============================================================================
+
+let t3 = create_tensor_i32([10, 20, 30, 40], [4]);
+let shape3 = tensor_shape(t3);
+assert(shape3.length == 1, "i32 shape should be 1D");
+assert(shape3[0] == 4, "i32 first dim should be 4");
+assert(tensor_type(t3) == DTYPE_INT32, "i32 type should be DTYPE_INT32");
+
+let data3 = tensor_data_i32(t3);
+assert(data3[0] == 10, "i32 data[0] should be 10");
+assert(data3[3] == 40, "i32 data[3] should be 40");
+
+free_tensor(t3);
+
+print("Tensor i32 OK");
+
+// ============================================================================
+// Test tensor creation - i64
+// ============================================================================
+
+let t4 = create_tensor_i64([100, 200], [2, 1]);
+let shape4 = tensor_shape(t4);
+assert(shape4.length == 2, "i64 shape should be 2D");
+assert(shape4[0] == 2, "i64 first dim should be 2");
+assert(shape4[1] == 1, "i64 second dim should be 1");
+assert(tensor_type(t4) == DTYPE_INT64, "i64 type should be DTYPE_INT64");
+
+let data4 = tensor_data_i64(t4);
+assert(data4[0] == 100, "i64 data[0] should be 100");
+assert(data4[1] == 200, "i64 data[1] should be 200");
+
+free_tensor(t4);
+
+print("Tensor i64 OK");
+
+// ============================================================================
+// Test higher-dimensional tensor
+// ============================================================================
+
+let t5 = create_tensor_f32(
+	[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+	 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+	 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0],
+	[2, 3, 4]
+);
+let shape5 = tensor_shape(t5);
+assert(shape5.length == 3, "3D shape should have 3 dimensions");
+assert(shape5[0] == 2, "3D first dim should be 2");
+assert(shape5[1] == 3, "3D second dim should be 3");
+assert(shape5[2] == 4, "3D third dim should be 4");
+assert(tensor_element_count(t5) == 24, "3D element count should be 24");
+
+free_tensor(t5);
+
+print("Tensor 3D OK");
+
+// ============================================================================
+// Test error cases
+// ============================================================================
+
+// Data/shape mismatch
+let shape_error = false;
+try {
+	let bad = create_tensor_f32([1.0, 2.0, 3.0], [2, 2]);
+} catch (e) {
+	shape_error = true;
+}
+assert(shape_error, "should throw on data/shape mismatch");
+
+// Double free (should be safe)
+let t6 = create_tensor_f32([1.0], [1]);
+free_tensor(t6);
+free_tensor(t6);  // second free should be no-op
+
+// Invalid model path
+let session_error = false;
+try {
+	let bad_session = create_session("/nonexistent/model.onnx");
+} catch (e) {
+	session_error = true;
+}
+assert(session_error, "should throw on invalid model path");
+
+print("Error handling OK");
+
+// ============================================================================
+// Done
+// ============================================================================
+
+print("All basic ONNX tests passed!");
