@@ -1,0 +1,1097 @@
+// @stdlib/vector - Vector similarity search via USearch FFI
+//
+// Provides high-performance approximate nearest neighbor (ANN) search:
+// - Index creation with configurable HNSW parameters
+// - Add, search, remove, and retrieve vectors
+// - Batch operations for bulk add/search
+// - Persistence (save/load/memory-mapped view)
+// - Multiple distance metrics (cosine, L2, inner product, etc.)
+// - Multiple scalar types (f32, f64, f16, i8, b1)
+//
+// System Requirements:
+// - USearch C library (libusearch_c.so)
+// - Install: https://github.com/unum-cloud/usearch
+// - On Debian/Ubuntu: sudo apt install libusearch-dev
+// - From source: cmake -B build && cmake --build build && sudo cmake --install build
+//
+// Usage:
+// import { create_index, search, add, save, free_index } from "@stdlib/vector";
+//
+// let idx = create_index(384);
+// add(idx, 1, [0.1, 0.2, 0.3, ...]);
+// let results = search(idx, [0.15, 0.25, 0.35, ...], k: 10);
+// save(idx, "embeddings.usearch");
+// free_index(idx);
+
+// Import USearch C library
+import "libusearch_c.so";
+
+// ============================================================================
+// Distance Metric Constants
+// ============================================================================
+
+export let METRIC_UNKNOWN = 0;
+export let METRIC_COSINE = 1;
+export let METRIC_IP = 2;         // Inner product (dot product)
+export let METRIC_L2SQ = 3;       // Euclidean (L2 squared)
+export let METRIC_HAVERSINE = 4;  // Geographic distance
+export let METRIC_DIVERGENCE = 5; // Jensen-Shannon divergence
+export let METRIC_PEARSON = 6;    // Pearson correlation
+export let METRIC_JACCARD = 7;    // Jaccard similarity
+export let METRIC_HAMMING = 8;    // Hamming distance
+export let METRIC_TANIMOTO = 9;   // Tanimoto coefficient
+export let METRIC_SORENSEN = 10;  // Sorensen-Dice coefficient
+
+// ============================================================================
+// Scalar Type Constants
+// ============================================================================
+
+export let SCALAR_UNKNOWN = 0;
+export let SCALAR_F32 = 1;
+export let SCALAR_F64 = 2;
+export let SCALAR_F16 = 3;
+export let SCALAR_I8 = 4;
+export let SCALAR_B1 = 5;        // Binary (1-bit)
+export let SCALAR_BF16 = 6;      // Brain float 16
+
+// ============================================================================
+// Struct Layout Constants (usearch_init_options_t on x86_64)
+// ============================================================================
+
+// struct usearch_init_options_t {
+//     usearch_metric_kind_t metric_kind;   // i32, offset 0
+//     /* 4 bytes padding */
+//     usearch_metric_t metric;             // ptr, offset 8
+//     usearch_scalar_kind_t quantization;  // i32, offset 16
+//     /* 4 bytes padding */
+//     size_t dimensions;                   // i64, offset 24
+//     size_t connectivity;                 // i64, offset 32
+//     size_t expansion_add;                // i64, offset 40
+//     size_t expansion_search;             // i64, offset 48
+//     bool multi;                          // u8, offset 56
+//     /* 7 bytes padding */
+// };
+// Total: 64 bytes
+
+let OPTIONS_SIZE = 64;
+let OPTIONS_METRIC_KIND = 0;
+let OPTIONS_METRIC = 8;
+let OPTIONS_QUANTIZATION = 16;
+let OPTIONS_DIMENSIONS = 24;
+let OPTIONS_CONNECTIVITY = 32;
+let OPTIONS_EXPANSION_ADD = 40;
+let OPTIONS_EXPANSION_SEARCH = 48;
+let OPTIONS_MULTI = 56;
+
+// Sizes for array element packing
+let SIZEOF_F32 = 4;
+let SIZEOF_F64 = 8;
+let SIZEOF_U64 = 8;
+let SIZEOF_PTR = 8;
+
+// ============================================================================
+// USearch FFI Bindings
+// ============================================================================
+
+// char const* usearch_version(void)
+extern fn usearch_version(): ptr;
+
+// usearch_index_t usearch_init(usearch_init_options_t* options, usearch_error_t* error)
+extern fn usearch_init(options: ptr, error: ptr): ptr;
+
+// void usearch_free(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_free(index: ptr, error: ptr): void;
+
+// void usearch_reserve(usearch_index_t index, size_t capacity, usearch_error_t* error)
+extern fn usearch_reserve(index: ptr, capacity: i64, error: ptr): void;
+
+// void usearch_clear(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_clear(index: ptr, error: ptr): void;
+
+// size_t usearch_size(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_size(index: ptr, error: ptr): i64;
+
+// size_t usearch_capacity(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_capacity(index: ptr, error: ptr): i64;
+
+// size_t usearch_dimensions(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_dimensions(index: ptr, error: ptr): i64;
+
+// size_t usearch_connectivity(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_connectivity(index: ptr, error: ptr): i64;
+
+// size_t usearch_expansion_add(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_expansion_add(index: ptr, error: ptr): i64;
+
+// size_t usearch_expansion_search(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_expansion_search(index: ptr, error: ptr): i64;
+
+// size_t usearch_memory_usage(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_memory_usage(index: ptr, error: ptr): i64;
+
+// size_t usearch_serialized_length(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_serialized_length(index: ptr, error: ptr): i64;
+
+// char const* usearch_hardware_acceleration(usearch_index_t index, usearch_error_t* error)
+extern fn usearch_hardware_acceleration(index: ptr, error: ptr): ptr;
+
+// void usearch_change_expansion_add(usearch_index_t, size_t, usearch_error_t*)
+extern fn usearch_change_expansion_add(index: ptr, expansion: i64, error: ptr): void;
+
+// void usearch_change_expansion_search(usearch_index_t, size_t, usearch_error_t*)
+extern fn usearch_change_expansion_search(index: ptr, expansion: i64, error: ptr): void;
+
+// void usearch_change_threads_add(usearch_index_t, size_t, usearch_error_t*)
+extern fn usearch_change_threads_add(index: ptr, threads: i64, error: ptr): void;
+
+// void usearch_change_threads_search(usearch_index_t, size_t, usearch_error_t*)
+extern fn usearch_change_threads_search(index: ptr, threads: i64, error: ptr): void;
+
+// void usearch_change_metric_kind(usearch_index_t, usearch_metric_kind_t, usearch_error_t*)
+extern fn usearch_change_metric_kind(index: ptr, kind: i32, error: ptr): void;
+
+// void usearch_save(usearch_index_t, const char*, usearch_error_t*)
+extern fn usearch_save(index: ptr, path: ptr, error: ptr): void;
+
+// void usearch_load(usearch_index_t, const char*, usearch_error_t*)
+extern fn usearch_load(index: ptr, path: ptr, error: ptr): void;
+
+// void usearch_view(usearch_index_t, const char*, usearch_error_t*)
+extern fn usearch_view(index: ptr, path: ptr, error: ptr): void;
+
+// void usearch_metadata(const char*, usearch_init_options_t*, usearch_error_t*)
+extern fn usearch_metadata(path: ptr, options: ptr, error: ptr): void;
+
+// void usearch_add(usearch_index_t, usearch_key_t, void const*, usearch_scalar_kind_t, usearch_error_t*)
+extern fn usearch_add(index: ptr, key: i64, vector: ptr, kind: i32, error: ptr): void;
+
+// bool usearch_contains(usearch_index_t, usearch_key_t, usearch_error_t*)
+extern fn usearch_contains(index: ptr, key: i64, error: ptr): bool;
+
+// size_t usearch_count(usearch_index_t, usearch_key_t, usearch_error_t*)
+extern fn usearch_count(index: ptr, key: i64, error: ptr): i64;
+
+// size_t usearch_get(usearch_index_t, usearch_key_t, size_t, void*, usearch_scalar_kind_t, usearch_error_t*)
+extern fn usearch_get(index: ptr, key: i64, count: i64, vector: ptr, kind: i32, error: ptr): i64;
+
+// size_t usearch_remove(usearch_index_t, usearch_key_t, usearch_error_t*)
+extern fn usearch_remove(index: ptr, key: i64, error: ptr): i64;
+
+// size_t usearch_rename(usearch_index_t, usearch_key_t, usearch_key_t, usearch_error_t*)
+extern fn usearch_rename(index: ptr, from_key: i64, to_key: i64, error: ptr): i64;
+
+// size_t usearch_search(usearch_index_t, void const*, usearch_scalar_kind_t, size_t,
+//                       usearch_key_t*, usearch_distance_t*, usearch_error_t*)
+extern fn usearch_search(index: ptr, query: ptr, kind: i32, count: i64,
+	keys: ptr, distances: ptr, error: ptr): i64;
+
+// usearch_distance_t usearch_distance(void const*, void const*, usearch_scalar_kind_t, size_t,
+//                                     usearch_metric_kind_t, usearch_error_t*)
+extern fn usearch_distance(a: ptr, b: ptr, kind: i32, dims: i64,
+	metric: i32, error: ptr): f32;
+
+// void usearch_exact_search(void const*, size_t, size_t, void const*, size_t, size_t,
+//                           usearch_scalar_kind_t, size_t, usearch_metric_kind_t, size_t, size_t,
+//                           usearch_key_t*, size_t, usearch_distance_t*, size_t, usearch_error_t*)
+extern fn usearch_exact_search(
+	dataset: ptr, dataset_size: i64, dataset_stride: i64,
+	queries: ptr, queries_size: i64, queries_stride: i64,
+	kind: i32, dims: i64, metric: i32, count: i64, threads: i64,
+	keys: ptr, keys_stride: i64,
+	distances: ptr, distances_stride: i64,
+	error: ptr): void;
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+// Create and initialize error holder (pointer to char*)
+fn _make_err_holder(): ptr {
+	let err = alloc(SIZEOF_PTR);
+	ptr_write_ptr(err, ptr_null());
+	return err;
+}
+
+// Check error holder and throw if error occurred, then free holder
+fn _check_err(err_holder: ptr): null {
+	let err_ptr = ptr_read_ptr(err_holder);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err_holder);
+		throw "usearch error: " + msg;
+	}
+	free(err_holder);
+	return null;
+}
+
+// Check error holder, throw if error, and free an additional pointer on error
+fn _check_err_with_cleanup(err_holder: ptr, cleanup_ptr: ptr): null {
+	let err_ptr = ptr_read_ptr(err_holder);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err_holder);
+		free(cleanup_ptr);
+		throw "usearch error: " + msg;
+	}
+	free(err_holder);
+	return null;
+}
+
+// Pack a Hemlock array of numbers into contiguous f32 memory
+// Returns: ptr to allocated f32 buffer (caller must free)
+fn _pack_f32(arr: array, dims: i64): ptr {
+	let buf = alloc(dims * SIZEOF_F32);
+	let i = 0;
+	while (i < dims) {
+		let val: f32 = arr[i];
+		ptr_write_f32(buf + i * SIZEOF_F32, val);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// Pack a Hemlock array of numbers into contiguous f64 memory
+// Returns: ptr to allocated f64 buffer (caller must free)
+fn _pack_f64(arr: array, dims: i64): ptr {
+	let buf = alloc(dims * SIZEOF_F64);
+	let i = 0;
+	while (i < dims) {
+		let val: f64 = arr[i];
+		ptr_write_f64(buf + i * SIZEOF_F64, val);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// Build usearch_init_options_t struct in memory
+fn _build_options(dimensions: i64, metric: i32, quantization: i32,
+	connectivity: i64, expansion_add: i64, expansion_search: i64, multi: bool): ptr {
+	let opts = alloc(OPTIONS_SIZE);
+	memset(opts, 0, OPTIONS_SIZE);
+	ptr_write_i32(opts + OPTIONS_METRIC_KIND, metric);
+	// opts + OPTIONS_METRIC left as NULL (use built-in metric)
+	ptr_write_i32(opts + OPTIONS_QUANTIZATION, quantization);
+	ptr_write_i64(opts + OPTIONS_DIMENSIONS, dimensions);
+	ptr_write_i64(opts + OPTIONS_CONNECTIVITY, connectivity);
+	ptr_write_i64(opts + OPTIONS_EXPANSION_ADD, expansion_add);
+	ptr_write_i64(opts + OPTIONS_EXPANSION_SEARCH, expansion_search);
+	if (multi) {
+		ptr_write_u8(opts + OPTIONS_MULTI, 1);
+	}
+	return opts;
+}
+
+// ============================================================================
+// VectorIndex Type
+// ============================================================================
+
+define VectorIndex {
+	_handle: ptr,
+	_dims: i64,
+	_freed: bool,
+}
+
+// Ensure index is not freed
+fn _check_alive(idx: VectorIndex): null {
+	if (idx._freed) {
+		throw "VectorIndex has been freed";
+	}
+	return null;
+}
+
+// ============================================================================
+// Library Info
+// ============================================================================
+
+// Get USearch library version string
+export fn version(): string {
+	let ver_ptr = usearch_version();
+	return __cstr_to_string(ver_ptr);
+}
+
+// ============================================================================
+// Index Lifecycle
+// ============================================================================
+
+// Create a new vector index
+//
+// dimensions: Number of dimensions per vector (required)
+// metric: Distance metric (default: METRIC_COSINE)
+// quantization: Scalar type for storage quantization (default: SCALAR_F32)
+// connectivity: HNSW graph connectivity M (default: 0 = library default, typically 16)
+// expansion_add: HNSW expansion factor for insertion ef_construction (default: 0 = library default, typically 128)
+// expansion_search: HNSW expansion factor for search ef (default: 0 = library default, typically 64)
+// multi: Allow multiple vectors per key (default: false)
+export fn create_index(dimensions: i64, metric?: 1, quantization?: 1,
+	connectivity?: 0, expansion_add?: 0, expansion_search?: 0, multi?: false): VectorIndex {
+	if (dimensions <= 0) {
+		throw "dimensions must be positive, got " + dimensions;
+	}
+
+	let opts = _build_options(dimensions, metric, quantization,
+		connectivity, expansion_add, expansion_search, multi);
+	let err = _make_err_holder();
+
+	let handle = usearch_init(opts, err);
+	free(opts);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	if (handle == ptr_null()) {
+		throw "usearch_init returned null handle";
+	}
+
+	let idx: VectorIndex = { _handle: handle, _dims: dimensions, _freed: false };
+	return idx;
+}
+
+// Load a previously saved index from disk
+//
+// path: Path to the saved index file
+// dimensions: Override dimensions (default: 0 = read from file metadata)
+// metric: Override metric (default: 0 = read from file metadata)
+// quantization: Override quantization (default: 0 = read from file metadata)
+export fn load_index(path: string, dimensions?: 0, metric?: 0, quantization?: 0): VectorIndex {
+	let path_cstr = __string_to_cstr(path);
+
+	// Read metadata from file to get dimensions if not specified
+	let actual_dims = dimensions;
+	let actual_metric = metric;
+	let actual_quant = quantization;
+
+	if (actual_dims == 0 || actual_metric == 0 || actual_quant == 0) {
+		let meta_opts = alloc(OPTIONS_SIZE);
+		memset(meta_opts, 0, OPTIONS_SIZE);
+		let err = _make_err_holder();
+		usearch_metadata(path_cstr, meta_opts, err);
+		let err_ptr = ptr_read_ptr(err);
+		if (err_ptr != ptr_null()) {
+			let msg = __cstr_to_string(err_ptr);
+			free(err);
+			free(meta_opts);
+			free(path_cstr);
+			throw "usearch error: " + msg;
+		}
+		free(err);
+		if (actual_dims == 0) {
+			actual_dims = ptr_read_i64(meta_opts + OPTIONS_DIMENSIONS);
+		}
+		if (actual_metric == 0) {
+			actual_metric = ptr_read_i32(meta_opts + OPTIONS_METRIC_KIND);
+		}
+		if (actual_quant == 0) {
+			actual_quant = ptr_read_i32(meta_opts + OPTIONS_QUANTIZATION);
+		}
+		free(meta_opts);
+	}
+
+	// Create index with discovered/specified options
+	let opts = _build_options(actual_dims, actual_metric, actual_quant, 0, 0, 0, false);
+	let err = _make_err_holder();
+	let handle = usearch_init(opts, err);
+	free(opts);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(path_cstr);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	// Load the data
+	let err2 = _make_err_holder();
+	usearch_load(handle, path_cstr, err2);
+	free(path_cstr);
+
+	let err_ptr2 = ptr_read_ptr(err2);
+	if (err_ptr2 != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr2);
+		free(err2);
+		let err3 = _make_err_holder();
+		usearch_free(handle, err3);
+		free(err3);
+		throw "usearch error: " + msg;
+	}
+	free(err2);
+
+	let idx: VectorIndex = { _handle: handle, _dims: actual_dims, _freed: false };
+	return idx;
+}
+
+// Open a memory-mapped read-only view of an index file
+// More memory-efficient than load_index for large indexes
+//
+// path: Path to the saved index file
+// dimensions: Override dimensions (default: 0 = read from file metadata)
+// metric: Override metric (default: 0 = read from file metadata)
+// quantization: Override quantization (default: 0 = read from file metadata)
+export fn view_index(path: string, dimensions?: 0, metric?: 0, quantization?: 0): VectorIndex {
+	let path_cstr = __string_to_cstr(path);
+
+	let actual_dims = dimensions;
+	let actual_metric = metric;
+	let actual_quant = quantization;
+
+	if (actual_dims == 0 || actual_metric == 0 || actual_quant == 0) {
+		let meta_opts = alloc(OPTIONS_SIZE);
+		memset(meta_opts, 0, OPTIONS_SIZE);
+		let err = _make_err_holder();
+		usearch_metadata(path_cstr, meta_opts, err);
+		let err_ptr = ptr_read_ptr(err);
+		if (err_ptr != ptr_null()) {
+			let msg = __cstr_to_string(err_ptr);
+			free(err);
+			free(meta_opts);
+			free(path_cstr);
+			throw "usearch error: " + msg;
+		}
+		free(err);
+		if (actual_dims == 0) {
+			actual_dims = ptr_read_i64(meta_opts + OPTIONS_DIMENSIONS);
+		}
+		if (actual_metric == 0) {
+			actual_metric = ptr_read_i32(meta_opts + OPTIONS_METRIC_KIND);
+		}
+		if (actual_quant == 0) {
+			actual_quant = ptr_read_i32(meta_opts + OPTIONS_QUANTIZATION);
+		}
+		free(meta_opts);
+	}
+
+	let opts = _build_options(actual_dims, actual_metric, actual_quant, 0, 0, 0, false);
+	let err = _make_err_holder();
+	let handle = usearch_init(opts, err);
+	free(opts);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(path_cstr);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	let err2 = _make_err_holder();
+	usearch_view(handle, path_cstr, err2);
+	free(path_cstr);
+
+	let err_ptr2 = ptr_read_ptr(err2);
+	if (err_ptr2 != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr2);
+		free(err2);
+		let err3 = _make_err_holder();
+		usearch_free(handle, err3);
+		free(err3);
+		throw "usearch error: " + msg;
+	}
+	free(err2);
+
+	let idx: VectorIndex = { _handle: handle, _dims: actual_dims, _freed: false };
+	return idx;
+}
+
+// Read index metadata from a file without loading the full index
+// Returns: { dimensions, metric, quantization }
+export fn index_metadata(path: string): object {
+	let path_cstr = __string_to_cstr(path);
+	let meta_opts = alloc(OPTIONS_SIZE);
+	memset(meta_opts, 0, OPTIONS_SIZE);
+
+	let err = _make_err_holder();
+	usearch_metadata(path_cstr, meta_opts, err);
+	free(path_cstr);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(meta_opts);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	let result = {
+		dimensions: ptr_read_i64(meta_opts + OPTIONS_DIMENSIONS),
+		metric: ptr_read_i32(meta_opts + OPTIONS_METRIC_KIND),
+		quantization: ptr_read_i32(meta_opts + OPTIONS_QUANTIZATION),
+		connectivity: ptr_read_i64(meta_opts + OPTIONS_CONNECTIVITY),
+	};
+	free(meta_opts);
+	return result;
+}
+
+// Free index resources
+// Always call this when done with an index
+export fn free_index(idx: VectorIndex): null {
+	if (idx._freed) {
+		return null;
+	}
+	let err = _make_err_holder();
+	usearch_free(idx._handle, err);
+	idx._freed = true;
+	// Best-effort free — don't throw on cleanup
+	free(err);
+	return null;
+}
+
+// ============================================================================
+// Data Operations
+// ============================================================================
+
+// Add a vector to the index
+//
+// idx: VectorIndex
+// key: Unique integer key (u64) identifying this vector
+// vector: Array of numbers (length must match index dimensions)
+// scalar: Scalar type of input data (default: SCALAR_F32)
+export fn add(idx: VectorIndex, key: i64, vector: array, scalar?: 1): null {
+	_check_alive(idx);
+	if (vector.length != idx._dims) {
+		throw "vector length " + vector.length + " does not match index dimensions " + idx._dims;
+	}
+
+	let vec_buf;
+	if (scalar == SCALAR_F64) {
+		vec_buf = _pack_f64(vector, idx._dims);
+	} else {
+		vec_buf = _pack_f32(vector, idx._dims);
+	}
+
+	let err = _make_err_holder();
+	usearch_add(idx._handle, key, vec_buf, scalar, err);
+	free(vec_buf);
+	_check_err(err);
+	return null;
+}
+
+// Add multiple vectors in batch
+//
+// idx: VectorIndex
+// keys: Array of integer keys
+// vectors: Array of arrays (each inner array is a vector)
+// scalar: Scalar type of input data (default: SCALAR_F32)
+export fn add_batch(idx: VectorIndex, keys: array, vectors: array, scalar?: 1): null {
+	_check_alive(idx);
+	if (keys.length != vectors.length) {
+		throw "keys length " + keys.length + " does not match vectors length " + vectors.length;
+	}
+
+	let n = keys.length;
+	let i = 0;
+	while (i < n) {
+		let vec = vectors[i];
+		if (vec.length != idx._dims) {
+			throw "vector at index " + i + " has length " + vec.length +
+				" but index expects " + idx._dims;
+		}
+
+		let vec_buf;
+		if (scalar == SCALAR_F64) {
+			vec_buf = _pack_f64(vec, idx._dims);
+		} else {
+			vec_buf = _pack_f32(vec, idx._dims);
+		}
+
+		let err = _make_err_holder();
+		usearch_add(idx._handle, keys[i], vec_buf, scalar, err);
+		free(vec_buf);
+		_check_err(err);
+		i = i + 1;
+	}
+	return null;
+}
+
+// Search for k nearest neighbors
+//
+// idx: VectorIndex
+// query: Query vector (array of numbers, length must match dimensions)
+// k: Number of nearest neighbors to return (default: 10)
+// scalar: Scalar type of query data (default: SCALAR_F32)
+// Returns: Array of { key, distance } objects, sorted by distance ascending
+export fn search(idx: VectorIndex, query: array, k?: 10, scalar?: 1): array {
+	_check_alive(idx);
+	if (query.length != idx._dims) {
+		throw "query length " + query.length + " does not match index dimensions " + idx._dims;
+	}
+	if (k <= 0) {
+		throw "k must be positive, got " + k;
+	}
+
+	let query_buf;
+	if (scalar == SCALAR_F64) {
+		query_buf = _pack_f64(query, idx._dims);
+	} else {
+		query_buf = _pack_f32(query, idx._dims);
+	}
+
+	// Allocate output buffers
+	let keys_buf = alloc(k * SIZEOF_U64);
+	let dists_buf = alloc(k * SIZEOF_F32);
+
+	let err = _make_err_holder();
+	let found = usearch_search(idx._handle, query_buf, scalar, k, keys_buf, dists_buf, err);
+	free(query_buf);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(keys_buf);
+		free(dists_buf);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	// Unpack results
+	let results = [];
+	let i = 0;
+	while (i < found) {
+		let key = ptr_read_u64(keys_buf + i * SIZEOF_U64);
+		let dist = ptr_read_f32(dists_buf + i * SIZEOF_F32);
+		results.push({ key: key, distance: dist });
+		i = i + 1;
+	}
+
+	free(keys_buf);
+	free(dists_buf);
+	return results;
+}
+
+// Batch search for k nearest neighbors of multiple queries
+//
+// idx: VectorIndex
+// queries: Array of query vectors
+// k: Number of nearest neighbors per query (default: 10)
+// scalar: Scalar type of query data (default: SCALAR_F32)
+// Returns: Array of result arrays (one per query), each containing { key, distance } objects
+export fn search_batch(idx: VectorIndex, queries: array, k?: 10, scalar?: 1): array {
+	_check_alive(idx);
+	if (k <= 0) {
+		throw "k must be positive, got " + k;
+	}
+
+	let all_results = [];
+	let q = 0;
+	while (q < queries.length) {
+		let result = search(idx, queries[q], k: k, scalar: scalar);
+		all_results.push(result);
+		q = q + 1;
+	}
+	return all_results;
+}
+
+// Remove a vector by key
+// Returns: number of vectors removed (0 if key not found)
+export fn remove(idx: VectorIndex, key: i64): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let removed = usearch_remove(idx._handle, key, err);
+	_check_err(err);
+	return removed;
+}
+
+// Rename a vector's key
+// Returns: number of vectors renamed
+export fn rename(idx: VectorIndex, from_key: i64, to_key: i64): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let renamed = usearch_rename(idx._handle, from_key, to_key, err);
+	_check_err(err);
+	return renamed;
+}
+
+// Check if a key exists in the index
+export fn contains(idx: VectorIndex, key: i64): bool {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_contains(idx._handle, key, err);
+	_check_err(err);
+	return result;
+}
+
+// Count vectors for a key (useful for multi-indexes where multiple vectors share a key)
+export fn count(idx: VectorIndex, key: i64): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_count(idx._handle, key, err);
+	_check_err(err);
+	return result;
+}
+
+// Retrieve a stored vector by key
+// Returns the vector as an array of f32 values, or null if not found
+//
+// idx: VectorIndex
+// key: Key to look up
+// scalar: Scalar type to retrieve as (default: SCALAR_F32)
+export fn get(idx: VectorIndex, key: i64, scalar?: 1): array {
+	_check_alive(idx);
+
+	let elem_size = SIZEOF_F32;
+	if (scalar == SCALAR_F64) {
+		elem_size = SIZEOF_F64;
+	}
+
+	let vec_buf = alloc(idx._dims * elem_size);
+	let err = _make_err_holder();
+	let found = usearch_get(idx._handle, key, 1, vec_buf, scalar, err);
+	_check_err(err);
+
+	if (found == 0) {
+		free(vec_buf);
+		return null;
+	}
+
+	// Unpack vector
+	let result = [];
+	let i = 0;
+	while (i < idx._dims) {
+		if (scalar == SCALAR_F64) {
+			result.push(ptr_read_f64(vec_buf + i * SIZEOF_F64));
+		} else {
+			result.push(ptr_read_f32(vec_buf + i * SIZEOF_F32));
+		}
+		i = i + 1;
+	}
+
+	free(vec_buf);
+	return result;
+}
+
+// ============================================================================
+// Persistence
+// ============================================================================
+
+// Save index to disk
+export fn save(idx: VectorIndex, path: string): null {
+	_check_alive(idx);
+	let path_cstr = __string_to_cstr(path);
+	let err = _make_err_holder();
+	usearch_save(idx._handle, path_cstr, err);
+	free(path_cstr);
+	_check_err(err);
+	return null;
+}
+
+// ============================================================================
+// Index Properties
+// ============================================================================
+
+// Get number of vectors in the index
+export fn size(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_size(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get allocated capacity
+export fn capacity(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_capacity(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get number of dimensions
+export fn dimensions(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_dimensions(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get HNSW graph connectivity (M parameter)
+export fn connectivity(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_connectivity(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get current memory usage in bytes
+export fn memory_usage(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_memory_usage(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get serialized length in bytes (how large the file would be)
+export fn serialized_length(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_serialized_length(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get hardware acceleration info (e.g., "avx512", "neon", "serial")
+export fn hardware_acceleration(idx: VectorIndex): string {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result_ptr = usearch_hardware_acceleration(idx._handle, err);
+	_check_err(err);
+	return __cstr_to_string(result_ptr);
+}
+
+// Get current expansion factor for insertion
+export fn get_expansion_add(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_expansion_add(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// Get current expansion factor for search
+export fn get_expansion_search(idx: VectorIndex): i64 {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	let result = usearch_expansion_search(idx._handle, err);
+	_check_err(err);
+	return result;
+}
+
+// ============================================================================
+// Index Configuration (Runtime Tuning)
+// ============================================================================
+
+// Set expansion factor for insertion (ef_construction)
+// Higher values = better recall but slower insertion
+export fn set_expansion_add(idx: VectorIndex, expansion: i64): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_change_expansion_add(idx._handle, expansion, err);
+	_check_err(err);
+	return null;
+}
+
+// Set expansion factor for search (ef)
+// Higher values = better recall but slower search
+export fn set_expansion_search(idx: VectorIndex, expansion: i64): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_change_expansion_search(idx._handle, expansion, err);
+	_check_err(err);
+	return null;
+}
+
+// Set number of threads for parallel insertion
+export fn set_threads_add(idx: VectorIndex, threads: i64): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_change_threads_add(idx._handle, threads, err);
+	_check_err(err);
+	return null;
+}
+
+// Set number of threads for parallel search
+export fn set_threads_search(idx: VectorIndex, threads: i64): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_change_threads_search(idx._handle, threads, err);
+	_check_err(err);
+	return null;
+}
+
+// Change the distance metric
+export fn set_metric(idx: VectorIndex, metric: i32): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_change_metric_kind(idx._handle, metric, err);
+	_check_err(err);
+	return null;
+}
+
+// Pre-allocate capacity for a known number of vectors
+// Avoids repeated internal reallocations during bulk insertion
+export fn reserve(idx: VectorIndex, capacity: i64): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_reserve(idx._handle, capacity, err);
+	_check_err(err);
+	return null;
+}
+
+// Remove all vectors from the index
+export fn clear(idx: VectorIndex): null {
+	_check_alive(idx);
+	let err = _make_err_holder();
+	usearch_clear(idx._handle, err);
+	_check_err(err);
+	return null;
+}
+
+// ============================================================================
+// Standalone Distance Computation
+// ============================================================================
+
+// Compute the distance between two vectors without an index
+//
+// a: First vector (array of numbers)
+// b: Second vector (array of numbers, same length as a)
+// metric: Distance metric (default: METRIC_COSINE)
+// scalar: Scalar type of input data (default: SCALAR_F32)
+// Returns: Distance as f32
+export fn distance(a: array, b: array, metric?: 1, scalar?: 1): f32 {
+	if (a.length != b.length) {
+		throw "vector lengths must match: " + a.length + " vs " + b.length;
+	}
+
+	let dims = a.length;
+	let a_buf;
+	let b_buf;
+
+	if (scalar == SCALAR_F64) {
+		a_buf = _pack_f64(a, dims);
+		b_buf = _pack_f64(b, dims);
+	} else {
+		a_buf = _pack_f32(a, dims);
+		b_buf = _pack_f32(b, dims);
+	}
+
+	let err = _make_err_holder();
+	let dist = usearch_distance(a_buf, b_buf, scalar, dims, metric, err);
+	free(a_buf);
+	free(b_buf);
+	_check_err(err);
+	return dist;
+}
+
+// ============================================================================
+// Exact Brute-Force Search
+// ============================================================================
+
+// Perform exact (brute-force) k-NN search over a dataset without building an index
+// Useful for small datasets or when 100% recall is required
+//
+// dataset: Array of vectors (array of arrays)
+// queries: Array of query vectors
+// k: Number of nearest neighbors per query (default: 10)
+// metric: Distance metric (default: METRIC_COSINE)
+// threads: Number of threads for parallel search (default: 1)
+// scalar: Scalar type (default: SCALAR_F32)
+// Returns: Array of result arrays, each containing { key, distance } objects
+//          Keys are 0-based indices into the dataset array
+export fn exact_search(dataset: array, queries: array, k?: 10,
+	metric?: 1, threads?: 1, scalar?: 1): array {
+	if (dataset.length == 0) {
+		let empty = [];
+		let q = 0;
+		while (q < queries.length) {
+			empty.push([]);
+			q = q + 1;
+		}
+		return empty;
+	}
+
+	let dims = dataset[0].length;
+	let n_data = dataset.length;
+	let n_queries = queries.length;
+	let elem_size = SIZEOF_F32;
+	if (scalar == SCALAR_F64) {
+		elem_size = SIZEOF_F64;
+	}
+	let stride = dims * elem_size;
+
+	// Pack dataset into contiguous memory
+	let data_buf = alloc(n_data * stride);
+	let i = 0;
+	while (i < n_data) {
+		let vec = dataset[i];
+		let j = 0;
+		while (j < dims) {
+			if (scalar == SCALAR_F64) {
+				let val: f64 = vec[j];
+				ptr_write_f64(data_buf + i * stride + j * elem_size, val);
+			} else {
+				let val: f32 = vec[j];
+				ptr_write_f32(data_buf + i * stride + j * elem_size, val);
+			}
+			j = j + 1;
+		}
+		i = i + 1;
+	}
+
+	// Pack queries
+	let query_buf = alloc(n_queries * stride);
+	i = 0;
+	while (i < n_queries) {
+		let vec = queries[i];
+		let j = 0;
+		while (j < dims) {
+			if (scalar == SCALAR_F64) {
+				let val: f64 = vec[j];
+				ptr_write_f64(query_buf + i * stride + j * elem_size, val);
+			} else {
+				let val: f32 = vec[j];
+				ptr_write_f32(query_buf + i * stride + j * elem_size, val);
+			}
+			j = j + 1;
+		}
+		i = i + 1;
+	}
+
+	// Allocate output buffers
+	let keys_stride = k * SIZEOF_U64;
+	let dists_stride = k * SIZEOF_F32;
+	let keys_buf = alloc(n_queries * keys_stride);
+	let dists_buf = alloc(n_queries * dists_stride);
+
+	let err = _make_err_holder();
+	usearch_exact_search(
+		data_buf, n_data, stride,
+		query_buf, n_queries, stride,
+		scalar, dims, metric, k, threads,
+		keys_buf, keys_stride,
+		dists_buf, dists_stride,
+		err);
+
+	free(data_buf);
+	free(query_buf);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(keys_buf);
+		free(dists_buf);
+		throw "usearch error: " + msg;
+	}
+	free(err);
+
+	// Unpack results
+	let all_results = [];
+	let q = 0;
+	while (q < n_queries) {
+		let results = [];
+		let r = 0;
+		while (r < k) {
+			let key = ptr_read_u64(keys_buf + q * keys_stride + r * SIZEOF_U64);
+			let dist = ptr_read_f32(dists_buf + q * dists_stride + r * SIZEOF_F32);
+			results.push({ key: key, distance: dist });
+			r = r + 1;
+		}
+		all_results.push(results);
+		q = q + 1;
+	}
+
+	free(keys_buf);
+	free(dists_buf);
+	return all_results;
+}

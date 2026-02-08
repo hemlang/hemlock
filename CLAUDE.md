@@ -554,7 +554,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (41 modules)
+## Standard Library (42 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -606,6 +606,7 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 | `toml` | TOML parsing and generation |
 | `url` | URL parsing and manipulation |
 | `uuid` | UUID generation |
+| `vector` | Vector similarity search (USearch ANN) |
 | `websocket` | WebSocket client |
 
 See `stdlib/docs/` for detailed module documentation.
@@ -978,7 +979,7 @@ make parity
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 41 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, termios)
+- 42 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, termios, vector)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
 - FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)

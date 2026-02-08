@@ -1,0 +1,45 @@
+// Test index save, load, view, and metadata
+
+import { create_index, add, search, save, load_index, view_index,
+	index_metadata, size, contains, free_index,
+	METRIC_COSINE, SCALAR_F32 } from "@stdlib/vector";
+
+// Create and populate an index
+let idx = create_index(3);
+add(idx, 1, [1.0, 0.0, 0.0]);
+add(idx, 2, [0.0, 1.0, 0.0]);
+add(idx, 3, [0.0, 0.0, 1.0]);
+add(idx, 4, [0.7, 0.7, 0.0]);
+add(idx, 5, [0.0, 0.7, 0.7]);
+
+assert(size(idx) == 5, "should have 5 vectors");
+
+// Save to disk
+save(idx, "/tmp/test_hemlock_vector.usearch");
+free_index(idx);
+
+// Test metadata without loading
+let meta = index_metadata("/tmp/test_hemlock_vector.usearch");
+assert(meta.dimensions == 3, "metadata dimensions should be 3");
+print("Index metadata: dimensions=" + meta.dimensions + " metric=" + meta.metric);
+
+// Test load
+let loaded = load_index("/tmp/test_hemlock_vector.usearch");
+assert(size(loaded) == 5, "loaded index should have 5 vectors");
+assert(contains(loaded, 1), "loaded index should contain key 1");
+assert(contains(loaded, 5), "loaded index should contain key 5");
+
+// Search loaded index
+let results = search(loaded, [1.0, 0.0, 0.0], k: 2);
+assert(results[0].key == 1, "search on loaded index should work");
+free_index(loaded);
+
+// Test view (memory-mapped read-only)
+let viewed = view_index("/tmp/test_hemlock_vector.usearch");
+assert(size(viewed) == 5, "viewed index should have 5 vectors");
+
+let view_results = search(viewed, [0.0, 1.0, 0.0], k: 1);
+assert(view_results[0].key == 2, "search on viewed index should work");
+free_index(viewed);
+
+print("All persistence vector tests passed!");
