@@ -1,0 +1,23 @@
+// Test: streaming HTTP builtins exist
+// Just verify the functions are available (don't make actual HTTP calls)
+
+let fn1 = __lws_http_stream_start;
+let fn2 = __lws_http_stream_read;
+let fn3 = __lws_http_stream_status;
+let fn4 = __lws_http_stream_headers;
+let fn5 = __lws_http_stream_close;
+
+let all_ok = true;
+
+let fns = [fn1, fn2, fn3, fn4, fn5];
+for (f in fns) {
+    let t = typeof(f);
+    if (t != "function" && t != "builtin") {
+        print("error: " + t);
+        all_ok = false;
+    }
+}
+
+if (all_ok) {
+    print("ok");
+}

@@ -2056,6 +2056,68 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== STREAMING HTTP BUILTINS ==========
+
+        // __lws_http_stream_start(method, url, body, content_type, timeout_ms)
+        if (strcmp(fn_name, "__lws_http_stream_start") == 0 && expr->as.call.num_args == 5) {
+            char *method = codegen_expr(ctx, expr->as.call.args[0]);
+            char *url = codegen_expr(ctx, expr->as.call.args[1]);
+            char *body = codegen_expr(ctx, expr->as.call.args[2]);
+            char *content_type = codegen_expr(ctx, expr->as.call.args[3]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[4]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_stream_start(%s, %s, %s, %s, %s);", result, method, url, body, content_type, timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", method);
+            codegen_writeln(ctx, "hml_release(&%s);", url);
+            codegen_writeln(ctx, "hml_release(&%s);", body);
+            codegen_writeln(ctx, "hml_release(&%s);", content_type);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            free(method);
+            free(url);
+            free(body);
+            free(content_type);
+            free(timeout_ms);
+            return result;
+        }
+
+        // __lws_http_stream_read(stream, timeout_ms)
+        if (strcmp(fn_name, "__lws_http_stream_read") == 0 && expr->as.call.num_args == 2) {
+            char *stream = codegen_expr(ctx, expr->as.call.args[0]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_stream_read(%s, %s);", result, stream, timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", stream);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            free(stream);
+            free(timeout_ms);
+            return result;
+        }
+
+        // __lws_http_stream_status(stream)
+        if (strcmp(fn_name, "__lws_http_stream_status") == 0 && expr->as.call.num_args == 1) {
+            char *stream = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_stream_status(%s);", result, stream);
+            codegen_writeln(ctx, "hml_release(&%s);", stream);
+            free(stream);
+            return result;
+        }
+
+        // __lws_http_stream_headers(stream)
+        if (strcmp(fn_name, "__lws_http_stream_headers") == 0 && expr->as.call.num_args == 1) {
+            char *stream = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_stream_headers(%s);", result, stream);
+            codegen_writeln(ctx, "hml_release(&%s);", stream);
+            free(stream);
+            return result;
+        }
+
+        // __lws_http_stream_close(stream)
+        if (strcmp(fn_name, "__lws_http_stream_close") == 0 && expr->as.call.num_args == 1) {
+            char *stream = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_stream_close(%s);", result, stream);
+            codegen_writeln(ctx, "hml_release(&%s);", stream);
+            free(stream);
+            return result;
+        }
+
         // ========== CRYPTOGRAPHIC HASH BUILTINS ==========
 
         // __sha256(input)
