@@ -20,7 +20,7 @@ jobs:
 
     - name: Build and install USearch
       run: |
-        git clone --depth 1 https://github.com/unum-cloud/usearch.git /tmp/usearch
+        git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
         cmake -B /tmp/usearch/build -S /tmp/usearch \
           -DUSEARCH_BUILD_LIB_C=ON \
           -DUSEARCH_BUILD_TEST_C=OFF \
@@ -159,7 +159,7 @@ jobs:
 
     - name: Build and install USearch
       run: |
-        git clone --depth 1 https://github.com/unum-cloud/usearch.git /tmp/usearch
+        git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
         cmake -B /tmp/usearch/build -S /tmp/usearch \
           -DUSEARCH_BUILD_LIB_C=ON \
           -DUSEARCH_BUILD_TEST_C=OFF \
