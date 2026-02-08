@@ -263,6 +263,14 @@ fn _pack_f64(arr: array, dims: i64): ptr {
 	return buf;
 }
 
+// Pack a Hemlock array into contiguous memory using the appropriate scalar type
+fn _pack_vector(arr: array, dims: i64, scalar: i32): ptr {
+	if (scalar == 2) {
+		return _pack_f64(arr, dims);
+	}
+	return _pack_f32(arr, dims);
+}
+
 // Build usearch_init_options_t struct in memory
 fn _build_options(dimensions: i64, metric: i32, quantization: i32,
 	connectivity: i64, expansion_add: i64, expansion_search: i64, multi: bool): ptr {
@@ -559,12 +567,7 @@ export fn add(idx: VectorIndex, key: i64, vector: array, scalar?: 1): null {
 		throw "vector length " + vector.length + " does not match index dimensions " + idx._dims;
 	}
 
-	let vec_buf;
-	if (scalar == SCALAR_F64) {
-		vec_buf = _pack_f64(vector, idx._dims);
-	} else {
-		vec_buf = _pack_f32(vector, idx._dims);
-	}
+	let vec_buf = _pack_vector(vector, idx._dims, scalar);
 
 	let err = _make_err_holder();
 	usearch_add(idx._handle, key, vec_buf, scalar, err);
@@ -594,12 +597,7 @@ export fn add_batch(idx: VectorIndex, keys: array, vectors: array, scalar?: 1): 
 				" but index expects " + idx._dims;
 		}
 
-		let vec_buf;
-		if (scalar == SCALAR_F64) {
-			vec_buf = _pack_f64(vec, idx._dims);
-		} else {
-			vec_buf = _pack_f32(vec, idx._dims);
-		}
+		let vec_buf = _pack_vector(vec, idx._dims, scalar);
 
 		let err = _make_err_holder();
 		usearch_add(idx._handle, keys[i], vec_buf, scalar, err);
@@ -626,12 +624,7 @@ export fn search(idx: VectorIndex, query: array, k?: 10, scalar?: 1): array {
 		throw "k must be positive, got " + k;
 	}
 
-	let query_buf;
-	if (scalar == SCALAR_F64) {
-		query_buf = _pack_f64(query, idx._dims);
-	} else {
-		query_buf = _pack_f32(query, idx._dims);
-	}
+	let query_buf = _pack_vector(query, idx._dims, scalar);
 
 	// Allocate output buffers
 	let keys_buf = alloc(k * SIZEOF_U64);
@@ -954,16 +947,8 @@ export fn distance(a: array, b: array, metric?: 1, scalar?: 1): f32 {
 	}
 
 	let dims = a.length;
-	let a_buf;
-	let b_buf;
-
-	if (scalar == SCALAR_F64) {
-		a_buf = _pack_f64(a, dims);
-		b_buf = _pack_f64(b, dims);
-	} else {
-		a_buf = _pack_f32(a, dims);
-		b_buf = _pack_f32(b, dims);
-	}
+	let a_buf = _pack_vector(a, dims, scalar);
+	let b_buf = _pack_vector(b, dims, scalar);
 
 	let err = _make_err_holder();
 	let dist = usearch_distance(a_buf, b_buf, scalar, dims, metric, err);
