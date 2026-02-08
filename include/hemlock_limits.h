@@ -185,6 +185,24 @@
 #define HML_ATOMIC_I32_ALIGNMENT 4   // _Alignof(_Atomic int32_t)
 #define HML_ATOMIC_I64_ALIGNMENT 8   // _Alignof(_Atomic int64_t)
 
+// ========== TOKENIZER (BPE) CONSTANTS ==========
+
+// Initial hash table capacity for BPE vocabulary
+// Should be a prime number for better distribution
+#define HML_BPE_INITIAL_HASH_CAPACITY 131071
+
+// Maximum token byte sequence length
+#define HML_BPE_MAX_TOKEN_LENGTH 128
+
+// Initial capacity for the BPE merge work list
+#define HML_BPE_INITIAL_WORK_CAPACITY 256
+
+// Base64 decode buffer size for vocabulary loading
+#define HML_BPE_BASE64_DECODE_BUFSIZE 256
+
+// Maximum line length when reading vocabulary files
+#define HML_BPE_MAX_VOCAB_LINE_LENGTH 1024
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch

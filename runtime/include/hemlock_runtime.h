@@ -939,6 +939,19 @@ HmlValue hml_builtin_regex_error(HmlClosureEnv *env, HmlValue errcode, HmlValue 
 HmlValue hml_builtin_regex_replace(HmlClosureEnv *env, HmlValue preg, HmlValue text, HmlValue replacement);
 HmlValue hml_builtin_regex_replace_all(HmlClosureEnv *env, HmlValue preg, HmlValue text, HmlValue replacement);
 
+// ========== TOKENIZER (BPE) FUNCTIONS ==========
+
+// Tokenizer lifecycle
+HmlValue hml_tokenizer_create(HmlValue path);
+HmlValue hml_tokenizer_free(HmlValue handle);
+
+// Tokenizer operations
+HmlValue hml_tokenizer_encode(HmlValue handle, HmlValue text);
+HmlValue hml_tokenizer_decode(HmlValue handle, HmlValue tokens);
+HmlValue hml_tokenizer_count(HmlValue handle, HmlValue text);
+HmlValue hml_tokenizer_vocab_size(HmlValue handle);
+HmlValue hml_tokenizer_add_special(HmlValue handle, HmlValue token, HmlValue rank);
+
 // ========== CALL STACK TRACKING ==========
 
 // Default maximum call stack depth (matches interpreter's limit)

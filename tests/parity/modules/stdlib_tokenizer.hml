@@ -1,0 +1,28 @@
+// Parity test: @stdlib/tokenizer
+import { Tokenizer } from "@stdlib/tokenizer";
+
+let tok = Tokenizer("tests/stdlib_tokenizer/test_vocab.bpe");
+
+// Test basic encoding
+let tokens = tok.encode("A");
+print(tokens[0]);
+
+// Test BPE merge
+let hello_tokens = tok.encode("Hello");
+print(hello_tokens[0]);
+
+// Test decode
+print(tok.decode([65]));
+print(tok.decode([271]));
+
+// Test count
+print(tok.count("Hello"));
+print(tok.count("AB"));
+
+// Test empty string
+print(tok.encode("").length);
+
+// Test vocab size
+print(tok.vocab_size > 0);
+
+tok.free();

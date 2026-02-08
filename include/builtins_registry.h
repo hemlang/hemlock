@@ -317,6 +317,15 @@ typedef struct {
     X("__regex_replace",      3,  HML_BUILTIN_INTERNAL, HML_RET_STRING) \
     X("__regex_replace_all",  3,  HML_BUILTIN_INTERNAL, HML_RET_STRING)
 
+#define HML_BUILTINS_TOKENIZER(X) \
+    X("__tokenizer_create",      1,  HML_BUILTIN_INTERNAL, HML_RET_PTR) \
+    X("__tokenizer_free",        1,  HML_BUILTIN_INTERNAL, HML_RET_NULL) \
+    X("__tokenizer_encode",      2,  HML_BUILTIN_INTERNAL, HML_RET_ARRAY) \
+    X("__tokenizer_decode",      2,  HML_BUILTIN_INTERNAL, HML_RET_STRING) \
+    X("__tokenizer_count",       2,  HML_BUILTIN_INTERNAL, HML_RET_I32) \
+    X("__tokenizer_vocab_size",  1,  HML_BUILTIN_INTERNAL | HML_BUILTIN_PURE, HML_RET_I32) \
+    X("__tokenizer_add_special", 3,  HML_BUILTIN_INTERNAL, HML_RET_NULL)
+
 #define HML_BUILTINS_FFI(X) \
     X("callback",       2,  HML_BUILTIN_PUBLIC, HML_RET_PTR) \
     X("callback_free",  1,  HML_BUILTIN_PUBLIC, HML_RET_NULL) \
@@ -349,6 +358,7 @@ typedef struct {
     HML_BUILTINS_CRYPTO(X) \
     HML_BUILTINS_COMPRESSION(X) \
     HML_BUILTINS_REGEX(X) \
+    HML_BUILTINS_TOKENIZER(X) \
     HML_BUILTINS_FFI(X) \
     HML_BUILTINS_INTERNAL(X)
 

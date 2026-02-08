@@ -1,0 +1,85 @@
+// Test: @stdlib/tokenizer BPE tokenizer module
+
+import { Tokenizer } from "@stdlib/tokenizer";
+
+// Get the vocab path relative to where tests are run
+let vocab_path = "tests/stdlib_tokenizer/test_vocab.bpe";
+
+// === Test 1: Create tokenizer ===
+let tok = Tokenizer(vocab_path);
+assert(tok != null, "Tokenizer should not be null");
+print("PASS: Tokenizer created");
+
+// === Test 2: Vocab size ===
+assert(tok.vocab_size > 0, "vocab_size should be > 0");
+print("PASS: vocab_size = " + tok.vocab_size);
+
+// === Test 3: Encode single byte ===
+let tokens_a = tok.encode("A");
+assert(tokens_a.length == 1, "Single char 'A' should encode to 1 token");
+assert(tokens_a[0] == 65, "'A' should encode to rank 65 (ASCII)");
+print("PASS: encode('A') = [" + tokens_a[0] + "]");
+
+// === Test 4: Encode with BPE merges ===
+let tokens_hello = tok.encode("Hello");
+// With our test vocab: "Hello" should merge to rank 271 (Hello)
+assert(tokens_hello.length == 1, "'Hello' should merge to 1 token, got " + tokens_hello.length);
+assert(tokens_hello[0] == 271, "'Hello' should encode to rank 271, got " + tokens_hello[0]);
+print("PASS: encode('Hello') = [" + tokens_hello[0] + "]");
+
+// === Test 5: Decode ===
+let decoded = tok.decode([271]);
+assert(decoded == "Hello", "decode([271]) should be 'Hello', got '" + decoded + "'");
+print("PASS: decode([271]) = '" + decoded + "'");
+
+// === Test 6: Roundtrip ===
+let text = "Hello";
+let roundtrip = tok.decode(tok.encode(text));
+assert(roundtrip == text, "Roundtrip failed: expected '" + text + "', got '" + roundtrip + "'");
+print("PASS: roundtrip('Hello')");
+
+// === Test 7: Count tokens ===
+let count = tok.count("Hello");
+assert(count == 1, "count('Hello') should be 1, got " + count);
+print("PASS: count('Hello') = " + count);
+
+// === Test 8: Empty string ===
+let tokens_empty = tok.encode("");
+assert(tokens_empty.length == 0, "Empty string should encode to 0 tokens");
+let count_empty = tok.count("");
+assert(count_empty == 0, "count('') should be 0");
+print("PASS: empty string handling");
+
+// === Test 9: Single byte encoding/decoding ===
+let tokens_space = tok.encode(" ");
+assert(tokens_space.length == 1, "Space should encode to 1 token");
+assert(tokens_space[0] == 32, "Space should encode to rank 32");
+let decoded_space = tok.decode([32]);
+assert(decoded_space == " ", "decode([32]) should be ' '");
+print("PASS: single byte space");
+
+// === Test 10: Decode multiple tokens ===
+let decoded_multi = tok.decode([65, 66, 67]);
+assert(decoded_multi == "ABC", "decode([65,66,67]) should be 'ABC', got '" + decoded_multi + "'");
+print("PASS: decode multiple tokens");
+
+// === Test 11: Free and use-after-free protection ===
+tok.free();
+let caught_error = false;
+try {
+    tok.encode("test");
+} catch (e) {
+    caught_error = true;
+}
+assert(caught_error, "Should throw on use after free");
+print("PASS: use-after-free protection");
+
+// === Test 12: Convenience function count_tokens (not used to avoid vocab reload) ===
+// Test creating a second tokenizer
+let tok2 = Tokenizer(vocab_path);
+let count2 = tok2.count("AB");
+assert(count2 == 2, "count('AB') should be 2, got " + count2);
+tok2.free();
+print("PASS: second tokenizer instance");
+
+print("All tokenizer tests passed!");
