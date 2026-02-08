@@ -726,7 +726,7 @@ export fn count(idx: VectorIndex, key: i64): i64 {
 // idx: VectorIndex
 // key: Key to look up
 // scalar: Scalar type to retrieve as (default: SCALAR_F32)
-export fn get(idx: VectorIndex, key: i64, scalar?: 1): array {
+export fn get(idx: VectorIndex, key: i64, scalar?: 1) {
 	_check_alive(idx);
 
 	let elem_size = SIZEOF_F32;
@@ -913,10 +913,10 @@ export fn set_metric(idx: VectorIndex, metric: i32): null {
 
 // Pre-allocate capacity for a known number of vectors
 // Avoids repeated internal reallocations during bulk insertion
-export fn reserve(idx: VectorIndex, capacity: i64): null {
+export fn reserve(idx: VectorIndex, cap: i64): null {
 	_check_alive(idx);
 	let err = _make_err_holder();
-	usearch_reserve(idx._handle, capacity, err);
+	usearch_reserve(idx._handle, cap, err);
 	_check_err(err);
 	return null;
 }
