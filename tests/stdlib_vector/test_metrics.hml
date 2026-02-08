@@ -1,0 +1,46 @@
+// Test different distance metrics and standalone distance computation
+
+import { create_index, add, search, distance, free_index,
+	METRIC_COSINE, METRIC_L2SQ, METRIC_IP } from "@stdlib/vector";
+
+// Test cosine distance (default)
+let cos_idx = create_index(3, metric: METRIC_COSINE);
+add(cos_idx, 1, [1.0, 0.0, 0.0]);
+add(cos_idx, 2, [0.0, 1.0, 0.0]);
+add(cos_idx, 3, [0.9, 0.1, 0.0]);
+
+let cos_results = search(cos_idx, [1.0, 0.0, 0.0], k: 3);
+assert(cos_results[0].key == 1, "cosine: exact match should be nearest");
+// Key 3 [0.9, 0.1, 0] should be closer to [1, 0, 0] than key 2 [0, 1, 0]
+assert(cos_results[1].key == 3, "cosine: [0.9, 0.1, 0] closer than [0, 1, 0]");
+free_index(cos_idx);
+
+// Test L2 squared distance
+let l2_idx = create_index(3, metric: METRIC_L2SQ);
+add(l2_idx, 1, [1.0, 0.0, 0.0]);
+add(l2_idx, 2, [0.0, 1.0, 0.0]);
+add(l2_idx, 3, [0.8, 0.0, 0.0]);
+
+let l2_results = search(l2_idx, [1.0, 0.0, 0.0], k: 3);
+assert(l2_results[0].key == 1, "L2: exact match should be nearest");
+assert(l2_results[1].key == 3, "L2: [0.8, 0, 0] closer than [0, 1, 0]");
+free_index(l2_idx);
+
+// Test standalone distance computation
+let a = [1.0, 0.0, 0.0];
+let b = [0.0, 1.0, 0.0];
+let c = [1.0, 0.0, 0.0];
+
+// Same vectors should have 0 distance
+let self_dist = distance(a, c, metric: METRIC_COSINE);
+assert(self_dist < 0.001, "distance to self should be ~0");
+
+// Orthogonal vectors should have high cosine distance
+let ortho_dist = distance(a, b, metric: METRIC_COSINE);
+assert(ortho_dist > 0.5, "orthogonal vectors should have high cosine distance");
+
+// L2 between [1,0,0] and [0,1,0] should be 2.0 (squared)
+let l2_dist = distance(a, b, metric: METRIC_L2SQ);
+assert(l2_dist > 1.5, "L2 squared distance should be ~2.0");
+
+print("All metric vector tests passed!");

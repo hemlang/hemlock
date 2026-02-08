@@ -1,0 +1,80 @@
+// Test error handling and validation
+
+import { create_index, add, search, free_index } from "@stdlib/vector";
+
+// Test invalid dimensions
+let caught = false;
+try {
+	create_index(0);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on 0 dimensions");
+
+caught = false;
+try {
+	create_index(-5);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on negative dimensions");
+
+// Test wrong vector dimensions
+let idx = create_index(3);
+
+caught = false;
+try {
+	add(idx, 1, [1.0, 2.0]);  // 2 dims instead of 3
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on wrong vector dimensions");
+
+caught = false;
+try {
+	add(idx, 1, [1.0, 2.0, 3.0, 4.0]);  // 4 dims instead of 3
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on too many dimensions");
+
+// Test wrong query dimensions
+add(idx, 1, [1.0, 0.0, 0.0]);
+
+caught = false;
+try {
+	search(idx, [1.0, 0.0], k: 1);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on wrong query dimensions");
+
+// Test invalid k
+caught = false;
+try {
+	search(idx, [1.0, 0.0, 0.0], k: 0);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on k=0");
+
+caught = false;
+try {
+	search(idx, [1.0, 0.0, 0.0], k: -1);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on negative k");
+
+free_index(idx);
+
+// Test operations on freed index
+caught = false;
+try {
+	add(idx, 99, [1.0, 0.0, 0.0]);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on freed index");
+
+print("All error handling tests passed!");

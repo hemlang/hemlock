@@ -1,0 +1,44 @@
+// Test exact brute-force search
+
+import { exact_search, METRIC_COSINE, METRIC_L2SQ } from "@stdlib/vector";
+
+// Simple dataset
+let dataset = [
+	[1.0, 0.0, 0.0],
+	[0.0, 1.0, 0.0],
+	[0.0, 0.0, 1.0],
+	[0.7, 0.7, 0.0],
+	[0.0, 0.7, 0.7],
+];
+
+// Single query
+let queries = [[1.0, 0.0, 0.0]];
+let results = exact_search(dataset, queries, k: 3);
+
+assert(results.length == 1, "should have 1 result set for 1 query");
+assert(results[0].length == 3, "should have 3 results per query");
+
+// Key 0 should be nearest (exact match at dataset[0])
+assert(results[0][0].key == 0, "exact match should be dataset index 0");
+assert(results[0][0].distance < 0.001, "exact match distance should be ~0");
+
+// Multiple queries
+let multi_queries = [
+	[1.0, 0.0, 0.0],
+	[0.0, 1.0, 0.0],
+];
+let multi_results = exact_search(dataset, multi_queries, k: 2);
+assert(multi_results.length == 2, "should have 2 result sets");
+assert(multi_results[0][0].key == 0, "first query nearest: dataset[0]");
+assert(multi_results[1][0].key == 1, "second query nearest: dataset[1]");
+
+// Test with L2 metric
+let l2_results = exact_search(dataset, [[0.0, 0.0, 1.0]], k: 2, metric: METRIC_L2SQ);
+assert(l2_results[0][0].key == 2, "L2: [0,0,1] nearest should be dataset[2]");
+
+// Empty dataset
+let empty_results = exact_search([], [[1.0, 0.0, 0.0]], k: 5);
+assert(empty_results.length == 1, "empty dataset should return empty result per query");
+assert(empty_results[0].length == 0, "empty dataset should return no results");
+
+print("All exact search tests passed!");

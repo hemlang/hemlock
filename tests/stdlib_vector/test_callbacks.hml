@@ -1,0 +1,87 @@
+// Test filtered search and custom metrics (callback-based features)
+
+import { create_index, add, add_batch, search, search_filtered,
+	set_custom_metric, free_custom_metric, size, free_index,
+	METRIC_COSINE, METRIC_L2SQ, METRIC_UNKNOWN } from "@stdlib/vector";
+
+// ============================================================================
+// Filtered Search
+// ============================================================================
+
+let idx = create_index(3);
+add_batch(idx, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [
+	[1.0, 0.0, 0.0],
+	[0.9, 0.1, 0.0],
+	[0.8, 0.2, 0.0],
+	[0.0, 1.0, 0.0],
+	[0.0, 0.9, 0.1],
+	[0.0, 0.0, 1.0],
+	[0.7, 0.7, 0.0],
+	[0.5, 0.5, 0.5],
+	[0.3, 0.3, 0.3],
+	[0.1, 0.1, 0.8],
+]);
+
+// Search without filter — should find key 1 as nearest
+let unfiltered = search(idx, [1.0, 0.0, 0.0], k: 1);
+assert(unfiltered[0].key == 1, "unfiltered: nearest should be key 1");
+
+// Search with filter — only allow keys > 5
+let filtered = search_filtered(idx, [1.0, 0.0, 0.0], 3, fn(key) {
+	return key > 5;
+});
+// All returned keys should be > 5
+for (r in filtered) {
+	assert(r.key > 5, "filtered: all keys should be > 5, got " + r.key);
+}
+print("Filtered search returned " + filtered.length + " results (all keys > 5)");
+
+// Search with filter — only even keys
+let even_results = search_filtered(idx, [0.0, 1.0, 0.0], 5, fn(key) {
+	return key % 2 == 0;
+});
+for (r in even_results) {
+	assert(r.key % 2 == 0, "even filter: key should be even, got " + r.key);
+}
+print("Even-key filtered search returned " + even_results.length + " results");
+
+free_index(idx);
+
+// ============================================================================
+// User-Defined Metrics
+// ============================================================================
+
+// Create index with unknown metric (we'll set custom)
+let idx2 = create_index(3, metric: METRIC_L2SQ);
+add(idx2, 1, [1.0, 0.0, 0.0]);
+add(idx2, 2, [0.0, 1.0, 0.0]);
+add(idx2, 3, [0.0, 0.0, 1.0]);
+
+// Define a custom L1 (Manhattan) distance metric
+// The callback receives raw pointers to f32 data
+let metric_cb = set_custom_metric(idx2, fn(a: ptr, b: ptr): f32 {
+	let d0 = ptr_read_f32(a) - ptr_read_f32(b);
+	let d1 = ptr_read_f32(a + 4) - ptr_read_f32(b + 4);
+	let d2 = ptr_read_f32(a + 8) - ptr_read_f32(b + 8);
+	// Manhattan distance: sum of absolute differences
+	if (d0 < 0.0) { d0 = 0.0 - d0; }
+	if (d1 < 0.0) { d1 = 0.0 - d1; }
+	if (d2 < 0.0) { d2 = 0.0 - d2; }
+	let result: f32 = d0 + d1 + d2;
+	return result;
+});
+
+// Search with custom metric
+let custom_results = search(idx2, [1.0, 0.0, 0.0], k: 3);
+assert(custom_results.length == 3, "custom metric: should return 3 results");
+// Key 1 [1,0,0] should be nearest to query [1,0,0] with L1 distance 0
+assert(custom_results[0].key == 1, "custom metric: nearest should be key 1");
+assert(custom_results[0].distance < 0.01, "custom metric: self-distance should be ~0");
+print("Custom metric search: nearest key=" + custom_results[0].key +
+	" distance=" + custom_results[0].distance);
+
+// Clean up custom metric callback
+free_custom_metric(metric_cb);
+free_index(idx2);
+
+print("All callback tests passed!");
