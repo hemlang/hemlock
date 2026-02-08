@@ -1,0 +1,119 @@
+// @stdlib/tokenizer - BPE (Byte Pair Encoding) tokenizer for token counting
+//
+// Provides tiktoken-compatible tokenization for staying under LLM context limits.
+// Load vocabulary files in tiktoken's base64 format and encode/decode text.
+//
+// Usage:
+//   import { Tokenizer } from "@stdlib/tokenizer";
+//
+//   let tok = Tokenizer("vocab.bpe");
+//   let tokens = tok.encode("Hello, world!");
+//   let count = tok.count("Hello, world!");
+//   let text = tok.decode(tokens);
+//   print(tok.vocab_size);
+//   tok.free();
+
+// Create a Tokenizer object from a BPE vocabulary file.
+//
+// The vocabulary file should be in tiktoken format: each line contains
+// a base64-encoded token byte sequence followed by a space and its rank (token ID).
+//
+// Example vocabulary file:
+//   IQ== 0
+//   Ig== 1
+//   Iw== 2
+//   ...
+//
+// Returns an object with encode(), decode(), count(), and free() methods.
+export fn Tokenizer(vocab_path: string) {
+    if (typeof(vocab_path) != "string") {
+        throw "Tokenizer() requires a string path to vocabulary file";
+    }
+
+    let handle = __tokenizer_create(vocab_path);
+    let _freed = false;
+
+    let tok = {
+        // Encode text into an array of token IDs (i32).
+        encode: fn(text: string) {
+            if (_freed) { throw "Tokenizer: use after free"; }
+            if (typeof(text) != "string") {
+                throw "encode() requires a string argument";
+            }
+            return __tokenizer_encode(handle, text);
+        },
+
+        // Decode an array of token IDs back into text.
+        decode: fn(tokens: array) {
+            if (_freed) { throw "Tokenizer: use after free"; }
+            if (typeof(tokens) != "array") {
+                throw "decode() requires an array argument";
+            }
+            return __tokenizer_decode(handle, tokens);
+        },
+
+        // Count the number of tokens in text.
+        // More efficient than encode() when you only need the count.
+        count: fn(text: string) {
+            if (_freed) { throw "Tokenizer: use after free"; }
+            if (typeof(text) != "string") {
+                throw "count() requires a string argument";
+            }
+            return __tokenizer_count(handle, text);
+        },
+
+        // Get the vocabulary size (number of tokens).
+        vocab_size: __tokenizer_vocab_size(handle),
+
+        // Add a special token (e.g., "<|endoftext|>") with a specific rank.
+        // Special tokens are matched exactly before BPE encoding.
+        add_special: fn(token: string, rank: i32) {
+            if (_freed) { throw "Tokenizer: use after free"; }
+            if (typeof(token) != "string") {
+                throw "add_special() requires a string token";
+            }
+            __tokenizer_add_special(handle, token, rank);
+        },
+
+        // Free the tokenizer and all its resources.
+        // The tokenizer must not be used after calling free().
+        free: fn() {
+            if (!_freed) {
+                __tokenizer_free(handle);
+                _freed = true;
+            }
+        }
+    };
+
+    return tok;
+}
+
+// Convenience function: encode text to tokens using a vocabulary file.
+// Creates a temporary tokenizer, encodes, and frees it.
+// For repeated use, create a Tokenizer object instead.
+export fn encode(text: string, vocab_path: string) {
+    let tok = Tokenizer(vocab_path);
+    let result = tok.encode(text);
+    tok.free();
+    return result;
+}
+
+// Convenience function: decode tokens to text using a vocabulary file.
+// Creates a temporary tokenizer, decodes, and frees it.
+// For repeated use, create a Tokenizer object instead.
+export fn decode(tokens: array, vocab_path: string) {
+    let tok = Tokenizer(vocab_path);
+    let result = tok.decode(tokens);
+    tok.free();
+    return result;
+}
+
+// Convenience function: count tokens in text using a vocabulary file.
+// Creates a temporary tokenizer, counts, and frees it.
+// For repeated use, create a Tokenizer object instead.
+export fn count_tokens(text: string, vocab_path: string) {
+    let tok = Tokenizer(vocab_path);
+    let result = tok.count(text);
+    tok.free();
+    return result;
+}

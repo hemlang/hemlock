@@ -203,6 +203,14 @@ static BuiltinInfo builtins[] = {
     {"__os_name", builtin_os_name},
     {"__tmpdir", builtin_tmpdir},
     {"__uptime", builtin_uptime},
+    // Tokenizer (BPE) builtins (use stdlib/tokenizer.hml module for public API)
+    {"__tokenizer_create", builtin_tokenizer_create},
+    {"__tokenizer_free", builtin_tokenizer_free},
+    {"__tokenizer_encode", builtin_tokenizer_encode},
+    {"__tokenizer_decode", builtin_tokenizer_decode},
+    {"__tokenizer_count", builtin_tokenizer_count},
+    {"__tokenizer_vocab_size", builtin_tokenizer_vocab_size},
+    {"__tokenizer_add_special", builtin_tokenizer_add_special},
     // Unprefixed aliases for parity with compiler (also exposes public API)
     // Math functions
     {"sin", builtin_sin},

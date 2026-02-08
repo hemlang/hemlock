@@ -2606,6 +2606,86 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== TOKENIZER (BPE) BUILTINS ==========
+
+        // __tokenizer_create(path) - load BPE vocabulary file, return tokenizer ptr
+        if (strcmp(fn_name, "__tokenizer_create") == 0 && expr->as.call.num_args == 1) {
+            char *path = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_create(%s);", result, path);
+            codegen_writeln(ctx, "hml_release(&%s);", path);
+            free(path);
+            return result;
+        }
+
+        // __tokenizer_free(tok) - free tokenizer resources
+        if (strcmp(fn_name, "__tokenizer_free") == 0 && expr->as.call.num_args == 1) {
+            char *handle = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_free(%s);", result, handle);
+            codegen_writeln(ctx, "hml_release(&%s);", handle);
+            free(handle);
+            return result;
+        }
+
+        // __tokenizer_encode(tok, text) - encode text to token IDs
+        if (strcmp(fn_name, "__tokenizer_encode") == 0 && expr->as.call.num_args == 2) {
+            char *handle = codegen_expr(ctx, expr->as.call.args[0]);
+            char *text = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_encode(%s, %s);", result, handle, text);
+            codegen_writeln(ctx, "hml_release(&%s);", handle);
+            codegen_writeln(ctx, "hml_release(&%s);", text);
+            free(handle);
+            free(text);
+            return result;
+        }
+
+        // __tokenizer_decode(tok, tokens) - decode token IDs to text
+        if (strcmp(fn_name, "__tokenizer_decode") == 0 && expr->as.call.num_args == 2) {
+            char *handle = codegen_expr(ctx, expr->as.call.args[0]);
+            char *tokens = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_decode(%s, %s);", result, handle, tokens);
+            codegen_writeln(ctx, "hml_release(&%s);", handle);
+            codegen_writeln(ctx, "hml_release(&%s);", tokens);
+            free(handle);
+            free(tokens);
+            return result;
+        }
+
+        // __tokenizer_count(tok, text) - count tokens in text
+        if (strcmp(fn_name, "__tokenizer_count") == 0 && expr->as.call.num_args == 2) {
+            char *handle = codegen_expr(ctx, expr->as.call.args[0]);
+            char *text = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_count(%s, %s);", result, handle, text);
+            codegen_writeln(ctx, "hml_release(&%s);", handle);
+            codegen_writeln(ctx, "hml_release(&%s);", text);
+            free(handle);
+            free(text);
+            return result;
+        }
+
+        // __tokenizer_vocab_size(tok) - get vocabulary size
+        if (strcmp(fn_name, "__tokenizer_vocab_size") == 0 && expr->as.call.num_args == 1) {
+            char *handle = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_vocab_size(%s);", result, handle);
+            codegen_writeln(ctx, "hml_release(&%s);", handle);
+            free(handle);
+            return result;
+        }
+
+        // __tokenizer_add_special(tok, token, rank) - add special token
+        if (strcmp(fn_name, "__tokenizer_add_special") == 0 && expr->as.call.num_args == 3) {
+            char *handle = codegen_expr(ctx, expr->as.call.args[0]);
+            char *token = codegen_expr(ctx, expr->as.call.args[1]);
+            char *rank = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_tokenizer_add_special(%s, %s, %s);", result, handle, token, rank);
+            codegen_writeln(ctx, "hml_release(&%s);", handle);
+            codegen_writeln(ctx, "hml_release(&%s);", token);
+            codegen_writeln(ctx, "hml_release(&%s);", rank);
+            free(handle);
+            free(token);
+            free(rank);
+            return result;
+        }
+
         // Handle user-defined function by name (hml_fn_<name>)
         // Main file functions should use generic call path (hml_call_function)
         // to properly handle optional parameters with defaults

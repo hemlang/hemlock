@@ -325,4 +325,13 @@ Value builtin_regex_error(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx);
 
+// Tokenizer (BPE) builtins (tokenizer.c)
+Value builtin_tokenizer_create(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tokenizer_free(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tokenizer_encode(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tokenizer_decode(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tokenizer_count(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tokenizer_vocab_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_tokenizer_add_special(Value *args, int num_args, ExecutionContext *ctx);
+
 #endif // BUILTINS_INTERNAL_H
