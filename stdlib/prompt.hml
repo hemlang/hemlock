@@ -1,0 +1,244 @@
+// @stdlib/prompt - LLM prompt templating and conversation management
+//
+// Provides utilities for building multi-turn LLM conversations,
+// applying chat templates, and managing system/user/assistant messages.
+//
+// Usage:
+// import { message, system, user, assistant, format_chat, apply_template } from "@stdlib/prompt";
+//
+// let msgs = [system("You are helpful."), user("Hello!")];
+// let prompt = format_chat(msgs, "chatml");
+// print(prompt);
+//
+// Built-in templates: chatml, llama3, alpaca, vicuna, zephyr, gemma, plain
+//
+// Custom templates use Jinja syntax via @stdlib/jinja.
+
+import { render } from "@stdlib/jinja";
+
+// ============================================================================
+// Message Constructors
+// ============================================================================
+
+// Create a message with a given role and content
+export fn message(role, content): object {
+	if (typeof(role) != "string") {
+		throw "message() role must be a string";
+	}
+	if (typeof(content) != "string") {
+		content = "" + content;
+	}
+	return { role: role, content: content };
+}
+
+// Create a system message
+export fn system(content): object {
+	return message("system", content);
+}
+
+// Create a user message
+export fn user(content): object {
+	return message("user", content);
+}
+
+// Create an assistant message
+export fn assistant(content): object {
+	return message("assistant", content);
+}
+
+// Create a tool message with optional tool name
+export fn tool(content, name?: null): object {
+	let msg = message("tool", content);
+	if (name != null) {
+		msg["name"] = name;
+	}
+	return msg;
+}
+
+// ============================================================================
+// Built-in Chat Templates (Jinja syntax)
+// ============================================================================
+
+// ChatML format (OpenAI, Qwen, Yi, etc.)
+let CHATML = "{% for msg in messages %}<|im_start|>{{ msg.role }}\n{{ msg.content }}<|im_end|>\n{% endfor %}<|im_start|>assistant\n";
+
+// Llama 3 / Llama 3.1 format
+let LLAMA3 = "{% for msg in messages %}<|start_header_id|>{{ msg.role }}<|end_header_id|>\n\n{{ msg.content }}<|eot_id|>{% endfor %}<|start_header_id|>assistant<|end_header_id|>\n\n";
+
+// Alpaca format (instruction-following)
+let ALPACA_TMPL = "{% for msg in messages %}{% if msg.role == 'system' %}### Instruction:\n{{ msg.content }}\n\n{% elif msg.role == 'user' %}### Input:\n{{ msg.content }}\n\n{% elif msg.role == 'assistant' %}### Response:\n{{ msg.content }}\n\n{% endif %}{% endfor %}### Response:\n";
+
+// Vicuna format
+let VICUNA = "{% for msg in messages %}{% if msg.role == 'system' %}{{ msg.content }}\n\n{% elif msg.role == 'user' %}USER: {{ msg.content }}\n{% elif msg.role == 'assistant' %}ASSISTANT: {{ msg.content }}\n{% endif %}{% endfor %}ASSISTANT:";
+
+// Zephyr format (Mistral)
+let ZEPHYR = "{% for msg in messages %}<|{{ msg.role }}|>\n{{ msg.content }}<|endoftext|>\n{% endfor %}<|assistant|>\n";
+
+// Gemma format
+let GEMMA = "{% for msg in messages %}{% if msg.role == 'user' %}<start_of_turn>user\n{{ msg.content }}<end_of_turn>\n{% elif msg.role == 'assistant' %}<start_of_turn>model\n{{ msg.content }}<end_of_turn>\n{% elif msg.role == 'system' %}<start_of_turn>user\n{{ msg.content }}<end_of_turn>\n{% endif %}{% endfor %}<start_of_turn>model\n";
+
+// Plain text format (no special tokens)
+let PLAIN = "{% for msg in messages %}[{{ msg.role }}]: {{ msg.content }}\n{% endfor %}[assistant]:";
+
+fn get_template(name): string {
+	if (name == "chatml") {
+		return CHATML;
+	}
+	if (name == "llama3") {
+		return LLAMA3;
+	}
+	if (name == "alpaca") {
+		return ALPACA_TMPL;
+	}
+	if (name == "vicuna") {
+		return VICUNA;
+	}
+	if (name == "zephyr") {
+		return ZEPHYR;
+	}
+	if (name == "gemma") {
+		return GEMMA;
+	}
+	if (name == "plain") {
+		return PLAIN;
+	}
+	throw "Unknown chat template: " + name + ". Available: chatml, llama3, alpaca, vicuna, zephyr, gemma, plain";
+}
+
+// ============================================================================
+// Template Formatting
+// ============================================================================
+
+// Format a message array with a named built-in template
+// Parameters:
+//   messages: array of message objects (each with .role and .content)
+//   template_name: string - one of: chatml, llama3, alpaca, vicuna, zephyr, gemma, plain
+// Returns: formatted prompt string
+export fn format_chat(messages, template_name): string {
+	if (typeof(messages) != "array") {
+		throw "format_chat() messages must be an array";
+	}
+	if (typeof(template_name) != "string") {
+		throw "format_chat() template_name must be a string";
+	}
+	let tmpl = get_template(template_name);
+	return render(tmpl, { messages: messages });
+}
+
+// Apply a custom Jinja template to a message array
+// Parameters:
+//   template: string - Jinja template string
+//   messages: array of message objects
+//   context: object - additional variables available in the template (optional)
+// Returns: rendered string
+export fn apply_template(template, messages, context?: null): string {
+	if (typeof(template) != "string") {
+		throw "apply_template() template must be a string";
+	}
+	if (typeof(messages) != "array") {
+		throw "apply_template() messages must be an array";
+	}
+	let ctx = {};
+	if (context != null) {
+		if (typeof(context) != "object") {
+			throw "apply_template() context must be an object";
+		}
+		let keys = context.keys();
+		for (key in keys) {
+			ctx[key] = context[key];
+		}
+	}
+	ctx["messages"] = messages;
+	return render(template, ctx);
+}
+
+// ============================================================================
+// Conversation Builder
+// ============================================================================
+
+// Create a conversation builder for incremental message construction
+// Parameters:
+//   template_name: string - built-in template name (default: "chatml")
+// Returns: conversation object with methods
+export fn conversation(template_name?: "chatml"): object {
+	let msgs: array = [];
+	let tmpl_name = template_name;
+
+	let conv = {
+		messages: msgs,
+		template_name: tmpl_name
+	};
+
+	// Add methods after conv is declared so closures can reference it
+	conv["add_system"] = fn(content) {
+		msgs.push(system(content));
+		return conv;
+	};
+
+	conv["add_user"] = fn(content) {
+		msgs.push(user(content));
+		return conv;
+	};
+
+	conv["add_assistant"] = fn(content) {
+		msgs.push(assistant(content));
+		return conv;
+	};
+
+	conv["add_message"] = fn(role, content) {
+		msgs.push(message(role, content));
+		return conv;
+	};
+
+	conv["format"] = fn(): string {
+		return format_chat(msgs, tmpl_name);
+	};
+
+	conv["format_with"] = fn(custom_template): string {
+		return apply_template(custom_template, msgs);
+	};
+
+	conv["count"] = fn(): i32 {
+		return msgs.length;
+	};
+
+	conv["last_message"] = fn() {
+		if (msgs.length == 0) {
+			return null;
+		}
+		return msgs[msgs.length - 1];
+	};
+
+	conv["reset"] = fn() {
+		while (msgs.length > 0) {
+			msgs.pop();
+		}
+		return conv;
+	};
+
+	conv["by_role"] = fn(role): array {
+		let filtered: array = [];
+		for (msg in msgs) {
+			if (msg.role == role) {
+				filtered.push(msg);
+			}
+		}
+		return filtered;
+	};
+
+	return conv;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// List all available built-in template names
+export fn templates(): array {
+	return ["chatml", "llama3", "alpaca", "vicuna", "zephyr", "gemma", "plain"];
+}
+
+// Get the raw Jinja template string for a built-in template
+export fn get_template_source(name): string {
+	return get_template(name);
+}

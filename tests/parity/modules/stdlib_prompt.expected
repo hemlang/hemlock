@@ -1,0 +1,44 @@
+system
+You are helpful.
+user
+Hello!
+assistant
+Hi there!
+custom
+test
+tool
+result
+calc
+[system]: Be brief.
+[user]: Hi!
+[assistant]:
+<|im_start|>system
+Be brief.<|im_end|>
+<|im_start|>user
+Hi!<|im_end|>
+<|im_start|>assistant
+
+(system) Be brief.
+(user) Hi!
+
+Model: test-model
+Be brief.
+Hi!
+
+4
+user
+Follow-up?
+2
+[system]: System prompt.
+[user]: Question?
+[assistant]: Answer.
+[user]: Follow-up?
+[assistant]:
+0
+7
+chatml
+plain
+true
+tool
+data
+done
