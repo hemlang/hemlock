@@ -1232,6 +1232,7 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
                 if (strcmp(name, "open") == 0) return checked_type_primitive(CHECKED_FILE);
                 if (strcmp(name, "channel") == 0) return checked_type_primitive(CHECKED_CHANNEL);
                 if (strcmp(name, "spawn") == 0) return checked_type_primitive(CHECKED_TASK);
+                if (strcmp(name, "schema") == 0) return checked_type_primitive(CHECKED_OBJECT);
                 if (strcmp(name, "read_line") == 0) {
                     CheckedType *t = checked_type_primitive(CHECKED_STRING);
                     t->nullable = 1;

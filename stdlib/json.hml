@@ -630,6 +630,165 @@ fn equals(a, b): bool {
 }
 
 // ============================================================================
+// JSON Schema Validation
+// ============================================================================
+
+// Generate a JSON Schema from a registered define type.
+// Uses the built-in schema() function to extract type metadata.
+//
+// Usage:
+//   define User { name: string, age: i32, email?: string }
+//   let user_schema = to_json_schema("User");
+fn to_json_schema(type_name: string) {
+	return schema(type_name);
+}
+
+// Validate data against a JSON schema object (as returned by to_json_schema()).
+// Returns: { valid: bool, errors: array<string> }
+//
+// Usage:
+//   define User { name: string, age: i32 }
+//   let s = to_json_schema("User");
+//   let result = validate_schema(data, s);
+//   if (!result.valid) { print(result.errors); }
+fn validate_schema(data, schema_obj) {
+	let errors = [];
+
+	// Schema must be an object
+	if (typeof(schema_obj) != "object") {
+		errors.push("Schema must be an object");
+		return { valid: false, errors };
+	}
+
+	let schema_type = schema_obj["type"] ?? "any";
+
+	// Top-level type check
+	if (schema_type == "object") {
+		if (typeof(data) != "object") {
+			errors.push("Expected object, got " + typeof(data));
+			return { valid: false, errors };
+		}
+
+		let properties = schema_obj["properties"];
+		let required = schema_obj["required"];
+
+		if (properties != null) {
+			// Check required fields
+			if (required != null) {
+				for (let i = 0; i < required.length; i++) {
+					let field_name = required[i];
+					if (!data.has(field_name)) {
+						errors.push("Missing required field '" + field_name + "'");
+					}
+				}
+			}
+
+			// Check field types
+			let prop_keys = properties.keys();
+			for (let i = 0; i < prop_keys.length; i++) {
+				let field_name = prop_keys[i];
+				let field_schema = properties[field_name];
+				let field_type = field_schema["type"] ?? "any";
+				let hemlock_type = field_schema["hemlock_type"] ?? "any";
+				let field_required = field_schema["required"] ?? true;
+
+				if (data.has(field_name)) {
+					let value = data[field_name];
+					let value_type = typeof(value);
+
+					if (!check_type_match(value, value_type, field_type, hemlock_type)) {
+						errors.push("Field '" + field_name + "' expected type '" + hemlock_type + "', got '" + value_type + "'");
+					}
+				}
+				// Missing optional fields are OK (already checked required above)
+			}
+		}
+	} else if (schema_type == "array") {
+		if (typeof(data) != "array") {
+			errors.push("Expected array, got " + typeof(data));
+		}
+	} else if (schema_type == "string") {
+		if (typeof(data) != "string") {
+			errors.push("Expected string, got " + typeof(data));
+		}
+	} else if (schema_type == "integer") {
+		if (!is_number(data)) {
+			errors.push("Expected integer, got " + typeof(data));
+		}
+	} else if (schema_type == "number") {
+		if (!is_number(data)) {
+			errors.push("Expected number, got " + typeof(data));
+		}
+	} else if (schema_type == "boolean") {
+		if (typeof(data) != "bool") {
+			errors.push("Expected boolean, got " + typeof(data));
+		}
+	} else if (schema_type == "null") {
+		if (typeof(data) != "null") {
+			errors.push("Expected null, got " + typeof(data));
+		}
+	}
+	// "any" accepts everything
+
+	return { valid: errors.length == 0, errors };
+}
+
+// Internal: Check if a value matches the expected type.
+fn check_type_match(value, value_type: string, json_type: string, hemlock_type: string): bool {
+	// "any" matches everything
+	if (json_type == "any" || hemlock_type == "any") {
+		return true;
+	}
+
+	if (json_type == "string") {
+		return value_type == "string";
+	}
+
+	if (json_type == "boolean") {
+		return value_type == "bool";
+	}
+
+	if (json_type == "null") {
+		return value_type == "null";
+	}
+
+	if (json_type == "array") {
+		return value_type == "array";
+	}
+
+	if (json_type == "object") {
+		return value_type == "object";
+	}
+
+	if (json_type == "integer") {
+		// Accept any integer type
+		return value_type == "i8" || value_type == "i16" || value_type == "i32" || value_type == "i64" ||
+			value_type == "u8" || value_type == "u16" || value_type == "u32" || value_type == "u64";
+	}
+
+	if (json_type == "number") {
+		// Accept any numeric type
+		return value_type == "f32" || value_type == "f64" ||
+			value_type == "i8" || value_type == "i16" || value_type == "i32" || value_type == "i64" ||
+			value_type == "u8" || value_type == "u16" || value_type == "u32" || value_type == "u64";
+	}
+
+	return false;
+}
+
+// Validate parsed JSON data against a define type by name.
+// Convenience function combining to_json_schema() and validate_schema().
+//
+// Usage:
+//   define User { name: string, age: i32 }
+//   let data = parse('{"name": "Alice", "age": 30}');
+//   let result = validate_type(data, "User");
+fn validate_type(data, type_name: string) {
+	let s = to_json_schema(type_name);
+	return validate_schema(data, s);
+}
+
+// ============================================================================
 // Export Note
 // ============================================================================
 

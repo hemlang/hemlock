@@ -225,5 +225,135 @@ HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name) {
     exit(1);
 }
 
+// ========== SCHEMA EXTRACTION ==========
+
+// Map HML_VAL_* type kind to JSON Schema type string
+static const char* hml_type_kind_to_json_schema_type(int type_kind) {
+    switch (type_kind) {
+        case HML_VAL_I8:
+        case HML_VAL_I16:
+        case HML_VAL_I32:
+        case HML_VAL_I64:
+        case HML_VAL_U8:
+        case HML_VAL_U16:
+        case HML_VAL_U32:
+        case HML_VAL_U64:
+            return "integer";
+        case HML_VAL_F32:
+        case HML_VAL_F64:
+            return "number";
+        case HML_VAL_BOOL:
+            return "boolean";
+        case HML_VAL_STRING:
+            return "string";
+        case HML_VAL_ARRAY:
+            return "array";
+        case HML_VAL_OBJECT:
+            return "object";
+        case HML_VAL_NULL:
+            return "null";
+        default:
+            return "any";
+    }
+}
+
+// Map HML_VAL_* type kind to Hemlock type name string
+static const char* hml_type_kind_to_hemlock_type(int type_kind) {
+    switch (type_kind) {
+        case HML_VAL_I8: return "i8";
+        case HML_VAL_I16: return "i16";
+        case HML_VAL_I32: return "i32";
+        case HML_VAL_I64: return "i64";
+        case HML_VAL_U8: return "u8";
+        case HML_VAL_U16: return "u16";
+        case HML_VAL_U32: return "u32";
+        case HML_VAL_U64: return "u64";
+        case HML_VAL_F32: return "f32";
+        case HML_VAL_F64: return "f64";
+        case HML_VAL_BOOL: return "bool";
+        case HML_VAL_STRING: return "string";
+        case HML_VAL_RUNE: return "rune";
+        case HML_VAL_PTR: return "ptr";
+        case HML_VAL_BUFFER: return "buffer";
+        case HML_VAL_ARRAY: return "array";
+        case HML_VAL_OBJECT: return "object";
+        case HML_VAL_NULL: return "null";
+        default: return "any";
+    }
+}
+
+// hml_schema(type_name) -> object
+// Extracts a JSON Schema-compatible object from the runtime type registry.
+HmlValue hml_schema(HmlValue type_name_val) {
+    if (type_name_val.type != HML_VAL_STRING) {
+        hml_runtime_error("schema() argument must be a string");
+    }
+
+    const char *type_name = type_name_val.as.as_string->data;
+    HmlTypeDef *type = hml_lookup_type(type_name);
+
+    if (!type) {
+        fprintf(stderr, "Runtime error: schema() unknown type '%s'\n", type_name);
+        exit(1);
+    }
+
+    // Build schema object: { type: "object", name: "TypeName", properties: {...}, required: [...] }
+    HmlValue schema = hml_val_object();
+
+    // schema.type = "object"
+    hml_object_set_field(schema, "type", hml_val_string("object"));
+
+    // schema.name = type_name
+    hml_object_set_field(schema, "name", hml_val_string(type_name));
+
+    // Build properties object
+    HmlValue properties = hml_val_object();
+
+    // Build required array
+    HmlValue required = hml_val_array();
+
+    for (int i = 0; i < type->num_fields; i++) {
+        HmlTypeField *field = &type->fields[i];
+
+        // Build property descriptor
+        HmlValue prop = hml_val_object();
+
+        // JSON Schema type
+        const char *json_type = (field->type_kind >= 0)
+            ? hml_type_kind_to_json_schema_type(field->type_kind)
+            : "any";
+        hml_object_set_field(prop, "type", hml_val_string(json_type));
+
+        // Hemlock type
+        const char *hemlock_type = (field->type_kind >= 0)
+            ? hml_type_kind_to_hemlock_type(field->type_kind)
+            : "any";
+        hml_object_set_field(prop, "hemlock_type", hml_val_string(hemlock_type));
+
+        // Required flag
+        hml_object_set_field(prop, "required", hml_val_bool(!field->is_optional));
+
+        // Add property to properties
+        hml_object_set_field(properties, field->name, prop);
+        hml_release(&prop);
+
+        // Add to required array if not optional
+        if (!field->is_optional) {
+            HmlValue req_name = hml_val_string(field->name);
+            hml_array_push(required, req_name);
+            hml_release(&req_name);
+        }
+    }
+
+    // Set properties and required on schema
+    hml_object_set_field(schema, "properties", properties);
+    hml_release(&properties);
+
+    hml_object_set_field(schema, "required", required);
+    hml_release(&required);
+
+    return schema;
+}
+
 // FFI (Foreign Function Interface) operations moved to builtins_ffi.c
 

@@ -1,0 +1,73 @@
+// Test JSON Schema validation using define types
+import { validate_schema, validate_type, to_json_schema } from "@stdlib/json";
+
+// Define types for validation
+define User {
+	name: string,
+	age: i32,
+	email?: string
+}
+
+define Product {
+	id: i32,
+	title: string,
+	price: f64,
+	in_stock?: true
+}
+
+// Test 1: Generate schema from define type
+let user_schema = to_json_schema("User");
+print("Schema type: " + user_schema["type"]);
+print("Schema name: " + user_schema["name"]);
+print("Required fields: " + user_schema["required"].length);
+
+// Test 2: Valid data passes validation
+let valid_data = { name: "Alice", age: 30 };
+let result = validate_schema(valid_data, user_schema);
+print("Valid user: " + result.valid);
+print("Errors: " + result.errors.length);
+
+// Test 3: Valid data with optional field
+let valid_full = { name: "Bob", age: 25, email: "bob@example.com" };
+let result2 = validate_schema(valid_full, user_schema);
+print("Valid full user: " + result2.valid);
+
+// Test 4: Missing required field
+let missing_age = { name: "Charlie" };
+let result3 = validate_schema(missing_age, user_schema);
+print("Missing age valid: " + result3.valid);
+print("Missing age errors: " + result3.errors.length);
+print("Error: " + result3.errors[0]);
+
+// Test 5: Wrong field type
+let wrong_type = { name: 123, age: 30 };
+let result4 = validate_schema(wrong_type, user_schema);
+print("Wrong type valid: " + result4.valid);
+print("Wrong type error: " + result4.errors[0]);
+
+// Test 6: Non-object data against object schema
+let result5 = validate_schema("just a string", user_schema);
+print("Not object valid: " + result5.valid);
+
+// Test 7: validate_type convenience function
+let data7 = { name: "Diana", age: 28 };
+let result7 = validate_type(data7, "User");
+print("validate_type valid: " + result7.valid);
+
+// Test 8: validate_type with invalid data
+let data8 = { title: "Widget" };
+let result8 = validate_type(data8, "User");
+print("validate_type invalid: " + result8.valid);
+
+// Test 9: Product schema validation
+let product = { id: 1, title: "Widget", price: 9.99 };
+let result9 = validate_type(product, "Product");
+print("Valid product: " + result9.valid);
+
+// Test 10: Multiple errors
+let bad_product = { title: 42 };
+let result10 = validate_type(bad_product, "Product");
+print("Bad product valid: " + result10.valid);
+print("Bad product errors: " + result10.errors.length);
+
+print("done");

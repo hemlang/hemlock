@@ -295,6 +295,8 @@ static BuiltinInfo builtins[] = {
     {"atomic_exchange_i64", builtin_atomic_exchange_i64},
     // Memory fence
     {"atomic_fence", builtin_atomic_fence},
+    // Schema extraction for JSON validation
+    {"schema", builtin_schema},
     {NULL, NULL}  // Sentinel
 };
 
