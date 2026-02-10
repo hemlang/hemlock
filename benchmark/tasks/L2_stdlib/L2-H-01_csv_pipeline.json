@@ -1,0 +1,12 @@
+{
+  "id": "L2-H-01",
+  "level": "L2",
+  "difficulty": "hard",
+  "title": "CSV-to-JSON Pipeline",
+  "topic": "multiple stdlib modules",
+  "prompt": "Write a Hemlock program that processes CSV data into JSON using @stdlib/json and string methods (no csv module needed - parse manually).\n\n1. Define this CSV string (including header row):\n\"name,age,city,score\\nAlice,30,NYC,95\\nBob,25,LA,72\\nCharlie,35,NYC,88\\nDiana,28,Chicago,64\\nEve,32,NYC,91\\nFrank,27,LA,85\"\n\n2. Parse it into an array of objects (split by newlines, then by commas, use first row as keys)\n3. Filter to people from \"NYC\" with score > 80\n4. Sort by age ascending\n5. Transform each into {name, age, city} (drop score)\n6. Print each as: \"NAME (AGE) - CITY\"\n7. Print total count: \"total: N\"",
+  "expected_output": "Alice (30) - NYC\nEve (32) - NYC\ntotal: 2\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["stdlib", "json", "strings", "arrays", "composition"]
+}

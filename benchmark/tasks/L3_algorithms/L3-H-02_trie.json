@@ -1,0 +1,12 @@
+{
+  "id": "L3-H-02",
+  "level": "L3",
+  "difficulty": "hard",
+  "title": "Trie Data Structure",
+  "topic": "strings and trees",
+  "prompt": "Write a Hemlock program implementing a Trie (prefix tree) for string storage and lookup. Implement:\n\n1. `trie_new()` - creates a new trie node: {children: {}, is_end: false}\n2. `trie_insert(root, word)` - inserts a word character by character\n3. `trie_search(root, word)` - returns true if the exact word exists\n4. `trie_starts_with(root, prefix)` - returns true if any word starts with prefix\n5. `trie_words_with_prefix(root, prefix)` - returns array of all words matching prefix (sorted)\n\nUse object properties for children mapping (char -> child node). Use the `chars()` string method or `char_at()` to iterate characters.\n\nTest:\n- Insert: \"apple\", \"app\", \"application\", \"apply\", \"apt\", \"bat\", \"batch\", \"bath\"\n- search(\"app\"): print \"search app: true\"\n- search(\"ap\"): print \"search ap: false\"\n- starts_with(\"app\"): print \"prefix app: true\"\n- starts_with(\"baz\"): print \"prefix baz: false\"\n- words_with_prefix(\"app\"): print \"words with app: app, apple, application, apply\"\n- words_with_prefix(\"bat\"): print \"words with bat: bat, batch, bath\"",
+  "expected_output": "search app: true\nsearch ap: false\nprefix app: true\nprefix baz: false\nwords with app: app, apple, application, apply\nwords with bat: bat, batch, bath\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["algorithms", "trie", "strings", "objects", "recursion"]
+}

@@ -1,0 +1,15 @@
+// L1-E-03: Array Sum and Mean
+let arr = [10, 20, 30, 40, 50];
+let total = 0;
+let smallest = arr[0];
+let largest = arr[0];
+for (item in arr) {
+    total += item;
+    if (item < smallest) { smallest = item; }
+    if (item > largest) { largest = item; }
+}
+let mean = total / arr.length;
+print(total);
+print(mean);
+print(smallest);
+print(largest);

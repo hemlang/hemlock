@@ -1,0 +1,28 @@
+// L3-E-02: Binary Search
+fn binary_search(arr, target) {
+    let low = 0;
+    let high = arr.length - 1;
+    while (low <= high) {
+        let mid = divi(low + high, 2);
+        if (arr[mid] == target) {
+            return mid;
+        } else if (arr[mid] < target) {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return -1;
+}
+
+let arr = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91];
+
+let tests = [23, 72, 2, 91, 50];
+for (t in tests) {
+    let idx = binary_search(arr, t);
+    if (idx >= 0) {
+        print("found " + t + " at index " + idx);
+    } else {
+        print(t + " not found");
+    }
+}

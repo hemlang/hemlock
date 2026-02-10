@@ -1,0 +1,12 @@
+{
+  "id": "L3-E-01",
+  "level": "L3",
+  "difficulty": "easy",
+  "title": "Insertion Sort",
+  "topic": "sorting",
+  "prompt": "Write a Hemlock program that implements insertion sort. Write a function `insertion_sort(arr)` that sorts an array of integers in-place in ascending order and returns the sorted array.\n\nTest with: [64, 34, 25, 12, 22, 11, 90]\nPrint each element of the sorted array on its own line.",
+  "expected_output": "11\n12\n22\n25\n34\n64\n90\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["algorithms", "sorting", "arrays", "loops"]
+}

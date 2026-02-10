@@ -1,0 +1,12 @@
+{
+  "id": "L1-M-02",
+  "level": "L1",
+  "difficulty": "medium",
+  "title": "Shape Areas",
+  "topic": "objects and define",
+  "prompt": "Write a Hemlock program that defines three shape types using `define`: Circle (with radius field), Rectangle (with width and height fields), and Triangle (with base and height fields). Write a function `area(shape)` that uses pattern matching on `shape.type` (a string field) to compute the area: PI*r*r for circles, w*h for rectangles, 0.5*b*h for triangles. Use 3.14159 for PI. Create one of each shape (radius=5, width=4 height=6, base=3 height=8), compute areas, and print each rounded to 2 decimal places using the format: \"Circle: 78.54\", \"Rectangle: 24.00\", \"Triangle: 12.00\".",
+  "expected_output": "Circle: 78.54\nRectangle: 24.00\nTriangle: 12.00\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["objects", "define", "pattern-matching", "functions"]
+}
