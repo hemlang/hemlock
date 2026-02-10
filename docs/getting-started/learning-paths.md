@@ -293,7 +293,7 @@ No matter your goal, start with these fundamentals:
 | `for i in range(10):` | `for (let i = 0; i < 10; i++) { }` | C-style for loops |
 | `for item in list:` | `for (item in array) { }` | For-in works same |
 | `list.append(x)` | `array.push(x);` | Different method name |
-| `len(s)` | `s.length` or `len(s)` | Both work |
+| `len(s)` | `s.length` | Use `.length` property |
 | Automatic memory | Manual for `ptr` | Most types auto-cleanup |
 
 ### From JavaScript

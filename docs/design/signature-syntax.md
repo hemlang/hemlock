@@ -373,7 +373,7 @@ fn bad(const arr: array) {
 
 fn ok(const arr: array) {
     let x = arr[0];      // OK: reading
-    let len = len(arr);  // OK: length check
+    let n = arr.length;  // OK: length check
     let copy = arr.slice(0, 10);  // OK: creates new array
     for (item in arr) {  // OK: iteration
         print(item);
