@@ -465,6 +465,13 @@ HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) {
 
 // ========== ECDSA OPERATIONS ==========
 
+// ECDSA requires OpenSSL 3.0+ for EVP_EC_gen API
+// Stub out on older versions
+#include <openssl/opensslv.h>
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#define HML_HAVE_ECDSA 1
+
 // Helper: Create an object with keypair fields
 static HmlValue create_keypair_object(void *pkey) {
     HmlObject *obj = malloc(sizeof(HmlObject));
@@ -669,3 +676,53 @@ HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue si
     (void)env;
     return hml_ecdsa_verify(data, sig, keypair);
 }
+
+#else // OpenSSL < 3.0.0 - stub out ECDSA functions
+
+HmlValue hml_ecdsa_generate_key(HmlValue curve_arg) {
+    (void)curve_arg;
+    hml_runtime_error("ECDSA requires OpenSSL 3.0 or later (found version 0x%lx)", (unsigned long)OPENSSL_VERSION_NUMBER);
+    return hml_val_null();
+}
+
+HmlValue hml_ecdsa_free_key(HmlValue keypair) {
+    (void)keypair;
+    return hml_val_null();
+}
+
+HmlValue hml_ecdsa_sign(HmlValue data_val, HmlValue keypair) {
+    (void)data_val;
+    (void)keypair;
+    hml_runtime_error("ECDSA requires OpenSSL 3.0 or later");
+    return hml_val_null();
+}
+
+HmlValue hml_ecdsa_verify(HmlValue data_val, HmlValue sig, HmlValue keypair) {
+    (void)data_val;
+    (void)sig;
+    (void)keypair;
+    hml_runtime_error("ECDSA requires OpenSSL 3.0 or later");
+    return hml_val_bool(0);
+}
+
+HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve) {
+    (void)env;
+    return hml_ecdsa_generate_key(curve);
+}
+
+HmlValue hml_builtin_ecdsa_free_key(HmlClosureEnv *env, HmlValue keypair) {
+    (void)env;
+    return hml_ecdsa_free_key(keypair);
+}
+
+HmlValue hml_builtin_ecdsa_sign(HmlClosureEnv *env, HmlValue data, HmlValue keypair) {
+    (void)env;
+    return hml_ecdsa_sign(data, keypair);
+}
+
+HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue sig, HmlValue keypair) {
+    (void)env;
+    return hml_ecdsa_verify(data, sig, keypair);
+}
+
+#endif // OPENSSL_VERSION_NUMBER >= 0x30000000L

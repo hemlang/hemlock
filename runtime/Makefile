@@ -10,12 +10,12 @@ UNAME := $(shell uname 2>/dev/null || echo Windows)
 ifeq ($(findstring MINGW,$(UNAME)),MINGW)
     # Windows/MinGW
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -DHML_WINDOWS
-    LDFLAGS = -lm -lffi -lws2_32
+    LDFLAGS = -lm -lffi -lws2_32 -lssl -lcrypto
     PLATFORM = windows
 else ifeq ($(findstring MSYS,$(UNAME)),MSYS)
     # MSYS2
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -DHML_WINDOWS
-    LDFLAGS = -lm -lffi -lws2_32
+    LDFLAGS = -lm -lffi -lws2_32 -lssl -lcrypto
     PLATFORM = windows
 else ifeq ($(UNAME),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_DARWIN_C_SOURCE

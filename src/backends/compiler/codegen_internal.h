@@ -64,8 +64,16 @@
         static char buf[MAX_PATH];
         strncpy(buf, path, MAX_PATH - 1);
         buf[MAX_PATH - 1] = '\0';
-        char *last_sep = strrchr(buf, '\\');
-        if (!last_sep) last_sep = strrchr(buf, '/');
+        // Find the LAST separator, regardless of whether it's / or backslash
+        char *last_backslash = strrchr(buf, '\\');
+        char *last_forward = strrchr(buf, '/');
+        char *last_sep = NULL;
+        if (last_backslash && last_forward) {
+            // Both exist - use whichever is later
+            last_sep = (last_backslash > last_forward) ? last_backslash : last_forward;
+        } else {
+            last_sep = last_backslash ? last_backslash : last_forward;
+        }
         if (last_sep) {
             *last_sep = '\0';
         } else {

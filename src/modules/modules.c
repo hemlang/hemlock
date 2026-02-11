@@ -378,7 +378,13 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
             fprintf(stderr, "Error: Module path '%s' resolves outside stdlib directory\n", import_path);
             return NULL;
         }
-    } else if (import_path[0] == '/') {
+    } else if (import_path[0] == '/'
+#ifdef HML_WINDOWS
+               // Windows absolute paths: C:\ or C:/
+               || (import_path[0] != '\0' && import_path[1] == ':' &&
+                   (import_path[2] == '\\' || import_path[2] == '/'))
+#endif
+              ) {
         strncpy(resolved, import_path, PATH_MAX - 1);
         resolved[PATH_MAX - 1] = '\0';
     } else if (is_package_import(import_path)) {
