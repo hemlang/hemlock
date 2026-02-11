@@ -8,14 +8,59 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <limits.h>
 #include "frontend.h"
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
 #include "codegen.h"
 #include "compiler/type_check.h"
+
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <io.h>
+    #include <fcntl.h>
+    #include <sys/stat.h>
+    #include <process.h>
+    #define access _access
+    #define unlink _unlink
+    #define close _close
+    #define popen _popen
+    #define pclose _pclose
+    #define R_OK 4
+    #define W_OK 2
+    #define F_OK 0
+
+    // WEXITSTATUS compatibility - on Windows, system() returns exit code directly
+    #define WEXITSTATUS(status) (status)
+
+    // mkstemps compatibility for Windows
+    static int hml_mkstemps(char *template_path, int suffix_len) {
+        // Find the XXXXXX pattern
+        size_t len = strlen(template_path);
+        if (len < 6 + (size_t)suffix_len) return -1;
+
+        char *pattern = template_path + len - 6 - suffix_len;
+        if (strncmp(pattern, "XXXXXX", 6) != 0) return -1;
+
+        // Generate random suffix
+        static const char charset[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+        for (int attempt = 0; attempt < 100; attempt++) {
+            for (int i = 0; i < 6; i++) {
+                pattern[i] = charset[rand() % (sizeof(charset) - 1)];
+            }
+            // Try to create the file exclusively
+            int fd = _open(template_path, _O_CREAT | _O_EXCL | _O_RDWR, S_IREAD | S_IWRITE);
+            if (fd >= 0) return fd;
+        }
+        return -1;
+    }
+    #define mkstemps hml_mkstemps
+#else
+    #include <unistd.h>
+    #include <sys/wait.h>
+#endif
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -81,7 +126,13 @@ static const char* get_macos_lib_path(const char *env_var, const char *package_n
 static char* get_self_dir(void) {
     static char path[PATH_MAX];
 
-#ifdef __APPLE__
+#ifdef HML_WINDOWS
+    DWORD len = GetModuleFileNameA(NULL, path, sizeof(path));
+    if (len == 0 || len >= sizeof(path)) {
+        return NULL;
+    }
+    path[len] = '\0';
+#elif defined(__APPLE__)
     uint32_t size = sizeof(path);
     if (_NSGetExecutablePath(path, &size) != 0) {
         return NULL;
@@ -109,7 +160,10 @@ static char* get_self_dir(void) {
 #endif
 
     // Find last slash and truncate to get directory
-    char *last_slash = strrchr(path, '/');
+    // Handle both forward and back slashes for Windows compatibility
+    char *last_fwd = strrchr(path, '/');
+    char *last_back = strrchr(path, '\\');
+    char *last_slash = last_fwd > last_back ? last_fwd : last_back;
     if (last_slash) {
         *last_slash = '\0';
     }

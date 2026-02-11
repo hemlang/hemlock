@@ -107,16 +107,61 @@ static ffi_cif* cif_cache_get(HmlFFIType return_type, int num_args, HmlFFIType *
 
 // ========== FFI HELPERS ==========
 
-// Helper to check if a file exists (used on macOS for library path translation)
-#ifdef __APPLE__
+// Helper to check if a file exists (used for library path translation)
+#if defined(__APPLE__) || defined(HML_WINDOWS)
 static int ffi_file_exists(const char *path) {
     return access(path, F_OK) == 0;
 }
 #endif
 
-// Translate Linux library names to macOS equivalents (on macOS only)
+// Translate Linux library names to platform-specific equivalents
 static const char* translate_library_path(const char *path) {
-#ifdef __APPLE__
+#ifdef HML_WINDOWS
+    // libc.so.6 -> msvcrt.dll (Windows C runtime)
+    if (strcmp(path, "libc.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+    // libm.so.6 -> msvcrt.dll (math is part of CRT on Windows)
+    if (strcmp(path, "libm.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+    // Generic .so to .dll translation
+    static char translated[512];
+    size_t len = strlen(path);
+    // Handle .so.N pattern (e.g., libfoo.so.6)
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos) {
+        size_t base_len = so_pos - path;
+        // Skip "lib" prefix on Windows (libfoo.so -> foo.dll)
+        const char *name_start = path;
+        if (strncmp(path, "lib", 3) == 0) {
+            name_start = path + 3;
+            base_len -= 3;
+        }
+        if (base_len < sizeof(translated) - 5) {
+            strncpy(translated, name_start, base_len);
+            strcpy(translated + base_len, ".dll");
+            return translated;
+        }
+    }
+    // Handle plain .so (e.g., libfoo.so)
+    if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        const char *name_start = path;
+        size_t name_len = len - 3;
+        // Skip "lib" prefix on Windows
+        if (strncmp(path, "lib", 3) == 0) {
+            name_start = path + 3;
+            name_len -= 3;
+        }
+        if (name_len < sizeof(translated) - 5) {
+            strncpy(translated, name_start, name_len);
+            strcpy(translated + name_len, ".dll");
+            return translated;
+        }
+    }
+    return path;  // Return as-is if no pattern matched
+
+#elif defined(__APPLE__)
     // libc.so.6 -> libSystem.B.dylib (macOS system C library)
     if (strcmp(path, "libc.so.6") == 0) {
         return "libSystem.B.dylib";
@@ -156,8 +201,12 @@ static const char* translate_library_path(const char *path) {
             return translated;
         }
     }
+    return path;  // Return as-is if no pattern matched
+
+#else
+    // Linux - no translation needed
+    return path;
 #endif
-    return path;  // No translation on Linux or if no pattern matched
 }
 
 // SECURITY: Validate FFI library path for obvious security issues

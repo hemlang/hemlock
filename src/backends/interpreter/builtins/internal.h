@@ -1,9 +1,22 @@
 #ifndef BUILTINS_INTERNAL_H
 #define BUILTINS_INTERNAL_H
 
-// Define feature test macros before including system headers
+// Platform detection
+#if defined(_WIN32) || defined(_WIN64)
+    #ifndef HML_WINDOWS
+    #define HML_WINDOWS 1
+    #endif
+    // Set minimum Windows version to Vista BEFORE any Windows headers
+    #ifndef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+    #endif
+#endif
+
+// Define feature test macros before including system headers (POSIX only)
+#ifndef HML_WINDOWS
 #define _XOPEN_SOURCE 700
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../internal.h"
 #include <stdio.h>
@@ -11,20 +24,278 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <dirent.h>
-#include <unistd.h>
 #include <limits.h>
 #include <math.h>
 #include <time.h>
-#include <sys/time.h>
-#include <signal.h>
-#include <fcntl.h>  // For O_NOFOLLOW symlink protection
-#include <poll.h>   // For poll() in exec functions
+
+// ========== WINDOWS COMPATIBILITY ==========
+// Note: winsock2.h and windows.h are included by ../internal.h
+#ifdef HML_WINDOWS
+    #include <io.h>
+    #include <process.h>
+    #include <direct.h>
+    #include <fcntl.h>  // For O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_APPEND
+    #include <sys/stat.h>
+    #include <sys/types.h>
+
+    // Windows doesn't have unistd.h - provide compatibility
+    #ifndef F_OK
+    #define F_OK 0
+    #define R_OK 4
+    #define W_OK 2
+    #define X_OK 1
+    #endif
+
+    // Windows doesn't have O_NOFOLLOW
+    #ifndef O_NOFOLLOW
+    #define O_NOFOLLOW 0
+    #endif
+
+    // Windows directory functions
+    #define getcwd _getcwd
+    #define chdir _chdir
+    #define mkdir(path, mode) _mkdir(path)
+    #define rmdir _rmdir
+    #define access _access
+
+    // Windows file descriptor functions
+    #define open _open
+    #define close _close
+    #define read _read
+    #define write _write
+    #define dup _dup
+    #define dup2 _dup2
+    #define fileno _fileno
+    #define isatty _isatty
+    #define lseek _lseek
+
+    // Windows process functions
+    #define getpid _getpid
+    #define getppid() 0
+    #define getuid() 0
+    #define getgid() 0
+    #define geteuid() 0
+    #define getegid() 0
+    #define fork() (-1)
+
+    // Windows doesn't have realpath - provide a simple implementation
+    static inline char* realpath(const char *path, char *resolved) {
+        if (!resolved) {
+            resolved = malloc(MAX_PATH);
+            if (!resolved) return NULL;
+        }
+        if (GetFullPathNameA(path, MAX_PATH, resolved, NULL) == 0) {
+            return NULL;
+        }
+        return resolved;
+    }
+
+    // poll() compatibility - use WSAPoll on Windows
+    // Note: WSAPoll may not be available on older MinGW, stubbed if needed
+    #ifndef WSAPoll
+    // Stub: poll() not available on this Windows SDK - returns error
+    static inline int hml_poll_stub(struct pollfd *fds, unsigned long nfds, int timeout) {
+        (void)fds; (void)nfds; (void)timeout;
+        WSASetLastError(WSAEOPNOTSUPP);
+        return -1;
+    }
+    #define poll hml_poll_stub
+    #else
+    #define poll WSAPoll
+    #endif
+
+    // POLL constants - define with actual values for compatibility
+    #ifndef POLLIN
+    #define POLLIN   0x0100  // POLLRDNORM
+    #endif
+    #ifndef POLLOUT
+    #define POLLOUT  0x0010  // POLLWRNORM
+    #endif
+    #ifndef POLLERR
+    #define POLLERR  0x0001
+    #endif
+    #ifndef POLLHUP
+    #define POLLHUP  0x0002
+    #endif
+    #ifndef POLLNVAL
+    #define POLLNVAL 0x0004
+    #endif
+    #ifndef POLLPRI
+    #define POLLPRI  0x0400  // POLLRDBAND
+    #endif
+
+    // inet_pton/inet_ntop compatibility for older MinGW
+    #ifndef InetPtonA
+    static inline int hml_inet_pton(int af, const char *src, void *dst) {
+        struct sockaddr_storage ss;
+        int size = sizeof(ss);
+        char src_copy[INET6_ADDRSTRLEN + 1];
+        strncpy(src_copy, src, INET6_ADDRSTRLEN);
+        src_copy[INET6_ADDRSTRLEN] = '\0';
+
+        if (WSAStringToAddressA(src_copy, af, NULL, (struct sockaddr *)&ss, &size) == 0) {
+            if (af == AF_INET) {
+                *(struct in_addr *)dst = ((struct sockaddr_in *)&ss)->sin_addr;
+                return 1;
+            } else if (af == AF_INET6) {
+                *(struct in6_addr *)dst = ((struct sockaddr_in6 *)&ss)->sin6_addr;
+                return 1;
+            }
+        }
+        return 0;
+    }
+    #define inet_pton hml_inet_pton
+    #endif
+
+    #ifndef InetNtopA
+    static inline const char *hml_inet_ntop(int af, const void *src, char *dst, size_t size) {
+        struct sockaddr_storage ss;
+        int ss_size;
+
+        memset(&ss, 0, sizeof(ss));
+        if (af == AF_INET) {
+            struct sockaddr_in *sa = (struct sockaddr_in *)&ss;
+            sa->sin_family = AF_INET;
+            sa->sin_addr = *(struct in_addr *)src;
+            ss_size = sizeof(struct sockaddr_in);
+        } else if (af == AF_INET6) {
+            struct sockaddr_in6 *sa = (struct sockaddr_in6 *)&ss;
+            sa->sin6_family = AF_INET6;
+            sa->sin6_addr = *(struct in6_addr *)src;
+            ss_size = sizeof(struct sockaddr_in6);
+        } else {
+            return NULL;
+        }
+
+        DWORD dw_size = (DWORD)size;
+        if (WSAAddressToStringA((struct sockaddr *)&ss, ss_size, NULL, dst, &dw_size) == 0) {
+            // WSAAddressToStringA includes port, strip it for AF_INET
+            char *colon = strrchr(dst, ':');
+            if (af == AF_INET && colon) {
+                *colon = '\0';
+            }
+            return dst;
+        }
+        return NULL;
+    }
+    #define inet_ntop hml_inet_ntop
+    #endif
+
+    // ssize_t is provided by sys/types.h on MinGW
+    // No need to define it ourselves
+
+    // GetTickCount64 compatibility for older MinGW
+    #ifndef GetTickCount64
+    static inline ULONGLONG hml_GetTickCount64(void) {
+        // Fallback to GetTickCount (32-bit, wraps after ~49 days)
+        return (ULONGLONG)GetTickCount();
+    }
+    #define GetTickCount64 hml_GetTickCount64
+    #endif
+
+    // Directory compatibility types
+    typedef struct hml_dirent {
+        char d_name[260];  // MAX_PATH
+    } hml_dirent_t;
+
+    typedef struct hml_dir {
+        HANDLE hFind;
+        WIN32_FIND_DATAA data;
+        int first;
+        hml_dirent_t entry;
+    } hml_dir_t;
+
+    static inline hml_dir_t* hml_opendir(const char *path) {
+        hml_dir_t *dir = malloc(sizeof(hml_dir_t));
+        if (!dir) return NULL;
+
+        char search_path[MAX_PATH];
+        snprintf(search_path, MAX_PATH, "%s\\*", path);
+
+        dir->hFind = FindFirstFileA(search_path, &dir->data);
+        if (dir->hFind == INVALID_HANDLE_VALUE) {
+            free(dir);
+            return NULL;
+        }
+        dir->first = 1;
+        return dir;
+    }
+
+    static inline hml_dirent_t* hml_readdir(hml_dir_t *dir) {
+        if (!dir) return NULL;
+        if (dir->first) {
+            dir->first = 0;
+            strncpy(dir->entry.d_name, dir->data.cFileName, 260);
+            return &dir->entry;
+        }
+        if (FindNextFileA(dir->hFind, &dir->data)) {
+            strncpy(dir->entry.d_name, dir->data.cFileName, 260);
+            return &dir->entry;
+        }
+        return NULL;
+    }
+
+    static inline void hml_closedir(hml_dir_t *dir) {
+        if (dir) {
+            FindClose(dir->hFind);
+            free(dir);
+        }
+    }
+
+    // Socket compatibility
+    typedef SOCKET hml_socket_t;
+    #define HML_INVALID_SOCKET INVALID_SOCKET
+    #define hml_closesocket(s) closesocket(s)
+    #define hml_socket_error() WSAGetLastError()
+
+    // strndup compatibility for Windows
+    static inline char* hml_strndup(const char *s, size_t n) {
+        size_t len = strnlen(s, n);
+        char *result = malloc(len + 1);
+        if (result) {
+            memcpy(result, s, len);
+            result[len] = '\0';
+        }
+        return result;
+    }
+    #ifndef strndup
+    #define strndup hml_strndup
+    #endif
+
+    // getline compatibility is provided by ../internal.h (hml_getline)
+
+    // MinGW provides nanosleep and usleep via time.h and unistd.h
+
+    // Signal compatibility - limited on Windows
+    #include <signal.h>
+
+#else
+    // POSIX systems
+    #include <sys/stat.h>
+    #include <sys/wait.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <dirent.h>
+    #include <unistd.h>
+    #include <sys/time.h>
+    #include <signal.h>
+    #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+    #include <poll.h>   // For poll() in exec functions
+
+    // POSIX compatibility types
+    typedef struct dirent hml_dirent_t;
+    typedef DIR hml_dir_t;
+    #define hml_opendir opendir
+    #define hml_readdir readdir
+    #define hml_closedir closedir
+
+    // POSIX socket compatibility
+    typedef int hml_socket_t;
+    #define HML_INVALID_SOCKET (-1)
+    #define hml_closesocket(s) close(s)
+    #define hml_socket_error() errno
+#endif
 
 // Define math constants if not available
 #ifndef M_PI

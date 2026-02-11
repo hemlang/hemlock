@@ -1,5 +1,25 @@
 #include "internal.h"
-#include <unistd.h>
+
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #include <windows.h>
+    #include <direct.h>
+    #define getcwd _getcwd
+
+    // Windows realpath implementation
+    static inline char* realpath(const char *path, char *resolved) {
+        if (!resolved) {
+            resolved = malloc(MAX_PATH);
+            if (!resolved) return NULL;
+        }
+        if (GetFullPathNameA(path, MAX_PATH, resolved, NULL) == 0) {
+            return NULL;
+        }
+        return resolved;
+    }
+#else
+    #include <unistd.h>
+#endif
 
 // ========== CURRENT SOURCE FILE TRACKING ==========
 

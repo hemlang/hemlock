@@ -9,11 +9,13 @@ static void* task_thread_wrapper(void* arg) {
     Task *task = (Task*)arg;
     Function *fn = task->function;
 
+#ifndef HML_WINDOWS
     // Block all signals in worker thread - only main thread should handle signals
     // This prevents signal handlers from corrupting task state during execution
     sigset_t set;
     sigfillset(&set);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
+#endif
 
     // Mark as running (thread-safe)
     pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);

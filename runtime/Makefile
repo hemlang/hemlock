@@ -3,8 +3,21 @@
 CC = gcc
 LDFLAGS = -lm -lpthread -lffi
 
+# Platform detection
+UNAME := $(shell uname 2>/dev/null || echo Windows)
+
 # Platform-specific settings
-ifeq ($(shell uname),Darwin)
+ifeq ($(findstring MINGW,$(UNAME)),MINGW)
+    # Windows/MinGW
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -DHML_WINDOWS
+    LDFLAGS = -lm -lffi -lws2_32 -lssl -lcrypto
+    PLATFORM = windows
+else ifeq ($(findstring MSYS,$(UNAME)),MSYS)
+    # MSYS2
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -DHML_WINDOWS
+    LDFLAGS = -lm -lffi -lws2_32 -lssl -lcrypto
+    PLATFORM = windows
+else ifeq ($(UNAME),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
@@ -18,6 +31,7 @@ ifeq ($(shell uname),Darwin)
         CFLAGS += -I$(BREW_OPENSSL)/include
         LDFLAGS += -L$(BREW_OPENSSL)/lib
     endif
+    PLATFORM = darwin
 else
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
@@ -26,20 +40,27 @@ else
         CFLAGS += $(LIBFFI_CFLAGS)
         LDFLAGS += $(LIBFFI_LIBS)
     endif
+    PLATFORM = linux
 endif
 
 # OpenSSL is required for crypto builtins (SHA256, SHA512, MD5, ECDSA)
 # On macOS, -L path is set above; on Linux, system paths suffice
-LDFLAGS += -lssl -lcrypto
+# On Windows, OpenSSL is linked via LDFLAGS above
+ifneq ($(PLATFORM),windows)
+    LDFLAGS += -lssl -lcrypto
+endif
 
-# Check if zlib is available (both header AND library must exist)
+# Check if zlib is available (both header AND library must exist) - skip on Windows for now
+ifneq ($(PLATFORM),windows)
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)
 ifeq ($(ZLIB_CHECK),yes)
     CFLAGS += -DHML_HAVE_ZLIB
     LDFLAGS += -lz
 endif
+endif
 
-# Check if libwebsockets is available
+# Check if libwebsockets is available - skip on Windows for now
+ifneq ($(PLATFORM),windows)
 LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
 ifeq ($(LWS_CHECK),yes)
     CFLAGS += -DHML_HAVE_LIBWEBSOCKETS $(shell pkg-config --cflags libwebsockets)
@@ -51,6 +72,7 @@ else
         CFLAGS += -DHML_HAVE_LIBWEBSOCKETS
         LDFLAGS += -lwebsockets
     endif
+endif
 endif
 
 SRC_DIR = src

@@ -32,6 +32,11 @@ static void hemlock_signal_handler(int signum) {
     // Cleanup
     env_release(func_env);
     exec_context_free(ctx);
+
+#ifdef HML_WINDOWS
+    // Windows requires re-registering the signal handler after each invocation
+    signal(signum, hemlock_signal_handler);
+#endif
 }
 
 Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
@@ -89,6 +94,14 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Install C signal handler or reset to default
     if (new_handler != NULL) {
+#ifdef HML_WINDOWS
+        // Windows uses simple signal() function
+        if (signal(signum, hemlock_signal_handler) == SIG_ERR) {
+            runtime_error(ctx, "signal() failed to install handler for signal %d: %s", signum, strerror(errno));
+            return val_null();
+        }
+#else
+        // POSIX uses sigaction for more reliable signal handling
         struct sigaction sa;
         sa.sa_handler = hemlock_signal_handler;
         sigemptyset(&sa.sa_mask);
@@ -97,8 +110,15 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
             runtime_error(ctx, "signal() failed to install handler for signal %d: %s", signum, strerror(errno));
             return val_null();
         }
+#endif
     } else {
         // Reset to default handler
+#ifdef HML_WINDOWS
+        if (signal(signum, SIG_DFL) == SIG_ERR) {
+            runtime_error(ctx, "signal() failed to reset handler for signal %d: %s", signum, strerror(errno));
+            return val_null();
+        }
+#else
         struct sigaction sa;
         sa.sa_handler = SIG_DFL;
         sigemptyset(&sa.sa_mask);
@@ -107,6 +127,7 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
             runtime_error(ctx, "signal() failed to reset handler for signal %d: %s", signum, strerror(errno));
             return val_null();
         }
+#endif
     }
 
     return prev_val;

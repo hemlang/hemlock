@@ -236,3 +236,104 @@ jobs:
         name: scan-build-reports
         path: scan-build-reports/
         if-no-files-found: ignore
+
+  # Windows tests using MSYS2/MinGW
+  windows-test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-libffi
+          mingw-w64-x86_64-openssl
+          mingw-w64-x86_64-zlib
+          make
+          bash
+          coreutils
+          findutils
+
+    - name: Build interpreter
+      run: make clean && make
+
+    - name: Run tests
+      run: |
+        # Run tests with Windows-incompatible tests automatically skipped
+        ./tests/run_tests.sh
+
+  # Windows compiler build test
+  windows-compiler:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-libffi
+          mingw-w64-x86_64-openssl
+          mingw-w64-x86_64-zlib
+          make
+          bash
+          coreutils
+          findutils
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run basic compiler test
+      run: |
+        echo 'print("Hello from Windows!");' > /tmp/test.hml
+        ./hemlockc /tmp/test.hml -o /tmp/test.exe
+        /tmp/test.exe
+
+  # Windows parity tests
+  windows-parity:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-libffi
+          mingw-w64-x86_64-openssl
+          mingw-w64-x86_64-zlib
+          make
+          bash
+          coreutils
+          findutils
+
+    - name: Build interpreter and compiler
+      run: |
+        make clean && make
+        make compiler
+
+    - name: Run parity tests
+      run: make parity

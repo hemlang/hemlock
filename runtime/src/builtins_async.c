@@ -7,7 +7,9 @@
 #include "builtins_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
-#include <poll.h>
+
+// poll.h is included via builtins_internal.h for POSIX
+// On Windows, WSAPoll is available via winsock2.h (included in builtins_internal.h)
 
 static atomic_int g_next_task_id = 1;
 

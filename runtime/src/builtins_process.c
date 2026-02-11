@@ -10,6 +10,45 @@
 
 #include "builtins_internal.h"
 
+// ========== WINDOWS COMPATIBILITY ==========
+#ifdef HML_WINDOWS
+    #include <fcntl.h>  // For _O_BINARY
+
+    // Windows exit status macros
+    #ifndef WIFEXITED
+    #define WIFEXITED(status) (1)
+    #endif
+    #ifndef WEXITSTATUS
+    #define WEXITSTATUS(status) (status)
+    #endif
+
+    // Windows pipe compatibility
+    #define pipe(fds) _pipe(fds, 4096, _O_BINARY)
+
+    // Windows process compatibility stubs
+    #define waitpid(pid, status, options) (-1)
+    #define wait(status) (-1)
+    #define kill(pid, sig) (-1)
+    #define fork() (-1)
+
+    // Windows environment functions (compatibility wrappers for POSIX setenv/unsetenv)
+    static inline int hml_compat_setenv(const char *name, const char *value, int overwrite) {
+        if (!overwrite) {
+            char *existing = getenv(name);
+            if (existing != NULL) return 0;
+        }
+        return _putenv_s(name, value);
+    }
+    static inline int hml_compat_unsetenv(const char *name) {
+        return _putenv_s(name, "");
+    }
+    #define setenv hml_compat_setenv
+    #define unsetenv hml_compat_unsetenv
+
+    // Windows signal compatibility - uses basic signal() in hml_signal()
+    // sigaction() is replaced with signal() via #ifdef in the function
+#endif
+
 // ========== COMMAND EXECUTION ==========
 
 // SECURITY WARNING: exec() uses popen() which passes commands through a shell.
@@ -839,6 +878,18 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
     hml_retain(&g_signal_handlers[sig]);
 
     // Install or reset C signal handler
+#ifdef HML_WINDOWS
+    // Windows uses basic signal() function with limited signal support
+    if (handler.type != HML_VAL_NULL) {
+        if (signal(sig, hml_c_signal_handler) == SIG_ERR) {
+            hml_runtime_error("signal() failed for signal %d: %s", sig, strerror(errno));
+        }
+    } else {
+        if (signal(sig, SIG_DFL) == SIG_ERR) {
+            hml_runtime_error("signal() failed to reset signal %d: %s", sig, strerror(errno));
+        }
+    }
+#else
     struct sigaction sa;
     if (handler.type != HML_VAL_NULL) {
         sa.sa_handler = hml_c_signal_handler;
@@ -855,6 +906,7 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
             hml_runtime_error("signal() failed to reset signal %d: %s", sig, strerror(errno));
         }
     }
+#endif
 
     return prev;
 }

@@ -12,11 +12,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <errno.h>
+
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <windows.h>
+    #include <io.h>
+    #define STDIN_FILENO 0
+    #define STDOUT_FILENO 1
+    #define close(fd) closesocket(fd)
+    typedef int socklen_t;
+#else
+    #include <unistd.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+#endif
 
 // ============================================================================
 // LSP Server Lifecycle
@@ -380,7 +393,7 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
 
     // Allow address reuse
     int opt = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
 
     // Bind
     struct sockaddr_in addr = {

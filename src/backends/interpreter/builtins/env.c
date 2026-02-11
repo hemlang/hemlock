@@ -1,5 +1,35 @@
 #include "internal.h"
 
+#ifdef HML_WINDOWS
+#include <windows.h>
+#include <process.h>
+#include <io.h>
+#include <fcntl.h>
+
+// Windows setenv equivalent
+static int hml_setenv(const char *name, const char *value, int overwrite) {
+    if (!overwrite) {
+        char *existing = getenv(name);
+        if (existing != NULL) return 0;
+    }
+    return _putenv_s(name, value);
+}
+
+// Windows unsetenv equivalent
+static int hml_unsetenv(const char *name) {
+    return _putenv_s(name, "");
+}
+
+// Status macros for process exit codes (Windows simplified)
+#define WIFEXITED(status) (1)
+#define WEXITSTATUS(status) (status)
+
+#else
+// POSIX systems
+#define hml_setenv setenv
+#define hml_unsetenv unsetenv
+#endif
+
 Value builtin_getenv(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         runtime_error(ctx, "getenv() expects 1 argument (variable name), got %d", num_args);
@@ -58,7 +88,7 @@ Value builtin_setenv(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cvalue, value->data, value->length);
     cvalue[value->length] = '\0';
 
-    int result = setenv(cname, cvalue, 1);
+    int result = hml_setenv(cname, cvalue, 1);
     free(cname);
     free(cvalue);
 
@@ -88,7 +118,7 @@ Value builtin_unsetenv(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cname, name->data, name->length);
     cname[name->length] = '\0';
 
-    int result = unsetenv(cname);
+    int result = hml_unsetenv(cname);
     free(cname);
 
     if (result != 0) {
@@ -193,6 +223,132 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         }
         argv[arr->length + 1] = NULL;
 
+#ifdef HML_WINDOWS
+        // Windows implementation using CreateProcess
+        // Build command line string from argv
+        size_t cmdline_len = 0;
+        for (int i = 0; argv[i] != NULL; i++) {
+            cmdline_len += strlen(argv[i]) + 3;  // quotes + space
+        }
+        char *cmdline = malloc(cmdline_len + 1);
+        if (!cmdline) {
+            for (int i = 0; i <= arr->length; i++) free(argv[i]);
+            free(argv);
+            runtime_error(ctx, "exec() memory allocation failed");
+            return val_null();
+        }
+        cmdline[0] = '\0';
+        for (int i = 0; argv[i] != NULL; i++) {
+            if (i > 0) strcat(cmdline, " ");
+            strcat(cmdline, "\"");
+            strcat(cmdline, argv[i]);
+            strcat(cmdline, "\"");
+        }
+
+        // Free argv now
+        for (int i = 0; i <= arr->length; i++) free(argv[i]);
+        free(argv);
+
+        // Create pipes for stdout and stderr
+        HANDLE stdout_read, stdout_write;
+        HANDLE stderr_read, stderr_write;
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+        if (!CreatePipe(&stdout_read, &stdout_write, &sa, 0) ||
+            !CreatePipe(&stderr_read, &stderr_write, &sa, 0)) {
+            free(cmdline);
+            ctx->exception_state.exception_value = val_string("exec() pipe creation failed");
+            ctx->exception_state.is_throwing = 1;
+            return val_null();
+        }
+
+        // Ensure read handles are not inherited
+        SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOA si = { sizeof(STARTUPINFOA) };
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdOutput = stdout_write;
+        si.hStdError = stderr_write;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+        PROCESS_INFORMATION pi;
+        BOOL success = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+        free(cmdline);
+
+        // Close write ends in parent
+        CloseHandle(stdout_write);
+        CloseHandle(stderr_write);
+
+        if (!success) {
+            CloseHandle(stdout_read);
+            CloseHandle(stderr_read);
+            ctx->exception_state.exception_value = val_string("exec() CreateProcess failed");
+            ctx->exception_state.is_throwing = 1;
+            return val_null();
+        }
+
+        // Read stdout
+        char *output_buffer = malloc(4096);
+        size_t output_size = 0;
+        size_t output_capacity = 4096;
+        char chunk[4096];
+        DWORD bytes_read;
+
+        while (ReadFile(stdout_read, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+            while (output_size + bytes_read > output_capacity) {
+                output_capacity *= 2;
+                char *new_buffer = realloc(output_buffer, output_capacity);
+                if (!new_buffer) {
+                    free(output_buffer);
+                    CloseHandle(stdout_read);
+                    CloseHandle(stderr_read);
+                    CloseHandle(pi.hProcess);
+                    CloseHandle(pi.hThread);
+                    runtime_error(ctx, "exec() memory allocation failed");
+                    return val_null();
+                }
+                output_buffer = new_buffer;
+            }
+            memcpy(output_buffer + output_size, chunk, bytes_read);
+            output_size += bytes_read;
+        }
+        CloseHandle(stdout_read);
+
+        // Read stderr
+        char *stderr_buffer = malloc(4096);
+        size_t stderr_size = 0;
+        size_t stderr_capacity = 4096;
+
+        while (ReadFile(stderr_read, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+            while (stderr_size + bytes_read > stderr_capacity) {
+                stderr_capacity *= 2;
+                char *new_buffer = realloc(stderr_buffer, stderr_capacity);
+                if (!new_buffer) {
+                    free(output_buffer);
+                    free(stderr_buffer);
+                    CloseHandle(stderr_read);
+                    CloseHandle(pi.hProcess);
+                    CloseHandle(pi.hThread);
+                    runtime_error(ctx, "exec() memory allocation failed");
+                    return val_null();
+                }
+                stderr_buffer = new_buffer;
+            }
+            memcpy(stderr_buffer + stderr_size, chunk, bytes_read);
+            stderr_size += bytes_read;
+        }
+        CloseHandle(stderr_read);
+
+        // Wait for process
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD exit_code;
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+#else
+        // POSIX implementation using fork/exec
         // Create pipes for stdout and stderr
         int stdout_pipe[2];
         int stderr_pipe[2];
@@ -351,6 +507,7 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         int status;
         waitpid(pid, &status, 0);
         int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif  // HML_WINDOWS
 
         // Ensure null termination for stdout
         if (output_size >= output_capacity) {
@@ -607,6 +764,132 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     }
     argv[arr->length] = NULL;
 
+#ifdef HML_WINDOWS
+    // Windows implementation using CreateProcess
+    // Build command line string from argv
+    size_t cmdline_len = 0;
+    for (int i = 0; argv[i] != NULL; i++) {
+        cmdline_len += strlen(argv[i]) + 3;  // quotes + space
+    }
+    char *cmdline = malloc(cmdline_len + 1);
+    if (!cmdline) {
+        for (int i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        runtime_error(ctx, "exec_argv() memory allocation failed");
+        return val_null();
+    }
+    cmdline[0] = '\0';
+    for (int i = 0; argv[i] != NULL; i++) {
+        if (i > 0) strcat(cmdline, " ");
+        strcat(cmdline, "\"");
+        strcat(cmdline, argv[i]);
+        strcat(cmdline, "\"");
+    }
+
+    // Free argv now
+    for (int i = 0; i < arr->length; i++) free(argv[i]);
+    free(argv);
+
+    // Create pipes for stdout and stderr
+    HANDLE stdout_read, stdout_write;
+    HANDLE stderr_read, stderr_write;
+    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+    if (!CreatePipe(&stdout_read, &stdout_write, &sa, 0) ||
+        !CreatePipe(&stderr_read, &stderr_write, &sa, 0)) {
+        free(cmdline);
+        ctx->exception_state.exception_value = val_string("exec_argv() pipe creation failed");
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    // Ensure read handles are not inherited
+    SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = stdout_write;
+    si.hStdError = stderr_write;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+    PROCESS_INFORMATION pi;
+    BOOL success = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    free(cmdline);
+
+    // Close write ends in parent
+    CloseHandle(stdout_write);
+    CloseHandle(stderr_write);
+
+    if (!success) {
+        CloseHandle(stdout_read);
+        CloseHandle(stderr_read);
+        ctx->exception_state.exception_value = val_string("exec_argv() CreateProcess failed");
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    // Read stdout
+    char *output_buffer = malloc(4096);
+    size_t output_size = 0;
+    size_t output_capacity = 4096;
+    char chunk[4096];
+    DWORD bytes_read;
+
+    while (ReadFile(stdout_read, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+        while (output_size + bytes_read > output_capacity) {
+            output_capacity *= 2;
+            char *new_buffer = realloc(output_buffer, output_capacity);
+            if (!new_buffer) {
+                free(output_buffer);
+                CloseHandle(stdout_read);
+                CloseHandle(stderr_read);
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+                runtime_error(ctx, "exec_argv() memory allocation failed");
+                return val_null();
+            }
+            output_buffer = new_buffer;
+        }
+        memcpy(output_buffer + output_size, chunk, bytes_read);
+        output_size += bytes_read;
+    }
+    CloseHandle(stdout_read);
+
+    // Read stderr
+    char *stderr_buffer = malloc(4096);
+    size_t stderr_size = 0;
+    size_t stderr_capacity = 4096;
+
+    while (ReadFile(stderr_read, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+        while (stderr_size + bytes_read > stderr_capacity) {
+            stderr_capacity *= 2;
+            char *new_buffer = realloc(stderr_buffer, stderr_capacity);
+            if (!new_buffer) {
+                free(output_buffer);
+                free(stderr_buffer);
+                CloseHandle(stderr_read);
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+                runtime_error(ctx, "exec_argv() memory allocation failed");
+                return val_null();
+            }
+            stderr_buffer = new_buffer;
+        }
+        memcpy(stderr_buffer + stderr_size, chunk, bytes_read);
+        stderr_size += bytes_read;
+    }
+    CloseHandle(stderr_read);
+
+    // Wait for process
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+#else
+    // POSIX implementation using fork/exec
     // Create pipes for stdout and stderr
     int stdout_pipe[2];
     int stderr_pipe[2];
@@ -765,6 +1048,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     int status;
     waitpid(pid, &status, 0);
     int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif  // HML_WINDOWS
 
     // Ensure null termination for stdout
     if (output_size >= output_capacity) {
@@ -900,6 +1184,27 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+#ifdef HML_WINDOWS
+    // Windows: Use TerminateProcess for signal 9 (SIGKILL equivalent)
+    int pid = value_to_int(args[0]);
+    int sig = value_to_int(args[1]);
+    (void)sig;  // Signal type is ignored on Windows
+
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+    if (hProcess == NULL) {
+        ctx->exception_state.exception_value = val_string("kill() failed: cannot open process");
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    if (!TerminateProcess(hProcess, 1)) {
+        CloseHandle(hProcess);
+        ctx->exception_state.exception_value = val_string("kill() failed: cannot terminate process");
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    CloseHandle(hProcess);
+#else
     int pid = value_to_int(args[0]);
     int sig = value_to_int(args[1]);
 
@@ -910,6 +1215,7 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
+#endif
 
     return val_null();
 }
@@ -928,6 +1234,11 @@ Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+#ifdef HML_WINDOWS
+    // fork() is not available on Windows
+    runtime_error(ctx, "fork() is not supported on Windows. Use exec() instead.");
+    return val_null();
+#else
     pid_t pid = fork();
     if (pid < 0) {
         char error_msg[256];
@@ -938,6 +1249,7 @@ Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_i32((int32_t)pid);
+#endif
 }
 
 Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
@@ -947,6 +1259,11 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+#ifdef HML_WINDOWS
+    // wait() is not available on Windows
+    runtime_error(ctx, "wait() is not supported on Windows. Use exec() instead.");
+    return val_null();
+#else
     int status;
     pid_t pid = wait(&status);
     if (pid < 0) {
@@ -982,6 +1299,7 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
     result->num_fields++;
 
     return val_object(result);
+#endif
 }
 
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
@@ -998,6 +1316,12 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+#ifdef HML_WINDOWS
+    // waitpid() is not available on Windows
+    (void)args;
+    runtime_error(ctx, "waitpid() is not supported on Windows. Use exec() instead.");
+    return val_null();
+#else
     pid_t pid = (pid_t)value_to_int(args[0]);
     int options = (num_args == 2) ? value_to_int(args[1]) : 0;
 
@@ -1036,6 +1360,7 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     result->num_fields++;
 
     return val_object(result);
+#endif
 }
 
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {

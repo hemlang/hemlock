@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make clean:*)",
+      "Bash(make:*)",
+      "Bash(./hemlock.exe:*)",
+      "Bash(./hemlockc.exe:*)",
+      "Bash(timeout 60 bash:*)",
+      "Bash(git pull:*)",
+      "Bash(gcc:*)",
+      "Bash(./hemlockc_debug.exe:*)",
+      "Bash(gdb:*)"
+    ]
+  }
+}

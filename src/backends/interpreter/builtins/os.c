@@ -1,6 +1,9 @@
 #include "internal.h"
+
+#ifndef HML_WINDOWS
 #include <sys/utsname.h>
 #include <pwd.h>
+#endif
 
 #ifdef __linux__
 #include <sys/sysinfo.h>
@@ -45,6 +48,22 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    SYSTEM_INFO si;
+    GetNativeSystemInfo(&si);
+    switch (si.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_AMD64:
+            return val_string("x86_64");
+        case PROCESSOR_ARCHITECTURE_ARM64:
+            return val_string("aarch64");
+        case PROCESSOR_ARCHITECTURE_INTEL:
+            return val_string("i686");
+        case PROCESSOR_ARCHITECTURE_ARM:
+            return val_string("arm");
+        default:
+            return val_string("unknown");
+    }
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -55,6 +74,7 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.machine);
+#endif
 }
 
 // Get system hostname
@@ -85,6 +105,20 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    // Try GetUserNameA first
+    char username[256];
+    DWORD size = sizeof(username);
+    if (GetUserNameA(username, &size)) {
+        return val_string(username);
+    }
+
+    // Fall back to USERNAME environment variable
+    char *env_user = getenv("USERNAME");
+    if (env_user != NULL) {
+        return val_string(env_user);
+    }
+#else
     // Try getlogin_r first
     char username[256];
     if (getlogin_r(username, sizeof(username)) == 0) {
@@ -102,6 +136,7 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
     if (env_user != NULL) {
         return val_string(env_user);
     }
+#endif
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "username() failed: could not determine username");
@@ -118,6 +153,22 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    // Try USERPROFILE environment variable first (standard on Windows)
+    char *home = getenv("USERPROFILE");
+    if (home != NULL) {
+        return val_string(home);
+    }
+
+    // Fall back to HOMEDRIVE + HOMEPATH
+    char *drive = getenv("HOMEDRIVE");
+    char *path = getenv("HOMEPATH");
+    if (drive != NULL && path != NULL) {
+        char homedir[512];
+        snprintf(homedir, sizeof(homedir), "%s%s", drive, path);
+        return val_string(homedir);
+    }
+#else
     // Try HOME environment variable first
     char *home = getenv("HOME");
     if (home != NULL) {
@@ -129,6 +180,7 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
     if (pw != NULL && pw->pw_dir != NULL) {
         return val_string(pw->pw_dir);
     }
+#endif
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "homedir() failed: could not determine home directory");
@@ -146,12 +198,18 @@ Value builtin_cpu_count(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return val_i32((int32_t)si.dwNumberOfProcessors);
+#else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
     if (nprocs < 1) {
         nprocs = 1;  // Default to 1 if we can't determine
     }
 
     return val_i32((int32_t)nprocs);
+#endif
 }
 
 // Get total system memory in bytes
@@ -162,7 +220,18 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (!GlobalMemoryStatusEx(&memInfo)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "total_memory() failed: could not determine memory");
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    return val_i64((int64_t)memInfo.ullTotalPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
@@ -207,7 +276,18 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (!GlobalMemoryStatusEx(&memInfo)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not determine free memory");
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    return val_i64((int64_t)memInfo.ullAvailPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
@@ -272,6 +352,19 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    // Get Windows version using RtlGetVersion (more reliable than GetVersionEx)
+    OSVERSIONINFOA osvi;
+    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOA);
+    // GetVersionExA is deprecated but still works for basic version info
+    if (GetVersionExA(&osvi)) {
+        char version[64];
+        snprintf(version, sizeof(version), "%lu.%lu.%lu",
+                 osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber);
+        return val_string(version);
+    }
+    return val_string("unknown");
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -282,6 +375,7 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.release);
+#endif
 }
 
 // Get OS name (detailed, e.g., "Linux", "Darwin")
@@ -292,6 +386,9 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+#ifdef HML_WINDOWS
+    return val_string("Windows");
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -302,6 +399,7 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.sysname);
+#endif
 }
 
 // Get temporary directory path
@@ -331,8 +429,22 @@ Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx) {
         return val_string(tmpdir);
     }
 
+#ifdef HML_WINDOWS
+    // On Windows, use GetTempPath as fallback
+    char temp_path[MAX_PATH];
+    DWORD len = GetTempPathA(MAX_PATH, temp_path);
+    if (len > 0 && len < MAX_PATH) {
+        // Remove trailing backslash if present
+        if (len > 0 && temp_path[len - 1] == '\\') {
+            temp_path[len - 1] = '\0';
+        }
+        return val_string(temp_path);
+    }
+    return val_string("C:\\Windows\\Temp");
+#else
     // Default to /tmp on Unix-like systems
     return val_string("/tmp");
+#endif
 }
 
 // Get uptime in seconds (system boot time)
@@ -343,7 +455,11 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
-#ifdef __linux__
+#ifdef HML_WINDOWS
+    // GetTickCount64 returns milliseconds since system boot
+    ULONGLONG uptime_ms = GetTickCount64();
+    return val_i64((int64_t)(uptime_ms / 1000));
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];

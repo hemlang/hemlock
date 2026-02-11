@@ -146,7 +146,7 @@ void advance(Parser *p) {
     }
 }
 
-void consume(Parser *p, TokenType type, const char *message) {
+void consume(Parser *p, HmlTokenType type, const char *message) {
     if (p->current.type == type) {
         advance(p);
         return;
@@ -155,11 +155,11 @@ void consume(Parser *p, TokenType type, const char *message) {
     error_at_current(p, message);
 }
 
-int check(Parser *p, TokenType type) {
+int check(Parser *p, HmlTokenType type) {
     return p->current.type == type;
 }
 
-int match(Parser *p, TokenType type) {
+int match(Parser *p, HmlTokenType type) {
     if (!check(p, type)) return 0;
     advance(p);
     return 1;
@@ -191,7 +191,7 @@ void consume_contextual(Parser *p, const char *keyword, const char *message) {
 // Check if token type is a type keyword that can be used as an identifier
 // This includes built-in type names (i32, string, etc.) and contextual keywords
 // that only have special meaning at the start of statements
-int is_identifier_or_type_keyword(TokenType type) {
+int is_identifier_or_type_keyword(HmlTokenType type) {
     switch (type) {
         // Always an identifier
         case TOK_IDENT:

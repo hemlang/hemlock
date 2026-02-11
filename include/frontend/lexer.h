@@ -133,11 +133,11 @@ typedef enum {
     // Special
     TOK_EOF,
     TOK_ERROR,
-} TokenType;
+} HmlTokenType;
 
 // Token structure
 typedef struct {
-    TokenType type;
+    HmlTokenType type;
     const char *start;  // Points into source (don't free!)
     int length;
     int line;

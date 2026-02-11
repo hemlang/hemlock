@@ -3,10 +3,15 @@
  *
  * POSIX regex functions exposed as builtins for static linking compatibility.
  * This allows regex to work without dlopen/FFI.
+ *
+ * NOTE: On Windows, POSIX regex is not available. These functions return errors.
  */
 
 #include "builtins_internal.h"
+
+#ifndef HML_WINDOWS
 #include <regex.h>
+#endif
 
 // ========== REGEX CONSTANTS ==========
 
@@ -18,6 +23,52 @@
 
 #define HML_REG_NOTBOL    1
 #define HML_REG_NOTEOL    2
+
+// ========== WINDOWS STUBS ==========
+#ifdef HML_WINDOWS
+
+HmlValue hml_regex_compile(HmlValue pattern, HmlValue flags) {
+    (void)pattern; (void)flags;
+    hml_runtime_error("regex is not supported on Windows");
+    return hml_val_null();
+}
+
+HmlValue hml_regex_test(HmlValue preg, HmlValue text, HmlValue eflags) {
+    (void)preg; (void)text; (void)eflags;
+    hml_runtime_error("regex is not supported on Windows");
+    return hml_val_bool(0);
+}
+
+HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches) {
+    (void)preg; (void)text; (void)max_matches;
+    hml_runtime_error("regex is not supported on Windows");
+    return hml_val_array();
+}
+
+HmlValue hml_regex_free(HmlValue preg) {
+    (void)preg;
+    return hml_val_null();  // No-op on Windows
+}
+
+HmlValue hml_regex_error(HmlValue errcode, HmlValue preg) {
+    (void)errcode; (void)preg;
+    return hml_val_string("regex is not supported on Windows");
+}
+
+HmlValue hml_regex_replace(HmlValue preg, HmlValue text, HmlValue replacement) {
+    (void)preg; (void)replacement;
+    hml_runtime_error("regex is not supported on Windows");
+    return text;  // Return original text
+}
+
+HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacement) {
+    (void)preg; (void)replacement;
+    hml_runtime_error("regex is not supported on Windows");
+    return text;  // Return original text
+}
+
+#else
+// ========== POSIX IMPLEMENTATION ==========
 
 // ========== REGEX FUNCTIONS ==========
 
@@ -303,6 +354,8 @@ HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacemen
     free(result);
     return result_val;
 }
+
+#endif // !HML_WINDOWS (end of POSIX implementation)
 
 // ========== BUILTIN WRAPPERS ==========
 

@@ -116,7 +116,7 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    DIR *dir = opendir(cpath);
+    hml_dir_t *dir = hml_opendir(cpath);
     if (!dir) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open directory '%s': %s", cpath, strerror(errno));
@@ -127,8 +127,8 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     Array *entries = array_new();
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
+    hml_dirent_t *entry;
+    while ((entry = hml_readdir(dir)) != NULL) {
         // Skip "." and ".."
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -138,7 +138,7 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
         value_release(str_val);  // array_push retains, so release our reference
     }
 
-    closedir(dir);
+    hml_closedir(dir);
     free(cpath);
     // Ownership of array transfers to caller via return value
     return val_array(entries);

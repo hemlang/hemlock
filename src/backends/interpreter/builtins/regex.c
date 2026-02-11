@@ -2,12 +2,71 @@
  * Hemlock Interpreter - Regex Builtins
  *
  * POSIX regex functions for static linking compatibility.
+ * On Windows, these functions return errors since POSIX regex is not available.
  */
 
 #include "internal.h"
+
+#ifndef HML_WINDOWS
 #include <regex.h>
+#endif
 
 // ========== REGEX BUILTINS ==========
+
+#ifdef HML_WINDOWS
+// Windows stubs - regex not supported
+
+Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "regex is not supported on Windows");
+    return val_null();
+}
+
+Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "regex is not supported on Windows");
+    return val_null();
+}
+
+Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "regex is not supported on Windows");
+    return val_null();
+}
+
+Value builtin_regex_free(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    (void)ctx;
+    return val_null();
+}
+
+Value builtin_regex_error(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    (void)ctx;
+    return val_string("regex is not supported on Windows");
+}
+
+Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "regex is not supported on Windows");
+    return val_null();
+}
+
+Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "regex is not supported on Windows");
+    return val_null();
+}
+
+#else
+// POSIX implementation
 
 /**
  * __regex_compile(pattern: string, flags: i32) -> ptr
@@ -392,3 +451,5 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     free(result);
     return result_val;
 }
+
+#endif  // HML_WINDOWS

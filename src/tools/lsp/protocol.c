@@ -7,9 +7,33 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+
+// Windows compatibility
+#if defined(_WIN32) || defined(_WIN64)
+    #ifndef HML_WINDOWS
+    #define HML_WINDOWS 1
+    #endif
+#endif
+
+#ifdef HML_WINDOWS
+    #include <io.h>
+    // strndup is not available on Windows
+    static inline char* hml_strndup(const char *s, size_t n) {
+        size_t len = 0;
+        while (len < n && s[len] != '\0') len++;
+        char *result = malloc(len + 1);
+        if (result) {
+            memcpy(result, s, len);
+            result[len] = '\0';
+        }
+        return result;
+    }
+    #define strndup hml_strndup
+#else
+    #include <unistd.h>
+#endif
 
 // ============================================================================
 // JSON Value Constructors

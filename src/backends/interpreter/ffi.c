@@ -1,11 +1,22 @@
 #include "internal.h"
 #include <ffi.h>
-#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdatomic.h>
+
+// Platform-specific dynamic library loading
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    typedef HMODULE hml_lib_handle_t;
+    #define HML_INVALID_LIB NULL
+#else
+    #include <dlfcn.h>
+    typedef void* hml_lib_handle_t;
+    #define HML_INVALID_LIB NULL
+#endif
 
 // Stack allocation threshold for FFI calls
 // Uses HML_FFI_MAX_STACK_ARGS from hemlock_limits.h (included via internal.h)
@@ -15,7 +26,7 @@
 // Loaded library structure
 struct FFILibrary {
     char *path;              // Library file path
-    void *handle;            // dlopen() handle
+    hml_lib_handle_t handle; // dlopen()/LoadLibrary() handle
 };
 
 // FFI struct field descriptor
@@ -79,15 +90,70 @@ static pthread_mutex_t ffi_callback_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // ========== PLATFORM-SPECIFIC LIBRARY PATH TRANSLATION ==========
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(HML_WINDOWS)
 #include <sys/stat.h>
 
 // Check if a file exists
 static int file_exists(const char *path) {
+#ifdef HML_WINDOWS
+    return _access(path, 0) == 0;
+#else
     struct stat st;
     return stat(path, &st) == 0;
+#endif
+}
+#endif
+
+#ifdef HML_WINDOWS
+// Translate Linux library names to Windows equivalents
+static const char* translate_library_path(const char *path) {
+    // libc.so.6 -> msvcrt.dll (Windows C runtime)
+    if (strcmp(path, "libc.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+    // libm.so.6 -> msvcrt.dll (math is part of CRT on Windows)
+    if (strcmp(path, "libm.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+    // Generic .so to .dll translation
+    static char translated[512];
+    size_t len = strlen(path);
+
+    // Handle .so.N pattern (e.g., libfoo.so.6)
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos) {
+        size_t base_len = so_pos - path;
+        // Skip "lib" prefix on Windows (libfoo.so -> foo.dll)
+        const char *name_start = path;
+        if (strncmp(path, "lib", 3) == 0) {
+            name_start = path + 3;
+            base_len -= 3;
+        }
+        if (base_len < sizeof(translated) - 5) {
+            strncpy(translated, name_start, base_len);
+            strcpy(translated + base_len, ".dll");
+            return translated;
+        }
+    }
+    // Handle plain .so (e.g., libfoo.so)
+    if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        const char *name_start = path;
+        size_t name_len = len - 3;
+        // Skip "lib" prefix on Windows
+        if (strncmp(path, "lib", 3) == 0) {
+            name_start = path + 3;
+            name_len -= 3;
+        }
+        if (name_len < sizeof(translated) - 5) {
+            strncpy(translated, name_start, name_len);
+            strcpy(translated + name_len, ".dll");
+            return translated;
+        }
+    }
+    return path;  // Return as-is if no pattern matched
 }
 
+#elif defined(__APPLE__)
 // Translate Linux library names to macOS equivalents
 static const char* translate_library_path(const char *path) {
     // libc.so.6 -> libSystem.B.dylib (macOS system C library)
@@ -111,7 +177,7 @@ static const char* translate_library_path(const char *path) {
     // Only translate if it ends with .so or .so.N
     static char translated[512];
     size_t len = strlen(path);
-    
+
     // Check for .so.N pattern (e.g., libfoo.so.6)
     const char *so_pos = strstr(path, ".so.");
     if (so_pos != NULL) {
@@ -122,7 +188,7 @@ static const char* translate_library_path(const char *path) {
             return translated;
         }
     }
-    
+
     // Check for .so at end (e.g., libfoo.so)
     if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
         if (len < sizeof(translated) - 4) {
@@ -131,7 +197,7 @@ static const char* translate_library_path(const char *path) {
             return translated;
         }
     }
-    
+
     return path;  // No translation needed
 }
 #endif
@@ -187,8 +253,8 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 
     pthread_mutex_lock(&ffi_cache_mutex);
 
-#ifdef __APPLE__
-    // Translate Linux library names to macOS equivalents
+#if defined(__APPLE__) || defined(HML_WINDOWS)
+    // Translate Linux library names to platform equivalents
     const char *actual_path = translate_library_path(path);
 #else
     const char *actual_path = path;
@@ -204,8 +270,21 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
         }
     }
 
+    // Open library
+#ifdef HML_WINDOWS
+    hml_lib_handle_t handle = LoadLibraryA(actual_path);
+    if (handle == NULL) {
+        pthread_mutex_unlock(&ffi_cache_mutex);
+        ctx->exception_state.is_throwing = 1;
+        char error_msg[512];
+        DWORD err = GetLastError();
+        snprintf(error_msg, sizeof(error_msg), "Failed to load library '%s': Windows error %lu", path, (unsigned long)err);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        return NULL;
+    }
+#else
     // Open library with RTLD_LAZY (resolve symbols on first call)
-    void *handle = dlopen(actual_path, RTLD_LAZY);
+    hml_lib_handle_t handle = dlopen(actual_path, RTLD_LAZY);
     if (handle == NULL) {
         pthread_mutex_unlock(&ffi_cache_mutex);
         ctx->exception_state.is_throwing = 1;
@@ -214,6 +293,7 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
         ctx->exception_state.exception_value = val_string(error_msg);
         return NULL;
     }
+#endif
 
     FFILibrary *lib = malloc(sizeof(FFILibrary));
     lib->path = strdup(path);
@@ -251,8 +331,12 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 }
 
 void ffi_close_library(FFILibrary *lib) {
-    if (lib->handle != NULL) {
+    if (lib->handle != HML_INVALID_LIB) {
+#ifdef HML_WINDOWS
+        FreeLibrary(lib->handle);
+#else
         dlclose(lib->handle);
+#endif
     }
     free(lib->path);
     free(lib);
@@ -902,6 +986,18 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
 
     // Lazy symbol resolution: resolve on first call
     if (func->func_ptr == NULL) {
+#ifdef HML_WINDOWS
+        func->func_ptr = (void*)GetProcAddress((HMODULE)func->lib_handle, func->name);
+        if (func->func_ptr == NULL) {
+            ctx->exception_state.is_throwing = 1;
+            char err[512];
+            DWORD win_err = GetLastError();
+            snprintf(err, sizeof(err), "FFI function '%s' not found in '%s': Windows error %lu",
+                     func->name, func->lib_path, (unsigned long)win_err);
+            ctx->exception_state.exception_value = val_string(err);
+            return val_null();
+        }
+#else
         dlerror();  // Clear any existing error
         func->func_ptr = dlsym(func->lib_handle, func->name);
         char *error_msg = dlerror();
@@ -914,6 +1010,7 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
             ctx->exception_state.exception_value = val_string(err);
             return val_null();
         }
+#endif
     }
 
     // Validate argument count

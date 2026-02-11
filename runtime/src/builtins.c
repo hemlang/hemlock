@@ -327,7 +327,7 @@ HmlValue hml_dirent_name(HmlValue ptr_val) {
     if (ptr_val.type != HML_VAL_PTR) {
         hml_runtime_error("__dirent_name() requires a pointer");
     }
-    struct dirent *entry = (struct dirent*)ptr_val.as.as_ptr;
+    hml_dirent_t *entry = (hml_dirent_t*)ptr_val.as.as_ptr;
     return hml_val_string(entry->d_name);
 }
 

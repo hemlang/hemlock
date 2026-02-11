@@ -1075,7 +1075,7 @@ Expr* factor(Parser *p) {
     while (match(p, TOK_STAR) || match(p, TOK_SLASH) || match(p, TOK_PERCENT)) {
         int op_line = p->previous.line;
         int op_column = p->previous.column;
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_STAR) ? OP_MUL :
                       (op_type == TOK_SLASH) ? OP_DIV : OP_MOD;
         Expr *right = unary(p);
@@ -1093,7 +1093,7 @@ Expr* term(Parser *p) {
     while (match(p, TOK_PLUS) || match(p, TOK_MINUS)) {
         int op_line = p->previous.line;
         int op_column = p->previous.column;
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_PLUS) ? OP_ADD : OP_SUB;
         Expr *right = factor(p);
         expr = expr_binary(expr, op, right);
@@ -1110,7 +1110,7 @@ Expr* shift(Parser *p) {
     while (match(p, TOK_LESS_LESS) || match(p, TOK_GREATER_GREATER)) {
         int op_line = p->previous.line;
         int op_column = p->previous.column;
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_LESS_LESS) ? OP_BIT_LSHIFT : OP_BIT_RSHIFT;
         Expr *right = term(p);
         expr = expr_binary(expr, op, right);
@@ -1128,7 +1128,7 @@ Expr* comparison(Parser *p) {
            match(p, TOK_LESS) || match(p, TOK_LESS_EQUAL)) {
         int op_line = p->previous.line;
         int op_column = p->previous.column;
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op;
 
         switch (op_type) {
@@ -1154,7 +1154,7 @@ Expr* equality(Parser *p) {
     while (match(p, TOK_EQUAL_EQUAL) || match(p, TOK_BANG_EQUAL)) {
         int op_line = p->previous.line;
         int op_column = p->previous.column;
-        TokenType op_type = p->previous.type;
+        HmlTokenType op_type = p->previous.type;
         BinaryOp op = (op_type == TOK_EQUAL_EQUAL) ? OP_EQUAL : OP_NOT_EQUAL;
         Expr *right = comparison(p);
         expr = expr_binary(expr, op, right);

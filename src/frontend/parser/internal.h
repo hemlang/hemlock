@@ -21,10 +21,10 @@ void synchronize(Parser *p);
 
 // Token management
 void advance(Parser *p);
-void consume(Parser *p, TokenType type, const char *message);
-int check(Parser *p, TokenType type);
-int match(Parser *p, TokenType type);
-int is_identifier_or_type_keyword(TokenType type);
+void consume(Parser *p, HmlTokenType type, const char *message);
+int check(Parser *p, HmlTokenType type);
+int match(Parser *p, HmlTokenType type);
+int is_identifier_or_type_keyword(HmlTokenType type);
 int check_identifier_or_type_keyword(Parser *p);
 int match_identifier_or_type_keyword(Parser *p);
 char* consume_identifier_or_type_keyword(Parser *p, const char *message);

@@ -3,12 +3,30 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <libgen.h>
 #include <limits.h>
 
+// Platform-specific includes
+#ifdef HML_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <io.h>
+    #include <direct.h>
+    #define access _access
+    #define getcwd _getcwd
+    #define F_OK 0
+    #define R_OK 4
+    // Windows implementations of dirname/basename/realpath (in codegen_internal.h)
+    #include "backends/compiler/codegen_internal.h"
+    #define dirname hml_dirname
+    #define basename hml_basename
+    #define realpath hml_realpath
+#else
+    #include <unistd.h>
+    #include <libgen.h>
+#endif
+
 #ifdef __APPLE__
-#include <mach-o/dyld.h>
+    #include <mach-o/dyld.h>
 #endif
 
 // ========== SHARED CACHE MAP ==========
@@ -172,7 +190,12 @@ static char* find_stdlib_path(void) {
     char resolved[PATH_MAX];
     int found_exe = 0;
 
-#ifdef __APPLE__
+#ifdef HML_WINDOWS
+    DWORD len = GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
+    if (len > 0 && len < sizeof(exe_path)) {
+        found_exe = 1;
+    }
+#elif defined(__APPLE__)
     uint32_t size = sizeof(exe_path);
     if (_NSGetExecutablePath(exe_path, &size) == 0) {
         char *real = realpath(exe_path, NULL);
@@ -355,7 +378,13 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
             fprintf(stderr, "Error: Module path '%s' resolves outside stdlib directory\n", import_path);
             return NULL;
         }
-    } else if (import_path[0] == '/') {
+    } else if (import_path[0] == '/'
+#ifdef HML_WINDOWS
+               // Windows absolute paths: C:\ or C:/
+               || (import_path[0] != '\0' && import_path[1] == ':' &&
+                   (import_path[2] == '\\' || import_path[2] == '/'))
+#endif
+              ) {
         strncpy(resolved, import_path, PATH_MAX - 1);
         resolved[PATH_MAX - 1] = '\0';
     } else if (is_package_import(import_path)) {
