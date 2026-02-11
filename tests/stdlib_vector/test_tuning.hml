@@ -1,0 +1,73 @@
+// Test index property queries and runtime tuning
+
+import { create_index, add, size, capacity, dimensions, connectivity,
+	memory_usage, serialized_length, hardware_acceleration,
+	get_expansion_add, get_expansion_search,
+	set_expansion_add, set_expansion_search,
+	set_threads_add, set_threads_search,
+	reserve, clear, rename, count, contains,
+	free_index, METRIC_L2SQ } from "@stdlib/vector";
+
+// Create index with custom parameters
+let idx = create_index(8, metric: METRIC_L2SQ, connectivity: 32, expansion_add: 256);
+
+// Test basic properties
+assert(dimensions(idx) == 8, "dimensions should be 8");
+assert(size(idx) == 0, "new index should be empty");
+assert(connectivity(idx) == 32, "connectivity should be 32");
+
+// Test hardware acceleration info
+let hw = hardware_acceleration(idx);
+assert(hw.length > 0, "hardware_acceleration should return a string");
+print("Hardware acceleration: " + hw);
+
+// Test reserve
+reserve(idx, 1000);
+assert(capacity(idx) >= 1000, "capacity should be >= 1000 after reserve");
+
+// Add some vectors
+let i = 0;
+while (i < 10) {
+	let vec = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+	vec[i % 8] = 1.0;
+	add(idx, i + 1, vec);
+	i = i + 1;
+}
+assert(size(idx) == 10, "should have 10 vectors");
+
+// Test memory usage
+let mem = memory_usage(idx);
+assert(mem > 0, "memory_usage should be > 0");
+print("Memory usage: " + mem + " bytes");
+
+// Test serialized length
+let ser_len = serialized_length(idx);
+assert(ser_len > 0, "serialized_length should be > 0");
+
+// Test expansion tuning
+set_expansion_search(idx, 200);
+assert(get_expansion_search(idx) == 200, "expansion_search should be 200");
+
+set_expansion_add(idx, 512);
+assert(get_expansion_add(idx) == 512, "expansion_add should be 512");
+
+// Test thread configuration (just verify no errors)
+set_threads_add(idx, 2);
+set_threads_search(idx, 2);
+
+// Test rename
+rename(idx, 1, 100);
+assert(contains(idx, 100), "should contain renamed key 100");
+assert(!contains(idx, 1), "should not contain old key 1");
+
+// Test count
+let cnt = count(idx, 100);
+assert(cnt == 1, "count for existing key should be 1");
+
+// Test clear
+clear(idx);
+assert(size(idx) == 0, "size should be 0 after clear");
+
+free_index(idx);
+
+print("All tuning vector tests passed!");

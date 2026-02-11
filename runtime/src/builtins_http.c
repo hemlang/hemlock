@@ -945,6 +945,393 @@ HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp)
     return hml_lws_response_body_binary(resp);
 }
 
+// ========== STREAMING HTTP SUPPORT ==========
+// For chunked/SSE responses (e.g., streaming LLM output)
+
+#include <pthread.h>
+
+// Chunk queue node for streaming responses
+typedef struct hml_http_stream_chunk {
+    char *data;
+    size_t len;
+    struct hml_http_stream_chunk *next;
+} hml_http_stream_chunk_t;
+
+// Streaming HTTP connection
+typedef struct {
+    struct lws_context *context;
+    struct lws *wsi;
+    int status_code;
+    char *headers;
+    int established;     // Headers received
+    int complete;        // Response fully received
+    int failed;
+    pthread_t service_thread;
+    volatile int shutdown;
+    // Thread-safe chunk queue
+    hml_http_stream_chunk_t *chunk_head;
+    hml_http_stream_chunk_t *chunk_tail;
+    pthread_mutex_t chunk_mutex;
+    pthread_cond_t chunk_cond;
+} hml_http_stream_t;
+
+static void hml_http_stream_enqueue(hml_http_stream_t *stream, const char *data, size_t len) {
+    hml_http_stream_chunk_t *chunk = malloc(sizeof(hml_http_stream_chunk_t));
+    if (!chunk) return;
+    chunk->data = malloc(len + 1);
+    if (!chunk->data) { free(chunk); return; }
+    memcpy(chunk->data, data, len);
+    chunk->data[len] = '\0';
+    chunk->len = len;
+    chunk->next = NULL;
+
+    pthread_mutex_lock(&stream->chunk_mutex);
+    if (stream->chunk_tail) {
+        stream->chunk_tail->next = chunk;
+    } else {
+        stream->chunk_head = chunk;
+    }
+    stream->chunk_tail = chunk;
+    pthread_cond_signal(&stream->chunk_cond);
+    pthread_mutex_unlock(&stream->chunk_mutex);
+}
+
+// libwebsockets callback for streaming HTTP
+static int hml_http_stream_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                                    void *user, void *in, size_t len) {
+    hml_http_stream_t *stream = (hml_http_stream_t *)user;
+
+    switch (reason) {
+        case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+            unsigned char **p = (unsigned char **)in;
+            unsigned char *end = (*p) + len;
+            const char *ua = "User-Agent: hemlock/1.0\r\n";
+            size_t ua_len = strlen(ua);
+            if (end - *p >= (int)ua_len) {
+                memcpy(*p, ua, ua_len);
+                *p += ua_len;
+            }
+            const char *accept = "Accept: text/event-stream, application/json, */*\r\n";
+            size_t accept_len = strlen(accept);
+            if (end - *p >= (int)accept_len) {
+                memcpy(*p, accept, accept_len);
+                *p += accept_len;
+            }
+            break;
+        }
+
+        case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+            if (stream) {
+                stream->failed = 1;
+                stream->complete = 1;
+                pthread_mutex_lock(&stream->chunk_mutex);
+                pthread_cond_signal(&stream->chunk_cond);
+                pthread_mutex_unlock(&stream->chunk_mutex);
+            }
+            break;
+
+        case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+            if (stream) {
+                stream->status_code = lws_http_client_http_response(wsi);
+                stream->established = 1;
+
+                char headers_buf[8192];
+                size_t headers_len = 0;
+                char value[1024];
+                int vlen;
+                struct { enum lws_token_indexes token; const char *name; } header_list[] = {
+                    { WSI_TOKEN_HTTP_CONTENT_TYPE, "Content-Type" },
+                    { WSI_TOKEN_HTTP_CONTENT_LENGTH, "Content-Length" },
+                    { WSI_TOKEN_HTTP_CACHE_CONTROL, "Cache-Control" },
+                    { WSI_TOKEN_HTTP_DATE, "Date" },
+                    { WSI_TOKEN_HTTP_TRANSFER_ENCODING, "Transfer-Encoding" },
+                    { WSI_TOKEN_HTTP_ACCESS_CONTROL_ALLOW_ORIGIN, "Access-Control-Allow-Origin" },
+                };
+                for (size_t i = 0; i < sizeof(header_list)/sizeof(header_list[0]); i++) {
+                    vlen = lws_hdr_copy(wsi, value, sizeof(value), header_list[i].token);
+                    if (vlen > 0) {
+                        value[vlen] = '\0';
+                        int written = snprintf(headers_buf + headers_len,
+                                               sizeof(headers_buf) - headers_len,
+                                               "%s: %s\r\n", header_list[i].name, value);
+                        if (written > 0 && (size_t)written < sizeof(headers_buf) - headers_len) {
+                            headers_len += written;
+                        }
+                    }
+                }
+                if (headers_len > 0) {
+                    stream->headers = strndup(headers_buf, headers_len);
+                }
+            }
+            break;
+
+        case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+            char buffer[4096 + LWS_PRE];
+            char *px = buffer + LWS_PRE;
+            int lenx = sizeof(buffer) - LWS_PRE;
+            if (lws_http_client_read(wsi, &px, &lenx) < 0)
+                return -1;
+            return 0;
+        }
+
+        case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+            if (stream && len > 0) {
+                hml_http_stream_enqueue(stream, (const char *)in, len);
+            }
+            return 0;
+
+        case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+            if (stream) {
+                stream->complete = 1;
+                pthread_mutex_lock(&stream->chunk_mutex);
+                pthread_cond_signal(&stream->chunk_cond);
+                pthread_mutex_unlock(&stream->chunk_mutex);
+            }
+            break;
+
+        case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+            if (stream) {
+                stream->complete = 1;
+                pthread_mutex_lock(&stream->chunk_mutex);
+                pthread_cond_signal(&stream->chunk_cond);
+                pthread_mutex_unlock(&stream->chunk_mutex);
+            }
+            break;
+
+        default:
+            break;
+    }
+    return 0;
+}
+
+// Service thread for streaming HTTP
+static void* hml_http_stream_service_thread(void *arg) {
+    hml_http_stream_t *stream = (hml_http_stream_t *)arg;
+    while (!stream->shutdown && !stream->complete && !stream->failed) {
+        lws_service(stream->context, 50);
+    }
+    for (int i = 0; i < 10 && !stream->shutdown; i++) {
+        lws_service(stream->context, 10);
+    }
+    return NULL;
+}
+
+// __lws_http_stream_start(method, url, body, content_type, timeout_ms): ptr
+HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
+                                    HmlValue body_val, HmlValue content_type_val,
+                                    HmlValue timeout_val) {
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_stream_start() expects string method and URL");
+    }
+
+    const char *method = method_val.as.as_string->data;
+    const char *url = url_val.as.as_string->data;
+    (void)body_val;
+    (void)content_type_val;
+
+    int timeout_ms = 120000;
+    if (timeout_val.type == HML_VAL_I32) timeout_ms = timeout_val.as.as_i32;
+    else if (timeout_val.type == HML_VAL_I64) timeout_ms = (int)timeout_val.as.as_i64;
+
+    char host[256], path[512];
+    int port, ssl;
+    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
+        hml_runtime_error("Invalid URL format");
+    }
+
+    hml_http_stream_t *stream = calloc(1, sizeof(hml_http_stream_t));
+    if (!stream) {
+        hml_runtime_error("Failed to allocate stream");
+    }
+    pthread_mutex_init(&stream->chunk_mutex, NULL);
+    pthread_cond_init(&stream->chunk_cond, NULL);
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols stream_protocols[] = {
+        { "http-stream", hml_http_stream_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = stream_protocols;
+
+    stream->context = lws_create_context(&info);
+    if (!stream->context) {
+        pthread_mutex_destroy(&stream->chunk_mutex);
+        pthread_cond_destroy(&stream->chunk_cond);
+        free(stream);
+        hml_runtime_error("Failed to create libwebsockets context");
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = stream->context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = method;
+    connect_info.protocol = stream_protocols[0].name;
+    connect_info.userdata = stream;
+    connect_info.pwsi = &stream->wsi;
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(stream->context);
+        pthread_mutex_destroy(&stream->chunk_mutex);
+        pthread_cond_destroy(&stream->chunk_cond);
+        free(stream);
+        hml_runtime_error("Failed to connect for streaming");
+    }
+
+    // Wait for connection establishment
+    int wait_iters = timeout_ms / 10;
+    if (wait_iters < 1) wait_iters = 1;
+    while (!stream->established && !stream->failed && !stream->complete && wait_iters-- > 0) {
+        lws_service(stream->context, 10);
+    }
+
+    if (stream->failed || (!stream->established && wait_iters <= 0)) {
+        lws_context_destroy(stream->context);
+        if (stream->headers) free(stream->headers);
+        pthread_mutex_destroy(&stream->chunk_mutex);
+        pthread_cond_destroy(&stream->chunk_cond);
+        free(stream);
+        hml_runtime_error("Streaming HTTP connection failed or timed out");
+    }
+
+    stream->shutdown = 0;
+    if (pthread_create(&stream->service_thread, NULL, hml_http_stream_service_thread, stream) != 0) {
+        lws_context_destroy(stream->context);
+        if (stream->headers) free(stream->headers);
+        pthread_mutex_destroy(&stream->chunk_mutex);
+        pthread_cond_destroy(&stream->chunk_cond);
+        free(stream);
+        hml_runtime_error("Failed to create stream service thread");
+    }
+
+    return hml_val_ptr(stream);
+}
+
+// __lws_http_stream_read(stream, timeout_ms): string|null
+HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
+    if (stream_val.type != HML_VAL_PTR) {
+        return hml_val_null();
+    }
+    hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
+    if (!stream) return hml_val_null();
+
+    int timeout_ms = 30000;
+    if (timeout_val.type == HML_VAL_I32) timeout_ms = timeout_val.as.as_i32;
+    else if (timeout_val.type == HML_VAL_I64) timeout_ms = (int)timeout_val.as.as_i64;
+
+    int iterations = timeout_ms / 10;
+    if (iterations < 1) iterations = 1;
+
+    while (iterations-- > 0) {
+        pthread_mutex_lock(&stream->chunk_mutex);
+        if (stream->chunk_head) {
+            hml_http_stream_chunk_t *chunk = stream->chunk_head;
+            stream->chunk_head = chunk->next;
+            if (!stream->chunk_head) stream->chunk_tail = NULL;
+            pthread_mutex_unlock(&stream->chunk_mutex);
+
+            HmlValue result = hml_val_string(chunk->data);
+            free(chunk->data);
+            free(chunk);
+            return result;
+        }
+        if (stream->complete || stream->failed) {
+            pthread_mutex_unlock(&stream->chunk_mutex);
+            return hml_val_null();
+        }
+        pthread_mutex_unlock(&stream->chunk_mutex);
+        usleep(10000);
+    }
+
+    return hml_val_null();
+}
+
+// __lws_http_stream_status(stream): i32
+HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
+    if (stream_val.type != HML_VAL_PTR) return hml_val_i32(0);
+    hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
+    return hml_val_i32(stream ? stream->status_code : 0);
+}
+
+// __lws_http_stream_headers(stream): string
+HmlValue hml_lws_http_stream_headers(HmlValue stream_val) {
+    if (stream_val.type != HML_VAL_PTR) return hml_val_string("");
+    hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
+    if (!stream || !stream->headers) return hml_val_string("");
+    return hml_val_string(stream->headers);
+}
+
+// __lws_http_stream_close(stream): null
+HmlValue hml_lws_http_stream_close(HmlValue stream_val) {
+    if (stream_val.type != HML_VAL_PTR) return hml_val_null();
+    hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
+    if (!stream) return hml_val_null();
+
+    stream->shutdown = 1;
+    stream->complete = 1;
+    pthread_join(stream->service_thread, NULL);
+
+    pthread_mutex_lock(&stream->chunk_mutex);
+    hml_http_stream_chunk_t *chunk = stream->chunk_head;
+    while (chunk) {
+        hml_http_stream_chunk_t *next = chunk->next;
+        free(chunk->data);
+        free(chunk);
+        chunk = next;
+    }
+    pthread_mutex_unlock(&stream->chunk_mutex);
+
+    pthread_mutex_destroy(&stream->chunk_mutex);
+    pthread_cond_destroy(&stream->chunk_cond);
+
+    if (stream->context) lws_context_destroy(stream->context);
+    if (stream->headers) free(stream->headers);
+    free(stream);
+
+    return hml_val_null();
+}
+
+// Builtin wrappers for streaming
+HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, HmlValue url,
+                                             HmlValue body, HmlValue content_type, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_start(method, url, body, content_type, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_read(stream, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream) {
+    (void)env;
+    return hml_lws_http_stream_status(stream);
+}
+
+HmlValue hml_builtin_lws_http_stream_headers(HmlClosureEnv *env, HmlValue stream) {
+    (void)env;
+    return hml_lws_http_stream_headers(stream);
+}
+
+HmlValue hml_builtin_lws_http_stream_close(HmlClosureEnv *env, HmlValue stream) {
+    (void)env;
+    return hml_lws_http_stream_close(stream);
+}
+
 // ========== WEBSOCKET SUPPORT ==========
 
 // WebSocket message structure
@@ -1915,6 +2302,60 @@ HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, H
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server) {
     (void)env;
     return hml_lws_ws_server_close(server);
+}
+
+// Streaming HTTP stubs
+HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
+                                    HmlValue body_val, HmlValue content_type_val,
+                                    HmlValue timeout_val) {
+    (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val;
+    hml_runtime_error("Streaming HTTP not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
+    (void)stream_val; (void)timeout_val;
+    return hml_val_null();
+}
+
+HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
+    (void)stream_val;
+    return hml_val_i32(0);
+}
+
+HmlValue hml_lws_http_stream_headers(HmlValue stream_val) {
+    (void)stream_val;
+    return hml_val_string("");
+}
+
+HmlValue hml_lws_http_stream_close(HmlValue stream_val) {
+    (void)stream_val;
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, HmlValue url,
+                                             HmlValue body, HmlValue content_type, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_start(method, url, body, content_type, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_read(stream, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream) {
+    (void)env;
+    return hml_lws_http_stream_status(stream);
+}
+
+HmlValue hml_builtin_lws_http_stream_headers(HmlClosureEnv *env, HmlValue stream) {
+    (void)env;
+    return hml_lws_http_stream_headers(stream);
+}
+
+HmlValue hml_builtin_lws_http_stream_close(HmlClosureEnv *env, HmlValue stream) {
+    (void)env;
+    return hml_lws_http_stream_close(stream);
 }
 
 #endif  // HML_HAVE_LIBWEBSOCKETS

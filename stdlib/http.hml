@@ -380,6 +380,220 @@ export fn post_json_timeout(url, data, timeout_ms) {
 	return http_request_timeout("POST", url, json, headers, timeout_ms);
 }
 
+// ========== STREAMING HTTP ==========
+// For chunked/SSE responses (e.g., streaming LLM output)
+
+// Open a streaming HTTP connection that returns data incrementally.
+// Returns a stream object with .read(), .close(), .status_code, .headers, .done
+//
+// Usage:
+//   let s = stream("POST", url, body, headers, 120000);
+//   while (!s.done) {
+//       let chunk = s.read(30000);
+//       if (chunk != null) { print(chunk); }
+//   }
+//   s.close();
+export fn stream(method, url, body, headers, timeout_ms) {
+	method = method ?? "GET";
+	body = body ?? "";
+	timeout_ms = timeout_ms ?? 120000;
+
+	// Determine content type from headers
+	let content_type = "application/x-www-form-urlencoded";
+	if (headers != null && headers.length > 0) {
+		for (header in headers) {
+			if (header.starts_with("Content-Type:")) {
+				content_type = header.substr(14, header.length - 14).trim();
+			}
+		}
+	}
+
+	let stream_ptr = __lws_http_stream_start(method, url, body, content_type, timeout_ms);
+	let status = __lws_http_stream_status(stream_ptr);
+	let hdrs = __lws_http_stream_headers(stream_ptr);
+	let is_done = false;
+
+	return {
+		status_code: status,
+		headers: hdrs,
+		done: is_done,
+		_ptr: stream_ptr,
+		read: fn(read_timeout_ms) {
+			read_timeout_ms = read_timeout_ms ?? 30000;
+			if (self.done) { return null; }
+			let chunk = __lws_http_stream_read(self._ptr, read_timeout_ms);
+			if (chunk == null) {
+				self.done = true;
+			}
+			return chunk;
+		},
+		close: fn() {
+			if (self._ptr != null) {
+				__lws_http_stream_close(self._ptr);
+				self._ptr = null;
+				self.done = true;
+			}
+		},
+	};
+}
+
+// Stream a GET request
+// Example: let s = stream_get("https://example.com/events", null, 60000);
+export fn stream_get(url, headers, timeout_ms) {
+	return stream("GET", url, "", headers, timeout_ms);
+}
+
+// Stream a POST request (useful for LLM APIs)
+// Example: let s = stream_post("https://api.openai.com/v1/chat/completions", body, headers, 120000);
+export fn stream_post(url, body, headers, timeout_ms) {
+	return stream("POST", url, body, headers, timeout_ms);
+}
+
+// POST JSON and stream the response (convenience for LLM APIs)
+// Automatically serializes data and sets Content-Type: application/json
+//
+// Example:
+//   let s = post_json_stream("https://api.openai.com/v1/chat/completions", {
+//       model: "gpt-4",
+//       messages: [{ role: "user", content: "Hello" }],
+//       stream: true
+//   }, 120000);
+//   while (!s.done) {
+//       let chunk = s.read(30000);
+//       if (chunk != null) { print(chunk); }
+//   }
+//   s.close();
+export fn post_json_stream(url, data, timeout_ms) {
+	timeout_ms = timeout_ms ?? 120000;
+	let json = data.serialize();
+	let headers = ["Content-Type: application/json"];
+	return stream("POST", url, json, headers, timeout_ms);
+}
+
+// Stream Server-Sent Events (SSE)
+// Returns a stream object with .next_event() that parses SSE protocol
+// Each event is returned as { event: string, data: string, id: string }
+//
+// SSE format:
+//   event: message\n
+//   data: {"text":"hello"}\n
+//   id: 123\n
+//   \n
+//
+// Example:
+//   let sse = stream_sse("https://api.example.com/events", null, 120000);
+//   while (!sse.done) {
+//       let event = sse.next_event();
+//       if (event != null) {
+//           print("Event: " + event.event + " Data: " + event.data);
+//       }
+//   }
+//   sse.close();
+export fn stream_sse(url, headers, timeout_ms) {
+	timeout_ms = timeout_ms ?? 120000;
+	headers = headers ?? [];
+
+	// Ensure Accept: text/event-stream is set
+	let has_accept = false;
+	for (header in headers) {
+		if (header.starts_with("Accept:")) { has_accept = true; }
+	}
+	if (!has_accept) {
+		headers.push("Accept: text/event-stream");
+	}
+
+	let base_stream = stream("GET", url, "", headers, timeout_ms);
+	let buffer = "";
+
+	return {
+		status_code: base_stream.status_code,
+		headers: base_stream.headers,
+		done: base_stream.done,
+		_stream: base_stream,
+		_buffer: buffer,
+		next_event: fn(read_timeout_ms) {
+			read_timeout_ms = read_timeout_ms ?? 30000;
+
+			// Keep reading until we have a complete event (double newline)
+			while (true) {
+				// Check if buffer contains a complete event
+				let event_end = self._buffer.find("\n\n");
+				if (event_end < 0) {
+					// Also check \r\n\r\n
+					event_end = self._buffer.find("\r\n\r\n");
+					if (event_end >= 0) {
+						event_end = event_end;  // adjust for \r\n\r\n
+					}
+				}
+
+				if (event_end >= 0) {
+					let event_str = self._buffer.substr(0, event_end);
+					// Skip past the double newline
+					let skip = event_end + 2;
+					if (self._buffer.find("\r\n\r\n") == event_end) {
+						skip = event_end + 4;
+					}
+					self._buffer = self._buffer.substr(skip, self._buffer.length - skip);
+
+					// Parse SSE event
+					let event_type = "message";
+					let data_parts = [];
+					let event_id = "";
+
+					let lines = event_str.split("\n");
+					for (line in lines) {
+						// Strip \r if present
+						if (line.length > 0 && line.ends_with("\r")) {
+							line = line.substr(0, line.length - 1);
+						}
+
+						if (line.starts_with("data: ")) {
+							data_parts.push(line.substr(6, line.length - 6));
+						} else if (line.starts_with("data:")) {
+							data_parts.push(line.substr(5, line.length - 5));
+						} else if (line.starts_with("event: ")) {
+							event_type = line.substr(7, line.length - 7);
+						} else if (line.starts_with("event:")) {
+							event_type = line.substr(6, line.length - 6);
+						} else if (line.starts_with("id: ")) {
+							event_id = line.substr(4, line.length - 4);
+						} else if (line.starts_with("id:")) {
+							event_id = line.substr(3, line.length - 3);
+						}
+						// Lines starting with : are comments, skip
+					}
+
+					let data = data_parts.join("\n");
+
+					// Skip empty events
+					if (data.length == 0 && event_type == "message") {
+						continue;  // Try to get the next event
+					}
+
+					return { event: event_type, data, id: event_id };
+				}
+
+				// No complete event in buffer, read more data
+				if (self._stream.done) {
+					self.done = true;
+					return null;
+				}
+
+				let chunk = self._stream.read(read_timeout_ms);
+				if (chunk == null) {
+					self.done = true;
+					return null;
+				}
+				self._buffer = self._buffer + chunk;
+			}
+		},
+		close: fn() {
+			self._stream.close();
+			self.done = true;
+		},
+	};
+}
+
 // ========== HTTP SERVER ==========
 
 import { TcpListener } from "@stdlib/net";

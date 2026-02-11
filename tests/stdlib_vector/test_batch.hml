@@ -1,0 +1,63 @@
+// Test batch add and search operations
+
+import { create_index, add_batch, search, search_batch, size, free_index } from "@stdlib/vector";
+
+let idx = create_index(4);
+
+// Test batch add
+let keys = [10, 20, 30, 40, 50];
+let vectors = [
+	[1.0, 0.0, 0.0, 0.0],
+	[0.0, 1.0, 0.0, 0.0],
+	[0.0, 0.0, 1.0, 0.0],
+	[0.0, 0.0, 0.0, 1.0],
+	[0.5, 0.5, 0.0, 0.0],
+];
+
+add_batch(idx, keys, vectors);
+assert(size(idx) == 5, "batch add should add all 5 vectors");
+
+// Test search after batch add
+let results = search(idx, [1.0, 0.0, 0.0, 0.0], k: 2);
+assert(results.length == 2, "should return 2 results");
+assert(results[0].key == 10, "nearest to [1,0,0,0] should be key 10");
+
+// Test batch search
+let queries = [
+	[1.0, 0.0, 0.0, 0.0],
+	[0.0, 0.0, 1.0, 0.0],
+];
+let batch_results = search_batch(idx, queries, k: 3);
+assert(batch_results.length == 2, "batch search should return results for 2 queries");
+assert(batch_results[0].length == 3, "each query should return 3 results");
+assert(batch_results[1].length == 3, "each query should return 3 results");
+
+// First query nearest should be key 10
+assert(batch_results[0][0].key == 10, "first query nearest should be key 10");
+// Second query nearest should be key 30
+assert(batch_results[1][0].key == 30, "second query nearest should be key 30");
+
+free_index(idx);
+
+// Test batch add validation - mismatched lengths
+let idx2 = create_index(3);
+let caught = false;
+try {
+	add_batch(idx2, [1, 2], [[1.0, 0.0, 0.0]]);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on mismatched keys/vectors lengths");
+
+// Test batch add validation - wrong vector dimensions
+caught = false;
+try {
+	add_batch(idx2, [1], [[1.0, 0.0]]);
+} catch (e) {
+	caught = true;
+}
+assert(caught, "should throw on wrong vector dimensions");
+
+free_index(idx2);
+
+print("All batch vector tests passed!");

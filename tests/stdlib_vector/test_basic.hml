@@ -1,0 +1,67 @@
+// Test basic vector index operations
+
+import { version, create_index, add, search, contains, size, dimensions,
+	remove, get, free_index, METRIC_COSINE } from "@stdlib/vector";
+
+// Test version function
+let ver = version();
+assert(ver.length > 0, "version() should return a version string");
+print("USearch version: " + ver);
+
+// Test index creation
+let idx = create_index(3);
+assert(idx != null, "create_index should return an index");
+assert(dimensions(idx) == 3, "dimensions should be 3");
+assert(size(idx) == 0, "new index should be empty");
+
+// Test add and size
+add(idx, 1, [1.0, 0.0, 0.0]);
+assert(size(idx) == 1, "size should be 1 after adding one vector");
+
+add(idx, 2, [0.0, 1.0, 0.0]);
+add(idx, 3, [0.0, 0.0, 1.0]);
+assert(size(idx) == 3, "size should be 3 after adding three vectors");
+
+// Test contains
+assert(contains(idx, 1), "should contain key 1");
+assert(contains(idx, 2), "should contain key 2");
+assert(contains(idx, 3), "should contain key 3");
+assert(!contains(idx, 99), "should not contain key 99");
+
+// Test search
+let results = search(idx, [1.0, 0.0, 0.0], k: 3);
+assert(results.length == 3, "should return 3 results");
+// First result should be the exact match (key 1)
+assert(results[0].key == 1, "nearest neighbor should be key 1");
+assert(results[0].distance < 0.01, "exact match should have ~0 distance");
+
+// Test search with k=1
+let top1 = search(idx, [0.0, 1.0, 0.0], k: 1);
+assert(top1.length == 1, "k=1 should return 1 result");
+assert(top1[0].key == 2, "nearest to [0,1,0] should be key 2");
+
+// Test get (retrieve stored vector)
+let vec = get(idx, 1);
+assert(vec != null, "get should return the stored vector");
+assert(vec.length == 3, "retrieved vector should have 3 dimensions");
+// Check values are approximately correct (f32 precision)
+assert(vec[0] > 0.99, "first component should be ~1.0");
+assert(vec[1] < 0.01, "second component should be ~0.0");
+assert(vec[2] < 0.01, "third component should be ~0.0");
+
+// Test get with missing key
+let missing = get(idx, 999);
+assert(missing == null, "get should return null for missing key");
+
+// Test remove
+let removed = remove(idx, 3);
+assert(removed > 0, "remove should return count > 0");
+assert(!contains(idx, 3), "should not contain removed key");
+assert(size(idx) == 2, "size should be 2 after removal");
+
+// Test free
+free_index(idx);
+// Double free should be safe
+free_index(idx);
+
+print("All basic vector tests passed!");

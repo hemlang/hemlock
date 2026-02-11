@@ -147,6 +147,12 @@ static BuiltinInfo builtins[] = {
     {"__lws_response_headers", builtin_lws_response_headers},
     {"__lws_response_redirect", builtin_lws_response_redirect},
     {"__lws_response_free", builtin_lws_response_free},
+    // Streaming HTTP builtins
+    {"__lws_http_stream_start", builtin_lws_http_stream_start},
+    {"__lws_http_stream_read", builtin_lws_http_stream_read},
+    {"__lws_http_stream_status", builtin_lws_http_stream_status},
+    {"__lws_http_stream_headers", builtin_lws_http_stream_headers},
+    {"__lws_http_stream_close", builtin_lws_http_stream_close},
     // WebSocket builtins
     {"__lws_ws_connect", builtin_lws_ws_connect},
     {"__lws_ws_send_text", builtin_lws_ws_send_text},
