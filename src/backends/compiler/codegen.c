@@ -1334,17 +1334,15 @@ void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
 }
 
 void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure) {
-    // Create scope for scanning
+    (void)closure;
+    // Create an empty scope for scanning. We intentionally do NOT add the
+    // enclosing function's params or captured vars here, because inner closures
+    // need to detect ALL references to enclosing variables as free variables
+    // so they get added to the shared environment. If params/captured were in
+    // scope, they'd be invisible to free-var analysis and closures would fail
+    // to capture them (generating self-referencing `HmlValue x = x;` instead
+    // of loading from the closure environment).
     Scope *scan_scope = scope_new(NULL);
-    for (int i = 0; i < func->as.function.num_params; i++) {
-        scope_add_var(scan_scope, func->as.function.param_names[i]);
-    }
-    // Add captured variables if this is a closure
-    if (closure) {
-        for (int i = 0; i < closure->num_captured; i++) {
-            scope_add_var(scan_scope, closure->captured_vars[i]);
-        }
-    }
 
     // Clear any previous shared environment and scan for closures
     shared_env_clear(ctx);
