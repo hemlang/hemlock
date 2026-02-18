@@ -73,6 +73,14 @@ for test_file in $TESTS; do
         continue
     fi
 
+    # Check if test requires threads (look for "requires --threads" comment)
+    if grep -q "requires --threads" "$test_file" 2>/dev/null; then
+        printf "  %-30s " "$test_name"
+        echo -e "${YELLOW}SKIP${NC} (requires --threads)"
+        SKIPPED=$((SKIPPED + 1))
+        continue
+    fi
+
     # Compile to WASM
     printf "  %-30s " "$test_name"
 
