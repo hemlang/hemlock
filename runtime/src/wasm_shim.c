@@ -232,6 +232,11 @@ HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue off, 
 HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("ptr_read_i32"); }
 
 // ========== ASYNC BUILTINS (builtins_async.c) ==========
+// When compiled with -pthread (__EMSCRIPTEN_PTHREADS__), builtins_async.c provides
+// real implementations using pthreads mapped to Web Workers. These stubs are only
+// needed for non-threaded WASM builds.
+
+#if !defined(__EMSCRIPTEN_PTHREADS__)
 
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     (void)fn; (void)args; (void)num_args;
@@ -250,12 +255,10 @@ void hml_detach(HmlValue task_val) {
 
 void hml_task_debug_info(HmlValue task_val) {
     (void)task_val;
-    fprintf(stderr, "task_debug_info() not available in WASM\n");
+    fprintf(stderr, "task_debug_info() not available in WASM (compile with --threads)\n");
 }
 
 HmlValue hml_apply(HmlValue fn, HmlValue args_array) {
-    // apply() is useful even without threading - it calls a function dynamically
-    // In WASM, we can implement a basic version
     (void)fn; (void)args_array;
     WASM_STUB_PANIC_RETURN("apply");
 }
@@ -295,6 +298,9 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
     WASM_STUB_PANIC_RETURN("select");
 }
 
+#endif // !__EMSCRIPTEN_PTHREADS__
+
+// poll() stub is always needed for WASM - POSIX poll not available even with pthreads
 HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
     (void)fds; (void)timeout;
     WASM_STUB_PANIC_RETURN("poll");

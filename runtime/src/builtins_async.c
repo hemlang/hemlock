@@ -3,19 +3,30 @@
  *
  * Task spawning, joining, channels, and synchronization primitives.
  *
- * WASM: This entire file is excluded when building for Emscripten.
- * Stub implementations are provided in wasm_shim.c.
+ * Build modes:
+ *   Native:              Full implementation with pthreads + libffi
+ *   WASM with pthreads:  Pthreads via Web Workers (emcc -pthread), no libffi
+ *   WASM without pthreads: Excluded entirely; stubs in wasm_shim.c
  */
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
 
 #include "builtins_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
+
+#ifndef __EMSCRIPTEN__
 #include <poll.h>
+#endif
 
 static atomic_int g_next_task_id = 1;
 
+// ========== FUNCTION DISPATCH ==========
+//
+// Native builds use libffi for calling functions with >8 parameters.
+// WASM builds use direct dispatch only (libffi not available in Emscripten).
+
+#ifndef __EMSCRIPTEN__
 // Define ffi_type for HmlValue struct (16 bytes: 4 type + 4 padding + 8 union)
 static ffi_type *hml_value_elements[] = {
     &ffi_type_uint32,   // HmlValueType (enum)
@@ -80,6 +91,7 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 
     return result;
 }
+#endif // !__EMSCRIPTEN__
 
 // Thread wrapper function
 static void* task_thread_wrapper(void* arg) {
@@ -92,8 +104,10 @@ static void* task_thread_wrapper(void* arg) {
 
     // Get function info
     HmlFunction *fn = task->function.as.as_function;
+#ifndef __EMSCRIPTEN__
     void *fn_ptr = fn->fn_ptr;
     void *closure_env = fn->closure_env;
+#endif
 
     // Prefer direct call dispatcher for common arities; fall back to libffi for large signatures.
     int can_use_direct_call = 0;
@@ -107,7 +121,13 @@ static void* task_thread_wrapper(void* arg) {
     if (can_use_direct_call) {
         result = hml_call_function(task->function, task->args, task->num_args);
     } else {
+#ifdef __EMSCRIPTEN__
+        // WASM: libffi not available, direct dispatch only supports up to 8 params
+        hml_runtime_error("spawn(): functions with >8 parameters not supported in WASM");
+        result = hml_val_null();
+#else
         result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
+#endif
     }
 
     // Store result and mark as completed
@@ -284,8 +304,14 @@ HmlValue hml_apply(HmlValue fn, HmlValue args_array) {
     HmlFunction *func = fn.as.as_function;
     HmlArray *arr = args_array.as.as_array;
 
-    // Use libffi to call the function with dynamic arguments
+#ifdef __EMSCRIPTEN__
+    // WASM: use direct call dispatcher (no libffi available)
+    // Supports up to 8 parameters which covers virtually all real use cases
+    return hml_call_function(fn, arr->elements, arr->length);
+#else
+    // Native: use libffi for arbitrary parameter count
     return call_hemlock_function_ffi(func->fn_ptr, func->closure_env, arr->elements, arr->length);
+#endif
 }
 
 // Channel functions
@@ -736,6 +762,11 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
     }
 }
 
+// ========== POSIX poll() - native only ==========
+// WASM stub provided by wasm_shim.c (even with pthreads, POSIX poll not available)
+
+#ifndef __EMSCRIPTEN__
+
 // Helper to get fd from a socket, file, or object with fd field
 static int hml_get_fd_from_value(HmlValue val) {
     if (val.type == HML_VAL_SOCKET) {
@@ -851,3 +882,5 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
 }
 
 #endif // !__EMSCRIPTEN__
+
+#endif // !__EMSCRIPTEN__ || __EMSCRIPTEN_PTHREADS__

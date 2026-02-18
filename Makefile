@@ -508,21 +508,30 @@ compiler-clean:
 # ========== WASM TARGET (Emscripten) ==========
 
 WASM_RUNTIME_LIB = libhemlock_runtime_wasm.a
+WASM_THREAD_RUNTIME_LIB = libhemlock_runtime_wasm_threaded.a
 
-.PHONY: runtime-wasm runtime-wasm-clean wasm-compile wasm-test
+.PHONY: runtime-wasm runtime-wasm-threaded runtime-wasm-clean wasm-compile wasm-compile-threaded wasm-test
 
-# Build WASM runtime library
+# Build WASM runtime library (non-threaded)
 runtime-wasm:
 	@echo "Building Hemlock WASM runtime library..."
 	$(MAKE) -C $(RUNTIME_DIR) wasm
 	cp $(RUNTIME_DIR)/build/$(WASM_RUNTIME_LIB) ./
 	@echo "✓ WASM runtime library built: $(WASM_RUNTIME_LIB)"
 
-runtime-wasm-clean:
-	rm -f $(WASM_RUNTIME_LIB)
-	rm -f $(RUNTIME_DIR)/build/wasm_*.o $(RUNTIME_DIR)/build/$(WASM_RUNTIME_LIB)
+# Build WASM threaded runtime library (pthreads via Web Workers)
+runtime-wasm-threaded:
+	@echo "Building Hemlock WASM threaded runtime library..."
+	$(MAKE) -C $(RUNTIME_DIR) wasm-threaded
+	cp $(RUNTIME_DIR)/build/$(WASM_THREAD_RUNTIME_LIB) ./
+	@echo "✓ WASM threaded runtime library built: $(WASM_THREAD_RUNTIME_LIB)"
 
-# Compile a Hemlock program to WASM
+runtime-wasm-clean:
+	rm -f $(WASM_RUNTIME_LIB) $(WASM_THREAD_RUNTIME_LIB)
+	rm -f $(RUNTIME_DIR)/build/wasm_*.o $(RUNTIME_DIR)/build/$(WASM_RUNTIME_LIB)
+	rm -f $(RUNTIME_DIR)/build/wasm_thread_*.o $(RUNTIME_DIR)/build/$(WASM_THREAD_RUNTIME_LIB)
+
+# Compile a Hemlock program to WASM (non-threaded)
 # Usage: make wasm-compile FILE=program.hml [OUT=program]
 wasm-compile: compiler runtime-wasm
 	@if [ -z "$(FILE)" ]; then \
@@ -533,6 +542,18 @@ wasm-compile: compiler runtime-wasm
 	echo "Compiling $(FILE) to WASM..."; \
 	./hemlockc --target wasm -o $$OUT_NAME $(FILE); \
 	echo "✓ Built: $${OUT_NAME}.js + $${OUT_NAME}.wasm"
+
+# Compile a Hemlock program to WASM with threading support
+# Usage: make wasm-compile-threaded FILE=program.hml [OUT=program]
+wasm-compile-threaded: compiler runtime-wasm-threaded
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make wasm-compile-threaded FILE=program.hml [OUT=program]"; \
+		exit 1; \
+	fi
+	@OUT_NAME=$${OUT:-$$(basename $(FILE) .hml)}; \
+	echo "Compiling $(FILE) to threaded WASM..."; \
+	./hemlockc --target wasm --threads -o $$OUT_NAME $(FILE); \
+	echo "✓ Built: $${OUT_NAME}.js + $${OUT_NAME}.wasm + $${OUT_NAME}.worker.js"
 
 # Run WASM tests using Node.js
 wasm-test: compiler runtime-wasm

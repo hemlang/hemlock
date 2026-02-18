@@ -1,0 +1,41 @@
+// Test: channels (requires --threads for WASM)
+// Tests buffered and unbuffered channels
+
+// Buffered channel
+let ch = channel(3);
+ch.send(10);
+ch.send(20);
+ch.send(30);
+
+print(ch.recv());
+print(ch.recv());
+print(ch.recv());
+
+// Channel with async producer/consumer
+let ch2 = channel(5);
+
+async fn producer(ch, n: i32) {
+    for (let i = 0; i < n; i++) {
+        ch.send(i * 10);
+    }
+    ch.close();
+}
+
+async fn consumer(ch): i32 {
+    let sum = 0;
+    while (true) {
+        let val = ch.recv();
+        if (val == null) { break; }
+        sum = sum + val;
+    }
+    return sum;
+}
+
+let prod = spawn(producer, ch2, 5);
+let cons = spawn(consumer, ch2);
+
+join(prod);
+let total = join(cons);
+print(total);
+
+print("channels done");

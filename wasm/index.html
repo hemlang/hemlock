@@ -32,6 +32,7 @@
         }
         .error { color: #ff6b6b; }
         .info { color: #4ecca3; }
+        .warn { color: #ffd93d; }
         #status {
             margin: 10px 0;
             padding: 8px 12px;
@@ -41,11 +42,20 @@
         .loading { background: #2d2d44; color: #ffd93d; }
         .ready { background: #1a3a2a; color: #4ecca3; }
         .failed { background: #3a1a1a; color: #ff6b6b; }
+        #threading-info {
+            margin: 10px 0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .threads-ok { background: #1a3a2a; color: #4ecca3; }
+        .threads-no { background: #3a2d1a; color: #ffd93d; }
     </style>
 </head>
 <body>
     <h1>HemlockScript</h1>
     <p class="subtitle">Hemlock running in WebAssembly</p>
+    <div id="threading-info"></div>
     <div id="status" class="loading">Loading WASM module...</div>
     <h3>Output:</h3>
     <pre id="output"></pre>
@@ -53,7 +63,32 @@
     <script>
         var outputEl = document.getElementById('output');
         var statusEl = document.getElementById('status');
+        var threadingEl = document.getElementById('threading-info');
         var startTime = performance.now();
+
+        // Detect SharedArrayBuffer support (required for threaded WASM)
+        var hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+        var hasCOOP = false;
+        try {
+            // Check for Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy
+            // These HTTP headers are required for SharedArrayBuffer
+            hasCOOP = (typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated);
+        } catch(e) {}
+
+        if (hasSharedArrayBuffer && hasCOOP) {
+            threadingEl.className = 'threads-ok';
+            threadingEl.textContent = 'Threading: SharedArrayBuffer available (COOP/COEP enabled)';
+        } else if (hasSharedArrayBuffer) {
+            threadingEl.className = 'threads-no';
+            threadingEl.textContent = 'Threading: SharedArrayBuffer exists but COOP/COEP headers missing. ' +
+                'Add these HTTP headers for threaded WASM:\n' +
+                '  Cross-Origin-Opener-Policy: same-origin\n' +
+                '  Cross-Origin-Embedder-Policy: require-corp';
+        } else {
+            threadingEl.className = 'threads-no';
+            threadingEl.textContent = 'Threading: SharedArrayBuffer not available. ' +
+                'Non-threaded WASM only. Serve with COOP/COEP headers to enable threading.';
+        }
 
         var Module = {
             print: function(text) {
