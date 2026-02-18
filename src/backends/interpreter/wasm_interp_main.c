@@ -31,6 +31,9 @@
 extern void ffi_init(void);
 extern void ffi_cleanup(void);
 
+/* Length of "import " / "import{" / "export " / "export{" prefixes */
+#define MODULE_KEYWORD_LEN 7
+
 /* ========================================================================
  * Core interpreter execution
  * ======================================================================== */
@@ -43,7 +46,7 @@ static void run_source(const char *source) {
     Parser parser;
     parser_init(&parser, &lexer);
 
-    int stmt_count;
+    int stmt_count = 0;
     Stmt **statements = parse_program(&parser, &stmt_count);
 
     if (parser.had_error) {
@@ -51,7 +54,7 @@ static void run_source(const char *source) {
         for (int i = 0; i < stmt_count; i++) {
             stmt_free(statements[i]);
         }
-        free(statements);
+        free((void *)statements);
         return;
     }
 
@@ -75,7 +78,7 @@ static void run_source(const char *source) {
     for (int i = 0; i < stmt_count; i++) {
         stmt_free(statements[i]);
     }
-    free(statements);
+    free((void *)statements);
 }
 
 /* ========================================================================
@@ -180,18 +183,26 @@ int main(int argc, char **argv) {
     set_current_source_file(path);
     set_current_source_code(source);
 
-    /* Check if file uses modules */
+    /* Check if file uses modules (heuristic: look for import/export at line start) */
     int has_import = 0;
     const char *p = source;
     while (*p) {
-        while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
-        if (strncmp(p, "import ", 7) == 0 || strncmp(p, "import{", 7) == 0 ||
-            strncmp(p, "export ", 7) == 0 || strncmp(p, "export{", 7) == 0) {
+        while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
+            p++;
+        }
+        if (strncmp(p, "import ", MODULE_KEYWORD_LEN) == 0 ||
+            strncmp(p, "import{", MODULE_KEYWORD_LEN) == 0 ||
+            strncmp(p, "export ", MODULE_KEYWORD_LEN) == 0 ||
+            strncmp(p, "export{", MODULE_KEYWORD_LEN) == 0) {
             has_import = 1;
             break;
         }
-        while (*p && *p != '\n') p++;
-        if (*p == '\n') p++;
+        while (*p && *p != '\n') {
+            p++;
+        }
+        if (*p == '\n') {
+            p++;
+        }
     }
 
     if (has_import) {

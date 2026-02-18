@@ -653,7 +653,7 @@ wasm-interpreter:
 	@echo "  wasm/hemlock.js   - JavaScript loader/glue"
 	@echo "  wasm/hemlock.wasm - WebAssembly binary"
 	@echo ""
-	@echo "Run with Node.js:  node wasm/hemlock.js -e 'print(\"Hello from WASM!\");'"
+	@echo "Run with Node.js:  node -- wasm/hemlock.js -e 'print(\"Hello from WASM!\");'"
 	@echo "Run in browser:    Open wasm/playground.html"
 	@ls -lh wasm/hemlock.js wasm/hemlock.wasm 2>/dev/null || true
 

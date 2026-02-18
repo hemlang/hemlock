@@ -56,7 +56,7 @@ void ffi_free_function(FFIFunction *func) {
     if (func) {
         free(func->name);
         free(func->lib_path);
-        free(func->hemlock_params);
+        free((void *)func->hemlock_params);
         free(func);
     }
 }
@@ -105,9 +105,14 @@ void ffi_struct_cleanup(void) {
 }
 
 Type* type_from_string(const char *name) {
-    if (!name) return NULL;
+    if (!name) {
+        return NULL;
+    }
 
     Type *t = malloc(sizeof(Type));
+    if (!t) {
+        return NULL;
+    }
     memset(t, 0, sizeof(Type));
 
     if (strcmp(name, "i8") == 0) { t->kind = TYPE_I8; }
