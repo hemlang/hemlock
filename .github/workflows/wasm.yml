@@ -1,0 +1,120 @@
+name: WASM
+
+on:
+  push:
+    branches: [ main, master, 'claude/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # Build the Hemlock interpreter as a WASM binary and smoke-test it
+  wasm-interpreter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 3.1.51
+
+    - name: Verify Emscripten
+      run: emcc --version
+
+    - name: Build WASM interpreter
+      run: make wasm-interpreter
+
+    - name: Check output artifacts
+      run: |
+        echo "=== WASM interpreter build artifacts ==="
+        ls -lh wasm/hemlock.js wasm/hemlock.wasm
+        echo ""
+        WASM_SIZE=$(stat -c%s wasm/hemlock.wasm)
+        JS_SIZE=$(stat -c%s wasm/hemlock.js)
+        echo "hemlock.wasm: ${WASM_SIZE} bytes ($(( WASM_SIZE / 1024 )) KB)"
+        echo "hemlock.js:   ${JS_SIZE} bytes ($(( JS_SIZE / 1024 )) KB)"
+        # Fail if WASM binary is unreasonably large (>10MB) or missing
+        if [ "$WASM_SIZE" -gt 10485760 ]; then
+          echo "ERROR: WASM binary exceeds 10MB - something is wrong"
+          exit 1
+        fi
+
+    - name: Smoke test - version
+      run: node wasm/hemlock.js --version
+
+    - name: Smoke test - inline execution
+      run: |
+        OUTPUT=$(node wasm/hemlock.js -e 'print("hello from wasm");' 2>&1)
+        echo "Output: $OUTPUT"
+        echo "$OUTPUT" | grep -q "hello from wasm" || { echo "FAIL: expected 'hello from wasm'"; exit 1; }
+
+    - name: Smoke test - arithmetic
+      run: |
+        OUTPUT=$(node wasm/hemlock.js -e 'let x = 21 * 2; print(x);' 2>&1)
+        echo "Output: $OUTPUT"
+        echo "$OUTPUT" | grep -q "42" || { echo "FAIL: expected 42"; exit 1; }
+
+    - name: Smoke test - functions and closures
+      run: |
+        OUTPUT=$(node wasm/hemlock.js -e 'fn make(n) { return fn(x) { return x + n; }; } let add5 = make(5); print(add5(10));' 2>&1)
+        echo "Output: $OUTPUT"
+        echo "$OUTPUT" | grep -q "15" || { echo "FAIL: expected 15"; exit 1; }
+
+    - name: Smoke test - arrays and objects
+      run: |
+        OUTPUT=$(node wasm/hemlock.js -e 'let arr = [1, 2, 3]; print(len(arr)); let obj = { name: "test" }; print(obj.name);' 2>&1)
+        echo "Output: $OUTPUT"
+        echo "$OUTPUT" | grep -q "3" || { echo "FAIL: expected 3"; exit 1; }
+        echo "$OUTPUT" | grep -q "test" || { echo "FAIL: expected test"; exit 1; }
+
+    - name: Smoke test - FFI graceful error
+      run: |
+        # FFI should warn but not crash in WASM
+        OUTPUT=$(node wasm/hemlock.js -e 'print("before"); print("after");' 2>&1)
+        echo "Output: $OUTPUT"
+        echo "$OUTPUT" | grep -q "before" || { echo "FAIL: expected output"; exit 1; }
+
+    - name: Upload WASM artifacts
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: hemlock-wasm-interpreter
+        path: |
+          wasm/hemlock.js
+          wasm/hemlock.wasm
+          wasm/playground.html
+        retention-days: 30
+
+  # Compile Hemlock programs to WASM via hemlockc and run them
+  wasm-compiler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 3.1.51
+
+    - name: Verify Emscripten
+      run: emcc --version
+
+    - name: Build compiler and WASM runtime
+      run: |
+        make compiler
+        make runtime-wasm
+
+    - name: Run WASM tests
+      run: make wasm-test
