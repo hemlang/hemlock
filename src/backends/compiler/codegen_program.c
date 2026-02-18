@@ -90,7 +90,14 @@ int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
 }
 
 // Generate a top-level function declaration
-void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count) {
+// is_export: whether this function has an `export` keyword (used for WASM EMSCRIPTEN_KEEPALIVE)
+void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count, int is_export) {
+    // For WASM target, mark exported functions with EMSCRIPTEN_KEEPALIVE
+    // so they're accessible from JavaScript via Module.cwrap/ccall
+    if (ctx->target_wasm && is_export) {
+        codegen_write(ctx, "EMSCRIPTEN_KEEPALIVE\n");
+    }
+
     // Emit GCC/Clang attributes based on annotations (@inline, @hot, etc.)
     codegen_emit_function_attributes(ctx, annotations, annotation_count);
 
@@ -912,7 +919,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 annotations = stmts[i]->as.export_stmt.declaration->as.let.annotations;
                 annotation_count = stmts[i]->as.export_stmt.declaration->as.let.annotation_count;
             }
-            codegen_function_decl(ctx, func, name, annotations, annotation_count);
+            int is_export = (stmts[i]->type == STMT_EXPORT);
+            codegen_function_decl(ctx, func, name, annotations, annotation_count, is_export);
         }
     }
 
@@ -1528,6 +1536,10 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         char *name;
         Expr *func;
         if (is_function_def(stmts[i], &name, &func)) {
+            // For WASM, mark exported functions with EMSCRIPTEN_KEEPALIVE
+            if (ctx->target_wasm && stmts[i]->type == STMT_EXPORT) {
+                codegen_write(ctx, "EMSCRIPTEN_KEEPALIVE ");
+            }
             // All functions use closure env as first param for uniform calling convention
             codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
             for (int j = 0; j < func->as.function.num_params; j++) {

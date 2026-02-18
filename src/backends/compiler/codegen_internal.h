@@ -193,7 +193,7 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure);
 // ========== FUNCTION GENERATION ==========
 
 // Generate a top-level function declaration
-void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count);
+void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count, int is_export);
 
 // Check if a statement is a function definition
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out);

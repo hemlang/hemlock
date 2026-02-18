@@ -301,25 +301,9 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
 }
 
 // ========== HTTP BUILTINS (builtins_http.c) ==========
-
-HmlValue hml_lws_http_get(HmlValue url) { (void)url; WASM_STUB_PANIC_RETURN("http_get"); }
-HmlValue hml_lws_http_post(HmlValue url, HmlValue body, HmlValue ct) { (void)url;(void)body;(void)ct; WASM_STUB_PANIC_RETURN("http_post"); }
-HmlValue hml_lws_http_request(HmlValue m, HmlValue url, HmlValue body, HmlValue ct) { (void)m;(void)url;(void)body;(void)ct; WASM_STUB_PANIC_RETURN("http_request"); }
-HmlValue hml_lws_http_get_timeout(HmlValue url, HmlValue t) { (void)url;(void)t; WASM_STUB_PANIC_RETURN("http_get"); }
-HmlValue hml_lws_http_post_timeout(HmlValue url, HmlValue body, HmlValue ct, HmlValue t) { (void)url;(void)body;(void)ct;(void)t; WASM_STUB_PANIC_RETURN("http_post"); }
-HmlValue hml_lws_http_request_timeout(HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue t) { (void)m;(void)url;(void)body;(void)ct;(void)t; WASM_STUB_PANIC_RETURN("http_request"); }
-HmlValue hml_lws_response_status(HmlValue r) { (void)r; WASM_STUB_PANIC_RETURN("response_status"); }
-HmlValue hml_lws_response_body(HmlValue r) { (void)r; WASM_STUB_PANIC_RETURN("response_body"); }
-HmlValue hml_lws_response_headers(HmlValue r) { (void)r; WASM_STUB_PANIC_RETURN("response_headers"); }
-HmlValue hml_lws_response_free(HmlValue r) { (void)r; return hml_val_null(); }
-HmlValue hml_lws_response_redirect(HmlValue r) { (void)r; WASM_STUB_PANIC_RETURN("response_redirect"); }
-HmlValue hml_lws_response_body_binary(HmlValue r) { (void)r; WASM_STUB_PANIC_RETURN("response_body_binary"); }
-
-HmlValue hml_lws_http_stream_start(HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue t) { (void)m;(void)url;(void)body;(void)ct;(void)t; WASM_STUB_PANIC_RETURN("http_stream_start"); }
-HmlValue hml_lws_http_stream_read(HmlValue s, HmlValue t) { (void)s;(void)t; WASM_STUB_PANIC_RETURN("http_stream_read"); }
-HmlValue hml_lws_http_stream_status(HmlValue s) { (void)s; WASM_STUB_PANIC_RETURN("http_stream_status"); }
-HmlValue hml_lws_http_stream_headers(HmlValue s) { (void)s; WASM_STUB_PANIC_RETURN("http_stream_headers"); }
-HmlValue hml_lws_http_stream_close(HmlValue s) { (void)s; WASM_STUB_PANIC_RETURN("http_stream_close"); }
+// NOTE: HTTP GET/POST/request and response accessors are now implemented
+// in wasm_bridge.c using synchronous XMLHttpRequest via EM_JS.
+// Only WebSocket stubs remain here (not yet bridged to browser WebSocket API).
 
 HmlValue hml_lws_ws_connect(HmlValue url) { (void)url; WASM_STUB_PANIC_RETURN("ws_connect"); }
 HmlValue hml_lws_ws_send_text(HmlValue c, HmlValue t) { (void)c;(void)t; WASM_STUB_PANIC_RETURN("ws_send_text"); }
@@ -335,21 +319,7 @@ HmlValue hml_lws_ws_server_create(HmlValue h, HmlValue p) { (void)h;(void)p; WAS
 HmlValue hml_lws_ws_server_accept(HmlValue s, HmlValue t) { (void)s;(void)t; WASM_STUB_PANIC_RETURN("ws_server_accept"); }
 HmlValue hml_lws_ws_server_close(HmlValue s) { (void)s; WASM_STUB_PANIC_RETURN("ws_server_close"); }
 
-// HTTP builtin wrappers
-HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) { (void)env; return hml_lws_http_get(url); }
-HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue ct) { (void)env; return hml_lws_http_post(url,body,ct); }
-HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue m, HmlValue url, HmlValue body, HmlValue ct) { (void)env; return hml_lws_http_request(m,url,body,ct); }
-HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_status(r); }
-HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_body(r); }
-HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_headers(r); }
-HmlValue hml_builtin_lws_response_free(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_free(r); }
-HmlValue hml_builtin_lws_response_redirect(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_redirect(r); }
-HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_body_binary(r); }
-HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue t) { (void)env; return hml_lws_http_stream_start(m,url,body,ct,t); }
-HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue s, HmlValue t) { (void)env; return hml_lws_http_stream_read(s,t); }
-HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue s) { (void)env; return hml_lws_http_stream_status(s); }
-HmlValue hml_builtin_lws_http_stream_headers(HmlClosureEnv *env, HmlValue s) { (void)env; return hml_lws_http_stream_headers(s); }
-HmlValue hml_builtin_lws_http_stream_close(HmlClosureEnv *env, HmlValue s) { (void)env; return hml_lws_http_stream_close(s); }
+// WebSocket builtin wrappers (stubs)
 HmlValue hml_builtin_lws_ws_connect(HmlClosureEnv *env, HmlValue url) { (void)env; return hml_lws_ws_connect(url); }
 HmlValue hml_builtin_lws_ws_send_text(HmlClosureEnv *env, HmlValue c, HmlValue t) { (void)env; return hml_lws_ws_send_text(c,t); }
 HmlValue hml_builtin_lws_ws_send_binary(HmlClosureEnv *env, HmlValue c, HmlValue b) { (void)env; return hml_lws_ws_send_binary(c,b); }
@@ -365,6 +335,9 @@ HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue s, HmlVal
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue s) { (void)env; return hml_lws_ws_server_close(s); }
 
 // ========== CRYPTO BUILTINS (builtins_crypto.c) ==========
+// NOTE: SHA-256, SHA-512, MD5 hash functions and random_bytes are now
+// implemented in wasm_bridge.c using pure C implementations.
+// Only compression and ECDSA stubs remain here (not yet ported).
 
 HmlValue hml_zlib_compress(HmlValue data, HmlValue level) { (void)data;(void)level; WASM_STUB_PANIC_RETURN("zlib_compress"); }
 HmlValue hml_zlib_decompress(HmlValue data, HmlValue max_size) { (void)data;(void)max_size; WASM_STUB_PANIC_RETURN("zlib_decompress"); }
@@ -374,16 +347,12 @@ HmlValue hml_zlib_compress_bound(HmlValue source_len) { (void)source_len; WASM_S
 HmlValue hml_crc32_val(HmlValue data) { (void)data; WASM_STUB_PANIC_RETURN("crc32"); }
 HmlValue hml_adler32_val(HmlValue data) { (void)data; WASM_STUB_PANIC_RETURN("adler32"); }
 
-HmlValue hml_hash_sha256(HmlValue input) { (void)input; WASM_STUB_PANIC_RETURN("sha256"); }
-HmlValue hml_hash_sha512(HmlValue input) { (void)input; WASM_STUB_PANIC_RETURN("sha512"); }
-HmlValue hml_hash_md5(HmlValue input) { (void)input; WASM_STUB_PANIC_RETURN("md5"); }
-
 HmlValue hml_ecdsa_generate_key(HmlValue curve) { (void)curve; WASM_STUB_PANIC_RETURN("ecdsa_generate_key"); }
 HmlValue hml_ecdsa_free_key(HmlValue keypair) { (void)keypair; WASM_STUB_PANIC_RETURN("ecdsa_free_key"); }
 HmlValue hml_ecdsa_sign(HmlValue data, HmlValue keypair) { (void)data;(void)keypair; WASM_STUB_PANIC_RETURN("ecdsa_sign"); }
 HmlValue hml_ecdsa_verify(HmlValue data, HmlValue sig, HmlValue keypair) { (void)data;(void)sig;(void)keypair; WASM_STUB_PANIC_RETURN("ecdsa_verify"); }
 
-// Crypto builtin wrappers
+// Crypto builtin wrappers (compression and ECDSA stubs)
 HmlValue hml_builtin_zlib_compress(HmlClosureEnv *env, HmlValue data, HmlValue level) { (void)env; return hml_zlib_compress(data,level); }
 HmlValue hml_builtin_zlib_decompress(HmlClosureEnv *env, HmlValue data, HmlValue max_size) { (void)env; return hml_zlib_decompress(data,max_size); }
 HmlValue hml_builtin_gzip_compress(HmlClosureEnv *env, HmlValue data, HmlValue level) { (void)env; return hml_gzip_compress(data,level); }
@@ -391,9 +360,6 @@ HmlValue hml_builtin_gzip_decompress(HmlClosureEnv *env, HmlValue data, HmlValue
 HmlValue hml_builtin_zlib_compress_bound(HmlClosureEnv *env, HmlValue source_len) { (void)env; return hml_zlib_compress_bound(source_len); }
 HmlValue hml_builtin_crc32(HmlClosureEnv *env, HmlValue data) { (void)env; return hml_crc32_val(data); }
 HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) { (void)env; return hml_adler32_val(data); }
-HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_sha256(input); }
-HmlValue hml_builtin_hash_sha512(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_sha512(input); }
-HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_md5(input); }
 HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve) { (void)env; return hml_ecdsa_generate_key(curve); }
 HmlValue hml_builtin_ecdsa_free_key(HmlClosureEnv *env, HmlValue keypair) { (void)env; return hml_ecdsa_free_key(keypair); }
 HmlValue hml_builtin_ecdsa_sign(HmlClosureEnv *env, HmlValue data, HmlValue keypair) { (void)env; return hml_ecdsa_sign(data,keypair); }
