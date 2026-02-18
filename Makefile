@@ -607,8 +607,9 @@ wasm-test-native: compiler
 
 WASM_CC_INTERP = emcc
 WASM_CFLAGS_INTERP = -Wall -Wextra -std=c11 -O2 -g \
-	-D__EMSCRIPTEN__ -D_POSIX_C_SOURCE=200809L \
-	-Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+	-D__EMSCRIPTEN__ -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_GNU_SOURCE \
+	-Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared \
+	-sUSE_ZLIB=1
 
 # Interpreter WASM sources: shared frontend + interpreter backend (minus native-only files)
 WASM_INTERP_FRONTEND_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(SHARED_SRCS)
@@ -624,6 +625,7 @@ WASM_INTERP_LDFLAGS = \
 	-sWASM=1 \
 	-sALLOW_MEMORY_GROWTH=1 \
 	-sSTACK_SIZE=1048576 \
+	-sUSE_ZLIB=1 \
 	-sEXPORTED_FUNCTIONS='["_main","_hemlock_eval","_hemlock_version","_malloc","_free"]' \
 	-sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
 	-sFORCE_FILESYSTEM=1 \
