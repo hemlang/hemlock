@@ -75,7 +75,7 @@ endif
 # WASM build configuration (Emscripten)
 WASM_CC = emcc
 WASM_AR = emar
-WASM_CFLAGS = -Wall -Wextra -std=c11 -O2 -fPIC -Iinclude -I../src/shared -D__EMSCRIPTEN__
+WASM_CFLAGS = -Wall -Wextra -std=gnu11 -O2 -fPIC -Iinclude -I../src/shared -D__EMSCRIPTEN__ -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_GNU_SOURCE
 WASM_SRCS = $(SRCS)
 WASM_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/wasm_%.o,$(WASM_SRCS))
 WASM_SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/wasm_shared_%.o,$(SHARED_SRCS))
