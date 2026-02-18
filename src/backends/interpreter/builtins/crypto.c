@@ -1,4 +1,9 @@
 #include "internal.h"
+
+#ifndef __EMSCRIPTEN__
+/* Native crypto implementation using OpenSSL - excluded from WASM builds.
+   WASM stubs are provided in wasm_interp_shim.c. */
+
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #include <openssl/ec.h>
@@ -331,3 +336,5 @@ Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx) {
     // result == 1 means valid, 0 means invalid, < 0 means error
     return val_bool(result == 1);
 }
+
+#endif /* __EMSCRIPTEN__ */

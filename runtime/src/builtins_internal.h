@@ -10,6 +10,7 @@
 #include "../include/hemlock_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <math.h>
 #include <errno.h>
@@ -20,6 +21,7 @@
 #ifdef __EMSCRIPTEN__
 // WASM build: minimal POSIX headers via Emscripten
 #include <emscripten.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>

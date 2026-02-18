@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Hemlock Playground - WASM Interpreter</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            background: #0d1117;
+            color: #c9d1d9;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 {
+            color: #58a6ff;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        header h1 span { color: #8b949e; font-weight: 400; }
+        .controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        button {
+            font-family: inherit;
+            font-size: 0.85em;
+            padding: 6px 16px;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            cursor: pointer;
+            background: #21262d;
+            color: #c9d1d9;
+            transition: background 0.15s;
+        }
+        button:hover { background: #30363d; }
+        button.primary {
+            background: #238636;
+            border-color: #2ea043;
+            color: #fff;
+        }
+        button.primary:hover { background: #2ea043; }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #status {
+            font-size: 0.8em;
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+        .status-loading { background: #1c1e24; color: #d29922; }
+        .status-ready { background: #0d2818; color: #3fb950; }
+        .status-running { background: #1c1e24; color: #58a6ff; }
+        .status-error { background: #2d1116; color: #f85149; }
+        .main {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+        .panel {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+        .panel-header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 8px 16px;
+            font-size: 0.8em;
+            color: #8b949e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .divider {
+            width: 1px;
+            background: #30363d;
+        }
+        #editor {
+            flex: 1;
+            background: #0d1117;
+            color: #c9d1d9;
+            border: none;
+            padding: 16px;
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: none;
+            outline: none;
+            tab-size: 4;
+            white-space: pre;
+            overflow: auto;
+        }
+        #output {
+            flex: 1;
+            background: #0d1117;
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .output-line { }
+        .output-error { color: #f85149; }
+        .output-info { color: #3fb950; }
+        .output-timing { color: #8b949e; font-style: italic; }
+        .examples {
+            background: #161b22;
+            border-top: 1px solid #30363d;
+            padding: 8px 16px;
+            font-size: 0.8em;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .examples span { color: #8b949e; margin-right: 4px; }
+        .example-btn {
+            padding: 3px 10px;
+            font-size: 0.85em;
+            border-radius: 12px;
+        }
+        @media (max-width: 768px) {
+            .main { flex-direction: column; }
+            .divider { width: auto; height: 1px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Hemlock Playground <span>v<span id="version">...</span> (WASM)</span></h1>
+        <div class="controls">
+            <span id="status" class="status-loading">Loading...</span>
+            <button id="btn-run" class="primary" disabled onclick="runCode()">Run (Ctrl+Enter)</button>
+            <button id="btn-clear" onclick="clearOutput()">Clear</button>
+        </div>
+    </header>
+    <div class="main">
+        <div class="panel">
+            <div class="panel-header">
+                <span>Source</span>
+                <span id="line-info">Ln 1, Col 1</span>
+            </div>
+            <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off">// Welcome to the Hemlock Playground!
+// This runs the full interpreter compiled to WebAssembly.
+
+let greeting = "Hello from Hemlock WASM!";
+print(greeting);
+
+// Math
+let x = 42;
+let y = x * 2 + 1;
+print("x = " + x + ", y = " + y);
+
+// Arrays
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(n) { return n * 2; });
+print("doubled: " + doubled);
+
+// Functions
+fn fibonacci(n: i32): i32 {
+    if (n <= 1) { return n; }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+for (let i = 0; i < 10; i++) {
+    print("fib(" + i + ") = " + fibonacci(i));
+}
+</textarea>
+        </div>
+        <div class="divider"></div>
+        <div class="panel">
+            <div class="panel-header">
+                <span>Output</span>
+                <span id="output-info"></span>
+            </div>
+            <pre id="output"></pre>
+        </div>
+    </div>
+    <div class="examples">
+        <span>Examples:</span>
+        <button class="example-btn" onclick="loadExample('hello')">Hello World</button>
+        <button class="example-btn" onclick="loadExample('types')">Types</button>
+        <button class="example-btn" onclick="loadExample('closures')">Closures</button>
+        <button class="example-btn" onclick="loadExample('objects')">Objects</button>
+        <button class="example-btn" onclick="loadExample('match')">Pattern Match</button>
+        <button class="example-btn" onclick="loadExample('async')">Async</button>
+    </div>
+
+    <script>
+    var outputEl = document.getElementById('output');
+    var editorEl = document.getElementById('editor');
+    var statusEl = document.getElementById('status');
+    var btnRun = document.getElementById('btn-run');
+    var versionEl = document.getElementById('version');
+    var outputInfoEl = document.getElementById('output-info');
+    var lineInfoEl = document.getElementById('line-info');
+    var outputLines = 0;
+    var hemlockReady = false;
+    var hemlockEval = null;
+
+    // Track cursor position
+    editorEl.addEventListener('keyup', updateLineInfo);
+    editorEl.addEventListener('click', updateLineInfo);
+
+    function updateLineInfo() {
+        var val = editorEl.value;
+        var pos = editorEl.selectionStart;
+        var lines = val.substring(0, pos).split('\n');
+        lineInfoEl.textContent = 'Ln ' + lines.length + ', Col ' + (lines[lines.length - 1].length + 1);
+    }
+
+    // Ctrl+Enter to run
+    editorEl.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (hemlockReady) runCode();
+        }
+        // Tab key inserts spaces
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            var start = this.selectionStart;
+            var end = this.selectionEnd;
+            this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+            this.selectionStart = this.selectionEnd = start + 4;
+        }
+    });
+
+    function appendOutput(text, cls) {
+        var span = document.createElement('span');
+        if (cls) span.className = cls;
+        span.textContent = text + '\n';
+        outputEl.appendChild(span);
+        outputEl.scrollTop = outputEl.scrollHeight;
+        outputLines++;
+    }
+
+    function clearOutput() {
+        outputEl.innerHTML = '';
+        outputLines = 0;
+        outputInfoEl.textContent = '';
+    }
+
+    function runCode() {
+        if (!hemlockReady || !hemlockEval) return;
+        clearOutput();
+        var source = editorEl.value;
+        if (!source.trim()) return;
+
+        statusEl.className = 'status-running';
+        statusEl.textContent = 'Running...';
+        btnRun.disabled = true;
+
+        // Run async to allow UI update
+        setTimeout(function() {
+            var startTime = performance.now();
+            try {
+                hemlockEval(source);
+            } catch (e) {
+                appendOutput('Runtime error: ' + e.message, 'output-error');
+            }
+            var elapsed = (performance.now() - startTime).toFixed(1);
+
+            statusEl.className = 'status-ready';
+            statusEl.textContent = 'Ready';
+            btnRun.disabled = false;
+            outputInfoEl.textContent = outputLines + ' lines, ' + elapsed + 'ms';
+
+            if (outputLines === 0) {
+                appendOutput('(no output)', 'output-timing');
+            }
+        }, 10);
+    }
+
+    var examples = {
+        hello: '// Hello World\nprint("Hello from Hemlock WASM!");\nprint("The interpreter is running entirely in your browser.");',
+
+        types: '// Hemlock Type System\nlet i = 42;              // i32\nlet big = 5000000000;    // i64\nlet pi = 3.14;           // f64\nlet s = "hello";         // string\nlet b = true;            // bool\nlet arr = [1, 2, 3];    // array\nlet obj = { x: 10 };    // object\n\nprint("i:", typeof(i), "=", i);\nprint("big:", typeof(big), "=", big);\nprint("pi:", typeof(pi), "=", pi);\nprint("s:", typeof(s), "=", s);\nprint("b:", typeof(b), "=", b);\nprint("arr:", typeof(arr), "=", arr);\nprint("obj:", typeof(obj));',
+
+        closures: '// Closures and Higher-Order Functions\nfn make_counter(start: i32): fn(): i32 {\n    let count = start;\n    return fn(): i32 {\n        count = count + 1;\n        return count;\n    };\n}\n\nlet counter = make_counter(0);\nprint(counter());  // 1\nprint(counter());  // 2\nprint(counter());  // 3\n\n// Map and filter with closures\nlet nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];\nlet evens = nums.filter(fn(n) { return n % 2 == 0; });\nlet squares = evens.map(fn(n) { return n * n; });\nprint("Even squares:", squares);',
+
+        objects: '// Objects and Define\ndefine Point { x: f64, y: f64 }\n\nfn distance(a: Point, b: Point): f64 {\n    let dx = a.x - b.x;\n    let dy = a.y - b.y;\n    return __sqrt(dx * dx + dy * dy);\n}\n\nlet p1: Point = { x: 0.0, y: 0.0 };\nlet p2: Point = { x: 3.0, y: 4.0 };\nprint("Distance:", distance(p1, p2));\n\n// Object spread\nlet p3 = { ...p2, y: 10.0 };\nprint("p3:", p3);',
+
+        match: '// Pattern Matching\nfn describe(val) {\n    let result = match (val) {\n        0 => "zero",\n        1 | 2 | 3 => "small",\n        n if n < 10 => "medium: " + n,\n        n => "large: " + n\n    };\n    print(result);\n}\n\nfor (let i = 0; i <= 12; i += 3) {\n    describe(i);\n}\n\n// Array destructuring\nlet data = [[1, 2, 3], [10, 20], []];\nfor (item in data) {\n    match (item) {\n        [] => print("empty"),\n        [first, ...rest] => print("first: " + first + ", rest: " + rest),\n        _ => print("other")\n    };\n}',
+
+        async: '// Note: async/spawn requires threading (SharedArrayBuffer).\n// In single-threaded WASM, spawn() is not available.\n// This example shows what works without threading.\n\n// Synchronous concurrency patterns\nfn parallel_map(arr, func) {\n    let results = [];\n    for (item in arr) {\n        results.push(func(item));\n    }\n    return results;\n}\n\nlet numbers = [1, 2, 3, 4, 5];\nlet results = parallel_map(numbers, fn(n) {\n    return n * n;\n});\nprint("Squares:", results);\n\n// Channels are also unavailable without threading\nprint("\\nThreading status: single-threaded WASM");\nprint("spawn/join/channel require --threads build");'
+    };
+
+    function loadExample(name) {
+        if (examples[name]) {
+            editorEl.value = examples[name];
+            clearOutput();
+            updateLineInfo();
+        }
+    }
+
+    // Emscripten Module configuration
+    var Module = {
+        print: function(text) {
+            appendOutput(text, 'output-line');
+        },
+        printErr: function(text) {
+            // Filter Emscripten noise
+            if (text.indexOf('pre-main') >= 0) return;
+            if (text.indexOf('run()') >= 0) return;
+            appendOutput(text, 'output-error');
+        },
+        onRuntimeInitialized: function() {
+            hemlockReady = true;
+            hemlockEval = Module.cwrap('hemlock_eval', 'number', ['string']);
+            var getVersion = Module.cwrap('hemlock_version', 'string', []);
+            versionEl.textContent = getVersion();
+            statusEl.className = 'status-ready';
+            statusEl.textContent = 'Ready';
+            btnRun.disabled = false;
+        },
+        onAbort: function(what) {
+            statusEl.className = 'status-error';
+            statusEl.textContent = 'Failed: ' + what;
+        },
+        noInitialRun: true
+    };
+    </script>
+    <!-- Load the compiled WASM interpreter -->
+    <script async src="hemlock.js"></script>
+</body>
+</html>
