@@ -6,7 +6,12 @@
  * - WebSocket support
  *
  * Conditional compilation: requires HML_HAVE_LIBWEBSOCKETS
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
+
+#ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
 
@@ -2359,3 +2364,5 @@ HmlValue hml_builtin_lws_http_stream_close(HmlClosureEnv *env, HmlValue stream) 
 }
 
 #endif  // HML_HAVE_LIBWEBSOCKETS
+
+#endif // !__EMSCRIPTEN__

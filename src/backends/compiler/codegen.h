@@ -219,6 +219,9 @@ typedef struct {
     // Sandbox configuration
     int sandbox_flags;            // Sandbox restriction flags (0 = disabled)
     const char *sandbox_root;     // Sandbox root directory (NULL = no restriction)
+
+    // WASM target configuration
+    int target_wasm;              // Targeting WebAssembly via Emscripten (0 = native, 1 = wasm)
 } CodegenContext;
 
 // Initialize code generation context

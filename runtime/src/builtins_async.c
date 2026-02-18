@@ -2,7 +2,12 @@
  * Hemlock Runtime Library - Async/Concurrency Operations
  *
  * Task spawning, joining, channels, and synchronization primitives.
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
+
+#ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
 #include <pthread.h>
@@ -844,3 +849,5 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
     free(original_fds);
     return result_arr;
 }
+
+#endif // !__EMSCRIPTEN__

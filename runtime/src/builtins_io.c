@@ -358,7 +358,9 @@ HmlValue hml_file_write_bytes(HmlValue file, HmlValue data) {
 // ========== SYSTEM INFO OPERATIONS ==========
 
 HmlValue hml_platform(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    return hml_val_string("wasm");
+#elif defined(__linux__)
     return hml_val_string("linux");
 #elif defined(__APPLE__)
     return hml_val_string("macos");
@@ -369,6 +371,11 @@ HmlValue hml_platform(void) {
 #endif
 }
 
+#ifdef __EMSCRIPTEN__
+HmlValue hml_arch(void) {
+    return hml_val_string("wasm32");
+}
+#else
 HmlValue hml_arch(void) {
     struct utsname info;
     if (uname(&info) != 0) {
@@ -377,17 +384,29 @@ HmlValue hml_arch(void) {
     }
     return hml_val_string(info.machine);
 }
+#endif
 
 HmlValue hml_hostname(void) {
+#ifdef __EMSCRIPTEN__
+    return hml_val_string("wasm-host");
+#else
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         fprintf(stderr, "Error: hostname() failed: %s\n", strerror(errno));
         exit(1);
     }
     return hml_val_string(hostname);
+#endif
 }
 
 HmlValue hml_username(void) {
+#ifdef __EMSCRIPTEN__
+    char *env_user = getenv("USER");
+    if (env_user != NULL) {
+        return hml_val_string(env_user);
+    }
+    return hml_val_string("wasm-user");
+#else
     // Try getlogin_r first
     char username[256];
     if (getlogin_r(username, sizeof(username)) == 0) {
@@ -408,6 +427,7 @@ HmlValue hml_username(void) {
 
     fprintf(stderr, "Error: username() failed: could not determine username\n");
     exit(1);
+#endif
 }
 
 HmlValue hml_homedir(void) {
@@ -417,26 +437,34 @@ HmlValue hml_homedir(void) {
         return hml_val_string(home);
     }
 
-    // Fall back to getpwuid
+#ifndef __EMSCRIPTEN__
+    // Fall back to getpwuid (not available in WASM)
     struct passwd *pw = getpwuid(getuid());
     if (pw != NULL && pw->pw_dir != NULL) {
         return hml_val_string(pw->pw_dir);
     }
+#endif
 
-    fprintf(stderr, "Error: homedir() failed: could not determine home directory\n");
-    exit(1);
+    return hml_val_string("/home");
 }
 
 HmlValue hml_cpu_count(void) {
+#ifdef __EMSCRIPTEN__
+    return hml_val_i32(1);  // WASM runs single-threaded
+#else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
     if (nprocs < 1) {
         nprocs = 1;  // Default to 1 if we can't determine
     }
     return hml_val_i32((int32_t)nprocs);
+#endif
 }
 
 HmlValue hml_total_memory(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    // WASM linear memory — report WASM heap size
+    return hml_val_i64((int64_t)256 * 1024 * 1024);  // Default 256MB
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: total_memory() failed: %s\n", strerror(errno));
@@ -465,7 +493,9 @@ HmlValue hml_total_memory(void) {
 }
 
 HmlValue hml_free_memory(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    return hml_val_i64((int64_t)128 * 1024 * 1024);  // Estimate
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: free_memory() failed: %s\n", strerror(errno));
@@ -504,6 +534,14 @@ HmlValue hml_free_memory(void) {
 #endif
 }
 
+#ifdef __EMSCRIPTEN__
+HmlValue hml_os_version(void) {
+    return hml_val_string("1.0");
+}
+HmlValue hml_os_name(void) {
+    return hml_val_string("Emscripten");
+}
+#else
 HmlValue hml_os_version(void) {
     struct utsname info;
     if (uname(&info) != 0) {
@@ -521,6 +559,7 @@ HmlValue hml_os_name(void) {
     }
     return hml_val_string(info.sysname);
 }
+#endif
 
 HmlValue hml_tmpdir(void) {
     char *tmpdir = getenv("TMPDIR");
@@ -539,7 +578,9 @@ HmlValue hml_tmpdir(void) {
 }
 
 HmlValue hml_uptime(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    return hml_val_i64(0);  // Not meaningful in WASM
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: uptime() failed: %s\n", strerror(errno));

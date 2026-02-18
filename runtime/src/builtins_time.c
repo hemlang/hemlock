@@ -6,6 +6,10 @@
 
 #include "builtins_internal.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 // ========== CORE TIME FUNCTIONS ==========
 
 HmlValue hml_now(void) {
@@ -24,10 +28,14 @@ HmlValue hml_clock(void) {
 
 void hml_sleep(HmlValue seconds) {
     double secs = hml_to_f64(seconds);
+#ifdef __EMSCRIPTEN__
+    emscripten_sleep((unsigned int)(secs * 1000));
+#else
     struct timespec ts;
     ts.tv_sec = (time_t)secs;
     ts.tv_nsec = (long)((secs - ts.tv_sec) * 1e9);
     nanosleep(&ts, NULL);
+#endif
 }
 
 // ========== DATETIME FUNCTIONS ==========
