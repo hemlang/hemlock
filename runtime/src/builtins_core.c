@@ -15,6 +15,10 @@
 #include "builtins_internal.h"
 #include "utf8.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 // ========== GLOBAL STATE ==========
 
 int g_argc = 0;
@@ -113,9 +117,41 @@ void hml_runtime_init(int argc, char **argv) {
     g_argv = argv;
     g_exception_stack = NULL;
     g_defer_stack = NULL;
+
+#ifdef __EMSCRIPTEN__
+    // Set up persistent filesystem via IDBFS (IndexedDB-backed)
+    // Files written to /persistent/ survive page reloads in the browser
+    EM_ASM(
+        if (typeof window !== 'undefined') {
+            FS.mkdir('/persistent');
+            FS.mount(IDBFS, {}, '/persistent');
+            FS.syncfs(true, function(err) {
+                if (err) console.error('IDBFS load error:', err);
+            });
+        }
+    );
+#endif
 }
 
+#ifdef __EMSCRIPTEN__
+// Sync IDBFS persistent filesystem to IndexedDB
+void hml_wasm_fs_sync(void) {
+    EM_ASM(
+        if (typeof window !== 'undefined') {
+            FS.syncfs(false, function(err) {
+                if (err) console.error('IDBFS sync error:', err);
+            });
+        }
+    );
+}
+#endif
+
 void hml_runtime_cleanup(void) {
+#ifdef __EMSCRIPTEN__
+    // Sync persistent filesystem before exit
+    hml_wasm_fs_sync();
+#endif
+
     // Execute remaining defers
     hml_defer_execute_all();
 

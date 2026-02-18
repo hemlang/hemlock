@@ -543,6 +543,37 @@ wasm-test: compiler runtime-wasm
 		echo "No WASM tests found (tests/wasm/run_wasm_tests.sh)"; \
 	fi
 
+# Verify WASM test files produce correct output via native compiler
+# (useful for CI where Emscripten may not be installed)
+wasm-test-native: compiler
+	@echo "Verifying WASM test files via native compiler..."
+	@PASSED=0; FAILED=0; TOTAL=0; \
+	for f in tests/wasm/*.hml; do \
+		name=$$(basename "$$f" .hml); \
+		expected="tests/wasm/$${name}.expected"; \
+		if [ -f "$$expected" ]; then \
+			TOTAL=$$((TOTAL + 1)); \
+			if ./hemlockc -o /tmp/hml_wasm_test_$$name "$$f" 2>/dev/null; then \
+				actual=$$(/tmp/hml_wasm_test_$$name 2>&1); \
+				exp=$$(cat "$$expected"); \
+				if [ "$$actual" = "$$exp" ]; then \
+					echo "  ✓ $$name"; \
+					PASSED=$$((PASSED + 1)); \
+				else \
+					echo "  ✗ $$name (output mismatch)"; \
+					FAILED=$$((FAILED + 1)); \
+				fi; \
+				rm -f /tmp/hml_wasm_test_$$name; \
+			else \
+				echo "  ✗ $$name (compile error)"; \
+				FAILED=$$((FAILED + 1)); \
+			fi; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Results: $$PASSED passed, $$FAILED failed ($$TOTAL total)"; \
+	if [ $$FAILED -gt 0 ]; then exit 1; fi
+
 # Full clean including compiler, runtime, release, and static builds
 fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean
 

@@ -25,6 +25,13 @@ void hml_runtime_cleanup(void);
 // Get command-line arguments as Hemlock array
 HmlValue hml_get_args(void);
 
+// ========== WASM SUPPORT ==========
+
+#ifdef __EMSCRIPTEN__
+// Sync IDBFS persistent filesystem to IndexedDB
+void hml_wasm_fs_sync(void);
+#endif
+
 // ========== SANDBOX CONFIGURATION ==========
 
 // Sandbox restriction flags (must match hemlock_limits.h)

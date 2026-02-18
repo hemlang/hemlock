@@ -11,6 +11,10 @@
 
 #include "builtins_internal.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 // ========== I/O OPERATIONS ==========
 
 HmlValue hml_read_line(void) {
@@ -462,8 +466,9 @@ HmlValue hml_cpu_count(void) {
 
 HmlValue hml_total_memory(void) {
 #ifdef __EMSCRIPTEN__
-    // WASM linear memory — report WASM heap size
-    return hml_val_i64((int64_t)256 * 1024 * 1024);  // Default 256MB
+    // Query actual WASM heap size via Emscripten
+    size_t heap_size = (size_t)EM_ASM_INT({ return HEAP8.length; });
+    return hml_val_i64((int64_t)heap_size);
 #elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -494,7 +499,13 @@ HmlValue hml_total_memory(void) {
 
 HmlValue hml_free_memory(void) {
 #ifdef __EMSCRIPTEN__
-    return hml_val_i64((int64_t)128 * 1024 * 1024);  // Estimate
+    // Estimate free memory as total heap minus dynamically used
+    size_t heap_size = (size_t)EM_ASM_INT({ return HEAP8.length; });
+    // sbrk(0) returns current break — approximate used heap
+    size_t used = (size_t)sbrk(0);
+    int64_t free_mem = (int64_t)heap_size - (int64_t)used;
+    if (free_mem < 0) free_mem = 0;
+    return hml_val_i64(free_mem);
 #elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -562,6 +573,10 @@ HmlValue hml_os_name(void) {
 #endif
 
 HmlValue hml_tmpdir(void) {
+#ifdef __EMSCRIPTEN__
+    // Emscripten MEMFS provides /tmp by default
+    return hml_val_string("/tmp");
+#else
     char *tmpdir = getenv("TMPDIR");
     if (tmpdir != NULL && tmpdir[0] != '\0') {
         return hml_val_string(tmpdir);
@@ -575,11 +590,14 @@ HmlValue hml_tmpdir(void) {
         return hml_val_string(tmpdir);
     }
     return hml_val_string("/tmp");
+#endif
 }
 
 HmlValue hml_uptime(void) {
 #ifdef __EMSCRIPTEN__
-    return hml_val_i64(0);  // Not meaningful in WASM
+    // Return time since page load in seconds (via emscripten_get_now in ms)
+    double ms = emscripten_get_now();
+    return hml_val_i64((int64_t)(ms / 1000.0));
 #elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {

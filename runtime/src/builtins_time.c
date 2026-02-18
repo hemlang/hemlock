@@ -13,16 +13,24 @@
 // ========== CORE TIME FUNCTIONS ==========
 
 HmlValue hml_now(void) {
+    // time(NULL) works on all platforms including Emscripten (libc)
     return hml_val_i64((int64_t)time(NULL));
 }
 
 HmlValue hml_time_ms(void) {
+#ifdef __EMSCRIPTEN__
+    // emscripten_get_now() returns high-resolution milliseconds (double)
+    double ms = emscripten_get_now();
+    return hml_val_i64((int64_t)ms);
+#else
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return hml_val_i64((int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+#endif
 }
 
 HmlValue hml_clock(void) {
+    // clock() works on all platforms including Emscripten (libc)
     return hml_val_f64((double)clock() / CLOCKS_PER_SEC);
 }
 

@@ -1,0 +1,21 @@
+// WASM test: @stdlib/arena module
+import { Arena } from "@stdlib/arena";
+
+// Create arena with 1KB
+let a = Arena(1024);
+print(a.capacity);
+print(a.used);
+
+// Allocate some memory
+let p1 = a.alloc(64);
+print(typeof(p1));
+print(a.used);
+
+let p2 = a.alloc(128);
+print(a.used);
+
+// Reset arena
+a.reset();
+print(a.used);
+
+print("arena done");

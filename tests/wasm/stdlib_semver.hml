@@ -1,0 +1,24 @@
+// WASM test: @stdlib/semver module
+import { parse, compare, satisfies, valid } from "@stdlib/semver";
+
+// Parse version
+let v = parse("1.2.3");
+print(v.major);
+print(v.minor);
+print(v.patch);
+
+// Parse with pre-release
+let v2 = parse("2.0.0-beta.1");
+print(v2.major);
+print(v2.prerelease);
+
+// Compare
+print(compare("1.0.0", "2.0.0"));
+print(compare("2.0.0", "1.0.0"));
+print(compare("1.0.0", "1.0.0"));
+
+// Valid
+print(valid("1.2.3"));
+print(valid("not-a-version"));
+
+print("semver done");

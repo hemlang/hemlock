@@ -53,6 +53,7 @@
     <script>
         var outputEl = document.getElementById('output');
         var statusEl = document.getElementById('status');
+        var startTime = performance.now();
 
         var Module = {
             print: function(text) {
@@ -68,8 +69,17 @@
                 console.error(text);
             },
             onRuntimeInitialized: function() {
+                var elapsed = (performance.now() - startTime).toFixed(1);
                 statusEl.className = 'ready';
-                statusEl.textContent = 'WASM module loaded successfully';
+                statusEl.textContent = 'WASM module loaded (' + elapsed + 'ms)';
+
+                // List files in virtual filesystem (for debugging)
+                try {
+                    var tmpFiles = FS.readdir('/tmp');
+                    if (tmpFiles.length > 2) { // . and ..
+                        console.log('Virtual FS /tmp:', tmpFiles);
+                    }
+                } catch(e) {}
             },
             onAbort: function(what) {
                 statusEl.className = 'failed';

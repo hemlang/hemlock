@@ -1,0 +1,26 @@
+// WASM test: file I/O via Emscripten MEMFS
+// Tests that basic file operations work in WASM's virtual filesystem
+
+// Write a file
+let f = open("/tmp/test.txt", "w");
+f.write("Hello from WASM!");
+f.close();
+
+// Read it back
+let f2 = open("/tmp/test.txt", "r");
+let content = f2.read();
+f2.close();
+print(content);
+
+// Append to file
+let f3 = open("/tmp/test.txt", "a");
+f3.write("\nSecond line");
+f3.close();
+
+// Read all content
+let f4 = open("/tmp/test.txt", "r");
+let all = f4.read();
+f4.close();
+print(all);
+
+print("file_io done");
