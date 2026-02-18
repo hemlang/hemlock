@@ -595,8 +595,72 @@ wasm-test-native: compiler
 	echo "Results: $$PASSED passed, $$FAILED failed ($$TOTAL total)"; \
 	if [ $$FAILED -gt 0 ]; then exit 1; fi
 
+# ========== WASM INTERPRETER (Emscripten) ==========
+# Compiles the entire tree-walking interpreter to WASM, allowing Hemlock
+# source code to be parsed and executed directly in the browser.
+# This is different from hemlockc's --target wasm, which compiles Hemlock
+# programs to C then to WASM. This target compiles the interpreter itself.
+#
+# Requires: Emscripten SDK (emcc, emar)
+# Usage: make wasm-interpreter
+# Output: wasm/hemlock.js + wasm/hemlock.wasm
+
+WASM_CC_INTERP = emcc
+WASM_CFLAGS_INTERP = -Wall -Wextra -std=c11 -O2 -g \
+	-D__EMSCRIPTEN__ -D_POSIX_C_SOURCE=200809L \
+	-Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+
+# Interpreter WASM sources: shared frontend + interpreter backend (minus native-only files)
+WASM_INTERP_FRONTEND_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(SHARED_SRCS)
+
+# Interpreter sources: exclude native main.c (wasm_interp_main.c and wasm_interp_shim.c
+# are already included by the wildcard in INTERP_SRCS and have #ifdef __EMSCRIPTEN__ guards)
+WASM_INTERP_BACKEND_SRCS = $(filter-out $(SRC_DIR)/backends/interpreter/main.c, $(INTERP_SRCS))
+
+WASM_INTERP_ALL_SRCS = $(WASM_INTERP_FRONTEND_SRCS) $(WASM_INTERP_BACKEND_SRCS) $(TYPECHECK_SRCS)
+
+# Emscripten linker flags for the interpreter
+WASM_INTERP_LDFLAGS = \
+	-sWASM=1 \
+	-sALLOW_MEMORY_GROWTH=1 \
+	-sSTACK_SIZE=1048576 \
+	-sEXPORTED_FUNCTIONS='["_main","_hemlock_eval","_hemlock_version","_malloc","_free"]' \
+	-sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
+	-sFORCE_FILESYSTEM=1 \
+	-sMODULARIZE=0 \
+	--pre-js wasm/pre.js \
+	-lm
+
+# Build directories for WASM interpreter objects
+WASM_INTERP_BUILD_DIR = $(BUILD_DIR)/wasm_interp
+
+.PHONY: wasm-interpreter wasm-interpreter-clean
+
+wasm-interpreter:
+	@echo "=== Building Hemlock WASM Interpreter ==="
+	@echo "Compiling interpreter to WebAssembly via Emscripten..."
+	@mkdir -p wasm $(WASM_INTERP_BUILD_DIR)
+	@# Create pre.js if it doesn't exist
+	@if [ ! -f wasm/pre.js ]; then echo "// Hemlock WASM pre-init" > wasm/pre.js; fi
+	$(WASM_CC_INTERP) $(WASM_CFLAGS_INTERP) \
+		$(WASM_INTERP_ALL_SRCS) \
+		$(WASM_INTERP_LDFLAGS) \
+		-o wasm/hemlock.js
+	@echo ""
+	@echo "✓ WASM interpreter built successfully!"
+	@echo "  wasm/hemlock.js   - JavaScript loader/glue"
+	@echo "  wasm/hemlock.wasm - WebAssembly binary"
+	@echo ""
+	@echo "Run with Node.js:  node wasm/hemlock.js -e 'print(\"Hello from WASM!\");'"
+	@echo "Run in browser:    Open wasm/playground.html"
+	@ls -lh wasm/hemlock.js wasm/hemlock.wasm 2>/dev/null || true
+
+wasm-interpreter-clean:
+	rm -f wasm/hemlock.js wasm/hemlock.wasm wasm/hemlock.worker.js
+	rm -rf $(WASM_INTERP_BUILD_DIR)
+
 # Full clean including compiler, runtime, release, and static builds
-fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean
+fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean wasm-interpreter-clean
 
 # Run compiler test suite
 .PHONY: test-compiler

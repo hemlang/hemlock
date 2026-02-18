@@ -1,4 +1,9 @@
 #include "internal.h"
+
+#ifndef __EMSCRIPTEN__
+/* Native FFI implementation - excluded from WASM builds (no libffi/dlopen).
+   WASM stubs are provided in wasm_interp_shim.c. */
+
 #include <ffi.h>
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -1545,3 +1550,5 @@ void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         env_define(env, function_name, ffi_val, 0, ctx);
     }
 }
+
+#endif /* __EMSCRIPTEN__ */
