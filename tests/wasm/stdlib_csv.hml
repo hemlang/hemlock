@@ -1,0 +1,23 @@
+// WASM test: @stdlib/csv module
+import { parse, stringify } from "@stdlib/csv";
+
+// Parse CSV - returns array of arrays
+let data = parse("name,age\nAlice,30\nBob,25");
+print(data.length);
+print(data[0][0]);
+print(data[0][1]);
+print(data[1][0]);
+print(data[1][1]);
+print(data[2][0]);
+print(data[2][1]);
+
+// Stringify
+let rows = [
+    ["a", "b"],
+    ["1", "2"],
+    ["3", "4"]
+];
+let csv_str = stringify(rows);
+print(csv_str);
+
+print("csv done");

@@ -218,6 +218,8 @@ typedef struct {
     int stack_check;             // Enable stack overflow checking (default: on)
     int sandbox;                 // Enable sandbox mode (restrict FFI, network, process, file writes)
     const char *sandbox_root;    // Optional sandbox root directory for file access
+    int target_wasm;             // Target WebAssembly via Emscripten (--target wasm)
+    int wasm_threads;            // Enable pthreads in WASM (Web Workers + SharedArrayBuffer)
 } Options;
 
 static void print_usage(const char *progname) {
@@ -242,6 +244,9 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
     fprintf(stderr, "  --sandbox [DIR] Enable sandbox mode (restrict FFI, network, process, file writes)\n");
     fprintf(stderr, "                  If DIR provided, restricts file reads to that directory\n");
+    fprintf(stderr, "  --target wasm   Compile for WebAssembly via Emscripten (emcc)\n");
+    fprintf(stderr, "  --threads       Enable threading in WASM (Web Workers + SharedArrayBuffer)\n");
+    fprintf(stderr, "                  Requires: --target wasm, browser COOP/COEP headers\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  -h, --help      Show this help message\n");
     fprintf(stderr, "  --version       Show version\n");
@@ -268,7 +273,9 @@ static Options parse_args(int argc, char **argv) {
         .static_link = 0,
         .stack_check = 1,        // Stack overflow checking ON by default
         .sandbox = 0,
-        .sandbox_root = NULL
+        .sandbox_root = NULL,
+        .target_wasm = 0,
+        .wasm_threads = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -320,6 +327,17 @@ static Options parse_args(int argc, char **argv) {
                     i++;  // Skip the directory argument
                 }
             }
+        } else if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
+            i++;
+            if (strcmp(argv[i], "wasm") == 0) {
+                opts.target_wasm = 1;
+                opts.cc = "emcc";  // Use Emscripten compiler
+            } else {
+                fprintf(stderr, "Unknown target: %s (supported: wasm)\n", argv[i]);
+                exit(1);
+            }
+        } else if (strcmp(argv[i], "--threads") == 0) {
+            opts.wasm_threads = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -335,6 +353,12 @@ static Options parse_args(int argc, char **argv) {
     if (opts.input_file == NULL) {
         fprintf(stderr, "No input file specified\n");
         print_usage(argv[0]);
+        exit(1);
+    }
+
+    // Validate --threads requires --target wasm
+    if (opts.wasm_threads && !opts.target_wasm) {
+        fprintf(stderr, "Error: --threads requires --target wasm\n");
         exit(1);
     }
 
@@ -509,7 +533,70 @@ static int compile_c(const Options *opts, const char *c_file) {
 
     // Build the linker command
     int n;
-    if (opts->static_link) {
+    if (opts->target_wasm) {
+        // WASM build via Emscripten
+        // Determine WASM runtime library path
+        char wasm_runtime[PATH_MAX];
+        if (opts->wasm_threads) {
+            // Threaded build uses separate runtime with pthread support
+            snprintf(wasm_runtime, sizeof(wasm_runtime),
+                     "%s/libhemlock_runtime_wasm_threaded.a", runtime_path);
+            if (access(wasm_runtime, R_OK) != 0) {
+                snprintf(wasm_runtime, sizeof(wasm_runtime),
+                         "%s/runtime/build/libhemlock_runtime_wasm_threaded.a", runtime_path);
+            }
+        } else {
+            snprintf(wasm_runtime, sizeof(wasm_runtime),
+                     "%s/libhemlock_runtime_wasm.a", runtime_path);
+            // Fall back to native runtime if WASM runtime not built yet
+            if (access(wasm_runtime, R_OK) != 0) {
+                snprintf(wasm_runtime, sizeof(wasm_runtime),
+                         "%s/runtime/build/libhemlock_runtime_wasm.a", runtime_path);
+            }
+        }
+
+        // Determine output file extension
+        const char *out_file = opts->output_file;
+        char js_output[PATH_MAX];
+        // If output doesn't end in .js or .html, append .js
+        size_t out_len = strlen(out_file);
+        if (out_len < 3 ||
+            (strcmp(out_file + out_len - 3, ".js") != 0 &&
+             strcmp(out_file + out_len - 5, ".html") != 0)) {
+            snprintf(js_output, sizeof(js_output), "%s.js", out_file);
+            out_file = js_output;
+        }
+
+        if (opts->wasm_threads) {
+            // Threaded WASM: pthreads mapped to Web Workers via SharedArrayBuffer
+            // -pthread: enable pthreads support (Web Workers)
+            // -sPROXY_TO_PTHREAD: run main() in a worker so it can block
+            // -sPTHREAD_POOL_SIZE=4: pre-create worker pool for faster spawn
+            // -sASYNCIFY: enable async unwinding for sleep() on main thread
+            n = snprintf(cmd, sizeof(cmd),
+                "emcc %s -o %s %s -I%s %s "
+                "-pthread "
+                "-sWASM=1 -sEXPORTED_FUNCTIONS=\"['_main']\" "
+                "-sEXPORTED_RUNTIME_METHODS=\"['ccall','cwrap']\" "
+                "-sALLOW_MEMORY_GROWTH=1 "
+                "-sSTACK_SIZE=1048576 "
+                "-sPTHREAD_POOL_SIZE=4 "
+                "-sPROXY_TO_PTHREAD "
+                "-D__HEMLOCK_WASM__=1",
+                opt_flag, out_file, c_file,
+                include_path, wasm_runtime);
+        } else {
+            n = snprintf(cmd, sizeof(cmd),
+                "emcc %s -o %s %s -I%s %s "
+                "-sWASM=1 -sEXPORTED_FUNCTIONS=\"['_main']\" "
+                "-sEXPORTED_RUNTIME_METHODS=\"['ccall','cwrap']\" "
+                "-sALLOW_MEMORY_GROWTH=1 "
+                "-sSTACK_SIZE=1048576 "
+                "-D__HEMLOCK_WASM__=1",
+                opt_flag, out_file, c_file,
+                include_path, wasm_runtime);
+        }
+    } else if (opts->static_link) {
         // Hybrid static/dynamic linking:
         // - Static: libffi, libz, libssl, libcrypto, libwebsockets
         // - Dynamic: glibc, libcap, libuv, libev (no static libs available on Ubuntu)
@@ -719,6 +806,9 @@ int main(int argc, char **argv) {
     ctx->stack_check = opts.stack_check;  // Pass stack check setting
     // Note: ctx->optimize is already set in codegen_new() based on optimization level
     // Don't override it here - the type context is just for unboxing hints
+
+    // Configure WASM target
+    ctx->target_wasm = opts.target_wasm;
 
     // Configure sandbox if enabled
     if (opts.sandbox) {

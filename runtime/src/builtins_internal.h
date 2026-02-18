@@ -14,6 +14,18 @@
 #include <math.h>
 #include <errno.h>
 #include <time.h>
+#include <limits.h>
+#include <inttypes.h>
+
+#ifdef __EMSCRIPTEN__
+// WASM build: minimal POSIX headers via Emscripten
+#include <emscripten.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <fcntl.h>
+#else
+// Native build: full POSIX headers
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -21,8 +33,6 @@
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <dirent.h>
-#include <limits.h>
-#include <inttypes.h>
 #include <dlfcn.h>
 #include <ffi.h>
 #include <pwd.h>
@@ -32,7 +42,9 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
+#endif // __EMSCRIPTEN__
 
+#ifndef __EMSCRIPTEN__
 #ifdef HML_HAVE_ZLIB
 #include <zlib.h>
 #endif
@@ -43,9 +55,12 @@
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/err.h>
+#endif // !__EMSCRIPTEN__
 
 #ifdef __linux__
+#ifndef __EMSCRIPTEN__
 #include <sys/sysinfo.h>
+#endif
 #endif
 
 #ifdef __APPLE__
@@ -72,8 +87,10 @@ extern DeferEntry *g_defer_stack;
 extern int g_rand_seeded;
 
 // OpenSSL includes (for crypto module)
+#ifndef __EMSCRIPTEN__
 #include <openssl/ssl.h>
 #include <openssl/crypto.h>
+#endif
 
 // ========== HELPER FUNCTIONS (defined in builtins_core.c) ==========
 

@@ -1,0 +1,22 @@
+// WASM test: @stdlib/math module
+import { abs, floor, ceil, round, min, max, PI, E, sqrt, pow } from "@stdlib/math";
+
+// Basic math
+print(abs(-42));
+print(floor(3.7));
+print(ceil(3.2));
+print(round(3.5));
+
+// Min/max
+print(min(10, 20));
+print(max(10, 20));
+
+// Constants (truncate for deterministic output)
+print(floor(PI * 100));
+print(floor(E * 100));
+
+// sqrt and pow
+print(sqrt(144));
+print(pow(2, 10));
+
+print("math done");

@@ -2,7 +2,12 @@
  * Hemlock Runtime Library - FFI (Foreign Function Interface)
  *
  * Dynamic loading, function calls, struct marshaling, and callbacks.
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
+
+#ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
 #include <pthread.h>
@@ -1324,3 +1329,5 @@ HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) {
     }
     return hml_val_i32(*actual_ptr);
 }
+
+#endif // !__EMSCRIPTEN__

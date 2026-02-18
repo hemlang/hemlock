@@ -1,0 +1,34 @@
+// Test: async spawn/join (requires --threads for WASM)
+// Tests basic task spawning and joining
+
+async fn compute(n: i32): i32 {
+    return n * n;
+}
+
+async fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+// Spawn and join single task
+let t1 = spawn(compute, 7);
+let r1 = join(t1);
+print(r1);
+
+// Spawn multiple tasks
+let t2 = spawn(compute, 3);
+let t3 = spawn(compute, 5);
+let t4 = spawn(add, 10, 20);
+
+// Join in different order
+let r4 = join(t4);
+let r2 = join(t2);
+let r3 = join(t3);
+
+print(r2);
+print(r3);
+print(r4);
+
+// Verify results
+print(r1 + r2 + r3 + r4);
+
+print("async done");

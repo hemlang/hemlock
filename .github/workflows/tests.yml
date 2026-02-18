@@ -211,6 +211,24 @@ jobs:
         path: valgrind-*.log
         if-no-files-found: ignore
 
+  # WASM test validation (native) - verify WASM test files work with native compiler
+  wasm-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run WASM tests via native compiler
+      run: make wasm-test-native
+
   # Clang static analysis
   clang-analysis:
     runs-on: ubuntu-latest

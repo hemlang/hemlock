@@ -1,0 +1,22 @@
+// WASM test: @stdlib/strings module
+import { pad_left, pad_right, is_alpha, is_digit, reverse, lines, words, snake_case, camel_case } from "@stdlib/strings";
+
+// Padding
+print(pad_left("hi", 5));
+print(pad_right("hi", 5));
+print(pad_left("5", 3, "0"));
+
+// Character checks
+print(is_alpha("abc"));
+print(is_alpha("123"));
+print(is_digit("456"));
+print(is_digit("xyz"));
+
+// String manipulation
+print(reverse("hello"));
+
+// Case conversion
+print(snake_case("helloWorld"));
+print(camel_case("hello_world"));
+
+print("strings done");

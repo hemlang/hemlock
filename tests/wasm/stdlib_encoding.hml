@@ -1,0 +1,22 @@
+// WASM test: @stdlib/encoding module
+import { base64_encode, base64_decode, hex_encode, hex_decode, url_encode, url_decode } from "@stdlib/encoding";
+
+// Base64
+let encoded = base64_encode("Hello, World!");
+print(encoded);
+let decoded = base64_decode(encoded);
+print(decoded);
+
+// Hex encoding
+let hex = hex_encode("ABC");
+print(hex);
+let unhex = hex_decode(hex);
+print(unhex);
+
+// URL encoding
+let url_enc = url_encode("hello world&foo=bar");
+print(url_enc);
+let url_dec = url_decode(url_enc);
+print(url_dec);
+
+print("encoding done");

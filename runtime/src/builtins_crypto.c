@@ -2,7 +2,12 @@
  * Hemlock Runtime Library - Crypto and Compression Operations
  *
  * Cryptographic functions (SHA, MD5, ECDSA) and compression (zlib, gzip).
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
+
+#ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
 #include <stdatomic.h>
@@ -669,3 +674,5 @@ HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue si
     (void)env;
     return hml_ecdsa_verify(data, sig, keypair);
 }
+
+#endif // !__EMSCRIPTEN__

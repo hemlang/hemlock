@@ -1,0 +1,10 @@
+// WASM test: @stdlib/fmt module
+import { format } from "@stdlib/fmt";
+
+// String formatting with array args
+print(format("Hello, %s!", ["World"]));
+print(format("Number: %d", [42]));
+print(format("Hex: %x", [255]));
+print(format("%s has %d items", ["list", 3]));
+
+print("fmt done");

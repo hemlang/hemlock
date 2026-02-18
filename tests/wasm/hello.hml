@@ -1,0 +1,56 @@
+// Basic WASM test - core language features
+print("Hello from HemlockScript WASM!");
+
+// Variables and types
+let x: i32 = 42;
+let pi: f64 = 3.14159;
+let name = "Hemlock";
+
+print("x = " + x);
+print("pi = " + pi);
+print("name = " + name);
+
+// Functions
+fn fibonacci(n: i32): i32 {
+    if (n <= 1) { return n; }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+print("fib(10) = " + fibonacci(10));
+
+// Closures
+let make_adder = fn(n: i32) {
+    return fn(x: i32) { return x + n; };
+};
+let add5 = make_adder(5);
+print("add5(10) = " + add5(10));
+
+// Pattern matching
+let result = match (x) {
+    0 => "zero",
+    n if n < 10 => "small",
+    n if n < 100 => "medium",
+    n => "large"
+};
+print("match result = " + result);
+
+// Arithmetic
+print("2 + 3 = " + (2 + 3));
+print("10 * 4 = " + (10 * 4));
+print("2 ^ 8 = " + (1 << 8));
+
+// Objects
+let obj = { name: "test", value: 100 };
+print("obj.name = " + obj.name);
+
+// Control flow
+let count = 0;
+for (let i = 0; i < 5; i++) {
+    count = count + i;
+}
+print("loop sum = " + count);
+
+// typeof
+print("typeof 42 = " + typeof(42));
+
+print("Done!");

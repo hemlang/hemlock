@@ -72,7 +72,16 @@ else
     SHARED_LIB = libhemlock_runtime.so
 endif
 
-.PHONY: all clean static shared
+# WASM build configuration (Emscripten)
+WASM_CC = emcc
+WASM_AR = emar
+WASM_CFLAGS = -Wall -Wextra -std=c11 -O2 -fPIC -Iinclude -I../src/shared -D__EMSCRIPTEN__
+WASM_SRCS = $(SRCS)
+WASM_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/wasm_%.o,$(WASM_SRCS))
+WASM_SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/wasm_shared_%.o,$(SHARED_SRCS))
+WASM_STATIC_LIB = libhemlock_runtime_wasm.a
+
+.PHONY: all clean static shared wasm wasm-threaded
 
 all: $(BUILD_DIR) static shared
 
@@ -106,6 +115,38 @@ install: static shared
 	cp $(BUILD_DIR)/$(STATIC_LIB) ../
 	cp $(BUILD_DIR)/$(SHARED_LIB) ../
 	@echo "Installed libraries to parent directory"
+
+# WASM static library via Emscripten
+wasm: $(BUILD_DIR) $(BUILD_DIR)/$(WASM_STATIC_LIB)
+
+$(BUILD_DIR)/wasm_%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/wasm_shared_%.o: $(SHARED_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/$(WASM_STATIC_LIB): $(WASM_OBJS) $(WASM_SHARED_OBJS)
+	$(WASM_AR) rcs $@ $^
+	@echo "Built WASM runtime library: $@"
+
+# WASM threaded build configuration (Emscripten with pthreads)
+# Enables spawn/join/channels via Web Workers with SharedArrayBuffer
+WASM_THREAD_CFLAGS = $(WASM_CFLAGS) -pthread
+WASM_THREAD_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/wasm_thread_%.o,$(WASM_SRCS))
+WASM_THREAD_SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/wasm_thread_shared_%.o,$(SHARED_SRCS))
+WASM_THREAD_LIB = libhemlock_runtime_wasm_threaded.a
+
+wasm-threaded: $(BUILD_DIR) $(BUILD_DIR)/$(WASM_THREAD_LIB)
+
+$(BUILD_DIR)/wasm_thread_%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_THREAD_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/wasm_thread_shared_%.o: $(SHARED_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_THREAD_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/$(WASM_THREAD_LIB): $(WASM_THREAD_OBJS) $(WASM_THREAD_SHARED_OBJS)
+	$(WASM_AR) rcs $@ $^
+	@echo "Built WASM threaded runtime library: $@"
 
 clean:
 	rm -rf $(BUILD_DIR)

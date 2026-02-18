@@ -2,7 +2,12 @@
  * Hemlock Runtime Library - Socket and Networking Operations
  *
  * TCP/UDP sockets, DNS resolution, and low-level networking.
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
+
+#ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
 
@@ -588,3 +593,5 @@ HmlValue hml_builtin_socket_get_closed(HmlClosureEnv *env, HmlValue socket_val) 
     (void)env;
     return hml_socket_get_closed(socket_val);
 }
+
+#endif // !__EMSCRIPTEN__

@@ -505,6 +505,96 @@ runtime-clean:
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
 
+# ========== WASM TARGET (Emscripten) ==========
+
+WASM_RUNTIME_LIB = libhemlock_runtime_wasm.a
+WASM_THREAD_RUNTIME_LIB = libhemlock_runtime_wasm_threaded.a
+
+.PHONY: runtime-wasm runtime-wasm-threaded runtime-wasm-clean wasm-compile wasm-compile-threaded wasm-test
+
+# Build WASM runtime library (non-threaded)
+runtime-wasm:
+	@echo "Building Hemlock WASM runtime library..."
+	$(MAKE) -C $(RUNTIME_DIR) wasm
+	cp $(RUNTIME_DIR)/build/$(WASM_RUNTIME_LIB) ./
+	@echo "✓ WASM runtime library built: $(WASM_RUNTIME_LIB)"
+
+# Build WASM threaded runtime library (pthreads via Web Workers)
+runtime-wasm-threaded:
+	@echo "Building Hemlock WASM threaded runtime library..."
+	$(MAKE) -C $(RUNTIME_DIR) wasm-threaded
+	cp $(RUNTIME_DIR)/build/$(WASM_THREAD_RUNTIME_LIB) ./
+	@echo "✓ WASM threaded runtime library built: $(WASM_THREAD_RUNTIME_LIB)"
+
+runtime-wasm-clean:
+	rm -f $(WASM_RUNTIME_LIB) $(WASM_THREAD_RUNTIME_LIB)
+	rm -f $(RUNTIME_DIR)/build/wasm_*.o $(RUNTIME_DIR)/build/$(WASM_RUNTIME_LIB)
+	rm -f $(RUNTIME_DIR)/build/wasm_thread_*.o $(RUNTIME_DIR)/build/$(WASM_THREAD_RUNTIME_LIB)
+
+# Compile a Hemlock program to WASM (non-threaded)
+# Usage: make wasm-compile FILE=program.hml [OUT=program]
+wasm-compile: compiler runtime-wasm
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make wasm-compile FILE=program.hml [OUT=program]"; \
+		exit 1; \
+	fi
+	@OUT_NAME=$${OUT:-$$(basename $(FILE) .hml)}; \
+	echo "Compiling $(FILE) to WASM..."; \
+	./hemlockc --target wasm -o $$OUT_NAME $(FILE); \
+	echo "✓ Built: $${OUT_NAME}.js + $${OUT_NAME}.wasm"
+
+# Compile a Hemlock program to WASM with threading support
+# Usage: make wasm-compile-threaded FILE=program.hml [OUT=program]
+wasm-compile-threaded: compiler runtime-wasm-threaded
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make wasm-compile-threaded FILE=program.hml [OUT=program]"; \
+		exit 1; \
+	fi
+	@OUT_NAME=$${OUT:-$$(basename $(FILE) .hml)}; \
+	echo "Compiling $(FILE) to threaded WASM..."; \
+	./hemlockc --target wasm --threads -o $$OUT_NAME $(FILE); \
+	echo "✓ Built: $${OUT_NAME}.js + $${OUT_NAME}.wasm + $${OUT_NAME}.worker.js"
+
+# Run WASM tests using Node.js
+wasm-test: compiler runtime-wasm
+	@echo "Running WASM tests..."
+	@if [ -f tests/wasm/run_wasm_tests.sh ]; then \
+		bash tests/wasm/run_wasm_tests.sh; \
+	else \
+		echo "No WASM tests found (tests/wasm/run_wasm_tests.sh)"; \
+	fi
+
+# Verify WASM test files produce correct output via native compiler
+# (useful for CI where Emscripten may not be installed)
+wasm-test-native: compiler
+	@echo "Verifying WASM test files via native compiler..."
+	@PASSED=0; FAILED=0; TOTAL=0; \
+	for f in tests/wasm/*.hml; do \
+		name=$$(basename "$$f" .hml); \
+		expected="tests/wasm/$${name}.expected"; \
+		if [ -f "$$expected" ]; then \
+			TOTAL=$$((TOTAL + 1)); \
+			if ./hemlockc -o /tmp/hml_wasm_test_$$name "$$f" 2>/dev/null; then \
+				actual=$$(/tmp/hml_wasm_test_$$name 2>&1); \
+				exp=$$(cat "$$expected"); \
+				if [ "$$actual" = "$$exp" ]; then \
+					echo "  ✓ $$name"; \
+					PASSED=$$((PASSED + 1)); \
+				else \
+					echo "  ✗ $$name (output mismatch)"; \
+					FAILED=$$((FAILED + 1)); \
+				fi; \
+				rm -f /tmp/hml_wasm_test_$$name; \
+			else \
+				echo "  ✗ $$name (compile error)"; \
+				FAILED=$$((FAILED + 1)); \
+			fi; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Results: $$PASSED passed, $$FAILED failed ($$TOTAL total)"; \
+	if [ $$FAILED -gt 0 ]; then exit 1; fi
+
 # Full clean including compiler, runtime, release, and static builds
 fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean
 

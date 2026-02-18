@@ -6,7 +6,12 @@
  * - Process control (fork, wait, waitpid, kill)
  * - Environment operations (getenv, setenv, unsetenv)
  * - Signal handling
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
+
+#ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
 
@@ -876,3 +881,4 @@ HmlValue hml_raise(HmlValue signum) {
     return hml_val_null();
 }
 
+#endif // !__EMSCRIPTEN__
