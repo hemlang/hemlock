@@ -36,6 +36,9 @@ jobs:
     - name: Run tests
       run: make test
 
+    - name: Run WASM persistent context tests
+      run: make test-wasm-context
+
   # Compiler tests
   compiler:
     runs-on: ubuntu-latest

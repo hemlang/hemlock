@@ -154,11 +154,21 @@ const char* hemlock_version(void) {
  * table.  Handle 0 is reserved as an error sentinel.
  * ======================================================================== */
 
+/* Retained AST block — one per eval() call that produced statements.
+ * Functions store Stmt* pointers into the AST, so we must keep the ASTs
+ * alive for as long as the context exists. */
+typedef struct AstBlock {
+    Stmt **stmts;
+    int    count;
+    struct AstBlock *next;
+} AstBlock;
+
 /* Per-context state */
 typedef struct {
-    Environment      *env;   /* Global environment (variables persist here) */
-    ExecutionContext  *ctx;   /* Control-flow / exception state              */
-    int               alive; /* 1 while the slot is in use                  */
+    Environment      *env;        /* Global environment (variables persist here) */
+    ExecutionContext  *ctx;        /* Control-flow / exception state              */
+    AstBlock         *ast_blocks; /* Singly-linked list of retained ASTs         */
+    int               alive;      /* 1 while the slot is in use                  */
 } WasmContext;
 
 /* Fixed-size context table (zero-initialized → all slots start dead) */
@@ -196,8 +206,9 @@ int hemlock_context_create(void) {
     }
 
     WasmContext *wc = &context_table[slot];
-    wc->env = env_new(NULL);
-    wc->ctx = exec_context_new();
+    wc->env        = env_new(NULL);
+    wc->ctx        = exec_context_new();
+    wc->ast_blocks = NULL;
 
     ffi_init();
     register_builtins(wc->env, 0, NULL, wc->ctx);
@@ -264,11 +275,19 @@ int hemlock_context_eval(int handle, const char *source) {
     /* Execute in the persistent environment */
     eval_program(statements, stmt_count, wc->env, wc->ctx);
 
-    /* Free AST (the env retains any values it needs) */
-    for (int i = 0; i < stmt_count; i++) {
-        stmt_free(statements[i]);
+    /*
+     * Retain the AST — Function values store Stmt* pointers into the
+     * tree, so we must keep it alive for as long as the context exists.
+     * The ASTs are freed in hemlock_context_destroy().
+     */
+    AstBlock *block = malloc(sizeof(AstBlock));
+    if (block) {
+        block->stmts = statements;
+        block->count = stmt_count;
+        block->next  = wc->ast_blocks;
+        wc->ast_blocks = block;
     }
-    free((void *)statements);
+
     set_current_source_file(NULL);
     set_current_source_code(NULL);
 
@@ -291,9 +310,22 @@ void hemlock_context_destroy(int handle) {
     env_release(wc->env);
     exec_context_free(wc->ctx);
 
-    wc->env   = NULL;
-    wc->ctx   = NULL;
-    wc->alive = 0;
+    /* Free retained AST blocks */
+    AstBlock *block = wc->ast_blocks;
+    while (block) {
+        AstBlock *next = block->next;
+        for (int i = 0; i < block->count; i++) {
+            stmt_free(block->stmts[i]);
+        }
+        free((void *)block->stmts);
+        free(block);
+        block = next;
+    }
+
+    wc->env        = NULL;
+    wc->ctx        = NULL;
+    wc->ast_blocks = NULL;
+    wc->alive      = 0;
 }
 
 /*

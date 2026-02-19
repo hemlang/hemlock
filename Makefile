@@ -151,6 +151,22 @@ run: $(TARGET)
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
 
+# Test the persistent WASM context API (native, no Emscripten needed)
+TEST_WASM_CTX_SRC = tests/wasm/test_persistent_context.c
+TEST_WASM_CTX_BIN = $(BUILD_DIR)/test_persistent_context
+TEST_WASM_CTX_OBJS = $(filter-out $(BUILD_DIR)/backends/interpreter/main.o \
+                                   $(BUILD_DIR)/backends/interpreter/wasm_interp_main.o \
+                                   $(BUILD_DIR)/backends/interpreter/wasm_interp_shim.o, \
+                                   $(INTERP_OBJS))
+
+.PHONY: test-wasm-context
+test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
+	@echo "Building persistent context API test..."
+	@$(CC) $(CFLAGS) $(TEST_WASM_CTX_SRC) $(TEST_WASM_CTX_OBJS) $(LIBTOOLS) $(LIBCOMMON) \
+		-o $(TEST_WASM_CTX_BIN) $(LDFLAGS)
+	@echo "Running persistent context API test..."
+	@timeout 30 $(TEST_WASM_CTX_BIN)
+
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
 
