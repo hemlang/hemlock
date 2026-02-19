@@ -237,9 +237,22 @@
        3. Open http://localhost:8080/examples/wasm-browser/index.html
 
      API:
-       The WASM module exports two functions:
-         hemlock_eval(source: string) -> number   // Execute Hemlock code
-         hemlock_version() -> string              // Get version string
+       The WASM module exports:
+         hemlock_eval(source) -> number            // Execute Hemlock code (stateless)
+         hemlock_version() -> string               // Get version string
+
+       Persistent Context API (state survives across calls):
+         hemlock_context_create() -> handle
+         hemlock_context_eval(handle, source) -> 0|1|2|-1
+         hemlock_context_destroy(handle)
+         hemlock_context_get(handle, varname) -> JSON string
+         hemlock_context_set(handle, varname, json) -> 0|1|-1
+         hemlock_context_last_error(handle) -> string|null
+
+       Cached Script API (parse once, run many):
+         hemlock_compile_script(source) -> handle
+         hemlock_run_script(ctx, script) -> 0|2|-1|-2
+         hemlock_free_script(script)
 
        Output from print() goes to Module.print (stdout).
        Output from eprint() goes to Module.printErr (stderr).
@@ -768,41 +781,48 @@ for (let i = 0; i <= 25; i += 5) {
         api: [
             '// JavaScript API Integration',
             '//',
-            '// This example shows what the JS side does to run Hemlock code.',
-            '// The key API is simple:',
+            '// Hemlock WASM exposes three API layers:',
             '//',
-            '//   // In JavaScript:',
-            '//   var hemlockEval = Module.cwrap("hemlock_eval", "number", ["string"]);',
-            '//   hemlockEval(\'print("Hello!");\');',
+            '//  1. hemlock_eval(source)       — stateless, one-shot execution',
+            '//  2. Persistent Context API      — state survives across eval calls',
+            '//  3. Cached Script API           — parse once, run many times',
             '//',
-            '// stdout goes to Module.print, stderr to Module.printErr.',
-            '// Return value: 0 on success.',
+            '// This example runs inside hemlock_eval (layer 1).',
+            '// Layers 2 & 3 are called from JavaScript — see README.md.',
             '',
             'print("=== Hemlock WASM API Demo ===");',
             'print("");',
-            'print("The interpreter exports two functions:");',
-            'print("  hemlock_eval(source)  - execute Hemlock code");',
-            'print("  hemlock_version()     - get version string");',
+            '',
+            'print("Layer 1: hemlock_eval(source)");',
+            'print("  Stateless. Each call is independent.");',
+            'print("  Output: print() -> Module.print, eprint() -> Module.printErr");',
             'print("");',
-            'print("Output capture:");',
-            'print("  print()  -> Module.print  (this panel)");',
-            'eprint("  eprint() -> Module.printErr (shown in red)");',
+            '',
+            'print("Layer 2: Persistent Context API");',
+            'print("  hemlock_context_create()            -> handle");',
+            'print("  hemlock_context_eval(h, source)     -> 0|1|2|-1");',
+            'print("  hemlock_context_get(h, varname)     -> JSON string");',
+            'print("  hemlock_context_set(h, var, json)   -> 0|1|-1");',
+            'print("  hemlock_context_last_error(h)       -> error string or null");',
+            'print("  hemlock_context_destroy(h)");',
+            'print("  Variables persist: eval(\'let x=1;\') then eval(\'x+1;\') works.");',
+            'print("  Return codes: 0=ok, 1=parse error, 2=runtime error.");',
+            'print("  On error, call last_error(h) to get the message.");',
             'print("");',
-            'print("Supported in WASM:");',
-            'print("  - All language features (if, for, while, match, etc.)");',
-            'print("  - Functions, closures, recursion");',
-            'print("  - Objects, arrays, all methods");',
-            'print("  - Pattern matching, type annotations");',
-            'print("  - Math operations, string manipulation");',
-            'print("  - try/catch error handling");',
+            '',
+            'print("Layer 3: Cached Script API");',
+            'print("  hemlock_compile_script(source)      -> script handle");',
+            'print("  hemlock_run_script(ctx, script)     -> 0|2|-1|-2");',
+            'print("  hemlock_free_script(script)");',
+            'print("  Parse once, execute many times. Great for hot loops.");',
             'print("");',
-            'print("Not available in WASM:");',
-            'print("  - FFI (no shared library loading)");',
-            'print("  - File I/O (no filesystem access)");',
-            'print("  - Networking (no sockets)");',
-            'print("  - Crypto (no OpenSSL)");',
-            'print("  - Signals, fork/exec");',
-            'print("  - Threading (spawn/join/channels)");',
+            '',
+            'print("--- Supported in WASM ---");',
+            'print("  All language features, closures, objects, arrays, methods,");',
+            'print("  pattern matching, type annotations, try/catch, math, strings.");',
+            'print("");',
+            'print("--- Not available ---");',
+            'print("  FFI, file I/O, networking, OpenSSL crypto, signals, threading.");',
             'print("");',
             '',
             '// Demonstrate error handling works',

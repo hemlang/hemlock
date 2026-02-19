@@ -91,6 +91,11 @@ async function main() {
         "number",
         ["number", "string", "string"]
     );
+    const ctxLastError = Module.cwrap(
+        "hemlock_context_last_error",
+        "string",
+        ["number"]
+    );
 
     console.log("==========================================");
     console.log("  Persistent Context API Tests (WASM)");
@@ -322,6 +327,70 @@ async function main() {
         ctxEval(h, 'try { throw "oops"; } catch(e) { }');
         ctxEval(h, "let z = x + 5;");
         assertEqual(ctxGet(h, "z"), "15");
+        ctxDestroy(h);
+    });
+
+    /* ---- Last Error API ---- */
+
+    test("last_error is null after successful eval", () => {
+        const h = ctxCreate();
+        ctxEval(h, "let x = 42;");
+        const err = ctxLastError(h);
+        assert(err === null || err === "" || err === undefined,
+            `expected null/empty after success, got: ${err}`);
+        ctxDestroy(h);
+    });
+
+    test("last_error returns message after parse error", () => {
+        const h = ctxCreate();
+        assertEqual(ctxEval(h, "let y = ;"), 1);
+        const err = ctxLastError(h);
+        assert(err && err.length > 0,
+            `expected non-empty error after parse failure, got: ${err}`);
+        ctxDestroy(h);
+    });
+
+    test("last_error returns message after runtime error", () => {
+        const h = ctxCreate();
+        const rc = ctxEval(h, 'throw "oops something broke";');
+        assertEqual(rc, 2, "eval should return 2 on runtime error");
+        const err = ctxLastError(h);
+        assert(err && err.includes("oops something broke"),
+            `expected error containing 'oops something broke', got: ${err}`);
+        ctxDestroy(h);
+    });
+
+    test("runtime error doesn't corrupt context", () => {
+        const h = ctxCreate();
+        ctxEval(h, "let x = 42;");
+        assertEqual(ctxEval(h, 'throw "boom";'), 2);
+        /* previous state survives */
+        assertEqual(ctxGet(h, "x"), "42");
+        /* next eval clears the error */
+        assertEqual(ctxEval(h, "let z = x + 1;"), 0);
+        assertEqual(ctxGet(h, "z"), "43");
+        const err = ctxLastError(h);
+        assert(err === null || err === "" || err === undefined,
+            `expected null/empty after success, got: ${err}`);
+        ctxDestroy(h);
+    });
+
+    test("last_error returns null for invalid handle", () => {
+        const err = ctxLastError(9999);
+        assert(err === null || err === "" || err === undefined,
+            `expected null for invalid handle, got: ${err}`);
+    });
+
+    test("last_error cleared on each new eval", () => {
+        const h = ctxCreate();
+        ctxEval(h, 'throw "first error";');
+        assert(ctxLastError(h) && ctxLastError(h).includes("first error"));
+        ctxEval(h, 'throw "second error";');
+        const err = ctxLastError(h);
+        assert(err && err.includes("second error"),
+            `expected 'second error', got: ${err}`);
+        assert(!err.includes("first error"),
+            "first error should be gone");
         ctxDestroy(h);
     });
 

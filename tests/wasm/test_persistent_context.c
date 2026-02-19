@@ -72,20 +72,34 @@ typedef struct {
     Environment     *env;
     ExecutionContext *ctx;
     AstBlock        *ast_blocks;
+    char            *last_error;
     int              alive;
 } TestContext;
+
+static void tc_clear_error(TestContext *tc) {
+    if (tc->last_error) { free(tc->last_error); tc->last_error = NULL; }
+}
+
+static void tc_set_error(TestContext *tc, const char *msg) {
+    tc_clear_error(tc);
+    if (msg) tc->last_error = strdup(msg);
+}
 
 static TestContext ctx_new(void) {
     TestContext tc;
     tc.env        = env_new(NULL);
     tc.ctx        = exec_context_new();
     tc.ast_blocks = NULL;
+    tc.last_error = NULL;
     tc.alive      = 1;
     register_builtins(tc.env, 0, NULL, tc.ctx);
     return tc;
 }
 
+/* Returns 0 on success, 1 on parse error, 2 on runtime error */
 static int ctx_eval(TestContext *tc, const char *source) {
+    tc_clear_error(tc);
+
     set_current_source_file("<test-ctx>");
     set_current_source_code(source);
 
@@ -108,6 +122,7 @@ static int ctx_eval(TestContext *tc, const char *source) {
     Stmt **stmts = parse_program(&parser, &stmt_count);
 
     if (parser.had_error) {
+        tc_set_error(tc, "Parse error");
         for (int i = 0; i < stmt_count; i++) stmt_free(stmts[i]);
         free((void *)stmts);
         set_current_source_file(NULL);
@@ -117,7 +132,22 @@ static int ctx_eval(TestContext *tc, const char *source) {
 
     resolve_program(stmts, stmt_count);
     optimize_program(stmts, stmt_count);
-    eval_program(stmts, stmt_count, tc->env, tc->ctx);
+
+    /* Inline eval loop — mirrors wasm_interp_main.c to avoid exit(1) */
+    int had_runtime_error = 0;
+    for (int i = 0; i < stmt_count; i++) {
+        eval_stmt(stmts[i], tc->env, tc->ctx);
+        if (tc->ctx->exception_state.is_throwing) {
+            char *msg = value_to_string(tc->ctx->exception_state.exception_value);
+            tc_set_error(tc, msg);
+            free(msg);
+            call_stack_free(&tc->ctx->call_stack);
+            VALUE_RELEASE(tc->ctx->exception_state.exception_value);
+            tc->ctx->exception_state.is_throwing = 0;
+            had_runtime_error = 1;
+            break;
+        }
+    }
 
     /* Retain AST — Function values reference Stmt* nodes */
     AstBlock *block = malloc(sizeof(AstBlock));
@@ -130,7 +160,7 @@ static int ctx_eval(TestContext *tc, const char *source) {
 
     set_current_source_file(NULL);
     set_current_source_code(NULL);
-    return 0;
+    return had_runtime_error ? 2 : 0;
 }
 
 static char *ctx_get(TestContext *tc, const char *varname) {
@@ -200,6 +230,8 @@ static void ctx_destroy(TestContext *tc) {
         free(block);
         block = next;
     }
+
+    tc_clear_error(tc);
 
     tc->env        = NULL;
     tc->ctx        = NULL;
@@ -637,6 +669,84 @@ static void test_empty_eval(void) {
     PASS();
 }
 
+/* ---- Last Error Tests ---- */
+
+static void test_last_error_null_after_success(void) {
+    TEST("last_error is NULL after successful eval");
+    TestContext tc = ctx_new();
+    ctx_eval(&tc, "let x = 42;");
+    ASSERT(tc.last_error == NULL, "last_error should be NULL after success");
+    ctx_destroy(&tc);
+    PASS();
+}
+
+static void test_last_error_set_on_parse_error(void) {
+    TEST("last_error set on parse error");
+    TestContext tc = ctx_new();
+    int rc = ctx_eval(&tc, "let y = ;");
+    ASSERT(rc == 1, "should return 1 for parse error");
+    ASSERT(tc.last_error != NULL, "last_error should be set");
+    ASSERT(strlen(tc.last_error) > 0, "last_error should be non-empty");
+    ctx_destroy(&tc);
+    PASS();
+}
+
+static void test_last_error_set_on_runtime_error(void) {
+    TEST("last_error set on runtime error");
+    TestContext tc = ctx_new();
+    int rc = ctx_eval(&tc, "throw \"oops something broke\";");
+    ASSERT(rc == 2, "should return 2 for runtime error");
+    ASSERT(tc.last_error != NULL, "last_error should be set");
+    ASSERT(strstr(tc.last_error, "oops something broke") != NULL,
+           "last_error should contain the thrown message");
+    ctx_destroy(&tc);
+    PASS();
+}
+
+static void test_last_error_runtime_error_recovery(void) {
+    TEST("runtime error doesn't corrupt context");
+    TestContext tc = ctx_new();
+    ctx_eval(&tc, "let x = 42;");
+    int rc = ctx_eval(&tc, "throw \"boom\";");
+    ASSERT(rc == 2, "should return 2 for runtime error");
+
+    /* Previous state survives */
+    char *json = ctx_get(&tc, "x");
+    ASSERT(json != NULL, "x should still exist");
+    ASSERT(strcmp(json, "42") == 0, "x should still be 42");
+    free(json);
+
+    /* Next successful eval clears the error */
+    rc = ctx_eval(&tc, "let z = x + 1;");
+    ASSERT(rc == 0, "should succeed after runtime error");
+    ASSERT(tc.last_error == NULL, "last_error should be cleared");
+
+    json = ctx_get(&tc, "z");
+    ASSERT(json != NULL, "z should exist");
+    ASSERT(strcmp(json, "43") == 0, "z should be 43");
+    free(json);
+
+    ctx_destroy(&tc);
+    PASS();
+}
+
+static void test_last_error_cleared_on_each_eval(void) {
+    TEST("last_error replaced on each failing eval");
+    TestContext tc = ctx_new();
+
+    ctx_eval(&tc, "throw \"first error\";");
+    ASSERT(tc.last_error != NULL, "should have error");
+    ASSERT(strstr(tc.last_error, "first error") != NULL, "should contain first error");
+
+    ctx_eval(&tc, "throw \"second error\";");
+    ASSERT(tc.last_error != NULL, "should have error");
+    ASSERT(strstr(tc.last_error, "second error") != NULL, "should contain second error");
+    ASSERT(strstr(tc.last_error, "first error") == NULL, "first error should be gone");
+
+    ctx_destroy(&tc);
+    PASS();
+}
+
 /* ---- Main ---- */
 
 int main(void) {
@@ -681,6 +791,13 @@ int main(void) {
     /* Error recovery */
     test_parse_error_does_not_corrupt();
     test_caught_exception_does_not_leak();
+
+    /* Last error API */
+    test_last_error_null_after_success();
+    test_last_error_set_on_parse_error();
+    test_last_error_set_on_runtime_error();
+    test_last_error_runtime_error_recovery();
+    test_last_error_cleared_on_each_eval();
 
     /* Isolation */
     test_independent_contexts();
