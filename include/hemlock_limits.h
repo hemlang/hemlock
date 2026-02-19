@@ -190,6 +190,9 @@
 // Maximum number of concurrent persistent WASM contexts
 #define HML_MAX_WASM_CONTEXTS 64
 
+// Maximum number of cached (pre-compiled) WASM scripts
+#define HML_MAX_WASM_SCRIPTS 256
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch
