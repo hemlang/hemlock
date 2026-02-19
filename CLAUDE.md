@@ -911,7 +911,8 @@ make parity
 
 ## Version
 
-**v1.8.8** - Current release with:
+**v1.9.0** - Current release with:
+- **WASM interpreter release artifact** - Pre-built WASM interpreter included in GitHub releases for browser/Node.js usage
 - **Compiler inlining fixes** - Fixed nested call argument corruption and unboxing collision with loop counters during function inlining (fixes hemloco compilation)
 - **Pointer subtraction** - Compiler type checker now allows `ptr - integer` for pointer arithmetic
 - **Catchable `open()` exceptions** - `open()` throws via `hml_throw()` instead of `exit(1)`, enabling try/catch error handling
