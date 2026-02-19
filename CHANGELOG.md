@@ -5,6 +5,12 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-02-19
+
+### Added
+
+- **WASM interpreter release artifact** - The pre-built WASM interpreter (`hemlock.js` + `hemlock.wasm`) is now included as a release artifact in GitHub releases alongside the Linux and macOS binaries. Run Hemlock programs in the browser or Node.js without compiling from source.
+
 ## [1.8.8] - 2026-02-06
 
 ### Fixed

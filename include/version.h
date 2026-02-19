@@ -9,14 +9,15 @@
 #define HEMLOCK_VERSION_H
 
 #define HEMLOCK_VERSION_MAJOR 1
-#define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 8
+#define HEMLOCK_VERSION_MINOR 9
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "1.8.8"
+#define HEMLOCK_VERSION "1.9.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.9.0 - WASM interpreter release artifact, version bump for release
  *   1.8.8 - Fix compiler inlining bugs, ptr subtraction type checking, catchable open() exceptions
  *   1.8.7 - Fix multi-argument print/eprint in compiler codegen
  *   1.8.6 - Fix segfault in hml_string_append_inplace for SSO strings
