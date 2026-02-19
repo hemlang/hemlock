@@ -119,6 +119,39 @@ make install PREFIX=~/.local   # Install to custom prefix
 sudo make uninstall            # Remove installation
 ```
 
+## WebAssembly (Browser)
+
+Hemlock can run in a web browser by compiling the interpreter to WebAssembly via [Emscripten](https://emscripten.org/).
+
+```bash
+# Install Emscripten (one-time setup)
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk && ./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
+cd ..
+
+# Build the WASM interpreter
+make wasm-interpreter
+
+# Serve the browser example (builds WASM if needed)
+make wasm-browser-example
+# Open http://localhost:8080/examples/wasm-browser/index.html
+```
+
+Or use it from JavaScript:
+
+```javascript
+var Module = {
+    print: function(text) { console.log(text); },
+    onRuntimeInitialized: function() {
+        var hemlockEval = Module.cwrap('hemlock_eval', 'number', ['string']);
+        hemlockEval('print("Hello from Hemlock WASM!");');
+    },
+    noInitialRun: true
+};
+```
+
+See [Installation - WASM Build](docs/getting-started/installation.md#webassembly-wasm-build) for full details and `examples/wasm-browser/` for a complete browser integration example.
+
 ## Running Programs
 
 ```bash

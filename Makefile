@@ -661,6 +661,13 @@ wasm-interpreter-clean:
 	rm -f wasm/hemlock.js wasm/hemlock.wasm wasm/hemlock.worker.js
 	rm -rf $(WASM_INTERP_BUILD_DIR)
 
+# Serve the WASM browser example with a local HTTP server
+# Builds the WASM interpreter if needed, then starts a dev server.
+# Usage: make wasm-browser-example [PORT=8080]
+.PHONY: wasm-browser-example
+wasm-browser-example: wasm-interpreter
+	@bash examples/wasm-browser/serve.sh $(or $(PORT),8080)
+
 # Full clean including compiler, runtime, release, and static builds
 fullclean: clean compiler-clean runtime-clean release-clean release-static-clean analyze-clean wasm-interpreter-clean
 

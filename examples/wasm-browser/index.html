@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hemlock WASM Browser Example</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #1c2128;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-green: #3fb950;
+            --accent-blue: #58a6ff;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #bc8cff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        /* --- Header --- */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header h1 {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+            font-size: 1.1em;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .header h1 .version {
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .badge {
+            font-size: 0.7em;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-loading { background: #2d2000; color: var(--accent-yellow); }
+        .badge-ready   { background: #0d2818; color: var(--accent-green); }
+        .badge-running { background: #0d1d30; color: var(--accent-blue); }
+        .badge-error   { background: #2d1116; color: var(--accent-red); }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button {
+            font-family: inherit;
+            font-size: 0.85em;
+            padding: 6px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        button:hover { background: #30363d; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .btn-run {
+            background: #238636;
+            border-color: #2ea043;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .btn-run:hover { background: #2ea043; }
+
+        .btn-danger {
+            border-color: #f8514933;
+            color: var(--accent-red);
+        }
+
+        .btn-danger:hover { background: #2d1116; }
+
+        /* --- Main Layout --- */
+        .main {
+            display: flex;
+            height: calc(100vh - 110px);
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .panel-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 6px 16px;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+
+        .divider {
+            width: 1px;
+            background: var(--border);
+            flex-shrink: 0;
+        }
+
+        /* --- Editor --- */
+        #editor {
+            flex: 1;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: none;
+            padding: 16px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            resize: none;
+            outline: none;
+            tab-size: 4;
+            white-space: pre;
+            overflow: auto;
+        }
+
+        #editor::placeholder { color: var(--text-secondary); }
+
+        /* --- Output --- */
+        #output {
+            flex: 1;
+            background: var(--bg-primary);
+            padding: 16px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .out-stdout { color: var(--text-primary); }
+        .out-stderr { color: var(--accent-red); }
+        .out-info   { color: var(--accent-green); font-style: italic; }
+        .out-meta   { color: var(--text-secondary); font-style: italic; }
+
+        /* --- Example Bar --- */
+        .example-bar {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: 0.8em;
+        }
+
+        .example-bar .label {
+            color: var(--text-secondary);
+            margin-right: 4px;
+            white-space: nowrap;
+        }
+
+        .example-btn {
+            padding: 3px 12px;
+            border-radius: 16px;
+            font-size: 0.9em;
+        }
+
+        .example-btn:hover { background: #30363d; }
+
+        /* --- Responsive --- */
+        @media (max-width: 768px) {
+            .main { flex-direction: column; }
+            .divider { width: auto; height: 1px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ============================================================
+     Hemlock WASM Browser Example
+     ============================================================
+     This example demonstrates running the Hemlock interpreter
+     compiled to WebAssembly directly in a web browser.
+
+     Prerequisites:
+       1. Build the WASM interpreter:
+              make wasm-interpreter
+          This produces wasm/hemlock.js and wasm/hemlock.wasm
+
+       2. Serve with proper headers (WASM requires application/wasm MIME):
+              make wasm-browser-example
+          Or manually:
+              cd examples/wasm-browser && python3 -c "
+              from http.server import SimpleHTTPRequestHandler, HTTPServer
+              import os; os.chdir('../..')
+              class H(SimpleHTTPRequestHandler):
+                  extensions_map = {**SimpleHTTPRequestHandler.extensions_map,
+                                    '.wasm': 'application/wasm'}
+              HTTPServer(('localhost', 8080), H).serve_forever()"
+
+       3. Open http://localhost:8080/examples/wasm-browser/index.html
+
+     API:
+       The WASM module exports two functions:
+         hemlock_eval(source: string) -> number   // Execute Hemlock code
+         hemlock_version() -> string              // Get version string
+
+       Output from print() goes to Module.print (stdout).
+       Output from eprint() goes to Module.printErr (stderr).
+     ============================================================ -->
+
+<div class="header">
+    <div class="header-left">
+        <h1>hemlock <span class="version">wasm</span></h1>
+        <span id="status" class="badge badge-loading">loading</span>
+    </div>
+    <div class="header-right">
+        <button id="btn-run" class="btn-run" disabled onclick="runCode()">Run</button>
+        <button onclick="clearOutput()">Clear</button>
+    </div>
+</div>
+
+<div class="main">
+    <div class="panel">
+        <div class="panel-header">
+            <span>editor</span>
+            <span id="cursor-pos">Ln 1, Col 1</span>
+        </div>
+        <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off"
+                  placeholder="Write Hemlock code here...">// Hemlock WASM Browser Example
+// Try editing this code and clicking Run (or Ctrl+Enter)
+
+print("Hello from Hemlock running in WebAssembly!");
+print("---");
+
+// Type system
+let name = "Hemlock";
+let version = 1;
+let pi = 3.14159;
+print(typeof(name) + ": " + name);
+print(typeof(version) + ": " + version);
+print(typeof(pi) + ": " + pi);
+print("---");
+
+// Arrays with higher-order functions
+let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let evens = nums.filter(fn(n) { return n % 2 == 0; });
+let squares = evens.map(fn(n) { return n * n; });
+let total = squares.reduce(fn(acc, n) { return acc + n; }, 0);
+print("Even squares of 1..10: " + squares);
+print("Sum: " + total);
+print("---");
+
+// Closures
+fn make_counter(start: i32): fn(): i32 {
+    let n = start;
+    return fn(): i32 {
+        n = n + 1;
+        return n;
+    };
+}
+
+let counter = make_counter(0);
+print("counter: " + counter() + ", " + counter() + ", " + counter());
+print("---");
+
+// Pattern matching
+fn classify(val) {
+    return match (val) {
+        0 => "zero",
+        1 | 2 | 3 => "small",
+        n if n < 20 => "medium (" + n + ")",
+        n => "large (" + n + ")"
+    };
+}
+
+for (let i = 0; i <= 25; i += 5) {
+    print(i + " -> " + classify(i));
+}
+</textarea>
+    </div>
+    <div class="divider"></div>
+    <div class="panel">
+        <div class="panel-header">
+            <span>output</span>
+            <span id="output-info"></span>
+        </div>
+        <pre id="output"></pre>
+    </div>
+</div>
+
+<div class="example-bar">
+    <span class="label">Examples:</span>
+    <button class="example-btn" onclick="loadExample('hello')">Hello World</button>
+    <button class="example-btn" onclick="loadExample('types')">Type System</button>
+    <button class="example-btn" onclick="loadExample('arrays')">Arrays</button>
+    <button class="example-btn" onclick="loadExample('closures')">Closures</button>
+    <button class="example-btn" onclick="loadExample('objects')">Objects</button>
+    <button class="example-btn" onclick="loadExample('match')">Pattern Matching</button>
+    <button class="example-btn" onclick="loadExample('algorithms')">Algorithms</button>
+    <button class="example-btn" onclick="loadExample('api')">JS API</button>
+</div>
+
+<script>
+// ============================================================
+// Hemlock WASM Browser Integration
+// ============================================================
+//
+// This script shows how to:
+//   1. Configure the Emscripten Module to capture output
+//   2. Use cwrap() to get callable JS functions from WASM exports
+//   3. Call hemlock_eval() to execute Hemlock source code
+//   4. Handle errors from the interpreter
+//
+// The key integration points are:
+//   - Module.print: captures stdout (Hemlock's print() function)
+//   - Module.printErr: captures stderr (Hemlock's eprint() and errors)
+//   - Module.onRuntimeInitialized: fires when WASM is ready
+//   - Module.cwrap('hemlock_eval', ...): creates a JS-callable wrapper
+
+(function() {
+    'use strict';
+
+    // --- DOM Elements ---
+    var editor = document.getElementById('editor');
+    var output = document.getElementById('output');
+    var statusEl = document.getElementById('status');
+    var btnRun = document.getElementById('btn-run');
+    var cursorPos = document.getElementById('cursor-pos');
+    var outputInfo = document.getElementById('output-info');
+
+    // --- State ---
+    var hemlockReady = false;
+    var hemlockEval = null;
+    var hemlockVersion = null;
+    var lineCount = 0;
+
+    // --- Output Helpers ---
+
+    function appendLine(text, cls) {
+        var span = document.createElement('span');
+        span.className = cls || 'out-stdout';
+        span.textContent = text + '\n';
+        output.appendChild(span);
+        output.scrollTop = output.scrollHeight;
+        lineCount++;
+    }
+
+    function clearOutput() {
+        output.innerHTML = '';
+        lineCount = 0;
+        outputInfo.textContent = '';
+    }
+
+    function setStatus(text, cls) {
+        statusEl.textContent = text;
+        statusEl.className = 'badge badge-' + cls;
+    }
+
+    // --- Editor ---
+
+    // Track cursor position in the editor
+    function updateCursor() {
+        var val = editor.value;
+        var pos = editor.selectionStart;
+        var before = val.substring(0, pos);
+        var lines = before.split('\n');
+        cursorPos.textContent = 'Ln ' + lines.length + ', Col ' + (lines[lines.length - 1].length + 1);
+    }
+
+    editor.addEventListener('keyup', updateCursor);
+    editor.addEventListener('click', updateCursor);
+
+    // Ctrl+Enter to run, Tab to indent
+    editor.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (hemlockReady) { runCode(); }
+            return;
+        }
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            var start = this.selectionStart;
+            var end = this.selectionEnd;
+            this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+            this.selectionStart = this.selectionEnd = start + 4;
+        }
+    });
+
+    // --- Run Code ---
+
+    window.runCode = function() {
+        if (!hemlockReady || !hemlockEval) { return; }
+
+        var source = editor.value;
+        if (!source.trim()) { return; }
+
+        clearOutput();
+        setStatus('running', 'running');
+        btnRun.disabled = true;
+
+        // Use setTimeout to let the UI update before blocking on eval
+        setTimeout(function() {
+            var t0 = performance.now();
+            try {
+                hemlockEval(source);
+            } catch (e) {
+                appendLine('Fatal: ' + e.message, 'out-stderr');
+            }
+            var elapsed = (performance.now() - t0).toFixed(1);
+
+            setStatus('ready', 'ready');
+            btnRun.disabled = false;
+            outputInfo.textContent = lineCount + ' lines | ' + elapsed + ' ms';
+
+            if (lineCount === 0) {
+                appendLine('(no output)', 'out-meta');
+            }
+        }, 16);
+    };
+
+    window.clearOutput = clearOutput;
+
+    // --- Example Programs ---
+
+    var examples = {
+        hello: [
+            '// Hello World',
+            'print("Hello from Hemlock!");',
+            'print("Running the full interpreter as WebAssembly in your browser.");',
+            '',
+            'let langs = ["C", "Hemlock", "WASM"];',
+            'for (lang in langs) {',
+            '    print("  -> " + lang);',
+            '}'
+        ].join('\n'),
+
+        types: [
+            '// Hemlock Type System',
+            '// Every value carries a runtime type tag.',
+            '',
+            'let i = 42;              // i32',
+            'let big = 5000000000;    // i64 (exceeds i32 range)',
+            'let pi = 3.14;           // f64',
+            'let s = "hello";         // string',
+            'let b = true;            // bool',
+            'let n = null;            // null',
+            'let arr = [1, 2, 3];    // array',
+            'let obj = { x: 10 };    // object',
+            '',
+            'let values = [i, big, pi, s, b, n, arr, obj];',
+            'for (v in values) {',
+            '    print(typeof(v) + " -> " + v);',
+            '}',
+            '',
+            '// Type annotations with runtime checking',
+            'let x: i32 = 100;',
+            'let name: string = "Hemlock";',
+            'print("\\nTyped: " + typeof(x) + " " + x + ", " + typeof(name) + " " + name);',
+            '',
+            '// Numeric type constructors',
+            'let parsed = i32("42");',
+            'let converted = f64(100);',
+            'print("Parsed: " + parsed + ", Converted: " + converted);'
+        ].join('\n'),
+
+        arrays: [
+            '// Array Methods',
+            'let nums = [5, 3, 8, 1, 9, 2, 7, 4, 6, 10];',
+            'print("Original: " + nums);',
+            '',
+            '// Sort',
+            'let sorted = nums.slice(0, len(nums));',
+            'sorted.sort();',
+            'print("Sorted:   " + sorted);',
+            '',
+            '// Map / Filter / Reduce',
+            'let doubled = nums.map(fn(n) { return n * 2; });',
+            'print("Doubled:  " + doubled);',
+            '',
+            'let big = nums.filter(fn(n) { return n > 5; });',
+            'print("Big (>5): " + big);',
+            '',
+            'let sum = nums.reduce(fn(acc, n) { return acc + n; }, 0);',
+            'print("Sum:      " + sum);',
+            '',
+            '// Every / Some',
+            'let allPositive = nums.every(fn(n) { return n > 0; });',
+            'let hasEven = nums.some(fn(n) { return n % 2 == 0; });',
+            'print("All positive: " + allPositive);',
+            'print("Has even:     " + hasEven);',
+            '',
+            '// Chaining',
+            'let result = [1, 2, 3, 4, 5]',
+            '    .filter(fn(n) { return n % 2 != 0; })',
+            '    .map(fn(n) { return n * n; });',
+            'print("Odd squares: " + result);'
+        ].join('\n'),
+
+        closures: [
+            '// Closures and Higher-Order Functions',
+            '',
+            '// Counter factory',
+            'fn make_counter(start: i32): fn(): i32 {',
+            '    let count = start;',
+            '    return fn(): i32 {',
+            '        count = count + 1;',
+            '        return count;',
+            '    };',
+            '}',
+            '',
+            'let c1 = make_counter(0);',
+            'let c2 = make_counter(100);',
+            'print("c1: " + c1() + ", " + c1() + ", " + c1());',
+            'print("c2: " + c2() + ", " + c2() + ", " + c2());',
+            '',
+            '// Compose functions',
+            'fn compose(f, g) {',
+            '    return fn(x) { return f(g(x)); };',
+            '}',
+            '',
+            'let double = fn(x) { return x * 2; };',
+            'let add_one = fn(x) { return x + 1; };',
+            'let double_then_add = compose(add_one, double);',
+            '',
+            'print("double_then_add(5) = " + double_then_add(5));',
+            '',
+            '// Memoize',
+            'fn memoize(f) {',
+            '    let cache = {};',
+            '    return fn(n) {',
+            '        let key = "" + n;',
+            '        if (cache[key] == null) {',
+            '            cache[key] = f(n);',
+            '        }',
+            '        return cache[key];',
+            '    };',
+            '}',
+            '',
+            'fn slow_fib(n) {',
+            '    if (n <= 1) { return n; }',
+            '    return slow_fib(n - 1) + slow_fib(n - 2);',
+            '}',
+            '',
+            'let fast_fib = memoize(fn(n) {',
+            '    if (n <= 1) { return n; }',
+            '    return fast_fib(n - 1) + fast_fib(n - 2);',
+            '});',
+            '',
+            'print("\\nFibonacci (memoized):");',
+            'for (let i = 0; i <= 20; i++) {',
+            '    print("  fib(" + i + ") = " + fast_fib(i));',
+            '}'
+        ].join('\n'),
+
+        objects: [
+            '// Objects and Define',
+            '',
+            'define Point { x: f64, y: f64 }',
+            '',
+            'fn distance(a: Point, b: Point): f64 {',
+            '    let dx = a.x - b.x;',
+            '    let dy = a.y - b.y;',
+            '    return __sqrt(dx * dx + dy * dy);',
+            '}',
+            '',
+            'let origin: Point = { x: 0.0, y: 0.0 };',
+            'let p: Point = { x: 3.0, y: 4.0 };',
+            'print("Distance from origin to " + p + ": " + distance(origin, p));',
+            '',
+            '// Object spread',
+            'let defaults = { theme: "dark", size: 14, lang: "hemlock" };',
+            'let config = { ...defaults, size: 18, debug: true };',
+            'print("Config: " + config);',
+            '',
+            '// Shorthand syntax',
+            'let name = "Alice";',
+            'let age = 30;',
+            'let user = { name, age, active: true };',
+            'print("User: " + user);',
+            '',
+            '// Enum',
+            'enum Direction { NORTH, SOUTH, EAST, WEST }',
+            'print("Direction.NORTH = " + Direction.NORTH);',
+            'print("Direction.WEST = " + Direction.WEST);',
+            '',
+            '// Nested objects',
+            'let company = {',
+            '    name: "Acme",',
+            '    address: {',
+            '        city: "Springfield",',
+            '        zip: "62701"',
+            '    },',
+            '    employees: [',
+            '        { name: "Bob", role: "eng" },',
+            '        { name: "Carol", role: "mgr" }',
+            '    ]',
+            '};',
+            'print("\\n" + company.name + " in " + company.address.city);',
+            'for (emp in company.employees) {',
+            '    print("  " + emp.name + " (" + emp.role + ")");',
+            '}'
+        ].join('\n'),
+
+        match: [
+            '// Pattern Matching',
+            '',
+            '// Literal and guard patterns',
+            'fn http_status(code) {',
+            '    return match (code) {',
+            '        200 => "OK",',
+            '        301 => "Moved Permanently",',
+            '        400 => "Bad Request",',
+            '        404 => "Not Found",',
+            '        500 => "Internal Server Error",',
+            '        n if n >= 200 && n < 300 => "Success (" + n + ")",',
+            '        n if n >= 400 && n < 500 => "Client Error (" + n + ")",',
+            '        n if n >= 500 => "Server Error (" + n + ")",',
+            '        _ => "Unknown"',
+            '    };',
+            '}',
+            '',
+            'let codes = [200, 201, 301, 400, 404, 418, 500, 503];',
+            'for (code in codes) {',
+            '    print(code + ": " + http_status(code));',
+            '}',
+            '',
+            '// Array destructuring',
+            'print("\\nArray patterns:");',
+            'let lists = [[], [1], [1, 2], [1, 2, 3, 4, 5]];',
+            'for (list in lists) {',
+            '    let desc = match (list) {',
+            '        [] => "empty",',
+            '        [x] => "singleton: " + x,',
+            '        [a, b] => "pair: " + a + ", " + b,',
+            '        [first, ...rest] => "head=" + first + " tail=" + rest',
+            '    };',
+            '    print("  " + list + " -> " + desc);',
+            '}',
+            '',
+            '// Object destructuring',
+            'print("\\nObject patterns:");',
+            'let shapes = [',
+            '    { kind: "circle", radius: 5 },',
+            '    { kind: "rect", width: 4, height: 6 },',
+            '    { kind: "point", x: 0, y: 0 }',
+            '];',
+            '',
+            'for (shape in shapes) {',
+            '    let area = match (shape) {',
+            '        { kind: "circle", radius } => 3.14159 * radius * radius,',
+            '        { kind: "rect", width, height } => width * height,',
+            '        _ => 0',
+            '    };',
+            '    print("  " + shape.kind + " area = " + area);',
+            '}'
+        ].join('\n'),
+
+        algorithms: [
+            '// Algorithms in Hemlock',
+            '',
+            '// Quicksort',
+            'fn quicksort(arr) {',
+            '    if (len(arr) <= 1) { return arr; }',
+            '    let pivot = arr[0];',
+            '    let less = arr.slice(1, len(arr)).filter(fn(x) { return x < pivot; });',
+            '    let greater = arr.slice(1, len(arr)).filter(fn(x) { return x >= pivot; });',
+            '    return quicksort(less).concat([pivot]).concat(quicksort(greater));',
+            '}',
+            '',
+            'let data = [38, 27, 43, 3, 9, 82, 10];',
+            'print("Input:  " + data);',
+            'print("Sorted: " + quicksort(data));',
+            '',
+            '// Sieve of Eratosthenes',
+            'fn sieve(limit: i32) {',
+            '    let is_prime = [];',
+            '    for (let i = 0; i <= limit; i++) {',
+            '        is_prime.push(true);',
+            '    }',
+            '    is_prime[0] = false;',
+            '    is_prime[1] = false;',
+            '',
+            '    for (let i = 2; i * i <= limit; i++) {',
+            '        if (is_prime[i]) {',
+            '            for (let j = i * i; j <= limit; j += i) {',
+            '                is_prime[j] = false;',
+            '            }',
+            '        }',
+            '    }',
+            '',
+            '    let primes = [];',
+            '    for (let i = 2; i <= limit; i++) {',
+            '        if (is_prime[i]) { primes.push(i); }',
+            '    }',
+            '    return primes;',
+            '}',
+            '',
+            'print("\\nPrimes up to 100:");',
+            'print(sieve(100));',
+            '',
+            '// FizzBuzz',
+            'print("\\nFizzBuzz 1..30:");',
+            'let results = [];',
+            'for (let i = 1; i <= 30; i++) {',
+            '    if (i % 15 == 0) { results.push("FizzBuzz"); }',
+            '    else if (i % 3 == 0) { results.push("Fizz"); }',
+            '    else if (i % 5 == 0) { results.push("Buzz"); }',
+            '    else { results.push(i); }',
+            '}',
+            'print(results.join(", "));',
+            '',
+            '// Fibonacci with iteration',
+            'fn fib(n: i32): i64 {',
+            '    if (n <= 1) { return i64(n); }',
+            '    let a: i64 = 0;',
+            '    let b: i64 = 1;',
+            '    for (let i = 2; i <= n; i++) {',
+            '        let temp = b;',
+            '        b = a + b;',
+            '        a = temp;',
+            '    }',
+            '    return b;',
+            '}',
+            '',
+            'print("\\nFibonacci:");',
+            'for (let i = 0; i <= 30; i += 5) {',
+            '    print("  fib(" + i + ") = " + fib(i));',
+            '}'
+        ].join('\n'),
+
+        api: [
+            '// JavaScript API Integration',
+            '//',
+            '// This example shows what the JS side does to run Hemlock code.',
+            '// The key API is simple:',
+            '//',
+            '//   // In JavaScript:',
+            '//   var hemlockEval = Module.cwrap("hemlock_eval", "number", ["string"]);',
+            '//   hemlockEval(\'print("Hello!");\');',
+            '//',
+            '// stdout goes to Module.print, stderr to Module.printErr.',
+            '// Return value: 0 on success.',
+            '',
+            'print("=== Hemlock WASM API Demo ===");',
+            'print("");',
+            'print("The interpreter exports two functions:");',
+            'print("  hemlock_eval(source)  - execute Hemlock code");',
+            'print("  hemlock_version()     - get version string");',
+            'print("");',
+            'print("Output capture:");',
+            'print("  print()  -> Module.print  (this panel)");',
+            'eprint("  eprint() -> Module.printErr (shown in red)");',
+            'print("");',
+            'print("Supported in WASM:");',
+            'print("  - All language features (if, for, while, match, etc.)");',
+            'print("  - Functions, closures, recursion");',
+            'print("  - Objects, arrays, all methods");',
+            'print("  - Pattern matching, type annotations");',
+            'print("  - Math operations, string manipulation");',
+            'print("  - try/catch error handling");',
+            'print("");',
+            'print("Not available in WASM:");',
+            'print("  - FFI (no shared library loading)");',
+            'print("  - File I/O (no filesystem access)");',
+            'print("  - Networking (no sockets)");',
+            'print("  - Crypto (no OpenSSL)");',
+            'print("  - Signals, fork/exec");',
+            'print("  - Threading (spawn/join/channels)");',
+            'print("");',
+            '',
+            '// Demonstrate error handling works',
+            'try {',
+            '    let x = 1 / 0;',
+            '    print("1/0 = " + x + " (returns Infinity)");',
+            '} catch (e) {',
+            '    print("Caught: " + e);',
+            '}',
+            '',
+            'print("");',
+            'print("All done! The interpreter ran entirely in your browser.");'
+        ].join('\n')
+    };
+
+    window.loadExample = function(name) {
+        if (examples[name]) {
+            editor.value = examples[name];
+            clearOutput();
+            updateCursor();
+        }
+    };
+
+    // --- Emscripten Module Configuration ---
+    //
+    // This is the critical integration point. We define a global `Module` object
+    // BEFORE the Emscripten JS loader runs. Emscripten merges its runtime into
+    // this object, giving us control over I/O and initialization.
+
+    window.Module = {
+        // Capture stdout (Hemlock's print() function writes here)
+        print: function(text) {
+            appendLine(text, 'out-stdout');
+        },
+
+        // Capture stderr (Hemlock's eprint() and runtime errors write here)
+        printErr: function(text) {
+            // Filter out Emscripten internal messages
+            if (text.indexOf('pre-main') >= 0) { return; }
+            if (text.indexOf('run()') >= 0) { return; }
+            appendLine(text, 'out-stderr');
+        },
+
+        // Called when the WASM module is fully loaded and ready
+        onRuntimeInitialized: function() {
+            // Create JS-callable wrappers for the exported C functions
+            hemlockEval = Module.cwrap('hemlock_eval', 'number', ['string']);
+            hemlockVersion = Module.cwrap('hemlock_version', 'string', []);
+
+            var ver = hemlockVersion();
+            document.querySelector('.version').textContent = 'v' + ver + ' wasm';
+
+            hemlockReady = true;
+            setStatus('ready', 'ready');
+            btnRun.disabled = false;
+
+            appendLine('Hemlock ' + ver + ' (WebAssembly interpreter)', 'out-info');
+            appendLine('Press Run or Ctrl+Enter to execute code.\n', 'out-meta');
+        },
+
+        // Called if the WASM module fails to load
+        onAbort: function(what) {
+            setStatus('error', 'error');
+            appendLine('Failed to load WASM module: ' + what, 'out-stderr');
+        },
+
+        // Don't auto-run main() - we call hemlock_eval() on demand
+        noInitialRun: true
+    };
+})();
+</script>
+
+<!--
+    Load the Emscripten-compiled WASM interpreter.
+    This file is generated by `make wasm-interpreter` at wasm/hemlock.js.
+    The path is relative: this HTML is at examples/wasm-browser/index.html
+    and the WASM build output is at wasm/hemlock.js (project root).
+-->
+<script async src="../../wasm/hemlock.js"></script>
+
+</body>
+</html>

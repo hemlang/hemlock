@@ -29,6 +29,7 @@ Welcome to the Hemlock programming language documentation!
 - [Modules](language-guide/modules.md) - Import/export system and package imports
 
 ### Advanced Topics
+- [WebAssembly (WASM)](getting-started/installation.md#webassembly-wasm-build) - Run Hemlock in the browser via Emscripten
 - [Async & Concurrency](advanced/async-concurrency.md) - True multi-threading with async/await
 - [Bundling & Packaging](advanced/bundling-packaging.md) - Create bundles and standalone executables
 - [Foreign Function Interface](advanced/ffi.md) - Call C functions from shared libraries
