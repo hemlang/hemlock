@@ -14,6 +14,7 @@
  *   hemlock_context_destroy(handle)         - Tear down persistent env
  *   hemlock_context_get(handle, varname)    - Read variable as JSON string
  *   hemlock_context_set(handle, varname, json) - Inject variable from JSON
+ *   hemlock_context_last_error(handle)      - Last error message (or NULL)
  *
  *   Cached Script API (AST caching — skip re-parsing on repeated execution):
  *   hemlock_compile_script(source)          - Parse+resolve+optimize, return handle
@@ -28,11 +29,12 @@
  *   hemlockEval('let x = 42; print(x);');
  *
  * Persistent context usage:
- *   const ctxCreate  = Module.cwrap('hemlock_context_create',  'number', []);
- *   const ctxEval    = Module.cwrap('hemlock_context_eval',    'number', ['number','string']);
- *   const ctxDestroy = Module.cwrap('hemlock_context_destroy', null,     ['number']);
- *   const ctxGet     = Module.cwrap('hemlock_context_get',     'string', ['number','string']);
- *   const ctxSet     = Module.cwrap('hemlock_context_set',     'number', ['number','string','string']);
+ *   const ctxCreate    = Module.cwrap('hemlock_context_create',     'number', []);
+ *   const ctxEval      = Module.cwrap('hemlock_context_eval',       'number', ['number','string']);
+ *   const ctxDestroy   = Module.cwrap('hemlock_context_destroy',    null,     ['number']);
+ *   const ctxGet       = Module.cwrap('hemlock_context_get',        'string', ['number','string']);
+ *   const ctxSet       = Module.cwrap('hemlock_context_set',        'number', ['number','string','string']);
+ *   const ctxLastError = Module.cwrap('hemlock_context_last_error', 'string', ['number']);
  *
  *   const ctx = ctxCreate();
  *   ctxEval(ctx, 'let x = 42;');
@@ -185,11 +187,28 @@ typedef struct {
     Environment      *env;        /* Global environment (variables persist here) */
     ExecutionContext  *ctx;        /* Control-flow / exception state              */
     AstBlock         *ast_blocks; /* Singly-linked list of retained ASTs         */
+    char             *last_error; /* malloc'd error from last eval/run, or NULL  */
     int               alive;      /* 1 while the slot is in use                  */
 } WasmContext;
 
 /* Fixed-size context table (zero-initialized → all slots start dead) */
 static WasmContext context_table[HML_MAX_WASM_CONTEXTS];
+
+/* Free the last_error string (if any) and set it to NULL */
+static void wasm_clear_error(WasmContext *wc) {
+    if (wc->last_error) {
+        free(wc->last_error);
+        wc->last_error = NULL;
+    }
+}
+
+/* Store a new error message in the context (frees any previous one) */
+static void wasm_set_error(WasmContext *wc, const char *msg) {
+    wasm_clear_error(wc);
+    if (msg) {
+        wc->last_error = strdup(msg);
+    }
+}
 
 /* Validate a handle and return the WasmContext, or NULL on bad handle */
 static WasmContext *context_lookup(int handle) {
@@ -226,6 +245,7 @@ int hemlock_context_create(void) {
     wc->env        = env_new(NULL);
     wc->ctx        = exec_context_new();
     wc->ast_blocks = NULL;
+    wc->last_error = NULL;
 
     ffi_init();
     register_builtins(wc->env, 0, NULL, wc->ctx);
@@ -239,7 +259,8 @@ int hemlock_context_create(void) {
  * the persistent environment identified by `handle`.  Variables defined in
  * earlier calls are visible to later ones.
  *
- * Returns 0 on success, -1 on bad handle, 1 on parse error.
+ * Returns 0 on success, -1 on bad handle, 1 on parse error, 2 on runtime error.
+ * On error, call hemlock_context_last_error(handle) to retrieve the message.
  */
 EMSCRIPTEN_KEEPALIVE
 int hemlock_context_eval(int handle, const char *source) {
@@ -249,8 +270,12 @@ int hemlock_context_eval(int handle, const char *source) {
         return -1;
     }
     if (!source || !*source) {
+        wasm_clear_error(wc);
         return 0;
     }
+
+    /* Clear last error from previous call */
+    wasm_clear_error(wc);
 
     set_current_source_file("<wasm-ctx>");
     set_current_source_code(source);
@@ -275,7 +300,7 @@ int hemlock_context_eval(int handle, const char *source) {
     Stmt **statements = parse_program(&parser, &stmt_count);
 
     if (parser.had_error) {
-        fprintf(stderr, "Parse failed!\n");
+        wasm_set_error(wc, "Parse error");
         for (int i = 0; i < stmt_count; i++) {
             stmt_free(statements[i]);
         }
@@ -289,8 +314,38 @@ int hemlock_context_eval(int handle, const char *source) {
     resolve_program(statements, stmt_count);
     optimize_program(statements, stmt_count);
 
-    /* Execute in the persistent environment */
-    eval_program(statements, stmt_count, wc->env, wc->ctx);
+    /*
+     * Execute in the persistent environment.
+     *
+     * We inline the eval_program loop here instead of calling
+     * eval_program() directly because eval_program() calls exit(1)
+     * on uncaught exceptions.  In the WASM context API we want to
+     * capture the error and return it to the JS embedder.
+     */
+    int had_runtime_error = 0;
+    for (int i = 0; i < stmt_count; i++) {
+        eval_stmt(statements[i], wc->env, wc->ctx);
+
+        if (wc->ctx->exception_state.is_throwing) {
+            /* Capture the error message before clearing exception state */
+            char *msg = value_to_string(wc->ctx->exception_state.exception_value);
+            wasm_set_error(wc, msg);
+            free(msg);
+
+            /* Print to stderr (preserves existing behaviour for debugging) */
+            fprintf(stderr, "Uncaught exception: %s\n",
+                    wc->last_error ? wc->last_error : "(unknown)");
+            call_stack_print_with_source(&wc->ctx->call_stack,
+                                         get_current_source_code());
+
+            /* Clean up exception state so the context is reusable */
+            call_stack_free(&wc->ctx->call_stack);
+            VALUE_RELEASE(wc->ctx->exception_state.exception_value);
+            wc->ctx->exception_state.is_throwing = 0;
+            had_runtime_error = 1;
+            break;
+        }
+    }
 
     /*
      * Retain the AST — Function values store Stmt* pointers into the
@@ -308,7 +363,7 @@ int hemlock_context_eval(int handle, const char *source) {
     set_current_source_file(NULL);
     set_current_source_code(NULL);
 
-    return 0;
+    return had_runtime_error ? 2 : 0;
 }
 
 /*
@@ -338,6 +393,8 @@ void hemlock_context_destroy(int handle) {
         free(block);
         block = next;
     }
+
+    wasm_clear_error(wc);
 
     wc->env        = NULL;
     wc->ctx        = NULL;
@@ -443,6 +500,24 @@ int hemlock_context_set(int handle, const char *varname, const char *json) {
 
     VALUE_RELEASE(val);
     return 0;
+}
+
+/*
+ * hemlock_context_last_error(handle) — return the error message from the
+ * most recent hemlock_context_eval() or hemlock_run_script() call that
+ * failed, or NULL if the last call succeeded (or the handle is invalid).
+ *
+ * The returned pointer is owned by the context and remains valid until the
+ * next eval/run_script call on the same context, or until the context is
+ * destroyed.  The JS side should copy/consume the string immediately.
+ */
+EMSCRIPTEN_KEEPALIVE
+const char *hemlock_context_last_error(int handle) {
+    WasmContext *wc = context_lookup(handle);
+    if (!wc) {
+        return NULL;
+    }
+    return wc->last_error;  /* NULL when no error */
 }
 
 /* ========================================================================
@@ -555,7 +630,9 @@ int hemlock_compile_script(const char *source) {
  * compiled script inside the persistent environment identified by
  * ctx_handle.  The cached AST is NOT freed; it can be executed again.
  *
- * Returns 0 on success, -1 on bad context handle, -2 on bad script handle.
+ * Returns 0 on success, -1 on bad context handle, -2 on bad script handle,
+ * 2 on runtime error.
+ * On error, call hemlock_context_last_error(ctx_handle) to retrieve the message.
  */
 EMSCRIPTEN_KEEPALIVE
 int hemlock_run_script(int ctx_handle, int script_handle) {
@@ -573,6 +650,9 @@ int hemlock_run_script(int ctx_handle, int script_handle) {
         return -2;
     }
 
+    /* Clear last error from previous call */
+    wasm_clear_error(wc);
+
     set_current_source_file("<wasm-script>");
 
     /* Clear any leftover control-flow state from a previous eval */
@@ -584,12 +664,35 @@ int hemlock_run_script(int ctx_handle, int script_handle) {
         wc->ctx->exception_state.is_throwing = 0;
     }
 
-    /* Execute the cached AST in the persistent environment */
-    eval_program(ws->stmts, ws->count, wc->env, wc->ctx);
+    /*
+     * Execute the cached AST in the persistent environment.
+     * Inline the loop (same rationale as hemlock_context_eval).
+     */
+    int had_runtime_error = 0;
+    for (int i = 0; i < ws->count; i++) {
+        eval_stmt(ws->stmts[i], wc->env, wc->ctx);
+
+        if (wc->ctx->exception_state.is_throwing) {
+            char *msg = value_to_string(wc->ctx->exception_state.exception_value);
+            wasm_set_error(wc, msg);
+            free(msg);
+
+            fprintf(stderr, "Uncaught exception: %s\n",
+                    wc->last_error ? wc->last_error : "(unknown)");
+            call_stack_print_with_source(&wc->ctx->call_stack,
+                                         get_current_source_code());
+
+            call_stack_free(&wc->ctx->call_stack);
+            VALUE_RELEASE(wc->ctx->exception_state.exception_value);
+            wc->ctx->exception_state.is_throwing = 0;
+            had_runtime_error = 1;
+            break;
+        }
+    }
 
     set_current_source_file(NULL);
 
-    return 0;
+    return had_runtime_error ? 2 : 0;
 }
 
 /*
