@@ -15,6 +15,11 @@
  *   hemlock_context_get(handle, varname)    - Read variable as JSON string
  *   hemlock_context_set(handle, varname, json) - Inject variable from JSON
  *
+ *   Cached Script API (AST caching — skip re-parsing on repeated execution):
+ *   hemlock_compile_script(source)          - Parse+resolve+optimize, return handle
+ *   hemlock_run_script(ctx, script)         - Execute cached AST in a context
+ *   hemlock_free_script(script)             - Release cached AST
+ *
  * Usage from JavaScript:
  *   Module.ccall('hemlock_eval', 'number', ['string'], ['print("Hello!");']);
  *
@@ -35,6 +40,18 @@
  *   console.log(ctxGet(ctx, 'x'));  // "43"
  *   ctxSet(ctx, 'name', '"Alice"');
  *   ctxEval(ctx, 'print(name);');   // Alice
+ *   ctxDestroy(ctx);
+ *
+ * Cached script usage (avoids re-parsing unchanged event handlers each frame):
+ *   const compile  = Module.cwrap('hemlock_compile_script', 'number', ['string']);
+ *   const run      = Module.cwrap('hemlock_run_script',     'number', ['number','number']);
+ *   const freeScript = Module.cwrap('hemlock_free_script',  null,     ['number']);
+ *
+ *   const ctx    = ctxCreate();
+ *   const script = compile('let handler = fn() { print("tick"); }; handler();');
+ *   run(ctx, script);    // executes without re-parsing
+ *   run(ctx, script);    // executes again, still no re-parse
+ *   freeScript(script);  // release AST when no longer needed
  *   ctxDestroy(ctx);
  */
 
@@ -426,6 +443,180 @@ int hemlock_context_set(int handle, const char *varname, const char *json) {
 
     VALUE_RELEASE(val);
     return 0;
+}
+
+/* ========================================================================
+ * Cached Script API
+ *
+ * Allows JS to pre-compile (parse + resolve + optimize) a Hemlock source
+ * string once, then execute the resulting AST repeatedly in any persistent
+ * context without re-parsing.  This is ideal for event handlers, animation
+ * callbacks, or any code that runs every frame.
+ *
+ * Handles are small positive integers (1-based) indexing into a static
+ * table.  Handle 0 is reserved as an error sentinel.
+ *
+ * IMPORTANT: A script handle must outlive every context that has executed
+ * it, because function values may hold pointers into the cached AST.
+ * Free scripts only after destroying (or no longer using) the contexts
+ * that ran them.
+ * ======================================================================== */
+
+/* Per-script state */
+typedef struct {
+    Stmt **stmts;
+    int    count;
+    int    alive;   /* 1 while the slot is in use */
+} WasmScript;
+
+/* Fixed-size script table (zero-initialized → all slots start dead) */
+static WasmScript script_table[HML_MAX_WASM_SCRIPTS];
+
+/* Validate a handle and return the WasmScript, or NULL on bad handle */
+static WasmScript *script_lookup(int handle) {
+    if (handle < 1 || handle > HML_MAX_WASM_SCRIPTS) {
+        return NULL;
+    }
+    WasmScript *ws = &script_table[handle - 1];
+    return ws->alive ? ws : NULL;
+}
+
+/*
+ * hemlock_compile_script(source) — parse, resolve, and optimize a Hemlock
+ * source string.  Returns a script handle (1-based) that can be executed
+ * later via hemlock_run_script().
+ *
+ * Returns 0 on failure (parse error or table full).
+ */
+EMSCRIPTEN_KEEPALIVE
+int hemlock_compile_script(const char *source) {
+    if (!source || !*source) {
+        return 0;
+    }
+
+    /* Find a free slot */
+    int slot = -1;
+    for (int i = 0; i < HML_MAX_WASM_SCRIPTS; i++) {
+        if (!script_table[i].alive) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0) {
+        fprintf(stderr, "hemlock_compile_script: no free script slots "
+                        "(max %d)\n", HML_MAX_WASM_SCRIPTS);
+        return 0;
+    }
+
+    set_current_source_file("<wasm-script>");
+    set_current_source_code(source);
+
+    /* Parse */
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    Parser parser;
+    parser_init(&parser, &lexer);
+
+    int stmt_count = 0;
+    Stmt **statements = parse_program(&parser, &stmt_count);
+
+    if (parser.had_error) {
+        fprintf(stderr, "Parse failed!\n");
+        for (int i = 0; i < stmt_count; i++) {
+            stmt_free(statements[i]);
+        }
+        free((void *)statements);
+        set_current_source_file(NULL);
+        set_current_source_code(NULL);
+        return 0;
+    }
+
+    /* Resolve variables (compute depth/slot indices for O(1) lookup) */
+    resolve_program(statements, stmt_count);
+
+    /* Optimize AST (constant folding, boolean simplification, strength reduction) */
+    optimize_program(statements, stmt_count);
+
+    set_current_source_file(NULL);
+    set_current_source_code(NULL);
+
+    /* Store in table */
+    WasmScript *ws = &script_table[slot];
+    ws->stmts = statements;
+    ws->count = stmt_count;
+    ws->alive = 1;
+
+    return slot + 1;  /* 1-based handle */
+}
+
+/*
+ * hemlock_run_script(ctx_handle, script_handle) — execute a previously
+ * compiled script inside the persistent environment identified by
+ * ctx_handle.  The cached AST is NOT freed; it can be executed again.
+ *
+ * Returns 0 on success, -1 on bad context handle, -2 on bad script handle.
+ */
+EMSCRIPTEN_KEEPALIVE
+int hemlock_run_script(int ctx_handle, int script_handle) {
+    WasmContext *wc = context_lookup(ctx_handle);
+    if (!wc) {
+        fprintf(stderr, "hemlock_run_script: invalid context handle %d\n",
+                ctx_handle);
+        return -1;
+    }
+
+    WasmScript *ws = script_lookup(script_handle);
+    if (!ws) {
+        fprintf(stderr, "hemlock_run_script: invalid script handle %d\n",
+                script_handle);
+        return -2;
+    }
+
+    set_current_source_file("<wasm-script>");
+
+    /* Clear any leftover control-flow state from a previous eval */
+    wc->ctx->return_state.is_returning = 0;
+    wc->ctx->loop_state.is_breaking    = 0;
+    wc->ctx->loop_state.is_continuing  = 0;
+    if (wc->ctx->exception_state.is_throwing) {
+        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
+        wc->ctx->exception_state.is_throwing = 0;
+    }
+
+    /* Execute the cached AST in the persistent environment */
+    eval_program(ws->stmts, ws->count, wc->env, wc->ctx);
+
+    set_current_source_file(NULL);
+
+    return 0;
+}
+
+/*
+ * hemlock_free_script(script_handle) — release a cached script and free
+ * its AST.
+ *
+ * WARNING: The caller must ensure no context still holds function values
+ * that reference nodes inside this AST.  In practice, destroy or reset
+ * the relevant contexts before freeing the script.
+ */
+EMSCRIPTEN_KEEPALIVE
+void hemlock_free_script(int script_handle) {
+    WasmScript *ws = script_lookup(script_handle);
+    if (!ws) {
+        fprintf(stderr, "hemlock_free_script: invalid handle %d\n",
+                script_handle);
+        return;
+    }
+
+    for (int i = 0; i < ws->count; i++) {
+        stmt_free(ws->stmts[i]);
+    }
+    free((void *)ws->stmts);
+
+    ws->stmts = NULL;
+    ws->count = 0;
+    ws->alive = 0;
 }
 
 /* ========================================================================
