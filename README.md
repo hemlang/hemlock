@@ -190,7 +190,7 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.8.8 is released with:
+Hemlock v1.9.0 is released with:
 
 - **Pattern matching** (`match` expressions) with destructuring, guards, OR patterns, and rest syntax
 - **Expression-bodied functions** (`fn double(x): i32 => x * 2;`)

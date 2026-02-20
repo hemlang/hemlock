@@ -151,6 +151,22 @@ run: $(TARGET)
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
 
+# Test the persistent WASM context API (native, no Emscripten needed)
+TEST_WASM_CTX_SRC = tests/wasm/test_persistent_context.c
+TEST_WASM_CTX_BIN = $(BUILD_DIR)/test_persistent_context
+TEST_WASM_CTX_OBJS = $(filter-out $(BUILD_DIR)/backends/interpreter/main.o \
+                                   $(BUILD_DIR)/backends/interpreter/wasm_interp_main.o \
+                                   $(BUILD_DIR)/backends/interpreter/wasm_interp_shim.o, \
+                                   $(INTERP_OBJS))
+
+.PHONY: test-wasm-context
+test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
+	@echo "Building persistent context API test..."
+	@$(CC) $(CFLAGS) $(TEST_WASM_CTX_SRC) $(TEST_WASM_CTX_OBJS) $(LIBTOOLS) $(LIBCOMMON) \
+		-o $(TEST_WASM_CTX_BIN) $(LDFLAGS)
+	@echo "Running persistent context API test..."
+	@timeout 30 $(TEST_WASM_CTX_BIN)
+
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
 
@@ -626,7 +642,7 @@ WASM_INTERP_LDFLAGS = \
 	-sALLOW_MEMORY_GROWTH=1 \
 	-sSTACK_SIZE=1048576 \
 	-sUSE_ZLIB=1 \
-	-sEXPORTED_FUNCTIONS='["_main","_hemlock_eval","_hemlock_version","_malloc","_free"]' \
+	-sEXPORTED_FUNCTIONS='["_main","_hemlock_eval","_hemlock_version","_hemlock_context_create","_hemlock_context_eval","_hemlock_context_destroy","_hemlock_context_get","_hemlock_context_set","_hemlock_context_last_error","_hemlock_compile_script","_hemlock_run_script","_hemlock_free_script","_malloc","_free"]' \
 	-sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
 	-sFORCE_FILESYSTEM=1 \
 	-sMODULARIZE=0 \

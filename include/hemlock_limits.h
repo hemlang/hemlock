@@ -185,6 +185,14 @@
 #define HML_ATOMIC_I32_ALIGNMENT 4   // _Alignof(_Atomic int32_t)
 #define HML_ATOMIC_I64_ALIGNMENT 8   // _Alignof(_Atomic int64_t)
 
+// ========== WASM PERSISTENT CONTEXT ==========
+
+// Maximum number of concurrent persistent WASM contexts
+#define HML_MAX_WASM_CONTEXTS 64
+
+// Maximum number of cached (pre-compiled) WASM scripts
+#define HML_MAX_WASM_SCRIPTS 256
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch
