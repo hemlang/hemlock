@@ -76,95 +76,135 @@ A convenience script that starts a local HTTP server with:
 
 ## JavaScript API
 
-### Quick eval (stateless)
+### Using the JS API wrapper (recommended)
 
-```javascript
+The `hemlock-api.js` module provides a clean JavaScript API over the raw
+Emscripten exports. It works in both browser and Node.js.
+
+**Browser:**
+
+```html
+<script src="hemlock-api.js"></script>
+<script src="hemlock.js"></script>
+<script>
+// Configure Emscripten Module for output capture
 var Module = {
     print: function(text) { console.log(text); },
     printErr: function(text) { console.error(text); },
     onRuntimeInitialized: function() {
-        var hemlockEval    = Module.cwrap('hemlock_eval',    'number', ['string']);
-        var hemlockVersion = Module.cwrap('hemlock_version', 'string', []);
+        Hemlock.init({ Module: Module }).then(function(hemlock) {
+            // Stateless eval
+            hemlock.eval('print("Hello from WASM!");');
+            console.log('Version:', hemlock.version);
 
-        console.log('Hemlock', hemlockVersion());
-        hemlockEval('print("Hello from WASM!");');
+            // Persistent context
+            var ctx = hemlock.createContext();
+            ctx.eval('let score = 0;');
+            ctx.eval('score = score + 10;');
+            console.log(ctx.get('score'));      // 10 (parsed JS value)
+
+            // Inject JS values
+            ctx.set('player', { name: "Alice", hp: 100 });
+            ctx.eval('print(player.name + " has " + player.hp + " hp");');
+
+            // Error handling
+            var result = ctx.eval('throw "oops";');
+            if (!result.ok) {
+                console.error(result.error);   // "oops"
+            }
+
+            // Cached scripts (parse once, run many)
+            var tick = hemlock.compile('score = score + 1;');
+            tick.run(ctx);
+            tick.run(ctx);
+            console.log(ctx.get('score'));      // 12
+            tick.free();
+
+            ctx.destroy();
+        });
     },
     noInitialRun: true
 };
+</script>
 ```
 
-Then load the Emscripten JS file:
-
-```html
-<script src="path/to/hemlock.js"></script>
-```
-
-### Persistent Context API
-
-Create long-lived interpreter contexts where variables survive across
-multiple eval calls — ideal for REPLs, game scripting, or educational
-sandboxes.
+**Node.js:**
 
 ```javascript
-// Wrap the C functions once after Module initializes
-const ctxCreate    = Module.cwrap('hemlock_context_create',     'number', []);
-const ctxEval      = Module.cwrap('hemlock_context_eval',       'number', ['number','string']);
-const ctxDestroy   = Module.cwrap('hemlock_context_destroy',    null,     ['number']);
-const ctxGet       = Module.cwrap('hemlock_context_get',        'string', ['number','string']);
-const ctxSet       = Module.cwrap('hemlock_context_set',        'number', ['number','string','string']);
-const ctxLastError = Module.cwrap('hemlock_context_last_error', 'string', ['number']);
+const { Hemlock } = require('./wasm/hemlock-api.js');
 
-// Create a context (returns a handle, or 0 on failure)
-const ctx = ctxCreate();
+async function main() {
+    const hemlock = await Hemlock.init('./wasm/hemlock.js');
 
-// Evaluate code — variables persist across calls
-ctxEval(ctx, 'let score = 0;');
-ctxEval(ctx, 'score = score + 10;');
-console.log(ctxGet(ctx, 'score'));  // "10"
+    hemlock.eval('print("Hello from Node!");');
 
-// Inject values from JS (as JSON)
-ctxSet(ctx, 'player', '{"name":"Alice","hp":100}');
-ctxEval(ctx, 'print(player.name + " has " + player.hp + " hp");');
-
-// Error handling
-const rc = ctxEval(ctx, 'throw "oops";');
-if (rc !== 0) {
-    console.error(ctxLastError(ctx));  // "oops"
+    const ctx = hemlock.createContext();
+    ctx.eval('let x = 42;');
+    ctx.set('y', 8);
+    ctx.eval('let sum = x + y;');
+    console.log(ctx.get('sum'));  // 50
+    ctx.destroy();
 }
 
-// Clean up
-ctxDestroy(ctx);
+main();
 ```
+
+### API Reference
+
+#### `Hemlock` (main entry point)
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `Hemlock.init(options?)` | `Promise<Hemlock>` | Initialize the WASM module and return an API instance |
+| `hemlock.eval(source)` | `number` | Execute code (stateless, one-shot). Returns 0 on success |
+| `hemlock.version` | `string` | Hemlock version string |
+| `hemlock.createContext()` | `HemlockContext` | Create a persistent interpreter context |
+| `hemlock.compile(source)` | `HemlockScript` | Pre-compile source into a cached script |
+| `hemlock.getModule()` | `object` | Access the raw Emscripten Module |
+
+**`Hemlock.init()` options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `wasmUrl` | `string` | Path to `hemlock.js` (Node.js) |
+| `Module` | `object` | Pre-configured Emscripten Module (browser) |
+| `print` | `function` | stdout handler |
+| `printErr` | `function` | stderr handler |
+
+#### `HemlockContext` (persistent state)
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `ctx.eval(source)` | `{ ok, error }` | Execute code; variables persist across calls |
+| `ctx.get(name)` | `any` | Read variable as parsed JS value, or `undefined` |
+| `ctx.getJSON(name)` | `string\|null` | Read variable as raw JSON string |
+| `ctx.set(name, value)` | `boolean` | Inject a JS value (auto-serialized to JSON) |
+| `ctx.setJSON(name, json)` | `boolean` | Inject a raw JSON string |
+| `ctx.lastError()` | `string\|null` | Error from last failed eval/run |
+| `ctx.destroy()` | `void` | Free all context memory |
+
+#### `HemlockScript` (cached AST)
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `script.run(ctx)` | `{ ok, error }` | Execute cached script in a context |
+| `script.free()` | `void` | Release the cached AST |
+
+### Low-level API (cwrap)
+
+For advanced use cases, the raw Emscripten exports are still available via
+`Module.cwrap()`. See the C function signatures in `wasm_interp_main.c`.
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `hemlock_context_create()` | handle (>0) or 0 | Allocate a new persistent environment |
-| `hemlock_context_eval(h, src)` | 0=ok, 1=parse err, 2=runtime err, -1=bad handle | Execute source in the context |
-| `hemlock_context_get(h, var)` | JSON string or null | Read a variable as JSON |
-| `hemlock_context_set(h, var, json)` | 0=ok, 1=error, -1=bad handle | Inject a value from JSON |
-| `hemlock_context_last_error(h)` | string or null | Error message from last failed eval |
-| `hemlock_context_destroy(h)` | void | Free the context |
-
-### Cached Script API
-
-Pre-compile Hemlock source once and execute repeatedly without
-re-parsing — ideal for hot event handlers or per-frame callbacks.
-
-```javascript
-const compile    = Module.cwrap('hemlock_compile_script', 'number', ['string']);
-const run        = Module.cwrap('hemlock_run_script',     'number', ['number','number']);
-const freeScript = Module.cwrap('hemlock_free_script',    null,     ['number']);
-
-const ctx    = ctxCreate();
-const script = compile('print("tick");');
-run(ctx, script);      // executes without re-parsing
-run(ctx, script);      // same AST, no re-parse
-freeScript(script);    // release AST when done
-ctxDestroy(ctx);
-```
-
-| Function | Returns | Description |
-|----------|---------|-------------|
+| `hemlock_eval(source)` | `0` on success | Stateless eval |
+| `hemlock_version()` | version string | Version |
+| `hemlock_context_create()` | handle (>0) or 0 | Allocate persistent environment |
+| `hemlock_context_eval(h, src)` | 0=ok, 1=parse err, 2=runtime err, -1=bad handle | Execute in context |
+| `hemlock_context_get(h, var)` | JSON string or null | Read variable as JSON |
+| `hemlock_context_set(h, var, json)` | 0=ok, 1=error, -1=bad handle | Inject value from JSON |
+| `hemlock_context_last_error(h)` | string or null | Last error message |
+| `hemlock_context_destroy(h)` | void | Free context |
 | `hemlock_compile_script(src)` | handle (>0) or 0 | Parse + optimize, return script handle |
 | `hemlock_run_script(ctx, script)` | 0=ok, 2=runtime err, -1/-2=bad handle | Execute cached AST |
 | `hemlock_free_script(script)` | void | Free the cached AST |

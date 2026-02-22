@@ -319,13 +319,18 @@ for (let i = 0; i < 10; i++) {
             appendOutput(text, 'output-error');
         },
         onRuntimeInitialized: function() {
-            hemlockReady = true;
-            hemlockEval = Module.cwrap('hemlock_eval', 'number', ['string']);
-            var getVersion = Module.cwrap('hemlock_version', 'string', []);
-            versionEl.textContent = getVersion();
-            statusEl.className = 'status-ready';
-            statusEl.textContent = 'Ready';
-            btnRun.disabled = false;
+            // Initialize via the Hemlock JS API wrapper
+            Hemlock.init({ Module: Module }).then(function(hml) {
+                hemlockReady = true;
+                hemlockEval = function(source) { hml.eval(source); };
+                versionEl.textContent = hml.version;
+                statusEl.className = 'status-ready';
+                statusEl.textContent = 'Ready';
+                btnRun.disabled = false;
+            }).catch(function(e) {
+                statusEl.className = 'status-error';
+                statusEl.textContent = 'Init failed: ' + e.message;
+            });
         },
         onAbort: function(what) {
             statusEl.className = 'status-error';
@@ -334,7 +339,8 @@ for (let i = 0; i < 10; i++) {
         noInitialRun: true
     };
     </script>
-    <!-- Load the compiled WASM interpreter -->
+    <!-- Load the Hemlock JS API wrapper and compiled WASM interpreter -->
+    <script src="hemlock-api.js"></script>
     <script async src="hemlock.js"></script>
 </body>
 </html>

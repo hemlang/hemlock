@@ -91,6 +91,7 @@ jobs:
         path: |
           wasm/hemlock.js
           wasm/hemlock.wasm
+          wasm/hemlock-api.js
           wasm/playground.html
         retention-days: 30
 
