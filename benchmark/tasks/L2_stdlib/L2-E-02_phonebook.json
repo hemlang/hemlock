@@ -1,0 +1,12 @@
+{
+  "id": "L2-E-02",
+  "level": "L2",
+  "difficulty": "easy",
+  "title": "Phone Book",
+  "topic": "collections stdlib",
+  "prompt": "Write a Hemlock program using `@stdlib/collections` HashMap to implement a simple phone book. Import HashMap from @stdlib/collections.\n\n1. Create a HashMap and add these entries: \"Alice\" -> \"555-0101\", \"Bob\" -> \"555-0102\", \"Charlie\" -> \"555-0103\", \"Diana\" -> \"555-0104\"\n2. Look up and print \"Alice: 555-0101\"\n3. Check if \"Eve\" exists and print \"Eve found: false\"\n4. Remove \"Charlie\" and print \"size: 3\"\n5. Update Bob's number to \"555-9999\" and print \"Bob: 555-9999\"",
+  "expected_output": "Alice: 555-0101\nEve found: false\nsize: 3\nBob: 555-9999\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["stdlib", "collections", "hashmap"]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "L4-M-03",
+  "level": "L4",
+  "difficulty": "medium",
+  "title": "Channel Pipeline",
+  "topic": "channels",
+  "prompt": "Write a Hemlock program implementing a 3-stage pipeline using channels:\n\n1. Stage 1 (generator): sends numbers 1 through 5 to channel A, then closes it\n2. Stage 2 (squarer): receives from channel A, squares each value, sends to channel B, closes B when A is exhausted\n3. Stage 3 (printer): receives from channel B, prints each value\n\nEach stage should be an async function spawned as a task. The main program spawns all three stages and joins them in order.\n\nUse `channel(5)` for buffered channels. When recv() returns null after close, the stage knows to stop.\n\nExpected output: the squares 1, 4, 9, 16, 25 each on their own line, followed by \"pipeline complete\".",
+  "expected_output": "1\n4\n9\n16\n25\npipeline complete\n",
+  "timeout_ms": 10000,
+  "validator": "exact_match",
+  "tags": ["channels", "async", "spawn", "join", "concurrency"]
+}

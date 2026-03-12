@@ -1,0 +1,12 @@
+{
+  "id": "L1-H-02",
+  "level": "L1",
+  "difficulty": "hard",
+  "title": "Config Merger with Defaults",
+  "topic": "null coalescing and objects",
+  "prompt": "Write a Hemlock program that implements a configuration system using null coalescing operators. Define default configs as:\n\nlet defaults = { host: \"localhost\", port: 8080, debug: false, timeout: 30, retries: 3 };\n\nWrite a function `merge_config(user_config, defaults)` that creates a new object where each field uses the user's value if non-null, otherwise the default. Use `??` for this.\n\nThen test with three user configs:\n1. { host: \"prod.example.com\", port: 443, debug: null, timeout: null, retries: 5 }\n2. { host: null, port: null, debug: true, timeout: 60, retries: null }\n3. { host: null, port: null, debug: null, timeout: null, retries: null }\n\nFor each merged config, print: \"host:PORT debug:BOOL timeout:N retries:N\" (substituting actual values).",
+  "expected_output": "prod.example.com:443 debug:false timeout:30 retries:5\nlocalhost:8080 debug:true timeout:60 retries:3\nlocalhost:8080 debug:false timeout:30 retries:3\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["null-coalescing", "objects", "functions"]
+}

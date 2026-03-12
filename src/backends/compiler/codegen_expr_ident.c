@@ -52,6 +52,9 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_println, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "eprint") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_eprint, 1, 1, 0);", result);
+    // Handle memory builtins as first-class functions (needed for defer free(p))
+    } else if (strcmp(expr->as.ident.name, "free") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_free_fn, 1, 1, 0);", result);
     // Handle signal constants
     } else if (strcmp(expr->as.ident.name, "SIGINT") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGINT);", result);

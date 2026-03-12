@@ -1,0 +1,12 @@
+{
+  "id": "L3-M-02",
+  "level": "L3",
+  "difficulty": "medium",
+  "title": "BFS Shortest Path",
+  "topic": "graphs",
+  "prompt": "Write a Hemlock program that implements BFS to find the shortest path in an unweighted graph. Use @stdlib/collections Queue for the BFS frontier.\n\nRepresent the graph as an object where keys are node names and values are arrays of neighbor names:\nlet graph = {\n  A: [\"B\", \"C\"],\n  B: [\"A\", \"D\", \"E\"],\n  C: [\"A\", \"F\"],\n  D: [\"B\"],\n  E: [\"B\", \"F\"],\n  F: [\"C\", \"E\"]\n};\n\nWrite `bfs_path(graph, start, end)` that returns the shortest path as an array of node names, or null if no path exists.\n\nTest:\n- Path A -> F: print \"A -> F: A -> C -> F\" (path joined with \" -> \")\n- Path A -> D: print \"A -> D: A -> B -> D\"\n- Path D -> F: print \"D -> F: D -> B -> E -> F\"",
+  "expected_output": "A -> F: A -> C -> F\nA -> D: A -> B -> D\nD -> F: D -> B -> E -> F\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["algorithms", "graphs", "bfs", "stdlib", "collections"]
+}

@@ -819,6 +819,7 @@ HmlValue hml_builtin_ffi_sizeof(HmlClosureEnv *env, HmlValue type_name);
 HmlValue hml_builtin_ptr_to_buffer(HmlClosureEnv *env, HmlValue ptr, HmlValue size);
 HmlValue hml_builtin_buffer_ptr(HmlClosureEnv *env, HmlValue buf);
 HmlValue hml_builtin_ptr_null(HmlClosureEnv *env);
+HmlValue hml_builtin_free_fn(HmlClosureEnv *env, HmlValue val);
 
 // ========== HTTP/WEBSOCKET FUNCTIONS ==========
 // These require libwebsockets at runtime

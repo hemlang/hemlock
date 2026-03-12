@@ -1,0 +1,13 @@
+{
+  "id": "L4-H-01",
+  "level": "L4",
+  "difficulty": "hard",
+  "title": "Multi-Producer Multi-Consumer",
+  "topic": "concurrency patterns",
+  "prompt": "Write a Hemlock program implementing a multi-producer multi-consumer pattern.\n\n- 3 producer tasks, each sending values 1-5 multiplied by their producer ID (1, 2, 3)\n  - Producer 1 sends: 1, 2, 3, 4, 5\n  - Producer 2 sends: 2, 4, 6, 8, 10\n  - Producer 3 sends: 3, 6, 9, 12, 15\n- A shared channel(15) for communication\n- 1 consumer task that receives all 15 values, sums them, and sends the sum to a result channel\n- Producers close the channel after all are done (use a separate 'done' channel where each producer sends true when finished; a coordinator task closes the main channel after receiving 3 done signals)\n\nPrint:\n- \"producers done\" after all producers finish\n- \"total: 90\" (sum of all values: 1+2+3+4+5 + 2+4+6+8+10 + 3+6+9+12+15 = 90)\n- \"complete\"",
+  "expected_output": "producers done\ntotal: 90\ncomplete\n",
+  "timeout_ms": 15000,
+  "validator": "exact_match",
+  "notes": "Complex concurrency coordination. Tests channel closing, multiple spawns, and join ordering.",
+  "tags": ["channels", "async", "spawn", "join", "concurrency", "coordination"]
+}

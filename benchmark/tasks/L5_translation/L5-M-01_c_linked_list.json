@@ -1,0 +1,14 @@
+{
+  "id": "L5-M-01",
+  "level": "L5",
+  "difficulty": "medium",
+  "title": "C Linked List to Hemlock",
+  "topic": "C to Hemlock",
+  "prompt": "Translate this C linked list implementation to Hemlock. Use Hemlock objects instead of structs, and Hemlock's alloc/free for memory management where appropriate. However, since Hemlock objects are heap-allocated by default, you can use objects directly without alloc for the nodes.\n\n```c\n#include <stdio.h>\n#include <stdlib.h>\n\ntypedef struct Node {\n    int data;\n    struct Node* next;\n} Node;\n\nNode* create_node(int data) {\n    Node* node = (Node*)malloc(sizeof(Node));\n    node->data = data;\n    node->next = NULL;\n    return node;\n}\n\nvoid push_front(Node** head, int data) {\n    Node* node = create_node(data);\n    node->next = *head;\n    *head = node;\n}\n\nvoid print_list(Node* head) {\n    Node* current = head;\n    while (current != NULL) {\n        printf(\"%d\", current->data);\n        if (current->next != NULL) printf(\" -> \");\n        current = current->next;\n    }\n    printf(\"\\n\");\n}\n\nint length(Node* head) {\n    int count = 0;\n    Node* current = head;\n    while (current != NULL) {\n        count++;\n        current = current->next;\n    }\n    return count;\n}\n\nvoid reverse(Node** head) {\n    Node* prev = NULL;\n    Node* current = *head;\n    Node* next = NULL;\n    while (current != NULL) {\n        next = current->next;\n        current->next = prev;\n        prev = current;\n        current = next;\n    }\n    *head = prev;\n}\n\nint main() {\n    Node* list = NULL;\n    push_front(&list, 10);\n    push_front(&list, 20);\n    push_front(&list, 30);\n    push_front(&list, 40);\n    \n    print_list(list);      // 40 -> 30 -> 20 -> 10\n    printf(\"length: %d\\n\", length(list));\n    \n    reverse(&list);\n    print_list(list);      // 10 -> 20 -> 30 -> 40\n    \n    return 0;\n}\n```\n\nThe Hemlock version should produce identical output. Use ref parameters where C uses pointer-to-pointer.",
+  "expected_output": "40 -> 30 -> 20 -> 10\nlength: 4\n10 -> 20 -> 30 -> 40\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "source_language": "c",
+  "notes": "Tests C-to-Hemlock idiom translation: struct->object, malloc->object literal, pointer-to-pointer->ref parameter, printf->print/template strings.",
+  "tags": ["translation", "c", "objects", "ref-params", "linked-list"]
+}

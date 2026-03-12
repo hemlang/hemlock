@@ -1,0 +1,12 @@
+{
+  "id": "L4-E-01",
+  "level": "L4",
+  "difficulty": "easy",
+  "title": "Memory Allocation Basics",
+  "topic": "memory management",
+  "prompt": "Write a Hemlock program that demonstrates basic memory management:\n\n1. Allocate 40 bytes of memory with alloc(40)\n2. Use defer to ensure free() is called\n3. Write 10 i32 values (0, 10, 20, 30, 40, 50, 60, 70, 80, 90) into the buffer using ptr_write_i32 with ptr_offset(ptr, index, 4) for addressing (each i32 is 4 bytes)\n4. Read them back using ptr_deref_i32 and verify each value\n5. Print \"write complete\" after writing\n6. Print each value as \"[INDEX]: VALUE\" during readback\n7. Print \"PASS\" if all values match, or \"FAIL at INDEX\" for the first mismatch",
+  "expected_output": "write complete\n[0]: 0\n[1]: 10\n[2]: 20\n[3]: 30\n[4]: 40\n[5]: 50\n[6]: 60\n[7]: 70\n[8]: 80\n[9]: 90\nPASS\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["memory", "alloc", "free", "defer", "ptr_write", "ptr_read"]
+}

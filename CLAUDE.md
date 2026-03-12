@@ -119,8 +119,9 @@ typeof(42);              // "i32"
 typeof("hello");         // "string"
 typeof([1, 2, 3]);       // "array"
 typeof(null);            // "null"
-len("hello");            // 5 (string length in bytes)
-len([1, 2, 3]);          // 3 (array length)
+"hello".length;          // 5 (string length in runes)
+"hello".byte_length;     // 5 (string length in bytes)
+[1, 2, 3].length;        // 3 (array length)
 ```
 
 ### Memory

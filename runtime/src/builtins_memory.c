@@ -583,3 +583,10 @@ HmlValue hml_builtin_ptr_null(HmlClosureEnv *env) {
 
 // Compression and cryptographic operations moved to builtins_crypto.c
 
+// First-class function wrapper for free() - used by defer free(p)
+HmlValue hml_builtin_free_fn(HmlClosureEnv *env, HmlValue val) {
+    (void)env;
+    hml_free(val);
+    return hml_val_null();
+}
+

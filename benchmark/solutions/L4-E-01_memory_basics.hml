@@ -1,0 +1,23 @@
+// L4-E-01: Memory Allocation Basics
+let p = alloc(40);
+defer free(p);
+
+// Write 10 i32 values
+for (let i = 0; i < 10; i++) {
+    ptr_write_i32(ptr_offset(p, i, 4), i * 10);
+}
+print("write complete");
+
+// Read back and verify
+let pass = true;
+for (let i = 0; i < 10; i++) {
+    let val = ptr_deref_i32(ptr_offset(p, i, 4));
+    print("[" + i + "]: " + val);
+    if (val != i * 10) {
+        print("FAIL at " + i);
+        pass = false;
+    }
+}
+if (pass) {
+    print("PASS");
+}
