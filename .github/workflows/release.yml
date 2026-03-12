@@ -181,6 +181,7 @@ jobs:
         mkdir -p hemlock-wasm
         cp wasm/hemlock.js hemlock-wasm/
         cp wasm/hemlock.wasm hemlock-wasm/
+        cp wasm/hemlock-api.js hemlock-wasm/
         cp wasm/playground.html hemlock-wasm/ 2>/dev/null || true
         cp -r stdlib hemlock-wasm/
         cp README.md LICENSE hemlock-wasm/ 2>/dev/null || cp README.md hemlock-wasm/
