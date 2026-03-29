@@ -1,0 +1,91 @@
+// Test @stdlib/json_schema - composition keywords (allOf, anyOf, oneOf, not, if/then/else)
+
+import { validate, is_valid } from "@stdlib/json_schema";
+import { parse } from "@stdlib/json";
+
+// --- anyOf ---
+let any_schema = {
+	anyOf: [
+		{ type: "string" },
+		{ type: "integer" }
+	]
+};
+assert(is_valid("hello", any_schema) == true, "anyOf: string matches");
+assert(is_valid(42, any_schema) == true, "anyOf: integer matches");
+assert(is_valid(true, any_schema) == false, "anyOf: bool matches neither");
+assert(is_valid(null, any_schema) == false, "anyOf: null matches neither");
+
+// --- oneOf ---
+let one_schema = {
+	oneOf: [
+		{ type: "string", minLength: 3 },
+		{ type: "string", maxLength: 5 }
+	]
+};
+// "hi" matches maxLength<=5 only
+assert(is_valid("hi", one_schema) == true, "oneOf: matches only maxLength");
+// "toolongstring" matches minLength>=3 only
+assert(is_valid("toolongstring", one_schema) == true, "oneOf: matches only minLength");
+// "abc" matches BOTH (minLength>=3 AND maxLength<=5), so oneOf fails
+assert(is_valid("abc", one_schema) == false, "oneOf: matches both schemas");
+
+// --- allOf ---
+let all_schema = {
+	allOf: [
+		{ type: "object", required: ["name"] },
+		{ type: "object", required: ["age"] }
+	]
+};
+assert(is_valid({ name: "Alice", age: 30 }, all_schema) == true, "allOf: both required present");
+assert(is_valid({ name: "Alice" }, all_schema) == false, "allOf: missing age");
+assert(is_valid({ age: 30 }, all_schema) == false, "allOf: missing name");
+
+// --- not ---
+let not_schema = {
+	not: { type: "string" }
+};
+assert(is_valid(42, not_schema) == true, "not: number is not string");
+assert(is_valid(null, not_schema) == true, "not: null is not string");
+assert(is_valid("hello", not_schema) == false, "not: string matches the 'not' schema");
+
+// --- if/then/else ---
+// Note: "if", "then", "else" are reserved keywords in Hemlock,
+// so we build the schema from a JSON string.
+let cond_schema = parse("{\"type\":\"object\",\"if\":{\"type\":\"object\",\"properties\":{\"kind\":{\"const\":\"email\"}},\"required\":[\"kind\"]},\"then\":{\"required\":[\"address\"]},\"else\":{\"required\":[\"phone\"]}}");
+assert(is_valid({ kind: "email", address: "a@b.com" }, cond_schema) == true, "if/then: email with address");
+assert(is_valid({ kind: "email" }, cond_schema) == false, "if/then: email without address");
+assert(is_valid({ kind: "sms", phone: "555" }, cond_schema) == true, "if/else: sms with phone");
+assert(is_valid({ kind: "sms" }, cond_schema) == false, "if/else: sms without phone");
+
+// --- enum ---
+let enum_schema = { enum: ["red", "green", "blue"] };
+assert(is_valid("red", enum_schema) == true, "enum: red in list");
+assert(is_valid("green", enum_schema) == true, "enum: green in list");
+assert(is_valid("yellow", enum_schema) == false, "enum: yellow not in list");
+assert(is_valid(42, enum_schema) == false, "enum: number not in list");
+
+// --- const ---
+let const_schema = { const: "fixed" };
+assert(is_valid("fixed", const_schema) == true, "const: exact match");
+assert(is_valid("other", const_schema) == false, "const: different string");
+assert(is_valid(42, const_schema) == false, "const: different type");
+
+// --- nested composition ---
+let complex = {
+	type: "object",
+	properties: {
+		value: {
+			anyOf: [
+				{ type: "string" },
+				{ type: "integer", minimum: 0 }
+			]
+		}
+	},
+	required: ["value"]
+};
+assert(is_valid({ value: "hello" }, complex) == true, "nested anyOf: string");
+assert(is_valid({ value: 42 }, complex) == true, "nested anyOf: positive int");
+assert(is_valid({ value: -1 }, complex) == false, "nested anyOf: negative int");
+assert(is_valid({ value: true }, complex) == false, "nested anyOf: bool");
+
+print("All composition tests passed!");

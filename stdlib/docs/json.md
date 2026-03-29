@@ -649,14 +649,14 @@ try {
 
 1. **No object iteration builtin** - `merge()`, `patch()`, and object `equals()` not yet implemented
 2. **No line numbers in parse errors** - Validation doesn't report exact error location
-3. **No JSON Schema** - Schema validation not yet supported
+3. **JSON Schema** - See `@stdlib/json_schema` for schema validation
 4. **No streaming** - Large files must fit in memory
 
 ## Future Enhancements
 
 Planned additions:
 - Object iteration support (enables merge/patch/equals)
-- JSON Schema validation
+- ~~JSON Schema validation~~ → See `@stdlib/json_schema`
 - JSON Patch (RFC 6902)
 - JSON Pointer (RFC 6901)
 - Streaming parser for large files
@@ -667,4 +667,5 @@ Planned additions:
 - Built-in `serialize()` method (CLAUDE.md - Objects section)
 - Built-in `deserialize()` method (CLAUDE.md - Strings section)
 - `@stdlib/fs` - File operations
+- `@stdlib/json_schema` - JSON Schema validation
 - `@stdlib/http` - HTTP requests with JSON

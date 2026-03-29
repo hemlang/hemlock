@@ -1,0 +1,739 @@
+// @stdlib/json_schema - JSON Schema validation for structured output
+//
+// Validates that values (e.g., parsed LLM responses) match expected shapes
+// defined as JSON Schema objects (subset of JSON Schema Draft 7).
+//
+// Usage:
+// import { validate, is_valid, ValidationError } from "@stdlib/json_schema";
+//
+// let schema = {
+//     type: "object",
+//     properties: {
+//         name: { type: "string" },
+//         age: { type: "integer", minimum: 0 }
+//     },
+//     required: ["name"]
+// };
+//
+// let result = validate({ name: "Alice", age: 30 }, schema);
+// if (!result.valid) {
+//     print("Errors: " + result.errors.length);
+// }
+
+import { parse, stringify } from "@stdlib/json";
+
+// ============================================================================
+// Internal: Type checking helpers
+// ============================================================================
+
+fn is_json_number(value): bool {
+	let t = typeof(value);
+	return t == "i8" || t == "i16" || t == "i32" || t == "i64" ||
+		t == "u8" || t == "u16" || t == "u32" || t == "u64" ||
+		t == "f32" || t == "f64" ||
+		t == "integer" || t == "number";
+}
+
+fn is_json_integer(value): bool {
+	if (!is_json_number(value)) {
+		return false;
+	}
+	let t = typeof(value);
+	// Float types need a truncation check
+	if (t == "f32" || t == "f64" || t == "number") {
+		return value == i64(value);
+	}
+	return true;
+}
+
+fn is_json_object(value): bool {
+	return typeof(value) == "object";
+}
+
+fn is_json_array(value): bool {
+	return typeof(value) == "array";
+}
+
+fn is_json_string(value): bool {
+	return typeof(value) == "string";
+}
+
+fn is_json_bool(value): bool {
+	return typeof(value) == "bool";
+}
+
+fn is_json_null(value): bool {
+	return typeof(value) == "null";
+}
+
+// Format a value for error messages (truncated for readability)
+fn format_val(value): string {
+	let t = typeof(value);
+	if (t == "null") { return "null"; }
+	if (t == "bool") { if (value) { return "true"; } else { return "false"; } }
+	if (t == "string") {
+		if (value.length > 50) {
+			return "\"" + value.substr(0, 50) + "...\"";
+		}
+		return "\"" + value + "\"";
+	}
+	if (is_json_number(value)) { return "" + value; }
+	if (t == "array") { return "array(" + value.length + ")"; }
+	if (t == "object") { return "object"; }
+	return "<" + t + ">";
+}
+
+// ============================================================================
+// Validation result
+// ============================================================================
+
+// Create a validation result object
+fn make_result(valid: bool, errors: array) {
+	return { valid: valid, errors: errors };
+}
+
+// Create a single error entry
+fn make_error(path: string, message: string, schema_path: string) {
+	return { path: path, message: message, schema_path: schema_path };
+}
+
+// Join path segments
+fn join_path(base: string, key: string): string {
+	if (base == "") {
+		return key;
+	}
+	return base + "." + key;
+}
+
+fn join_path_index(base: string, index: i32): string {
+	if (base == "") {
+		return "[" + index + "]";
+	}
+	return base + "[" + index + "]";
+}
+
+// ============================================================================
+// Core validation engine
+// ============================================================================
+
+// Validate a value against a schema, collecting errors at the given path.
+// Returns an array of error objects.
+fn validate_impl(value, schema, path: string, schema_path: string): array {
+	if (!is_json_object(schema)) {
+		// A boolean schema: true allows everything, false rejects everything
+		if (typeof(schema) == "bool") {
+			if (schema) {
+				return [];
+			} else {
+				return [make_error(path, "value is not allowed here", schema_path)];
+			}
+		}
+		return [make_error(path, "schema must be an object or boolean", schema_path)];
+	}
+
+	let errors = [];
+
+	// --- const ---
+	if (schema.has("const")) {
+		let expected = schema["const"];
+		if (!deep_equals(value, expected)) {
+			errors.push(make_error(path, "expected const value " + format_val(expected) + ", got " + format_val(value), join_path(schema_path, "const")));
+		}
+	}
+
+	// --- enum ---
+	if (schema.has("enum")) {
+		let enum_vals = schema["enum"];
+		if (is_json_array(enum_vals)) {
+			let found = false;
+			for (let i = 0; i < enum_vals.length; i++) {
+				if (deep_equals(value, enum_vals[i])) {
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				errors.push(make_error(path, "value " + format_val(value) + " not in enum", join_path(schema_path, "enum")));
+			}
+		}
+	}
+
+	// --- type ---
+	if (schema.has("type")) {
+		let type_spec = schema["type"];
+		let type_ok = false;
+
+		if (is_json_string(type_spec)) {
+			type_ok = check_type(value, type_spec);
+		} else if (is_json_array(type_spec)) {
+			// Union type: ["string", "null"]
+			for (let i = 0; i < type_spec.length; i++) {
+				if (check_type(value, type_spec[i])) {
+					type_ok = true;
+					break;
+				}
+			}
+		}
+
+		if (!type_ok) {
+			errors.push(make_error(path, "expected type " + format_val(type_spec) + ", got " + json_type_name(value), join_path(schema_path, "type")));
+			// Return early on type mismatch -- deeper checks would produce noise
+			return errors;
+		}
+	}
+
+	// --- number constraints ---
+	if (is_json_number(value)) {
+		if (schema.has("minimum")) {
+			if (value < schema["minimum"]) {
+				errors.push(make_error(path, "value " + value + " < minimum " + schema["minimum"], join_path(schema_path, "minimum")));
+			}
+		}
+		if (schema.has("maximum")) {
+			if (value > schema["maximum"]) {
+				errors.push(make_error(path, "value " + value + " > maximum " + schema["maximum"], join_path(schema_path, "maximum")));
+			}
+		}
+		if (schema.has("exclusiveMinimum")) {
+			if (value <= schema["exclusiveMinimum"]) {
+				errors.push(make_error(path, "value " + value + " <= exclusiveMinimum " + schema["exclusiveMinimum"], join_path(schema_path, "exclusiveMinimum")));
+			}
+		}
+		if (schema.has("exclusiveMaximum")) {
+			if (value >= schema["exclusiveMaximum"]) {
+				errors.push(make_error(path, "value " + value + " >= exclusiveMaximum " + schema["exclusiveMaximum"], join_path(schema_path, "exclusiveMaximum")));
+			}
+		}
+		if (schema.has("multipleOf")) {
+			let divisor = schema["multipleOf"];
+			if (divisor != 0) {
+				let remainder = value - (i64(value / divisor) * divisor);
+				if (remainder < 0) { remainder = -remainder; }
+				if (remainder > 0) {
+					errors.push(make_error(path, "value " + value + " is not a multiple of " + divisor, join_path(schema_path, "multipleOf")));
+				}
+			}
+		}
+	}
+
+	// --- string constraints ---
+	if (is_json_string(value)) {
+		if (schema.has("minLength")) {
+			if (value.length < schema["minLength"]) {
+				errors.push(make_error(path, "string length " + value.length + " < minLength " + schema["minLength"], join_path(schema_path, "minLength")));
+			}
+		}
+		if (schema.has("maxLength")) {
+			if (value.length > schema["maxLength"]) {
+				errors.push(make_error(path, "string length " + value.length + " > maxLength " + schema["maxLength"], join_path(schema_path, "maxLength")));
+			}
+		}
+		// pattern support would require @stdlib/regex -- skip for portability
+	}
+
+	// --- array constraints ---
+	if (is_json_array(value)) {
+		if (schema.has("minItems")) {
+			if (value.length < schema["minItems"]) {
+				errors.push(make_error(path, "array length " + value.length + " < minItems " + schema["minItems"], join_path(schema_path, "minItems")));
+			}
+		}
+		if (schema.has("maxItems")) {
+			if (value.length > schema["maxItems"]) {
+				errors.push(make_error(path, "array length " + value.length + " > maxItems " + schema["maxItems"], join_path(schema_path, "maxItems")));
+			}
+		}
+
+		// items - validate each element
+		if (schema.has("items")) {
+			let item_schema = schema["items"];
+			for (let i = 0; i < value.length; i++) {
+				let item_errors = validate_impl(value[i], item_schema, join_path_index(path, i), join_path(schema_path, "items"));
+				for (let j = 0; j < item_errors.length; j++) {
+					errors.push(item_errors[j]);
+				}
+			}
+		}
+
+		// uniqueItems
+		if (schema.has("uniqueItems") && schema["uniqueItems"] == true) {
+			for (let i = 0; i < value.length; i++) {
+				for (let j = i + 1; j < value.length; j++) {
+					if (deep_equals(value[i], value[j])) {
+						errors.push(make_error(path, "duplicate item at index " + i + " and " + j, join_path(schema_path, "uniqueItems")));
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	// --- object constraints ---
+	if (is_json_object(value)) {
+		let obj_keys = value.keys();
+
+		// required
+		if (schema.has("required")) {
+			let req = schema["required"];
+			if (is_json_array(req)) {
+				for (let i = 0; i < req.length; i++) {
+					let rkey = req[i];
+					if (!value.has(rkey)) {
+						errors.push(make_error(path, "missing required property \"" + rkey + "\"", join_path(schema_path, "required")));
+					}
+				}
+			}
+		}
+
+		// properties
+		let validated_props = [];
+		if (schema.has("properties")) {
+			let props = schema["properties"];
+			if (is_json_object(props)) {
+				let prop_keys = props.keys();
+				for (let i = 0; i < prop_keys.length; i++) {
+					let pkey = prop_keys[i];
+					validated_props.push(pkey);
+					if (value.has(pkey)) {
+						let prop_errors = validate_impl(value[pkey], props[pkey], join_path(path, pkey), join_path(schema_path, "properties." + pkey));
+						for (let j = 0; j < prop_errors.length; j++) {
+							errors.push(prop_errors[j]);
+						}
+					}
+				}
+			}
+		}
+
+		// additionalProperties
+		if (schema.has("additionalProperties")) {
+			let additional = schema["additionalProperties"];
+			for (let i = 0; i < obj_keys.length; i++) {
+				let okey = obj_keys[i];
+				// Check if this key was handled by properties
+				let was_validated = false;
+				for (let j = 0; j < validated_props.length; j++) {
+					if (validated_props[j] == okey) {
+						was_validated = true;
+						break;
+					}
+				}
+				if (!was_validated) {
+					if (typeof(additional) == "bool") {
+						if (!additional) {
+							errors.push(make_error(path, "unexpected additional property \"" + okey + "\"", join_path(schema_path, "additionalProperties")));
+						}
+					} else if (is_json_object(additional)) {
+						// Schema for additional properties
+						let add_errors = validate_impl(value[okey], additional, join_path(path, okey), join_path(schema_path, "additionalProperties"));
+						for (let j = 0; j < add_errors.length; j++) {
+							errors.push(add_errors[j]);
+						}
+					}
+				}
+			}
+		}
+
+		// minProperties / maxProperties
+		if (schema.has("minProperties")) {
+			if (obj_keys.length < schema["minProperties"]) {
+				errors.push(make_error(path, "object has " + obj_keys.length + " properties, minProperties is " + schema["minProperties"], join_path(schema_path, "minProperties")));
+			}
+		}
+		if (schema.has("maxProperties")) {
+			if (obj_keys.length > schema["maxProperties"]) {
+				errors.push(make_error(path, "object has " + obj_keys.length + " properties, maxProperties is " + schema["maxProperties"], join_path(schema_path, "maxProperties")));
+			}
+		}
+	}
+
+	// --- Composition keywords ---
+
+	// allOf - value must match ALL schemas
+	if (schema.has("allOf")) {
+		let all_schemas = schema["allOf"];
+		if (is_json_array(all_schemas)) {
+			for (let i = 0; i < all_schemas.length; i++) {
+				let sub_errors = validate_impl(value, all_schemas[i], path, join_path(schema_path, "allOf[" + i + "]"));
+				for (let j = 0; j < sub_errors.length; j++) {
+					errors.push(sub_errors[j]);
+				}
+			}
+		}
+	}
+
+	// anyOf - value must match at least one schema
+	if (schema.has("anyOf")) {
+		let any_schemas = schema["anyOf"];
+		if (is_json_array(any_schemas)) {
+			let any_matched = false;
+			for (let i = 0; i < any_schemas.length; i++) {
+				let sub_errors = validate_impl(value, any_schemas[i], path, join_path(schema_path, "anyOf[" + i + "]"));
+				if (sub_errors.length == 0) {
+					any_matched = true;
+					break;
+				}
+			}
+			if (!any_matched) {
+				errors.push(make_error(path, "value does not match any schema in anyOf", join_path(schema_path, "anyOf")));
+			}
+		}
+	}
+
+	// oneOf - value must match exactly one schema
+	if (schema.has("oneOf")) {
+		let one_schemas = schema["oneOf"];
+		if (is_json_array(one_schemas)) {
+			let match_count = 0;
+			for (let i = 0; i < one_schemas.length; i++) {
+				let sub_errors = validate_impl(value, one_schemas[i], path, join_path(schema_path, "oneOf[" + i + "]"));
+				if (sub_errors.length == 0) {
+					match_count++;
+				}
+			}
+			if (match_count == 0) {
+				errors.push(make_error(path, "value does not match any schema in oneOf", join_path(schema_path, "oneOf")));
+			} else if (match_count > 1) {
+				errors.push(make_error(path, "value matches " + match_count + " schemas in oneOf, expected exactly 1", join_path(schema_path, "oneOf")));
+			}
+		}
+	}
+
+	// not - value must NOT match the schema
+	if (schema.has("not")) {
+		let not_schema = schema["not"];
+		let sub_errors = validate_impl(value, not_schema, path, join_path(schema_path, "not"));
+		if (sub_errors.length == 0) {
+			errors.push(make_error(path, "value should not match schema in 'not'", join_path(schema_path, "not")));
+		}
+	}
+
+	// if/then/else - conditional schema
+	if (schema.has("if")) {
+		let if_schema = schema["if"];
+		let if_errors = validate_impl(value, if_schema, path, join_path(schema_path, "if"));
+		if (if_errors.length == 0) {
+			// Condition matched - apply "then"
+			if (schema.has("then")) {
+				let then_errors = validate_impl(value, schema["then"], path, join_path(schema_path, "then"));
+				for (let i = 0; i < then_errors.length; i++) {
+					errors.push(then_errors[i]);
+				}
+			}
+		} else {
+			// Condition failed - apply "else"
+			if (schema.has("else")) {
+				let else_errors = validate_impl(value, schema["else"], path, join_path(schema_path, "else"));
+				for (let i = 0; i < else_errors.length; i++) {
+					errors.push(else_errors[i]);
+				}
+			}
+		}
+	}
+
+	return errors;
+}
+
+// Check if a value matches a JSON Schema type name
+fn check_type(value, type_name: string): bool {
+	if (type_name == "string") { return is_json_string(value); }
+	if (type_name == "number") { return is_json_number(value); }
+	if (type_name == "integer") { return is_json_integer(value); }
+	if (type_name == "boolean") { return is_json_bool(value); }
+	if (type_name == "array") { return is_json_array(value); }
+	if (type_name == "object") { return is_json_object(value); }
+	if (type_name == "null") { return is_json_null(value); }
+	return false;
+}
+
+// Get the JSON Schema type name for a value
+fn json_type_name(value): string {
+	let t = typeof(value);
+	if (t == "null") { return "null"; }
+	if (t == "bool") { return "boolean"; }
+	if (t == "string") { return "string"; }
+	if (t == "array") { return "array"; }
+	if (t == "object") { return "object"; }
+	if (is_json_number(value)) {
+		if (is_json_integer(value)) { return "integer"; }
+		return "number";
+	}
+	return t;
+}
+
+// Deep equality comparison
+fn deep_equals(a, b): bool {
+	let ta = typeof(a);
+	let tb = typeof(b);
+
+	if (is_json_null(a) && is_json_null(b)) { return true; }
+	if (is_json_null(a) || is_json_null(b)) { return false; }
+
+	// Numbers: compare by value regardless of specific numeric type
+	if (is_json_number(a) && is_json_number(b)) {
+		return a == b;
+	}
+
+	if (ta != tb) { return false; }
+
+	if (ta == "bool" || ta == "string") { return a == b; }
+
+	if (ta == "array") {
+		if (a.length != b.length) { return false; }
+		for (let i = 0; i < a.length; i++) {
+			if (!deep_equals(a[i], b[i])) { return false; }
+		}
+		return true;
+	}
+
+	if (ta == "object") {
+		let ka = a.keys();
+		let kb = b.keys();
+		if (ka.length != kb.length) { return false; }
+		for (let i = 0; i < ka.length; i++) {
+			let k = ka[i];
+			if (!b.has(k)) { return false; }
+			if (!deep_equals(a[k], b[k])) { return false; }
+		}
+		return true;
+	}
+
+	return a == b;
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+// Validate a value against a JSON Schema.
+//
+// Returns: { valid: bool, errors: array }
+//   Each error: { path: string, message: string, schema_path: string }
+//
+// Example:
+//   let result = validate(data, schema);
+//   if (!result.valid) {
+//       for (err in result.errors) {
+//           print(err.path + ": " + err.message);
+//       }
+//   }
+export fn validate(value, schema) {
+	let errors = validate_impl(value, schema, "", "");
+	return make_result(errors.length == 0, errors);
+}
+
+// Check if a value matches a schema (returns bool only).
+//
+// Example:
+//   if (is_valid(data, schema)) { print("OK"); }
+export fn is_valid(value, schema): bool {
+	let errors = validate_impl(value, schema, "", "");
+	return errors.length == 0;
+}
+
+// Validate a JSON string against a schema.
+// Parses the string first, then validates the parsed value.
+//
+// Returns: { valid: bool, errors: array }
+// On parse failure, returns a single error about invalid JSON.
+export fn validate_json(json_str: string, schema) {
+	try {
+		let value = parse(json_str);
+		return validate(value, schema);
+	} catch (e) {
+		return make_result(false, [make_error("", "invalid JSON: " + e, "")]);
+	}
+}
+
+// ============================================================================
+// Schema builder helpers
+// ============================================================================
+
+// Build a schema for a string type
+export fn string_type(opts?: null) {
+	let s = { type: "string" };
+	if (opts != null) {
+		if (is_json_object(opts)) {
+			if (opts.has("minLength")) { s["minLength"] = opts["minLength"]; }
+			if (opts.has("maxLength")) { s["maxLength"] = opts["maxLength"]; }
+			if (opts.has("enum")) { s["enum"] = opts["enum"]; }
+		}
+	}
+	return s;
+}
+
+// Build a schema for a number type
+export fn number_type(opts?: null) {
+	let s = { type: "number" };
+	if (opts != null) {
+		if (is_json_object(opts)) {
+			if (opts.has("minimum")) { s["minimum"] = opts["minimum"]; }
+			if (opts.has("maximum")) { s["maximum"] = opts["maximum"]; }
+			if (opts.has("exclusiveMinimum")) { s["exclusiveMinimum"] = opts["exclusiveMinimum"]; }
+			if (opts.has("exclusiveMaximum")) { s["exclusiveMaximum"] = opts["exclusiveMaximum"]; }
+			if (opts.has("multipleOf")) { s["multipleOf"] = opts["multipleOf"]; }
+		}
+	}
+	return s;
+}
+
+// Build a schema for an integer type
+export fn integer_type(opts?: null) {
+	let s = { type: "integer" };
+	if (opts != null) {
+		if (is_json_object(opts)) {
+			if (opts.has("minimum")) { s["minimum"] = opts["minimum"]; }
+			if (opts.has("maximum")) { s["maximum"] = opts["maximum"]; }
+			if (opts.has("exclusiveMinimum")) { s["exclusiveMinimum"] = opts["exclusiveMinimum"]; }
+			if (opts.has("exclusiveMaximum")) { s["exclusiveMaximum"] = opts["exclusiveMaximum"]; }
+			if (opts.has("multipleOf")) { s["multipleOf"] = opts["multipleOf"]; }
+		}
+	}
+	return s;
+}
+
+// Build a schema for a boolean type
+export fn boolean_type() {
+	return { type: "boolean" };
+}
+
+// Build a schema for null type
+export fn null_type() {
+	return { type: "null" };
+}
+
+// Build a schema for an array type
+export fn array_type(item_schema?: null, opts?: null) {
+	let s = { type: "array" };
+	if (item_schema != null) {
+		s["items"] = item_schema;
+	}
+	if (opts != null) {
+		if (is_json_object(opts)) {
+			if (opts.has("minItems")) { s["minItems"] = opts["minItems"]; }
+			if (opts.has("maxItems")) { s["maxItems"] = opts["maxItems"]; }
+			if (opts.has("uniqueItems")) { s["uniqueItems"] = opts["uniqueItems"]; }
+		}
+	}
+	return s;
+}
+
+// Build a schema for an object type
+//
+// Example:
+//   let schema = object_type(
+//       {
+//           name: string_type(),
+//           age: integer_type({ minimum: 0 })
+//       },
+//       ["name"],             // required
+//       { additional: false } // options
+//   );
+export fn object_type(properties?: null, required?: null, opts?: null) {
+	let s = { type: "object" };
+	if (properties != null) {
+		s["properties"] = properties;
+	}
+	if (required != null) {
+		s["required"] = required;
+	}
+	if (opts != null) {
+		if (is_json_object(opts)) {
+			if (opts.has("additional")) { s["additionalProperties"] = opts["additional"]; }
+			if (opts.has("additionalProperties")) { s["additionalProperties"] = opts["additionalProperties"]; }
+			if (opts.has("minProperties")) { s["minProperties"] = opts["minProperties"]; }
+			if (opts.has("maxProperties")) { s["maxProperties"] = opts["maxProperties"]; }
+		}
+	}
+	return s;
+}
+
+// Create a nullable type (allows type or null)
+//
+// Example:
+//   let schema = nullable(string_type());
+//   // Equivalent to { type: ["string", "null"] }
+export fn nullable(schema) {
+	if (is_json_object(schema) && schema.has("type")) {
+		let t = schema["type"];
+		if (is_json_string(t)) {
+			// Clone the schema and make type a union with null
+			let result = {};
+			let keys = schema.keys();
+			for (let i = 0; i < keys.length; i++) {
+				let k = keys[i];
+				result[k] = schema[k];
+			}
+			result["type"] = [t, "null"];
+			return result;
+		}
+	}
+	// Fallback: use anyOf
+	return { anyOf: [schema, { type: "null" }] };
+}
+
+// Create an enum schema
+//
+// Example:
+//   let schema = enum_type(["red", "green", "blue"]);
+export fn enum_type(values: array) {
+	return { enum: values };
+}
+
+// Create a const schema
+//
+// Example:
+//   let schema = const_type("fixed_value");
+export fn const_type(value) {
+	return { const: value };
+}
+
+// Create an anyOf schema (value must match at least one)
+//
+// Example:
+//   let schema = any_of([string_type(), integer_type()]);
+export fn any_of(schemas: array) {
+	return { anyOf: schemas };
+}
+
+// Create a oneOf schema (value must match exactly one)
+export fn one_of(schemas: array) {
+	return { oneOf: schemas };
+}
+
+// Create an allOf schema (value must match all)
+export fn all_of(schemas: array) {
+	return { allOf: schemas };
+}
+
+// Create a not schema (value must NOT match)
+export fn not_schema(schema) {
+	return { not: schema };
+}
+
+// ============================================================================
+// Error formatting
+// ============================================================================
+
+// Format validation errors as a human-readable string.
+//
+// Example:
+//   let result = validate(data, schema);
+//   if (!result.valid) {
+//       print(format_errors(result.errors));
+//   }
+export fn format_errors(errors: array): string {
+	if (errors.length == 0) {
+		return "no errors";
+	}
+	let lines = [];
+	for (let i = 0; i < errors.length; i++) {
+		let err = errors[i];
+		let line = "";
+		if (err.path != "") {
+			line = err.path + ": ";
+		}
+		line = line + err.message;
+		lines.push(line);
+	}
+	return lines.join("\n");
+}
