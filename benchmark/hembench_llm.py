@@ -213,12 +213,14 @@ class LlamaServer:
     """Manages a llama-server subprocess lifecycle."""
 
     def __init__(self, model_path: str, llama_bin: str = "llama-server",
-                 port: int = DEFAULT_PORT, n_ctx: int = 8192, n_gpu_layers: int = -1):
+                 port: int = DEFAULT_PORT, n_ctx: int = 8192, n_gpu_layers: int = -1,
+                 llm_timeout: int = LLM_TIMEOUT_SEC):
         self.model_path = model_path
         self.llama_bin = llama_bin
         self.port = port
         self.n_ctx = n_ctx
         self.n_gpu_layers = n_gpu_layers
+        self.llm_timeout = llm_timeout
         self.process = None
         self.base_url = f"http://127.0.0.1:{port}"
 
@@ -308,7 +310,7 @@ class LlamaServer:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=LLM_TIMEOUT_SEC) as resp:
+            with urllib.request.urlopen(req, timeout=self.llm_timeout) as resp:
                 result = json.loads(resp.read())
                 content = result["choices"][0]["message"]["content"]
                 finish_reason = result["choices"][0].get("finish_reason", "unknown")
@@ -774,6 +776,8 @@ Examples:
                         help=f"Max tokens for LLM generation (default: {MAX_TOKENS})")
     parser.add_argument("--temperature", type=float, default=TEMPERATURE,
                         help=f"Sampling temperature (default: {TEMPERATURE})")
+    parser.add_argument("--llm-timeout", type=int, default=LLM_TIMEOUT_SEC,
+                        help=f"Timeout in seconds per LLM request (default: {LLM_TIMEOUT_SEC})")
 
     # Output
     parser.add_argument("--output", type=str, default="",
@@ -862,6 +866,7 @@ Examples:
                     port=args.port,
                     n_ctx=args.ctx_size,
                     n_gpu_layers=args.n_gpu_layers,
+                    llm_timeout=args.llm_timeout,
                 )
                 if not server.start():
                     log(f"Failed to start server for {model_name}, skipping.", C.RED)
