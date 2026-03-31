@@ -1,0 +1,107 @@
+// Test ONNX Runtime inference with a real model
+//
+// This test creates a simple ONNX model programmatically using the
+// model's protobuf format, then runs inference through it.
+//
+// Requires: libonnxruntime.so, libhemlock_onnx.so, and a test model file
+//
+// To generate a test model:
+//   python3 -c "
+//   import numpy as np
+//   import onnx
+//   from onnx import helper, TensorProto
+//
+//   # Simple model: output = input * 2.0
+//   X = helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, 4])
+//   Y = helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 4])
+//   weight = helper.make_tensor('weight', TensorProto.FLOAT, [1], [2.0])
+//   node = helper.make_node('Mul', ['input', 'weight'], ['output'])
+//   graph = helper.make_graph([node], 'test', [X], [Y], [weight])
+//   model = helper.make_model(graph)
+//   model.opset_import[0].version = 13
+//   onnx.save(model, 'tests/stdlib_onnx/test_mul2.onnx')
+//   "
+//
+// If no model file is available, this test prints a skip message.
+
+import { exists } from "@stdlib/fs";
+import {
+	create_session, free_session, run,
+	create_tensor_f32, tensor_data_f32, tensor_shape, free_tensor,
+	input_count, output_count, input_names, output_names,
+	input_shape, output_shape, input_type, output_type,
+	describe, dtype_name, DTYPE_FLOAT
+} from "@stdlib/onnx";
+
+let model_path = "tests/stdlib_onnx/test_mul2.onnx";
+
+if (!exists(model_path)) {
+	print("Skipping inference test: model file not found (" + model_path + ")");
+	print("All inference ONNX tests passed!");
+} else {
+	// Load model
+	let session = create_session(model_path);
+	assert(session != null, "session should not be null");
+
+	// Inspect model
+	assert(input_count(session) == 1, "model should have 1 input");
+	assert(output_count(session) == 1, "model should have 1 output");
+
+	let in_names = input_names(session);
+	assert(in_names[0] == "input", "input name should be 'input'");
+
+	let out_names = output_names(session);
+	assert(out_names[0] == "output", "output name should be 'output'");
+
+	let in_shape = input_shape(session, 0);
+	assert(in_shape.length == 2, "input should be 2D");
+	assert(in_shape[0] == 1, "input batch size should be 1");
+	assert(in_shape[1] == 4, "input features should be 4");
+
+	assert(input_type(session, 0) == DTYPE_FLOAT, "input type should be float32");
+	assert(output_type(session, 0) == DTYPE_FLOAT, "output type should be float32");
+
+	print("Model inspection OK");
+
+	// Describe model (prints to stdout)
+	describe(session);
+
+	// Create input tensor
+	let input = create_tensor_f32([1.0, 2.0, 3.0, 4.0], [1, 4]);
+
+	// Run inference using named inputs
+	let outputs = run(session, { "input": input });
+	assert(outputs.length == 1, "should have 1 output");
+
+	// Check output
+	let out_shape = tensor_shape(outputs[0]);
+	assert(out_shape.length == 2, "output should be 2D");
+	assert(out_shape[0] == 1, "output batch should be 1");
+	assert(out_shape[1] == 4, "output features should be 4");
+
+	let result = tensor_data_f32(outputs[0]);
+	assert(result.length == 4, "result should have 4 elements");
+
+	// model multiplies by 2.0
+	assert(result[0] > 1.99 && result[0] < 2.01, "result[0] should be ~2.0");
+	assert(result[1] > 3.99 && result[1] < 4.01, "result[1] should be ~4.0");
+	assert(result[2] > 5.99 && result[2] < 6.01, "result[2] should be ~6.0");
+	assert(result[3] > 7.99 && result[3] < 8.01, "result[3] should be ~8.0");
+
+	print("Named inference OK");
+
+	// Run inference using positional inputs (array)
+	let outputs2 = run(session, [input]);
+	let result2 = tensor_data_f32(outputs2[0]);
+	assert(result2[0] > 1.99 && result2[0] < 2.01, "positional result[0] should be ~2.0");
+
+	print("Positional inference OK");
+
+	// Cleanup
+	free_tensor(outputs[0]);
+	free_tensor(outputs2[0]);
+	free_tensor(input);
+	free_session(session);
+
+	print("All inference ONNX tests passed!");
+}

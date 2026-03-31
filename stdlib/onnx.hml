@@ -1,0 +1,1079 @@
+// @stdlib/onnx - ONNX Runtime inference via FFI
+//
+// Run ONNX models locally for embeddings, classification, and general inference
+// without API calls. Uses libonnxruntime via a thin C wrapper.
+//
+// System Requirements:
+// - ONNX Runtime (libonnxruntime.so)
+//   Install: https://github.com/microsoft/onnxruntime/releases
+// - Hemlock ONNX wrapper (libhemlock_onnx.so)
+//   Build: make stdlib  (or manually: see stdlib/c/onnx_wrapper.c)
+//
+// Usage:
+// import { create_session, run, create_tensor_f32, free_session } from "@stdlib/onnx";
+//
+// let session = create_session("model.onnx");
+// let input = create_tensor_f32([1.0, 2.0, 3.0, 4.0], [1, 4]);
+// let outputs = run(session, { "input": input });
+// let result = tensor_data_f32(outputs[0]);
+// print(result);
+// free_tensor(outputs[0]);
+// free_session(session);
+
+// Import the C wrapper library
+import "libhemlock_onnx.so";
+
+// ============================================================================
+// Constants: Logging Levels
+// ============================================================================
+
+export let LOG_VERBOSE = 0;
+export let LOG_INFO = 1;
+export let LOG_WARNING = 2;
+export let LOG_ERROR = 3;
+export let LOG_FATAL = 4;
+
+// ============================================================================
+// Constants: Graph Optimization Levels
+// ============================================================================
+
+export let OPT_DISABLE = 0;   // No graph optimization
+export let OPT_BASIC = 1;     // Basic optimizations (constant folding, redundant node elimination)
+export let OPT_EXTENDED = 2;  // Extended optimizations (node fusions, etc.)
+export let OPT_ALL = 99;      // All available optimizations
+
+// ============================================================================
+// Constants: Tensor Element Data Types (ONNXTensorElementDataType)
+// ============================================================================
+
+export let DTYPE_UNDEFINED = 0;
+export let DTYPE_FLOAT = 1;    // 32-bit float
+export let DTYPE_UINT8 = 2;    // 8-bit unsigned integer
+export let DTYPE_INT8 = 3;     // 8-bit signed integer
+export let DTYPE_UINT16 = 4;   // 16-bit unsigned integer
+export let DTYPE_INT16 = 5;    // 16-bit signed integer
+export let DTYPE_INT32 = 6;    // 32-bit signed integer
+export let DTYPE_INT64 = 7;    // 64-bit signed integer
+export let DTYPE_STRING = 8;   // String
+export let DTYPE_BOOL = 9;     // Boolean
+export let DTYPE_FLOAT16 = 10; // IEEE 16-bit float
+export let DTYPE_DOUBLE = 11;  // 64-bit double
+export let DTYPE_UINT32 = 12;  // 32-bit unsigned integer
+export let DTYPE_UINT64 = 13;  // 64-bit unsigned integer
+
+// ============================================================================
+// Size Constants
+// ============================================================================
+
+let SIZEOF_F32 = 4;
+let SIZEOF_F64 = 8;
+let SIZEOF_I32 = 4;
+let SIZEOF_I64 = 8;
+let SIZEOF_PTR = 8;
+
+// ============================================================================
+// FFI Bindings (flat C wrapper functions)
+// ============================================================================
+
+// Version
+extern fn hml_ort_version(): ptr;
+extern fn hml_ort_api_version(): i32;
+
+// Environment
+extern fn hml_ort_create_env(log_level: i32, logid: ptr, err: ptr): ptr;
+extern fn hml_ort_release_env(env: ptr): void;
+
+// Session options
+extern fn hml_ort_create_session_options(err: ptr): ptr;
+extern fn hml_ort_release_session_options(opts: ptr): void;
+extern fn hml_ort_session_options_set_intra_threads(opts: ptr, num: i32, err: ptr): i32;
+extern fn hml_ort_session_options_set_inter_threads(opts: ptr, num: i32, err: ptr): i32;
+extern fn hml_ort_session_options_set_graph_opt(opts: ptr, level: i32, err: ptr): i32;
+
+// Session
+extern fn hml_ort_create_session(env: ptr, path: ptr, opts: ptr, err: ptr): ptr;
+extern fn hml_ort_create_session_from_array(env: ptr, data: ptr, len: i64, opts: ptr, err: ptr): ptr;
+extern fn hml_ort_release_session(session: ptr): void;
+
+// Model inspection
+extern fn hml_ort_session_input_count(session: ptr, err: ptr): i64;
+extern fn hml_ort_session_output_count(session: ptr, err: ptr): i64;
+extern fn hml_ort_session_input_name(session: ptr, idx: i64, err: ptr): ptr;
+extern fn hml_ort_session_output_name(session: ptr, idx: i64, err: ptr): ptr;
+extern fn hml_ort_free_name(name: ptr): void;
+extern fn hml_ort_session_input_shape(session: ptr, idx: i64, shape: ptr, max_dims: i64, err: ptr): i64;
+extern fn hml_ort_session_output_shape(session: ptr, idx: i64, shape: ptr, max_dims: i64, err: ptr): i64;
+extern fn hml_ort_session_input_type(session: ptr, idx: i64, err: ptr): i32;
+extern fn hml_ort_session_output_type(session: ptr, idx: i64, err: ptr): i32;
+
+// Memory info
+extern fn hml_ort_create_cpu_memory_info(err: ptr): ptr;
+extern fn hml_ort_release_memory_info(info: ptr): void;
+
+// Tensor
+extern fn hml_ort_create_tensor(data: ptr, data_len: i64, shape: ptr, ndims: i64,
+	element_type: i32, mem_info: ptr, err: ptr): ptr;
+extern fn hml_ort_release_value(value: ptr): void;
+extern fn hml_ort_tensor_data(value: ptr, err: ptr): ptr;
+extern fn hml_ort_tensor_ndims(value: ptr, err: ptr): i64;
+extern fn hml_ort_tensor_shape(value: ptr, shape_out: ptr, max_dims: i64, err: ptr): i32;
+extern fn hml_ort_tensor_element_count(value: ptr, err: ptr): i64;
+extern fn hml_ort_tensor_element_type(value: ptr, err: ptr): i32;
+
+// Inference
+extern fn hml_ort_run(session: ptr, input_names: ptr, input_values: ptr,
+	num_inputs: i64, output_names: ptr, num_outputs: i64,
+	output_values: ptr, err: ptr): i32;
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+// Create and initialize error holder (pointer to char*)
+fn _make_err_holder(): ptr {
+	let err = alloc(SIZEOF_PTR);
+	ptr_write_ptr(err, ptr_null());
+	return err;
+}
+
+// Check error holder and throw if error occurred, then free holder
+fn _check_err(err_holder: ptr): null {
+	let err_ptr = ptr_read_ptr(err_holder);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err_holder);
+		throw "onnx error: " + msg;
+	}
+	free(err_holder);
+	return null;
+}
+
+// Check error holder, throw if error, and free an additional pointer on error
+fn _check_err_with_cleanup(err_holder: ptr, cleanup_ptr: ptr): null {
+	let err_ptr = ptr_read_ptr(err_holder);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err_holder);
+		free(cleanup_ptr);
+		throw "onnx error: " + msg;
+	}
+	free(err_holder);
+	return null;
+}
+
+// Get element size for a given dtype
+fn _dtype_size(dtype: i32): i64 {
+	if (dtype == DTYPE_FLOAT) { return SIZEOF_F32; }
+	if (dtype == DTYPE_DOUBLE) { return SIZEOF_F64; }
+	if (dtype == DTYPE_INT32) { return SIZEOF_I32; }
+	if (dtype == DTYPE_INT64) { return SIZEOF_I64; }
+	if (dtype == DTYPE_UINT32) { return SIZEOF_I32; }
+	if (dtype == DTYPE_UINT64) { return SIZEOF_I64; }
+	if (dtype == DTYPE_INT16 || dtype == DTYPE_UINT16 || dtype == DTYPE_FLOAT16) { return 2; }
+	if (dtype == DTYPE_INT8 || dtype == DTYPE_UINT8 || dtype == DTYPE_BOOL) { return 1; }
+	return 0;
+}
+
+// Compute total element count from shape array
+fn _shape_element_count(shape: array): i64 {
+	let count: i64 = 1;
+	let i = 0;
+	while (i < shape.length) {
+		count = count * shape[i];
+		i = i + 1;
+	}
+	return count;
+}
+
+// Pack a shape array into contiguous i64 memory
+fn _pack_shape(shape: array): ptr {
+	let ndims = shape.length;
+	let buf = alloc(ndims * SIZEOF_I64);
+	let i = 0;
+	while (i < ndims) {
+		let dim: i64 = shape[i];
+		ptr_write_i64(buf + i * SIZEOF_I64, dim);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// Pack a Hemlock array into contiguous f32 memory
+fn _pack_f32(arr: array, count: i64): ptr {
+	let buf = alloc(count * SIZEOF_F32);
+	let i = 0;
+	while (i < count) {
+		let val: f32 = arr[i];
+		ptr_write_f32(buf + i * SIZEOF_F32, val);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// Pack a Hemlock array into contiguous f64 memory
+fn _pack_f64(arr: array, count: i64): ptr {
+	let buf = alloc(count * SIZEOF_F64);
+	let i = 0;
+	while (i < count) {
+		let val: f64 = arr[i];
+		ptr_write_f64(buf + i * SIZEOF_F64, val);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// Pack a Hemlock array into contiguous i32 memory
+fn _pack_i32(arr: array, count: i64): ptr {
+	let buf = alloc(count * SIZEOF_I32);
+	let i = 0;
+	while (i < count) {
+		let val: i32 = arr[i];
+		ptr_write_i32(buf + i * SIZEOF_I32, val);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// Pack a Hemlock array into contiguous i64 memory
+fn _pack_i64(arr: array, count: i64): ptr {
+	let buf = alloc(count * SIZEOF_I64);
+	let i = 0;
+	while (i < count) {
+		let val: i64 = arr[i];
+		ptr_write_i64(buf + i * SIZEOF_I64, val);
+		i = i + 1;
+	}
+	return buf;
+}
+
+// ============================================================================
+// Types
+// ============================================================================
+
+// ONNX Runtime session wrapping environment, session, and options handles
+define Session {
+	_env: ptr,
+	_session: ptr,
+	_options: ptr,
+	_mem_info: ptr,
+	_freed: bool,
+}
+
+// Tensor wrapping an OrtValue with its backing data buffer
+define Tensor {
+	_value: ptr,
+	_data_buf: ptr,
+	_dtype: i32,
+	_freed: bool,
+}
+
+// Ensure session is not freed
+fn _check_session(s: Session): null {
+	if (s._freed) {
+		throw "Session has been freed";
+	}
+	return null;
+}
+
+// Ensure tensor is not freed
+fn _check_tensor(t: Tensor): null {
+	if (t._freed) {
+		throw "Tensor has been freed";
+	}
+	return null;
+}
+
+// ============================================================================
+// Version
+// ============================================================================
+
+// Get ONNX Runtime library version string (e.g., "1.17.0")
+export fn version(): string {
+	let ver_ptr = hml_ort_version();
+	return __cstr_to_string(ver_ptr);
+}
+
+// Get the ORT API version this wrapper was built against
+export fn api_version(): i32 {
+	return hml_ort_api_version();
+}
+
+// ============================================================================
+// Session Lifecycle
+// ============================================================================
+
+// Create an inference session from a model file
+//
+// model_path: Path to the .onnx model file
+// log_level: Logging verbosity (default: LOG_WARNING)
+// intra_threads: Number of intra-op threads (default: 0 = auto)
+// inter_threads: Number of inter-op threads (default: 0 = auto)
+// optimization: Graph optimization level (default: OPT_ALL)
+export fn create_session(model_path: string, log_level?: 2,
+	intra_threads?: 0, inter_threads?: 0, optimization?: 99): Session {
+
+	// Create environment
+	let logid_cstr = __string_to_cstr("hemlock");
+	let err = _make_err_holder();
+	let env = hml_ort_create_env(log_level, logid_cstr, err);
+	free(logid_cstr);
+	_check_err(err);
+
+	if (env == ptr_null()) {
+		throw "onnx error: failed to create environment";
+	}
+
+	// Create session options
+	let err2 = _make_err_holder();
+	let opts = hml_ort_create_session_options(err2);
+
+	let err_ptr2 = ptr_read_ptr(err2);
+	if (err_ptr2 != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr2);
+		free(err2);
+		hml_ort_release_env(env);
+		throw "onnx error: " + msg;
+	}
+	free(err2);
+
+	// Configure options
+	if (intra_threads > 0) {
+		let err3 = _make_err_holder();
+		hml_ort_session_options_set_intra_threads(opts, intra_threads, err3);
+		let err_ptr3 = ptr_read_ptr(err3);
+		if (err_ptr3 != ptr_null()) {
+			let msg = __cstr_to_string(err_ptr3);
+			free(err3);
+			hml_ort_release_session_options(opts);
+			hml_ort_release_env(env);
+			throw "onnx error: " + msg;
+		}
+		free(err3);
+	}
+
+	if (inter_threads > 0) {
+		let err4 = _make_err_holder();
+		hml_ort_session_options_set_inter_threads(opts, inter_threads, err4);
+		let err_ptr4 = ptr_read_ptr(err4);
+		if (err_ptr4 != ptr_null()) {
+			let msg = __cstr_to_string(err_ptr4);
+			free(err4);
+			hml_ort_release_session_options(opts);
+			hml_ort_release_env(env);
+			throw "onnx error: " + msg;
+		}
+		free(err4);
+	}
+
+	let err5 = _make_err_holder();
+	hml_ort_session_options_set_graph_opt(opts, optimization, err5);
+	let err_ptr5 = ptr_read_ptr(err5);
+	if (err_ptr5 != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr5);
+		free(err5);
+		hml_ort_release_session_options(opts);
+		hml_ort_release_env(env);
+		throw "onnx error: " + msg;
+	}
+	free(err5);
+
+	// Create session
+	let path_cstr = __string_to_cstr(model_path);
+	let err6 = _make_err_holder();
+	let session = hml_ort_create_session(env, path_cstr, opts, err6);
+	free(path_cstr);
+
+	let err_ptr6 = ptr_read_ptr(err6);
+	if (err_ptr6 != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr6);
+		free(err6);
+		hml_ort_release_session_options(opts);
+		hml_ort_release_env(env);
+		throw "onnx error: " + msg;
+	}
+	free(err6);
+
+	if (session == ptr_null()) {
+		hml_ort_release_session_options(opts);
+		hml_ort_release_env(env);
+		throw "onnx error: failed to create session";
+	}
+
+	// Create CPU memory info for tensor operations
+	let err7 = _make_err_holder();
+	let mem_info = hml_ort_create_cpu_memory_info(err7);
+	let err_ptr7 = ptr_read_ptr(err7);
+	if (err_ptr7 != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr7);
+		free(err7);
+		hml_ort_release_session(session);
+		hml_ort_release_session_options(opts);
+		hml_ort_release_env(env);
+		throw "onnx error: " + msg;
+	}
+	free(err7);
+
+	let s: Session = {
+		_env: env,
+		_session: session,
+		_options: opts,
+		_mem_info: mem_info,
+		_freed: false,
+	};
+	return s;
+}
+
+// Free all resources associated with a session
+export fn free_session(s: Session): null {
+	if (s._freed) {
+		return null;
+	}
+	hml_ort_release_memory_info(s._mem_info);
+	hml_ort_release_session(s._session);
+	hml_ort_release_session_options(s._options);
+	hml_ort_release_env(s._env);
+	s._freed = true;
+	return null;
+}
+
+// ============================================================================
+// Model Inspection
+// ============================================================================
+
+// Get number of model inputs
+export fn input_count(s: Session): i64 {
+	_check_session(s);
+	let err = _make_err_holder();
+	let count = hml_ort_session_input_count(s._session, err);
+	_check_err(err);
+	return count;
+}
+
+// Get number of model outputs
+export fn output_count(s: Session): i64 {
+	_check_session(s);
+	let err = _make_err_holder();
+	let count = hml_ort_session_output_count(s._session, err);
+	_check_err(err);
+	return count;
+}
+
+// Get all input names as an array of strings
+export fn input_names(s: Session): array {
+	_check_session(s);
+	let count = input_count(s);
+	let names = [];
+	let i: i64 = 0;
+	while (i < count) {
+		let err = _make_err_holder();
+		let name_ptr = hml_ort_session_input_name(s._session, i, err);
+		_check_err(err);
+		let name = __cstr_to_string(name_ptr);
+		hml_ort_free_name(name_ptr);
+		names.push(name);
+		i = i + 1;
+	}
+	return names;
+}
+
+// Get all output names as an array of strings
+export fn output_names(s: Session): array {
+	_check_session(s);
+	let count = output_count(s);
+	let names = [];
+	let i: i64 = 0;
+	while (i < count) {
+		let err = _make_err_holder();
+		let name_ptr = hml_ort_session_output_name(s._session, i, err);
+		_check_err(err);
+		let name = __cstr_to_string(name_ptr);
+		hml_ort_free_name(name_ptr);
+		names.push(name);
+		i = i + 1;
+	}
+	return names;
+}
+
+// Get the shape of an input tensor by index
+// Returns array of i64 dimensions (dynamic dimensions may be -1)
+export fn input_shape(s: Session, idx: i64): array {
+	_check_session(s);
+	let max_dims: i64 = 16;
+	let shape_buf = alloc(max_dims * SIZEOF_I64);
+	let err = _make_err_holder();
+	let ndims = hml_ort_session_input_shape(s._session, idx, shape_buf, max_dims, err);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(shape_buf);
+		throw "onnx error: " + msg;
+	}
+	free(err);
+
+	let shape = [];
+	let i: i64 = 0;
+	while (i < ndims) {
+		shape.push(ptr_read_i64(shape_buf + i * SIZEOF_I64));
+		i = i + 1;
+	}
+	free(shape_buf);
+	return shape;
+}
+
+// Get the shape of an output tensor by index
+export fn output_shape(s: Session, idx: i64): array {
+	_check_session(s);
+	let max_dims: i64 = 16;
+	let shape_buf = alloc(max_dims * SIZEOF_I64);
+	let err = _make_err_holder();
+	let ndims = hml_ort_session_output_shape(s._session, idx, shape_buf, max_dims, err);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(shape_buf);
+		throw "onnx error: " + msg;
+	}
+	free(err);
+
+	let shape = [];
+	let i: i64 = 0;
+	while (i < ndims) {
+		shape.push(ptr_read_i64(shape_buf + i * SIZEOF_I64));
+		i = i + 1;
+	}
+	free(shape_buf);
+	return shape;
+}
+
+// Get the element type of an input tensor (returns DTYPE_* constant)
+export fn input_type(s: Session, idx: i64): i32 {
+	_check_session(s);
+	let err = _make_err_holder();
+	let dtype = hml_ort_session_input_type(s._session, idx, err);
+	_check_err(err);
+	return dtype;
+}
+
+// Get the element type of an output tensor (returns DTYPE_* constant)
+export fn output_type(s: Session, idx: i64): i32 {
+	_check_session(s);
+	let err = _make_err_holder();
+	let dtype = hml_ort_session_output_type(s._session, idx, err);
+	_check_err(err);
+	return dtype;
+}
+
+// ============================================================================
+// Tensor Creation
+// ============================================================================
+
+// Create a float32 tensor from data and shape
+//
+// data: Flat array of f32 values
+// shape: Array of dimension sizes (e.g., [1, 3, 224, 224])
+export fn create_tensor_f32(data: array, shape: array): Tensor {
+	let count = _shape_element_count(shape);
+	if (data.length != count) {
+		throw "data length " + data.length + " does not match shape element count " + count;
+	}
+
+	let data_buf = _pack_f32(data, count);
+	let shape_buf = _pack_shape(shape);
+	let data_len = count * SIZEOF_F32;
+
+	let err = _make_err_holder();
+	let mem_info = hml_ort_create_cpu_memory_info(err);
+	_check_err_with_cleanup(err, data_buf);
+
+	let err2 = _make_err_holder();
+	let value = hml_ort_create_tensor(data_buf, data_len, shape_buf, shape.length,
+		DTYPE_FLOAT, mem_info, err2);
+
+	let err_ptr = ptr_read_ptr(err2);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err2);
+		free(data_buf);
+		free(shape_buf);
+		hml_ort_release_memory_info(mem_info);
+		throw "onnx error: " + msg;
+	}
+	free(err2);
+	free(shape_buf);
+	hml_ort_release_memory_info(mem_info);
+
+	let t: Tensor = {
+		_value: value,
+		_data_buf: data_buf,
+		_dtype: DTYPE_FLOAT,
+		_freed: false,
+	};
+	return t;
+}
+
+// Create a float64 (double) tensor from data and shape
+export fn create_tensor_f64(data: array, shape: array): Tensor {
+	let count = _shape_element_count(shape);
+	if (data.length != count) {
+		throw "data length " + data.length + " does not match shape element count " + count;
+	}
+
+	let data_buf = _pack_f64(data, count);
+	let shape_buf = _pack_shape(shape);
+	let data_len = count * SIZEOF_F64;
+
+	let err = _make_err_holder();
+	let mem_info = hml_ort_create_cpu_memory_info(err);
+	_check_err_with_cleanup(err, data_buf);
+
+	let err2 = _make_err_holder();
+	let value = hml_ort_create_tensor(data_buf, data_len, shape_buf, shape.length,
+		DTYPE_DOUBLE, mem_info, err2);
+
+	let err_ptr = ptr_read_ptr(err2);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err2);
+		free(data_buf);
+		free(shape_buf);
+		hml_ort_release_memory_info(mem_info);
+		throw "onnx error: " + msg;
+	}
+	free(err2);
+	free(shape_buf);
+	hml_ort_release_memory_info(mem_info);
+
+	let t: Tensor = {
+		_value: value,
+		_data_buf: data_buf,
+		_dtype: DTYPE_DOUBLE,
+		_freed: false,
+	};
+	return t;
+}
+
+// Create an int32 tensor from data and shape
+export fn create_tensor_i32(data: array, shape: array): Tensor {
+	let count = _shape_element_count(shape);
+	if (data.length != count) {
+		throw "data length " + data.length + " does not match shape element count " + count;
+	}
+
+	let data_buf = _pack_i32(data, count);
+	let shape_buf = _pack_shape(shape);
+	let data_len = count * SIZEOF_I32;
+
+	let err = _make_err_holder();
+	let mem_info = hml_ort_create_cpu_memory_info(err);
+	_check_err_with_cleanup(err, data_buf);
+
+	let err2 = _make_err_holder();
+	let value = hml_ort_create_tensor(data_buf, data_len, shape_buf, shape.length,
+		DTYPE_INT32, mem_info, err2);
+
+	let err_ptr = ptr_read_ptr(err2);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err2);
+		free(data_buf);
+		free(shape_buf);
+		hml_ort_release_memory_info(mem_info);
+		throw "onnx error: " + msg;
+	}
+	free(err2);
+	free(shape_buf);
+	hml_ort_release_memory_info(mem_info);
+
+	let t: Tensor = {
+		_value: value,
+		_data_buf: data_buf,
+		_dtype: DTYPE_INT32,
+		_freed: false,
+	};
+	return t;
+}
+
+// Create an int64 tensor from data and shape
+export fn create_tensor_i64(data: array, shape: array): Tensor {
+	let count = _shape_element_count(shape);
+	if (data.length != count) {
+		throw "data length " + data.length + " does not match shape element count " + count;
+	}
+
+	let data_buf = _pack_i64(data, count);
+	let shape_buf = _pack_shape(shape);
+	let data_len = count * SIZEOF_I64;
+
+	let err = _make_err_holder();
+	let mem_info = hml_ort_create_cpu_memory_info(err);
+	_check_err_with_cleanup(err, data_buf);
+
+	let err2 = _make_err_holder();
+	let value = hml_ort_create_tensor(data_buf, data_len, shape_buf, shape.length,
+		DTYPE_INT64, mem_info, err2);
+
+	let err_ptr = ptr_read_ptr(err2);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err2);
+		free(data_buf);
+		free(shape_buf);
+		hml_ort_release_memory_info(mem_info);
+		throw "onnx error: " + msg;
+	}
+	free(err2);
+	free(shape_buf);
+	hml_ort_release_memory_info(mem_info);
+
+	let t: Tensor = {
+		_value: value,
+		_data_buf: data_buf,
+		_dtype: DTYPE_INT64,
+		_freed: false,
+	};
+	return t;
+}
+
+// Free a tensor's resources
+export fn free_tensor(t: Tensor): null {
+	if (t._freed) {
+		return null;
+	}
+	hml_ort_release_value(t._value);
+	free(t._data_buf);
+	t._freed = true;
+	return null;
+}
+
+// ============================================================================
+// Tensor Inspection
+// ============================================================================
+
+// Get tensor shape as array of i64 dimensions
+export fn tensor_shape(t: Tensor): array {
+	_check_tensor(t);
+	let err_ndims = _make_err_holder();
+	let ndims = hml_ort_tensor_ndims(t._value, err_ndims);
+	_check_err(err_ndims);
+
+	if (ndims <= 0) {
+		return [];
+	}
+
+	let shape_buf = alloc(ndims * SIZEOF_I64);
+	let err = _make_err_holder();
+	hml_ort_tensor_shape(t._value, shape_buf, ndims, err);
+
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(shape_buf);
+		throw "onnx error: " + msg;
+	}
+	free(err);
+
+	let shape = [];
+	let i: i64 = 0;
+	while (i < ndims) {
+		shape.push(ptr_read_i64(shape_buf + i * SIZEOF_I64));
+		i = i + 1;
+	}
+	free(shape_buf);
+	return shape;
+}
+
+// Get total number of elements in tensor
+export fn tensor_element_count(t: Tensor): i64 {
+	_check_tensor(t);
+	let err = _make_err_holder();
+	let count = hml_ort_tensor_element_count(t._value, err);
+	_check_err(err);
+	return count;
+}
+
+// Get tensor element type (returns DTYPE_* constant)
+export fn tensor_type(t: Tensor): i32 {
+	_check_tensor(t);
+	let err = _make_err_holder();
+	let dtype = hml_ort_tensor_element_type(t._value, err);
+	_check_err(err);
+	return dtype;
+}
+
+// Read tensor data as array of f32 values
+export fn tensor_data_f32(t: Tensor): array {
+	_check_tensor(t);
+	let err = _make_err_holder();
+	let data_ptr = hml_ort_tensor_data(t._value, err);
+	_check_err(err);
+
+	let count = tensor_element_count(t);
+	let result = [];
+	let i: i64 = 0;
+	while (i < count) {
+		result.push(ptr_read_f32(data_ptr + i * SIZEOF_F32));
+		i = i + 1;
+	}
+	return result;
+}
+
+// Read tensor data as array of f64 values
+export fn tensor_data_f64(t: Tensor): array {
+	_check_tensor(t);
+	let err = _make_err_holder();
+	let data_ptr = hml_ort_tensor_data(t._value, err);
+	_check_err(err);
+
+	let count = tensor_element_count(t);
+	let result = [];
+	let i: i64 = 0;
+	while (i < count) {
+		result.push(ptr_read_f64(data_ptr + i * SIZEOF_F64));
+		i = i + 1;
+	}
+	return result;
+}
+
+// Read tensor data as array of i32 values
+export fn tensor_data_i32(t: Tensor): array {
+	_check_tensor(t);
+	let err = _make_err_holder();
+	let data_ptr = hml_ort_tensor_data(t._value, err);
+	_check_err(err);
+
+	let count = tensor_element_count(t);
+	let result = [];
+	let i: i64 = 0;
+	while (i < count) {
+		result.push(ptr_read_i32(data_ptr + i * SIZEOF_I32));
+		i = i + 1;
+	}
+	return result;
+}
+
+// Read tensor data as array of i64 values
+export fn tensor_data_i64(t: Tensor): array {
+	_check_tensor(t);
+	let err = _make_err_holder();
+	let data_ptr = hml_ort_tensor_data(t._value, err);
+	_check_err(err);
+
+	let count = tensor_element_count(t);
+	let result = [];
+	let i: i64 = 0;
+	while (i < count) {
+		result.push(ptr_read_i64(data_ptr + i * SIZEOF_I64));
+		i = i + 1;
+	}
+	return result;
+}
+
+// ============================================================================
+// Inference
+// ============================================================================
+
+// Run inference on the model
+//
+// session: Session object from create_session()
+// inputs: Object mapping input names to Tensor values, e.g.:
+//         { "input_ids": tensor1, "attention_mask": tensor2 }
+//         OR array of Tensors in model input order
+//
+// Returns: Array of output Tensor objects
+//          The caller owns these tensors and must call free_tensor() on each.
+export fn run(session: Session, inputs): array {
+	_check_session(session);
+
+	let in_names = [];
+	let in_values = [];
+
+	// Determine if inputs is an object (named) or array (positional)
+	let input_type = typeof(inputs);
+
+	if (input_type == "array") {
+		// Positional: use model input names in order
+		let names = input_names(session);
+		if (inputs.length != names.length) {
+			throw "expected " + names.length + " inputs, got " + inputs.length;
+		}
+		let i = 0;
+		while (i < inputs.length) {
+			in_names.push(names[i]);
+			in_values.push(inputs[i]);
+			i = i + 1;
+		}
+	} else if (input_type == "object") {
+		// Named: extract keys and values
+		let names = input_names(session);
+		let i = 0;
+		while (i < names.length) {
+			let name = names[i];
+			if (inputs[name] == null) {
+				throw "missing input tensor for '" + name + "'";
+			}
+			in_names.push(name);
+			in_values.push(inputs[name]);
+			i = i + 1;
+		}
+	} else {
+		throw "inputs must be an object or array, got " + input_type;
+	}
+
+	let num_inputs = in_names.length;
+	let num_outputs = output_count(session);
+	let out_names = output_names(session);
+
+	// Build arrays of C string pointers for input names
+	let in_names_buf = alloc(num_inputs * SIZEOF_PTR);
+	let in_name_cstrs = [];
+	let i = 0;
+	while (i < num_inputs) {
+		let cstr = __string_to_cstr(in_names[i]);
+		in_name_cstrs.push(cstr);
+		ptr_write_ptr(in_names_buf + i * SIZEOF_PTR, cstr);
+		i = i + 1;
+	}
+
+	// Build array of OrtValue* pointers for input values
+	let in_values_buf = alloc(num_inputs * SIZEOF_PTR);
+	i = 0;
+	while (i < num_inputs) {
+		ptr_write_ptr(in_values_buf + i * SIZEOF_PTR, in_values[i]._value);
+		i = i + 1;
+	}
+
+	// Build arrays of C string pointers for output names
+	let out_names_buf = alloc(num_outputs * SIZEOF_PTR);
+	let out_name_cstrs = [];
+	i = 0;
+	while (i < num_outputs) {
+		let cstr = __string_to_cstr(out_names[i]);
+		out_name_cstrs.push(cstr);
+		ptr_write_ptr(out_names_buf + i * SIZEOF_PTR, cstr);
+		i = i + 1;
+	}
+
+	// Allocate output values array
+	let out_values_buf = alloc(num_outputs * SIZEOF_PTR);
+	memset(out_values_buf, 0, num_outputs * SIZEOF_PTR);
+
+	// Run inference
+	let err = _make_err_holder();
+	let rc = hml_ort_run(session._session,
+		in_names_buf, in_values_buf, num_inputs,
+		out_names_buf, num_outputs, out_values_buf, err);
+
+	// Free input name C strings
+	i = 0;
+	while (i < num_inputs) {
+		free(in_name_cstrs[i]);
+		i = i + 1;
+	}
+	free(in_names_buf);
+	free(in_values_buf);
+
+	// Free output name C strings
+	i = 0;
+	while (i < num_outputs) {
+		free(out_name_cstrs[i]);
+		i = i + 1;
+	}
+	free(out_names_buf);
+
+	// Check for error
+	let err_ptr = ptr_read_ptr(err);
+	if (err_ptr != ptr_null()) {
+		let msg = __cstr_to_string(err_ptr);
+		free(err);
+		free(out_values_buf);
+		throw "onnx error: " + msg;
+	}
+	free(err);
+
+	// Wrap output OrtValue* pointers as Tensor objects
+	let outputs = [];
+	i = 0;
+	while (i < num_outputs) {
+		let out_value = ptr_read_ptr(out_values_buf + i * SIZEOF_PTR);
+
+		// Determine output dtype
+		let err_dtype = _make_err_holder();
+		let dtype = hml_ort_tensor_element_type(out_value, err_dtype);
+		let dtype_err = ptr_read_ptr(err_dtype);
+		if (dtype_err != ptr_null()) {
+			free(err_dtype);
+			dtype = DTYPE_FLOAT;  // fallback
+		} else {
+			free(err_dtype);
+		}
+
+		let t: Tensor = {
+			_value: out_value,
+			_data_buf: ptr_null(),  // output tensors own their own data
+			_dtype: dtype,
+			_freed: false,
+		};
+		outputs.push(t);
+		i = i + 1;
+	}
+
+	free(out_values_buf);
+	return outputs;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Get a human-readable name for a DTYPE_* constant
+export fn dtype_name(dtype: i32): string {
+	if (dtype == DTYPE_FLOAT) { return "float32"; }
+	if (dtype == DTYPE_DOUBLE) { return "float64"; }
+	if (dtype == DTYPE_INT8) { return "int8"; }
+	if (dtype == DTYPE_INT16) { return "int16"; }
+	if (dtype == DTYPE_INT32) { return "int32"; }
+	if (dtype == DTYPE_INT64) { return "int64"; }
+	if (dtype == DTYPE_UINT8) { return "uint8"; }
+	if (dtype == DTYPE_UINT16) { return "uint16"; }
+	if (dtype == DTYPE_UINT32) { return "uint32"; }
+	if (dtype == DTYPE_UINT64) { return "uint64"; }
+	if (dtype == DTYPE_FLOAT16) { return "float16"; }
+	if (dtype == DTYPE_BOOL) { return "bool"; }
+	if (dtype == DTYPE_STRING) { return "string"; }
+	return "undefined";
+}
+
+// Describe a session's inputs and outputs (useful for debugging)
+export fn describe(session: Session): null {
+	_check_session(session);
+
+	let in_count = input_count(session);
+	let out_count = output_count(session);
+
+	print("Model inputs (" + in_count + "):");
+	let i: i64 = 0;
+	while (i < in_count) {
+		let names = input_names(session);
+		let shape = input_shape(session, i);
+		let dtype = input_type(session, i);
+		print("  [" + i + "] " + names[i] + ": " + dtype_name(dtype) + " " + shape);
+		i = i + 1;
+	}
+
+	print("Model outputs (" + out_count + "):");
+	i = 0;
+	while (i < out_count) {
+		let names = output_names(session);
+		let shape = output_shape(session, i);
+		let dtype = output_type(session, i);
+		print("  [" + i + "] " + names[i] + ": " + dtype_name(dtype) + " " + shape);
+		i = i + 1;
+	}
+
+	return null;
+}

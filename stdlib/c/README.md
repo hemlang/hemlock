@@ -50,12 +50,45 @@ statically linked into the Hemlock interpreter. No separate FFI wrapper is neede
 
 The `lws_wrapper.so` is primarily used for WebSocket functionality.
 
+## ONNX Runtime Wrapper
+
+### Purpose
+
+`onnx_wrapper.c` provides a flat C interface to ONNX Runtime's `OrtApi` struct-of-function-pointers,
+enabling Hemlock's FFI system to call ONNX Runtime functions directly.
+
+### Requirements
+
+```bash
+# From GitHub releases
+wget https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-linux-x64-1.17.0.tgz
+tar xzf onnxruntime-linux-x64-1.17.0.tgz
+sudo cp lib/libonnxruntime.so* /usr/local/lib/
+sudo cp -r include/* /usr/local/include/
+sudo ldconfig
+
+# macOS
+brew install onnxruntime
+```
+
+### Building
+
+```bash
+# From hemlock root directory
+make stdlib
+```
+
+This compiles `onnx_wrapper.c` → `libhemlock_onnx.so`
+
+### Usage
+
+Used by `@stdlib/onnx` (`stdlib/onnx.hml`) for local ML inference.
+
 ## Future C Modules
 
 Planned FFI wrappers:
 - OpenSSL wrapper for crypto functions
 - zlib wrapper for compression
-- SQLite wrapper for embedded database
 
 ## Design Philosophy
 
