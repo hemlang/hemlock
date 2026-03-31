@@ -200,8 +200,10 @@ def build_user_prompt(task: dict) -> str:
         prompt += f"\n\nBuggy code:\n{task['buggy_code']}"
 
     # For translation tasks, source is usually embedded in the prompt already
-    # Add expected output hint
-    if task.get("expected_output"):
+    # Add expected output hint — but NOT for debugging (L6) or translation (L5) tasks,
+    # where giving away the answer undermines what we're measuring
+    level = task.get("level", "")
+    if task.get("expected_output") and level not in ("L5", "L6"):
         prompt += f"\n\nThe program should produce this exact output:\n{task['expected_output'].rstrip()}"
 
     return prompt

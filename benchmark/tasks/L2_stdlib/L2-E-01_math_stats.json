@@ -4,7 +4,7 @@
   "difficulty": "easy",
   "title": "Statistical Calculations",
   "topic": "math stdlib",
-  "prompt": "Write a Hemlock program using `@stdlib/math` that computes statistics on the array [4, 8, 15, 16, 23, 42]. Import and use `sqrt`, `floor`, and `pow` from @stdlib/math. Calculate:\n1. Mean (sum / count)\n2. Variance (mean of squared differences from mean)\n3. Standard deviation (square root of variance)\n4. Print each on its own line, with std dev rounded down to 2 decimal places using floor(x * 100) / 100.\n\nFormat: \"mean: VALUE\", \"variance: VALUE\", \"stddev: VALUE\"",
+  "prompt": "Write a Hemlock program using `@stdlib/math` that computes statistics on the array [4, 8, 15, 16, 23, 42]. Import and use `sqrt`, `floor`, and `pow` from @stdlib/math. Calculate:\n1. Mean (sum / count)\n2. Variance (mean of squared differences from mean)\n3. Standard deviation (square root of variance)\n4. Print each on its own line. Round std dev down to 2 decimal places using floor(x * 100) / 100. Print mean and variance as-is (no explicit rounding).\n\nFormat: \"mean: VALUE\", \"variance: VALUE\", \"stddev: VALUE\"",
   "expected_output": "mean: 18\nvariance: 151.667\nstddev: 12.31\n",
   "timeout_ms": 5000,
   "validator": "exact_match",
