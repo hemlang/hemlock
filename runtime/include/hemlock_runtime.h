@@ -118,6 +118,9 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type);
 // Type conversion that allows string parsing (for type constructors like i32("42"))
 HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type);
 
+// Schema extraction - returns JSON Schema-compatible object from type registry
+HmlValue hml_schema(HmlValue type_name);
+
 // Assertions
 void hml_assert(HmlValue condition, HmlValue message);
 __attribute__((noreturn)) void hml_panic(HmlValue message);

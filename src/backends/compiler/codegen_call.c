@@ -175,6 +175,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // Handle schema builtin - extract JSON Schema from type registry
+        if (strcmp(fn_name, "schema") == 0 && expr->as.call.num_args == 1) {
+            char *arg = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_schema(%s);", result, arg);
+            codegen_writeln(ctx, "hml_release(&%s);", arg);
+            free(arg);
+            return result;
+        }
+
         // Handle get_stack_limit builtin
         if (strcmp(fn_name, "get_stack_limit") == 0 && expr->as.call.num_args == 0) {
             codegen_writeln(ctx, "HmlValue %s = hml_get_stack_limit();", result);

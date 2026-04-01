@@ -1,0 +1,61 @@
+// Test schema() built-in for JSON Schema extraction from define types
+
+define Person {
+	name: string,
+	age: i32,
+	active?: true
+}
+
+define Point {
+	x: f64,
+	y: f64
+}
+
+define Config {
+	host: string,
+	port?: 8080,
+	debug?: false
+}
+
+// Test basic schema extraction
+let s = schema("Person");
+print(s["type"]);
+print(s["name"]);
+
+// Test required fields
+let req = s["required"];
+print(req.length);
+print(req[0]);
+print(req[1]);
+
+// Test properties
+let props = s["properties"];
+let name_prop = props["name"];
+print(name_prop["type"]);
+print(name_prop["hemlock_type"]);
+print(name_prop["required"]);
+
+let age_prop = props["age"];
+print(age_prop["type"]);
+print(age_prop["hemlock_type"]);
+print(age_prop["required"]);
+
+let active_prop = props["active"];
+print(active_prop["required"]);
+
+// Test Point schema
+let ps = schema("Point");
+print(ps["name"]);
+let preq = ps["required"];
+print(preq.length);
+let px = ps["properties"]["x"];
+print(px["type"]);
+print(px["hemlock_type"]);
+
+// Test Config schema with multiple optional fields
+let cs = schema("Config");
+let creq = cs["required"];
+print(creq.length);
+print(creq[0]);
+
+print("done");

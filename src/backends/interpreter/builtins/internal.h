@@ -316,6 +316,9 @@ Value builtin_atomic_exchange_i64(Value *args, int num_args, ExecutionContext *c
 // Memory fence
 Value builtin_atomic_fence(Value *args, int num_args, ExecutionContext *ctx);
 
+// Schema builtin (schema.c)
+Value builtin_schema(Value *args, int num_args, ExecutionContext *ctx);
+
 // Regex builtins (regex.c)
 Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx);

@@ -645,22 +645,153 @@ try {
 }
 ```
 
+## JSON Schema Validation
+
+Hemlock's `define` types can be used for JSON schema validation. The built-in `schema()` function extracts a JSON Schema-compatible object from any registered `define` type, and the `@stdlib/json` module provides validation functions.
+
+### `to_json_schema(type_name: string)`
+
+Generate a JSON Schema-compatible object from a registered `define` type.
+
+```hemlock
+import { to_json_schema } from "@stdlib/json";
+
+define User {
+    name: string,
+    age: i32,
+    email?: string
+}
+
+let user_schema = to_json_schema("User");
+// Returns:
+// {
+//   type: "object",
+//   name: "User",
+//   properties: {
+//     name: { type: "string", hemlock_type: "string", required: true },
+//     age: { type: "integer", hemlock_type: "i32", required: true },
+//     email: { type: "string", hemlock_type: "string", required: false }
+//   },
+//   required: ["name", "age"]
+// }
+```
+
+**Parameters:**
+- `type_name` (string) - Name of a registered `define` type
+
+**Returns:** Schema object with `type`, `name`, `properties`, and `required` fields
+
+**Throws:** Runtime error if type name is not found
+
+---
+
+### `validate_schema(data, schema_obj)`
+
+Validate data against a JSON schema object. Returns a result object instead of throwing.
+
+```hemlock
+import { validate_schema, to_json_schema } from "@stdlib/json";
+
+define User { name: string, age: i32 }
+let schema = to_json_schema("User");
+
+// Valid data
+let result = validate_schema({ name: "Alice", age: 30 }, schema);
+print(result.valid);   // true
+print(result.errors);  // []
+
+// Missing required field
+let result2 = validate_schema({ name: "Bob" }, schema);
+print(result2.valid);   // false
+print(result2.errors);  // ["Missing required field 'age'"]
+
+// Wrong field type
+let result3 = validate_schema({ name: 123, age: 30 }, schema);
+print(result3.valid);   // false
+print(result3.errors);  // ["Field 'name' expected type 'string', got 'i32'"]
+```
+
+**Parameters:**
+- `data` - Value to validate
+- `schema_obj` (object) - Schema object (from `to_json_schema()`)
+
+**Returns:** `{ valid: bool, errors: array<string> }`
+
+---
+
+### `validate_type(data, type_name: string)`
+
+Convenience function that combines `to_json_schema()` and `validate_schema()`.
+
+```hemlock
+import { validate_type } from "@stdlib/json";
+
+define Product { id: i32, title: string, price: f64 }
+
+let data = { id: 1, title: "Widget", price: 9.99 };
+let result = validate_type(data, "Product");
+print(result.valid);  // true
+```
+
+**Parameters:**
+- `data` - Value to validate
+- `type_name` (string) - Name of a registered `define` type
+
+**Returns:** `{ valid: bool, errors: array<string> }`
+
+---
+
+### Built-in: `schema(type_name: string)`
+
+Low-level built-in function that extracts schema metadata from the type registry. Typically used via `to_json_schema()` from `@stdlib/json`.
+
+```hemlock
+// Direct usage (no import needed)
+define Point { x: f64, y: f64 }
+let s = schema("Point");
+print(s.properties.x.type);  // "number"
+```
+
+### Schema Property Descriptors
+
+Each property in the schema's `properties` object contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | JSON Schema type: `"string"`, `"integer"`, `"number"`, `"boolean"`, `"array"`, `"object"`, `"null"`, `"any"` |
+| `hemlock_type` | string | Hemlock type name: `"i32"`, `"f64"`, `"string"`, etc. |
+| `required` | bool | `true` if field is required, `false` if optional |
+| `$ref` | string | (Only for custom object types) Name of the referenced `define` type |
+
+### Validation Rules
+
+- **Missing required fields** produce errors
+- **Missing optional fields** are accepted
+- **Extra fields** are accepted (duck typing)
+- **Type checking** validates against the JSON Schema type category:
+  - `"integer"` accepts: i8, i16, i32, i64, u8, u16, u32, u64
+  - `"number"` accepts: all integer types plus f32, f64
+  - `"string"` accepts: string
+  - `"boolean"` accepts: bool
+  - `"array"` accepts: array
+  - `"object"` accepts: object
+  - `"any"` accepts: all types
+
 ## Current Limitations
 
 1. **No object iteration builtin** - `merge()`, `patch()`, and object `equals()` not yet implemented
 2. **No line numbers in parse errors** - Validation doesn't report exact error location
-3. **No JSON Schema** - Schema validation not yet supported
-4. **No streaming** - Large files must fit in memory
+3. **No streaming** - Large files must fit in memory
 
 ## Future Enhancements
 
 Planned additions:
 - Object iteration support (enables merge/patch/equals)
-- JSON Schema validation
 - JSON Patch (RFC 6902)
 - JSON Pointer (RFC 6901)
 - Streaming parser for large files
 - JSON5 support (comments, trailing commas)
+- Nested schema validation (recursive `$ref` resolution)
 
 ## See Also
 
