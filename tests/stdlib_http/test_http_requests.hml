@@ -167,9 +167,9 @@ try {
     tests_failed = tests_failed + 1;
 }
 
-// Wait for server to finish
-join(server_task);
+// Close server (don't join - server may still be waiting for requests if some failed)
 server.close();
+detach(server_task);
 
 print("");
 print("========================================");

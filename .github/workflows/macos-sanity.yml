@@ -31,7 +31,10 @@ jobs:
           -DUSEARCH_BUILD_TEST_CPP=OFF \
           -DUSEARCH_BUILD_BENCH_CPP=OFF
         cmake --build /tmp/usearch/build --config Release
-        sudo cmake --install /tmp/usearch/build
+        sudo cp /tmp/usearch/build/libusearch_c.dylib /usr/local/lib/ 2>/dev/null || \
+          sudo cp /tmp/usearch/build/libusearch_c.so /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        ls -la /usr/local/lib/libusearch*
 
     - name: Disable macOS firewall
       run: |

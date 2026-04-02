@@ -136,10 +136,7 @@ for test_file in $TEST_FILES; do
 
     # Skip vector tests if libusearch_c isn't installed
     elif [[ "$category" == "stdlib_vector" ]]; then
-        if ! (ldconfig -p 2>/dev/null | grep -q libusearch_c || \
-              [ -f /usr/local/lib/libusearch_c.dylib ] || \
-              [ -f /usr/local/lib/libusearch_c.so ] || \
-              [ -f /opt/homebrew/lib/libusearch_c.dylib ]); then
+        if ! "$PROJECT_ROOT/hemlock" -e 'import "libusearch_c.so";' 2>/dev/null; then
             if [ "$category" != "$CURRENT_CATEGORY" ]; then
                 if [ -n "$CURRENT_CATEGORY" ]; then
                     echo ""
