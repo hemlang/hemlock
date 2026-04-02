@@ -211,6 +211,24 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 
     // Open library with RTLD_LAZY (resolve symbols on first call)
     void *handle = dlopen(actual_path, RTLD_LAZY);
+#ifdef __APPLE__
+    // macOS dlopen doesn't search /usr/local/lib by default;
+    // try common library paths as fallback for non-absolute names
+    if (handle == NULL && actual_path[0] != '/') {
+        static const char *fallback_dirs[] = {
+            "/usr/local/lib",
+            "/opt/homebrew/lib",
+            NULL
+        };
+        char fallback_path[512];
+        for (int i = 0; fallback_dirs[i] != NULL; i++) {
+            snprintf(fallback_path, sizeof(fallback_path), "%s/%s",
+                     fallback_dirs[i], actual_path);
+            handle = dlopen(fallback_path, RTLD_LAZY);
+            if (handle != NULL) break;
+        }
+    }
+#endif
     if (handle == NULL) {
         pthread_mutex_unlock(&ffi_cache_mutex);
         ctx->exception_state.is_throwing = 1;

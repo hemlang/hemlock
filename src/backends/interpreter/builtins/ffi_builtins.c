@@ -101,7 +101,7 @@ Value builtin_callback_free(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 }
 
-// ptr_read_i32(ptr) - Read an i32 from a pointer (for qsort comparators)
+// ptr_read_i32(ptr) - Read an i32 directly from a pointer
 Value builtin_ptr_read_i32(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         runtime_error(ctx, "ptr_read_i32() expects 1 argument (ptr)");
@@ -119,9 +119,7 @@ Value builtin_ptr_read_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Read through pointer-to-pointer (qsort passes ptr to element, not element itself)
-    int32_t *actual_ptr = *(int32_t**)ptr;
-    return val_i32(*actual_ptr);
+    return val_i32(*(int32_t*)ptr);
 }
 
 // ptr_deref_i32(ptr) - Dereference a pointer to read an i32 directly
@@ -586,6 +584,188 @@ Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx) {
     }
     *(void**)ptr = (args[1].type == VAL_NULL) ? NULL : args[1].as.as_ptr;
     return val_null();
+}
+
+// ptr_read_ptr(ptr) - Read a pointer from a pointer
+Value builtin_ptr_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_ptr() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_ptr() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_ptr() cannot read from null pointer");
+        return val_null();
+    }
+    void *result = *(void**)ptr;
+    if (result == NULL) return val_null();
+    return val_ptr(result);
+}
+
+// ptr_read_i64(ptr) - Read an i64 from a pointer
+Value builtin_ptr_read_i64(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_i64() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_i64() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_i64() cannot read from null pointer");
+        return val_null();
+    }
+    return val_i64(*(int64_t*)ptr);
+}
+
+// ptr_read_u64(ptr) - Read a u64 from a pointer
+Value builtin_ptr_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_u64() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_u64() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_u64() cannot read from null pointer");
+        return val_null();
+    }
+    return val_u64(*(uint64_t*)ptr);
+}
+
+// ptr_read_f32(ptr) - Read an f32 from a pointer
+Value builtin_ptr_read_f32(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_f32() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_f32() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_f32() cannot read from null pointer");
+        return val_null();
+    }
+    return val_f32(*(float*)ptr);
+}
+
+// ptr_read_f64(ptr) - Read an f64 from a pointer
+Value builtin_ptr_read_f64(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_f64() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_f64() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_f64() cannot read from null pointer");
+        return val_null();
+    }
+    return val_f64(*(double*)ptr);
+}
+
+// ptr_read_i8(ptr) - Read an i8 from a pointer
+Value builtin_ptr_read_i8(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_i8() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_i8() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_i8() cannot read from null pointer");
+        return val_null();
+    }
+    return val_i8(*(int8_t*)ptr);
+}
+
+// ptr_read_i16(ptr) - Read an i16 from a pointer
+Value builtin_ptr_read_i16(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_i16() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_i16() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_i16() cannot read from null pointer");
+        return val_null();
+    }
+    return val_i16(*(int16_t*)ptr);
+}
+
+// ptr_read_u8(ptr) - Read a u8 from a pointer
+Value builtin_ptr_read_u8(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_u8() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_u8() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_u8() cannot read from null pointer");
+        return val_null();
+    }
+    return val_u8(*(uint8_t*)ptr);
+}
+
+// ptr_read_u16(ptr) - Read a u16 from a pointer
+Value builtin_ptr_read_u16(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_u16() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_u16() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_u16() cannot read from null pointer");
+        return val_null();
+    }
+    return val_u16(*(uint16_t*)ptr);
+}
+
+// ptr_read_u32(ptr) - Read a u32 from a pointer
+Value builtin_ptr_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "ptr_read_u32() expects 1 argument (ptr)");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        runtime_error(ctx, "ptr_read_u32() argument must be a ptr");
+        return val_null();
+    }
+    void *ptr = args[0].as.as_ptr;
+    if (ptr == NULL) {
+        runtime_error(ctx, "ptr_read_u32() cannot read from null pointer");
+        return val_null();
+    }
+    return val_u32(*(uint32_t*)ptr);
 }
 
 // ========== FFI UTILITY FUNCTIONS ==========

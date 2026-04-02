@@ -74,6 +74,10 @@ echo ""
 # Function to check if a test is expected to fail (error test)
 is_error_test() {
     local test_file="$1"
+    # stdlib tests handle their own error cases via try/catch — they should pass
+    if [[ "$test_file" =~ stdlib_ ]]; then
+        return 1
+    fi
     # Tests with these keywords in their name are expected to fail
     if [[ "$test_file" =~ (overflow|negative|invalid|error) ]]; then
         return 0
@@ -130,9 +134,9 @@ for test_file in $TEST_FILES; do
             continue
         fi
 
-    # Skip vector tests if libusearch_c.so isn't installed
+    # Skip vector tests if libusearch_c isn't installed
     elif [[ "$category" == "stdlib_vector" ]]; then
-        if ! ldconfig -p 2>/dev/null | grep -q libusearch_c; then
+        if ! (ldconfig -p 2>/dev/null | grep -q libusearch_c || [ -f /usr/local/lib/libusearch_c.dylib ]); then
             if [ "$category" != "$CURRENT_CATEGORY" ]; then
                 if [ -n "$CURRENT_CATEGORY" ]; then
                     echo ""

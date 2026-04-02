@@ -367,6 +367,11 @@ export fn create_index(dimensions: i64, metric?: 1, quantization?: 1,
 		throw "usearch_init returned null handle";
 	}
 
+	// USearch requires reserve() before add() to allocate internal buffers
+	let reserve_err = _make_err_holder();
+	usearch_reserve(handle, 16, reserve_err);
+	_check_err(reserve_err);
+
 	let idx: VectorIndex = { _handle: handle, _dims: dimensions, _freed: false };
 	return idx;
 }

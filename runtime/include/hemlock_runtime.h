@@ -791,6 +791,16 @@ HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
 HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue element_size);
 HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_i8(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_i16(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_ptr(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_i64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_u8(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_u16(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_u32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_u64(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_f32(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_ptr_read_f64(HmlClosureEnv *env, HmlValue ptr);
 
 // Additional pointer deref helpers for all types
 HmlValue hml_builtin_ptr_deref_i8(HmlClosureEnv *env, HmlValue ptr);

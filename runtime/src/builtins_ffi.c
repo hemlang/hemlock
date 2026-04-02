@@ -1322,12 +1322,139 @@ HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_i32() cannot read from null pointer");
     }
 
-    // Read through pointer-to-pointer (qsort passes ptr to element)
-    int32_t *actual_ptr = *(int32_t**)p;
-    if (!actual_ptr) {
-        hml_runtime_error("ptr_read_i32() dereferenced pointer is null");
+    return hml_val_i32(*(int32_t*)p);
+}
+
+// ptr_read_i8(ptr) -> i8
+HmlValue hml_builtin_ptr_read_i8(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_i8() argument must be a ptr");
     }
-    return hml_val_i32(*actual_ptr);
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_i8() cannot read from null pointer");
+    }
+    return hml_val_i8(*(int8_t*)p);
+}
+
+// ptr_read_i16(ptr) -> i16
+HmlValue hml_builtin_ptr_read_i16(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_i16() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_i16() cannot read from null pointer");
+    }
+    return hml_val_i16(*(int16_t*)p);
+}
+
+// ptr_read_u8(ptr) -> u8
+HmlValue hml_builtin_ptr_read_u8(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_u8() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_u8() cannot read from null pointer");
+    }
+    return hml_val_u8(*(uint8_t*)p);
+}
+
+// ptr_read_u16(ptr) -> u16
+HmlValue hml_builtin_ptr_read_u16(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_u16() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_u16() cannot read from null pointer");
+    }
+    return hml_val_u16(*(uint16_t*)p);
+}
+
+// ptr_read_u32(ptr) -> u32
+HmlValue hml_builtin_ptr_read_u32(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_u32() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_u32() cannot read from null pointer");
+    }
+    return hml_val_u32(*(uint32_t*)p);
+}
+
+// ptr_read_ptr(ptr) -> ptr
+HmlValue hml_builtin_ptr_read_ptr(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_ptr() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_ptr() cannot read from null pointer");
+    }
+    void *result = *(void**)p;
+    if (!result) return hml_val_null();
+    return hml_val_ptr(result);
+}
+
+// ptr_read_i64(ptr) -> i64
+HmlValue hml_builtin_ptr_read_i64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_i64() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_i64() cannot read from null pointer");
+    }
+    return hml_val_i64(*(int64_t*)p);
+}
+
+// ptr_read_u64(ptr) -> u64
+HmlValue hml_builtin_ptr_read_u64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_u64() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_u64() cannot read from null pointer");
+    }
+    return hml_val_u64(*(uint64_t*)p);
+}
+
+// ptr_read_f32(ptr) -> f32
+HmlValue hml_builtin_ptr_read_f32(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_f32() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_f32() cannot read from null pointer");
+    }
+    return hml_val_f32(*(float*)p);
+}
+
+// ptr_read_f64(ptr) -> f64
+HmlValue hml_builtin_ptr_read_f64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (ptr.type != HML_VAL_PTR) {
+        hml_runtime_error("ptr_read_f64() argument must be a ptr");
+    }
+    void *p = ptr.as.as_ptr;
+    if (!p) {
+        hml_runtime_error("ptr_read_f64() cannot read from null pointer");
+    }
+    return hml_val_f64(*(double*)p);
 }
 
 #endif // !__EMSCRIPTEN__

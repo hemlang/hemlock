@@ -738,6 +738,96 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ptr_read_i8(ptr) -> i8
+        if (strcmp(fn_name, "ptr_read_i8") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_i8(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_i16(ptr) -> i16
+        if (strcmp(fn_name, "ptr_read_i16") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_i16(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_u8(ptr) -> u8
+        if (strcmp(fn_name, "ptr_read_u8") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_u8(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_u16(ptr) -> u16
+        if (strcmp(fn_name, "ptr_read_u16") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_u16(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_u32(ptr) -> u32
+        if (strcmp(fn_name, "ptr_read_u32") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_u32(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_ptr(ptr) -> ptr
+        if (strcmp(fn_name, "ptr_read_ptr") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_ptr(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_i64(ptr) -> i64
+        if (strcmp(fn_name, "ptr_read_i64") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_i64(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_u64(ptr) -> u64
+        if (strcmp(fn_name, "ptr_read_u64") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_u64(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_f32(ptr) -> f32
+        if (strcmp(fn_name, "ptr_read_f32") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_f32(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // ptr_read_f64(ptr) -> f64
+        if (strcmp(fn_name, "ptr_read_f64") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ptr_read_f64(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
         // ========== ATOMIC OPERATIONS (i32) ==========
 
         if (strcmp(fn_name, "atomic_load_i32") == 0 && expr->as.call.num_args == 1) {

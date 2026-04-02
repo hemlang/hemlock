@@ -919,6 +919,9 @@ make parity
 - **`join()` on rune arrays** - `"hello".chars().join("")` now correctly produces `"hello"` instead of `"[object][object]..."`. Enables idiomatic string reversal: `str.chars().reverse().join("")`.
 - **HashMap numeric key coercion** - Keys of different numeric types now match (e.g., `i32` key found by `i64` lookup). Previously, `typeof()` guard in `keys_equal()` rejected valid cross-type matches.
 - **HemBench improvements** - Fixed task definitions (L1-M-02 rounding, L2-E-01 precision), stopped leaking expected output to L5/L6 benchmark tasks.
+- **Complete `ptr_read_*` builtins** - Added `ptr_read_i8`, `ptr_read_i16`, `ptr_read_i64`, `ptr_read_u8`, `ptr_read_u16`, `ptr_read_u32`, `ptr_read_u64`, `ptr_read_f32`, `ptr_read_f64`, `ptr_read_ptr` to complement existing `ptr_write_*` functions. Fixed `ptr_read_i32` to do direct dereference (was double-dereference). Full parity between interpreter and compiler.
+- **macOS FFI library loading** - `dlopen` now searches `/usr/local/lib` and `/opt/homebrew/lib` as fallback paths on macOS, fixing library-not-found errors for user-installed shared libraries (e.g., libusearch_c).
+- **`@stdlib/vector` USearch v2 fix** - `create_index()` now calls `usearch_reserve()` after init, fixing segfault with USearch v2.24+ which requires pre-allocation before adding vectors.
 
 **v1.9.0** - Previous release with:
 - **WASM interpreter release artifact** - Pre-built WASM interpreter included in GitHub releases for browser/Node.js usage

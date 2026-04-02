@@ -532,8 +532,25 @@ Hemlock provides comprehensive helper functions for working with raw pointers. T
 | `ptr_deref_ptr(ptr)` | Dereference pointer-to-pointer |
 | `ptr_write_ptr(ptr, value)` | Write pointer to pointer location |
 | `ptr_offset(ptr, index, size)` | Calculate offset: `ptr + index * size` |
-| `ptr_read_i32(ptr)` | Read i32 through pointer-to-pointer (for qsort callbacks) |
 | `ptr_null()` | Get a null pointer constant |
+
+#### Pointer Read Functions
+
+Read typed values directly from memory (complements `ptr_write_*`).
+
+| Function | Description |
+|----------|-------------|
+| `ptr_read_i8(ptr)` | Read i8 from pointer |
+| `ptr_read_i16(ptr)` | Read i16 from pointer |
+| `ptr_read_i32(ptr)` | Read i32 from pointer |
+| `ptr_read_i64(ptr)` | Read i64 from pointer |
+| `ptr_read_u8(ptr)` | Read u8 from pointer |
+| `ptr_read_u16(ptr)` | Read u16 from pointer |
+| `ptr_read_u32(ptr)` | Read u32 from pointer |
+| `ptr_read_u64(ptr)` | Read u64 from pointer |
+| `ptr_read_f32(ptr)` | Read f32 from pointer |
+| `ptr_read_f64(ptr)` | Read f64 from pointer |
+| `ptr_read_ptr(ptr)` | Read pointer from pointer (returns null if stored value is NULL) |
 
 #### Buffer Conversion Helpers
 

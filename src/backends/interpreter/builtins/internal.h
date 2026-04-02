@@ -286,6 +286,16 @@ Value builtin_ptr_write_u64(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_f32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_f64(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_ptr(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_f32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_f64(Value *args, int num_args, ExecutionContext *ctx);
 
 // FFI utility builtins (ffi_builtins.c)
 Value builtin_ffi_sizeof(Value *args, int num_args, ExecutionContext *ctx);
