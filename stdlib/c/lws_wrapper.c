@@ -191,8 +191,10 @@ http_response_t* lws_http_get(const char *url) {
 
     // Create context
     memset(&info, 0, sizeof(info));
-    info.options = ssl_globally_initialized ? 0 : LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    ssl_globally_initialized = 1;
+    if (ssl && !ssl_globally_initialized) {
+        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ssl_globally_initialized = 1;
+    }
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols protocols[] = {
@@ -282,8 +284,10 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
 
     // Create context
     memset(&info, 0, sizeof(info));
-    info.options = ssl_globally_initialized ? 0 : LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    ssl_globally_initialized = 1;
+    if (ssl && !ssl_globally_initialized) {
+        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ssl_globally_initialized = 1;
+    }
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols protocols[] = {
@@ -386,8 +390,10 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
 
     // Create context
     memset(&info, 0, sizeof(info));
-    info.options = ssl_globally_initialized ? 0 : LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    ssl_globally_initialized = 1;
+    if (ssl && !ssl_globally_initialized) {
+        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ssl_globally_initialized = 1;
+    }
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols protocols[] = {
@@ -676,8 +682,10 @@ ws_connection_t* lws_ws_connect(const char *url) {
 
     // Create context
     memset(&info, 0, sizeof(info));
-    info.options = ssl_globally_initialized ? 0 : LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    ssl_globally_initialized = 1;
+    if (ssl && !ssl_globally_initialized) {
+        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ssl_globally_initialized = 1;
+    }
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols ws_protocols[] = {
@@ -1027,8 +1035,6 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     info.port = port;
     info.iface = host;
     info.user = server;
-    info.options = ssl_globally_initialized ? 0 : LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    ssl_globally_initialized = 1;
 
     static const struct lws_protocols server_protocols[] = {
         { "ws", ws_server_callback, sizeof(ws_connection_t), 4096, 0, NULL, 0 },

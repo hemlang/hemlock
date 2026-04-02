@@ -45,7 +45,9 @@ jobs:
       run: make clean && make
 
     - name: Build stdlib
-      run: make stdlib
+      run: |
+        rm -f stdlib/c/lws_wrapper.so stdlib/c/lws_wrapper.dylib
+        make stdlib
 
     - name: Run interpreter tests
       run: timeout 300 make test
