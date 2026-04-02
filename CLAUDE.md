@@ -479,6 +479,7 @@ ch.close();
 ```hemlock
 let name = read_line();          // Read line from stdin (blocks)
 print("Hello, " + name);
+write("no newline");             // Print without trailing newline
 eprint("Error message");         // Print to stderr
 
 // read_line() returns null on EOF
@@ -912,7 +913,14 @@ make parity
 
 ## Version
 
-**v1.9.0** - Current release with:
+**v1.9.1** - Current release with:
+- **`write()` builtin** - Print without trailing newline (`write("hello"); write(" world");` outputs on one line). Includes `fflush(stdout)` for immediate output. Full parity between interpreter and compiler.
+- **Single-argument `slice()`** - `arr.slice(n)` and `str.slice(n)` now default end to length, matching JS/Python behavior. Two-arg form unchanged.
+- **`join()` on rune arrays** - `"hello".chars().join("")` now correctly produces `"hello"` instead of `"[object][object]..."`. Enables idiomatic string reversal: `str.chars().reverse().join("")`.
+- **HashMap numeric key coercion** - Keys of different numeric types now match (e.g., `i32` key found by `i64` lookup). Previously, `typeof()` guard in `keys_equal()` rejected valid cross-type matches.
+- **HemBench improvements** - Fixed task definitions (L1-M-02 rounding, L2-E-01 precision), stopped leaking expected output to L5/L6 benchmark tasks.
+
+**v1.9.0** - Previous release with:
 - **WASM interpreter release artifact** - Pre-built WASM interpreter included in GitHub releases for browser/Node.js usage
 - **Compiler inlining fixes** - Fixed nested call argument corruption and unboxing collision with loop counters during function inlining (fixes hemloco compilation)
 - **Pointer subtraction** - Compiler type checker now allows `ptr - integer` for pointer arithmetic

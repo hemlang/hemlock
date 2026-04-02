@@ -242,11 +242,12 @@ let has2 = arr.contains(99); // false
 
 ### Extraction Operations
 
-**`slice(start, end)`** - Extract subarray (end exclusive):
+**`slice(start, end?)`** - Extract subarray (end exclusive, defaults to length):
 ```hemlock
 let arr = [1, 2, 3, 4, 5];
 let sub = arr.slice(1, 4);   // [2, 3, 4] (indices 1, 2, 3)
 let first = arr.slice(0, 2); // [1, 2]
+let tail = arr.slice(2);     // [3, 4, 5] (from index 2 to end)
 
 // Original unchanged
 print(arr);                  // [1, 2, 3, 4, 5]
@@ -287,6 +288,11 @@ let csv = numbers.join(",");   // "1,2,3"
 // Works with mixed types
 let mixed = [1, "hello", true, null];
 print(mixed.join(" | "));  // "1 | hello | true | null"
+
+// Works with rune arrays (from chars())
+let chars = "hello".chars();
+chars.reverse();
+print(chars.join(""));     // "olleh"
 ```
 
 **`concat(other)`** - Concatenate with another array:

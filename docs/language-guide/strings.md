@@ -213,16 +213,17 @@ let text = "Hi🚀!";
 let emoji = text.substr(2, 1);  // "🚀" (position 2, length 1)
 ```
 
-**`slice(start, end)`** - Extract substring by range (end exclusive):
+**`slice(start, end?)`** - Extract substring by range (end exclusive, defaults to length):
 ```hemlock
 let s = "hello world";
 let slice = s.slice(0, 5);      // "hello" (index 0 to 4)
 let slice2 = s.slice(6, 11);    // "world"
+let tail = s.slice(6);          // "world" (from index 6 to end)
 ```
 
 **Difference:**
 - `substr(start, length)` - Uses length parameter
-- `slice(start, end)` - Uses end index (exclusive)
+- `slice(start, end?)` - Uses end index (exclusive), end defaults to string length
 
 ### Search & Find
 

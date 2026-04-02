@@ -155,6 +155,7 @@ Value builtin_absolute_path(Value *args, int num_args, ExecutionContext *ctx);
 
 // I/O helper builtins (io_helpers.c)
 Value builtin_print(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_string_concat_many(Value *args, int num_args, ExecutionContext *ctx);
 
 // Internal helper builtins (internal_helpers.c)

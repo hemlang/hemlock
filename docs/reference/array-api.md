@@ -336,12 +336,12 @@ Extract subarray by range (end exclusive).
 
 **Signature:**
 ```hemlock
-array.slice(start: i32, end: i32): array
+array.slice(start: i32, end?: i32): array
 ```
 
 **Parameters:**
 - `start` - Starting index (0-based, inclusive)
-- `end` - Ending index (exclusive)
+- `end` - Ending index (exclusive). Defaults to `array.length` if omitted.
 
 **Returns:** New array with elements from [start, end)
 
@@ -353,6 +353,10 @@ let arr = [1, 2, 3, 4, 5];
 let sub = arr.slice(1, 4);   // [2, 3, 4]
 let first_three = arr.slice(0, 3);  // [1, 2, 3]
 let last_two = arr.slice(3, 5);     // [4, 5]
+
+// Single-arg: from index to end
+let tail = arr.slice(2);     // [3, 4, 5]
+let copy = arr.slice(0);     // [1, 2, 3, 4, 5] (shallow copy)
 
 // Empty slice
 let empty = arr.slice(2, 2); // []
@@ -620,7 +624,18 @@ let arr = ["a", "b", "c"];
 let s = arr.join("");          // "abc"
 ```
 
-**Behavior:** Automatically converts all elements to strings.
+**Behavior:** Automatically converts all elements to strings, including rune values returned by `string.chars()`.
+
+```hemlock
+// Join rune arrays (from chars())
+let chars = "hello".chars();
+print(chars.join("-"));   // "h-e-l-l-o"
+
+// String reversal idiom
+let reversed = "hello".chars();
+reversed.reverse();
+print(reversed.join(""));  // "olleh"
+```
 
 ---
 

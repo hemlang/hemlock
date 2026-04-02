@@ -409,10 +409,10 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         }
         // slice(start, end) - Python-style slicing by codepoint (end is exclusive)
         if (method[1] == 'l' && strcmp(method, "slice") == 0) {
-            if (num_args != 2) {
-                return throw_runtime_error(ctx, "slice() expects 2 arguments (start, end)");
+            if (num_args < 1 || num_args > 2) {
+                return throw_runtime_error(ctx, "slice() expects 1-2 arguments (start[, end])");
             }
-            if (!is_integer(args[0]) || !is_integer(args[1])) {
+            if (!is_integer(args[0]) || (num_args == 2 && !is_integer(args[1]))) {
                 return throw_runtime_error(ctx, "slice() arguments must be integers");
             }
 
@@ -422,7 +422,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             int32_t start = value_to_int(args[0]);
-            int32_t end = value_to_int(args[1]);
+            int32_t end = (num_args == 2) ? value_to_int(args[1]) : str->char_length;
 
             // Clamp bounds to valid range (Python/JS/Rust behavior)
             if (start < 0) start = 0;

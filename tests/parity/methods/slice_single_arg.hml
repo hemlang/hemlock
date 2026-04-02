@@ -1,0 +1,18 @@
+// Test single-argument slice() for arrays and strings
+
+// Array slice with one arg
+let arr = [1, 2, 3, 4, 5];
+print(arr.slice(0));
+print(arr.slice(2));
+print(arr.slice(4));
+print(arr.slice(5));
+
+// String slice with one arg
+let s = "hello world";
+print(s.slice(0));
+print(s.slice(6));
+print(s.slice(11));
+
+// Two-arg slice still works
+print(arr.slice(1, 3));
+print(s.slice(0, 5));

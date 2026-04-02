@@ -319,14 +319,14 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         }
         // slice(start, end) - extract subarray (end is exclusive)
         if (method[1] == 'l' && strcmp(method, "slice") == 0) {
-            if (num_args != 2) {
-                return throw_runtime_error(ctx, "slice() expects 2 arguments (start, end)");
+            if (num_args < 1 || num_args > 2) {
+                return throw_runtime_error(ctx, "slice() expects 1-2 arguments (start[, end])");
             }
-            if (!is_integer(args[0]) || !is_integer(args[1])) {
+            if (!is_integer(args[0]) || (num_args == 2 && !is_integer(args[1]))) {
                 return throw_runtime_error(ctx, "slice() arguments must be integers");
             }
             int32_t start = value_to_int(args[0]);
-            int32_t end = value_to_int(args[1]);
+            int32_t end = (num_args == 2) ? value_to_int(args[1]) : arr->length;
 
             // Clamp bounds to valid range (Python/JS/Rust behavior)
             if (start < 0) start = 0;
@@ -755,6 +755,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                     size_t len = strlen(s);
                     memcpy(result + pos, s, len);
                     pos += len;
+                } else if (arr->elements[i].type == VAL_RUNE) {
+                    char rune_buf[4];
+                    int rune_len = utf8_encode(arr->elements[i].as.as_rune, rune_buf);
+                    memcpy(result + pos, rune_buf, rune_len);
+                    pos += rune_len;
                 } else if (arr->elements[i].type == VAL_NULL) {
                     memcpy(result + pos, "null", 4);
                     pos += 4;

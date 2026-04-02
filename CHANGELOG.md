@@ -5,6 +5,20 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-04-02
+
+### Added
+
+- **`write()` builtin** - Prints a value to stdout without a trailing newline. Calls `fflush(stdout)` for immediate output. Enables inline output building (e.g., `write("1"); write(" -> "); write("2");` prints `1 -> 2` on one line). Full parity between interpreter and compiler.
+- **Single-argument `slice()`** - `arr.slice(n)` and `str.slice(n)` now default the end parameter to the length, matching JavaScript/Python behavior. The two-argument form is unchanged.
+- Parity tests for `write()`, single-arg `slice()`, and rune `join()`.
+
+### Fixed
+
+- **`join()` on rune arrays** - `"hello".chars().join("")` now correctly produces `"hello"` instead of `"[object][object]..."`. Added `VAL_RUNE` case to the interpreter's array join with proper UTF-8 encoding. The compiler runtime already handled this correctly.
+- **HashMap numeric key coercion** - Keys of different numeric types now compare correctly (e.g., an `i32` key can be found with an `i64` lookup). Previously, the `typeof()` guard in `keys_equal()` rejected valid cross-type matches before `==` could apply numeric coercion.
+- **HemBench task accuracy** - Fixed L1-M-02 expected output (78.53 → 78.54, proper rounding not truncation), clarified L2-E-01 variance precision in prompt, stopped leaking expected output to L5/L6 benchmark tasks.
+
 ## [1.9.0] - 2026-02-19
 
 ### Added

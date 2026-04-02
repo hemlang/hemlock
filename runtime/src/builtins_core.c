@@ -322,6 +322,11 @@ void hml_print_newline(void) {
     fflush(stdout);
 }
 
+// Flush stdout without newline (for write() builtin)
+void hml_write_flush(void) {
+    fflush(stdout);
+}
+
 void hml_eprint_newline(void) {
     fprintf(stderr, "\n");
     fflush(stderr);
@@ -337,6 +342,13 @@ HmlValue hml_builtin_print(HmlClosureEnv *env, HmlValue val) {
 HmlValue hml_builtin_println(HmlClosureEnv *env, HmlValue val) {
     (void)env;
     hml_print(val);
+    return hml_val_null();
+}
+
+HmlValue hml_builtin_write(HmlClosureEnv *env, HmlValue val) {
+    (void)env;
+    hml_print_value(val);
+    fflush(stdout);
     return hml_val_null();
 }
 

@@ -91,12 +91,25 @@ export fn HashMap() {
 		}
 		return mod(h, bucket_count);
 	}
-	// Check if two keys are equal
+	// Check if two keys are equal (with numeric type coercion)
 	fn keys_equal(k1, k2) {
-		if (typeof(k1) != typeof(k2)) {
-			return false;
+		if (typeof(k1) == typeof(k2)) {
+			return k1 == k2;
 		}
-		return k1 == k2;
+		// Coerce numeric types for comparison
+		let t1 = typeof(k1);
+		let t2 = typeof(k2);
+		let numeric_types = ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"];
+		let is_num1 = false;
+		let is_num2 = false;
+		for (t in numeric_types) {
+			if (t1 == t) { is_num1 = true; }
+			if (t2 == t) { is_num2 = true; }
+		}
+		if (is_num1 && is_num2) {
+			return k1 == k2;
+		}
+		return false;
 	}
 	// Resize when load factor exceeded
 	fn resize() {
