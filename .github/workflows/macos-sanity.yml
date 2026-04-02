@@ -31,8 +31,8 @@ jobs:
           -DUSEARCH_BUILD_TEST_CPP=OFF \
           -DUSEARCH_BUILD_BENCH_CPP=OFF
         cmake --build /tmp/usearch/build --config Release
-        sudo cp /tmp/usearch/build/libusearch_c.dylib /usr/local/lib/ 2>/dev/null || \
-          sudo cp /tmp/usearch/build/libusearch_c.so /usr/local/lib/
+        sudo mkdir -p /usr/local/lib /usr/local/include
+        sudo cp $(find /tmp/usearch -name 'libusearch_c.dylib' -o -name 'libusearch_c.so' | head -1) /usr/local/lib/
         sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
         ls -la /usr/local/lib/libusearch*
 
