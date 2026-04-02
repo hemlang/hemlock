@@ -176,12 +176,12 @@ Extract substring by range (end exclusive).
 
 **Signature:**
 ```hemlock
-string.slice(start: i32, end: i32): string
+string.slice(start: i32, end?: i32): string
 ```
 
 **Parameters:**
 - `start` - Starting codepoint index (0-based)
-- `end` - Ending codepoint index (exclusive)
+- `end` - Ending codepoint index (exclusive). Defaults to `string.length` if omitted.
 
 **Returns:** New string
 
@@ -190,6 +190,9 @@ string.slice(start: i32, end: i32): string
 let s = "hello world";
 let sub = s.slice(0, 5);        // "hello"
 let world = s.slice(6, 11);     // "world"
+
+// Single-arg: from index to end
+let tail = s.slice(6);          // "world"
 
 // UTF-8 example
 let text = "Hi🚀!";

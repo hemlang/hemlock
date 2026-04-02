@@ -47,6 +47,45 @@ print("x =", 10, "y =", 20);
 
 ---
 
+### write
+
+Print a value to stdout without a trailing newline.
+
+**Signature:**
+```hemlock
+write(value: any): null
+```
+
+**Parameters:**
+- `value` - A value to print
+
+**Returns:** `null`
+
+**Examples:**
+```hemlock
+// Build output on a single line
+write("hello");
+write(" ");
+write("world");
+print("");  // just the newline
+
+// Print a linked list inline
+let parts = [1, 2, 3];
+for (let i = 0; i < parts.length; i++) {
+    if (i > 0) { write(" -> "); }
+    write(parts[i]);
+}
+print("");  // Output: 1 -> 2 -> 3
+```
+
+**Behavior:**
+- Converts value to string and prints to stdout
+- Does NOT add a trailing newline
+- Flushes stdout immediately
+- Use `print("")` after a series of `write()` calls to add a newline
+
+---
+
 ### read_line
 
 Read a line of text from stdin (user input).

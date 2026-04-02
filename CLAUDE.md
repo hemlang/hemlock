@@ -479,6 +479,7 @@ ch.close();
 ```hemlock
 let name = read_line();          // Read line from stdin (blocks)
 print("Hello, " + name);
+write("no newline");             // Print without trailing newline
 eprint("Error message");         // Print to stderr
 
 // read_line() returns null on EOF
