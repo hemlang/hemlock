@@ -99,12 +99,14 @@ void hml_eprint(HmlValue val);
 void hml_print_value(HmlValue val);    // Print without newline
 void hml_eprint_value(HmlValue val);   // Print to stderr without newline
 void hml_print_newline(void);          // Print newline only
+void hml_write_flush(void);            // Flush stdout (for write() builtin)
 void hml_eprint_newline(void);         // Print newline to stderr only
 HmlValue hml_read_line(void);
 
 // I/O builtins as first-class functions (for defer, higher-order functions, etc.)
 HmlValue hml_builtin_print(HmlClosureEnv *env, HmlValue val);
 HmlValue hml_builtin_println(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_write(HmlClosureEnv *env, HmlValue val);
 HmlValue hml_builtin_eprint(HmlClosureEnv *env, HmlValue val);
 
 // Type checking

@@ -1,0 +1,18 @@
+// Test write() builtin - prints without trailing newline
+write("hello");
+write(" ");
+write("world");
+print("");
+
+// write with numbers
+write(42);
+write(" + ");
+write(8);
+print(" = 50");
+
+// write in a loop to build inline output
+for (let i = 0; i < 5; i++) {
+    if (i > 0) { write(", "); }
+    write(i);
+}
+print("");

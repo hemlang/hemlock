@@ -9,6 +9,7 @@ typedef struct {
 
 static BuiltinInfo builtins[] = {
     {"print", builtin_print},
+    {"write", builtin_write},
     {"alloc", builtin_alloc},
     {"talloc", builtin_talloc},
     {"realloc", builtin_realloc},

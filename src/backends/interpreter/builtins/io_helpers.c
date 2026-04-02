@@ -12,6 +12,18 @@ Value builtin_print(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 }
 
+Value builtin_write(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;  // Unused
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: write() expects 1 argument\n");
+        exit(1);
+    }
+
+    print_value(args[0]);
+    fflush(stdout);
+    return val_null();
+}
+
 Value builtin_string_concat_many(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;  // Unused
     if (num_args != 1) {

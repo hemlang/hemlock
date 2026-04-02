@@ -90,6 +90,22 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // Handle write builtin (like print but no trailing newline)
+        if (strcmp(fn_name, "write") == 0 && expr->as.call.num_args >= 1) {
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                char *arg = codegen_expr(ctx, expr->as.call.args[i]);
+                if (i > 0) {
+                    codegen_writeln(ctx, "hml_print_value(hml_val_string(\" \"));");
+                }
+                codegen_writeln(ctx, "hml_print_value(%s);", arg);
+                codegen_writeln(ctx, "hml_release(&%s);", arg);
+                free(arg);
+            }
+            codegen_writeln(ctx, "hml_write_flush();");
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+            return result;
+        }
+
         // Handle eprint builtin (supports any number of arguments)
         if (strcmp(fn_name, "eprint") == 0 && expr->as.call.num_args >= 1) {
             // Print each argument to stderr, with space separator between them
@@ -2989,15 +3005,26 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Methods that work on both strings and arrays - need runtime type check
-        if (strcmp(method, "slice") == 0 && expr->as.call.num_args == 2 && arg_temps) {
+        if (strcmp(method, "slice") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2) && arg_temps) {
             codegen_writeln(ctx, "HmlValue %s;", result);
-            codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
-            codegen_writeln(ctx, "    %s = hml_string_slice(%s, %s, %s);",
-                          result, obj_val, arg_temps[0], arg_temps[1]);
-            codegen_writeln(ctx, "} else {");
-            codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, %s);",
-                          result, obj_val, arg_temps[0], arg_temps[1]);
-            codegen_writeln(ctx, "}");
+            if (expr->as.call.num_args == 1) {
+                // Single-arg slice: default end to length
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+                codegen_writeln(ctx, "    %s = hml_string_slice(%s, %s, hml_string_length(%s));",
+                              result, obj_val, arg_temps[0], obj_val);
+                codegen_writeln(ctx, "} else {");
+                codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, hml_val_i32(%s.as.as_array->length));",
+                              result, obj_val, arg_temps[0], obj_val);
+                codegen_writeln(ctx, "}");
+            } else {
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+                codegen_writeln(ctx, "    %s = hml_string_slice(%s, %s, %s);",
+                              result, obj_val, arg_temps[0], arg_temps[1]);
+                codegen_writeln(ctx, "} else {");
+                codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, %s);",
+                              result, obj_val, arg_temps[0], arg_temps[1]);
+                codegen_writeln(ctx, "}");
+            }
         } else if ((strcmp(method, "find") == 0 || strcmp(method, "indexOf") == 0)
                    && expr->as.call.num_args == 1) {
             codegen_writeln(ctx, "HmlValue %s;", result);
