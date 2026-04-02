@@ -56,7 +56,7 @@ try {
     let server_task = spawn(echo_server, server, 5);
 
     // Give server time to start listening
-    sleep(0.5);
+    sleep(1.0);
 
     // Client connects
     print("  Client: Connecting to ws://127.0.0.1:9002...");

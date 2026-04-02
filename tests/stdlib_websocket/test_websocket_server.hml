@@ -41,7 +41,7 @@ try {
     let accept_task = spawn(accept_connection, server);
 
     // Give server time to start accepting connections
-    sleep(0.5);
+    sleep(1.0);
 
     // Client connects
     print("  Client: Connecting...");

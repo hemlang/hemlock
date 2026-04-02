@@ -56,8 +56,8 @@ async fn run_server(srv, count: i32) {
 
 let server_task = spawn(run_server, server, 5);
 
-// Give server time to start
-sleep(0.1);
+// Give server time to start (CI runners can be slow)
+sleep(1.0);
 
 let base_url = "http://127.0.0.1:" + server_port;
 
