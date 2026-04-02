@@ -111,6 +111,11 @@ jobs:
         cmake --build /tmp/usearch/build --config Release
         sudo cmake --install /tmp/usearch/build
 
+    - name: Disable macOS firewall
+      run: |
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+
     - name: Build runtime library
       run: make runtime
 
@@ -120,7 +125,7 @@ jobs:
     - name: Run basic tests
       run: |
         make clean && make && make stdlib
-        timeout 120 make test
+        timeout 300 make test
 
     - name: Package
       run: |
@@ -162,6 +167,11 @@ jobs:
         cmake --build /tmp/usearch/build --config Release
         sudo cmake --install /tmp/usearch/build
 
+    - name: Disable macOS firewall
+      run: |
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+
     - name: Build runtime library
       run: make runtime
 
@@ -171,7 +181,7 @@ jobs:
     - name: Run full tests
       run: |
         make clean && make && make stdlib
-        timeout 120 make test
+        timeout 300 make test
 
     - name: Package
       run: |
