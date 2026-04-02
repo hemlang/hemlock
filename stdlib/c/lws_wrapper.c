@@ -22,26 +22,29 @@
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                          void *user, void *in, size_t len);
 
-// Shared HTTP client context — reusing avoids SSL reinit failures on lws 4.5+
-static struct lws_context *http_client_context = NULL;
-
 static const struct lws_protocols http_client_protocols[] = {
     { "http", http_callback, 0, 4096, 0, NULL, 0 },
     { NULL, NULL, 0, 0, 0, NULL, 0 }
 };
 
-static struct lws_context* get_http_client_context(int needs_ssl) {
-    if (http_client_context) return http_client_context;
+// Persistent SSL context — never destroyed to avoid OPENSSL_cleanup() on lws 4.5+
+static struct lws_context *ssl_http_ctx = NULL;
 
+static struct lws_context* get_http_client_context(int needs_ssl) {
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    if (needs_ssl)
-        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.protocols = http_client_protocols;
 
-    http_client_context = lws_create_context(&info);
-    return http_client_context;
+    if (needs_ssl) {
+        if (!ssl_http_ctx) {
+            info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+            ssl_http_ctx = lws_create_context(&info);
+        }
+        return ssl_http_ctx;
+    }
+
+    return lws_create_context(&info);
 }
 
 // ========== HTTP SUPPORT ==========

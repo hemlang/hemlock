@@ -296,14 +296,39 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
     return 0;
 }
 
-// Shared HTTP protocol definition — avoids repeated static protocol arrays
-// Note: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is deliberately NOT set because
-// lws_context_destroy() calls OPENSSL_cleanup() on lws 4.5+, permanently
-// breaking SSL for the process. Plain HTTP works without it.
 static const struct lws_protocols shared_http_protocols[] = {
     { "http", http_callback, 0, 16384, 0, NULL, 0 },
     { NULL, NULL, 0, 0, 0, NULL, 0 }
 };
+
+// Persistent SSL context — kept alive to avoid OPENSSL_cleanup() on lws 4.5+.
+// lws_context_destroy() calls OPENSSL_cleanup() which permanently breaks SSL
+// for the entire process, so HTTPS requests reuse this single context.
+// Plain HTTP requests use disposable contexts (no SSL init = safe to destroy).
+static struct lws_context *ssl_http_context = NULL;
+
+static struct lws_context* get_http_context(int needs_ssl) {
+    if (needs_ssl) {
+        if (!ssl_http_context) {
+            struct lws_context_creation_info info;
+            memset(&info, 0, sizeof(info));
+            info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+            info.port = CONTEXT_PORT_NO_LISTEN;
+            info.max_http_header_data = 16384;
+            info.protocols = shared_http_protocols;
+            ssl_http_context = lws_create_context(&info);
+        }
+        return ssl_http_context;
+    }
+
+    // Plain HTTP — create a fresh disposable context (safe to destroy)
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+    info.protocols = shared_http_protocols;
+    return lws_create_context(&info);
+}
 
 // __lws_http_get(url: string): ptr
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
@@ -355,14 +380,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     resp->body[0] = '\0';
 
     lws_init_logging();
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
@@ -397,7 +415,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
+        if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
@@ -411,7 +429,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         lws_service(context, 10);
     }
 
-    lws_context_destroy(context);
+    if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         if (resp->body) free(resp->body);
@@ -479,14 +497,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     resp->body[0] = '\0';
 
     lws_init_logging();
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
@@ -526,7 +537,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     (void)content_type;
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
+        if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
@@ -540,7 +551,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         lws_service(context, 10);
     }
 
-    lws_context_destroy(context);
+    if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         if (resp->body) free(resp->body);
@@ -655,7 +666,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     (void)content_type;
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
+        if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
@@ -669,7 +680,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         lws_service(context, 10);
     }
 
-    lws_context_destroy(context);
+    if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         if (resp->body) free(resp->body);
@@ -789,7 +800,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
+        if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
@@ -803,7 +814,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         lws_service(context, 10);
     }
 
-    lws_context_destroy(context);
+    if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         if (resp->body) free(resp->body);
@@ -925,7 +936,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
+        if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
@@ -939,7 +950,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         lws_service(context, 10);
     }
 
-    lws_context_destroy(context);
+    if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         if (resp->body) free(resp->body);
@@ -1063,7 +1074,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
+        if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
@@ -1077,7 +1088,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         lws_service(context, 10);
     }
 
-    lws_context_destroy(context);
+    if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         if (resp->body) free(resp->body);
