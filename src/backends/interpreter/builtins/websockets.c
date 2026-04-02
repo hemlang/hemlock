@@ -296,6 +296,15 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
     return 0;
 }
 
+// Shared HTTP protocol definition — avoids repeated static protocol arrays
+// Note: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is deliberately NOT set because
+// lws_context_destroy() calls OPENSSL_cleanup() on lws 4.5+, permanently
+// breaking SSL for the process. Plain HTTP works without it.
+static const struct lws_protocols shared_http_protocols[] = {
+    { "http", http_callback, 0, 16384, 0, NULL, 0 },
+    { NULL, NULL, 0, 0, 0, NULL, 0 }
+};
+
 // __lws_http_get(url: string): ptr
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -345,17 +354,13 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     }
     resp->body[0] = '\0';
 
+    lws_init_logging();
+
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;  // 16KB for large headers (e.g., GitHub API)
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
+    info.max_http_header_data = 16384;
+    info.protocols = shared_http_protocols;
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
@@ -375,7 +380,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "GET";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = shared_http_protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
@@ -473,17 +478,13 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     }
     resp->body[0] = '\0';
 
+    lws_init_logging();
+
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;  // 16KB for large headers (e.g., GitHub API)
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
+    info.max_http_header_data = 16384;
+    info.protocols = shared_http_protocols;
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
@@ -503,7 +504,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "POST";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = shared_http_protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
@@ -611,15 +612,9 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
+    info.protocols = shared_http_protocols;
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
@@ -639,7 +634,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = method;  // Use the provided method
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = shared_http_protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
@@ -759,15 +754,9 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
+    info.protocols = shared_http_protocols;
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
@@ -787,7 +776,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "GET";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = shared_http_protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
@@ -901,15 +890,9 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
+    info.protocols = shared_http_protocols;
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
@@ -929,7 +912,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "POST";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = shared_http_protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
@@ -1045,15 +1028,9 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
+    info.protocols = shared_http_protocols;
 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
@@ -1073,7 +1050,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = method;
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = shared_http_protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
