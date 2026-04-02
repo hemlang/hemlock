@@ -540,7 +540,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     if (opts->target_wasm) {
         // WASM build via Emscripten
         // Determine WASM runtime library path
-        char wasm_runtime[PATH_MAX];
+        char wasm_runtime[PATH_MAX + 64];
         if (opts->wasm_threads) {
             // Threaded build uses separate runtime with pthread support
             snprintf(wasm_runtime, sizeof(wasm_runtime),
