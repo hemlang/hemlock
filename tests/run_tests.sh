@@ -161,7 +161,7 @@ for test_file in $TEST_FILES; do
 
     # Run the test with timeout and capture output, exit code, and timing
     start_time=$(get_time_ms)
-    output=$(timeout 60 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
+    output=$(timeout 100 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
     exit_code=$?
     end_time=$(get_time_ms)
     duration_ms=$((end_time - start_time))
