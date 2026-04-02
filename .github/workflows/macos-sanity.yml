@@ -7,7 +7,7 @@ on:
     branches: [ main, master ]
 
 env:
-  USEARCH_VERSION: "v2.16.5"
+  USEARCH_VERSION: "v2.24.0"
 
 jobs:
   macos-arm:
@@ -25,6 +25,7 @@ jobs:
       run: |
         git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
         cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
           -DUSEARCH_BUILD_LIB_C=ON \
           -DUSEARCH_BUILD_TEST_C=OFF \
           -DUSEARCH_BUILD_TEST_CPP=OFF \
