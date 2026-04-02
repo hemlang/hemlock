@@ -18,8 +18,31 @@
 #include <unistd.h>
 #include <pthread.h>
 
-// SSL global init should only happen once across all contexts
-static int ssl_globally_initialized = 0;
+// Forward declaration
+static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                         void *user, void *in, size_t len);
+
+// Shared HTTP client context — reusing avoids SSL reinit failures on lws 4.5+
+static struct lws_context *http_client_context = NULL;
+
+static const struct lws_protocols http_client_protocols[] = {
+    { "http", http_callback, 0, 4096, 0, NULL, 0 },
+    { NULL, NULL, 0, 0, 0, NULL, 0 }
+};
+
+static struct lws_context* get_http_client_context(int needs_ssl) {
+    if (http_client_context) return http_client_context;
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    if (needs_ssl)
+        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.protocols = http_client_protocols;
+
+    http_client_context = lws_create_context(&info);
+    return http_client_context;
+}
 
 // ========== HTTP SUPPORT ==========
 
@@ -163,7 +186,6 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
 
 // HTTP GET request
 http_response_t* lws_http_get(const char *url) {
-    struct lws_context_creation_info info;
     struct lws_client_connect_info connect_info;
     struct lws_context *context;
     http_response_t *resp;
@@ -172,12 +194,10 @@ http_response_t* lws_http_get(const char *url) {
     char path[512];
     int port, ssl;
 
-    // Parse URL
     if (parse_url(url, host, &port, path, &ssl) < 0) {
         return NULL;
     }
 
-    // Allocate response structure
     resp = calloc(1, sizeof(http_response_t));
     if (!resp) return NULL;
 
@@ -189,28 +209,13 @@ http_response_t* lws_http_get(const char *url) {
     }
     resp->body[0] = '\0';
 
-    // Create context
-    memset(&info, 0, sizeof(info));
-    if (ssl && !ssl_globally_initialized) {
-        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-        ssl_globally_initialized = 1;
-    }
-    info.port = CONTEXT_PORT_NO_LISTEN;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    context = lws_create_context(&info);
+    context = get_http_client_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Connect
     memset(&connect_info, 0, sizeof(connect_info));
     connect_info.context = context;
     connect_info.address = host;
@@ -219,31 +224,24 @@ http_response_t* lws_http_get(const char *url) {
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "GET";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = http_client_protocols[0].name;
     connect_info.userdata = resp;
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
         connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;  // 30 seconds (100 * 10ms)
+    int timeout = 3000;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, 10);
     }
-
-    lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         free(resp->body);
@@ -256,7 +254,6 @@ http_response_t* lws_http_get(const char *url) {
 
 // HTTP POST request
 http_response_t* lws_http_post(const char *url, const char *body, const char *content_type) {
-    struct lws_context_creation_info info;
     struct lws_client_connect_info connect_info;
     struct lws_context *context;
     http_response_t *resp;
@@ -265,12 +262,10 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     char path[512];
     int port, ssl;
 
-    // Parse URL
     if (parse_url(url, host, &port, path, &ssl) < 0) {
         return NULL;
     }
 
-    // Allocate response structure
     resp = calloc(1, sizeof(http_response_t));
     if (!resp) return NULL;
 
@@ -282,28 +277,13 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     }
     resp->body[0] = '\0';
 
-    // Create context
-    memset(&info, 0, sizeof(info));
-    if (ssl && !ssl_globally_initialized) {
-        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-        ssl_globally_initialized = 1;
-    }
-    info.port = CONTEXT_PORT_NO_LISTEN;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    context = lws_create_context(&info);
+    context = get_http_client_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Build POST headers
     char headers[1024];
     snprintf(headers, sizeof(headers),
              "POST %s HTTP/1.1\r\n"
@@ -316,7 +296,6 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
              body ? strlen(body) : 0,
              body ? body : "");
 
-    // Connect
     memset(&connect_info, 0, sizeof(connect_info));
     connect_info.context = context;
     connect_info.address = host;
@@ -325,31 +304,24 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "POST";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = http_client_protocols[0].name;
     connect_info.userdata = resp;
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
         connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Event loop (timeout after 30 seconds)
     int timeout = 3000;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, 10);
     }
-
-    lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         free(resp->body);
@@ -362,7 +334,6 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
 
 // Generic HTTP request with method parameter (for PUT, DELETE, PATCH, etc.)
 http_response_t* lws_http_request(const char *method, const char *url, const char *body, const char *content_type) {
-    struct lws_context_creation_info info;
     struct lws_client_connect_info connect_info;
     struct lws_context *context;
     http_response_t *resp;
@@ -371,12 +342,10 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     char path[512];
     int port, ssl;
 
-    // Parse URL
     if (parse_url(url, host, &port, path, &ssl) < 0) {
         return NULL;
     }
 
-    // Allocate response structure
     resp = calloc(1, sizeof(http_response_t));
     if (!resp) return NULL;
 
@@ -388,28 +357,13 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     }
     resp->body[0] = '\0';
 
-    // Create context
-    memset(&info, 0, sizeof(info));
-    if (ssl && !ssl_globally_initialized) {
-        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-        ssl_globally_initialized = 1;
-    }
-    info.port = CONTEXT_PORT_NO_LISTEN;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    context = lws_create_context(&info);
+    context = get_http_client_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Connect
     memset(&connect_info, 0, sizeof(connect_info));
     connect_info.context = context;
     connect_info.address = host;
@@ -417,32 +371,25 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     connect_info.path = path;
     connect_info.host = host;
     connect_info.origin = host;
-    connect_info.method = method;  // Use the provided method
-    connect_info.protocol = protocols[0].name;
+    connect_info.method = method;
+    connect_info.protocol = http_client_protocols[0].name;
     connect_info.userdata = resp;
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
         connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Event loop (timeout after 30 seconds)
     int timeout = 3000;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, 10);
     }
-
-    lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         free(resp->body);
@@ -680,11 +627,12 @@ ws_connection_t* lws_ws_connect(const char *url) {
     if (!conn) return NULL;
     conn->owns_memory = 1;  // Client connections own their memory
 
-    // Create context
+    // Create context — SSL init only needed for wss:// connections
+    static int ws_ssl_initialized = 0;
     memset(&info, 0, sizeof(info));
-    if (ssl && !ssl_globally_initialized) {
+    if (ssl && !ws_ssl_initialized) {
         info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-        ssl_globally_initialized = 1;
+        ws_ssl_initialized = 1;
     }
     info.port = CONTEXT_PORT_NO_LISTEN;
 
