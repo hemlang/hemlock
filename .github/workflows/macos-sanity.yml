@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main, master ]
 
+env:
+  USEARCH_VERSION: "v2.16.5"
+
 jobs:
   macos-arm:
     runs-on: macos-14
@@ -14,14 +17,25 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install coreutils libffi openssl@3 libwebsockets
+        brew install coreutils libffi openssl@3 libwebsockets cmake
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cmake --install /tmp/usearch/build
 
     - name: Build interpreter
       run: make clean && make
 
     - name: Build stdlib
-      run: make stdlib || true
+      run: make stdlib
 
     - name: Run interpreter tests
       run: timeout 120 make test
