@@ -247,7 +247,7 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
             if (host_len >= 256) return -1;
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            *port = atoi(colon + 1);
+            *port = (int)strtol(colon + 1, NULL, 10);
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -273,7 +273,7 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
             if (host_len >= 256) return -1;
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            *port = atoi(colon + 1);
+            *port = (int)strtol(colon + 1, NULL, 10);
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -2038,7 +2038,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
             }
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            port = atoi(colon + 1);
+            port = (int)strtol(colon + 1, NULL, 10);
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -2073,7 +2073,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
             }
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            port = atoi(colon + 1);
+            port = (int)strtol(colon + 1, NULL, 10);
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';

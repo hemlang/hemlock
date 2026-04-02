@@ -104,6 +104,12 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
     // Read entire file into memory
     fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
+    if (file_size < 0) {
+        fprintf(stderr, "error: failed to determine size of module file '%s'\n", path);
+        fclose(file);
+        *stmt_count = 0;
+        return NULL;
+    }
     fseek(file, 0, SEEK_SET);
 
     char *source = malloc(file_size + 1);

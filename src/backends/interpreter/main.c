@@ -1023,7 +1023,7 @@ static int run_profile(int argc, char **argv) {
             output_format = PROFILE_OUTPUT_FLAMEGRAPH;
         } else if (strcmp(argv[i], "--top") == 0) {
             if (i + 1 < argc) {
-                top_n = atoi(argv[i + 1]);
+                top_n = (int)strtol(argv[i + 1], NULL, 10);
                 i++;
             }
         } else if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) {
@@ -1206,7 +1206,7 @@ static int run_lsp(int argc, char **argv) {
         } else if (strcmp(argv[i], "--tcp") == 0) {
             use_tcp = 1;
             if (i + 1 < argc) {
-                tcp_port = atoi(argv[i + 1]);
+                tcp_port = (int)strtol(argv[i + 1], NULL, 10);
                 i++;
             }
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -1401,7 +1401,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
-            stack_depth = atoi(argv[i + 1]);
+            stack_depth = (int)strtol(argv[i + 1], NULL, 10);
             if (stack_depth <= 0) {
                 fprintf(stderr, "Error: --stack-depth must be a positive integer\n");
                 return 1;

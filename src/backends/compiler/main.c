@@ -294,7 +294,7 @@ static Options parse_args(int argc, char **argv) {
         } else if (strcmp(argv[i], "-k") == 0 || strcmp(argv[i], "--keep-c") == 0) {
             opts.keep_c = 1;
         } else if (strncmp(argv[i], "-O", 2) == 0) {
-            opts.optimize = atoi(argv[i] + 2);
+            opts.optimize = (int)strtol(argv[i] + 2, NULL, 10);
             if (opts.optimize < 0) opts.optimize = 0;
             if (opts.optimize > 3) opts.optimize = 3;
         } else if (strcmp(argv[i], "--cc") == 0 && i + 1 < argc) {
@@ -375,6 +375,11 @@ static char* read_file(const char *path) {
 
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
+    if (size < 0) {
+        fprintf(stderr, "error: Could not determine file size\n");
+        fclose(file);
+        return NULL;
+    }
     rewind(file);
 
     char *buffer = malloc(size + 1);
@@ -488,7 +493,6 @@ static int compile_c(const Options *opts, const char *c_file) {
         int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", ssl_path);
         if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
             strcat(extra_lib_paths + extra_lib_len, tmp);
-            extra_lib_len += (size_t)n;
         }
     }
 #endif

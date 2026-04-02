@@ -82,6 +82,12 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
     // Get file size
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
+    if (size < 0) {
+        runtime_error(ctx, "read_file() failed to determine file size");
+        fclose(fp);
+        free(cpath);
+        return val_null();
+    }
     fseek(fp, 0, SEEK_SET);
 
     // Allocate buffer
@@ -427,6 +433,18 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
+    }
+
+    if (ferror(src_fp)) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to read from '%s': %s", src_cpath, strerror(errno));
+        fclose(src_fp);
+        fclose(dest_fp);
+        free(src_cpath);
+        free(dest_cpath);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
     }
 
     fclose(src_fp);
