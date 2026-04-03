@@ -5,6 +5,15 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] - 2026-04-03
+
+### Fixed
+
+- **Compiler unboxed loop counter boxing** - Fixed a critical codegen bug where optimized loop counters (native `int32_t`) were not properly re-boxed to `HmlValue` when referenced in expressions. The `codegen_is_main_var` check incorrectly prevented boxing when a main-level variable name shadowed an unboxed loop counter inside a module/closure function. Added scope-added variable tracking for optimized loop counters and local-variable shadowing detection in the unbox check. Fixes compilation of `@stdlib/collections` (HashMap, Queue, Stack, Set, LinkedList) and `@stdlib/encoding` (base64, hex).
+- **`clear()` object method dispatch** - The compiler now performs runtime type checking before dispatching `.clear()` calls. Previously, `.clear()` always generated `hml_array_clear()` regardless of the receiver type, causing "clear() requires array" errors on HashMap/Set/Stack objects. Now falls back to `hml_call_method()` for non-array types.
+- **`exec()` import shadowing** - The compiler's builtin `exec()` handler now checks for import bindings, module exports, and local function definitions before dispatching to the system exec builtin (`hml_exec`). This fixes `@stdlib/sqlite` which exports its own `exec()` function for SQL execution.
+- **Removed stale debug `fprintf` statements** - Cleaned up debug output from `type_check_get_unboxable`, `type_check_mark_unboxable`, `type_check_clear_unboxable`, and `funcgen_generate_body`.
+
 ## [1.9.1] - 2026-04-02
 
 ### Added

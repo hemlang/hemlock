@@ -458,6 +458,18 @@ static int hml_type_matches(HmlValue val, HmlValueType expected) {
     return val.type == expected;
 }
 
+// Helper: Check if an HmlValueType is numeric
+static int hml_is_numeric_type(HmlValueType type) {
+    switch (type) {
+        case HML_VAL_I8: case HML_VAL_I16: case HML_VAL_I32: case HML_VAL_I64:
+        case HML_VAL_U8: case HML_VAL_U16: case HML_VAL_U32: case HML_VAL_U64:
+        case HML_VAL_F32: case HML_VAL_F64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 // Validate and set element type constraint on array
 HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
@@ -471,10 +483,19 @@ HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
         return arr;
     }
 
-    // Validate all existing elements match the type constraint
+    // Validate all existing elements match the type constraint,
+    // coercing numeric elements to the target numeric type instead of rejecting them.
     for (int i = 0; i < a->length; i++) {
         if (!hml_type_matches(a->elements[i], element_type)) {
-            hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+            // If both source and target are numeric, coerce the element
+            if (hml_is_numeric(a->elements[i]) && hml_is_numeric_type(element_type)) {
+                HmlValue converted = hml_convert_to_type(a->elements[i], element_type);
+                hml_release(&a->elements[i]);
+                a->elements[i] = converted;
+                hml_retain(&a->elements[i]);
+            } else {
+                hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+            }
         }
     }
 

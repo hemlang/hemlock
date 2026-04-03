@@ -1153,8 +1153,18 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                         // Primitive type annotation: let x: i64 = 0;
                         const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
                         if (hml_type) {
-                            codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
-                                          stmt->as.let.name, value, hml_type);
+                            if (stmt->as.let.type_annotation->nullable) {
+                                // Nullable annotation: skip conversion if value is null
+                                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                                codegen_writeln(ctx, "    _main_%s = %s;", stmt->as.let.name, value);
+                                codegen_writeln(ctx, "} else {");
+                                codegen_writeln(ctx, "    _main_%s = hml_convert_to_type(%s, %s);",
+                                              stmt->as.let.name, value, hml_type);
+                                codegen_writeln(ctx, "}");
+                            } else {
+                                codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
+                                              stmt->as.let.name, value, hml_type);
+                            }
                         } else {
                             codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
                         }

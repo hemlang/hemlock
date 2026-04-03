@@ -106,7 +106,11 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
     if (op == HML_OP_DIV) {
         double l = hml_to_f64(left);
         double r = hml_to_f64(right);
-        if (r == 0.0) hml_runtime_error("Division by zero");
+        // IEEE 754: float / 0.0 returns Inf or NaN - do not throw for float operands.
+        // Only throw for integer operands where zero division is undefined.
+        int either_float = (left.type == HML_VAL_F64 || left.type == HML_VAL_F32 ||
+                            right.type == HML_VAL_F64 || right.type == HML_VAL_F32);
+        if (r == 0.0 && !either_float) hml_runtime_error("Division by zero");
         return hml_val_f64(l / r);
     }
 
@@ -212,6 +216,10 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = (left.as.as_rune == right.as.as_rune);
         } else if (left.type == HML_VAL_PTR && right.type == HML_VAL_PTR) {
             equal = (left.as.as_ptr == right.as.as_ptr);
+        } else if (left.type == HML_VAL_OBJECT && right.type == HML_VAL_OBJECT) {
+            equal = (left.as.as_object == right.as.as_object);
+        } else if (left.type == HML_VAL_ARRAY && right.type == HML_VAL_ARRAY) {
+            equal = (left.as.as_array == right.as.as_array);
         } else if (hml_is_numeric(left) && hml_is_numeric(right)) {
             double l = hml_to_f64(left);
             double r = hml_to_f64(right);
