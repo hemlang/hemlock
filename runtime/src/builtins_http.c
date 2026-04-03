@@ -2010,8 +2010,11 @@ HmlValue hml_lws_ws_server_close(HmlValue server_val) {
 
     hml_ws_server_t *server = (hml_ws_server_t *)server_val.as.as_ptr;
     if (server) {
+        // Signal shutdown - accept() checks this flag before each iteration
         server->closed = 1;
         server->shutdown = 1;
+        // Wait for any in-flight accept() call to finish its current iteration
+        usleep(50000);
         pthread_join(server->service_thread, NULL);
         pthread_mutex_destroy(&server->pending_mutex);
         if (server->context) {

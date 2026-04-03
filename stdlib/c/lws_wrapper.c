@@ -1047,10 +1047,12 @@ ws_connection_t* lws_ws_server_accept(ws_server_t *server, int timeout_ms) {
 // Close WebSocket server
 void lws_ws_server_close(ws_server_t *server) {
     if (server) {
+        // Signal shutdown - accept() checks this flag before each iteration
         server->closed = 1;
-
-        // Signal service thread to stop
         server->shutdown = 1;
+
+        // Wait for any in-flight accept() call to finish its current iteration
+        usleep(50000);
 
         // Wait for service thread to finish
         pthread_join(server->service_thread, NULL);

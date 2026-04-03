@@ -1811,8 +1811,14 @@ static void ws_connection_close(ws_connection_t *conn) {
 static void ws_server_close_internal(ws_server_t *server) {
     if (!server) return;
 
+    // Signal shutdown - accept() checks this flag before each iteration
     server->closed = 1;
     server->shutdown = 1;
+
+    // Wait for any in-flight accept() call to finish its current iteration.
+    // accept() sleeps 10ms per iteration, so 50ms is sufficient.
+    usleep(50000);
+
     pthread_join(server->service_thread, NULL);
     pthread_mutex_destroy(&server->pending_mutex);
     if (server->context) {
@@ -2622,6 +2628,11 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
     int iterations = timeout_ms > 0 ? (timeout_ms / 10) : -1;
 
     while (iterations != 0) {
+        // Check if server was closed before accessing its mutex
+        if (server->closed) {
+            return val_null();
+        }
+
         pthread_mutex_lock(&server->pending_mutex);
         ws_connection_t *conn = NULL;
         if (server->pending_wsi) {
@@ -2657,6 +2668,10 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
             return val_websocket(ws);
         }
 
+        // Check again after sleep in case server was closed
+        if (server->closed) {
+            return val_null();
+        }
         usleep(10000);  // 10ms sleep
         if (iterations > 0) iterations--;
     }
