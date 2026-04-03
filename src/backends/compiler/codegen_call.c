@@ -3135,18 +3135,26 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_string_find(%s, %s);",
                           result, obj_val, arg_temps[0]);
-            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_array_find(%s, %s);",
                           result, obj_val, arg_temps[0]);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    HmlValue _find_args__%s[1] = { %s };", result, arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"find\", _find_args__%s, 1);",
+                          result, obj_val, result);
             codegen_writeln(ctx, "}");
         } else if (strcmp(method, "contains") == 0 && expr->as.call.num_args == 1) {
             codegen_writeln(ctx, "HmlValue %s;", result);
             codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_string_contains(%s, %s);",
                           result, obj_val, arg_temps[0]);
-            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_array_contains(%s, %s);",
                           result, obj_val, arg_temps[0]);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    HmlValue _contains_args__%s[1] = { %s };", result, arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"contains\", _contains_args__%s, 1);",
+                          result, obj_val, result);
             codegen_writeln(ctx, "}");
         // String-only methods
         } else if (strcmp(method, "substr") == 0 && expr->as.call.num_args == 2) {

@@ -181,8 +181,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // Convert value to the annotated type with range checking
                     const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
                     if (hml_type) {
-                        codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
-                                      safe_name, value, hml_type);
+                        if (stmt->as.let.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "HmlValue %s;", safe_name);
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    %s = %s;", safe_name, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    %s = hml_convert_to_type(%s, %s);",
+                                          safe_name, value, hml_type);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "HmlValue %s = hml_convert_to_type(%s, %s);",
+                                          safe_name, value, hml_type);
+                        }
                     } else {
                         codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, value);
                     }
@@ -992,23 +1003,38 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_inc(ctx);
             // Try block
             codegen_stmt(ctx, stmt->as.try_stmt.try_block);
+            if (has_catch) {
+                // Pop exception context on the success path (no exception thrown).
+                // Emitted here while still inside the if-block, before indent_dec.
+                codegen_writeln(ctx, "hml_exception_pop();");
+            }
             codegen_indent_dec(ctx);
             if (has_catch) {
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Save exception value BEFORE popping the context (pop frees it).
+                // Then pop BEFORE executing catch body so that a rethrow (throw e)
+                // inside catch propagates to the outer handler instead of
+                // re-entering this catch block infinitely.
+                char *saved_ex_var = codegen_temp(ctx);
+                codegen_writeln(ctx, "HmlValue %s = hml_exception_get_value();", saved_ex_var);
+                codegen_writeln(ctx, "hml_exception_pop();");
                 // Catch block - declare catch param as shadow var to shadow main vars
                 if (stmt->as.try_stmt.catch_param) {
                     char *safe_catch_param = codegen_sanitize_ident(stmt->as.try_stmt.catch_param);
                     codegen_add_shadow(ctx, stmt->as.try_stmt.catch_param);
-                    codegen_writeln(ctx, "HmlValue %s = hml_exception_get_value();", safe_catch_param);
+                    codegen_writeln(ctx, "HmlValue %s = %s;", safe_catch_param, saved_ex_var);
                     codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
                     codegen_writeln(ctx, "hml_release(&%s);", safe_catch_param);
                     // Remove catch param from shadow vars so outer scope variable is used again
                     codegen_remove_shadow(ctx, stmt->as.try_stmt.catch_param);
                     free(safe_catch_param);
                 } else {
+                    // No catch parameter: release saved exception value and run block
+                    codegen_writeln(ctx, "hml_release(&%s);", saved_ex_var);
                     codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
                 }
+                free(saved_ex_var);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (has_finally) {
@@ -1023,9 +1049,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "}");
             }
 
-            // Pop exception context BEFORE finally block
-            // This ensures exceptions in finally go to outer handler
-            codegen_writeln(ctx, "hml_exception_pop();");
+            // For no-catch cases, pop exception context here before the finally block
+            // so that exceptions thrown in finally propagate to the outer handler.
+            // For has_catch, the pop was already emitted in both branches above.
+            if (!has_catch) {
+                codegen_writeln(ctx, "hml_exception_pop();");
+            }
 
             // Finally block
             if (has_finally) {
