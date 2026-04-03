@@ -1941,7 +1941,7 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     info.port = port;
     info.iface = host;
     info.user = server;
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE;
 
     static const struct lws_protocols server_protocols[] = {
         { "ws", hml_ws_server_callback, sizeof(hml_ws_connection_t), 4096, 0, NULL, 0 },

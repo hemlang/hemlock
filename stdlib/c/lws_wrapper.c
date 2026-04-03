@@ -986,6 +986,7 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     info.port = port;
     info.iface = host;
     info.user = server;
+    info.options = LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE;
 
     static const struct lws_protocols server_protocols[] = {
         { "ws", ws_server_callback, sizeof(ws_connection_t), 4096, 0, NULL, 0 },

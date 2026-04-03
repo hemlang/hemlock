@@ -63,11 +63,19 @@ static void* task_thread_wrapper(void* arg) {
     // Release function environment (reference counted)
     env_release(func_env);
 
-    // Clean up detached tasks (decrement reference count)
-    // The task will be freed when both the worker thread and user-side have released it
-    if (task->detached) {
-        task_release(task);
+    // If ref_count is 1, only the worker holds a reference (caller discarded
+    // the task handle). Auto-detach so thread resources are cleaned up.
+    // If ref_count > 1, the caller still holds a reference and may call join().
+    pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
+    int worker_is_last = (__atomic_load_n(&task->ref_count, __ATOMIC_SEQ_CST) == 1);
+    if (worker_is_last && !task->joined && !task->detached) {
+        task->detached = 1;
+        pthread_detach(*(pthread_t*)task->thread);
     }
+    pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
+
+    // Release the worker thread's reference to the task.
+    task_release(task);
 
     return NULL;
 }
@@ -127,10 +135,16 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
         exit(1);
     }
 
+    // Retain task so the worker thread holds a reference.
+    // Without this, if the caller discards the task handle (fire-and-forget spawn),
+    // the task would be freed while the thread is still running.
+    task_retain(task);
+
     // Create thread to execute task
     int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
     if (rc != 0) {
         fprintf(stderr, "Runtime error: Failed to create thread: %d\n", rc);
+        task_release(task);
         exit(1);
     }
 
