@@ -37,7 +37,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // We check: function parameters, scope variables, and local variables.
     if (codegen_is_func_param(ctx, expr->as.ident.name) ||
         (ctx->current_scope && scope_is_defined(ctx->current_scope, expr->as.ident.name)) ||
-        codegen_is_shadow(ctx, expr->as.ident.name)) {
+        codegen_is_shadow(ctx, expr->as.ident.name) ||
+        codegen_is_local(ctx, expr->as.ident.name)) {
         // This is a local variable or parameter - handle it directly
         goto handle_variable;
     }
@@ -585,10 +586,15 @@ handle_variable:
         // OPTIMIZATION: Check if this is an unboxed variable (loop counter, accumulator, or typed var)
         // If so, convert the native C type back to HmlValue
         // IMPORTANT: Skip this for function parameters - they are always HmlValue
-        // IMPORTANT: Skip this for main-level variables - they're pre-declared as HmlValue, not unboxed
+        // IMPORTANT: Skip this for main-level variables that aren't shadowed by a local
         // IMPORTANT: Skip this for shadow variables (inlined params) - they are HmlValue, not unboxed
+        {
+        // When inside a function and the variable is a local, it shadows any main var
+        // with the same name - so the main_var check should not prevent unboxing
+        int is_truly_main = codegen_is_main_var(ctx, expr->as.ident.name) &&
+                            !(ctx->in_function && codegen_is_local(ctx, expr->as.ident.name));
         if (ctx->optimize && ctx->type_ctx && !codegen_is_func_param(ctx, expr->as.ident.name) &&
-            !codegen_is_main_var(ctx, expr->as.ident.name) &&
+            !is_truly_main &&
             !codegen_is_shadow(ctx, expr->as.ident.name)) {
             CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, expr->as.ident.name);
             if (native_type != CHECKED_UNKNOWN) {
@@ -602,6 +608,7 @@ handle_variable:
                     return result;
                 }
             }
+        }
         }
 
         // Check if this is an imported symbol

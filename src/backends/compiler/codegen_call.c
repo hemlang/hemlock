@@ -207,7 +207,21 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle exec builtin for command execution (1 arg: shell mode, 2 args: safe mode)
-        if ((strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 1) {
+        // Skip if 'exec' is an imported symbol (e.g. from @stdlib/sqlite)
+        // or a local/module function that shadows the builtin
+        int exec_is_imported = 0;
+        if (strcmp(fn_name, "exec") == 0) {
+            if (ctx->current_module) {
+                exec_is_imported = module_find_import(ctx->current_module, fn_name) != NULL ||
+                                   module_find_export(ctx->current_module, fn_name) != NULL;
+            } else {
+                exec_is_imported = codegen_find_main_import(ctx, fn_name) != NULL;
+            }
+            if (!exec_is_imported && codegen_is_local(ctx, fn_name)) {
+                exec_is_imported = 1;
+            }
+        }
+        if (!exec_is_imported && (strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 1) {
             char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_exec(%s);", result, cmd);
             codegen_writeln(ctx, "hml_release(&%s);", cmd);
@@ -216,7 +230,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle exec builtin with args array (safe mode, no shell)
-        if ((strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 2) {
+        if (!exec_is_imported && (strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 2) {
             char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
             char *args = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_exec_with_args(%s, %s);", result, cmd, args);
@@ -3261,8 +3275,17 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         } else if (strcmp(method, "last") == 0 && expr->as.call.num_args == 0) {
             codegen_writeln(ctx, "HmlValue %s = hml_array_last(%s);", result, obj_val);
         } else if (strcmp(method, "clear") == 0 && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s;", result);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+            codegen_indent_inc(ctx);
             codegen_writeln(ctx, "hml_array_clear(%s);", obj_val);
-            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+            codegen_writeln(ctx, "%s = hml_val_null();", result);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "} else {");
+            codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"clear\", NULL, 0);", result, obj_val);
+            codegen_indent_dec(ctx);
+            codegen_writeln(ctx, "}");
         // File methods
         } else if (strcmp(method, "read") == 0 && (expr->as.call.num_args == 0 || expr->as.call.num_args == 1)) {
             if (expr->as.call.num_args == 1) {

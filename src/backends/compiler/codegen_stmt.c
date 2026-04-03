@@ -412,6 +412,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // Declare native counter
                 codegen_writeln(ctx, "int32_t %s = %d;", safe_name, init_val);
                 codegen_add_local(ctx, counter_name);
+                if (ctx->current_scope) {
+                    scope_add_var(ctx->current_scope, counter_name);
+                }
 
                 // Create continue label (use loop_continue_label if this is a labeled loop)
                 char *continue_label;

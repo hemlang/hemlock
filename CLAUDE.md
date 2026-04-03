@@ -913,7 +913,12 @@ make parity
 
 ## Version
 
-**v1.9.1** - Current release with:
+**v1.9.2** - Current release with:
+- **Compiler unboxed loop counter fix** - Fixed a critical codegen bug where optimized loop counters (native `int32_t`) were used directly as `HmlValue` initializers without boxing. The `codegen_is_main_var` check incorrectly prevented the boxing wrapper (`hml_val_i32()`) from being emitted when a main-level variable name shadowed an unboxed loop counter inside a module/closure function. Fixes compilation of `@stdlib/collections` and `@stdlib/encoding`.
+- **`clear()` object method dispatch** - The compiler now correctly dispatches `.clear()` to object methods when called on non-array types. Previously, `.clear()` always generated `hml_array_clear()` regardless of receiver type.
+- **`exec()` import shadowing fix** - The compiler's builtin `exec()` handler now checks for import bindings and module-local functions before dispatching to the system exec builtin. Fixes `@stdlib/sqlite` which exports its own `exec()` function.
+
+**v1.9.1** - Previous release with:
 - **`write()` builtin** - Print without trailing newline (`write("hello"); write(" world");` outputs on one line). Includes `fflush(stdout)` for immediate output. Full parity between interpreter and compiler.
 - **Single-argument `slice()`** - `arr.slice(n)` and `str.slice(n)` now default end to length, matching JS/Python behavior. Two-arg form unchanged.
 - **`join()` on rune arrays** - `"hello".chars().join("")` now correctly produces `"hello"` instead of `"[object][object]..."`. Enables idiomatic string reversal: `str.chars().reverse().join("")`.
