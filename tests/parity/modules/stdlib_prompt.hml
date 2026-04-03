@@ -1,0 +1,93 @@
+// Test @stdlib/prompt module
+
+import { message, system, user, assistant, tool, format_chat, apply_template, conversation, templates, get_template_source } from "@stdlib/prompt";
+
+// === Message constructors ===
+
+let sys = system("You are helpful.");
+print(sys.role);
+print(sys.content);
+
+let usr = user("Hello!");
+print(usr.role);
+print(usr.content);
+
+let ast = assistant("Hi there!");
+print(ast.role);
+print(ast.content);
+
+let msg = message("custom", "test");
+print(msg.role);
+print(msg.content);
+
+let tl = tool("result", "calc");
+print(tl.role);
+print(tl.content);
+print(tl.name);
+
+// === format_chat with plain template ===
+
+let msgs = [system("Be brief."), user("Hi!")];
+let plain = format_chat(msgs, "plain");
+print(plain);
+
+// === format_chat with chatml ===
+
+let chatml = format_chat(msgs, "chatml");
+print(chatml);
+
+// === apply_template with custom template ===
+
+let custom_tmpl = "{% for msg in messages %}({{ msg.role }}) {{ msg.content }}\n{% endfor %}";
+let custom = apply_template(custom_tmpl, msgs);
+print(custom);
+
+// === apply_template with extra context ===
+
+let ctx_tmpl = "Model: {{ model_name }}\n{% for msg in messages %}{{ msg.content }}\n{% endfor %}";
+let ctx_result = apply_template(ctx_tmpl, msgs, { model_name: "test-model" });
+print(ctx_result);
+
+// === conversation builder ===
+
+let conv = conversation("plain");
+conv.add_system("System prompt.");
+conv.add_user("Question?");
+conv.add_assistant("Answer.");
+conv.add_user("Follow-up?");
+
+print(conv.count());
+print(conv.last_message().role);
+print(conv.last_message().content);
+
+// by_role
+let user_msgs = conv.by_role("user");
+print(user_msgs.length);
+
+// format
+let formatted = conv.format();
+print(formatted);
+
+// reset
+conv.reset();
+print(conv.count());
+
+// === templates list ===
+
+let tmpl_list = templates();
+print(tmpl_list.length);
+print(tmpl_list[0]);
+print(tmpl_list[6]);
+
+// === get_template_source ===
+
+let src = get_template_source("plain");
+print(src.contains("msg.role"));
+
+// === tool message without name ===
+
+let tl2 = tool("data");
+print(tl2.role);
+print(tl2.content);
+
+print("done");
