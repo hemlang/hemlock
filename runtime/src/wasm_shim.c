@@ -320,6 +320,7 @@ HmlValue hml_lws_ws_is_closed(HmlValue c) { (void)c; WASM_STUB_PANIC_RETURN("ws_
 HmlValue hml_lws_msg_type(HmlValue m) { (void)m; WASM_STUB_PANIC_RETURN("msg_type"); }
 HmlValue hml_lws_msg_text(HmlValue m) { (void)m; WASM_STUB_PANIC_RETURN("msg_text"); }
 HmlValue hml_lws_msg_len(HmlValue m) { (void)m; WASM_STUB_PANIC_RETURN("msg_len"); }
+HmlValue hml_lws_msg_binary(HmlValue m) { (void)m; WASM_STUB_PANIC_RETURN("msg_binary"); }
 HmlValue hml_lws_msg_free(HmlValue m) { (void)m; return hml_val_null(); }
 HmlValue hml_lws_ws_server_create(HmlValue h, HmlValue p) { (void)h;(void)p; WASM_STUB_PANIC_RETURN("ws_server_create"); }
 HmlValue hml_lws_ws_server_accept(HmlValue s, HmlValue t) { (void)s;(void)t; WASM_STUB_PANIC_RETURN("ws_server_accept"); }
@@ -335,6 +336,7 @@ HmlValue hml_builtin_lws_ws_is_closed(HmlClosureEnv *env, HmlValue c) { (void)en
 HmlValue hml_builtin_lws_msg_type(HmlClosureEnv *env, HmlValue m) { (void)env; return hml_lws_msg_type(m); }
 HmlValue hml_builtin_lws_msg_text(HmlClosureEnv *env, HmlValue m) { (void)env; return hml_lws_msg_text(m); }
 HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue m) { (void)env; return hml_lws_msg_len(m); }
+HmlValue hml_builtin_lws_msg_binary(HmlClosureEnv *env, HmlValue m) { (void)env; return hml_lws_msg_binary(m); }
 HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue m) { (void)env; return hml_lws_msg_free(m); }
 HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue h, HmlValue p) { (void)env; return hml_lws_ws_server_create(h,p); }
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue s, HmlValue t) { (void)env; return hml_lws_ws_server_accept(s,t); }

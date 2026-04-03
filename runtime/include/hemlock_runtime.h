@@ -905,6 +905,7 @@ HmlValue hml_lws_ws_is_closed(HmlValue conn);
 HmlValue hml_lws_msg_type(HmlValue msg);
 HmlValue hml_lws_msg_text(HmlValue msg);
 HmlValue hml_lws_msg_len(HmlValue msg);
+HmlValue hml_lws_msg_binary(HmlValue msg);
 HmlValue hml_lws_msg_free(HmlValue msg);
 
 // WebSocket server functions
@@ -922,6 +923,7 @@ HmlValue hml_builtin_lws_ws_is_closed(HmlClosureEnv *env, HmlValue conn);
 HmlValue hml_builtin_lws_msg_type(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_msg_text(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue msg);
+HmlValue hml_builtin_lws_msg_binary(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port);
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);

@@ -2401,6 +2401,34 @@ Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx) {
     return val_i32((int32_t)msg->len);
 }
 
+// __lws_msg_binary(msg: ptr): buffer
+// Returns the binary data from a WebSocket message as a buffer
+Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_msg_binary() expects 1 argument");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_PTR) {
+        return val_buffer(1);  // Return empty 1-byte buffer for safety
+    }
+
+    ws_message_t *msg = (ws_message_t *)args[0].as.as_ptr;
+    if (!msg || !msg->data || msg->len == 0) {
+        return val_buffer(1);  // Return empty 1-byte buffer for safety
+    }
+
+    Value buf_val = val_buffer((int)msg->len);
+    if (buf_val.type == VAL_NULL) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_msg_binary() failed to allocate buffer");
+        return val_null();
+    }
+    memcpy(buf_val.as.as_buffer->data, msg->data, msg->len);
+    return buf_val;
+}
+
 // __lws_msg_free(msg: ptr): null
 Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {

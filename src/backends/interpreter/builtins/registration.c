@@ -159,6 +159,7 @@ static BuiltinInfo builtins[] = {
     {"__lws_msg_type", builtin_lws_msg_type},
     {"__lws_msg_text", builtin_lws_msg_text},
     {"__lws_msg_len", builtin_lws_msg_len},
+    {"__lws_msg_binary", builtin_lws_msg_binary},
     {"__lws_msg_free", builtin_lws_msg_free},
     {"__lws_ws_close", builtin_lws_ws_close},
     {"__lws_ws_is_closed", builtin_lws_ws_is_closed},

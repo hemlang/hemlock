@@ -73,10 +73,8 @@ export fn WebSocket(url: string) {
 			if (msg_type == WS_MSG_TEXT) {
 				message = { type: "text", data: __lws_msg_text(msg_ptr) };
 			} else if (msg_type == WS_MSG_BINARY) {
-				// Get binary data pointer and length
-				let bin_len = __lws_msg_len(msg_ptr);
-				// Would need to convert to buffer - for now just report length
-				message = { type: "binary", data: "binary data (" + bin_len + " bytes)" };
+				let bin_data = __lws_msg_binary(msg_ptr);
+				message = { type: "binary", binary: bin_data };
 			} else if (msg_type == WS_MSG_PING) {
 				message = { type: "ping" };
 			} else if (msg_type == WS_MSG_PONG) {
@@ -147,8 +145,7 @@ export fn WebSocketServer(host: string, port: i32) {
 					if (self.closed) {
 						throw "Cannot send on closed WebSocket";
 					}
-					// Note: send_binary not yet implemented in builtins - use send_text
-					return __lws_ws_send_text(self.handle, data) == 0;
+					return __lws_ws_send_binary(self.handle, data) == 0;
 				},
 				recv: fn(timeout_ms: i32) {
 
@@ -169,8 +166,8 @@ export fn WebSocketServer(host: string, port: i32) {
 					if (msg_type == WS_MSG_TEXT) {
 						message = { type: "text", data: __lws_msg_text(msg_ptr) };
 					} else if (msg_type == WS_MSG_BINARY) {
-						let bin_len = __lws_msg_len(msg_ptr);
-						message = { type: "binary", data: "binary data (" + bin_len + " bytes)" };
+						let bin_data = __lws_msg_binary(msg_ptr);
+						message = { type: "binary", binary: bin_data };
 					} else if (msg_type == WS_MSG_PING) {
 						message = { type: "ping" };
 					} else if (msg_type == WS_MSG_PONG) {

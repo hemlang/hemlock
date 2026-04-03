@@ -414,6 +414,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_text, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_msg_len") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_len, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_msg_binary") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_binary, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_msg_free") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_msg_free, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_ws_server_create") == 0) {

@@ -2411,6 +2411,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // __lws_msg_binary(msg)
+        if (strcmp(fn_name, "__lws_msg_binary") == 0 && expr->as.call.num_args == 1) {
+            char *msg = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_msg_binary(%s);", result, msg);
+            codegen_writeln(ctx, "hml_release(&%s);", msg);
+            free(msg);
+            return result;
+        }
+
         // __lws_msg_free(msg)
         if (strcmp(fn_name, "__lws_msg_free") == 0 && expr->as.call.num_args == 1) {
             char *msg = codegen_expr(ctx, expr->as.call.args[0]);

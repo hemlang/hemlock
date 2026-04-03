@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 1
 #define HEMLOCK_VERSION_MINOR 9
-#define HEMLOCK_VERSION_PATCH 2
+#define HEMLOCK_VERSION_PATCH 3
 
-#define HEMLOCK_VERSION "1.9.2"
+#define HEMLOCK_VERSION "1.9.3"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   1.9.3 - WebSocket binary data support: __lws_msg_binary builtin, fix server send_binary, fix recv binary handler
  *   1.9.2 - Compiler fixes: unboxed loop counter boxing, clear() object dispatch, exec() import shadowing
  *   1.9.1 - QoL: write() builtin, single-arg slice(), rune join(), HashMap numeric key coercion
  *   1.9.0 - WASM interpreter release artifact, version bump for release

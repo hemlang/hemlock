@@ -1,0 +1,224 @@
+// Test WebSocket binary message send/receive
+// Requires: libwebsockets-dev installed, make stdlib
+// Run with: ./hemlock tests/stdlib_websocket/test_websocket_binary.hml
+
+import { WebSocket, WebSocketServer } from "@stdlib/websocket";
+import { sleep } from "@stdlib/time";
+
+print("Testing WebSocket binary data support...");
+print("Requires: libwebsockets-dev");
+print("");
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+// Async function to accept server connection
+async fn accept_connection(srv) {
+    let conn = srv.accept(5000);
+    return conn;
+}
+
+// Test 1: Send and receive binary data (client -> server)
+print("Test 1: Client sends binary data to server");
+try {
+    let server = WebSocketServer("127.0.0.1", 9003);
+    defer server.close();
+
+    let accept_task = spawn(accept_connection, server);
+    sleep(0.5);
+
+    let client = WebSocket("ws://127.0.0.1:9003");
+    defer client.close();
+
+    let server_conn = join(accept_task);
+    defer server_conn.close();
+
+    assert(server_conn != null, "Server should accept connection");
+
+    // Create a binary buffer with known data
+    let buf = buffer(8);
+    buf[0] = 0xDE;
+    buf[1] = 0xAD;
+    buf[2] = 0xBE;
+    buf[3] = 0xEF;
+    buf[4] = 0x01;
+    buf[5] = 0x02;
+    buf[6] = 0x03;
+    buf[7] = 0x04;
+
+    let send_ok = client.send_binary(buf);
+    assert(send_ok == true, "send_binary should return true");
+    print("  Client sent 8 bytes of binary data");
+
+    let msg = server_conn.recv(5000);
+    assert(msg != null, "Server should receive message");
+    assert(msg.type == "binary", "Message type should be 'binary'");
+    assert(msg.binary != null, "Message should have binary field");
+    assert(msg.binary.length == 8, "Binary data should be 8 bytes");
+
+    // Verify the actual byte values
+    assert(msg.binary[0] == 0xDE, "Byte 0 should be 0xDE");
+    assert(msg.binary[1] == 0xAD, "Byte 1 should be 0xAD");
+    assert(msg.binary[2] == 0xBE, "Byte 2 should be 0xBE");
+    assert(msg.binary[3] == 0xEF, "Byte 3 should be 0xEF");
+    assert(msg.binary[4] == 0x01, "Byte 4 should be 0x01");
+    assert(msg.binary[5] == 0x02, "Byte 5 should be 0x02");
+    assert(msg.binary[6] == 0x03, "Byte 6 should be 0x03");
+    assert(msg.binary[7] == 0x04, "Byte 7 should be 0x04");
+
+    print("  Server received 8 bytes, all values match");
+    print("✓ Client to server binary transfer works");
+    tests_passed = tests_passed + 1;
+
+    // Test 2: Server sends binary data to client
+    print("");
+    print("Test 2: Server sends binary data to client");
+
+    let buf2 = buffer(4);
+    buf2[0] = 0xCA;
+    buf2[1] = 0xFE;
+    buf2[2] = 0xBA;
+    buf2[3] = 0xBE;
+
+    let send_ok2 = server_conn.send_binary(buf2);
+    assert(send_ok2 == true, "Server send_binary should return true");
+    print("  Server sent 4 bytes of binary data");
+
+    let msg2 = client.recv(5000);
+    assert(msg2 != null, "Client should receive message");
+    assert(msg2.type == "binary", "Message type should be 'binary'");
+    assert(msg2.binary != null, "Message should have binary field");
+    assert(msg2.binary.length == 4, "Binary data should be 4 bytes");
+
+    assert(msg2.binary[0] == 0xCA, "Byte 0 should be 0xCA");
+    assert(msg2.binary[1] == 0xFE, "Byte 1 should be 0xFE");
+    assert(msg2.binary[2] == 0xBA, "Byte 2 should be 0xBA");
+    assert(msg2.binary[3] == 0xBE, "Byte 3 should be 0xBE");
+
+    print("  Client received 4 bytes, all values match");
+    print("✓ Server to client binary transfer works");
+    tests_passed = tests_passed + 1;
+
+    // Test 3: Binary data with null bytes (important edge case)
+    print("");
+    print("Test 3: Binary data containing null bytes");
+
+    let buf3 = buffer(5);
+    buf3[0] = 0xFF;
+    buf3[1] = 0x00;  // null byte
+    buf3[2] = 0x00;  // null byte
+    buf3[3] = 0xFF;
+    buf3[4] = 0x42;
+
+    client.send_binary(buf3);
+    print("  Client sent 5 bytes (includes null bytes)");
+
+    let msg3 = server_conn.recv(5000);
+    assert(msg3 != null, "Server should receive message");
+    assert(msg3.type == "binary", "Message type should be 'binary'");
+    assert(msg3.binary.length == 5, "Binary data should be 5 bytes");
+    assert(msg3.binary[0] == 0xFF, "Byte 0 should be 0xFF");
+    assert(msg3.binary[1] == 0x00, "Byte 1 should be 0x00");
+    assert(msg3.binary[2] == 0x00, "Byte 2 should be 0x00");
+    assert(msg3.binary[3] == 0xFF, "Byte 3 should be 0xFF");
+    assert(msg3.binary[4] == 0x42, "Byte 4 should be 0x42");
+
+    print("  Server received 5 bytes with null bytes intact");
+    print("✓ Null bytes preserved in binary transfer");
+    tests_passed = tests_passed + 1;
+
+    // Test 4: Larger binary message
+    print("");
+    print("Test 4: Larger binary message (256 bytes)");
+
+    let buf4 = buffer(256);
+    let i = 0;
+    while (i < 256) {
+        buf4[i] = i;
+        i = i + 1;
+    }
+
+    client.send_binary(buf4);
+    print("  Client sent 256 bytes (0x00..0xFF)");
+
+    let msg4 = server_conn.recv(5000);
+    assert(msg4 != null, "Server should receive message");
+    assert(msg4.type == "binary", "Message type should be 'binary'");
+    assert(msg4.binary.length == 256, "Binary data should be 256 bytes");
+
+    // Verify all byte values
+    let all_correct = true;
+    i = 0;
+    while (i < 256) {
+        if (msg4.binary[i] != i) {
+            all_correct = false;
+            print("  Mismatch at byte " + i + ": expected " + i + ", got " + msg4.binary[i]);
+            break;
+        }
+        i = i + 1;
+    }
+    assert(all_correct == true, "All 256 bytes should match");
+
+    print("  Server received 256 bytes, all values match");
+    print("✓ Larger binary message works");
+    tests_passed = tests_passed + 1;
+
+    // Test 5: Interleave binary and text messages
+    print("");
+    print("Test 5: Interleave binary and text messages");
+
+    client.send_text("text message 1");
+    let buf5 = buffer(3);
+    buf5[0] = 0xAA;
+    buf5[1] = 0xBB;
+    buf5[2] = 0xCC;
+    client.send_binary(buf5);
+    client.send_text("text message 2");
+
+    let r1 = server_conn.recv(5000);
+    assert(r1 != null, "Should receive message 1");
+    assert(r1.type == "text", "Message 1 should be text");
+    assert(r1.data == "text message 1", "Text content should match");
+
+    let r2 = server_conn.recv(5000);
+    assert(r2 != null, "Should receive message 2");
+    assert(r2.type == "binary", "Message 2 should be binary");
+    assert(r2.binary.length == 3, "Binary should be 3 bytes");
+    assert(r2.binary[0] == 0xAA, "Byte 0 should be 0xAA");
+
+    let r3 = server_conn.recv(5000);
+    assert(r3 != null, "Should receive message 3");
+    assert(r3.type == "text", "Message 3 should be text");
+    assert(r3.data == "text message 2", "Text content should match");
+
+    print("  Received text, binary, text in correct order");
+    print("✓ Interleaved binary and text messages work");
+    tests_passed = tests_passed + 1;
+
+    // Cleanup
+    server_conn.close();
+    client.close();
+    server.close();
+
+} catch (e) {
+    print("✗ Binary WebSocket test failed: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+print("========================================");
+print("WebSocket Binary Tests Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+
+if (tests_failed > 0) {
+    print("");
+    print("Some tests failed. Common issues:");
+    print("  - lws_wrapper.so not compiled (run: make stdlib)");
+    print("  - libwebsockets not installed");
+    print("  - Port 9003 already in use");
+}
+
+print("");
+assert(tests_failed == 0, "All WebSocket binary tests should pass");

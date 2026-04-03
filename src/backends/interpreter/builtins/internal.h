@@ -206,6 +206,7 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx);

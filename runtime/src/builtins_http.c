@@ -1838,6 +1838,26 @@ HmlValue hml_lws_msg_len(HmlValue msg_val) {
     return hml_val_i32((int32_t)msg->len);
 }
 
+// __lws_msg_binary(msg: ptr): buffer
+// Returns the binary data from a WebSocket message as a buffer
+HmlValue hml_lws_msg_binary(HmlValue msg_val) {
+    if (msg_val.type != HML_VAL_PTR) {
+        return hml_val_buffer(1);
+    }
+
+    hml_ws_message_t *msg = (hml_ws_message_t *)msg_val.as.as_ptr;
+    if (!msg || !msg->data || msg->len == 0) {
+        return hml_val_buffer(1);
+    }
+
+    HmlValue buf = hml_val_buffer((int32_t)msg->len);
+    if (buf.type == HML_VAL_NULL) {
+        return hml_val_buffer(1);
+    }
+    memcpy(buf.as.as_buffer->data, msg->data, msg->len);
+    return buf;
+}
+
 // __lws_msg_free(msg: ptr): null
 HmlValue hml_lws_msg_free(HmlValue msg_val) {
     if (msg_val.type == HML_VAL_PTR) {
@@ -2049,6 +2069,11 @@ HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue msg) {
     return hml_lws_msg_len(msg);
 }
 
+HmlValue hml_builtin_lws_msg_binary(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_binary(msg);
+}
+
 HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg) {
     (void)env;
     return hml_lws_msg_free(msg);
@@ -2223,6 +2248,11 @@ HmlValue hml_lws_msg_len(HmlValue msg_val) {
     return hml_val_i32(0);
 }
 
+HmlValue hml_lws_msg_binary(HmlValue msg_val) {
+    (void)msg_val;
+    return hml_val_buffer(1);
+}
+
 HmlValue hml_lws_msg_free(HmlValue msg_val) {
     (void)msg_val;
     return hml_val_null();
@@ -2287,6 +2317,11 @@ HmlValue hml_builtin_lws_msg_text(HmlClosureEnv *env, HmlValue msg) {
 HmlValue hml_builtin_lws_msg_len(HmlClosureEnv *env, HmlValue msg) {
     (void)env;
     return hml_lws_msg_len(msg);
+}
+
+HmlValue hml_builtin_lws_msg_binary(HmlClosureEnv *env, HmlValue msg) {
+    (void)env;
+    return hml_lws_msg_binary(msg);
 }
 
 HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg) {
