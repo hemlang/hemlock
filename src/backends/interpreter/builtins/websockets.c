@@ -2820,6 +2820,12 @@ Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 }
 
+Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "WebSocket support not available (libwebsockets not installed)");
+    return val_null();
+}
+
 Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args; (void)ctx;
     return val_null();
