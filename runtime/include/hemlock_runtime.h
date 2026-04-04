@@ -443,9 +443,12 @@ void hml_defer_execute_all(void);
 
 // Task management
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args);
+HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_args);
 HmlValue hml_join(HmlValue task);
 void hml_detach(HmlValue task);
 void hml_task_debug_info(HmlValue task);
+HmlValue hml_get_default_stack_size(void);
+void hml_set_default_stack_size(HmlValue size);
 
 // Function application
 HmlValue hml_apply(HmlValue fn, HmlValue args_array);

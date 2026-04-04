@@ -21,6 +21,9 @@
 
 static atomic_int g_next_task_id = 1;
 
+// Global default stack size for spawned threads (atomic for thread-safety)
+static _Atomic size_t g_default_stack_size = HML_THREAD_STACK_SIZE;
+
 // ========== FUNCTION DISPATCH ==========
 //
 // Native builds use libffi for calling functions with >8 parameters.
@@ -181,10 +184,13 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     pthread_mutex_init(&task->sync->mutex, NULL);
     pthread_cond_init(&task->sync->cond, NULL);
 
-    // Create thread with larger stack to match interpreter headroom
+    // Initialize name
+    task->name = NULL;
+
+    // Create thread with default stack size
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, HML_THREAD_STACK_SIZE);
+    pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
     pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
 
@@ -193,6 +199,112 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     result.type = HML_VAL_TASK;
     result.as.as_task = task;
     return result;
+}
+
+// spawn_with(options, fn, args...) - Spawn with configuration options
+HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_args) {
+    if (options.type != HML_VAL_OBJECT) {
+        hml_runtime_error("spawn_with() first argument must be an options object");
+    }
+
+    if (fn.type != HML_VAL_FUNCTION) {
+        hml_runtime_error("spawn_with() second argument must be a function");
+    }
+
+    HmlFunction *func = fn.as.as_function;
+    if (!func->is_async) {
+        hml_runtime_error("spawn_with() requires an async function");
+    }
+
+    // Extract options
+    size_t stack_size = atomic_load(&g_default_stack_size);
+    char *thread_name = NULL;
+
+    if (hml_object_has_field(options, "stack_size")) {
+        HmlValue sv = hml_object_get_field(options, "stack_size");
+        if (!hml_is_integer(sv)) {
+            hml_runtime_error("spawn_with() stack_size must be an integer");
+        }
+        int64_t sz = hml_to_i64(sv);
+        if (sz <= 0) {
+            hml_runtime_error("spawn_with() stack_size must be positive");
+        }
+        stack_size = (size_t)sz;
+    }
+
+    if (hml_object_has_field(options, "name")) {
+        HmlValue nv = hml_object_get_field(options, "name");
+        if (nv.type != HML_VAL_STRING) {
+            hml_runtime_error("spawn_with() name must be a string");
+        }
+        thread_name = hml_to_string_ptr(nv);
+    }
+
+    // Create task
+    HmlTask *task = malloc(sizeof(HmlTask));
+    task->id = atomic_fetch_add(&g_next_task_id, 1);
+    task->state = HML_TASK_READY;
+    task->result = hml_val_null();
+    task->joined = 0;
+    task->detached = 0;
+    task->ref_count = 1;
+
+    // Store function and args
+    task->function = fn;
+    hml_retain(&task->function);
+    task->num_args = num_args;
+    if (num_args > 0) {
+        task->args = malloc(sizeof(HmlValue) * num_args);
+        for (int i = 0; i < num_args; i++) {
+            task->args[i] = hml_value_deep_copy(args[i]);
+        }
+    } else {
+        task->args = NULL;
+    }
+
+    // Set debug name
+    task->name = thread_name ? strdup(thread_name) : NULL;
+
+    // Initialize sync structures
+    task->sync = malloc(sizeof(HmlTaskSync));
+    pthread_mutex_init(&task->sync->mutex, NULL);
+    pthread_cond_init(&task->sync->cond, NULL);
+
+    // Create thread with requested stack size
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_size);
+    pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
+    pthread_attr_destroy(&attr);
+
+    // Set thread name if provided (best-effort, 16 char limit on Linux)
+    if (thread_name) {
+        char name_buf[16];
+        snprintf(name_buf, sizeof(name_buf), "%s", thread_name);
+        pthread_setname_np(task->sync->thread, name_buf);
+    }
+
+    HmlValue result;
+    result.type = HML_VAL_TASK;
+    result.as.as_task = task;
+    return result;
+}
+
+// get_default_stack_size() - Returns the current default thread stack size
+HmlValue hml_get_default_stack_size(void) {
+    return hml_val_i64((int64_t)atomic_load(&g_default_stack_size));
+}
+
+// set_default_stack_size(size) - Sets the default thread stack size
+void hml_set_default_stack_size(HmlValue size) {
+    if (!hml_is_integer(size)) {
+        hml_runtime_error("set_default_stack_size() argument must be an integer");
+    }
+    int64_t sz = hml_to_i64(size);
+    if (sz <= 0) {
+        hml_runtime_error("set_default_stack_size() size must be positive");
+    }
+    atomic_store(&g_default_stack_size, (size_t)sz);
 }
 
 HmlValue hml_join(HmlValue task_val) {

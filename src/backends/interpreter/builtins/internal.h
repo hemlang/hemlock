@@ -127,11 +127,14 @@ Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx);
 
 // Concurrency builtins (concurrency.c)
 Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_spawn_with(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_join(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_select(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_get_default_stack_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_set_default_stack_size(Value *args, int num_args, ExecutionContext *ctx);
 
 // Filesystem builtins (filesystem.c)
 Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx);

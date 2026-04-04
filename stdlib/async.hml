@@ -1,5 +1,19 @@
 // Hemlock Standard Library: Async Utilities
 // This module provides ThreadPool for efficient task execution
+// and thread configuration APIs
+
+// ========== THREAD CONFIGURATION ==========
+
+// Get the current default stack size for spawned threads (in bytes)
+export fn get_default_stack_size(): i64 {
+	return __get_default_stack_size();
+}
+
+// Set the default stack size for all subsequent spawn() calls (in bytes)
+// Does not affect already-spawned threads.
+export fn set_default_stack_size(size: i64) {
+	__set_default_stack_size(size);
+}
 
 // ========== THREAD POOL ==========
 // A fixed-size thread pool for executing async tasks

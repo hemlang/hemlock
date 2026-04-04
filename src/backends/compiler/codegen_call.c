@@ -291,6 +291,49 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // Handle spawn_with builtin for async with options
+        if (strcmp(fn_name, "spawn_with") == 0 && expr->as.call.num_args >= 2) {
+            char *opts_val = codegen_expr(ctx, expr->as.call.args[0]);
+            char *fn_val = codegen_expr(ctx, expr->as.call.args[1]);
+            int num_spawn_args = expr->as.call.num_args - 2;
+
+            if (num_spawn_args > 0) {
+                int args_counter = ctx->temp_counter++;
+                codegen_writeln(ctx, "HmlValue _spawn_with_args%d[%d];", args_counter, num_spawn_args);
+                for (int i = 0; i < num_spawn_args; i++) {
+                    char *arg = codegen_expr(ctx, expr->as.call.args[i + 2]);
+                    codegen_writeln(ctx, "_spawn_with_args%d[%d] = %s;", args_counter, i, arg);
+                    free(arg);
+                }
+                codegen_writeln(ctx, "HmlValue %s = hml_spawn_with(%s, %s, _spawn_with_args%d, %d);",
+                              result, opts_val, fn_val, args_counter, num_spawn_args);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_spawn_with(%s, %s, NULL, 0);",
+                              result, opts_val, fn_val);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", opts_val);
+            codegen_writeln(ctx, "hml_release(&%s);", fn_val);
+            free(opts_val);
+            free(fn_val);
+            return result;
+        }
+
+        // Handle __get_default_stack_size builtin
+        if (strcmp(fn_name, "__get_default_stack_size") == 0 && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s = hml_get_default_stack_size();", result);
+            return result;
+        }
+
+        // Handle __set_default_stack_size builtin
+        if (strcmp(fn_name, "__set_default_stack_size") == 0 && expr->as.call.num_args == 1) {
+            char *size = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "hml_set_default_stack_size(%s);", size);
+            codegen_writeln(ctx, "hml_release(&%s);", size);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+            free(size);
+            return result;
+        }
+
         // Handle join builtin
         if (strcmp(fn_name, "join") == 0 && expr->as.call.num_args == 1) {
             char *task_val = codegen_expr(ctx, expr->as.call.args[0]);

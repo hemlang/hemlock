@@ -189,6 +189,7 @@ struct HmlTask {
     HmlValue function;
     HmlValue *args;
     int num_args;
+    char *name;             // Optional debug name (from spawn_with)
 };
 
 // Channel synchronization block - all pthread objects in one allocation
