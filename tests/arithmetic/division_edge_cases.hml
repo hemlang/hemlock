@@ -1,4 +1,5 @@
 // Test division edge cases
+import { div } from "@stdlib/math";
 
 // Float division (always returns float)
 print("=== Float Division ===");
