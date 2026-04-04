@@ -368,6 +368,8 @@ File objects have three read-only properties:
 The file path used to open the file.
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("/path/to/file.txt", "r");
 print(f.path);  // "/path/to/file.txt"
 f.close();
@@ -378,6 +380,8 @@ f.close();
 The mode the file was opened with.
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 print(f.mode);  // "r"
 f.close();
@@ -392,6 +396,8 @@ f2.close();
 Whether the file is closed.
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 print(f.closed);  // false
 
@@ -452,6 +458,8 @@ f.read();
 ### Using try/catch
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 try {
     let f = open("data.txt", "r");
     let content = f.read();
@@ -469,6 +477,8 @@ try {
 Always close files explicitly:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 let content = f.read();
 f.close();
@@ -479,6 +489,8 @@ f.close();
 Use `finally` to ensure files are closed even on errors:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 try {
     let content = f.read();
@@ -491,6 +503,8 @@ try {
 ### Multiple Files
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let src = null;
 let dst = null;
 
@@ -509,6 +523,8 @@ try {
 ### Helper Function Pattern
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn with_file(path: string, mode: string, callback) {
     let f = open(path, mode);
     try {
