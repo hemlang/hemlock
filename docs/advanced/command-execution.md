@@ -99,6 +99,8 @@ The command's exit status code.
 
 **Examples:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r1 = exec("true");
 print(r1.exit_code);  // 0 (success)
 
@@ -160,6 +162,8 @@ print(r.output);  // Current date
 ### Handling Failures
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls /nonexistent");
 if (r.exit_code != 0) {
     print("Command failed with code: " + typeof(r.exit_code));
@@ -565,6 +569,8 @@ print("Running instances: " + count);
 
 **6. Automation scripts:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 exec("git add .");
 exec("git commit -m 'Auto commit'");
 let r = exec("git push");
