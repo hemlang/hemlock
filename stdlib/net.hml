@@ -1,14 +1,48 @@
 // @stdlib/net - TCP/UDP networking module
 // Provides ergonomic wrappers over raw socket builtins
 
+// ========== SOCKET CONSTANTS ==========
+
+// Address families
+export let AF_INET = __AF_INET;
+export let AF_INET6 = __AF_INET6;
+
+// Socket types
+export let SOCK_STREAM = __SOCK_STREAM;
+export let SOCK_DGRAM = __SOCK_DGRAM;
+
+// Protocols
+export let IPPROTO_TCP = __IPPROTO_TCP;
+export let IPPROTO_UDP = __IPPROTO_UDP;
+
+// Socket options
+export let SOL_SOCKET = __SOL_SOCKET;
+export let SO_REUSEADDR = __SO_REUSEADDR;
+export let SO_KEEPALIVE = __SO_KEEPALIVE;
+export let SO_RCVTIMEO = __SO_RCVTIMEO;
+export let SO_SNDTIMEO = __SO_SNDTIMEO;
+
+// Poll constants
+export let POLLIN = __POLLIN;
+export let POLLOUT = __POLLOUT;
+export let POLLERR = __POLLERR;
+export let POLLHUP = __POLLHUP;
+export let POLLNVAL = __POLLNVAL;
+export let POLLPRI = __POLLPRI;
+
+// Networking functions
+export let socket_create = __socket_create;
+export let dns_resolve = __dns_resolve;
+export let poll = __poll;
+
 // ========== TCP SERVER (TcpListener) ==========
 
 // TcpListener(address: string, port: i32) -> TcpListener object
 // Create a TCP server socket bound to address:port
 fn TcpListener(address: string, port: i32) {
-	let sock = socket_create(AF_INET, SOCK_STREAM, 0);
+	let sock = __socket_create(__AF_INET, __SOCK_STREAM, 0);
 	// Set SO_REUSEADDR to avoid "Address already in use" errors
-	sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
+	sock.setsockopt(__SOL_SOCKET, __SO_REUSEADDR, 1);
 	sock.bind(address, port);
 	sock.listen(128);  // Default backlog of 128
 	return {
@@ -35,7 +69,7 @@ fn TcpListener(address: string, port: i32) {
 // TcpStream(address: string, port: i32) -> TcpStream object
 // Connect to a TCP server at address:port
 fn TcpStream(address: string, port: i32) {
-	let sock = socket_create(AF_INET, SOCK_STREAM, 0);
+	let sock = __socket_create(__AF_INET, __SOCK_STREAM, 0);
 	sock.connect(address, port);
 	return _TcpStream_from_socket(sock);
 }
@@ -149,7 +183,7 @@ fn _TcpStream_from_socket(sock) {
 // UdpSocket(address: string, port: i32) -> UdpSocket object
 // Create a UDP socket bound to address:port
 fn UdpSocket(address: string, port: i32) {
-	let sock = socket_create(AF_INET, SOCK_DGRAM, 0);
+	let sock = __socket_create(__AF_INET, __SOCK_DGRAM, 0);
 	sock.bind(address, port);
 
 	return {
@@ -190,7 +224,7 @@ fn UdpSocket(address: string, port: i32) {
 // resolve(hostname: string) -> string
 // Resolve hostname to IP address
 fn resolve(hostname: string) {
-	return dns_resolve(hostname);
+	return __dns_resolve(hostname);
 }
 
 // is_ipv4(address: string) -> bool
