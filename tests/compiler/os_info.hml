@@ -1,4 +1,5 @@
 // Test OS info builtins
+import { platform, arch, hostname, username, homedir, cpu_count, total_memory, free_memory, os_version, os_name, tmpdir, uptime } from "@stdlib/os";
 
 // Test platform() - should return "linux", "macos", or "windows"
 let plat = platform();

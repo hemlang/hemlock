@@ -1,4 +1,5 @@
 // Test string utility builtins
+import { to_string, string_byte_length, strerror, string_to_cstr, cstr_to_string } from "@stdlib/strings";
 
 // Test to_string
 print(to_string(42) == "42");

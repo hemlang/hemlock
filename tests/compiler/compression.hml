@@ -1,4 +1,5 @@
 // Test compression builtins
+import { crc32, adler32, zlib_compress_bound, zlib_compress, zlib_decompress, gzip_compress, gzip_decompress } from "@stdlib/compression";
 
 // Create a buffer with test data for crc32/adler32
 let buf = buffer(5);
