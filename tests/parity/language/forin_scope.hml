@@ -1,0 +1,40 @@
+// Test: for-in loop variable scoping
+// Loop variables should be scoped to the loop body and not modify outer variables
+
+// Test 1: value variable shadows outer (array)
+let x = "outer";
+for (x in [10, 20, 30]) {
+    print(x);
+}
+print(x);
+
+// Test 2: key and value variables shadow outer (object)
+let k = "outer_k";
+let v = "outer_v";
+for (k, v in {a: 1, b: 2}) {
+    print(k + "=" + v);
+}
+print(k);
+print(v);
+
+// Test 3: value variable shadows outer (string)
+let ch = "outer_ch";
+for (ch in "hi") {
+    print(ch);
+}
+print(ch);
+
+// Test 4: for-in without outer shadow still works
+for (item in [100, 200]) {
+    print(item);
+}
+
+// Test 5: for-in inside function with shadow
+fn test_fn() {
+    let y = "fn_outer";
+    for (y in [7, 8, 9]) {
+        print(y);
+    }
+    print(y);
+}
+test_fn();

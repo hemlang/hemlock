@@ -609,6 +609,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_push_loop_label(ctx, loop_label, loop_break_label, loop_continue_label);
             }
 
+            // Push a scope for the for-in loop so loop variables shadow outer vars
+            codegen_push_scope(ctx);
+
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
 
@@ -668,9 +671,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (stmt->as.for_in.key_var) {
                 codegen_writeln(ctx, "HmlValue %s;", safe_key_var);
                 codegen_add_local(ctx, stmt->as.for_in.key_var);
+                if (ctx->current_scope) {
+                    scope_add_var(ctx->current_scope, stmt->as.for_in.key_var);
+                }
             }
             codegen_writeln(ctx, "HmlValue %s;", safe_value_var);
             codegen_add_local(ctx, stmt->as.for_in.value_var);
+            if (ctx->current_scope) {
+                scope_add_var(ctx->current_scope, stmt->as.for_in.value_var);
+            }
 
             // Handle object iteration
             codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT) {", iter_val);
@@ -732,6 +741,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             codegen_pop_for_continue(ctx);
+            codegen_pop_scope(ctx);
             free(continue_label);
 
             if (loop_label) {
