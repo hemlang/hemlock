@@ -304,16 +304,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     // Clear and reuse iteration environment
                     env_clear(iter_env);
 
-                    // Bind variables
+                    // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_i32(i), ctx);
-                        // Check for exception from env_set
+                        env_define(iter_env, stmt->as.for_in.key_var, val_i32(i), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
                             break;
                         }
                     }
-                    env_set(iter_env, stmt->as.for_in.value_var, arr->elements[i], ctx);
-                    // Check for exception from env_set
+                    env_define(iter_env, stmt->as.for_in.value_var, arr->elements[i], 0, ctx);
                     if (ctx->exception_state.is_throwing) {
                         break;
                     }
@@ -359,16 +357,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     // Clear and reuse iteration environment
                     env_clear(iter_env);
 
-                    // Bind variables
+                    // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), ctx);
-                        // Check for exception from env_set
+                        env_define(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
                             break;
                         }
                     }
-                    env_set(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, ctx);
-                    // Check for exception from env_set
+                    env_define(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, 0, ctx);
                     if (ctx->exception_state.is_throwing) {
                         break;
                     }
@@ -419,10 +415,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     // Clear and reuse iteration environment
                     env_clear(iter_env);
 
-                    // Bind index if key_var is specified
+                    // Define index if key_var is specified
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_i32(i), ctx);
-                        // Check for exception from env_set
+                        env_define(iter_env, stmt->as.for_in.key_var, val_i32(i), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
                             break;
                         }
@@ -432,8 +427,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     int byte_pos = utf8_byte_offset(str->data, str->length, i);
                     uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
 
-                    env_set(iter_env, stmt->as.for_in.value_var, val_rune(codepoint), ctx);
-                    // Check for exception from env_set
+                    env_define(iter_env, stmt->as.for_in.value_var, val_rune(codepoint), 0, ctx);
                     if (ctx->exception_state.is_throwing) {
                         break;
                     }
