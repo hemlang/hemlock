@@ -23,10 +23,16 @@ syn keyword hemlockType integer number byte file task channel
 syn keyword hemlockBoolean true false
 syn keyword hemlockNull null
 
-" Signal constants
+" Signal constants (@stdlib/signal)
 syn keyword hemlockSignal SIGINT SIGTERM SIGQUIT SIGHUP SIGABRT
 syn keyword hemlockSignal SIGUSR1 SIGUSR2 SIGALRM SIGCHLD SIGCONT
 syn keyword hemlockSignal SIGSTOP SIGTSTP SIGPIPE SIGTTIN SIGTTOU
+
+" Socket constants (@stdlib/net)
+syn keyword hemlockSocketConst AF_INET AF_INET6 SOCK_STREAM SOCK_DGRAM
+syn keyword hemlockSocketConst IPPROTO_TCP IPPROTO_UDP SOL_SOCKET
+syn keyword hemlockSocketConst SO_REUSEADDR SO_KEEPALIVE SO_RCVTIMEO SO_SNDTIMEO
+syn keyword hemlockSocketConst POLLIN POLLOUT POLLERR POLLHUP POLLNVAL POLLPRI
 
 " Math constants
 syn keyword hemlockMathConst PI E TAU INF NAN
@@ -34,10 +40,24 @@ syn keyword hemlockMathConst PI E TAU INF NAN
 " Regex constants
 syn keyword hemlockRegexConst REG_ICASE
 
-" Built-in functions
-syn keyword hemlockBuiltin print typeof alloc free memset memcpy realloc talloc sizeof
-syn keyword hemlockBuiltin buffer channel signal raise open exec assert
-syn keyword hemlockBuiltin now sleep time_ms clock localtime gmtime mktime strftime
+" Global built-in functions (no import needed)
+syn keyword hemlockBuiltin print write eprint read_line typeof alloc free memset memcpy
+syn keyword hemlockBuiltin realloc talloc sizeof buffer channel open exec exec_argv
+syn keyword hemlockBuiltin panic assert apply
+
+" Stdlib functions (require import from @stdlib modules)
+syn keyword hemlockStdlibFn signal raise
+syn keyword hemlockStdlibFn sin cos tan asin acos atan atan2 sqrt pow exp
+syn keyword hemlockStdlibFn log log10 log2 floor ceil round trunc
+syn keyword hemlockStdlibFn floori ceili roundi trunci div divi
+syn keyword hemlockStdlibFn abs min max clamp rand rand_range seed
+syn keyword hemlockStdlibFn now sleep time_ms clock localtime gmtime mktime strftime
+syn keyword hemlockStdlibFn getenv setenv unsetenv get_pid
+syn keyword hemlockStdlibFn socket_create dns_resolve poll
+
+" Pointer/FFI/Atomic builtins (global, no import needed)
+syn keyword hemlockBuiltin ptr_offset ptr_null ptr_to_buffer buffer_ptr ffi_sizeof
+syn keyword hemlockBuiltin atomic_fence
 
 " Operators
 syn match hemlockOperator "\v\+|-|\*|\/|%"
@@ -86,9 +106,11 @@ hi def link hemlockType Type
 hi def link hemlockBoolean Boolean
 hi def link hemlockNull Constant
 hi def link hemlockSignal Constant
+hi def link hemlockSocketConst Constant
 hi def link hemlockMathConst Constant
 hi def link hemlockRegexConst Constant
 hi def link hemlockBuiltin Function
+hi def link hemlockStdlibFn Function
 hi def link hemlockOperator Operator
 hi def link hemlockNumber Number
 hi def link hemlockFloat Float

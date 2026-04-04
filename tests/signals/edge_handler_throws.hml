@@ -1,6 +1,6 @@
 // Test signal handler that throws exception
 // Expected: Testing behavior
-import { SIGUSR1 } from "@stdlib/signal";
+import { SIGUSR1, signal, raise } from "@stdlib/signal";
 
 let handler_called = false;
 

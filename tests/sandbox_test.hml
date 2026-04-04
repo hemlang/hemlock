@@ -1,6 +1,7 @@
 // Sandbox functionality test
 // This test exercises each restricted operation
 // Run with: hemlock --sandbox tests/sandbox_test.hml
+import { signal, raise } from "@stdlib/signal";
 
 print("Testing sandbox restrictions...\n");
 

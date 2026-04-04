@@ -412,8 +412,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // Handle signal builtin
-        if (strcmp(fn_name, "signal") == 0 && expr->as.call.num_args == 2) {
+        // Handle signal builtin (via @stdlib/signal import or __signal)
+        if ((strcmp(fn_name, "signal") == 0 || strcmp(fn_name, "__signal") == 0) && expr->as.call.num_args == 2) {
             char *signum = codegen_expr(ctx, expr->as.call.args[0]);
             char *handler = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_signal(%s, %s);", result, signum, handler);
@@ -424,8 +424,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // Handle raise builtin
-        if (strcmp(fn_name, "raise") == 0 && expr->as.call.num_args == 1) {
+        // Handle raise builtin (via @stdlib/signal import or __raise)
+        if ((strcmp(fn_name, "raise") == 0 || strcmp(fn_name, "__raise") == 0) && expr->as.call.num_args == 1) {
             char *signum = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_raise(%s);", result, signum);
             codegen_writeln(ctx, "hml_release(&%s);", signum);

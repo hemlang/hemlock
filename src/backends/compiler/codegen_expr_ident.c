@@ -89,6 +89,11 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTTIN);", result);
     } else if (strcmp(expr->as.ident.name, "__SIGTTOU") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTTOU);", result);
+    // Handle signal functions (__prefixed - moved to @stdlib/signal)
+    } else if (strcmp(expr->as.ident.name, "__signal") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_signal, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__raise") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_raise, 1, 1, 0);", result);
     // Handle socket constants (__prefixed only - unprefixed moved to stdlib)
     } else if (strcmp(expr->as.ident.name, "__AF_INET") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET);", result);

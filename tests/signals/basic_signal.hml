@@ -1,5 +1,5 @@
 // Test basic signal handling
-import { SIGUSR1 } from "@stdlib/signal";
+import { SIGUSR1, signal, raise } from "@stdlib/signal";
 
 let caught = false;
 

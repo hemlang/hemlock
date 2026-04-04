@@ -1,5 +1,9 @@
-// Hemlock Standard Library: Signal Constants
-// This module provides POSIX signal constants for use with signal() and raise()
+// Hemlock Standard Library: Signal Handling
+// This module provides signal handling functions and POSIX signal constants
+
+// ========== SIGNAL FUNCTIONS ==========
+export let signal = __signal;  // Register a signal handler
+export let raise = __raise;    // Send a signal to the current process
 
 // ========== TERMINAL SIGNALS ==========
 export let SIGINT = __SIGINT;    // Interrupt (Ctrl+C)

@@ -39,8 +39,8 @@ static BuiltinInfo builtins[] = {
     {"task_debug_info", builtin_task_debug_info},
     {"__get_default_stack_size", builtin_get_default_stack_size},
     {"__set_default_stack_size", builtin_set_default_stack_size},
-    {"signal", builtin_signal},
-    {"raise", builtin_raise},
+    {"__signal", builtin_signal},
+    {"__raise", builtin_raise},
     // Networking functions (__ prefixed, use @stdlib/net for public API)
     {"__socket_create", builtin_socket_create},
     {"__dns_resolve", builtin_dns_resolve},
