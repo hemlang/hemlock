@@ -55,6 +55,8 @@ Atomic operations are **indivisible** operations that complete without the possi
 
 **Example use case - Shared counter:**
 ```hemlock
+import { atomic_add_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 // Allocate shared counter
 let counter = alloc(4);
 ptr_write_i32(counter, 0);
@@ -115,6 +117,8 @@ atomic_load_i64(ptr: ptr): i64
 
 **Example:**
 ```hemlock
+import { atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 42);
 
@@ -144,6 +148,8 @@ atomic_store_i64(ptr: ptr, value: i64): null
 
 **Example:**
 ```hemlock
+import { atomic_store_i64, atomic_load_i64 } from "@stdlib/atomic";
+
 let p = alloc(8);
 
 atomic_store_i64(p, 5000000000);
@@ -172,6 +178,8 @@ atomic_add_i64(ptr: ptr, value: i64): i64
 
 **Example:**
 ```hemlock
+import { atomic_add_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 100);
 
@@ -198,6 +206,8 @@ atomic_sub_i64(ptr: ptr, value: i64): i64
 
 **Example:**
 ```hemlock
+import { atomic_sub_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 100);
 
@@ -224,6 +234,8 @@ atomic_and_i64(ptr: ptr, value: i64): i64
 
 **Example:**
 ```hemlock
+import { atomic_and_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 0xFF);  // 255 in binary: 11111111
 
@@ -250,6 +262,8 @@ atomic_or_i64(ptr: ptr, value: i64): i64
 
 **Example:**
 ```hemlock
+import { atomic_or_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 0x0F);  // 15 in binary: 00001111
 
@@ -276,6 +290,8 @@ atomic_xor_i64(ptr: ptr, value: i64): i64
 
 **Example:**
 ```hemlock
+import { atomic_xor_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 0xAA);  // 170 in binary: 10101010
 
@@ -311,6 +327,8 @@ atomic_cas_i64(ptr: ptr, expected: i64, desired: i64): bool
 
 **Example:**
 ```hemlock
+import { atomic_cas_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 100);
 
@@ -355,6 +373,8 @@ atomic_exchange_i64(ptr: ptr, value: i64): i64
 
 **Example:**
 ```hemlock
+import { atomic_exchange_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let p = alloc(4);
 ptr_write_i32(p, 100);
 
@@ -382,6 +402,8 @@ atomic_fence(): null
 
 **Example:**
 ```hemlock
+import { atomic_fence } from "@stdlib/atomic";
+
 // Ensure all previous writes are visible
 atomic_fence();
 ```
@@ -433,6 +455,8 @@ atomic_fence();
 ### Pattern: Atomic Counter
 
 ```hemlock
+import { atomic_add_i32, atomic_sub_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 // Thread-safe counter
 let counter = alloc(4);
 ptr_write_i32(counter, 0);
@@ -461,6 +485,8 @@ free(counter);
 ### Pattern: Spinlock
 
 ```hemlock
+import { atomic_cas_i32, atomic_store_i32 } from "@stdlib/atomic";
+
 // Simple spinlock implementation
 let lock = alloc(4);
 ptr_write_i32(lock, 0);  // 0 = unlocked, 1 = locked
@@ -487,6 +513,8 @@ free(lock);
 ### Pattern: One-Time Initialization
 
 ```hemlock
+import { atomic_cas_i32 } from "@stdlib/atomic";
+
 let initialized = alloc(4);
 ptr_write_i32(initialized, 0);  // 0 = not initialized, 1 = initialized
 
@@ -503,6 +531,8 @@ fn ensure_initialized() {
 ### Pattern: Atomic Flag
 
 ```hemlock
+import { atomic_store_i32, atomic_exchange_i32, atomic_load_i32 } from "@stdlib/atomic";
+
 let flag = alloc(4);
 ptr_write_i32(flag, 0);
 
@@ -527,6 +557,8 @@ fn check_flag(): bool {
 ### Pattern: Bounded Counter
 
 ```hemlock
+import { atomic_load_i32, atomic_cas_i32 } from "@stdlib/atomic";
+
 let counter = alloc(4);
 ptr_write_i32(counter, 0);
 let max_value = 100;

@@ -375,6 +375,8 @@ process_array(arr);  // Pass to C function
 
 **3. Function Pointer Callbacks** ✅ (Implemented!)
 ```hemlock
+import { callback, callback_free } from "@stdlib/ffi";
+
 // Pass Hemlock functions to C as callbacks
 fn my_compare(a: ptr, b: ptr): i32 {
     let va = ptr_deref_i32(a);
@@ -440,6 +442,8 @@ Hemlock supports passing functions to C code as callbacks using libffi closures.
 Use `callback()` to create a C-callable function pointer from a Hemlock function:
 
 ```hemlock
+import { callback } from "@stdlib/ffi";
+
 // callback(function, param_types, return_type) -> ptr
 let cb = callback(my_function, ["ptr", "ptr"], "i32");
 ```
@@ -460,6 +464,7 @@ let cb = callback(my_function, ["ptr", "ptr"], "i32");
 ### Example: qsort
 
 ```hemlock
+import { callback, callback_free } from "@stdlib/ffi";
 import "libc.so.6";
 extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
 
@@ -614,6 +619,8 @@ free(p);
 **Important:** Always free callbacks when done to prevent memory leaks:
 
 ```hemlock
+import { callback, callback_free } from "@stdlib/ffi";
+
 let cb = callback(my_fn, ["ptr"], "void");
 // ... use callback ...
 callback_free(cb);  // Free when done
@@ -626,6 +633,8 @@ Callbacks are also automatically freed when the program exits.
 Callbacks capture their closure environment, so they can access outer scope variables:
 
 ```hemlock
+import { callback } from "@stdlib/ffi";
+
 let multiplier = 10;
 
 fn scale(a: ptr, b: ptr): i32 {
