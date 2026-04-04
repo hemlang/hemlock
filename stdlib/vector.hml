@@ -703,7 +703,7 @@ export fn search_filtered(idx: VectorIndex, query: array, k: i64, filter, scalar
 		}
 		return 0;
 	};
-	let filter_cb = callback(filter_wrapper, ["i64", "ptr"], "i32");
+	let filter_cb = __callback(filter_wrapper, ["i64", "ptr"], "i32");
 
 	// Allocate output buffers
 	let keys_buf = alloc(k * SIZEOF_U64);
@@ -713,7 +713,7 @@ export fn search_filtered(idx: VectorIndex, query: array, k: i64, filter, scalar
 	let found = usearch_filtered_search(idx._handle, query_buf, scalar, k,
 		filter_cb, ptr_null(), keys_buf, dists_buf, err);
 	free(query_buf);
-	callback_free(filter_cb);
+	__callback_free(filter_cb);
 
 	let err_ptr = ptr_read_ptr(err);
 	if (err_ptr != ptr_null()) {
@@ -1002,7 +1002,7 @@ export fn set_metric(idx: VectorIndex, metric: i32): null {
 //          when done, or when setting a different metric
 export fn set_custom_metric(idx: VectorIndex, metric_fn, metric_kind?: 0): ptr {
 	_check_alive(idx);
-	let metric_cb = callback(metric_fn, ["ptr", "ptr"], "f32");
+	let metric_cb = __callback(metric_fn, ["ptr", "ptr"], "f32");
 	let err = _make_err_holder();
 	usearch_change_metric(idx._handle, metric_cb, ptr_null(), metric_kind, err);
 	_check_err(err);
@@ -1011,7 +1011,7 @@ export fn set_custom_metric(idx: VectorIndex, metric_fn, metric_kind?: 0): ptr {
 
 // Free a custom metric callback created by set_custom_metric()
 export fn free_custom_metric(metric_cb: ptr): null {
-	callback_free(metric_cb);
+	__callback_free(metric_cb);
 	return null;
 }
 
