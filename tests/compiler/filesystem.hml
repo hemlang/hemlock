@@ -30,7 +30,7 @@ print(is_file("/etc/passwd"));  // true
 print(is_file("/tmp"));  // false (it's a directory)
 
 // Test make_dir()
-make_dir(test_dir);
+make_dir(test_dir, 493);
 print(exists(test_dir));  // true
 print(is_dir(test_dir));  // true
 

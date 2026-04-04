@@ -999,6 +999,14 @@ static int conflicts_with_runtime(const char *name) {
     if (strncmp(name, "_v_", 3) == 0) return 1;  // Our own sanitization prefix
     if (strncmp(name, "_ex_", 4) == 0) return 1;  // Exception context
     if (strncmp(name, "_closure_env", 12) == 0) return 1;  // Closure env param
+    // Check for C system macro conflicts (signal constants, socket constants, etc.)
+    if (strncmp(name, "SIG", 3) == 0) return 1;  // SIGINT, SIGTERM, SIGUSR1, etc.
+    if (strncmp(name, "AF_", 3) == 0) return 1;   // AF_INET, AF_INET6
+    if (strncmp(name, "SOCK_", 5) == 0) return 1; // SOCK_STREAM, SOCK_DGRAM
+    if (strncmp(name, "SOL_", 4) == 0) return 1;  // SOL_SOCKET
+    if (strncmp(name, "SO_", 3) == 0) return 1;   // SO_REUSEADDR, etc.
+    if (strncmp(name, "IPPROTO_", 8) == 0) return 1; // IPPROTO_TCP, IPPROTO_UDP
+    if (strncmp(name, "POLL", 4) == 0) return 1;  // POLLIN, POLLOUT, etc.
     return 0;
 }
 

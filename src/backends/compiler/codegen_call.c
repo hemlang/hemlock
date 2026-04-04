@@ -221,7 +221,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 exec_is_imported = 1;
             }
         }
-        if (!exec_is_imported && strcmp(fn_name, "__exec") == 0 && expr->as.call.num_args == 1) {
+        if (!exec_is_imported && (strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 1) {
             char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_exec(%s);", result, cmd);
             codegen_writeln(ctx, "hml_release(&%s);", cmd);
@@ -230,7 +230,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle exec builtin with args array (safe mode, no shell)
-        if (!exec_is_imported && strcmp(fn_name, "__exec") == 0 && expr->as.call.num_args == 2) {
+        if (!exec_is_imported && (strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) && expr->as.call.num_args == 2) {
             char *cmd = codegen_expr(ctx, expr->as.call.args[0]);
             char *args = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_exec_with_args(%s, %s);", result, cmd, args);
@@ -242,7 +242,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle exec_argv builtin for safe command execution (no shell)
-        if (strcmp(fn_name, "__exec_argv") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "exec_argv") == 0 || strcmp(fn_name, "__exec_argv") == 0) && expr->as.call.num_args == 1) {
             char *args = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_exec_argv(%s);", result, args);
             codegen_writeln(ctx, "hml_release(&%s);", args);
@@ -1538,7 +1538,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // exit(code)
-        if ((strcmp(fn_name, "exit") == 0 || strcmp(fn_name, "__exit") == 0) && expr->as.call.num_args == 1) {
+        if (strcmp(fn_name, "__exit") == 0 && expr->as.call.num_args == 1) {
             char *arg = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "hml_exit(%s);", arg);
             codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
@@ -1682,7 +1682,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // ========== I/O BUILTINS ==========
 
         // read_line()
-        if ((strcmp(fn_name, "read_line") == 0 || strcmp(fn_name, "__read_line") == 0) && expr->as.call.num_args == 0) {
+        if (strcmp(fn_name, "read_line") == 0 && expr->as.call.num_args == 0) {
             codegen_writeln(ctx, "HmlValue %s = hml_read_line();", result);
             return result;
         }
@@ -1920,7 +1920,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // crc32(data)
-        if ((strcmp(fn_name, "crc32") == 0 || strcmp(fn_name, "__crc32") == 0) && expr->as.call.num_args == 1) {
+        if (strcmp(fn_name, "__crc32") == 0 && expr->as.call.num_args == 1) {
             char *data = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_crc32_val(%s);", result, data);
             codegen_writeln(ctx, "hml_release(&%s);", data);
@@ -1929,7 +1929,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // adler32(data)
-        if ((strcmp(fn_name, "adler32") == 0 || strcmp(fn_name, "__adler32") == 0) && expr->as.call.num_args == 1) {
+        if (strcmp(fn_name, "__adler32") == 0 && expr->as.call.num_args == 1) {
             char *data = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_adler32_val(%s);", result, data);
             codegen_writeln(ctx, "hml_release(&%s);", data);
@@ -1991,7 +1991,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // __string_from_bytes(bytes) - convert byte array/buffer to UTF-8 string
-        if ((strcmp(fn_name, "__string_from_bytes") == 0 || strcmp(fn_name, "string_from_bytes") == 0) &&
+        if (strcmp(fn_name, "__string_from_bytes") == 0 &&
             expr->as.call.num_args == 1) {
             char *bytes = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_string_from_bytes(%s);", result, bytes);
@@ -2040,7 +2040,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // ========== INTERNAL HELPER BUILTINS ==========
 
         // read_u32(buffer) - read 32-bit unsigned int from buffer
-        if ((strcmp(fn_name, "read_u32") == 0 || strcmp(fn_name, "__read_u32") == 0) && expr->as.call.num_args == 1) {
+        if (strcmp(fn_name, "__read_u32") == 0 && expr->as.call.num_args == 1) {
             char *buf = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_read_u32(%s);", result, buf);
             codegen_writeln(ctx, "hml_release(&%s);", buf);
@@ -2049,7 +2049,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // read_u64(buffer) - read 64-bit unsigned int from buffer
-        if ((strcmp(fn_name, "read_u64") == 0 || strcmp(fn_name, "__read_u64") == 0) && expr->as.call.num_args == 1) {
+        if (strcmp(fn_name, "__read_u64") == 0 && expr->as.call.num_args == 1) {
             char *buf = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_read_u64(%s);", result, buf);
             codegen_writeln(ctx, "hml_release(&%s);", buf);
