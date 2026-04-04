@@ -1569,7 +1569,12 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
 
     // Start background service thread to receive chunks
     stream->shutdown = 0;
-    if (pthread_create(&stream->service_thread, NULL, http_stream_service_thread, stream) != 0) {
+    pthread_attr_t stream_attr;
+    pthread_attr_init(&stream_attr);
+    pthread_attr_setstacksize(&stream_attr, HML_THREAD_STACK_SIZE);
+    int stream_rc = pthread_create(&stream->service_thread, &stream_attr, http_stream_service_thread, stream);
+    pthread_attr_destroy(&stream_attr);
+    if (stream_rc != 0) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
         pthread_mutex_destroy(&stream->chunk_mutex);
@@ -2164,7 +2169,12 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     // Start service thread
     conn->shutdown = 0;
     conn->has_own_thread = 1;
-    if (pthread_create(&conn->service_thread, NULL, ws_service_thread, conn) != 0) {
+    pthread_attr_t conn_attr;
+    pthread_attr_init(&conn_attr);
+    pthread_attr_setstacksize(&conn_attr, HML_THREAD_STACK_SIZE);
+    int conn_rc = pthread_create(&conn->service_thread, &conn_attr, ws_service_thread, conn);
+    pthread_attr_destroy(&conn_attr);
+    if (conn_rc != 0) {
         lws_context_destroy(conn->context);
         free(conn);
         ctx->exception_state.is_throwing = 1;
@@ -2560,7 +2570,12 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     }
 
     server->shutdown = 0;
-    if (pthread_create(&server->service_thread, NULL, ws_server_service_thread, server) != 0) {
+    pthread_attr_t srv_attr;
+    pthread_attr_init(&srv_attr);
+    pthread_attr_setstacksize(&srv_attr, HML_THREAD_STACK_SIZE);
+    int srv_rc = pthread_create(&server->service_thread, &srv_attr, ws_server_service_thread, server);
+    pthread_attr_destroy(&srv_attr);
+    if (srv_rc != 0) {
         lws_context_destroy(server->context);
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
