@@ -1012,6 +1012,16 @@ HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit);
     hml_g_call_depth--; \
 } while(0)
 
+// Tail-call depth check: track iterations without growing depth permanently.
+// Increments a local counter instead of the global call depth, and throws
+// if the function has iterated more than the max call depth.
+#define HML_TAIL_CALL_CHECK(counter) do { \
+    if (__builtin_expect(++(counter) > hml_g_max_call_depth, 0)) { \
+        hml_g_call_depth = 0; \
+        hml_runtime_error("Maximum call stack depth exceeded (infinite recursion?)"); \
+    } \
+} while(0)
+
 // ========== ATOMIC OPERATIONS ==========
 
 // i32 atomic operations
