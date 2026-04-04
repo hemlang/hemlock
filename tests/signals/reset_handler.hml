@@ -1,4 +1,6 @@
 // Test resetting signal handler to default
+import { SIGUSR1 } from "@stdlib/signal";
+
 let count = 0;
 
 fn handler(sig) {

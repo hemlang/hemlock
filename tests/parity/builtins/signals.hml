@@ -1,4 +1,5 @@
 // Test signal handling - simplified for parity
+import { SIGUSR1 } from "@stdlib/signal";
 
 fn handle_signal(sig) {
     print("signal received");

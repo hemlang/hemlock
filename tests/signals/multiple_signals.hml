@@ -1,4 +1,6 @@
 // Test handling multiple different signals
+import { SIGUSR1, SIGUSR2 } from "@stdlib/signal";
+
 let usr1_count = 0;
 let usr2_count = 0;
 

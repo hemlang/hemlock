@@ -1,5 +1,6 @@
 // Test: IPv6 socket support
 // Tests AF_INET6 socket creation, bind, listen, connect, accept
+import { AF_INET, AF_INET6, SOCK_STREAM, SOCK_DGRAM, socket_create } from "@stdlib/net";
 
 // Test 1: AF_INET6 constant available
 print("Test: AF_INET6 constant");

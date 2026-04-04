@@ -1,4 +1,6 @@
 // Test unprefixed builtin aliases
+import { sin, cos, sqrt, floor, ceil, round, pow, log, log10, log2, atan2 } from "@stdlib/math";
+import { getenv, get_pid } from "@stdlib/env";
 
 // Math functions (using direct function call)
 print(sin(0.0));

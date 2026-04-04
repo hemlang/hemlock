@@ -1,4 +1,5 @@
 // Test signal handling
+import { SIGINT, SIGTERM, SIGUSR1, SIGUSR2 } from "@stdlib/signal";
 
 // Test signal constants exist
 print("Testing signal constants:");

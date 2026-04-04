@@ -1,6 +1,7 @@
 // Test that signal constants are defined and have expected values
 // Note: Some signal values differ between Linux and macOS
 // We test portable signals with known values, and just verify others exist
+import { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGABRT, SIGALRM, SIGPIPE, SIGUSR1, SIGUSR2 } from "@stdlib/signal";
 
 // These signals have the same values on Linux and macOS
 assert(SIGINT == 2);

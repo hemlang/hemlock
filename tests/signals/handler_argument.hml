@@ -1,4 +1,6 @@
 // Test that signal handler receives the signal number
+import { SIGUSR2 } from "@stdlib/signal";
+
 let received_sig = 0;
 
 fn handler(sig) {
