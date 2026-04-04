@@ -184,7 +184,7 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 // Parse URL into components
-static int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
+int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
     *ssl = 0;
     *port = 80;
     // SECURITY: Use safe string initialization instead of strcpy
