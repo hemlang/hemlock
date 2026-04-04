@@ -140,8 +140,17 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // the task would be freed while the thread is still running.
     task_retain(task);
 
+    // Configure thread attributes with larger stack size.
+    // The interpreter's eval_stmt recurses for every nested statement, so
+    // programs that spawn many sequential servers with closure callbacks
+    // (e.g. WebSocket accept loops) can overflow the default pthread stack.
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, HML_THREAD_STACK_SIZE);
+
     // Create thread to execute task
-    int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+    int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
+    pthread_attr_destroy(&attr);
     if (rc != 0) {
         fprintf(stderr, "Runtime error: Failed to create thread: %d\n", rc);
         task_release(task);
@@ -326,8 +335,14 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         // we finish calling pthread_detach, leading to use-after-free
         task_retain(task);  // ref_count: 1 -> 2
 
+        // Configure thread with larger stack for recursive eval_stmt
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, HML_THREAD_STACK_SIZE);
+
         // Create thread to execute task
-        int rc = pthread_create((pthread_t*)task->thread, NULL, task_thread_wrapper, task);
+        int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
+        pthread_attr_destroy(&attr);
         if (rc != 0) {
             runtime_error(ctx, "Failed to create thread: %d", rc);
             free(task->thread);

@@ -181,8 +181,12 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     pthread_mutex_init(&task->sync->mutex, NULL);
     pthread_cond_init(&task->sync->cond, NULL);
 
-    // Create thread
-    pthread_create(&task->sync->thread, NULL, task_thread_wrapper, task);
+    // Create thread with larger stack to match interpreter headroom
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, HML_THREAD_STACK_SIZE);
+    pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
+    pthread_attr_destroy(&attr);
 
     // Return task value
     HmlValue result;

@@ -18,6 +18,12 @@
 #include <limits.h>
 #include <inttypes.h>
 
+// Thread stack size for spawned tasks (must match HML_THREAD_STACK_SIZE in hemlock_limits.h)
+// 16 MB gives headroom for deeply nested call stacks in spawned tasks.
+#ifndef HML_THREAD_STACK_SIZE
+#define HML_THREAD_STACK_SIZE (16 * 1024 * 1024)
+#endif
+
 #ifdef __EMSCRIPTEN__
 // WASM build: minimal POSIX headers via Emscripten
 #include <emscripten.h>
