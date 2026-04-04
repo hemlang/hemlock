@@ -1,4 +1,5 @@
 // Test FFI callbacks with qsort from libc
+import { callback, callback_free } from "@stdlib/ffi";
 
 // Import libc for qsort
 import "libc.so.6";

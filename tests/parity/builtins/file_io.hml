@@ -1,4 +1,5 @@
 // Test file I/O operations
+import { open } from "@stdlib/fs";
 
 // Write to file
 let f = open("/tmp/hemlock_parity_test.txt", "w");

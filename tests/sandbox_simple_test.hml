@@ -1,4 +1,6 @@
 // Simple sandbox functionality test
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
 
 print("Testing sandbox restrictions...\n");
 

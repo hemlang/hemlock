@@ -992,7 +992,7 @@ export fn stringify(obj): string {
 
 // Parse a TOML file
 export fn parse_file(path: string): object {
-	let file = open(path, "r");
+	let file = __open(path, "r");
 	defer file.close();
 	let content = file.read();
 	return parse(content);
@@ -1001,7 +1001,7 @@ export fn parse_file(path: string): object {
 // Write object to TOML file
 export fn write_file(path: string, obj) {
 	let content = stringify(obj);
-	let file = open(path, "w");
+	let file = __open(path, "w");
 	defer file.close();
 	file.write(content);
 }

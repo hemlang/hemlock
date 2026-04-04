@@ -1,5 +1,6 @@
 // Test: Stack limit control functions
 // Tests get_stack_limit() and set_stack_limit()
+import { set_stack_limit, get_stack_limit } from "@stdlib/debug";
 
 let initial = get_stack_limit();
 print(initial > 0);

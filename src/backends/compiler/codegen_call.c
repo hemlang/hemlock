@@ -192,13 +192,13 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle get_stack_limit builtin
-        if (strcmp(fn_name, "get_stack_limit") == 0 && expr->as.call.num_args == 0) {
+        if ((strcmp(fn_name, "get_stack_limit") == 0 || strcmp(fn_name, "__get_stack_limit") == 0) && expr->as.call.num_args == 0) {
             codegen_writeln(ctx, "HmlValue %s = hml_get_stack_limit();", result);
             return result;
         }
 
         // Handle set_stack_limit builtin
-        if (strcmp(fn_name, "set_stack_limit") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "set_stack_limit") == 0 || strcmp(fn_name, "__set_stack_limit") == 0) && expr->as.call.num_args == 1) {
             char *limit = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_set_stack_limit(%s);", result, limit);
             codegen_writeln(ctx, "hml_release(&%s);", limit);
@@ -210,7 +210,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // Skip if 'exec' is an imported symbol (e.g. from @stdlib/sqlite)
         // or a local/module function that shadows the builtin
         int exec_is_imported = 0;
-        if (strcmp(fn_name, "exec") == 0) {
+        if (strcmp(fn_name, "exec") == 0 || strcmp(fn_name, "__exec") == 0) {
             if (ctx->current_module) {
                 exec_is_imported = module_find_import(ctx->current_module, fn_name) != NULL ||
                                    module_find_export(ctx->current_module, fn_name) != NULL;
@@ -251,7 +251,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle open builtin for file I/O
-        if (strcmp(fn_name, "open") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
+        if ((strcmp(fn_name, "open") == 0 || strcmp(fn_name, "__open") == 0) && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
             char *path = codegen_expr(ctx, expr->as.call.args[0]);
             if (expr->as.call.num_args == 2) {
                 char *mode = codegen_expr(ctx, expr->as.call.args[1]);
@@ -382,7 +382,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle task_debug_info builtin
-        if (strcmp(fn_name, "task_debug_info") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "task_debug_info") == 0 || strcmp(fn_name, "__task_debug_info") == 0) && expr->as.call.num_args == 1) {
             char *task_val = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "hml_task_debug_info(%s);", task_val);
             codegen_writeln(ctx, "hml_release(&%s);", task_val);
@@ -508,7 +508,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // ========== FFI CALLBACK BUILTINS ==========
 
         // callback(fn, param_types, return_type) -> ptr
-        if (strcmp(fn_name, "callback") == 0 && (expr->as.call.num_args == 2 || expr->as.call.num_args == 3)) {
+        if ((strcmp(fn_name, "callback") == 0 || strcmp(fn_name, "__callback") == 0) && (expr->as.call.num_args == 2 || expr->as.call.num_args == 3)) {
             char *fn_arg = codegen_expr(ctx, expr->as.call.args[0]);
             char *param_types = codegen_expr(ctx, expr->as.call.args[1]);
             char *ret_type;
@@ -530,7 +530,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // callback_free(ptr)
-        if (strcmp(fn_name, "callback_free") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "callback_free") == 0 || strcmp(fn_name, "__callback_free") == 0) && expr->as.call.num_args == 1) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_callback_free(NULL, %s);", result, ptr);
             codegen_writeln(ctx, "hml_release(&%s);", ptr);
@@ -887,7 +887,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // ========== ATOMIC OPERATIONS (i32) ==========
 
-        if (strcmp(fn_name, "atomic_load_i32") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "atomic_load_i32") == 0 || strcmp(fn_name, "__atomic_load_i32") == 0) && expr->as.call.num_args == 1) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_load_i32(NULL, %s);", result, ptr);
             codegen_writeln(ctx, "hml_release(&%s);", ptr);
@@ -895,7 +895,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_store_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_store_i32") == 0 || strcmp(fn_name, "__atomic_store_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_store_i32(NULL, %s, %s);", result, ptr, value);
@@ -906,7 +906,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_add_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_add_i32") == 0 || strcmp(fn_name, "__atomic_add_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_add_i32(NULL, %s, %s);", result, ptr, value);
@@ -917,7 +917,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_sub_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_sub_i32") == 0 || strcmp(fn_name, "__atomic_sub_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_sub_i32(NULL, %s, %s);", result, ptr, value);
@@ -928,7 +928,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_and_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_and_i32") == 0 || strcmp(fn_name, "__atomic_and_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_and_i32(NULL, %s, %s);", result, ptr, value);
@@ -939,7 +939,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_or_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_or_i32") == 0 || strcmp(fn_name, "__atomic_or_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_or_i32(NULL, %s, %s);", result, ptr, value);
@@ -950,7 +950,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_xor_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_xor_i32") == 0 || strcmp(fn_name, "__atomic_xor_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_xor_i32(NULL, %s, %s);", result, ptr, value);
@@ -961,7 +961,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_cas_i32") == 0 && expr->as.call.num_args == 3) {
+        if ((strcmp(fn_name, "atomic_cas_i32") == 0 || strcmp(fn_name, "__atomic_cas_i32") == 0) && expr->as.call.num_args == 3) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *expected = codegen_expr(ctx, expr->as.call.args[1]);
             char *desired = codegen_expr(ctx, expr->as.call.args[2]);
@@ -975,7 +975,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_exchange_i32") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_exchange_i32") == 0 || strcmp(fn_name, "__atomic_exchange_i32") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_exchange_i32(NULL, %s, %s);", result, ptr, value);
@@ -988,7 +988,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // ========== ATOMIC OPERATIONS (i64) ==========
 
-        if (strcmp(fn_name, "atomic_load_i64") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "atomic_load_i64") == 0 || strcmp(fn_name, "__atomic_load_i64") == 0) && expr->as.call.num_args == 1) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_load_i64(NULL, %s);", result, ptr);
             codegen_writeln(ctx, "hml_release(&%s);", ptr);
@@ -996,7 +996,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_store_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_store_i64") == 0 || strcmp(fn_name, "__atomic_store_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_store_i64(NULL, %s, %s);", result, ptr, value);
@@ -1007,7 +1007,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_add_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_add_i64") == 0 || strcmp(fn_name, "__atomic_add_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_add_i64(NULL, %s, %s);", result, ptr, value);
@@ -1018,7 +1018,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_sub_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_sub_i64") == 0 || strcmp(fn_name, "__atomic_sub_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_sub_i64(NULL, %s, %s);", result, ptr, value);
@@ -1029,7 +1029,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_and_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_and_i64") == 0 || strcmp(fn_name, "__atomic_and_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_and_i64(NULL, %s, %s);", result, ptr, value);
@@ -1040,7 +1040,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_or_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_or_i64") == 0 || strcmp(fn_name, "__atomic_or_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_or_i64(NULL, %s, %s);", result, ptr, value);
@@ -1051,7 +1051,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_xor_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_xor_i64") == 0 || strcmp(fn_name, "__atomic_xor_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_xor_i64(NULL, %s, %s);", result, ptr, value);
@@ -1062,7 +1062,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_cas_i64") == 0 && expr->as.call.num_args == 3) {
+        if ((strcmp(fn_name, "atomic_cas_i64") == 0 || strcmp(fn_name, "__atomic_cas_i64") == 0) && expr->as.call.num_args == 3) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *expected = codegen_expr(ctx, expr->as.call.args[1]);
             char *desired = codegen_expr(ctx, expr->as.call.args[2]);
@@ -1076,7 +1076,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        if (strcmp(fn_name, "atomic_exchange_i64") == 0 && expr->as.call.num_args == 2) {
+        if ((strcmp(fn_name, "atomic_exchange_i64") == 0 || strcmp(fn_name, "__atomic_exchange_i64") == 0) && expr->as.call.num_args == 2) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             char *value = codegen_expr(ctx, expr->as.call.args[1]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_exchange_i64(NULL, %s, %s);", result, ptr, value);
@@ -1089,7 +1089,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // ========== ATOMIC FENCE ==========
 
-        if (strcmp(fn_name, "atomic_fence") == 0 && expr->as.call.num_args == 0) {
+        if ((strcmp(fn_name, "atomic_fence") == 0 || strcmp(fn_name, "__atomic_fence") == 0) && expr->as.call.num_args == 0) {
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_atomic_fence(NULL);", result);
             return result;
         }
@@ -2001,7 +2001,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // string_concat_many(array)
-        if (strcmp(fn_name, "string_concat_many") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "string_concat_many") == 0 || strcmp(fn_name, "__string_concat_many") == 0) && expr->as.call.num_args == 1) {
             char *arr = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_string_concat_many(%s);", result, arr);
             codegen_writeln(ctx, "hml_release(&%s);", arr);

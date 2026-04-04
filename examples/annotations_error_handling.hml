@@ -1,5 +1,6 @@
 // Example: Error Handling with @warn_unused
 // Demonstrates @warn_unused annotation for catching ignored return values
+import { open } from "@stdlib/fs";
 
 // Allocation functions should warn if return value is ignored
 fn safe_alloc(size: i32): ptr {

@@ -1,4 +1,5 @@
 // Test file I/O operations
+import { open } from "@stdlib/fs";
 
 // Write a test file
 let f = open("/tmp/hemlock_test.txt", "w");

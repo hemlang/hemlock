@@ -1,4 +1,5 @@
 // Test string_concat_many function for optimized string building
+import { string_concat_many } from "@stdlib/strings";
 
 // Test basic concatenation
 let parts = ["Hello", ", ", "World", "!"];

@@ -163,7 +163,7 @@ export fn file_checksum(path: string, hash_fn): string {
 	}
 
 	// Open and read file
-	let file = open(path, "r");
+	let file = __open(path, "r");
 	defer file.close();
 
 	let content = file.read();

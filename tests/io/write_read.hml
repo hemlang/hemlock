@@ -1,4 +1,6 @@
 // Test: Write and read file
+import { open } from "@stdlib/fs";
+
 let f = open("tests/temp/test_output.txt", "w");
 f.write("Hello, Hemlock!");
 f.close();

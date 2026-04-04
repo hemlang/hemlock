@@ -1,4 +1,5 @@
 // Test exec() with args array (safe mode, no shell)
+import { exec } from "@stdlib/process";
 
 // Simple echo with args array
 let r = exec("echo", ["hello", "world"]);

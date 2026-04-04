@@ -1,4 +1,5 @@
 // Test task_debug_info builtin
+import { task_debug_info } from "@stdlib/debug";
 
 async fn work(n: i32): i32 {
     let sum = 0;

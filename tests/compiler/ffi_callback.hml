@@ -1,5 +1,6 @@
 // Test FFI callbacks in compiled Hemlock
 // This test verifies that callback(), callback_free(), and ptr helpers work
+import { callback, callback_free } from "@stdlib/ffi";
 
 import "libc.so.6";
 extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
