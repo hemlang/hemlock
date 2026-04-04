@@ -20,15 +20,15 @@ static BuiltinInfo builtins[] = {
     {"buffer", builtin_buffer},
     {"typeof", builtin_typeof},
     {"read_line", builtin_read_line},
-    {"string_concat_many", builtin_string_concat_many},
+    {"__string_concat_many", builtin_string_concat_many},
     {"eprint", builtin_eprint},
-    {"open", builtin_open},
+    {"__open", builtin_open},
     {"assert", builtin_assert},
     {"panic", builtin_panic},
-    {"set_stack_limit", builtin_set_stack_limit},
-    {"get_stack_limit", builtin_get_stack_limit},
-    {"exec", builtin_exec},
-    {"exec_argv", builtin_exec_argv},
+    {"__set_stack_limit", builtin_set_stack_limit},
+    {"__get_stack_limit", builtin_get_stack_limit},
+    // exec/exec_argv: use @stdlib/process for public API
+    // __exec and __exec_argv already registered in env/process section below
     {"spawn", builtin_spawn},
     {"spawn_with", builtin_spawn_with},
     {"join", builtin_join},
@@ -36,7 +36,7 @@ static BuiltinInfo builtins[] = {
     {"apply", builtin_apply},
     {"channel", builtin_channel},
     {"select", builtin_select},
-    {"task_debug_info", builtin_task_debug_info},
+    {"__task_debug_info", builtin_task_debug_info},
     {"__get_default_stack_size", builtin_get_default_stack_size},
     {"__set_default_stack_size", builtin_set_default_stack_size},
     {"__signal", builtin_signal},
@@ -213,9 +213,9 @@ static BuiltinInfo builtins[] = {
     // longer registered as unprefixed global builtins. Users must import
     // them from @stdlib/math, @stdlib/env, or @stdlib/random respectively.
     // The __-prefixed versions remain for stdlib internal use.
-    // FFI callback functions
-    {"callback", builtin_callback},
-    {"callback_free", builtin_callback_free},
+    // FFI callback functions (use @stdlib/ffi for public API)
+    {"__callback", builtin_callback},
+    {"__callback_free", builtin_callback_free},
     {"ptr_read_i32", builtin_ptr_read_i32},
     {"ptr_deref_i32", builtin_ptr_deref_i32},
     {"ptr_write_i32", builtin_ptr_write_i32},
@@ -257,28 +257,26 @@ static BuiltinInfo builtins[] = {
     {"ptr_to_buffer", builtin_ptr_to_buffer},
     {"buffer_ptr", builtin_buffer_ptr},
     {"ptr_null", builtin_ptr_null},
-    // Atomic operations (i32)
-    {"atomic_load_i32", builtin_atomic_load_i32},
-    {"atomic_store_i32", builtin_atomic_store_i32},
-    {"atomic_add_i32", builtin_atomic_add_i32},
-    {"atomic_sub_i32", builtin_atomic_sub_i32},
-    {"atomic_and_i32", builtin_atomic_and_i32},
-    {"atomic_or_i32", builtin_atomic_or_i32},
-    {"atomic_xor_i32", builtin_atomic_xor_i32},
-    {"atomic_cas_i32", builtin_atomic_cas_i32},
-    {"atomic_exchange_i32", builtin_atomic_exchange_i32},
-    // Atomic operations (i64)
-    {"atomic_load_i64", builtin_atomic_load_i64},
-    {"atomic_store_i64", builtin_atomic_store_i64},
-    {"atomic_add_i64", builtin_atomic_add_i64},
-    {"atomic_sub_i64", builtin_atomic_sub_i64},
-    {"atomic_and_i64", builtin_atomic_and_i64},
-    {"atomic_or_i64", builtin_atomic_or_i64},
-    {"atomic_xor_i64", builtin_atomic_xor_i64},
-    {"atomic_cas_i64", builtin_atomic_cas_i64},
-    {"atomic_exchange_i64", builtin_atomic_exchange_i64},
-    // Memory fence
-    {"atomic_fence", builtin_atomic_fence},
+    // Atomic operations (use @stdlib/atomic for public API)
+    {"__atomic_load_i32", builtin_atomic_load_i32},
+    {"__atomic_store_i32", builtin_atomic_store_i32},
+    {"__atomic_add_i32", builtin_atomic_add_i32},
+    {"__atomic_sub_i32", builtin_atomic_sub_i32},
+    {"__atomic_and_i32", builtin_atomic_and_i32},
+    {"__atomic_or_i32", builtin_atomic_or_i32},
+    {"__atomic_xor_i32", builtin_atomic_xor_i32},
+    {"__atomic_cas_i32", builtin_atomic_cas_i32},
+    {"__atomic_exchange_i32", builtin_atomic_exchange_i32},
+    {"__atomic_load_i64", builtin_atomic_load_i64},
+    {"__atomic_store_i64", builtin_atomic_store_i64},
+    {"__atomic_add_i64", builtin_atomic_add_i64},
+    {"__atomic_sub_i64", builtin_atomic_sub_i64},
+    {"__atomic_and_i64", builtin_atomic_and_i64},
+    {"__atomic_or_i64", builtin_atomic_or_i64},
+    {"__atomic_xor_i64", builtin_atomic_xor_i64},
+    {"__atomic_cas_i64", builtin_atomic_cas_i64},
+    {"__atomic_exchange_i64", builtin_atomic_exchange_i64},
+    {"__atomic_fence", builtin_atomic_fence},
     {NULL, NULL}  // Sentinel
 };
 
