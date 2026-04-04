@@ -149,6 +149,10 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
         ctx->tail_call_func_name = (char*)name;  // Borrowed reference
         ctx->tail_call_label = codegen_label(ctx);
         ctx->tail_call_func_expr = func;
+        // Emit local iteration counter for tail-call depth checking
+        if (ctx->stack_check) {
+            codegen_writeln(ctx, "int _tail_depth = 0;");
+        }
         codegen_writeln(ctx, "%s:;  // tail call target", ctx->tail_call_label);
     }
 

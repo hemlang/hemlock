@@ -892,6 +892,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     }
                     free(new_arg_vals);
 
+                    // Check tail-call depth before jumping back
+                    if (ctx->stack_check) {
+                        codegen_writeln(ctx, "HML_TAIL_CALL_CHECK(_tail_depth);");
+                    }
                     // Jump back to the start of the function
                     codegen_writeln(ctx, "goto %s;", ctx->tail_call_label);
                 } else if (stmt->as.return_stmt.value) {

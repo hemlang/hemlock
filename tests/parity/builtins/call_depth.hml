@@ -1,0 +1,12 @@
+// Test: Call depth tracking catches infinite recursion
+// Verifies stack overflow produces a catchable error in both backends
+
+fn recurse(n: i32): i32 {
+    return recurse(n + 1);
+}
+
+try {
+    recurse(0);
+} catch (e) {
+    print(e);
+}
