@@ -4,6 +4,10 @@
 // Global task ID counter (atomic for thread-safety in concurrent spawns)
 static atomic_int next_task_id = 1;
 
+// Global default stack size for spawned threads (atomic for thread-safety)
+// Initialized to HML_THREAD_STACK_SIZE (16 MB) from hemlock_limits.h
+static _Atomic size_t g_default_stack_size = HML_THREAD_STACK_SIZE;
+
 // Thread wrapper function that executes a task
 static void* task_thread_wrapper(void* arg) {
     Task *task = (Task*)arg;
@@ -14,6 +18,20 @@ static void* task_thread_wrapper(void* arg) {
     sigset_t set;
     sigfillset(&set);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
+
+    // Set thread name if provided (must be called from within the thread for macOS)
+    // Not available in Emscripten/WASM
+#ifndef __EMSCRIPTEN__
+    if (task->name) {
+        char name_buf[16];
+        snprintf(name_buf, sizeof(name_buf), "%s", task->name);
+#ifdef __APPLE__
+        pthread_setname_np(name_buf);
+#else
+        pthread_setname_np(pthread_self(), name_buf);
+#endif
+    }
+#endif
 
     // Mark as running (thread-safe)
     pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
@@ -146,7 +164,7 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // (e.g. WebSocket accept loops) can overflow the default pthread stack.
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, HML_THREAD_STACK_SIZE);
+    pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
 
     // Create thread to execute task
     int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
@@ -158,6 +176,141 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_task(task);
+}
+
+// spawn_with(options, fn, args...) - Spawn with configuration options
+// Options object supports:
+//   stack_size: i32/i64 - stack size in bytes for the thread
+//   name: string - debug name for the thread (pthread_setname_np)
+Value builtin_spawn_with(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args < 2) {
+        runtime_error(ctx, "spawn_with() expects at least 2 arguments (options, async function)");
+        return val_null();
+    }
+
+    Value options_val = args[0];
+    Value func_val = args[1];
+
+    if (options_val.type != VAL_OBJECT) {
+        runtime_error(ctx, "spawn_with() first argument must be an options object");
+        return val_null();
+    }
+
+    if (func_val.type != VAL_FUNCTION) {
+        runtime_error(ctx, "spawn_with() second argument must be an async function");
+        return val_null();
+    }
+
+    Function *fn = func_val.as.as_function;
+    if (!fn->is_async) {
+        runtime_error(ctx, "spawn_with() requires an async function");
+        return val_null();
+    }
+
+    // Extract options
+    Object *opts = options_val.as.as_object;
+    size_t stack_size = atomic_load(&g_default_stack_size);
+    char *thread_name = NULL;
+
+    for (int i = 0; i < opts->num_fields; i++) {
+        if (strcmp(opts->fields[i].name, "stack_size") == 0) {
+            Value sv = opts->fields[i].value;
+            if (!is_integer(sv)) {
+                runtime_error(ctx, "spawn_with() stack_size must be an integer");
+                return val_null();
+            }
+            int64_t sz = value_to_int64(sv);
+            if (sz <= 0) {
+                runtime_error(ctx, "spawn_with() stack_size must be positive");
+                return val_null();
+            }
+            stack_size = (size_t)sz;
+        } else if (strcmp(opts->fields[i].name, "name") == 0) {
+            Value nv = opts->fields[i].value;
+            if (nv.type != VAL_STRING) {
+                runtime_error(ctx, "spawn_with() name must be a string");
+                return val_null();
+            }
+            thread_name = nv.as.as_string->data;
+        }
+    }
+
+    // Deep copy arguments (skip options and function)
+    Value *task_args = NULL;
+    int task_num_args = num_args - 2;
+
+    if (task_num_args > 0) {
+        task_args = malloc(sizeof(Value) * task_num_args);
+        if (!task_args) {
+            runtime_error(ctx, "Memory allocation failed in spawn_with()");
+            return val_null();
+        }
+        for (int i = 0; i < task_num_args; i++) {
+            task_args[i] = value_deep_copy(args[i + 2]);
+        }
+    }
+
+    // Create task
+    int task_id = atomic_fetch_add(&next_task_id, 1);
+    Task *task = task_new(task_id, fn, task_args, task_num_args, fn->closure_env);
+
+    // Set debug name if provided
+    if (thread_name) {
+        task->name = strdup(thread_name);
+    }
+
+    // Allocate pthread_t
+    task->thread = malloc(sizeof(pthread_t));
+    if (!task->thread) {
+        runtime_error(ctx, "Memory allocation failed");
+        return val_null();
+    }
+
+    task_retain(task);
+
+    // Configure thread attributes with requested stack size
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_size);
+
+    // Create thread
+    int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
+    pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        runtime_error(ctx, "Failed to create thread: %d", rc);
+        task_release(task);
+        return val_null();
+    }
+
+    return val_task(task);
+}
+
+// get_default_stack_size() - Returns the current default thread stack size in bytes
+Value builtin_get_default_stack_size(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args; (void)ctx;
+    return val_i64((int64_t)atomic_load(&g_default_stack_size));
+}
+
+// set_default_stack_size(size) - Sets the default thread stack size for subsequent spawns
+Value builtin_set_default_stack_size(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "set_default_stack_size() expects 1 argument (size in bytes)");
+        return val_null();
+    }
+
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "set_default_stack_size() argument must be an integer");
+        return val_null();
+    }
+
+    int64_t size = value_to_int64(args[0]);
+    if (size <= 0) {
+        runtime_error(ctx, "set_default_stack_size() size must be positive");
+        return val_null();
+    }
+
+    atomic_store(&g_default_stack_size, (size_t)size);
+    return val_null();
 }
 
 Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
@@ -338,7 +491,7 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         // Configure thread with larger stack for recursive eval_stmt
         pthread_attr_t attr;
         pthread_attr_init(&attr);
-        pthread_attr_setstacksize(&attr, HML_THREAD_STACK_SIZE);
+        pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
 
         // Create thread to execute task
         int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);

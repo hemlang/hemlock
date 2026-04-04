@@ -163,6 +163,7 @@ typedef struct Task {
     int detached;               // Flag: task is detached (fire-and-forget)
     void *task_mutex;           // pthread_mutex_t for thread-safe state access
     int ref_count;              // Reference count for memory management (atomic)
+    char *name;                 // Optional debug name (from spawn_with)
 } Task;
 
 // Channel struct (communication channel)

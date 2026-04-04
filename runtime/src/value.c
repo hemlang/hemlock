@@ -551,6 +551,7 @@ static void task_free(HmlTask *task) {
             pthread_cond_destroy(&task->sync->cond);
             free(task->sync);
         }
+        free(task->name);
         free(task);
     }
 }
