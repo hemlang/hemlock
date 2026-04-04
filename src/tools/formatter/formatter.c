@@ -150,9 +150,6 @@ void fmt_newline(FmtCtx *ctx) {
     ctx->column = 0;
 }
 
-void fmt_type(FmtCtx *ctx, Type *type);
-int estimate_expr_len(Expr *expr);
-
 // Estimate the length of an expression (for line-breaking decisions)
 int estimate_expr_len(Expr *expr) {
     if (!expr) return 0;
@@ -309,9 +306,6 @@ int count_complex_elements(Expr **elements, int num_elements) {
     }
     return count;
 }
-
-// Forward declaration for type length estimation
-int estimate_type_len(Type *type);
 
 // Estimate the length of a type annotation
 int estimate_type_len(Type *type) {
@@ -537,9 +531,6 @@ void fmt_type(FmtCtx *ctx, Type *type) {
 }
 
 // ========== ANNOTATION FORMATTING ==========
-
-// Forward declaration
-#include "frontend/ast.h"
 
 // Format annotations (e.g., @inline, @hot, @optimize("3"))
 void fmt_annotations(FmtCtx *ctx, Annotation **annotations, int count) {
