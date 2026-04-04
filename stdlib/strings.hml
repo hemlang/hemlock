@@ -94,7 +94,7 @@ export fn center(str, width, fill?: " "): string {
 	}
 
 	let total_padding = width - current_len;
-	let left_padding = divi(total_padding, 2);
+	let left_padding = __divi(total_padding, 2);
 	let right_padding = total_padding - left_padding;
 
 	let left_fill = fill.repeat(left_padding);

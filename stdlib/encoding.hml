@@ -614,7 +614,7 @@ export fn base58_encode(input) {
 		while (idx >= 0 && (carry != 0 || j < size)) {
 			carry = carry + b58[idx] * 256;
 			b58[idx] = carry % 58;
-			carry = divi(carry, 58);
+			carry = __divi(carry, 58);
 			idx = idx - 1;
 			j = j + 1;
 		}
@@ -724,7 +724,7 @@ export fn base58_decode(input) {
 		while (idx >= 0 && (carry != 0 || j < size)) {
 			carry = carry + b256[idx] * 58;
 			b256[idx] = carry % 256;
-			carry = divi(carry, 256);
+			carry = __divi(carry, 256);
 			idx = idx - 1;
 			j = j + 1;
 		}

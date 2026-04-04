@@ -185,7 +185,7 @@ fn int_to_octal(val, width) {
 		// Convert digit to character by adding '0'
 		let ch: rune = 48 + digit;  // 48 is ASCII '0'
 		result = ch + result;
-		v = divi(v, 8);
+		v = __divi(v, 8);
 	}
 
 	// Pad with zeros
@@ -283,7 +283,7 @@ export fn TarWriter() {
 				let entry: TarEntry = entries[i];
 				total_size = total_size + BLOCK_SIZE;  // Header
 				// Round content up to block size
-				let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
+				let content_blocks = __divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
 				total_size = total_size + content_blocks * BLOCK_SIZE;
 				i = i + 1;
 			}
@@ -421,7 +421,7 @@ export fn TarWriter() {
 						j = j + 1;
 					}
 					// Pad to block boundary
-					let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
+					let content_blocks = __divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
 					offset = offset + content_blocks * BLOCK_SIZE;
 				}
 
@@ -492,7 +492,7 @@ export fn TarReader(data) {
 				i = i + 1;
 			}
 			// Skip content blocks
-			let content_blocks = divi(size + BLOCK_SIZE - 1, BLOCK_SIZE);
+			let content_blocks = __divi(size + BLOCK_SIZE - 1, BLOCK_SIZE);
 			offset = offset + content_blocks * BLOCK_SIZE;
 		}
 
