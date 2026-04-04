@@ -915,9 +915,9 @@ make parity
 
 ## Version
 
-**v1.10.0** - Current release with:
-- **Reduced builtin conflicts** - Moved ~61 builtins out of the global namespace to reduce conflicts with user variables and functions. Math functions (sin, cos, sqrt, etc.), environment functions (getenv, setenv), signal constants (SIGINT, SIGTERM, etc.), socket constants (AF_INET, SOCK_STREAM, etc.), and networking functions (socket_create, dns_resolve, poll) now require importing from their respective @stdlib modules. Internal `__`-prefixed versions remain for stdlib use.
-- **New `@stdlib/signal` module** - Signal constants (SIGINT, SIGTERM, SIGUSR1, etc.) now imported from `@stdlib/signal`
+**v2.0.0** - Current release with:
+- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins out of the global namespace to reduce conflicts with user variables and functions. Math functions (sin, cos, sqrt, etc.), environment functions (getenv, setenv), signal functions and constants (signal, raise, SIGINT, etc.), socket constants (AF_INET, SOCK_STREAM, etc.), and networking functions (socket_create, dns_resolve, poll) now require importing from their respective @stdlib modules. Internal `__`-prefixed versions remain for stdlib use.
+- **New `@stdlib/signal` module** - Signal functions (signal, raise) and constants (SIGINT, SIGTERM, SIGUSR1, etc.) now imported from `@stdlib/signal`
 - **Expanded `@stdlib/net` module** - Socket constants, poll constants, and networking functions (socket_create, dns_resolve, poll) now exported from `@stdlib/net`
 - **Expanded `@stdlib/math` module** - Added div, divi, floori, ceili, roundi, trunci exports
 - **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros (SIG*, AF_*, SOCK_*, etc.)

@@ -1,6 +1,6 @@
 # Signal Constants Module (`@stdlib/signal`)
 
-A standard library module providing POSIX signal constants for use with the `signal()` and `raise()` built-in functions.
+A standard library module providing signal handling functions and POSIX signal constants.
 
 ## Overview
 
@@ -282,7 +282,7 @@ if (timed_out) {
 - SIGSTOP cannot be caught, blocked, or ignored. Registering a handler for SIGSTOP has no effect.
 - Signal handlers should be kept short and simple. Avoid allocating memory or performing complex operations inside handlers.
 - Signal handling interacts with async tasks - signals are delivered to the main thread.
-- Added in v1.10.0. Previously, signal constants were available as global constants without importing.
+- Added in v2.0.0. Previously, signal constants were available as global constants without importing.
 
 ---
 
