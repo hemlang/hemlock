@@ -1,0 +1,815 @@
+/*
+ * Hemlock Code Generator - Binary Expression Code Generation
+ * Extracted from codegen_expr.c
+ */
+
+#include "codegen_expr_internal.h"
+
+// Forward declaration
+char* codegen_expr(CodegenContext *ctx, Expr *expr);
+
+// ========== OPTIMIZATION HELPERS ==========
+
+// OPTIMIZATION: Helper to check if an expression is likely a string
+// (string literal or identifier - we can't know types at compile time for all cases)
+static int is_likely_string_expr(Expr *expr) {
+    return expr->type == EXPR_STRING;
+}
+
+// OPTIMIZATION: Check if a value is a power of 2 and return the exponent
+// Returns -1 if not a power of 2, otherwise returns the exponent (0-63)
+// Proof: A positive integer n is a power of 2 iff (n & (n-1)) == 0
+// Example: 8 = 0b1000, 8-1 = 0b0111, 8 & 7 = 0 → power of 2
+static int get_power_of_2_exponent(int64_t value) {
+    if (value <= 0) return -1;
+    if ((value & (value - 1)) != 0) return -1;  // Not a power of 2
+
+    // Count trailing zeros to get exponent
+    int exp = 0;
+    while ((value & 1) == 0) {
+        value >>= 1;
+        exp++;
+    }
+    return exp;
+}
+
+// OPTIMIZATION: Check if an expression is a compile-time integer constant
+// Returns 1 if constant, 0 otherwise. Sets *value to the constant value.
+static int is_const_integer(Expr *expr, int64_t *value) {
+    if (!expr) return 0;
+    if (expr->type == EXPR_NUMBER && !expr->as.number.is_float) {
+        *value = expr->as.number.int_value;
+        return 1;
+    }
+    // Handle negation of constant
+    if (expr->type == EXPR_UNARY && expr->as.unary.op == UNARY_NEGATE) {
+        int64_t inner;
+        if (is_const_integer(expr->as.unary.operand, &inner)) {
+            *value = -inner;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Helper: Check if a variable is captured by the current closure
+// Captured variables cannot be unboxed because they're stored as HmlValue in the closure environment
+int is_captured_variable(CodegenContext *ctx, const char *name) {
+    if (!ctx->current_closure || ctx->current_closure->num_captured == 0) {
+        return 0;
+    }
+    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+        if (strcmp(ctx->current_closure->captured_vars[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Type inference result for compile-time optimization
+typedef enum {
+    INFER_UNKNOWN = 0,
+    INFER_I32,
+    INFER_I64,
+    INFER_F64,
+    INFER_BOOL
+} InferredNumericType;
+
+// OPTIMIZATION: Infer the numeric type of an expression at compile time
+// Returns INFER_UNKNOWN if type cannot be determined
+static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
+    if (!expr) return INFER_UNKNOWN;
+
+    switch (expr->type) {
+        case EXPR_NUMBER:
+            if (expr->as.number.is_float) {
+                return INFER_F64;
+            }
+            // Check if it fits in i32
+            if (expr->as.number.int_value >= INT32_MIN &&
+                expr->as.number.int_value <= INT32_MAX) {
+                return INFER_I32;
+            }
+            return INFER_I64;
+
+        case EXPR_BOOL:
+            return INFER_BOOL;
+
+        case EXPR_IDENT:
+            // Check if this is an unboxable typed variable
+            // IMPORTANT: Skip main-level variables - they're pre-declared as HmlValue
+            // and can change type at runtime (Hemlock is dynamically typed)
+            // IMPORTANT: Skip shadow variables (inlined params) - they are HmlValue
+            if (ctx->optimize && ctx->type_ctx &&
+                !codegen_is_func_param(ctx, expr->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.ident.name) &&
+                !codegen_is_shadow(ctx, expr->as.ident.name)) {
+                CheckedTypeKind native_type = type_check_get_unboxable(
+                    ctx->type_ctx, expr->as.ident.name);
+                switch (native_type) {
+                    case CHECKED_I8:
+                    case CHECKED_I16:
+                    case CHECKED_I32:
+                    case CHECKED_U8:
+                    case CHECKED_U16:
+                    case CHECKED_U32:
+                        return INFER_I32;
+                    case CHECKED_I64:
+                    case CHECKED_U64:
+                        return INFER_I64;
+                    case CHECKED_F32:
+                    case CHECKED_F64:
+                        return INFER_F64;
+                    default:
+                        break;
+                }
+                // Also check type context lookup for function-local variables
+                // Note: Only match exact i32/i64/f64 to preserve Hemlock's type promotion rules
+                CheckedType *var_type = type_check_lookup(ctx->type_ctx, expr->as.ident.name);
+                if (var_type) {
+                    switch (var_type->kind) {
+                        case CHECKED_I32:
+                            return INFER_I32;
+                        case CHECKED_I64:
+                            return INFER_I64;
+                        case CHECKED_F64:
+                            return INFER_F64;
+                        case CHECKED_BOOL:
+                            return INFER_BOOL;
+                        default:
+                            break;
+                    }
+                }
+            }
+            // Main-level variables and function parameters can change type at runtime,
+            // so return UNKNOWN to use runtime type checks
+            return INFER_UNKNOWN;
+
+        case EXPR_BINARY:
+            // Division ALWAYS returns f64 in Hemlock
+            if (expr->as.binary.op == OP_DIV) {
+                return INFER_F64;
+            }
+            // For arithmetic/bitwise ops, infer from operands
+            if (expr->as.binary.op >= OP_ADD && expr->as.binary.op <= OP_BIT_RSHIFT) {
+                InferredNumericType left = infer_numeric_type(ctx, expr->as.binary.left);
+                InferredNumericType right = infer_numeric_type(ctx, expr->as.binary.right);
+
+                // If both are known and compatible, return the promoted type
+                if (left != INFER_UNKNOWN && right != INFER_UNKNOWN) {
+                    // Float always wins
+                    if (left == INFER_F64 || right == INFER_F64) return INFER_F64;
+                    // i64 promotes i32
+                    if (left == INFER_I64 || right == INFER_I64) return INFER_I64;
+                    // Both i32
+                    if (left == INFER_I32 && right == INFER_I32) return INFER_I32;
+                }
+            }
+            // Comparison ops return bool
+            if (expr->as.binary.op >= OP_EQUAL && expr->as.binary.op <= OP_GREATER_EQUAL) {
+                return INFER_BOOL;
+            }
+            return INFER_UNKNOWN;
+
+        case EXPR_UNARY:
+            if (expr->as.unary.op == UNARY_NOT) {
+                return INFER_BOOL;
+            }
+            // Negation and bit-not preserve type
+            return infer_numeric_type(ctx, expr->as.unary.operand);
+
+        default:
+            return INFER_UNKNOWN;
+    }
+}
+
+// OPTIMIZATION: Check if expression is a double negation (!!x or --x)
+// Returns the inner expression if it's a double negation, NULL otherwise
+Expr* get_double_negation_inner(Expr *expr) {
+    if (!expr || expr->type != EXPR_UNARY) return NULL;
+
+    Expr *inner = expr->as.unary.operand;
+    if (!inner || inner->type != EXPR_UNARY) return NULL;
+
+    // !!x (logical double negation)
+    if (expr->as.unary.op == UNARY_NOT && inner->as.unary.op == UNARY_NOT) {
+        return inner->as.unary.operand;
+    }
+    // --x as unary (negate negate) - note: this is different from prefix decrement
+    if (expr->as.unary.op == UNARY_NEGATE && inner->as.unary.op == UNARY_NEGATE) {
+        return inner->as.unary.operand;
+    }
+
+    return NULL;
+}
+
+// OPTIMIZATION: Count chained ADD operations that look like string concatenation
+// Returns the count of concatenated elements (2 = simple a+b, 3 = a+b+c, etc.)
+static int count_string_concat_chain(Expr *expr, Expr **elements, int max_elements) {
+    if (expr->type != EXPR_BINARY || expr->as.binary.op != OP_ADD) {
+        // Not an ADD - this is a leaf
+        if (max_elements > 0) {
+            elements[0] = expr;
+        }
+        return 1;
+    }
+
+    // Check if the left side is also a string concat chain
+    int left_count = count_string_concat_chain(expr->as.binary.left, elements, max_elements);
+    if (left_count >= max_elements) {
+        return left_count; // Already at max
+    }
+
+    // Add the right side
+    elements[left_count] = expr->as.binary.right;
+    return left_count + 1;
+}
+
+// OPTIMIZATION: Check if this is a chain of string concatenations
+// Detects patterns like: a + b + c + d (left-associative ADD chains)
+// where at least one operand is a string literal
+static int is_string_concat_chain(Expr *expr, int *count) {
+    if (expr->type != EXPR_BINARY || expr->as.binary.op != OP_ADD) {
+        return 0;
+    }
+
+    // Collect all elements in the chain
+    Expr *elements[6];
+    int n = count_string_concat_chain(expr, elements, 6);
+
+    // For it to be a string concat chain, at least one element should be a string literal
+    int has_string = 0;
+    for (int i = 0; i < n; i++) {
+        if (is_likely_string_expr(elements[i])) {
+            has_string = 1;
+            break;
+        }
+    }
+
+    if (has_string && n >= 3 && n <= 5) {
+        *count = n;
+        return 1;
+    }
+    return 0;
+}
+
+// Generate code for binary expressions
+char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
+            // OPTIMIZATION: Short-circuit evaluation for && and ||
+            // This matches the interpreter's behavior and avoids unnecessary computation
+            if (expr->as.binary.op == OP_AND) {
+                // Short-circuit AND: if left is false, skip right evaluation
+                char *left = codegen_expr(ctx, expr->as.binary.left);
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (!hml_to_bool(%s)) {", left);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_bool(0);", result);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                char *right = codegen_expr(ctx, expr->as.binary.right);
+                codegen_writeln(ctx, "%s = hml_val_bool(hml_to_bool(%s));", result, right);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
+                free(right);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+                free(left);
+                return result;
+            }
+
+            if (expr->as.binary.op == OP_OR) {
+                // Short-circuit OR: if left is true, skip right evaluation
+                char *left = codegen_expr(ctx, expr->as.binary.left);
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (hml_to_bool(%s)) {", left);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_val_bool(1);", result);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                char *right = codegen_expr(ctx, expr->as.binary.right);
+                codegen_writeln(ctx, "%s = hml_val_bool(hml_to_bool(%s));", result, right);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
+                free(right);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+                free(left);
+                return result;
+            }
+
+            // OPTIMIZATION: Native C arithmetic for unboxed typed variables
+            // When both operands are unboxed variables of the same numeric type,
+            // use pure C arithmetic instead of HmlValue boxing/unboxing
+            // Skip if either operand is a function parameter or main variable (always HmlValue)
+            if (ctx->optimize && ctx->type_ctx &&
+                expr->as.binary.left->type == EXPR_IDENT &&
+                expr->as.binary.right->type == EXPR_IDENT &&
+                !codegen_is_func_param(ctx, expr->as.binary.left->as.ident.name) &&
+                !codegen_is_func_param(ctx, expr->as.binary.right->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.left->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.right->as.ident.name)) {
+                CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                CheckedTypeKind right_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.right->as.ident.name);
+
+                // Both operands must be unboxed and of the same numeric type
+                if (left_native != CHECKED_UNKNOWN && left_native == right_native &&
+                    checked_kind_is_numeric(left_native)) {
+                    const char *box_func = checked_type_to_box_func(left_native);
+                    char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
+                    char *right_var = codegen_sanitize_ident(expr->as.binary.right->as.ident.name);
+                    int handled = 1;
+
+                    switch (expr->as.binary.op) {
+                        case OP_ADD:
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s + %s);", result, box_func, left_var, right_var);
+                            break;
+                        case OP_SUB:
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s - %s);", result, box_func, left_var, right_var);
+                            break;
+                        case OP_MUL:
+                            codegen_writeln(ctx, "HmlValue %s = %s(%s * %s);", result, box_func, left_var, right_var);
+                            break;
+                        case OP_MOD:
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s %% %s);", result, box_func, left_var, right_var);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(fmod(%s, %s));", result, left_var, right_var);
+                            }
+                            break;
+                        case OP_DIV:
+                            // Division always returns float
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_f64((double)%s / (double)%s);", result, left_var, right_var);
+                            break;
+                        case OP_LESS:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %s);", result, left_var, right_var);
+                            break;
+                        case OP_LESS_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %s);", result, left_var, right_var);
+                            break;
+                        case OP_GREATER:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %s);", result, left_var, right_var);
+                            break;
+                        case OP_GREATER_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %s);", result, left_var, right_var);
+                            break;
+                        case OP_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s == %s);", result, left_var, right_var);
+                            break;
+                        case OP_NOT_EQUAL:
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s != %s);", result, left_var, right_var);
+                            break;
+                        case OP_BIT_AND:
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s & %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_OR:
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s | %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_XOR:
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s ^ %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_LSHIFT:
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s << %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        case OP_BIT_RSHIFT:
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s >> %s);", result, box_func, left_var, right_var);
+                            } else {
+                                handled = 0;
+                            }
+                            break;
+                        default:
+                            handled = 0;
+                            break;
+                    }
+
+                    free(left_var);
+                    free(right_var);
+                    if (handled) return result;
+                }
+            }
+
+            // OPTIMIZATION: Native C arithmetic for one unboxed variable and one literal
+            // Skip if the variable is a function parameter or main variable (always HmlValue)
+            if (ctx->optimize && ctx->type_ctx && expr->as.binary.left->type == EXPR_IDENT &&
+                expr->as.binary.right->type == EXPR_NUMBER &&
+                !codegen_is_func_param(ctx, expr->as.binary.left->as.ident.name) &&
+                !codegen_is_main_var(ctx, expr->as.binary.left->as.ident.name)) {
+                CheckedTypeKind left_native = type_check_get_unboxable(ctx->type_ctx, expr->as.binary.left->as.ident.name);
+                if (left_native != CHECKED_UNKNOWN && checked_kind_is_numeric(left_native)) {
+                    const char *box_func = checked_type_to_box_func(left_native);
+                    char *left_var = codegen_sanitize_ident(expr->as.binary.left->as.ident.name);
+                    int handled = 1;
+                    int is_float = expr->as.binary.right->as.number.is_float;
+                    const char *literal_suffix = (left_native == CHECKED_I64 || left_native == CHECKED_U64) ? "LL" : "";
+
+                    switch (expr->as.binary.op) {
+                        case OP_ADD:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_SUB:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_MUL:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_LESS:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_LESS_EQUAL:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_GREATER:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        case OP_GREATER_EQUAL:
+                            if (is_float) {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                            } else {
+                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
+                            }
+                            break;
+                        default:
+                            handled = 0;
+                            break;
+                    }
+                    free(left_var);
+                    if (handled) return result;
+                }
+            }
+
+            // OPTIMIZATION: Detect chained string concatenations (a + b + c + ...)
+            // Use hml_string_concat3/4/5 for single-allocation efficiency
+            {
+                int concat_count = 0;
+                if (is_string_concat_chain(expr, &concat_count)) {
+                    Expr *elements[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
+                    count_string_concat_chain(expr, elements, 6);
+
+                    // Generate code for all elements
+                    char *temps[5] = {NULL, NULL, NULL, NULL, NULL};
+                    for (int i = 0; i < concat_count; i++) {
+                        temps[i] = codegen_expr(ctx, elements[i]);
+                    }
+
+                    // Call the appropriate concat function
+                    if (concat_count == 3) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_string_concat3(%s, %s, %s);",
+                                      result, temps[0], temps[1], temps[2]);
+                    } else if (concat_count == 4) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_string_concat4(%s, %s, %s, %s);",
+                                      result, temps[0], temps[1], temps[2], temps[3]);
+                    } else if (concat_count == 5) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_string_concat5(%s, %s, %s, %s, %s);",
+                                      result, temps[0], temps[1], temps[2], temps[3], temps[4]);
+                    }
+
+                    // Release all temps
+                    for (int i = 0; i < concat_count; i++) {
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", temps[i]);
+                        free(temps[i]);
+                    }
+                    return result;
+                }
+            }
+
+            // OPTIMIZATION: Constant folding for number literals
+            // If both operands are compile-time known constants, compute the result at compile time
+            if (expr->as.binary.left->type == EXPR_NUMBER &&
+                expr->as.binary.right->type == EXPR_NUMBER &&
+                !expr->as.binary.left->as.number.is_float &&
+                !expr->as.binary.right->as.number.is_float) {
+                int64_t l = expr->as.binary.left->as.number.int_value;
+                int64_t r = expr->as.binary.right->as.number.int_value;
+                int64_t const_result = 0;
+                int is_bool_result = 0;
+                int can_fold = 1;
+
+                // Division always returns float - handle separately before the switch
+                if (expr->as.binary.op == OP_DIV) {
+                    if (r != 0) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%.17g);", result, (double)l / (double)r);
+                        return result;  // Exit EXPR_BINARY case
+                    }
+                    // Division by zero - fall through to runtime handling
+                }
+
+                switch (expr->as.binary.op) {
+                    case OP_ADD: const_result = l + r; break;
+                    case OP_SUB: const_result = l - r; break;
+                    case OP_MUL: const_result = l * r; break;
+                    case OP_DIV: can_fold = 0; break;  // Handled above or div-by-zero
+                    case OP_MOD:
+                        if (r != 0) { const_result = l % r; } else { can_fold = 0; }
+                        break;
+                    case OP_LESS: const_result = l < r; is_bool_result = 1; break;
+                    case OP_LESS_EQUAL: const_result = l <= r; is_bool_result = 1; break;
+                    case OP_GREATER: const_result = l > r; is_bool_result = 1; break;
+                    case OP_GREATER_EQUAL: const_result = l >= r; is_bool_result = 1; break;
+                    case OP_EQUAL: const_result = l == r; is_bool_result = 1; break;
+                    case OP_NOT_EQUAL: const_result = l != r; is_bool_result = 1; break;
+                    case OP_BIT_AND: const_result = l & r; break;
+                    case OP_BIT_OR: const_result = l | r; break;
+                    case OP_BIT_XOR: const_result = l ^ r; break;
+                    case OP_BIT_LSHIFT: const_result = l << r; break;
+                    case OP_BIT_RSHIFT: const_result = l >> r; break;
+                    default: can_fold = 0; break;
+                }
+
+                if (can_fold) {
+                    if (is_bool_result) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%d);", result, (int)const_result);
+                    } else if (const_result >= INT32_MIN && const_result <= INT32_MAX) {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)const_result);
+                    } else {
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, const_result);
+                    }
+                    return result;
+                }
+            }
+
+            // OPTIMIZATION: Identity operation elimination (checked first for efficiency)
+            // These optimizations are based on algebraic identities:
+            // - x + 0 = x, 0 + x = x (additive identity)
+            // - x - 0 = x (subtraction identity)
+            // - x * 1 = x, 1 * x = x (multiplicative identity)
+            // - x * 0 = 0, 0 * x = 0 (zero multiplication)
+            // - x | 0 = x, 0 | x = x (bitwise OR identity)
+            // - x ^ 0 = x, 0 ^ x = x (XOR identity)
+            // - x << 0 -> x (shifting by 0 does nothing)
+            if (ctx->optimize) {
+                int64_t const_val;
+
+                // x + 0 or 0 + x -> x
+                if (expr->as.binary.op == OP_ADD) {
+                    if (is_const_integer(expr->as.binary.right, &const_val) && const_val == 0) {
+                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);
+                        free(left_val);
+                        return result;
+                    }
+                    if (is_const_integer(expr->as.binary.left, &const_val) && const_val == 0) {
+                        char *right_val = codegen_expr(ctx, expr->as.binary.right);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, right_val);
+                        free(right_val);
+                        return result;
+                    }
+                }
+
+                // x - 0 -> x
+                if (expr->as.binary.op == OP_SUB) {
+                    if (is_const_integer(expr->as.binary.right, &const_val) && const_val == 0) {
+                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);
+                        free(left_val);
+                        return result;
+                    }
+                }
+
+                // x * 1 or 1 * x -> x
+                // x * 0 or 0 * x -> 0
+                if (expr->as.binary.op == OP_MUL) {
+                    if (is_const_integer(expr->as.binary.right, &const_val)) {
+                        if (const_val == 1) {
+                            char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                            codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);
+                            free(left_val);
+                            return result;
+                        }
+                        if (const_val == 0) {
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
+                            return result;
+                        }
+                    }
+                    if (is_const_integer(expr->as.binary.left, &const_val)) {
+                        if (const_val == 1) {
+                            char *right_val = codegen_expr(ctx, expr->as.binary.right);
+                            codegen_writeln(ctx, "HmlValue %s = %s;", result, right_val);
+                            free(right_val);
+                            return result;
+                        }
+                        if (const_val == 0) {
+                            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
+                            return result;
+                        }
+                    }
+                }
+
+                // x | 0 or 0 | x -> x
+                if (expr->as.binary.op == OP_BIT_OR) {
+                    if (is_const_integer(expr->as.binary.right, &const_val) && const_val == 0) {
+                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);
+                        free(left_val);
+                        return result;
+                    }
+                    if (is_const_integer(expr->as.binary.left, &const_val) && const_val == 0) {
+                        char *right_val = codegen_expr(ctx, expr->as.binary.right);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, right_val);
+                        free(right_val);
+                        return result;
+                    }
+                }
+
+                // x ^ 0 or 0 ^ x -> x
+                if (expr->as.binary.op == OP_BIT_XOR) {
+                    if (is_const_integer(expr->as.binary.right, &const_val) && const_val == 0) {
+                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);
+                        free(left_val);
+                        return result;
+                    }
+                    if (is_const_integer(expr->as.binary.left, &const_val) && const_val == 0) {
+                        char *right_val = codegen_expr(ctx, expr->as.binary.right);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, right_val);
+                        free(right_val);
+                        return result;
+                    }
+                }
+
+                // x << 0 or x >> 0 -> x (shifting by 0 does nothing)
+                if (expr->as.binary.op == OP_BIT_LSHIFT || expr->as.binary.op == OP_BIT_RSHIFT) {
+                    if (is_const_integer(expr->as.binary.right, &const_val) && const_val == 0) {
+                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                        codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);
+                        free(left_val);
+                        return result;
+                    }
+                }
+            }
+
+            // OPTIMIZATION: Strength reduction for power-of-2 operations
+            // These optimizations are mathematically proven:
+            // - x * 2^n = x << n (left shift by n bits)
+            // - x / 2^n = x >> n (right shift for positive integers)
+            // - x % 2^n = x & (2^n - 1) (bitwise AND with mask)
+            // NOTE: Only apply when BOTH operands are constant integers to avoid
+            // applying integer operations to float variables.
+            if (ctx->optimize) {
+                int64_t const_val, const_val2;
+                int power;
+
+                // Check for (int const) * (power of 2) or (power of 2) * (int const)
+                // Only apply when both are known to be integers at compile time
+                if (expr->as.binary.op == OP_MUL) {
+                    if (is_const_integer(expr->as.binary.left, &const_val2) &&
+                        is_const_integer(expr->as.binary.right, &const_val) &&
+                        (power = get_power_of_2_exponent(const_val)) >= 0) {
+                        // const * 2^n -> const << n
+                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                        // Use runtime shift (type-agnostic)
+                        codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
+                                      result, left_val, power);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", left_val);
+                        free(left_val);
+                        return result;
+                    }
+                    if (is_const_integer(expr->as.binary.left, &const_val) &&
+                        is_const_integer(expr->as.binary.right, &const_val2) &&
+                        (power = get_power_of_2_exponent(const_val)) >= 0) {
+                        // 2^n * const -> const << n
+                        char *right_val = codegen_expr(ctx, expr->as.binary.right);
+                        // Use runtime shift (type-agnostic)
+                        codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
+                                      result, right_val, power);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", right_val);
+                        free(right_val);
+                        return result;
+                    }
+                }
+
+                // Check for (int const) % (power of 2)
+                // Proof: For any n = 2^k, x % n = x & (n-1)
+                // Example: x % 8 = x & 7 (keeps only the lower 3 bits)
+                // Only apply when left operand is known to be an integer
+                if (expr->as.binary.op == OP_MOD &&
+                    is_const_integer(expr->as.binary.left, &const_val2) &&
+                    is_const_integer(expr->as.binary.right, &const_val) &&
+                    get_power_of_2_exponent(const_val) >= 0) {
+                    int64_t mask = const_val - 1;
+                    char *left_val = codegen_expr(ctx, expr->as.binary.left);
+                    // Use runtime bit-and (type-agnostic)
+                    codegen_writeln(ctx, "HmlValue %s = hml_i32_bit_and(%s, hml_val_i32(%d));",
+                                  result, left_val, (int32_t)mask);
+                    codegen_writeln(ctx, "hml_release_if_needed(&%s);", left_val);
+                    free(left_val);
+                    return result;
+                }
+            }
+
+            // General case: evaluate both operands
+            char *left = codegen_expr(ctx, expr->as.binary.left);
+            char *right = codegen_expr(ctx, expr->as.binary.right);
+
+            // OPTIMIZATION: Compile-time type inference for binary operations
+            // When we can determine the types at compile time, skip runtime type checks
+            int both_i32 = 0;
+            int both_i64 = 0;
+            if (ctx->optimize) {
+                InferredNumericType left_type = infer_numeric_type(ctx, expr->as.binary.left);
+                InferredNumericType right_type = infer_numeric_type(ctx, expr->as.binary.right);
+                if (left_type == INFER_I32 && right_type == INFER_I32) {
+                    both_i32 = 1;
+                } else if (left_type == INFER_I64 && right_type == INFER_I64) {
+                    // Both must be i64 for the i64 fast path - mixed types go through generic path
+                    both_i64 = 1;
+                }
+            }
+
+            // OPTIMIZATION: i32 and i64 fast paths for binary operations
+            // This matches the interpreter's fast paths for common integer operations
+            // Check at runtime: i32 first (most common), then i64, then generic
+            const char *i32_fast_fn = NULL;
+            const char *i64_fast_fn = NULL;
+            switch (expr->as.binary.op) {
+                case OP_ADD: i32_fast_fn = "hml_i32_add"; i64_fast_fn = "hml_i64_add"; break;
+                case OP_SUB: i32_fast_fn = "hml_i32_sub"; i64_fast_fn = "hml_i64_sub"; break;
+                case OP_MUL: i32_fast_fn = "hml_i32_mul"; i64_fast_fn = "hml_i64_mul"; break;
+                case OP_DIV: break;  // Division always uses float - handled by generic path
+                case OP_MOD: i32_fast_fn = "hml_i32_mod"; i64_fast_fn = "hml_i64_mod"; break;
+                case OP_LESS: i32_fast_fn = "hml_i32_lt"; i64_fast_fn = "hml_i64_lt"; break;
+                case OP_LESS_EQUAL: i32_fast_fn = "hml_i32_le"; i64_fast_fn = "hml_i64_le"; break;
+                case OP_GREATER: i32_fast_fn = "hml_i32_gt"; i64_fast_fn = "hml_i64_gt"; break;
+                case OP_GREATER_EQUAL: i32_fast_fn = "hml_i32_ge"; i64_fast_fn = "hml_i64_ge"; break;
+                case OP_EQUAL: i32_fast_fn = "hml_i32_eq"; i64_fast_fn = "hml_i64_eq"; break;
+                case OP_NOT_EQUAL: i32_fast_fn = "hml_i32_ne"; i64_fast_fn = "hml_i64_ne"; break;
+                case OP_BIT_AND: i32_fast_fn = "hml_i32_bit_and"; i64_fast_fn = "hml_i64_bit_and"; break;
+                case OP_BIT_OR: i32_fast_fn = "hml_i32_bit_or"; i64_fast_fn = "hml_i64_bit_or"; break;
+                case OP_BIT_XOR: i32_fast_fn = "hml_i32_bit_xor"; i64_fast_fn = "hml_i64_bit_xor"; break;
+                case OP_BIT_LSHIFT: i32_fast_fn = "hml_i32_lshift"; i64_fast_fn = "hml_i64_lshift"; break;
+                case OP_BIT_RSHIFT: i32_fast_fn = "hml_i32_rshift"; i64_fast_fn = "hml_i64_rshift"; break;
+                default: break;
+            }
+
+            // If types are known at compile time, emit direct operations (no runtime check)
+            if (both_i32 && i32_fast_fn) {
+                // Both operands are known i32 - use direct i32 operation
+                codegen_writeln(ctx, "HmlValue %s = %s(%s, %s);", result, i32_fast_fn, left, right);
+            } else if (both_i64 && i64_fast_fn) {
+                // Both operands are known i64 - use direct i64 operation
+                codegen_writeln(ctx, "HmlValue %s = %s(%s, %s);", result, i64_fast_fn, left, right);
+            } else if (i32_fast_fn && i64_fast_fn) {
+                // Types not known - generate cascading fast paths: i32 -> i64 -> generic
+                codegen_writeln(ctx, "HmlValue %s = hml_both_i32(%s, %s) ? %s(%s, %s) : (hml_both_i64(%s, %s) ? %s(%s, %s) : hml_binary_op(%s, %s, %s));",
+                              result, left, right, i32_fast_fn, left, right,
+                              left, right, i64_fast_fn, left, right,
+                              codegen_hml_binary_op(expr->as.binary.op), left, right);
+            } else if (i32_fast_fn) {
+                // Generate i32 fast path only
+                codegen_writeln(ctx, "HmlValue %s = hml_both_i32(%s, %s) ? %s(%s, %s) : hml_binary_op(%s, %s, %s);",
+                              result, left, right, i32_fast_fn, left, right,
+                              codegen_hml_binary_op(expr->as.binary.op), left, right);
+            } else {
+                // No fast path available - use generic binary_op
+                codegen_writeln(ctx, "HmlValue %s = hml_binary_op(%s, %s, %s);",
+                              result, codegen_hml_binary_op(expr->as.binary.op), left, right);
+            }
+
+            // Use optimized release that skips primitives
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
+            free(left);
+            free(right);
+            return result;
+}
