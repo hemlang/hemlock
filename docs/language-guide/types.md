@@ -371,6 +371,7 @@ let task: Task = {
 ### File Type
 
 ```hemlock
+import { open } from "@stdlib/fs";
 let f: file = open("data.txt", "r");
 f.close();
 ```

@@ -643,6 +643,8 @@ try {
 The primary use case for `defer` is ensuring resources are cleaned up:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn process_file(filename: string) {
     let file = open(filename, "r");
     defer file.close();  // Always closes, even on error
@@ -656,6 +658,8 @@ fn process_file(filename: string) {
 
 **Without defer (error-prone):**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn process_file_bad(filename: string) {
     let file = open(filename, "r");
     let content = file.read();
@@ -697,6 +701,7 @@ fn example() {
 
 1. **Place defer immediately after acquiring a resource:**
    ```hemlock
+   import { open } from "@stdlib/fs";
    let file = open("data.txt", "r");
    defer file.close();
    // ... use file ...
@@ -704,6 +709,7 @@ fn example() {
 
 2. **Use multiple defers for multiple resources:**
    ```hemlock
+   import { open } from "@stdlib/fs";
    let file1 = open("input.txt", "r");
    defer file1.close();
 

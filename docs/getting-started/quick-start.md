@@ -258,6 +258,8 @@ Arguments: 2
 ## File I/O
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Write to file
 let f = open("data.txt", "w");
 f.write("Hello, File!");
