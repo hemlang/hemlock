@@ -90,7 +90,7 @@ TOOL_SRCS = $(wildcard $(SRC_DIR)/tools/lsp/*.c) \
             $(wildcard $(SRC_DIR)/tools/formatter/*.c)
 
 # Shared compiler utilities (used by LSP)
-TYPECHECK_SRCS = $(SRC_DIR)/backends/compiler/type_check.c
+TYPECHECK_SRCS = $(wildcard $(SRC_DIR)/backends/compiler/type_*.c)
 
 COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(SHARED_SRCS)
 SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
@@ -463,19 +463,10 @@ analyze-clean:
 # Modular codegen: core, expr, stmt, closure, program, module
 COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
                 $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
+                $(TYPECHECK_SRCS) \
                 $(FRONTEND_COMPILER_SRCS)
 
-COMPILER_OBJS = $(BUILD_DIR)/backends/compiler/main.o \
-                $(BUILD_DIR)/backends/compiler/codegen.o \
-                $(BUILD_DIR)/backends/compiler/codegen_expr.o \
-                $(BUILD_DIR)/backends/compiler/codegen_expr_ident.o \
-                $(BUILD_DIR)/backends/compiler/codegen_call.o \
-                $(BUILD_DIR)/backends/compiler/codegen_stmt.o \
-                $(BUILD_DIR)/backends/compiler/codegen_closure.o \
-                $(BUILD_DIR)/backends/compiler/codegen_program.o \
-                $(BUILD_DIR)/backends/compiler/codegen_module.o \
-                $(BUILD_DIR)/backends/compiler/type_check.o \
-                $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(FRONTEND_COMPILER_SRCS))
+COMPILER_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMPILER_SRCS))
 
 COMPILER_TARGET = hemlockc
 
@@ -903,17 +894,7 @@ $(STATIC_BUILD_DIR)/hemlock: $(STATIC_OBJS)
 	strip $@
 
 # Static compiler build (needs runtime library first)
-STATIC_COMPILER_OBJS = $(STATIC_BUILD_DIR)/backends/compiler/main.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_expr.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_expr_ident.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_call.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_stmt.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_closure.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_program.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/codegen_module.o \
-                       $(STATIC_BUILD_DIR)/backends/compiler/type_check.o \
-                       $(patsubst $(SRC_DIR)/%.c,$(STATIC_BUILD_DIR)/%.o,$(FRONTEND_COMPILER_SRCS))
+STATIC_COMPILER_OBJS = $(patsubst $(SRC_DIR)/%.c,$(STATIC_BUILD_DIR)/%.o,$(COMPILER_SRCS))
 
 $(STATIC_BUILD_DIR)/hemlockc: $(STATIC_COMPILER_OBJS) $(RUNTIME_LIB)
 ifeq ($(shell uname),Darwin)
