@@ -1,4 +1,5 @@
 // Test environment builtins
+import { getenv, setenv, get_pid } from "@stdlib/env";
 
 // Test get_pid returns positive number
 let pid = get_pid();

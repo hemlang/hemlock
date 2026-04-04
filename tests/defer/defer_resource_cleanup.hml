@@ -1,4 +1,6 @@
 // Practical example - resource cleanup with defer
+import { open } from "@stdlib/fs";
+
 fn process_file(filename: string) {
     print("Opening file: " + filename);
     let file = open(filename, "r");

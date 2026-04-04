@@ -171,7 +171,7 @@ export fn bg_color_256(n: i32): string {
 
 // Get terminal size using stty command
 export fn size() {
-	let result = exec("stty size 2>/dev/null || echo '24 80'");
+	let result = __exec("stty size 2>/dev/null || echo '24 80'");
 	if (result.exit_code != 0) {
 		return { rows: 24, cols: 80 };
 	}
@@ -197,7 +197,7 @@ export fn size() {
 
 // Check if terminal supports colors
 export fn supports_color(): bool {
-	let term = getenv("TERM");
+	let term = __getenv("TERM");
 	if (term == null) {
 		return false;
 	}
@@ -211,7 +211,7 @@ export fn supports_color(): bool {
 	}
 
 	// Check COLORTERM environment variable
-	let colorterm = getenv("COLORTERM");
+	let colorterm = __getenv("COLORTERM");
 	if (colorterm != null) {
 		return true;
 	}
@@ -287,7 +287,7 @@ export fn ProgressBar(total: i32, width?: 40) {
 			}
 
 			// Print with carriage return to overwrite
-			exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
+			__exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
 			return null;
 		},
 		finish: fn() {
@@ -315,7 +315,7 @@ export fn Spinner(frames?: null) {
 		spin: fn() {
 			// Start the spinner (must be called in a loop manually)
 			let frame = spinner_frames[frame_index];
-			exec("printf '\r" + frame + " '");
+			__exec("printf '\r" + frame + " '");
 
 			frame_index = frame_index + 1;
 			if (frame_index >= spinner_frames.length) {
@@ -326,7 +326,7 @@ export fn Spinner(frames?: null) {
 		finish: fn(message?: "") {
 
 			// Finish the spinner
-			exec("printf '\r'");
+			__exec("printf '\r'");
 			if (message != "") {
 				print(message);
 			}
@@ -387,13 +387,13 @@ export fn SPINNER_CLOCK() {
 
 // Clear screen and move cursor to top-left
 export fn clear() {
-	exec("printf '" + CLEAR_SCREEN + move_to(1, 1) + "'");
+	__exec("printf '" + CLEAR_SCREEN + move_to(1, 1) + "'");
 	return null;
 }
 
 // Print text at specific position
 export fn print_at(row: i32, col: i32, text: string) {
-	exec("printf '" + move_to(row, col) + text + "'");
+	__exec("printf '" + move_to(row, col) + text + "'");
 	return null;
 }
 

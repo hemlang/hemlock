@@ -23,12 +23,6 @@ typedef struct {
 // When bundling stdlib modules, we skip declarations that would shadow these.
 // This list must match the unprefixed aliases in builtins/registration.c
 static const char *BUILTIN_NAMES[] = {
-    // Math functions
-    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
-    "sqrt", "pow", "exp", "log", "log10", "log2",
-    "floor", "ceil", "round", "trunc",
-    // Environment functions
-    "getenv", "setenv", "unsetenv", "get_pid",
     // FFI callback functions
     "callback", "callback_free",
     "ptr_read_i32", "ptr_deref_i32", "ptr_write_i32", "ptr_offset",

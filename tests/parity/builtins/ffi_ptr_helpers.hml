@@ -1,5 +1,6 @@
 // Test: FFI pointer helper functions for all types
 // Tests ptr_deref_*, ptr_write_*, ffi_sizeof, buffer_ptr, ptr_to_buffer, ptr_null
+import { ffi_sizeof } from "@stdlib/ffi";
 
 // Test ffi_sizeof for all types
 print("=== ffi_sizeof tests ===");

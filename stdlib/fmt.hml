@@ -324,7 +324,7 @@ fn format_int(num, base, upper, plus, space): string {
 	while (num > 0) {
 		let digit = num % base;
 		result = digits.substr(digit, 1) + result;
-		num = divi(num, base);
+		num = __divi(num, base);
 	}
 
 	if (negative) {
@@ -358,7 +358,7 @@ fn format_float(num, precision): string {
 			let digit = int_part % 10;
 			let d_char: rune = 48 + digit;
 			int_str = d_char + int_str;
-			int_part = divi(int_part, 10);
+			int_part = __divi(int_part, 10);
 		}
 	}
 
@@ -582,7 +582,7 @@ export fn center(s, width, char?: " "): string {
 	let first_char = pad_char.substr(0, 1);
 
 	let total_pad = width - str.length;
-	let left_pad = divi(total_pad, 2);
+	let left_pad = __divi(total_pad, 2);
 	let right_pad = total_pad - left_pad;
 
 	let left = "";
@@ -758,21 +758,21 @@ export fn duration(seconds): string {
 	}
 
 	let total_secs: i64 = seconds;
-	let mins = divi(total_secs, 60);
+	let mins = __divi(total_secs, 60);
 	let secs = total_secs % 60;
 
 	if (mins < 60) {
 		return mins + "m " + secs + "s";
 	}
 
-	let hours = divi(mins, 60);
+	let hours = __divi(mins, 60);
 	mins = mins % 60;
 
 	if (hours < 24) {
 		return hours + "h " + mins + "m";
 	}
 
-	let days = divi(hours, 24);
+	let days = __divi(hours, 24);
 	hours = hours % 24;
 
 	return days + "d " + hours + "h";

@@ -94,7 +94,7 @@ export fn center(str, width, fill?: " "): string {
 	}
 
 	let total_padding = width - current_len;
-	let left_padding = divi(total_padding, 2);
+	let left_padding = __divi(total_padding, 2);
 	let right_padding = total_padding - left_padding;
 
 	let left_fill = fill.repeat(left_padding);
@@ -598,3 +598,9 @@ export fn truncate(str, max_len, suffix?: "..."): string {
 
 	return str.slice(0, cut_len) + suf;
 }
+
+// ============================================================================
+// Low-level String Operations
+// ============================================================================
+
+export let string_concat_many = __string_concat_many;

@@ -1,6 +1,7 @@
 // Signal Orchestra - Musical signal handling demonstration
 // Demonstrates: signal(), raise(), multiple handlers, global state
 import { RED, GREEN, YELLOW, CYAN, MAGENTA, BLUE, RESET, BOLD } from "@stdlib/terminal";
+import { SIGUSR1, SIGUSR2, signal, raise } from "@stdlib/signal";
 
 // Orchestra state
 let notes_played = [];

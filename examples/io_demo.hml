@@ -1,6 +1,6 @@
 // Hemlock I/O System Demo
 // Demonstrates all I/O features in v0.1
-import { read_file, write_file, append_file, exists, remove_file } from "@stdlib/fs";
+import { read_file, write_file, append_file, exists, remove_file, open } from "@stdlib/fs";
 
 print("=== Hemlock I/O System Demo ===");
 print("");

@@ -27,12 +27,23 @@ export let log = __log;  // Natural logarithm (ln)
 export let log10 = __log10;  // Base-10 logarithm
 export let log2 = __log2;  // Base-2 logarithm
 
+// ========== DIVISION FUNCTIONS ==========
+
+export let div = __div;    // Float division (same as / operator)
+export let divi = __divi;  // Integer division (truncates toward zero)
+
 // ========== ROUNDING FUNCTIONS ==========
 
 export let floor = __floor;
 export let ceil = __ceil;
 export let round = __round;
 export let trunc = __trunc;
+
+// Integer-returning rounding variants
+export let floori = __floori;
+export let ceili = __ceili;
+export let roundi = __roundi;
+export let trunci = __trunci;
 
 // ========== UTILITY FUNCTIONS ==========
 

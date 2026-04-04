@@ -8,15 +8,17 @@
 #ifndef HEMLOCK_VERSION_H
 #define HEMLOCK_VERSION_H
 
-#define HEMLOCK_VERSION_MAJOR 1
-#define HEMLOCK_VERSION_MINOR 9
-#define HEMLOCK_VERSION_PATCH 4
+#define HEMLOCK_VERSION_MAJOR 2
+#define HEMLOCK_VERSION_MINOR 0
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "1.9.4"
+#define HEMLOCK_VERSION "2.0.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.0.0 - BREAKING: Move 63 builtins to stdlib modules, reducing global namespace conflicts
+ *   1.10.0 - (skipped, became 2.0.0)
  *   1.9.4 - Fix fire-and-forget spawn, WebSocket server SO_REUSEADDR
  *   1.9.3 - WebSocket binary data support: __lws_msg_binary builtin, fix server send_binary, fix recv binary handler
  *   1.9.2 - Compiler fixes: unboxed loop counter boxing, clear() object dispatch, exec() import shadowing

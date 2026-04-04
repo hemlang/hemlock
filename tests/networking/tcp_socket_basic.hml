@@ -1,5 +1,6 @@
 // Test: Basic TCP socket creation and configuration
 // Should succeed without errors
+import { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, socket_create } from "@stdlib/net";
 
 let sock = socket_create(AF_INET, SOCK_STREAM, 0);
 

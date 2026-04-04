@@ -3,6 +3,7 @@
 // multiple tasks sequentially, each with deeply nested function calls.
 // This mimics the pattern of sequential WebSocket server instances with
 // closure callbacks that caused stack overflow on the default 2 MB thread stack.
+import { divi } from "@stdlib/math";
 
 fn deep_call(depth: i32, acc: i32): i32 {
     if (depth <= 0) {

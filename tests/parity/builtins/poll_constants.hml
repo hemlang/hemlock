@@ -1,5 +1,6 @@
 // Test: Poll event constants
 // POLLNVAL and POLLPRI should be available
+import { POLLNVAL, POLLPRI } from "@stdlib/net";
 
 print(POLLNVAL);
 print(POLLPRI);

@@ -764,7 +764,7 @@ export fn hex_to_buffer(hex) {
 		throw "hex_to_buffer() requires even-length hex string";
 	}
 
-	let len = divi(hex.length, 2);
+	let len = __divi(hex.length, 2);
 	let buf = buffer(len);
 	let i = 0;
 

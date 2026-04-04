@@ -70,7 +70,7 @@ fn format_number(value) {
 
 // Parse JSON from file
 fn parse_file(path: string) {
-	let f = open(path, "r");
+	let f = __open(path, "r");
 	defer f.close();
 
 	let content = f.read();
@@ -81,7 +81,7 @@ fn parse_file(path: string) {
 fn stringify_file(path: string, value) {
 	let json = stringify(value);
 
-	let f = open(path, "w");
+	let f = __open(path, "w");
 	defer f.close();
 
 	f.write(json);
@@ -259,7 +259,7 @@ fn pretty(value, indent?: null) {
 fn pretty_file(path: string, value, indent?: null) {
 	let formatted = pretty(value, indent);
 
-	let f = open(path, "w");
+	let f = __open(path, "w");
 	defer f.close();
 
 	f.write(formatted);

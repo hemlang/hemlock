@@ -49,7 +49,7 @@ export fn Logger(config?: null) {
 	// Open file if output is not stdout
 	if (output_target != "stdout") {
 		try {
-			file_handle = open(output_target, "a");  // Append mode
+			file_handle = __open(output_target, "a");  // Append mode
 		} catch (e) {
 			print("Failed to open log file: " + e);
 			output_target = "stdout";  // Fallback to stdout

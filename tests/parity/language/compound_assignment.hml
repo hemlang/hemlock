@@ -1,4 +1,5 @@
 // Test compound assignment operators
+import { divi } from "@stdlib/math";
 
 // Basic compound assignment
 let a = 10;

@@ -1,4 +1,6 @@
 // Test: Open file and write
+import { open } from "@stdlib/fs";
+
 let f = open("tests/temp/test_write.txt", "w");
 let bytes1 = f.write("Hello, ");
 print("Wrote bytes:");

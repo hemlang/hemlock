@@ -1,5 +1,6 @@
 // Test: poll() for I/O multiplexing
 // Tests the poll() builtin for waiting on multiple sockets
+import { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, POLLIN, POLLOUT, POLLERR, POLLHUP, socket_create, poll } from "@stdlib/net";
 
 // Test poll constants are defined
 assert(POLLIN > 0);

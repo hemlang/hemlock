@@ -1,4 +1,5 @@
 // Test socket builtins for compiler
+import { AF_INET, SOCK_STREAM, SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR, socket_create, dns_resolve } from "@stdlib/net";
 
 // Test socket constants are available
 print(AF_INET);

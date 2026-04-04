@@ -13,6 +13,7 @@
 
 import { time_ms } from "@stdlib/time";
 import { randint, set_seed, shuffle } from "@stdlib/random";
+import { divi } from "@stdlib/math";
 
 // ============================================================================
 // Sorting Algorithm Implementations

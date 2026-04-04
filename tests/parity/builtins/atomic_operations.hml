@@ -1,4 +1,5 @@
 // Test atomic operations for lock-free concurrent programming
+import { atomic_load_i32, atomic_store_i32, atomic_add_i32, atomic_sub_i32, atomic_and_i32, atomic_or_i32, atomic_xor_i32, atomic_exchange_i32, atomic_cas_i32, atomic_load_i64, atomic_store_i64, atomic_add_i64, atomic_sub_i64, atomic_exchange_i64, atomic_cas_i64, atomic_fence } from "@stdlib/atomic";
 
 // Allocate memory for i32 atomic operations
 let p32 = alloc(4);  // sizeof(i32) = 4

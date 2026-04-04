@@ -52,47 +52,47 @@ export let free_memory = __free_memory;
 
 // Check if running on Linux
 export fn is_linux(): bool {
-	return platform() == "linux";
+	return __platform() == "linux";
 }
 
 // Check if running on macOS
 export fn is_macos(): bool {
-	return platform() == "macos";
+	return __platform() == "macos";
 }
 
 // Check if running on Windows
 export fn is_windows(): bool {
-	return platform() == "windows";
+	return __platform() == "windows";
 }
 
 // Check if running on a Unix-like system (Linux or macOS)
 export fn is_unix(): bool {
-	let p = platform();
+	let p = __platform();
 	return p == "linux" || p == "macos";
 }
 
 // Get system info as an object
 export fn info(): object {
 	return {
-		platform: platform(),
-		arch: arch(),
-		os_name: os_name(),
-		os_version: os_version(),
-		hostname: hostname(),
-		username: username(),
-		homedir: homedir(),
-		tmpdir: tmpdir(),
-		cpu_count: cpu_count(),
-		total_memory: total_memory(),
-		free_memory: free_memory(),
-		uptime: uptime(),
+		platform: __platform(),
+		arch: __arch(),
+		os_name: __os_name(),
+		os_version: __os_version(),
+		hostname: __hostname(),
+		username: __username(),
+		homedir: __homedir(),
+		tmpdir: __tmpdir(),
+		cpu_count: __cpu_count(),
+		total_memory: __total_memory(),
+		free_memory: __free_memory(),
+		uptime: __uptime(),
 	};
 }
 
 // Get memory info as an object (in bytes)
 export fn memory_info(): object {
-	let total = total_memory();
-	let free_mem = free_memory();
+	let total = __total_memory();
+	let free_mem = __free_memory();
 	return { total, free: free_mem, used: total - free_mem };
 }
 

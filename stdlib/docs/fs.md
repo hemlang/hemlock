@@ -35,6 +35,52 @@ let files = fs.list_dir(".");
 
 ## File Operations
 
+### open(path, mode?)
+Opens a file and returns a File object for reading, writing, or both.
+
+**Parameters:**
+- `path: string` - Path to the file
+- `mode: string` (optional) - Open mode (default: `"r"`)
+
+**Returns:** `file` - A File object with read/write/seek/close methods
+
+**Modes:**
+| Mode | Description | Creates | Truncates |
+|------|-------------|---------|-----------|
+| `"r"` | Read (default) | No | No |
+| `"w"` | Write | Yes | Yes |
+| `"a"` | Append | Yes | No |
+| `"r+"` | Read/write | No | No |
+| `"w+"` | Read/write | Yes | Yes |
+| `"a+"` | Read/append | Yes | No |
+
+**Throws:** Exception if file cannot be opened (e.g., file not found in read mode)
+
+```hemlock
+import { open } from "@stdlib/fs";
+
+// Read a file
+let f = open("data.txt", "r");
+let content = f.read();
+f.close();
+
+// Write a file
+let f2 = open("output.txt", "w");
+f2.write("Hello, World!\n");
+f2.close();
+
+// Append to a file
+let f3 = open("log.txt", "a");
+f3.write("New log entry\n");
+f3.close();
+```
+
+**File object methods:** `read(size?)`, `read_bytes(size)`, `write(data)`, `write_bytes(data)`, `seek(position)`, `tell()`, `close()`
+
+**File object properties:** `path`, `mode`, `closed`
+
+See [File I/O documentation](../../docs/advanced/file-io.md) for detailed usage.
+
 ### exists(path)
 Checks if a file or directory exists at the given path.
 

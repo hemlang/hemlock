@@ -47,7 +47,7 @@ Hemlock is a **systems scripting language** with manual memory management and ex
 - Operators match C: `+`, `-`, `*`, `%`, `&&`, `||`, `!`, `&`, `|`, `^`, `<<`, `>>`
 - Increment/decrement: `++x`, `x++`, `--x`, `x--` (prefix and postfix)
 - Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`
-- `/` always returns float (use `divi()` for integer division)
+- `/` always returns float (use `divi()` from `@stdlib/math` for integer division)
 - Type syntax: `let x: type = value;`
 
 ---
@@ -501,7 +501,8 @@ f.close();
 
 ### Signals
 ```hemlock
-signal(SIGINT, fn(sig) { print("Interrupted"); });
+import { SIGUSR1 } from "@stdlib/signal";
+signal(SIGUSR1, fn(sig) { print("Interrupted"); });
 raise(SIGUSR1);
 ```
 
@@ -556,7 +557,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (42 modules)
+## Standard Library (46 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -572,16 +573,19 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 | `args` | Command-line argument parsing |
 | `assert` | Assertion utilities |
 | `async` | ThreadPool, parallel_map |
+| `atomic` | Atomic operations (load, store, add, CAS, fence) |
 | `async_fs` | Async file I/O operations |
 | `collections` | HashMap, Queue, Stack, Set, LinkedList, LRUCache |
 | `compression` | gzip, gunzip, deflate |
 | `crypto` | aes_encrypt, rsa_sign, random_bytes |
 | `csv` | CSV parsing and generation |
+| `debug` | Task inspection and stack management |
 | `datetime` | DateTime class, formatting, parsing |
 | `encoding` | base64_encode, hex_encode, url_encode |
 | `env` | getenv, setenv, exit, get_pid |
+| `ffi` | FFI callback management |
 | `fmt` | String formatting utilities |
-| `fs` | read_file, write_file, list_dir, exists |
+| `fs` | open, read_file, write_file, list_dir, exists |
 | `glob` | File pattern matching |
 | `hash` | sha256, sha512, md5, djb2 |
 | `http` | http_get, http_post, http_request |
@@ -599,6 +603,7 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 | `retry` | Retry logic with backoff |
 | `semver` | Semantic versioning |
 | `shell` | Shell command utilities |
+| `signal` | Signal constants (SIGINT, SIGTERM, etc.) |
 | `sqlite` | SQLite database, query, exec, transactions |
 | `strings` | pad_left, is_alpha, reverse, lines |
 | `terminal` | ANSI colors and styles |
@@ -913,7 +918,19 @@ make parity
 
 ## Version
 
-**v1.9.2** - Current release with:
+**v2.0.0** - Current release with:
+- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins out of the global namespace to reduce conflicts with user variables and functions. Math functions (sin, cos, sqrt, etc.), environment functions (getenv, setenv), signal functions and constants (signal, raise, SIGINT, etc.), socket constants (AF_INET, SOCK_STREAM, etc.), and networking functions (socket_create, dns_resolve, poll) now require importing from their respective @stdlib modules. Internal `__`-prefixed versions remain for stdlib use.
+- **New `@stdlib/signal` module** - Signal functions (signal, raise) and constants (SIGINT, SIGTERM, SIGUSR1, etc.) now imported from `@stdlib/signal`
+- **Expanded `@stdlib/net` module** - Socket constants, poll constants, and networking functions (socket_create, dns_resolve, poll) now exported from `@stdlib/net`
+- **Expanded `@stdlib/math` module** - Added div, divi, floori, ceili, roundi, trunci exports
+- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros (SIG*, AF_*, SOCK_*, etc.)
+- **New `@stdlib/atomic` module** - All atomic operations (load, store, add, sub, and, or, xor, cas, exchange for i32/i64 + fence)
+- **New `@stdlib/debug` module** - Task inspection (task_debug_info) and stack management (set_stack_limit, get_stack_limit)
+- **New `@stdlib/ffi` module** - FFI callback management (callback, callback_free)
+- **`open()` moved to `@stdlib/fs`** - File open now requires `import { open } from "@stdlib/fs"`
+- **`exec()`/`exec_argv()` moved to `@stdlib/process`** - Command execution now requires process module import
+
+**v1.9.4** - Previous release with:
 - **Compiler unboxed loop counter fix** - Fixed a critical codegen bug where optimized loop counters (native `int32_t`) were used directly as `HmlValue` initializers without boxing. The `codegen_is_main_var` check incorrectly prevented the boxing wrapper (`hml_val_i32()`) from being emitted when a main-level variable name shadowed an unboxed loop counter inside a module/closure function. Fixes compilation of `@stdlib/collections` and `@stdlib/encoding`.
 - **`clear()` object method dispatch** - The compiler now correctly dispatches `.clear()` to object methods when called on non-array types. Previously, `.clear()` always generated `hml_array_clear()` regardless of receiver type.
 - **`exec()` import shadowing fix** - The compiler's builtin `exec()` handler now checks for import bindings and module-local functions before dispatching to the system exec builtin. Fixes `@stdlib/sqlite` which exports its own `exec()` function.
@@ -997,7 +1014,7 @@ make parity
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 42 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, termios, vector)
+- 43 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, signal, termios, vector)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
 - FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)

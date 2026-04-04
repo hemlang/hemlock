@@ -1,6 +1,10 @@
 // Sandbox functionality test
 // This test exercises each restricted operation
 // Run with: hemlock --sandbox tests/sandbox_test.hml
+import { signal, raise } from "@stdlib/signal";
+import { socket_create } from "@stdlib/net";
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
 
 print("Testing sandbox restrictions...\n");
 
@@ -41,7 +45,7 @@ try {
     // AF_INET=2, SOCK_STREAM=1
     let sock = socket_create(2, 1, 0);
     if (sock != null) {
-        socket_close(sock);
+        sock.close();
         print("  -> ALLOWED\n");
     } else {
         print("  -> FAILED to create\n");

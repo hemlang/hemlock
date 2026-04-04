@@ -5,6 +5,38 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-04
+
+### Breaking Changes
+
+- **Reduced global builtins** - 63 builtins moved from global namespace to stdlib modules. Code using bare `sin()`, `getenv()`, `signal()`, `open()`, `exec()`, `SIGINT`, `AF_INET`, etc. must now import from the appropriate `@stdlib` module.
+
+### Added
+
+- **`@stdlib/signal` module** - Signal handling functions (`signal`, `raise`) and all POSIX signal constants (`SIGINT`, `SIGTERM`, `SIGUSR1`, etc.)
+- **`@stdlib/atomic` module** - All 19 atomic operations (load, store, add, sub, and, or, xor, cas, exchange for i32/i64) plus `atomic_fence`
+- **`@stdlib/debug` module** - Task inspection (`task_debug_info`) and stack management (`set_stack_limit`, `get_stack_limit`)
+- **`@stdlib/ffi` module** - FFI callback management (`callback`, `callback_free`)
+- **Expanded `@stdlib/math`** - Added `div`, `divi`, `floori`, `ceili`, `roundi`, `trunci` exports
+- **Expanded `@stdlib/net`** - Socket constants (`AF_INET`, `SOCK_STREAM`, etc.), poll constants (`POLLIN`, `POLLOUT`, etc.), and networking functions (`socket_create`, `dns_resolve`, `poll`)
+- **Expanded `@stdlib/fs`** - Added `open` export
+- **Expanded `@stdlib/strings`** - Added `string_concat_many` export
+- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros (`SIG*`, `AF_*`, `SOCK_*`, etc.)
+
+### Changed
+
+- `signal()` and `raise()` now require `import { signal, raise } from "@stdlib/signal"`
+- `open()` now requires `import { open } from "@stdlib/fs"`
+- `exec()` and `exec_argv()` now require `import { exec } from "@stdlib/process"`
+- Math functions (`sin`, `cos`, `sqrt`, `floor`, etc.) now require `import from "@stdlib/math"`
+- Environment functions (`getenv`, `setenv`) now require `import from "@stdlib/env"`
+- Signal constants (`SIGINT`, `SIGTERM`, etc.) now require `import from "@stdlib/signal"`
+- Socket/poll constants now require `import from "@stdlib/net"`
+- Atomic operations now require `import from "@stdlib/atomic"`
+- `callback`/`callback_free` now require `import from "@stdlib/ffi"`
+- `task_debug_info`, `set_stack_limit`, `get_stack_limit` now require `import from "@stdlib/debug"`
+- Stdlib module count increased from 43 to 46
+
 ## [1.9.2] - 2026-04-03
 
 ### Fixed

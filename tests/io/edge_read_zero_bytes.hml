@@ -1,5 +1,6 @@
 // Test reading zero bytes
 // Expected: PASS
+import { open } from "@stdlib/fs";
 
 let f = open("/tmp/test_read_zero.txt", "w");
 f.write("test data");

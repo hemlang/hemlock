@@ -1,5 +1,6 @@
 // Test raising out-of-range signal number
 // Errors are catchable with try/catch
+import { raise } from "@stdlib/signal";
 
 try {
     raise(99999);

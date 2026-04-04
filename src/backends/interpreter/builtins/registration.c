@@ -20,15 +20,15 @@ static BuiltinInfo builtins[] = {
     {"buffer", builtin_buffer},
     {"typeof", builtin_typeof},
     {"read_line", builtin_read_line},
-    {"string_concat_many", builtin_string_concat_many},
+    {"__string_concat_many", builtin_string_concat_many},
     {"eprint", builtin_eprint},
-    {"open", builtin_open},
+    {"__open", builtin_open},
     {"assert", builtin_assert},
     {"panic", builtin_panic},
-    {"set_stack_limit", builtin_set_stack_limit},
-    {"get_stack_limit", builtin_get_stack_limit},
-    {"exec", builtin_exec},
-    {"exec_argv", builtin_exec_argv},
+    {"__set_stack_limit", builtin_set_stack_limit},
+    {"__get_stack_limit", builtin_get_stack_limit},
+    // exec/exec_argv: use @stdlib/process for public API
+    // __exec and __exec_argv already registered in env/process section below
     {"spawn", builtin_spawn},
     {"spawn_with", builtin_spawn_with},
     {"join", builtin_join},
@@ -36,15 +36,15 @@ static BuiltinInfo builtins[] = {
     {"apply", builtin_apply},
     {"channel", builtin_channel},
     {"select", builtin_select},
-    {"task_debug_info", builtin_task_debug_info},
+    {"__task_debug_info", builtin_task_debug_info},
     {"__get_default_stack_size", builtin_get_default_stack_size},
     {"__set_default_stack_size", builtin_set_default_stack_size},
-    {"signal", builtin_signal},
-    {"raise", builtin_raise},
-    // Networking functions
-    {"socket_create", builtin_socket_create},
-    {"dns_resolve", builtin_dns_resolve},
-    {"poll", builtin_poll},
+    {"__signal", builtin_signal},
+    {"__raise", builtin_raise},
+    // Networking functions (__ prefixed, use @stdlib/net for public API)
+    {"__socket_create", builtin_socket_create},
+    {"__dns_resolve", builtin_dns_resolve},
+    {"__poll", builtin_poll},
     // Math functions (use stdlib/math.hml module for public API)
     {"__sin", builtin_sin},
     {"__cos", builtin_cos},
@@ -208,45 +208,14 @@ static BuiltinInfo builtins[] = {
     {"__os_name", builtin_os_name},
     {"__tmpdir", builtin_tmpdir},
     {"__uptime", builtin_uptime},
-    // Unprefixed aliases for parity with compiler (also exposes public API)
-    // Math functions
-    {"sin", builtin_sin},
-    {"cos", builtin_cos},
-    {"tan", builtin_tan},
-    {"asin", builtin_asin},
-    {"acos", builtin_acos},
-    {"atan", builtin_atan},
-    {"atan2", builtin_atan2},
-    {"sqrt", builtin_sqrt},
-    {"pow", builtin_pow},
-    {"exp", builtin_exp},
-    {"log", builtin_log},
-    {"log10", builtin_log10},
-    {"log2", builtin_log2},
-    {"floor", builtin_floor},
-    {"ceil", builtin_ceil},
-    {"round", builtin_round},
-    {"trunc", builtin_trunc},
-    {"floori", builtin_floori},
-    {"ceili", builtin_ceili},
-    {"roundi", builtin_roundi},
-    {"trunci", builtin_trunci},
-    {"div", builtin_div},
-    {"divi", builtin_divi},
-    // Note: abs, min, max, clamp are NOT aliased without prefix
-    // because they conflict with common variable names.
-    // Use __abs, __min, __max, __clamp instead.
-    // Note: now, time_ms, sleep, clock are NOT aliased without prefix
-    // because they conflict with @stdlib/time exports.
-    // Use import { sleep } from "@stdlib/time" instead.
-    // Environment functions
-    {"getenv", builtin_getenv},
-    {"setenv", builtin_setenv},
-    {"unsetenv", builtin_unsetenv},
-    {"get_pid", builtin_get_pid},
-    // FFI callback functions
-    {"callback", builtin_callback},
-    {"callback_free", builtin_callback_free},
+    // NOTE: Math functions (sin, cos, sqrt, etc.), environment functions
+    // (getenv, setenv, etc.), and random functions (rand, seed) are no
+    // longer registered as unprefixed global builtins. Users must import
+    // them from @stdlib/math, @stdlib/env, or @stdlib/random respectively.
+    // The __-prefixed versions remain for stdlib internal use.
+    // FFI callback functions (use @stdlib/ffi for public API)
+    {"__callback", builtin_callback},
+    {"__callback_free", builtin_callback_free},
     {"ptr_read_i32", builtin_ptr_read_i32},
     {"ptr_deref_i32", builtin_ptr_deref_i32},
     {"ptr_write_i32", builtin_ptr_write_i32},
@@ -284,32 +253,30 @@ static BuiltinInfo builtins[] = {
     {"ptr_read_f32", builtin_ptr_read_f32},
     {"ptr_read_f64", builtin_ptr_read_f64},
     // FFI utility functions
-    {"ffi_sizeof", builtin_ffi_sizeof},
+    {"__ffi_sizeof", builtin_ffi_sizeof},
     {"ptr_to_buffer", builtin_ptr_to_buffer},
     {"buffer_ptr", builtin_buffer_ptr},
     {"ptr_null", builtin_ptr_null},
-    // Atomic operations (i32)
-    {"atomic_load_i32", builtin_atomic_load_i32},
-    {"atomic_store_i32", builtin_atomic_store_i32},
-    {"atomic_add_i32", builtin_atomic_add_i32},
-    {"atomic_sub_i32", builtin_atomic_sub_i32},
-    {"atomic_and_i32", builtin_atomic_and_i32},
-    {"atomic_or_i32", builtin_atomic_or_i32},
-    {"atomic_xor_i32", builtin_atomic_xor_i32},
-    {"atomic_cas_i32", builtin_atomic_cas_i32},
-    {"atomic_exchange_i32", builtin_atomic_exchange_i32},
-    // Atomic operations (i64)
-    {"atomic_load_i64", builtin_atomic_load_i64},
-    {"atomic_store_i64", builtin_atomic_store_i64},
-    {"atomic_add_i64", builtin_atomic_add_i64},
-    {"atomic_sub_i64", builtin_atomic_sub_i64},
-    {"atomic_and_i64", builtin_atomic_and_i64},
-    {"atomic_or_i64", builtin_atomic_or_i64},
-    {"atomic_xor_i64", builtin_atomic_xor_i64},
-    {"atomic_cas_i64", builtin_atomic_cas_i64},
-    {"atomic_exchange_i64", builtin_atomic_exchange_i64},
-    // Memory fence
-    {"atomic_fence", builtin_atomic_fence},
+    // Atomic operations (use @stdlib/atomic for public API)
+    {"__atomic_load_i32", builtin_atomic_load_i32},
+    {"__atomic_store_i32", builtin_atomic_store_i32},
+    {"__atomic_add_i32", builtin_atomic_add_i32},
+    {"__atomic_sub_i32", builtin_atomic_sub_i32},
+    {"__atomic_and_i32", builtin_atomic_and_i32},
+    {"__atomic_or_i32", builtin_atomic_or_i32},
+    {"__atomic_xor_i32", builtin_atomic_xor_i32},
+    {"__atomic_cas_i32", builtin_atomic_cas_i32},
+    {"__atomic_exchange_i32", builtin_atomic_exchange_i32},
+    {"__atomic_load_i64", builtin_atomic_load_i64},
+    {"__atomic_store_i64", builtin_atomic_store_i64},
+    {"__atomic_add_i64", builtin_atomic_add_i64},
+    {"__atomic_sub_i64", builtin_atomic_sub_i64},
+    {"__atomic_and_i64", builtin_atomic_and_i64},
+    {"__atomic_or_i64", builtin_atomic_or_i64},
+    {"__atomic_xor_i64", builtin_atomic_xor_i64},
+    {"__atomic_cas_i64", builtin_atomic_cas_i64},
+    {"__atomic_exchange_i64", builtin_atomic_exchange_i64},
+    {"__atomic_fence", builtin_atomic_fence},
     {NULL, NULL}  // Sentinel
 };
 
@@ -349,51 +316,46 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "__INF", val_f64(INFINITY), ctx);
     env_set(env, "__NAN", val_f64(NAN), ctx);
 
-    // Signal constants
-    env_set(env, "SIGINT", val_i32(SIGINT), ctx);      // Interrupt (Ctrl+C)
-    env_set(env, "SIGTERM", val_i32(SIGTERM), ctx);    // Termination request
-    env_set(env, "SIGHUP", val_i32(SIGHUP), ctx);      // Hangup
-    env_set(env, "SIGQUIT", val_i32(SIGQUIT), ctx);    // Quit (Ctrl+\)
-    env_set(env, "SIGABRT", val_i32(SIGABRT), ctx);    // Abort
-    env_set(env, "SIGUSR1", val_i32(SIGUSR1), ctx);    // User-defined signal 1
-    env_set(env, "SIGUSR2", val_i32(SIGUSR2), ctx);    // User-defined signal 2
-    env_set(env, "SIGALRM", val_i32(SIGALRM), ctx);    // Alarm clock
-    env_set(env, "SIGCHLD", val_i32(SIGCHLD), ctx);    // Child process status change
-    env_set(env, "SIGPIPE", val_i32(SIGPIPE), ctx);    // Broken pipe
-    env_set(env, "SIGCONT", val_i32(SIGCONT), ctx);    // Continue if stopped
-    env_set(env, "SIGSTOP", val_i32(SIGSTOP), ctx);    // Stop process (cannot be caught)
-    env_set(env, "SIGTSTP", val_i32(SIGTSTP), ctx);    // Terminal stop (Ctrl+Z)
-    env_set(env, "SIGTTIN", val_i32(SIGTTIN), ctx);    // Background read from terminal
-    env_set(env, "SIGTTOU", val_i32(SIGTTOU), ctx);    // Background write to terminal
+    // NOTE: Signal constants (SIGINT, SIGTERM, etc.) moved to @stdlib/signal
+    // NOTE: Socket constants (AF_INET, SOCK_STREAM, etc.) moved to @stdlib/net
+    // NOTE: Poll constants (POLLIN, POLLOUT, etc.) moved to @stdlib/net
+    // Users must import them from the respective stdlib modules.
 
-    // Socket constants - Domain (address family)
-    env_set(env, "AF_INET", val_i32(AF_INET), ctx);    // IPv4
-    env_set(env, "AF_INET6", val_i32(AF_INET6), ctx);  // IPv6
+    // Internal signal constants for stdlib use (__ prefixed)
+    env_set(env, "__SIGINT", val_i32(SIGINT), ctx);
+    env_set(env, "__SIGTERM", val_i32(SIGTERM), ctx);
+    env_set(env, "__SIGHUP", val_i32(SIGHUP), ctx);
+    env_set(env, "__SIGQUIT", val_i32(SIGQUIT), ctx);
+    env_set(env, "__SIGABRT", val_i32(SIGABRT), ctx);
+    env_set(env, "__SIGUSR1", val_i32(SIGUSR1), ctx);
+    env_set(env, "__SIGUSR2", val_i32(SIGUSR2), ctx);
+    env_set(env, "__SIGALRM", val_i32(SIGALRM), ctx);
+    env_set(env, "__SIGCHLD", val_i32(SIGCHLD), ctx);
+    env_set(env, "__SIGPIPE", val_i32(SIGPIPE), ctx);
+    env_set(env, "__SIGCONT", val_i32(SIGCONT), ctx);
+    env_set(env, "__SIGSTOP", val_i32(SIGSTOP), ctx);
+    env_set(env, "__SIGTSTP", val_i32(SIGTSTP), ctx);
+    env_set(env, "__SIGTTIN", val_i32(SIGTTIN), ctx);
+    env_set(env, "__SIGTTOU", val_i32(SIGTTOU), ctx);
 
-    // Socket constants - Type
-    env_set(env, "SOCK_STREAM", val_i32(SOCK_STREAM), ctx);  // TCP
-    env_set(env, "SOCK_DGRAM", val_i32(SOCK_DGRAM), ctx);    // UDP
-
-    // Socket constants - Protocol
-    env_set(env, "IPPROTO_TCP", val_i32(IPPROTO_TCP), ctx);  // TCP protocol
-    env_set(env, "IPPROTO_UDP", val_i32(IPPROTO_UDP), ctx);  // UDP protocol
-
-    // Socket constants - Socket options level
-    env_set(env, "SOL_SOCKET", val_i32(SOL_SOCKET), ctx);
-
-    // Socket constants - Socket options
-    env_set(env, "SO_REUSEADDR", val_i32(SO_REUSEADDR), ctx);  // Reuse address
-    env_set(env, "SO_KEEPALIVE", val_i32(SO_KEEPALIVE), ctx);  // Keep connections alive
-    env_set(env, "SO_RCVTIMEO", val_i32(SO_RCVTIMEO), ctx);    // Receive timeout
-    env_set(env, "SO_SNDTIMEO", val_i32(SO_SNDTIMEO), ctx);    // Send timeout
-
-    // Poll constants - Events to monitor
-    env_set(env, "POLLIN", val_i32(POLLIN), ctx);        // Data available to read
-    env_set(env, "POLLOUT", val_i32(POLLOUT), ctx);      // Writing possible
-    env_set(env, "POLLERR", val_i32(POLLERR), ctx);      // Error condition
-    env_set(env, "POLLHUP", val_i32(POLLHUP), ctx);      // Hang up
-    env_set(env, "POLLNVAL", val_i32(POLLNVAL), ctx);    // Invalid request (fd not open)
-    env_set(env, "POLLPRI", val_i32(POLLPRI), ctx);      // Priority data available
+    // Internal socket constants for stdlib use (__ prefixed)
+    env_set(env, "__AF_INET", val_i32(AF_INET), ctx);
+    env_set(env, "__AF_INET6", val_i32(AF_INET6), ctx);
+    env_set(env, "__SOCK_STREAM", val_i32(SOCK_STREAM), ctx);
+    env_set(env, "__SOCK_DGRAM", val_i32(SOCK_DGRAM), ctx);
+    env_set(env, "__IPPROTO_TCP", val_i32(IPPROTO_TCP), ctx);
+    env_set(env, "__IPPROTO_UDP", val_i32(IPPROTO_UDP), ctx);
+    env_set(env, "__SOL_SOCKET", val_i32(SOL_SOCKET), ctx);
+    env_set(env, "__SO_REUSEADDR", val_i32(SO_REUSEADDR), ctx);
+    env_set(env, "__SO_KEEPALIVE", val_i32(SO_KEEPALIVE), ctx);
+    env_set(env, "__SO_RCVTIMEO", val_i32(SO_RCVTIMEO), ctx);
+    env_set(env, "__SO_SNDTIMEO", val_i32(SO_SNDTIMEO), ctx);
+    env_set(env, "__POLLIN", val_i32(POLLIN), ctx);
+    env_set(env, "__POLLOUT", val_i32(POLLOUT), ctx);
+    env_set(env, "__POLLERR", val_i32(POLLERR), ctx);
+    env_set(env, "__POLLHUP", val_i32(POLLHUP), ctx);
+    env_set(env, "__POLLNVAL", val_i32(POLLNVAL), ctx);
+    env_set(env, "__POLLPRI", val_i32(POLLPRI), ctx);
 
     // Register builtin functions (may overwrite some type names if there are conflicts)
     for (int i = 0; builtins[i].name != NULL; i++) {

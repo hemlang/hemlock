@@ -1,6 +1,7 @@
 // Basic FFI callback test
 // This test verifies that callback() creates a valid function pointer
 // and that callback_free() properly cleans up
+import { callback, callback_free } from "@stdlib/ffi";
 
 import "libc.so.6";
 extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;

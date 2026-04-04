@@ -517,7 +517,7 @@ export fn LinkedList() {
 		}
 
 		// Choose direction based on which end is closer
-		let half = divi(count, 2);
+		let half = __divi(count, 2);
 		if (index < half) {
 			// Traverse from head (closer to start)
 			let current = head;

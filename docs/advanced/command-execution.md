@@ -46,6 +46,8 @@ exec(command: string): object
 ### Basic Example
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let result = exec("echo hello");
 print(result.output);      // "hello\n"
 print(result.exit_code);   // 0
@@ -74,6 +76,8 @@ Contains all text written to stdout by the command.
 
 **Examples:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r1 = exec("echo test");
 print(r1.output);  // "test\n"
 
@@ -95,6 +99,8 @@ The command's exit status code.
 
 **Examples:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r1 = exec("true");
 print(r1.exit_code);  // 0 (success)
 
@@ -110,6 +116,8 @@ print(r3.exit_code);  // 2 (file not found, varies by command)
 ### Simple Command
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls -la");
 print(r.output);
 print("Exit code: " + typeof(r.exit_code));
@@ -118,6 +126,8 @@ print("Exit code: " + typeof(r.exit_code));
 ### Checking Exit Status
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("grep pattern file.txt");
 if (r.exit_code == 0) {
     print("Found: " + r.output);
@@ -152,6 +162,8 @@ print(r.output);  // Current date
 ### Handling Failures
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls /nonexistent");
 if (r.exit_code != 0) {
     print("Command failed with code: " + typeof(r.exit_code));
@@ -162,6 +174,8 @@ if (r.exit_code != 0) {
 ### Processing Multi-Line Output
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("cat file.txt");
 let lines = r.output.split("\n");
 let i = 0;
@@ -283,6 +297,8 @@ print(r3.exit_code);  // 127 (not an exception)
 ### Safe Execution Pattern
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn safe_exec(command: string) {
     try {
         let r = exec(command);
@@ -553,6 +569,8 @@ print("Running instances: " + count);
 
 **6. Automation scripts:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 exec("git add .");
 exec("git commit -m 'Auto commit'");
 let r = exec("git push");
@@ -679,6 +697,8 @@ let r = exec("test -f file.txt && cat file.txt");
 ### Example 1: System Information Gatherer
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn get_system_info() {
     print("=== System Information ===");
 
@@ -707,6 +727,8 @@ get_system_info();
 ### Example 2: Log Analyzer
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn analyze_log(logfile: string) {
     print("Analyzing log: " + logfile);
 
@@ -748,6 +770,8 @@ if (args.length < 2) {
 ### Example 3: Git Helper
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn git_status() {
     let r = exec("git status --short");
     if (r.exit_code != 0) {
@@ -793,6 +817,8 @@ if (args.length > 1) {
 ### Example 4: Backup Script
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn backup_directory(source: string, dest: string) {
     print("Backing up " + source + " to " + dest);
 

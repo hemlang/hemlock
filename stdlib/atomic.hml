@@ -1,0 +1,27 @@
+// Hemlock Standard Library: Atomic Operations
+// Lock-free concurrent programming primitives
+
+// i32 operations
+export let atomic_load_i32 = __atomic_load_i32;
+export let atomic_store_i32 = __atomic_store_i32;
+export let atomic_add_i32 = __atomic_add_i32;
+export let atomic_sub_i32 = __atomic_sub_i32;
+export let atomic_and_i32 = __atomic_and_i32;
+export let atomic_or_i32 = __atomic_or_i32;
+export let atomic_xor_i32 = __atomic_xor_i32;
+export let atomic_cas_i32 = __atomic_cas_i32;
+export let atomic_exchange_i32 = __atomic_exchange_i32;
+
+// i64 operations
+export let atomic_load_i64 = __atomic_load_i64;
+export let atomic_store_i64 = __atomic_store_i64;
+export let atomic_add_i64 = __atomic_add_i64;
+export let atomic_sub_i64 = __atomic_sub_i64;
+export let atomic_and_i64 = __atomic_and_i64;
+export let atomic_or_i64 = __atomic_or_i64;
+export let atomic_xor_i64 = __atomic_xor_i64;
+export let atomic_cas_i64 = __atomic_cas_i64;
+export let atomic_exchange_i64 = __atomic_exchange_i64;
+
+// Memory fence
+export let atomic_fence = __atomic_fence;

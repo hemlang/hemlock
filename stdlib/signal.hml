@@ -1,0 +1,29 @@
+// Hemlock Standard Library: Signal Handling
+// This module provides signal handling functions and POSIX signal constants
+
+// ========== SIGNAL FUNCTIONS ==========
+export let signal = __signal;  // Register a signal handler
+export let raise = __raise;    // Send a signal to the current process
+
+// ========== TERMINAL SIGNALS ==========
+export let SIGINT = __SIGINT;    // Interrupt (Ctrl+C)
+export let SIGTERM = __SIGTERM;  // Termination request
+export let SIGHUP = __SIGHUP;   // Hangup (terminal closed)
+export let SIGQUIT = __SIGQUIT;  // Quit (Ctrl+\)
+export let SIGABRT = __SIGABRT;  // Abort
+
+// ========== USER-DEFINED SIGNALS ==========
+export let SIGUSR1 = __SIGUSR1;  // User-defined signal 1
+export let SIGUSR2 = __SIGUSR2;  // User-defined signal 2
+
+// ========== MISC SIGNALS ==========
+export let SIGALRM = __SIGALRM;  // Alarm timer expired
+export let SIGCHLD = __SIGCHLD;  // Child process status changed
+export let SIGPIPE = __SIGPIPE;  // Broken pipe
+
+// ========== JOB CONTROL SIGNALS ==========
+export let SIGCONT = __SIGCONT;  // Continue if stopped
+export let SIGSTOP = __SIGSTOP;  // Stop process (cannot be caught)
+export let SIGTSTP = __SIGTSTP;  // Terminal stop (Ctrl+Z)
+export let SIGTTIN = __SIGTTIN;  // Background read from terminal
+export let SIGTTOU = __SIGTTOU;  // Background write to terminal

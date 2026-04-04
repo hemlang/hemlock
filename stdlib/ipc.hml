@@ -397,7 +397,7 @@ export fn SharedData(path): object {
 // path: string - Path for the PID file
 // Returns: PidFile object
 export fn PidFile(path): object {
-	let pid = get_pid();
+	let pid = __get_pid();
 
 	return {
 		_path: path,

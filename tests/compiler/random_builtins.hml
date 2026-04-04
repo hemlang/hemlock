@@ -1,4 +1,5 @@
 // Test random builtins
+import { rand, seed } from "@stdlib/math";
 
 // Test rand returns value in [0, 1)
 seed(42);

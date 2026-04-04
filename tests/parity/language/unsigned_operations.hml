@@ -1,4 +1,5 @@
 // Test unsigned integer operations
+import { div } from "@stdlib/math";
 
 // u8 range
 let u8_max: u8 = 255;
