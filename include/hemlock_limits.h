@@ -178,6 +178,15 @@
 // Maximum interned string length (longer strings bypass interning)
 #define HML_INTERN_MAX_LENGTH 64
 
+// ========== THREAD STACK SIZE ==========
+
+// Stack size for spawned task threads (in bytes)
+// The interpreter's eval_stmt is recursive, so deep Hemlock call stacks
+// (especially with closures in WebSocket callbacks) can overflow the default
+// pthread stack (typically 2 MB on Linux).  16 MB gives comfortable headroom
+// for sequential server-spawn patterns without wasting significant virtual memory.
+#define HML_THREAD_STACK_SIZE (16 * 1024 * 1024)
+
 // ========== ATOMIC OPERATION CONSTANTS ==========
 
 // Required alignment for atomic operations

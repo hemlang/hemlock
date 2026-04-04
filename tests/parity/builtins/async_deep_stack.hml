@@ -1,0 +1,30 @@
+// Test: Sequential spawns with deep call stacks (thread stack overflow regression)
+// Verifies that spawned threads have enough stack for deeply recursive calls
+// across multiple sequential spawn-join cycles.
+
+fn deep_call(depth: i32, acc: i32): i32 {
+    if (depth <= 0) {
+        return acc;
+    }
+    return deep_call(depth - 1, acc + depth);
+}
+
+async fn deep_task(depth: i32): i32 {
+    return deep_call(depth, 0);
+}
+
+let depth = 1500;
+let expected = divi(depth * (depth + 1), 2);
+
+// 4 sequential rounds — each must fully join before the next starts
+for (let round = 0; round < 4; round++) {
+    let t1 = spawn(deep_task, depth);
+    let t2 = spawn(deep_task, depth);
+    let r1 = join(t1);
+    let r2 = join(t2);
+    if (r1 != expected || r2 != expected) {
+        print("FAIL round " + round);
+    }
+}
+
+print("ok");

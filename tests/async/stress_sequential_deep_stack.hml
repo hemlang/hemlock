@@ -1,0 +1,49 @@
+// Test: Sequential task spawns with deep call stacks
+// Regression test for thread stack overflow (segfault) when spawning
+// multiple tasks sequentially, each with deeply nested function calls.
+// This mimics the pattern of sequential WebSocket server instances with
+// closure callbacks that caused stack overflow on the default 2 MB thread stack.
+
+fn deep_call(depth: i32, acc: i32): i32 {
+    if (depth <= 0) {
+        return acc;
+    }
+    // Each recursive call adds a stack frame in the spawned thread.
+    // With the default pthread stack (~2 MB), depths around 2000+
+    // across multiple sequential spawns would segfault.
+    return deep_call(depth - 1, acc + depth);
+}
+
+async fn deep_task(id: i32, depth: i32): i32 {
+    // Simulate closure-heavy work (like WebSocket callbacks)
+    let result = deep_call(depth, 0);
+    return result;
+}
+
+// Spawn 4 sequential "server" rounds, each with deep stacks.
+// This mirrors the repro: 4 sequential WebSocket servers with callbacks.
+let depth = 2000;
+let all_ok = true;
+let expected = divi(depth * (depth + 1), 2);
+
+for (let round = 0; round < 4; round++) {
+    // Spawn a batch of tasks per round (like accept + recv loop threads)
+    let tasks = [];
+    for (let i = 0; i < 3; i++) {
+        let task = spawn(deep_task, round * 3 + i, depth);
+        tasks.push(task);
+    }
+
+    // Join all before next round (like server.close() before next spawn)
+    for (let i = 0; i < tasks.length; i++) {
+        let result = join(tasks[i]);
+        if (result != expected) {
+            print("FAIL: round " + round + " task " + i + " got " + result + " expected " + expected);
+            all_ok = false;
+        }
+    }
+}
+
+if (all_ok) {
+    print("PASS: 4 sequential rounds of deep-stack tasks completed");
+}
