@@ -28,11 +28,11 @@ All Hemlock components share a **single version number**:
 The version is defined in `include/version.h`:
 
 ```c
-#define HEMLOCK_VERSION_MAJOR 1
-#define HEMLOCK_VERSION_MINOR 8
-#define HEMLOCK_VERSION_PATCH 7
+#define HEMLOCK_VERSION_MAJOR 2
+#define HEMLOCK_VERSION_MINOR 0
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "1.8.7"
+#define HEMLOCK_VERSION "2.0.0"
 ```
 
 ### Checking Versions
@@ -49,8 +49,8 @@ hemlockc --version
 
 ### Within a MAJOR Version
 
-- Source code that works in `1.x.0` will work in `1.x.y` (any patch)
-- Source code that works in `1.0.x` will work in `1.y.z` (any minor/patch)
+- Source code that works in `X.Y.0` will work in `X.Y.Z` (any patch)
+- Source code that works in `X.0.Z` will work in `X.Y.Z` (any minor/patch)
 - Compiled `.hmlb` bundles are compatible within the same MAJOR version
 - Standard library APIs are stable (additions only, no removals)
 
