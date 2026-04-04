@@ -449,6 +449,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback, 2, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__callback_free") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback_free, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__ffi_sizeof") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ffi_sizeof, 1, 1, 0);", result);
     // String builtins
     } else if (strcmp(expr->as.ident.name, "__string_concat_many") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_string_concat_many, 1, 1, 0);", result);

@@ -1095,7 +1095,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // ffi_sizeof(type_name) -> i32
-        if (strcmp(fn_name, "ffi_sizeof") == 0 && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "ffi_sizeof") == 0 || strcmp(fn_name, "__ffi_sizeof") == 0) && expr->as.call.num_args == 1) {
             char *type_name = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_builtin_ffi_sizeof(NULL, %s);", result, type_name);
             codegen_writeln(ctx, "hml_release(&%s);", type_name);

@@ -81,7 +81,7 @@ let pid = getpid();
 | **FFI** | Call C functions from shared libraries, export extern |
 | **Error Handling** | try/catch/finally/throw, panic() |
 | **I/O** | File API, signal handling, command execution |
-| **Stdlib** | 41 modules (math, net, crypto, http, json, termios, and more) |
+| **Stdlib** | 46 modules (math, net, crypto, signal, atomic, ffi, and more) |
 | **Packages** | [hpm](https://github.com/hemlang/hpm) package manager with GitHub registry |
 
 ## Building
@@ -190,29 +190,17 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v1.9.2 is released with:
+Hemlock v2.0.0 is released with:
 
-- **Pattern matching** (`match` expressions) with destructuring, guards, OR patterns, and rest syntax
-- **Expression-bodied functions** (`fn double(x): i32 => x * 2;`)
-- **Compiler helper annotations** - `@inline`, `@hot`, `@pure`, `@optimize(level)`, and more
-- **Ref parameters** (`fn(ref x: i32)`) for pass-by-reference mutation
-- **Compile-time type checking** in hemlockc (enabled by default)
-- **`@stdlib/termios` module** for raw terminal input (Linux/macOS)
-- **Single-line statements** - braceless `if`, `while`, `for` syntax
-- **Type aliases** (`type Name = Type;`) for complex types
-- **Function type annotations** (`fn(i32): i32`) for first-class function types
-- **Const parameters** (`fn(const x: array)`) for deep immutability
-- **Method signatures in define** (`fn method(): Type;`) for interface-like contracts
-- **Loop keyword** (`loop { }`) and **loop labels** (`outer: while`)
-- **Named arguments** (`foo(name: "value", age: 30)`)
-- **Null coalescing operators** (`??`, `??=`, `?.`)
-- **Object shorthand** (`{ name }`) and **spread** (`{ ...obj }`)
-- **Compound duck types** (`A & B & C`) for intersection types
+- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution
+- **New stdlib modules** - `@stdlib/signal`, `@stdlib/atomic`, `@stdlib/debug`, `@stdlib/ffi`
+- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros
 - Full type system with 64-bit integers and Unicode support
+- Pattern matching with destructuring, guards, and rest syntax
+- Expression-bodied functions, type aliases, named arguments, null coalescing
 - Manual memory management with safe and unsafe options
 - Async/await with true pthread parallelism
-- Atomic operations for lock-free concurrent programming
-- 41 stdlib modules
+- 46 stdlib modules
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - Compiler backend (C code generation) with 100% interpreter parity
 - LSP server with go-to-definition and find-references

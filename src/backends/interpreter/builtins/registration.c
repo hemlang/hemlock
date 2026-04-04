@@ -253,7 +253,7 @@ static BuiltinInfo builtins[] = {
     {"ptr_read_f32", builtin_ptr_read_f32},
     {"ptr_read_f64", builtin_ptr_read_f64},
     // FFI utility functions
-    {"ffi_sizeof", builtin_ffi_sizeof},
+    {"__ffi_sizeof", builtin_ffi_sizeof},
     {"ptr_to_buffer", builtin_ptr_to_buffer},
     {"buffer_ptr", builtin_buffer_ptr},
     {"ptr_null", builtin_ptr_null},
