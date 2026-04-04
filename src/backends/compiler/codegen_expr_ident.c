@@ -242,7 +242,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__getegid") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_getegid, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
     // Handle process functions (builtins)
@@ -434,6 +434,29 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_socket_create, 3, 3, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__poll") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_poll, 2, 2, 0);", result);
+    // File I/O builtins
+    } else if (strcmp(expr->as.ident.name, "__open") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_open, 2, 2, 0);", result);
+    // Debug builtins
+    } else if (strcmp(expr->as.ident.name, "__task_debug_info") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_task_debug_info, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__set_stack_limit") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_set_stack_limit, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__get_stack_limit") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_stack_limit, 0, 0, 0);", result);
+    // FFI builtins
+    } else if (strcmp(expr->as.ident.name, "__callback") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__callback_free") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback_free, 1, 1, 0);", result);
+    // String builtins
+    } else if (strcmp(expr->as.ident.name, "__string_concat_many") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_string_concat_many, 1, 1, 0);", result);
+    // Exec builtins
+    } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
     // Atomic operations (i32)
     } else if (strcmp(expr->as.ident.name, "atomic_load_i32") == 0 || strcmp(expr->as.ident.name, "__atomic_load_i32") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_load_i32, 1, 1, 0);", result);

@@ -19,7 +19,14 @@ export let wait = __wait;
 export let waitpid = __waitpid;
 
 // Command execution
-export let exec = __exec;
+// exec(command) - run shell command
+// exec(command, args) - run command with args array (no shell, safe)
+export fn exec(cmd, args?: null) {
+    if (args == null) {
+        return __exec(cmd);
+    }
+    return __exec(cmd, args);
+}
 
 // Safe command execution (no shell, captures stderr)
 // Takes array of strings: ["command", "arg1", "arg2", ...]
