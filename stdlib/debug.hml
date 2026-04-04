@@ -1,0 +1,6 @@
+// Hemlock Standard Library: Debug Utilities
+// Task inspection and stack management
+
+export let task_debug_info = __task_debug_info;
+export let set_stack_limit = __set_stack_limit;
+export let get_stack_limit = __get_stack_limit;

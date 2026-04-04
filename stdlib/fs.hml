@@ -2,6 +2,7 @@
 // This module provides high-level file and directory operations
 
 // ========== FILE OPERATIONS ==========
+export let open = __open;
 export let exists = __exists;
 export let read_file = __read_file;
 export let write_file = __write_file;

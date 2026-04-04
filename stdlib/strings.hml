@@ -598,3 +598,9 @@ export fn truncate(str, max_len, suffix?: "..."): string {
 
 	return str.slice(0, cut_len) + suf;
 }
+
+// ============================================================================
+// Low-level String Operations
+// ============================================================================
+
+export let string_concat_many = __string_concat_many;

@@ -1,0 +1,5 @@
+// Hemlock Standard Library: FFI Utilities
+// Foreign Function Interface callback management
+
+export let callback = __callback;
+export let callback_free = __callback_free;
