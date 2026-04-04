@@ -101,6 +101,8 @@ static void* task_thread_wrapper(void* arg) {
     HmlTask *task = (HmlTask*)arg;
 
     // Set thread name if provided (must be called from within the thread for macOS)
+    // Not available in Emscripten/WASM
+#ifndef __EMSCRIPTEN__
     if (task->name) {
         char name_buf[16];
         snprintf(name_buf, sizeof(name_buf), "%s", task->name);
@@ -110,6 +112,7 @@ static void* task_thread_wrapper(void* arg) {
         pthread_setname_np(pthread_self(), name_buf);
 #endif
     }
+#endif
 
     // Mark as running
     pthread_mutex_lock(&task->sync->mutex);
