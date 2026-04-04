@@ -100,6 +100,17 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 static void* task_thread_wrapper(void* arg) {
     HmlTask *task = (HmlTask*)arg;
 
+    // Set thread name if provided (must be called from within the thread for macOS)
+    if (task->name) {
+        char name_buf[16];
+        snprintf(name_buf, sizeof(name_buf), "%s", task->name);
+#ifdef __APPLE__
+        pthread_setname_np(name_buf);
+#else
+        pthread_setname_np(pthread_self(), name_buf);
+#endif
+    }
+
     // Mark as running
     pthread_mutex_lock(&task->sync->mutex);
     task->state = HML_TASK_RUNNING;
@@ -276,13 +287,6 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
     pthread_attr_setstacksize(&attr, stack_size);
     pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
-
-    // Set thread name if provided (best-effort, 16 char limit on Linux)
-    if (thread_name) {
-        char name_buf[16];
-        snprintf(name_buf, sizeof(name_buf), "%s", thread_name);
-        pthread_setname_np(task->sync->thread, name_buf);
-    }
 
     HmlValue result;
     result.type = HML_VAL_TASK;

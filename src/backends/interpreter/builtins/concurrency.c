@@ -19,6 +19,17 @@ static void* task_thread_wrapper(void* arg) {
     sigfillset(&set);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
 
+    // Set thread name if provided (must be called from within the thread for macOS)
+    if (task->name) {
+        char name_buf[16];
+        snprintf(name_buf, sizeof(name_buf), "%s", task->name);
+#ifdef __APPLE__
+        pthread_setname_np(name_buf);
+#else
+        pthread_setname_np(pthread_self(), name_buf);
+#endif
+    }
+
     // Mark as running (thread-safe)
     pthread_mutex_lock((pthread_mutex_t*)task->task_mutex);
     task->state = TASK_RUNNING;
@@ -266,13 +277,6 @@ Value builtin_spawn_with(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "Failed to create thread: %d", rc);
         task_release(task);
         return val_null();
-    }
-
-    // Set thread name if provided (best-effort, 16 char limit on Linux)
-    if (thread_name) {
-        char name_buf[16];
-        snprintf(name_buf, sizeof(name_buf), "%s", thread_name);
-        pthread_setname_np(*(pthread_t*)task->thread, name_buf);
     }
 
     return val_task(task);
