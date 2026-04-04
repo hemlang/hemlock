@@ -1,4 +1,5 @@
 // Test advanced type alias features
+import { sqrt } from "@stdlib/math";
 
 // 1. Async function type alias
 type AsyncCompute = async fn(i32): i32;

@@ -1,6 +1,7 @@
 // Test: Sequential spawns with deep call stacks (thread stack overflow regression)
 // Verifies that spawned threads have enough stack for deeply recursive calls
 // across multiple sequential spawn-join cycles.
+import { divi } from "@stdlib/math";
 
 fn deep_call(depth: i32, acc: i32): i32 {
     if (depth <= 0) {

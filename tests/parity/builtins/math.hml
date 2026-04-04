@@ -1,4 +1,5 @@
 // Test math builtins
+import { floor, ceil, round, floori, ceili, roundi, trunci, sqrt, pow, sin, cos } from "@stdlib/math";
 
 // Floor, ceil, round
 print(floor(3.7));
