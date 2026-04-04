@@ -494,8 +494,100 @@ Common errors:
 
 ---
 
+## Low-Level Socket Functions
+
+As of v2.0.0, the following low-level networking functions and constants are exported from `@stdlib/net`. These were previously available as global builtins.
+
+### socket_create(domain, type, protocol)
+
+Creates a raw socket file descriptor.
+
+**Parameters:**
+- `domain: i32` - Address family (e.g., `AF_INET`)
+- `type: i32` - Socket type (e.g., `SOCK_STREAM`, `SOCK_DGRAM`)
+- `protocol: i32` - Protocol (usually `0`)
+
+**Returns:** `i32` - Socket file descriptor
+
+```hemlock
+import { socket_create, AF_INET, SOCK_STREAM } from "@stdlib/net";
+
+let fd = socket_create(AF_INET, SOCK_STREAM, 0);
+```
+
+### dns_resolve(hostname)
+
+Resolves a hostname to an IPv4 address string.
+
+**Parameters:**
+- `hostname: string` - Hostname to resolve
+
+**Returns:** `string` - IPv4 address (e.g., `"93.184.216.34"`)
+
+```hemlock
+import { dns_resolve } from "@stdlib/net";
+
+let ip = dns_resolve("example.com");
+print(ip);  // "93.184.216.34"
+```
+
+### poll(fds, nfds, timeout)
+
+Polls file descriptors for events.
+
+**Parameters:**
+- `fds: ptr` - Pointer to array of pollfd structs
+- `nfds: i32` - Number of file descriptors
+- `timeout: i32` - Timeout in milliseconds (-1 for infinite)
+
+**Returns:** `i32` - Number of ready file descriptors, 0 on timeout, -1 on error
+
+```hemlock
+import { poll, POLLIN } from "@stdlib/net";
+```
+
+## Socket and Poll Constants
+
+The following constants are exported from `@stdlib/net`:
+
+### Address Families
+
+| Constant | Description |
+|----------|-------------|
+| `AF_INET` | IPv4 Internet protocols |
+
+### Socket Types
+
+| Constant | Description |
+|----------|-------------|
+| `SOCK_STREAM` | TCP stream socket |
+| `SOCK_DGRAM` | UDP datagram socket |
+
+### Socket Options
+
+| Constant | Description |
+|----------|-------------|
+| `SO_REUSEADDR` | Allow address reuse |
+
+### Poll Event Flags
+
+| Constant | Description |
+|----------|-------------|
+| `POLLIN` | Data available to read |
+| `POLLOUT` | Writing is possible |
+| `POLLERR` | Error condition |
+| `POLLHUP` | Hang up |
+
+```hemlock
+import {
+    socket_create, dns_resolve, poll,
+    AF_INET, SOCK_STREAM, SOCK_DGRAM,
+    SO_REUSEADDR, POLLIN, POLLOUT, POLLERR, POLLHUP
+} from "@stdlib/net";
+```
+
+---
+
 ## See Also
 
-- Low-level socket builtins: `socket_create()`, `dns_resolve()`
-- Socket constants: `AF_INET`, `SOCK_STREAM`, `SOCK_DGRAM`, `SO_REUSEADDR`
 - Related modules: `@stdlib/http`, `@stdlib/websocket` (coming soon)

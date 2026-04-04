@@ -360,6 +360,102 @@ let result3 = trunc(5.0);  // 5.0
 
 ---
 
+## Division Functions
+
+### div(a, b)
+Returns the floating-point division of a by b. Equivalent to the `/` operator.
+
+**Parameters:**
+- `a: number` - Dividend
+- `b: number` - Divisor
+
+**Returns:** `f64` - Floating-point result
+
+```hemlock
+import { div } from "@stdlib/math";
+
+let result = div(7, 2);  // 3.5
+```
+
+### divi(a, b)
+Returns the integer division of a by b (truncates toward zero).
+
+**Parameters:**
+- `a: number` - Dividend
+- `b: number` - Divisor
+
+**Returns:** `i32` or `i64` - Integer result (truncated toward zero)
+
+```hemlock
+import { divi } from "@stdlib/math";
+
+let result = divi(7, 2);    // 3
+let result2 = divi(-7, 2);  // -3
+```
+
+### floori(x)
+Returns the floor of x as an integer (rounds toward negative infinity).
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `i32` or `i64` - Integer floor
+
+```hemlock
+import { floori } from "@stdlib/math";
+
+let result = floori(3.7);   // 3
+let result2 = floori(-2.3); // -3
+```
+
+### ceili(x)
+Returns the ceiling of x as an integer (rounds toward positive infinity).
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `i32` or `i64` - Integer ceiling
+
+```hemlock
+import { ceili } from "@stdlib/math";
+
+let result = ceili(3.2);   // 4
+let result2 = ceili(-2.7); // -2
+```
+
+### roundi(x)
+Returns x rounded to the nearest integer. Halfway cases round away from zero.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `i32` or `i64` - Rounded integer
+
+```hemlock
+import { roundi } from "@stdlib/math";
+
+let result = roundi(3.5);   // 4
+let result2 = roundi(3.4);  // 3
+let result3 = roundi(-2.5); // -3
+```
+
+### trunci(x)
+Returns the integer part of x (truncates toward zero). Same as `divi(x, 1)`.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `i32` or `i64` - Truncated integer
+
+```hemlock
+import { trunci } from "@stdlib/math";
+
+let result = trunci(3.7);   // 3
+let result2 = trunci(-2.9); // -2
+```
+
+---
+
 ## Utility Functions
 
 ### abs(x)

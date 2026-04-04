@@ -14,7 +14,7 @@ The signal module provides named constants for POSIX signals, organized into fou
 ## Usage
 
 ```hemlock
-import { SIGINT, SIGTERM } from "@stdlib/signal";
+import { signal, raise, SIGINT, SIGTERM } from "@stdlib/signal";
 
 signal(SIGINT, fn(sig) {
     print("Caught interrupt signal");
@@ -26,9 +26,60 @@ Or import all:
 ```hemlock
 import * as sig from "@stdlib/signal";
 
-signal(sig.SIGINT, fn(s) {
+sig.signal(sig.SIGINT, fn(s) {
     print("Interrupted");
 });
+```
+
+---
+
+## Signal Functions
+
+As of v2.0.0, the `signal()` and `raise()` functions are exported from this module.
+
+### signal(signum, handler)
+
+Register a signal handler function.
+
+**Parameters:**
+- `signum: i32` - Signal number (use constants like `SIGINT`, `SIGTERM`)
+- `handler: function | null` - Function to call when signal is received, or `null` to reset to default
+
+**Returns:** The previous handler function (or `null` if none was registered)
+
+```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
+fn my_handler(sig) {
+    print("Caught signal: " + typeof(sig));
+}
+
+let old = signal(SIGINT, my_handler);
+
+// Reset to default behavior
+signal(SIGINT, null);
+```
+
+### raise(signum)
+
+Send a signal to the current process.
+
+**Parameters:**
+- `signum: i32` - Signal number to send
+
+**Returns:** `null`
+
+```hemlock
+import { signal, raise, SIGUSR1 } from "@stdlib/signal";
+
+let count = 0;
+
+signal(SIGUSR1, fn(sig) {
+    count = count + 1;
+});
+
+raise(SIGUSR1);
+print(count);  // 1
 ```
 
 ---
@@ -151,7 +202,7 @@ Background write signal. Sent to a background process that attempts to write to 
 ### Graceful Shutdown on Ctrl+C
 
 ```hemlock
-import { SIGINT, SIGTERM } from "@stdlib/signal";
+import { signal, SIGINT, SIGTERM } from "@stdlib/signal";
 
 let running = true;
 
@@ -173,7 +224,7 @@ print("Cleanup complete");
 ### Configuration Reload with SIGHUP
 
 ```hemlock
-import { SIGHUP } from "@stdlib/signal";
+import { signal, SIGHUP } from "@stdlib/signal";
 
 let config = { timeout: 30, debug: false };
 
@@ -195,7 +246,7 @@ while (true) {
 ### Inter-Process Communication with SIGUSR1
 
 ```hemlock
-import { SIGUSR1 } from "@stdlib/signal";
+import { signal, SIGUSR1 } from "@stdlib/signal";
 import { get_pid } from "@stdlib/env";
 
 let event_count = 0;
@@ -217,7 +268,7 @@ while (true) {
 ### Raising Signals
 
 ```hemlock
-import { SIGUSR1, SIGUSR2 } from "@stdlib/signal";
+import { signal, raise, SIGUSR1, SIGUSR2 } from "@stdlib/signal";
 
 let state = "idle";
 
@@ -242,7 +293,7 @@ print("Current state: " + state);
 ### Ignoring SIGPIPE for Network Servers
 
 ```hemlock
-import { SIGPIPE } from "@stdlib/signal";
+import { signal, SIGPIPE } from "@stdlib/signal";
 
 // Ignore broken pipe errors (common in network servers)
 signal(SIGPIPE, fn(sig) {
@@ -256,7 +307,7 @@ signal(SIGPIPE, fn(sig) {
 ### Timeout with SIGALRM
 
 ```hemlock
-import { SIGALRM } from "@stdlib/signal";
+import { signal, raise, SIGALRM } from "@stdlib/signal";
 
 let timed_out = false;
 
@@ -277,7 +328,7 @@ if (timed_out) {
 
 ## Notes
 
-- `signal()` and `raise()` are global built-in functions and do not need to be imported from this module. Only the signal constants (SIGINT, SIGTERM, etc.) require importing.
+- As of v2.0.0, `signal()` and `raise()` must be imported from `@stdlib/signal` along with the signal constants. Previously, they were available as global builtins.
 - Signal constants are integer values matching POSIX definitions on the host platform.
 - SIGSTOP cannot be caught, blocked, or ignored. Registering a handler for SIGSTOP has no effect.
 - Signal handlers should be kept short and simple. Avoid allocating memory or performing complex operations inside handlers.
