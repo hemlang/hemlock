@@ -10,6 +10,7 @@
 
 int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                          Expr *callee, Expr **call_args, int num_args) {
+    (void)expr;
     if (callee->type != EXPR_GET_PROPERTY) {
         return 0;
     }

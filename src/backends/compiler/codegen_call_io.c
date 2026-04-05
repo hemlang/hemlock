@@ -8,6 +8,7 @@
 
 int codegen_call_io(CodegenContext *ctx, Expr *expr, char *result,
                     const char *func_name, Expr **call_args, int num_args) {
+    (void)expr;
 
     // Handle print builtin (supports any number of arguments)
     if (strcmp(func_name, "print") == 0 && num_args >= 1) {

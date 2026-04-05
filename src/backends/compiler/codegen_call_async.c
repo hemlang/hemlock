@@ -9,6 +9,7 @@
 
 int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
                        const char *func_name, Expr **call_args, int num_args) {
+    (void)expr;
 
     // Handle spawn builtin for async
     if (strcmp(func_name, "spawn") == 0 && num_args >= 1) {
