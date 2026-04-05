@@ -130,6 +130,51 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLNVAL);", result);
     } else if (strcmp(expr->as.ident.name, "__POLLPRI") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLPRI);", result);
+    // Handle TYPEID constants for typeid() builtin
+    } else if (strcmp(expr->as.ident.name, "TYPEID_I8") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_I16") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(1);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_I32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(2);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_I64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(3);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_U8") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(4);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_U16") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(5);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_U32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(6);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_U64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(7);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_F32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(8);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_F64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(9);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_BOOL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(10);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_STRING") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(11);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_RUNE") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(12);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_PTR") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(13);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_BUFFER") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(14);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_ARRAY") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(15);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_OBJECT") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(16);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_FILE") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(17);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_FUNCTION") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(18);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_TASK") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(19);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_CHANNEL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(20);", result);
+    } else if (strcmp(expr->as.ident.name, "TYPEID_NULL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(21);", result);
     // Handle math constants (builtins)
     } else if (strcmp(expr->as.ident.name, "__PI") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_f64(3.14159265358979323846);", result);

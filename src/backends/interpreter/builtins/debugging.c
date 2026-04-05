@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "hemlock_limits.h"
 
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
     (void)ctx;  // Unused
@@ -92,6 +93,45 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(type_name);
+}
+
+Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)ctx;  // Unused
+    if (num_args != 1) {
+        fprintf(stderr, "Runtime error: typeid() expects 1 argument\n");
+        exit(1);
+    }
+
+    int32_t tid;
+    switch (args[0].type) {
+        case VAL_I8:         tid = HML_TYPEID_I8; break;
+        case VAL_I16:        tid = HML_TYPEID_I16; break;
+        case VAL_I32:        tid = HML_TYPEID_I32; break;
+        case VAL_I64:        tid = HML_TYPEID_I64; break;
+        case VAL_U8:         tid = HML_TYPEID_U8; break;
+        case VAL_U16:        tid = HML_TYPEID_U16; break;
+        case VAL_U32:        tid = HML_TYPEID_U32; break;
+        case VAL_U64:        tid = HML_TYPEID_U64; break;
+        case VAL_F32:        tid = HML_TYPEID_F32; break;
+        case VAL_F64:        tid = HML_TYPEID_F64; break;
+        case VAL_BOOL:       tid = HML_TYPEID_BOOL; break;
+        case VAL_STRING:     tid = HML_TYPEID_STRING; break;
+        case VAL_RUNE:       tid = HML_TYPEID_RUNE; break;
+        case VAL_PTR:        tid = HML_TYPEID_PTR; break;
+        case VAL_BUFFER:     tid = HML_TYPEID_BUFFER; break;
+        case VAL_ARRAY:      tid = HML_TYPEID_ARRAY; break;
+        case VAL_OBJECT:     tid = HML_TYPEID_OBJECT; break;
+        case VAL_FILE:       tid = HML_TYPEID_FILE; break;
+        case VAL_FUNCTION:   tid = HML_TYPEID_FUNCTION; break;
+        case VAL_BUILTIN_FN: tid = HML_TYPEID_FUNCTION; break;
+        case VAL_FFI_FUNCTION: tid = HML_TYPEID_FUNCTION; break;
+        case VAL_TASK:       tid = HML_TYPEID_TASK; break;
+        case VAL_CHANNEL:    tid = HML_TYPEID_CHANNEL; break;
+        case VAL_NULL:       tid = HML_TYPEID_NULL; break;
+        default:             tid = HML_TYPEID_NULL; break;
+    }
+
+    return val_i32(tid);
 }
 
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {

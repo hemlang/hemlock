@@ -1058,6 +1058,36 @@ const char* hml_type_name(HmlValueType type) {
     }
 }
 
+int32_t hml_typeid(HmlValue val) {
+    switch (val.type) {
+        case HML_VAL_I8:         return 0;   /* HML_TYPEID_I8 */
+        case HML_VAL_I16:        return 1;   /* HML_TYPEID_I16 */
+        case HML_VAL_I32:        return 2;   /* HML_TYPEID_I32 */
+        case HML_VAL_I64:        return 3;   /* HML_TYPEID_I64 */
+        case HML_VAL_U8:         return 4;   /* HML_TYPEID_U8 */
+        case HML_VAL_U16:        return 5;   /* HML_TYPEID_U16 */
+        case HML_VAL_U32:        return 6;   /* HML_TYPEID_U32 */
+        case HML_VAL_U64:        return 7;   /* HML_TYPEID_U64 */
+        case HML_VAL_F32:        return 8;   /* HML_TYPEID_F32 */
+        case HML_VAL_F64:        return 9;   /* HML_TYPEID_F64 */
+        case HML_VAL_BOOL:       return 10;  /* HML_TYPEID_BOOL */
+        case HML_VAL_STRING:     return 11;  /* HML_TYPEID_STRING */
+        case HML_VAL_RUNE:       return 12;  /* HML_TYPEID_RUNE */
+        case HML_VAL_PTR:        return 13;  /* HML_TYPEID_PTR */
+        case HML_VAL_BUFFER:     return 14;  /* HML_TYPEID_BUFFER */
+        case HML_VAL_ARRAY:      return 15;  /* HML_TYPEID_ARRAY */
+        case HML_VAL_OBJECT:     return 16;  /* HML_TYPEID_OBJECT */
+        case HML_VAL_FILE:       return 17;  /* HML_TYPEID_FILE */
+        case HML_VAL_FUNCTION:   return 18;  /* HML_TYPEID_FUNCTION */
+        case HML_VAL_BUILTIN_FN: return 18;  /* HML_TYPEID_FUNCTION */
+        case HML_VAL_TASK:       return 19;  /* HML_TYPEID_TASK */
+        case HML_VAL_CHANNEL:    return 20;  /* HML_TYPEID_CHANNEL */
+        case HML_VAL_SOCKET:     return 16;  /* HML_TYPEID_OBJECT (socket is object-like) */
+        case HML_VAL_NULL:       return 21;  /* HML_TYPEID_NULL */
+        default:                 return 21;  /* HML_TYPEID_NULL */
+    }
+}
+
 const char* hml_typeof_str(HmlValue val) {
     // For objects with custom type names
     if (val.type == HML_VAL_OBJECT && val.as.as_object && val.as.as_object->type_name) {

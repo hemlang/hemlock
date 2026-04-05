@@ -244,4 +244,34 @@
 // Compiler inlining limits
 #define HML_MAX_INLINE_DEPTH 3  // Maximum nesting depth for function inlining
 
+// ========== TYPEID CONSTANTS ==========
+
+// Stable type identifiers returned by the typeid() builtin.
+// These are fixed integers guaranteed to be the same across both
+// the interpreter and compiler backends (unlike internal enum values
+// which may differ). Use with typeid() for fast integer-based type
+// detection instead of typeof() string comparisons.
+#define HML_TYPEID_I8        0
+#define HML_TYPEID_I16       1
+#define HML_TYPEID_I32       2
+#define HML_TYPEID_I64       3
+#define HML_TYPEID_U8        4
+#define HML_TYPEID_U16       5
+#define HML_TYPEID_U32       6
+#define HML_TYPEID_U64       7
+#define HML_TYPEID_F32       8
+#define HML_TYPEID_F64       9
+#define HML_TYPEID_BOOL     10
+#define HML_TYPEID_STRING   11
+#define HML_TYPEID_RUNE     12
+#define HML_TYPEID_PTR      13
+#define HML_TYPEID_BUFFER   14
+#define HML_TYPEID_ARRAY    15
+#define HML_TYPEID_OBJECT   16
+#define HML_TYPEID_FILE     17
+#define HML_TYPEID_FUNCTION 18
+#define HML_TYPEID_TASK     19
+#define HML_TYPEID_CHANNEL  20
+#define HML_TYPEID_NULL     21
+
 #endif // HEMLOCK_LIMITS_H

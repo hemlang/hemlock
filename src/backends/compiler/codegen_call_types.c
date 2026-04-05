@@ -19,6 +19,15 @@ int codegen_call_types(CodegenContext *ctx, Expr *expr, char *result,
         return 1;
     }
 
+    // Handle typeid builtin
+    if (strcmp(func_name, "typeid") == 0 && num_args == 1) {
+        char *arg = codegen_expr(ctx, call_args[0]);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(hml_typeid(%s));", result, arg);
+        codegen_writeln(ctx, "hml_release(&%s);", arg);
+        free(arg);
+        return 1;
+    }
+
     // Handle type constructor calls: i32("42"), f64("3.14"), bool("true"), etc.
     if (num_args == 1) {
         HmlValueType target_type = (HmlValueType)-1;

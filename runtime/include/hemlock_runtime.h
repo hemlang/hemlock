@@ -111,6 +111,7 @@ HmlValue hml_builtin_eprint(HmlClosureEnv *env, HmlValue val);
 
 // Type checking
 const char* hml_typeof(HmlValue val);
+int32_t hml_typeid(HmlValue val);
 void hml_check_type(HmlValue val, HmlValueType expected, const char *var_name);
 int hml_values_equal(HmlValue left, HmlValue right);
 

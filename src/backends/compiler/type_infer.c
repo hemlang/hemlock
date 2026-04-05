@@ -200,6 +200,7 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
 
                 // Built-in functions
                 if (strcmp(name, "typeof") == 0) return checked_type_primitive(CHECKED_STRING);
+                if (strcmp(name, "typeid") == 0) return checked_type_primitive(CHECKED_I32);
                 if (strcmp(name, "len") == 0) return checked_type_primitive(CHECKED_I32);
                 if (strcmp(name, "alloc") == 0) return checked_type_primitive(CHECKED_PTR);
                 if (strcmp(name, "buffer") == 0) return checked_type_primitive(CHECKED_BUFFER);
