@@ -557,7 +557,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (46 modules)
+## Standard Library (47 modules)
 
 Import with `@stdlib/` prefix:
 ```hemlock
@@ -574,6 +574,7 @@ import { TcpStream, UdpSocket } from "@stdlib/net";
 | `assert` | Assertion utilities |
 | `async` | ThreadPool, parallel_map |
 | `atomic` | Atomic operations (load, store, add, CAS, fence) |
+| `bytes` | Byte order utils (bswap, hton/ntoh, endian-aware I/O) |
 | `async_fs` | Async file I/O operations |
 | `collections` | HashMap, Queue, Stack, Set, LinkedList, LRUCache |
 | `compression` | gzip, gunzip, deflate |
@@ -927,6 +928,7 @@ make parity
 - **New `@stdlib/atomic` module** - All atomic operations (load, store, add, sub, and, or, xor, cas, exchange for i32/i64 + fence)
 - **New `@stdlib/debug` module** - Task inspection (task_debug_info) and stack management (set_stack_limit, get_stack_limit)
 - **New `@stdlib/ffi` module** - FFI callback management (callback, callback_free)
+- **New `@stdlib/bytes` module** - Byte order utilities (bswap16/32/64, htons/htonl/htonll, ntohs/ntohl/ntohll, is_little_endian, endian-aware buffer read/write)
 - **`open()` moved to `@stdlib/fs`** - File open now requires `import { open } from "@stdlib/fs"`
 - **`exec()`/`exec_argv()` moved to `@stdlib/process`** - Command execution now requires process module import
 
@@ -1014,7 +1016,7 @@ make parity
 - Manual memory management with `talloc()` and `sizeof()`
 - Async/await with true pthread parallelism
 - Atomic operations for lock-free concurrent programming
-- 43 stdlib modules (+ arena, assert, semver, toml, retry, iter, random, shell, signal, termios, vector)
+- 44 stdlib modules (+ arena, assert, bytes, semver, toml, retry, iter, random, shell, signal, termios, vector)
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - FFI struct support in compiler (pass C structs by value)
 - FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)
