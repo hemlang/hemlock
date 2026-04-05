@@ -18,11 +18,17 @@ int variable_escapes_in_expr_internal(Expr *expr, const char *var_name) {
             return 0;
 
         case EXPR_CALL:
-            // If variable is passed to a function, it escapes
+            // Passing a variable as a function argument does NOT escape it for
+            // unboxing purposes. Hemlock passes primitives by value — the codegen
+            // boxes the value (e.g., hml_val_i32(var)) when passing to a function,
+            // so the function receives a copy. The unboxed local is not exposed.
+            // We still need to check if the variable escapes within complex
+            // argument expressions (e.g., func({field: var}) would escape).
             for (int i = 0; i < expr->as.call.num_args; i++) {
                 Expr *arg = expr->as.call.args[i];
+                // Simple identifier as argument - safe, will be boxed at call site
                 if (arg->type == EXPR_IDENT && strcmp(arg->as.ident.name, var_name) == 0) {
-                    return 1;  // Variable passed to function - escapes
+                    continue;  // Not an escape - value is copied/boxed
                 }
                 if (variable_escapes_in_expr_internal(arg, var_name)) return 1;
             }
