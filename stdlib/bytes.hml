@@ -1,0 +1,36 @@
+// Hemlock Standard Library: Byte Order Utilities
+// Byte swapping, endianness conversion, and endian-aware buffer I/O
+
+// Byte swap functions
+export let bswap16 = __bswap16;
+export let bswap32 = __bswap32;
+export let bswap64 = __bswap64;
+
+// Host to network byte order (big-endian)
+export let htons = __htons;
+export let htonl = __htonl;
+export let htonll = __htonll;
+
+// Network to host byte order
+export let ntohs = __ntohs;
+export let ntohl = __ntohl;
+export let ntohll = __ntohll;
+
+// Endianness query
+export let is_little_endian = __is_little_endian;
+
+// Endian-aware buffer read
+export let read_u16_be = __read_u16_be;
+export let read_u16_le = __read_u16_le;
+export let read_u32_be = __read_u32_be;
+export let read_u32_le = __read_u32_le;
+export let read_u64_be = __read_u64_be;
+export let read_u64_le = __read_u64_le;
+
+// Endian-aware buffer write
+export let write_u16_be = __write_u16_be;
+export let write_u16_le = __write_u16_le;
+export let write_u32_be = __write_u32_be;
+export let write_u32_le = __write_u32_le;
+export let write_u64_be = __write_u64_be;
+export let write_u64_le = __write_u64_le;

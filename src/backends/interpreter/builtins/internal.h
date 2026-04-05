@@ -331,6 +331,30 @@ Value builtin_atomic_exchange_i64(Value *args, int num_args, ExecutionContext *c
 // Memory fence
 Value builtin_atomic_fence(Value *args, int num_args, ExecutionContext *ctx);
 
+// Byte order builtins (byteorder.c)
+Value builtin_bswap16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_bswap32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_bswap64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_htons(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_htonl(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_htonll(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ntohs(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ntohl(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ntohll(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_is_little_endian(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u16_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u16_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u32_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u32_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u64_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u64_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u16_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u16_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u32_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx);
+
 // Regex builtins (regex.c)
 Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx);

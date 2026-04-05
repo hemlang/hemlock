@@ -846,6 +846,257 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== BYTE ORDER OPERATIONS ==========
+
+        // bswap16(val) -> u16
+        if ((strcmp(fn_name, "bswap16") == 0 || strcmp(fn_name, "__bswap16") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_bswap16(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // bswap32(val) -> u32
+        if ((strcmp(fn_name, "bswap32") == 0 || strcmp(fn_name, "__bswap32") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_bswap32(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // bswap64(val) -> u64
+        if ((strcmp(fn_name, "bswap64") == 0 || strcmp(fn_name, "__bswap64") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_bswap64(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // htons(val) -> u16
+        if ((strcmp(fn_name, "htons") == 0 || strcmp(fn_name, "__htons") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_htons(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // htonl(val) -> u32
+        if ((strcmp(fn_name, "htonl") == 0 || strcmp(fn_name, "__htonl") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_htonl(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // htonll(val) -> u64
+        if ((strcmp(fn_name, "htonll") == 0 || strcmp(fn_name, "__htonll") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_htonll(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // ntohs(val) -> u16
+        if ((strcmp(fn_name, "ntohs") == 0 || strcmp(fn_name, "__ntohs") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ntohs(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // ntohl(val) -> u32
+        if ((strcmp(fn_name, "ntohl") == 0 || strcmp(fn_name, "__ntohl") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ntohl(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // ntohll(val) -> u64
+        if ((strcmp(fn_name, "ntohll") == 0 || strcmp(fn_name, "__ntohll") == 0) && expr->as.call.num_args == 1) {
+            char *val = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_ntohll(NULL, %s);", result, val);
+            codegen_writeln(ctx, "hml_release(&%s);", val);
+            free(val);
+            return result;
+        }
+
+        // is_little_endian() -> bool
+        if ((strcmp(fn_name, "is_little_endian") == 0 || strcmp(fn_name, "__is_little_endian") == 0) && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_is_little_endian(NULL);", result);
+            return result;
+        }
+
+        // read_u16_be(ptr, offset) -> u16
+        if ((strcmp(fn_name, "read_u16_be") == 0 || strcmp(fn_name, "__read_u16_be") == 0) && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_read_u16_be(NULL, %s, %s);", result, ptr, offset);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            free(ptr);
+            free(offset);
+            return result;
+        }
+
+        // read_u16_le(ptr, offset) -> u16
+        if ((strcmp(fn_name, "read_u16_le") == 0 || strcmp(fn_name, "__read_u16_le") == 0) && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_read_u16_le(NULL, %s, %s);", result, ptr, offset);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            free(ptr);
+            free(offset);
+            return result;
+        }
+
+        // read_u32_be(ptr, offset) -> u32
+        if ((strcmp(fn_name, "read_u32_be") == 0 || strcmp(fn_name, "__read_u32_be") == 0) && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_read_u32_be(NULL, %s, %s);", result, ptr, offset);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            free(ptr);
+            free(offset);
+            return result;
+        }
+
+        // read_u32_le(ptr, offset) -> u32
+        if ((strcmp(fn_name, "read_u32_le") == 0 || strcmp(fn_name, "__read_u32_le") == 0) && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_read_u32_le(NULL, %s, %s);", result, ptr, offset);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            free(ptr);
+            free(offset);
+            return result;
+        }
+
+        // read_u64_be(ptr, offset) -> u64
+        if ((strcmp(fn_name, "read_u64_be") == 0 || strcmp(fn_name, "__read_u64_be") == 0) && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_read_u64_be(NULL, %s, %s);", result, ptr, offset);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            free(ptr);
+            free(offset);
+            return result;
+        }
+
+        // read_u64_le(ptr, offset) -> u64
+        if ((strcmp(fn_name, "read_u64_le") == 0 || strcmp(fn_name, "__read_u64_le") == 0) && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_read_u64_le(NULL, %s, %s);", result, ptr, offset);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            free(ptr);
+            free(offset);
+            return result;
+        }
+
+        // write_u16_be(ptr, offset, value)
+        if ((strcmp(fn_name, "write_u16_be") == 0 || strcmp(fn_name, "__write_u16_be") == 0) && expr->as.call.num_args == 3) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            char *value = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_write_u16_be(NULL, %s, %s, %s);", result, ptr, offset, value);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(ptr);
+            free(offset);
+            free(value);
+            return result;
+        }
+
+        // write_u16_le(ptr, offset, value)
+        if ((strcmp(fn_name, "write_u16_le") == 0 || strcmp(fn_name, "__write_u16_le") == 0) && expr->as.call.num_args == 3) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            char *value = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_write_u16_le(NULL, %s, %s, %s);", result, ptr, offset, value);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(ptr);
+            free(offset);
+            free(value);
+            return result;
+        }
+
+        // write_u32_be(ptr, offset, value)
+        if ((strcmp(fn_name, "write_u32_be") == 0 || strcmp(fn_name, "__write_u32_be") == 0) && expr->as.call.num_args == 3) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            char *value = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_write_u32_be(NULL, %s, %s, %s);", result, ptr, offset, value);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(ptr);
+            free(offset);
+            free(value);
+            return result;
+        }
+
+        // write_u32_le(ptr, offset, value)
+        if ((strcmp(fn_name, "write_u32_le") == 0 || strcmp(fn_name, "__write_u32_le") == 0) && expr->as.call.num_args == 3) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            char *value = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_write_u32_le(NULL, %s, %s, %s);", result, ptr, offset, value);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(ptr);
+            free(offset);
+            free(value);
+            return result;
+        }
+
+        // write_u64_be(ptr, offset, value)
+        if ((strcmp(fn_name, "write_u64_be") == 0 || strcmp(fn_name, "__write_u64_be") == 0) && expr->as.call.num_args == 3) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            char *value = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_write_u64_be(NULL, %s, %s, %s);", result, ptr, offset, value);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(ptr);
+            free(offset);
+            free(value);
+            return result;
+        }
+
+        // write_u64_le(ptr, offset, value)
+        if ((strcmp(fn_name, "write_u64_le") == 0 || strcmp(fn_name, "__write_u64_le") == 0) && expr->as.call.num_args == 3) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *offset = codegen_expr(ctx, expr->as.call.args[1]);
+            char *value = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_write_u64_le(NULL, %s, %s, %s);", result, ptr, offset, value);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", offset);
+            codegen_writeln(ctx, "hml_release(&%s);", value);
+            free(ptr);
+            free(offset);
+            free(value);
+            return result;
+        }
+
         // ffi_sizeof(type_name) -> i32
         if ((strcmp(fn_name, "ffi_sizeof") == 0 || strcmp(fn_name, "__ffi_sizeof") == 0) && expr->as.call.num_args == 1) {
             char *type_name = codegen_expr(ctx, expr->as.call.args[0]);
