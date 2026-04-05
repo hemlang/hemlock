@@ -379,7 +379,7 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
     int size = value_to_int(args[0]);
     if (size <= 0) {
         // Return empty buffer
-        Buffer *buf = malloc(sizeof(Buffer));
+        Buffer *buf = calloc(1, sizeof(Buffer));
         if (!buf) {
             return throw_runtime_error(ctx, "Memory allocation failed for buffer");
         }
@@ -415,7 +415,7 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
     if (received == 0) {
         free(data);
         // Return empty buffer to indicate EOF
-        Buffer *buf = malloc(sizeof(Buffer));
+        Buffer *buf = calloc(1, sizeof(Buffer));
         if (!buf) {
             return throw_runtime_error(ctx, "Memory allocation failed for buffer");
         }
@@ -431,7 +431,7 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
         return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
     }
 
-    Buffer *buf = malloc(sizeof(Buffer));
+    Buffer *buf = calloc(1, sizeof(Buffer));
     if (!buf) {
         free(data);
         return throw_runtime_error(ctx, "Memory allocation failed for buffer");
@@ -553,7 +553,7 @@ Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_args, Exec
     }
 
     // Create buffer with received data
-    Buffer *buf = malloc(sizeof(Buffer));
+    Buffer *buf = calloc(1, sizeof(Buffer));
     buf->data = data;
     buf->length = (int)received;
     buf->capacity = size;

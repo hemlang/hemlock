@@ -163,7 +163,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
         int size = value_to_int(args[0]);
         if (size <= 0) {
-            Buffer *buf = malloc(sizeof(Buffer));
+            Buffer *buf = calloc(1, sizeof(Buffer));
             buf->data = malloc(1);
             buf->length = 0;
             buf->capacity = 0;
@@ -184,7 +184,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                     file->path, strerror(errno));
         }
 
-        Buffer *buf = malloc(sizeof(Buffer));
+        Buffer *buf = calloc(1, sizeof(Buffer));
         buf->data = data;
         buf->length = read_bytes;
         buf->capacity = size;

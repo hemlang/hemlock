@@ -36,6 +36,9 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_string_slice(%s, %s, hml_string_length(%s));",
                           result, obj_val, arg_temps[0], obj_val);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj_val);
+            codegen_writeln(ctx, "    %s = hml_buffer_slice(%s, %s, hml_val_i32(%s.as.as_buffer->length));",
+                          result, obj_val, arg_temps[0], obj_val);
             codegen_writeln(ctx, "} else {");
             codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, hml_val_i32(%s.as.as_array->length));",
                           result, obj_val, arg_temps[0], obj_val);
@@ -43,6 +46,9 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         } else {
             codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_string_slice(%s, %s, %s);",
+                          result, obj_val, arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj_val);
+            codegen_writeln(ctx, "    %s = hml_buffer_slice(%s, %s, %s);",
                           result, obj_val, arg_temps[0], arg_temps[1]);
             codegen_writeln(ctx, "} else {");
             codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, %s);",

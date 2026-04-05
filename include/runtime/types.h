@@ -56,12 +56,13 @@ typedef struct {
 } String;
 
 // Buffer struct (safe pointer wrapper)
-typedef struct {
+typedef struct Buffer {
     void *data;
     int length;
     int capacity;
     int ref_count;       // Reference count for memory management
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
+    struct Buffer *parent; // Non-NULL for zero-copy slice views (keeps parent alive)
 } Buffer;
 
 // Array struct (dynamic array)

@@ -385,6 +385,7 @@ HmlValue hml_buffer_get(HmlValue buf, HmlValue index);
 void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val);
 HmlValue hml_buffer_length(HmlValue buf);
 HmlValue hml_buffer_capacity(HmlValue buf);
+HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end);
 
 // Pointer index operations (unsafe, no bounds checking)
 HmlValue hml_ptr_get(HmlValue ptr, HmlValue index);
