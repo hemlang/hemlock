@@ -536,7 +536,10 @@ static void function_free(HmlFunction *fn) {
             }
             free(fn->param_names);
         }
-        // Note: closure_env is not freed here - it may be shared
+        // Release closure environment (reference counted - handles sharing)
+        if (fn->closure_env) {
+            hml_closure_env_release(fn->closure_env);
+        }
         free(fn);
     }
 }
