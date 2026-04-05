@@ -11,6 +11,7 @@
 
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
 
+#define _GNU_SOURCE
 #include "builtins_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
@@ -232,7 +233,7 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
 
     // Extract options
     size_t stack_size = atomic_load(&g_default_stack_size);
-    char *thread_name = NULL;
+    const char *thread_name = NULL;
 
     if (hml_object_has_field(options, "stack_size")) {
         HmlValue sv = hml_object_get_field(options, "stack_size");

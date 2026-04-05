@@ -10,6 +10,7 @@
 
 int codegen_call_strings(CodegenContext *ctx, Expr *expr, char *result,
                          const char *func_name, Expr **call_args, int num_args) {
+    (void)expr;
 
     // to_string(value)
     if (strcmp(func_name, "to_string") == 0 && num_args == 1) {

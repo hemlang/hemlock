@@ -380,7 +380,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         int32_t off = value_to_int(off_val);
                         uint8_t *p = (uint8_t *)buf->data + off;
-                        Value result = val_null();
+                        Value result;
 
                         if (strcmp(suffix, "u8") == 0) {
                             if (off < 0 || off + 1 > buf->length) { runtime_error(ctx, "read_u8: offset %d out of bounds (buffer length %d)", off, buf->length); }
@@ -652,6 +652,11 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     args = stack_args;
                 } else {
                     args = malloc(sizeof(Value) * expr->as.call.num_args);
+                    if (!args) {
+                        runtime_error(ctx, "Out of memory allocating arguments");
+                        VALUE_RELEASE(func);
+                        return val_null();
+                    }
                     args_on_heap = 1;
                 }
                 for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -700,6 +705,17 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         reordered_args = reordered_stack;
                     } else {
                         reordered_args = malloc(sizeof(Value) * fn->num_params);
+                        if (!reordered_args) {
+                            runtime_error(ctx, "Out of memory allocating reordered arguments");
+                            if (args) {
+                                for (int k = 0; k < expr->as.call.num_args; k++) {
+                                    VALUE_RELEASE(args[k]);
+                                }
+                            }
+                            if (args_on_heap) free(args);
+                            VALUE_RELEASE(func);
+                            return val_null();
+                        }
                         reordered_on_heap = 1;
                     }
 
@@ -709,9 +725,16 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     // Track which arguments have been used
-                    arg_used = malloc(sizeof(int) * expr->as.call.num_args);
-                    for (int i = 0; i < expr->as.call.num_args; i++) {
-                        arg_used[i] = 0;
+                    arg_used = calloc(expr->as.call.num_args, sizeof(int));
+                    if (!arg_used) {
+                        runtime_error(ctx, "Out of memory allocating argument tracking");
+                        for (int k = 0; k < expr->as.call.num_args; k++) {
+                            VALUE_RELEASE(args[k]);
+                        }
+                        if (args_on_heap) free(args);
+                        if (reordered_on_heap) free(reordered_args);
+                        VALUE_RELEASE(func);
+                        return val_null();
                     }
 
                     // First pass: place named arguments in their correct positions
@@ -804,7 +827,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Check argument count (must be between required and total params)
                 // For named arguments, count non-null slots in reordered array
                 int provided_args = expr->as.call.num_args;
-                if (expr->as.call.arg_names != NULL) {
+                if (expr->as.call.arg_names != NULL && args) {
                     // Count how many required params are covered
                     int covered_required = 0;
                     for (int i = 0; i < fn->num_params; i++) {
