@@ -1,0 +1,59 @@
+// Test typeid() builtin - returns integer type IDs
+// Much faster than typeof() string comparisons
+
+// Test basic types
+print(typeid(42));           // i32 -> 2
+print(typeid(3.14));         // f64 -> 9
+print(typeid(true));         // bool -> 10
+print(typeid("hello"));     // string -> 11
+print(typeid(null));         // null -> 21
+print(typeid([1, 2, 3]));   // array -> 15
+
+// Test TYPEID constants match
+print(typeid(42) == TYPEID_I32);       // true
+print(typeid(3.14) == TYPEID_F64);     // true
+print(typeid(true) == TYPEID_BOOL);    // true
+print(typeid("hello") == TYPEID_STRING); // true
+print(typeid(null) == TYPEID_NULL);    // true
+print(typeid([1, 2]) == TYPEID_ARRAY); // true
+
+// Test numeric types
+let a: i8 = 1;
+let b: i16 = 2;
+let c: i64 = 3;
+let d: u8 = 4;
+let e: u16 = 5;
+let f: u32 = 6;
+let g: u64 = 7;
+let h: f32 = 1.5;
+
+print(typeid(a) == TYPEID_I8);   // true
+print(typeid(b) == TYPEID_I16);  // true
+print(typeid(c) == TYPEID_I64);  // true
+print(typeid(d) == TYPEID_U8);   // true
+print(typeid(e) == TYPEID_U16);  // true
+print(typeid(f) == TYPEID_U32);  // true
+print(typeid(g) == TYPEID_U64);  // true
+print(typeid(h) == TYPEID_F32);  // true
+
+// Test object and function types
+let obj = { x: 10 };
+print(typeid(obj) == TYPEID_OBJECT);  // true
+
+fn foo() { return 1; }
+print(typeid(foo) == TYPEID_FUNCTION);  // true
+
+// Test integer comparison is fast (no string allocation)
+let tid = typeid(42);
+if (tid == TYPEID_I32 || tid == TYPEID_I64) {
+    print("integer type");
+}
+
+// Verify constant values
+print(TYPEID_I8);       // 0
+print(TYPEID_I32);      // 2
+print(TYPEID_F64);      // 9
+print(TYPEID_STRING);   // 11
+print(TYPEID_ARRAY);    // 15
+print(TYPEID_OBJECT);   // 16
+print(TYPEID_NULL);     // 21

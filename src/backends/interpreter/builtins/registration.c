@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "hemlock_limits.h"
 #include <poll.h>
 
 // Structure to hold builtin function info
@@ -19,6 +20,7 @@ static BuiltinInfo builtins[] = {
     {"sizeof", builtin_sizeof},
     {"buffer", builtin_buffer},
     {"typeof", builtin_typeof},
+    {"typeid", builtin_typeid},
     {"read_line", builtin_read_line},
     {"__string_concat_many", builtin_string_concat_many},
     {"eprint", builtin_eprint},
@@ -308,6 +310,30 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "integer", val_type(TYPE_I32), ctx);
     env_set(env, "number", val_type(TYPE_F64), ctx);
     env_set(env, "byte", val_type(TYPE_U8), ctx);
+
+    // TYPEID constants for use with typeid() builtin
+    env_set(env, "TYPEID_I8", val_i32(HML_TYPEID_I8), ctx);
+    env_set(env, "TYPEID_I16", val_i32(HML_TYPEID_I16), ctx);
+    env_set(env, "TYPEID_I32", val_i32(HML_TYPEID_I32), ctx);
+    env_set(env, "TYPEID_I64", val_i32(HML_TYPEID_I64), ctx);
+    env_set(env, "TYPEID_U8", val_i32(HML_TYPEID_U8), ctx);
+    env_set(env, "TYPEID_U16", val_i32(HML_TYPEID_U16), ctx);
+    env_set(env, "TYPEID_U32", val_i32(HML_TYPEID_U32), ctx);
+    env_set(env, "TYPEID_U64", val_i32(HML_TYPEID_U64), ctx);
+    env_set(env, "TYPEID_F32", val_i32(HML_TYPEID_F32), ctx);
+    env_set(env, "TYPEID_F64", val_i32(HML_TYPEID_F64), ctx);
+    env_set(env, "TYPEID_BOOL", val_i32(HML_TYPEID_BOOL), ctx);
+    env_set(env, "TYPEID_STRING", val_i32(HML_TYPEID_STRING), ctx);
+    env_set(env, "TYPEID_RUNE", val_i32(HML_TYPEID_RUNE), ctx);
+    env_set(env, "TYPEID_PTR", val_i32(HML_TYPEID_PTR), ctx);
+    env_set(env, "TYPEID_BUFFER", val_i32(HML_TYPEID_BUFFER), ctx);
+    env_set(env, "TYPEID_ARRAY", val_i32(HML_TYPEID_ARRAY), ctx);
+    env_set(env, "TYPEID_OBJECT", val_i32(HML_TYPEID_OBJECT), ctx);
+    env_set(env, "TYPEID_FILE", val_i32(HML_TYPEID_FILE), ctx);
+    env_set(env, "TYPEID_FUNCTION", val_i32(HML_TYPEID_FUNCTION), ctx);
+    env_set(env, "TYPEID_TASK", val_i32(HML_TYPEID_TASK), ctx);
+    env_set(env, "TYPEID_CHANNEL", val_i32(HML_TYPEID_CHANNEL), ctx);
+    env_set(env, "TYPEID_NULL", val_i32(HML_TYPEID_NULL), ctx);
 
     // Math constants (use stdlib/math.hml module for public API)
     env_set(env, "__PI", val_f64(M_PI), ctx);

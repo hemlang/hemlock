@@ -55,6 +55,7 @@ Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx);
 
 // Debugging builtins (debugging.c)
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_set_stack_limit(Value *args, int num_args, ExecutionContext *ctx);

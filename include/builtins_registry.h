@@ -66,6 +66,7 @@ typedef struct {
     \
     /* Introspection */ \
     X("typeof",     1,  HML_BUILTIN_PUBLIC | HML_BUILTIN_PURE, HML_RET_STRING) \
+    X("typeid",     1,  HML_BUILTIN_PUBLIC | HML_BUILTIN_PURE, HML_RET_I32) \
     /* Note: len() is NOT a builtin - use .length or .byte_length property */ \
     \
     /* Memory */ \
