@@ -1,0 +1,33 @@
+// Stress test: object spread operator with pooled objects
+// Tests that spread copying works correctly when source and
+// destination objects are from the pool.
+
+let defaults = { theme: "dark", size: "medium", verbose: false };
+
+let configs = [];
+for (let i = 0; i < 200; i++) {
+    let cfg = { ...defaults, id: i, size: "large" };
+    configs.push(cfg);
+}
+
+print(configs[0].theme);    // dark
+print(configs[0].size);     // large
+print(configs[0].id);       // 0
+print(configs[199].id);     // 199
+print(configs[199].verbose); // false
+
+// Spread that causes field growth beyond pool capacity
+let base = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 };
+let extended = [];
+for (let i = 0; i < 50; i++) {
+    let obj = { ...base, g: i, h: i * 2, i: i * 3, j: i * 4 };
+    extended.push(obj);
+}
+// 10 fields total - exceeds pool's 8-field capacity
+print(extended[0].a);    // 1
+print(extended[0].j);    // 0
+print(extended[49].j);   // 196
+
+// Verify originals are unmodified
+print(defaults.size);    // medium
+print(base.a);           // 1

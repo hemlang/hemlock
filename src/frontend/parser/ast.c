@@ -207,6 +207,7 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     expr->as.function.rest_param_type = rest_param_type;
     expr->as.function.return_type = return_type;
     expr->as.function.body = body;
+    expr->as.function.param_hashes = NULL;  // Lazily computed on first closure creation
     return expr;
 }
 
@@ -1313,6 +1314,10 @@ void expr_free(Expr *expr) {
             }
             if (expr->as.function.param_is_const) {
                 free(expr->as.function.param_is_const);
+            }
+            // Free pre-computed param hashes (lazily allocated)
+            if (expr->as.function.param_hashes) {
+                free(expr->as.function.param_hashes);
             }
             // Free return type
             if (expr->as.function.return_type) {

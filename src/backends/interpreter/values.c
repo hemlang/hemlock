@@ -7,6 +7,176 @@
 #include <stdatomic.h>
 #include <limits.h>
 
+// ========== OBJECT POOL ==========
+// Pre-allocate Object structs + FieldEntry arrays to avoid malloc/free overhead
+// for short-lived objects (e.g., factory patterns that create objects in loops).
+// Uses a free list for O(1) alloc/free, matching the environment pool pattern.
+
+#define OBJ_POOL_SIZE HML_OBJECT_POOL_SIZE
+#define OBJ_POOL_FIELDS_CAP HML_OBJECT_POOL_FIELDS_CAPACITY
+
+typedef struct {
+    Object objects[OBJ_POOL_SIZE];
+    FieldEntry fields_storage[OBJ_POOL_SIZE][OBJ_POOL_FIELDS_CAP];
+    int free_list[OBJ_POOL_SIZE];
+    int free_count;
+    pthread_mutex_t mutex;
+} ObjectPool;
+
+static ObjectPool obj_pool = {0};
+static pthread_once_t obj_pool_once = PTHREAD_ONCE_INIT;
+
+static void obj_pool_init_internal(void) {
+    pthread_mutex_init(&obj_pool.mutex, NULL);
+    for (int i = 0; i < OBJ_POOL_SIZE; i++) {
+        obj_pool.free_list[i] = OBJ_POOL_SIZE - 1 - i;
+    }
+    obj_pool.free_count = OBJ_POOL_SIZE;
+}
+
+static void obj_pool_init(void) {
+    pthread_once(&obj_pool_once, obj_pool_init_internal);
+}
+
+// Allocate an Object from the pool. Returns NULL if pool exhausted.
+static Object* obj_pool_alloc(int initial_capacity) {
+    if (initial_capacity > OBJ_POOL_FIELDS_CAP) return NULL;
+
+    obj_pool_init();
+    pthread_mutex_lock(&obj_pool.mutex);
+    if (obj_pool.free_count > 0) {
+        int idx = obj_pool.free_list[--obj_pool.free_count];
+        pthread_mutex_unlock(&obj_pool.mutex);
+
+        Object *obj = &obj_pool.objects[idx];
+        obj->type_name = NULL;
+        obj->fields = obj_pool.fields_storage[idx];
+        obj->num_fields = 0;
+        obj->capacity = OBJ_POOL_FIELDS_CAP;
+        obj->ref_count = 1;
+        atomic_store(&obj->freed, 0);
+        obj->hash_table = NULL;
+        obj->hash_capacity = 0;
+        obj->is_pooled = 1;
+        return obj;
+    }
+    pthread_mutex_unlock(&obj_pool.mutex);
+    return NULL;
+}
+
+static int obj_is_pooled(Object *obj) {
+    return obj >= &obj_pool.objects[0] && obj < &obj_pool.objects[OBJ_POOL_SIZE];
+}
+
+static void obj_pool_free(Object *obj) {
+    if (!obj_is_pooled(obj)) return;
+    int idx = (int)(obj - &obj_pool.objects[0]);
+
+    // If fields were grown beyond pooled storage, free the grown array.
+    // If fields is NULL (e.g., after builtin_free cleared it), free(NULL) is a safe noop.
+    if (obj->fields != obj_pool.fields_storage[idx]) {
+        free(obj->fields);
+    }
+    // Hash table is always heap-allocated (may be NULL after builtin_free)
+    if (obj->hash_table) {
+        free(obj->hash_table);
+    }
+    // Reset fields pointer back to pool storage for reuse
+    obj->fields = obj_pool.fields_storage[idx];
+    obj->hash_table = NULL;
+    obj->is_pooled = 0;
+
+    pthread_mutex_lock(&obj_pool.mutex);
+    obj_pool.free_list[obj_pool.free_count++] = idx;
+    pthread_mutex_unlock(&obj_pool.mutex);
+}
+
+// ========== FUNCTION POOL ==========
+// Pre-allocate Function structs for closures created in hot loops.
+// Param arrays are typically borrowed from the AST (borrows_ast_params=1),
+// so only the struct itself needs pooling.
+
+#define FN_POOL_SIZE HML_FUNCTION_POOL_SIZE
+
+typedef struct {
+    Function functions[FN_POOL_SIZE];
+    int free_list[FN_POOL_SIZE];
+    int free_count;
+    pthread_mutex_t mutex;
+} FunctionPool;
+
+static FunctionPool fn_pool = {0};
+static pthread_once_t fn_pool_once = PTHREAD_ONCE_INIT;
+
+static void fn_pool_init_internal(void) {
+    pthread_mutex_init(&fn_pool.mutex, NULL);
+    for (int i = 0; i < FN_POOL_SIZE; i++) {
+        fn_pool.free_list[i] = FN_POOL_SIZE - 1 - i;
+    }
+    fn_pool.free_count = FN_POOL_SIZE;
+}
+
+static void fn_pool_init(void) {
+    pthread_once(&fn_pool_once, fn_pool_init_internal);
+}
+
+// Allocate a Function from the pool. Returns NULL if pool exhausted.
+Function* fn_pool_alloc(void) {
+    fn_pool_init();
+    pthread_mutex_lock(&fn_pool.mutex);
+    if (fn_pool.free_count > 0) {
+        int idx = fn_pool.free_list[--fn_pool.free_count];
+        pthread_mutex_unlock(&fn_pool.mutex);
+
+        Function *fn = &fn_pool.functions[idx];
+        memset(fn, 0, sizeof(Function));
+        fn->ref_count = 1;
+        fn->is_pooled = 1;
+        return fn;
+    }
+    pthread_mutex_unlock(&fn_pool.mutex);
+    return NULL;
+}
+
+static int fn_is_pooled(Function *fn) {
+    return fn >= &fn_pool.functions[0] && fn < &fn_pool.functions[FN_POOL_SIZE];
+}
+
+static void fn_pool_return(Function *fn) {
+    if (!fn_is_pooled(fn)) return;
+    int idx = (int)(fn - &fn_pool.functions[0]);
+    fn->is_pooled = 0;
+
+    pthread_mutex_lock(&fn_pool.mutex);
+    fn_pool.free_list[fn_pool.free_count++] = idx;
+    pthread_mutex_unlock(&fn_pool.mutex);
+}
+
+// ========== OBJECT FIELD GROWTH ==========
+// Handles growing fields for both pooled and heap objects.
+// Pooled objects have fields pointing to static storage that cannot be realloc'd.
+
+FieldEntry* object_grow_fields(Object *obj, int new_capacity) {
+    if (obj->is_pooled && obj_is_pooled(obj)) {
+        int idx = (int)(obj - &obj_pool.objects[0]);
+        if (obj->fields == obj_pool.fields_storage[idx]) {
+            // Fields still point to pool storage - must malloc + copy
+            FieldEntry *new_fields = malloc(sizeof(FieldEntry) * new_capacity);
+            if (!new_fields) return NULL;
+            memcpy(new_fields, obj->fields, sizeof(FieldEntry) * obj->num_fields);
+            obj->fields = new_fields;
+            obj->capacity = new_capacity;
+            return new_fields;
+        }
+    }
+    // Fields are heap-allocated (or non-pooled object) - safe to realloc
+    FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+    if (!new_fields) return NULL;
+    obj->fields = new_fields;
+    obj->capacity = new_capacity;
+    return new_fields;
+}
+
 // ========== FORWARD DECLARATIONS FOR CYCLE DETECTION ==========
 
 // VisitedSet typedef is in internal.h
@@ -480,8 +650,9 @@ void object_release(Object *obj) {
 void function_free(Function *fn) {
     if (!fn) return;
 
-    // Bound methods share param arrays with their original function, don't free them
-    if (!fn->is_bound) {
+    // Bound methods share param arrays with their original function, don't free them.
+    // AST-borrowing functions point directly to AST data, don't free them either.
+    if (!fn->is_bound && !fn->borrows_ast_params) {
         // Free parameter names
         if (fn->param_names) {
             for (int i = 0; i < fn->num_params; i++) {
@@ -539,7 +710,11 @@ void function_free(Function *fn) {
     // Note: body (Stmt*) is not freed - owned by AST
     // Note: param_defaults (Expr**) expressions are not freed - owned by AST
 
-    free(fn);
+    if (fn->is_pooled) {
+        fn_pool_return(fn);
+    } else {
+        free(fn);
+    }
 }
 
 void function_retain(Function *fn) {
@@ -699,6 +874,12 @@ int object_hash_insert(Object *obj, const char *name, int field_index) {
 }
 
 Object* object_new(char *type_name, int initial_capacity) {
+    // Try pool allocation for anonymous objects with small field counts
+    if (!type_name && initial_capacity <= OBJ_POOL_FIELDS_CAP) {
+        Object *obj = obj_pool_alloc(initial_capacity);
+        if (obj) return obj;
+    }
+
     Object *obj = malloc(sizeof(Object));
     if (!obj) {
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
@@ -726,6 +907,7 @@ Object* object_new(char *type_name, int initial_capacity) {
     // Hash table is built lazily on first lookup for efficiency
     obj->hash_table = NULL;
     obj->hash_capacity = 0;
+    obj->is_pooled = 0;
 
     return obj;
 }
@@ -1450,7 +1632,11 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
         // Object was manually freed via builtin_free().
         // Internal data (type_name, fields, hash_table) was
         // already freed there. Only free the struct wrapper itself.
-        free(obj);
+        if (obj->is_pooled) {
+            obj_pool_free(obj);
+        } else {
+            free(obj);
+        }
         return;
     }
 
@@ -1469,10 +1655,15 @@ static void object_free_internal(Object *obj, VisitedSet *visited) {
         // Release field values (decrements ref_counts)
         value_release(obj->fields[i].value);
     }
-    free(obj->fields);  // Single allocation for all fields
-    // Free hash table
-    if (obj->hash_table) free(obj->hash_table);
-    free(obj);
+
+    if (obj->is_pooled) {
+        // Return to pool (pool handles fields_storage and hash_table cleanup)
+        obj_pool_free(obj);
+    } else {
+        free(obj->fields);  // Single allocation for all fields
+        if (obj->hash_table) free(obj->hash_table);
+        free(obj);
+    }
 }
 
 // Internal version of array cleanup with cycle detection
@@ -1822,13 +2013,11 @@ Value value_deep_copy(Value val) {
                             exit(1);
                         }
                         int new_capacity = dst->capacity * 2;
-                        FieldEntry *new_fields = realloc(dst->fields, sizeof(FieldEntry) * (size_t)new_capacity);
+                        FieldEntry *new_fields = object_grow_fields(dst, new_capacity);
                         if (!new_fields) {
                             fprintf(stderr, "Runtime error: Memory allocation failed during object growth\n");
                             exit(1);
                         }
-                        dst->capacity = new_capacity;
-                        dst->fields = new_fields;
                     }
                     dst->fields[dst->num_fields].name = strdup(src->fields[i].name);
                     Value field_copy = value_deep_copy(src->fields[i].value);

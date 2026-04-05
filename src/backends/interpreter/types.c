@@ -954,14 +954,12 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                         exit(1);
                     }
                     int new_capacity = obj->capacity * 2;
-                    FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                    FieldEntry *new_fields = object_grow_fields(obj, new_capacity);
                     if (!new_fields) {
                         free_substituted_type(substituted_field_type, field_type);
                         fprintf(stderr, "Runtime error: Failed to expand object fields\n");
                         exit(1);
                     }
-                    obj->fields = new_fields;
-                    obj->capacity = new_capacity;
                 }
 
                 char *name_copy = strdup(field_name);
@@ -1024,13 +1022,11 @@ Value check_object_type_generic(Value value, ObjectType *object_type,
                             exit(1);
                         }
                         int new_capacity = obj->capacity * 2;
-                        FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                        FieldEntry *new_fields = object_grow_fields(obj, new_capacity);
                         if (!new_fields) {
                             fprintf(stderr, "Runtime error: Failed to expand object fields for method\n");
                             exit(1);
                         }
-                        obj->fields = new_fields;
-                        obj->capacity = new_capacity;
                     }
 
                     char *name_copy = strdup(method_name);

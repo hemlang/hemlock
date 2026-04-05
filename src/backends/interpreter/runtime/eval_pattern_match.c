@@ -160,13 +160,11 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                                 return 0;
                             }
                             int new_capacity = rest_obj->capacity * 2;
-                            FieldEntry *new_fields = realloc(rest_obj->fields, sizeof(FieldEntry) * new_capacity);
+                            FieldEntry *new_fields = object_grow_fields(rest_obj, new_capacity);
                             if (!new_fields) {
                                 runtime_error(ctx, "Out of memory expanding object fields");
                                 return 0;
                             }
-                            rest_obj->fields = new_fields;
-                            rest_obj->capacity = new_capacity;
                         }
                         rest_obj->fields[rest_obj->num_fields].name = strdup(key);
                         rest_obj->fields[rest_obj->num_fields].value = v;

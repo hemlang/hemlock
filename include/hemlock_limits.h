@@ -202,6 +202,22 @@
 // Maximum number of cached (pre-compiled) WASM scripts
 #define HML_MAX_WASM_SCRIPTS 256
 
+// ========== OBJECT POOL ==========
+
+// Object pool size - maximum number of pre-allocated Object structs
+// Exceeding this falls back to malloc (slower but still works)
+#define HML_OBJECT_POOL_SIZE 512
+
+// Default field capacity for pooled objects
+// Pooled objects pre-allocate this many FieldEntry slots to avoid realloc
+#define HML_OBJECT_POOL_FIELDS_CAPACITY 8
+
+// ========== FUNCTION POOL ==========
+
+// Function pool size - maximum number of pre-allocated Function structs
+// Closures in hot loops benefit the most from pooled allocation
+#define HML_FUNCTION_POOL_SIZE 512
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch

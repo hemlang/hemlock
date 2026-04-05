@@ -179,6 +179,17 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 
+// ========== ALLOCATION POOLS (values.c) ==========
+
+// Function pool - O(1) allocation for closures in hot loops
+Function* fn_pool_alloc(void);
+
+// Grow an object's field array to at least new_capacity entries.
+// Handles pooled objects (whose fields may point to static pool storage
+// that cannot be realloc'd) by allocating a new heap array and copying.
+// Returns the new fields pointer, or NULL on allocation failure.
+FieldEntry* object_grow_fields(Object *obj, int new_capacity);
+
 // ========== VALUES (values.c) ==========
 
 // String operations
