@@ -1,0 +1,36 @@
+// Test array.reserve() - pre-allocate capacity
+
+// Basic reserve on empty array
+let arr = [];
+arr.reserve(100);
+print(arr.length);  // 0 - reserve doesn't change length
+
+// Push elements after reserve (no realloc needed)
+for (let i = 0; i < 10; i++) {
+    arr.push(i);
+}
+print(arr.length);  // 10
+
+// Verify elements are correct
+print(arr[0]);   // 0
+print(arr[9]);   // 9
+
+// Reserve smaller than current capacity is a no-op
+arr.reserve(5);
+print(arr.length);  // 10 - unchanged
+
+// Reserve on pre-populated array
+let data = [1, 2, 3];
+data.reserve(1000);
+print(data.length);    // 3
+print(data[0]);        // 1
+print(data[2]);        // 3
+
+// Reserve with zero is valid
+let empty = [];
+empty.reserve(0);
+print(empty.length);   // 0
+
+// Reserve returns null
+let result = [].reserve(10);
+print(result);         // null

@@ -271,6 +271,9 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "hml_array_sort(%s, hml_val_null());", obj_val);
         }
         codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+    } else if (strcmp(method, "reserve") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "hml_array_reserve(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
     } else if (strcmp(method, "fill") == 0 && (num_args >= 1 && num_args <= 3)) {
         if (num_args == 3) {
             codegen_writeln(ctx, "hml_array_fill(%s, %s, %s, %s);",
