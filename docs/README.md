@@ -25,6 +25,7 @@ Welcome to the Hemlock programming language documentation!
 - [Functions](language-guide/functions.md) - Functions, closures, and recursion
 - [Objects](language-guide/objects.md) - Object literals, methods, and duck typing
 - [Arrays](language-guide/arrays.md) - Dynamic arrays and operations
+- [Pattern Matching](language-guide/pattern-matching.md) - Match expressions and destructuring
 - [Error Handling](language-guide/error-handling.md) - try/catch/finally/throw/panic
 - [Modules](language-guide/modules.md) - Import/export system and package imports
 
@@ -37,6 +38,7 @@ Welcome to the Hemlock programming language documentation!
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands
+- [Compiler Optimizations](advanced/compiler-optimizations.md) - Inlining, unboxing, and annotations
 - [Profiling](advanced/profiling.md) - CPU time, memory tracking, and leak detection
 
 ### API Reference
