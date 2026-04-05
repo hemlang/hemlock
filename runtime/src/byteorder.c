@@ -28,16 +28,26 @@ HmlValue hml_bswap64(HmlValue val) {
 }
 
 // ========== HOST TO NETWORK BYTE ORDER ==========
+// Implemented via byte swaps instead of htons/htonl to avoid
+// dependency on arpa/inet.h (not available in WASM builds).
 
 HmlValue hml_htons_val(HmlValue val) {
     uint16_t v = (uint16_t)hml_to_i32(val);
-    uint16_t result = htons(v);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    uint16_t result = (uint16_t)((v >> 8) | (v << 8));
+#else
+    uint16_t result = v;
+#endif
     return hml_val_u16(result);
 }
 
 HmlValue hml_htonl_val(HmlValue val) {
     uint32_t v = (uint32_t)hml_to_i32(val);
-    uint32_t result = htonl(v);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    uint32_t result = __builtin_bswap32(v);
+#else
+    uint32_t result = v;
+#endif
     return hml_val_u32(result);
 }
 
@@ -55,13 +65,21 @@ HmlValue hml_htonll_val(HmlValue val) {
 
 HmlValue hml_ntohs_val(HmlValue val) {
     uint16_t v = (uint16_t)hml_to_i32(val);
-    uint16_t result = ntohs(v);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    uint16_t result = (uint16_t)((v >> 8) | (v << 8));
+#else
+    uint16_t result = v;
+#endif
     return hml_val_u16(result);
 }
 
 HmlValue hml_ntohl_val(HmlValue val) {
     uint32_t v = (uint32_t)hml_to_i32(val);
-    uint32_t result = ntohl(v);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    uint32_t result = __builtin_bswap32(v);
+#else
+    uint32_t result = v;
+#endif
     return hml_val_u32(result);
 }
 
