@@ -5,7 +5,7 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-04-04
+## [2.0.0] - 2026-04-05
 
 ### Breaking Changes
 
@@ -16,12 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`@stdlib/signal` module** - Signal handling functions (`signal`, `raise`) and all POSIX signal constants (`SIGINT`, `SIGTERM`, `SIGUSR1`, etc.)
 - **`@stdlib/atomic` module** - All 19 atomic operations (load, store, add, sub, and, or, xor, cas, exchange for i32/i64) plus `atomic_fence`
 - **`@stdlib/debug` module** - Task inspection (`task_debug_info`) and stack management (`set_stack_limit`, `get_stack_limit`)
-- **`@stdlib/ffi` module** - FFI callback management (`callback`, `callback_free`)
+- **`@stdlib/ffi` module** - FFI callback management (`callback`, `callback_free`, `ffi_sizeof`)
 - **Expanded `@stdlib/math`** - Added `div`, `divi`, `floori`, `ceili`, `roundi`, `trunci` exports
 - **Expanded `@stdlib/net`** - Socket constants (`AF_INET`, `SOCK_STREAM`, etc.), poll constants (`POLLIN`, `POLLOUT`, etc.), and networking functions (`socket_create`, `dns_resolve`, `poll`)
 - **Expanded `@stdlib/fs`** - Added `open` export
 - **Expanded `@stdlib/strings`** - Added `string_concat_many` export
+- **Expanded `@stdlib/async`** - Added `get_default_stack_size`, `set_default_stack_size` exports
 - **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros (`SIG*`, `AF_*`, `SOCK_*`, etc.)
+- **`array.reserve(n)` method** - Pre-allocate array capacity to avoid repeated reallocations during bulk inserts
+- **`str.byte_ptr()` method** - Returns a raw `ptr` to the string's internal byte buffer for zero-allocation access with `memcpy` and pointer operations
+- **`buffer.slice(start, end)` method** - Zero-copy buffer views that reference the parent buffer's memory instead of allocating and copying. Views hold a reference to the root buffer to prevent use-after-free, and chained slices correctly track the root owner
+- **`ptr_read/write/deref` accept buffers directly** - All pointer builtins (`ptr_read_*`, `ptr_write_*`, `ptr_deref_*`) now accept both `ptr` and `buffer` types, extracting `buffer->data` automatically
+- **`spawn_with()` builtin** - Per-thread configuration with `stack_size` and `name` options: `spawn_with({ stack_size: 4194304, name: "worker" }, fn, args...)`
+- **WebSocket binary data support** - `__lws_msg_binary` builtin for extracting binary message data as a buffer; server-side `send_binary` for binary frame transmission
 
 ### Changed
 
@@ -36,6 +43,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `callback`/`callback_free` now require `import from "@stdlib/ffi"`
 - `task_debug_info`, `set_stack_limit`, `get_stack_limit` now require `import from "@stdlib/debug"`
 - Stdlib module count increased from 43 to 46
+- **Major codebase refactoring** - Split 5 large source files (3600-3800 lines) into focused modules: `type_check.c` → 9 files, `codegen_call.c` → 7 files, `websockets.c` → 4 files, `formatter.c` → 6 files, `expressions.c`/`codegen_expr.c` → smaller files
+
+### Fixed
+
+- **Compiler expression-level unboxing** - Native C types now propagate through expression trees instead of boxing/unboxing at every operation. `hml_i32_add(hml_val_i32(i), hml_val_i32(1))` becomes `hml_val_i32((i + 1))`, eliminating intermediate allocations
+- **Multi-level function inlining** - Inlining depth increased from 1 to 3, allowing nested helpers (e.g., `rotr()` inside `ep0()` inside `sha256_transform()`) to be fully inlined. Benchmark improvements: primes_sieve -40%, binary_tree -27%, json_serialize -37%
+- **While-loop accumulator unboxing** - Top-level while loops now detect accumulator/counter variables and shadow them with native C locals, eliminating boxing overhead
+- **Fire-and-forget spawn use-after-free** - Worker thread now holds a reference to the task, preventing premature cleanup when the task handle is discarded without `join()`
+- **WebSocket server SO_REUSEADDR** - Added `LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE` for rapid port rebind
+- **WebSocket server close race condition** - Fixed segfault on Linux when closing WebSocket servers
+- **Thread stack overflow on sequential spawns** - Fixed stack overflow when spawning sequential WebSocket servers; applied thread stack size to WebSocket service threads
+- **For-in loop variable scoping** - Interpreter now uses `env_define()` instead of `env_set()` for loop variables, preventing modification of outer variables with the same name. Compiler now pushes a lexical scope around for-in loops
+- **Compiled recursive stack overflow** - Tail-call optimized functions now detect infinite recursion via `HML_TAIL_CALL_CHECK()` macro instead of segfaulting
+- **8 compiler/runtime fixes** - Float division returns IEEE 754 Inf/NaN, object/array reference equality, `read(0)` returns empty string, closed file operations throw catchable exceptions, typed array numeric coercion, try/catch rethrow propagation, `find()`/`contains()` method dispatch for non-string/array objects, nullable type annotations skip conversion for null values
 
 ## [1.9.2] - 2026-04-03
 

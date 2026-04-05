@@ -86,7 +86,7 @@ panic("unrecoverable error");
 | Function | Description |
 |----------|-------------|
 | `spawn(fn, args...)` | Spawn an async task, returns task handle |
-| `spawn_with(stack_size, fn, args...)` | Spawn with custom stack size |
+| `spawn_with(options, fn, args...)` | Spawn with per-thread config (`stack_size` in bytes, `name` string max 16 chars) |
 | `join(task)` | Wait for task completion, returns result |
 | `detach(task)` | Let task run independently (fire and forget) |
 | `channel(capacity?)` | Create a communication channel (0 = unbuffered) |
@@ -130,6 +130,8 @@ ptr_deref_u8, ptr_deref_u16, ptr_deref_u32, ptr_deref_u64
 ptr_deref_f32, ptr_deref_f64, ptr_deref_ptr
 ```
 
+All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` functions accept both `ptr` and `buffer` types directly:
+
 ```hemlock
 let p = alloc(8);
 ptr_write_i32(p, 42);
@@ -137,6 +139,11 @@ let val = ptr_read_i32(p);  // 42
 let p2 = ptr_offset(p, 4);
 ptr_write_i32(p2, 99);
 free(p);
+
+// Also works directly with buffers (no buffer_ptr() needed)
+let buf = buffer(8);
+ptr_write_i32(buf, 42);
+let bval = ptr_read_i32(buf);  // 42
 ```
 
 ---

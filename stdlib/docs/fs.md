@@ -913,7 +913,7 @@ make test | grep fs
 ## See Also
 
 - **File Object API** - Use `open()` for advanced file operations (reading line-by-line, binary I/O)
-- **Path module** (planned) - Higher-level path manipulation functions
+- **Path module** (`@stdlib/path`) - Higher-level path manipulation functions (join, dirname, basename, etc.)
 - **Environment module** (`@stdlib/env`) - Current working directory via `cwd()`
 
 ---

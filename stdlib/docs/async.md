@@ -12,8 +12,63 @@ The async module provides:
 ## Usage
 
 ```hemlock
-import { ThreadPool, parallel_map } from "@stdlib/async";
+import { ThreadPool, parallel_map, get_default_stack_size, set_default_stack_size } from "@stdlib/async";
 ```
+
+---
+
+## Thread Configuration
+
+### get_default_stack_size
+
+Get the current default stack size for spawned threads.
+
+**Signature:**
+```hemlock
+get_default_stack_size(): i64
+```
+
+**Returns:** Default stack size in bytes (default: 16 MB / 16777216 bytes)
+
+**Example:**
+```hemlock
+import { get_default_stack_size } from "@stdlib/async";
+
+let size = get_default_stack_size();
+print(size);  // 16777216
+```
+
+---
+
+### set_default_stack_size
+
+Set the default stack size for all subsequent `spawn()` calls. Does not affect already-spawned threads.
+
+**Signature:**
+```hemlock
+set_default_stack_size(size: i64): null
+```
+
+**Parameters:**
+- `size` - Stack size in bytes
+
+**Example:**
+```hemlock
+import { set_default_stack_size, get_default_stack_size } from "@stdlib/async";
+
+// Increase stack for deeply recursive tasks
+set_default_stack_size(32 * 1024 * 1024);  // 32 MB
+print(get_default_stack_size());  // 33554432
+
+// All subsequent spawn() calls use 32 MB stacks
+let task = spawn(recursive_fn, 10000);
+let result = join(task);
+
+// Restore default
+set_default_stack_size(16 * 1024 * 1024);
+```
+
+**Note:** These functions wrap the internal `__get_default_stack_size()` / `__set_default_stack_size()` builtins.
 
 ---
 
@@ -333,4 +388,5 @@ pool.shutdown();
 ## See Also
 
 - [async_fs](async_fs.md) - Async file system operations using ThreadPool
+- [Concurrency API](../docs/reference/concurrency-api.md) - `spawn()`, `spawn_with()`, `join()`, `detach()`
 - [Async Concurrency Guide](../docs/advanced/async-concurrency.md) - Language-level async/await

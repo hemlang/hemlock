@@ -3,7 +3,7 @@
 > Ensuring the Hemlock runtime is free of memory leaks and upholds its contract with the programmer.
 
 **Date:** 2026-01-16
-**Status:** Proposed
+**Status:** Completed (implemented in v1.8.3)
 **Version:** 1.0
 
 ---

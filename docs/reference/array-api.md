@@ -1,6 +1,6 @@
 # Array API Reference
 
-Complete reference for Hemlock's array type and all 18 array methods.
+Complete reference for Hemlock's array type and all 23 array methods.
 
 ---
 
@@ -12,7 +12,7 @@ Arrays in Hemlock are **dynamic, heap-allocated** sequences that can hold mixed 
 - Dynamic sizing (automatic growth)
 - Zero-indexed
 - Mixed types allowed
-- 18 built-in methods
+- 23 built-in methods
 - Heap-allocated with capacity tracking
 
 ---
@@ -93,6 +93,60 @@ print(arr.length);     // 3
 ---
 
 ## Array Methods
+
+### Capacity Management
+
+#### reserve
+
+Pre-allocate capacity for future elements without changing the array's length. Useful for avoiding repeated reallocations during bulk inserts.
+
+**Signature:**
+```hemlock
+array.reserve(n: i32): null
+```
+
+**Parameters:**
+- `n` - Number of elements to pre-allocate capacity for
+
+**Returns:** `null`
+
+**Mutates:** Yes (modifies internal capacity, but not length or elements)
+
+**Examples:**
+```hemlock
+let arr = [];
+arr.reserve(1000);
+print(arr.length);     // 0 - reserve doesn't change length
+
+// Push 1000 elements without any reallocation
+for (let i = 0; i < 1000; i++) {
+    arr.push(i);
+}
+print(arr.length);     // 1000
+
+// Reserve on pre-populated array preserves existing elements
+let data = [1, 2, 3];
+data.reserve(1000);
+print(data.length);    // 3
+print(data[0]);        // 1
+
+// Reserve smaller than current capacity is a no-op
+data.reserve(5);
+print(data.length);    // 3 (unchanged)
+
+// Reserve with zero is valid (no-op)
+let empty = [];
+empty.reserve(0);
+print(empty.length);   // 0
+```
+
+**Behavior:**
+- Pre-allocates internal storage for at least `n` elements
+- Does not change the array's length or existing elements
+- If `n` is less than or equal to current capacity, this is a no-op
+- Improves performance when the number of elements to insert is known in advance
+
+---
 
 ### Stack Operations
 
@@ -681,6 +735,7 @@ Methods that modify the array in place:
 | `remove`   | `(index: i32)`             | `any`     | Remove at index                |
 | `reverse`  | `()`                       | `null`    | Reverse in place               |
 | `clear`    | `()`                       | `null`    | Remove all elements            |
+| `reserve`  | `(n: i32)`                 | `null`    | Pre-allocate capacity          |
 
 ### Non-Mutating Methods
 
@@ -783,7 +838,7 @@ print(arr);  // [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]
 **Capacity Management:**
 - Arrays automatically grow when needed
 - Capacity doubles when exceeded
-- No manual capacity control
+- Use `reserve(n)` to pre-allocate capacity for bulk inserts
 
 **Value Comparison:**
 - `find()` and `contains()` use value equality

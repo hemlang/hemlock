@@ -896,7 +896,6 @@ create_user("Eve", age: 21);          // OK
 
 Current limitations to be aware of:
 
-- **No pass-by-reference** - `ref` keyword parsed but not implemented
 - **No function overloading** - One function per name
 - **No tail call optimization** - Deep recursion limited by stack size
 

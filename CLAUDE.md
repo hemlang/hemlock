@@ -131,6 +131,17 @@ let b = buffer(64);      // safe buffer (bounds checked)
 memset(p, 0, 64);
 memcpy(dest, src, 64);
 free(p);                 // manual cleanup required
+
+// Buffer slicing (zero-copy views)
+let view = b.slice(0, 16);  // view into first 16 bytes (no copy)
+
+// String byte pointer (zero-allocation)
+let s = "hello";
+let bp = s.byte_ptr();      // raw ptr to string's UTF-8 bytes
+
+// ptr_read/write accept buffers directly
+ptr_write_f32(b, 3.14);     // no need for buffer_ptr() wrapper
+let val = ptr_read_f32(b);
 ```
 
 ### Control Flow
@@ -467,6 +478,9 @@ let task = spawn(compute, 42);
 let result = await task;     // or join(task)
 detach(spawn(background_work));
 
+// spawn_with() for per-thread configuration
+let t = spawn_with({ stack_size: 4194304, name: "worker" }, compute, 42);
+
 let ch = channel(10);
 ch.send(value);
 let val = ch.recv();
@@ -508,11 +522,11 @@ raise(SIGUSR1);
 
 ---
 
-## String Methods (19)
+## String Methods (20)
 
 `substr`, `slice`, `find`, `contains`, `split`, `trim`, `to_upper`, `to_lower`,
 `starts_with`, `ends_with`, `replace`, `replace_all`, `repeat`, `char_at`,
-`byte_at`, `chars`, `bytes`, `to_bytes`, `deserialize`
+`byte_at`, `chars`, `bytes`, `to_bytes`, `byte_ptr`, `deserialize`
 
 Template strings: `` `Hello ${name}!` ``
 
@@ -525,11 +539,11 @@ print(s.length);       // 7 (character/rune count)
 print(s.byte_length);  // 10 (byte count - emoji is 4 bytes UTF-8)
 ```
 
-## Array Methods (23)
+## Array Methods (24)
 
 `push`, `pop`, `shift`, `unshift`, `insert`, `remove`, `find`, `contains`,
 `slice`, `join`, `concat`, `reverse`, `first`, `last`, `clear`, `map`, `filter`, `reduce`,
-`every`, `some`, `indexOf`, `sort`, `fill`
+`every`, `some`, `indexOf`, `sort`, `fill`, `reserve`
 
 ```hemlock
 // every(predicate) - true if all elements satisfy predicate
@@ -927,10 +941,20 @@ make parity
 - **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros (SIG*, AF_*, SOCK_*, etc.)
 - **New `@stdlib/atomic` module** - All atomic operations (load, store, add, sub, and, or, xor, cas, exchange for i32/i64 + fence)
 - **New `@stdlib/debug` module** - Task inspection (task_debug_info) and stack management (set_stack_limit, get_stack_limit)
-- **New `@stdlib/ffi` module** - FFI callback management (callback, callback_free)
+- **New `@stdlib/ffi` module** - FFI callback management (callback, callback_free, ffi_sizeof)
 - **New `@stdlib/bytes` module** - Byte order utilities (bswap16/32/64, htons/htonl/htonll, ntohs/ntohl/ntohll, is_little_endian, endian-aware buffer read/write)
 - **`open()` moved to `@stdlib/fs`** - File open now requires `import { open } from "@stdlib/fs"`
 - **`exec()`/`exec_argv()` moved to `@stdlib/process`** - Command execution now requires process module import
+- **`array.reserve(n)`** - Pre-allocate array capacity to avoid repeated reallocations
+- **`str.byte_ptr()`** - Zero-allocation raw pointer to string's internal byte buffer
+- **`buffer.slice(start, end)`** - Zero-copy buffer views referencing parent memory
+- **`ptr_read/write/deref` accept buffers** - All pointer builtins now accept both `ptr` and `buffer` types directly
+- **`spawn_with()` builtin** - Per-thread configuration with stack_size and name options
+- **WebSocket binary data** - Binary message extraction and transmission support
+- **Expression-level unboxing** - Compiler keeps native C types through expression trees, eliminating intermediate boxing
+- **Multi-level inlining (depth 3)** - Nested helper functions fully inlined; benchmarks improved 12-40%
+- **While-loop accumulator unboxing** - Native C locals for loop counters/accumulators
+- **Major codebase refactoring** - Split 5 large source files into focused modules
 
 **v1.9.4** - Previous release with:
 - **Compiler unboxed loop counter fix** - Fixed a critical codegen bug where optimized loop counters (native `int32_t`) were used directly as `HmlValue` initializers without boxing. The `codegen_is_main_var` check incorrectly prevented the boxing wrapper (`hml_val_i32()`) from being emitted when a main-level variable name shadowed an unboxed loop counter inside a module/closure function. Fixes compilation of `@stdlib/collections` and `@stdlib/encoding`.

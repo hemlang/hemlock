@@ -1,6 +1,6 @@
 # String API Reference
 
-Complete reference for Hemlock's string type and all 19 string methods.
+Complete reference for Hemlock's string type and all 20 string methods.
 
 ---
 
@@ -12,7 +12,7 @@ Strings in Hemlock are **UTF-8 encoded, mutable, heap-allocated** sequences with
 - UTF-8 encoding (U+0000 to U+10FFFF)
 - Mutable (can modify characters in place)
 - Codepoint-based indexing
-- 19 built-in methods
+- 20 built-in methods
 - Automatic concatenation with `+` operator
 
 ---
@@ -608,6 +608,57 @@ print(buf2.length);             // 4
 
 ---
 
+### Raw Pointer Access
+
+#### byte_ptr
+
+Get a raw pointer to the string's internal UTF-8 byte buffer. This is a zero-allocation operation -- no copy is made.
+
+**Signature:**
+```hemlock
+string.byte_ptr(): ptr
+```
+
+**Returns:** Raw pointer (`ptr`) to the string's internal UTF-8 bytes
+
+**Examples:**
+```hemlock
+let s = "Hello";
+let p = s.byte_ptr();
+print(typeof(p));              // "ptr"
+
+// Read bytes through the pointer
+print(ptr_deref_u8(p));                    // 72 ('H')
+print(ptr_deref_u8(ptr_offset(p, 1, 1))); // 101 ('e')
+print(ptr_deref_u8(ptr_offset(p, 4, 1))); // 111 ('o')
+
+// Use with memcpy to copy string bytes
+let buf = alloc(5);
+memcpy(buf, s.byte_ptr(), 5);
+print(ptr_deref_u8(buf));  // 72
+free(buf);
+
+// Pair with .byte_length for safe size tracking
+let emoji = "Hello 🚀";
+let ep = emoji.byte_ptr();
+print(emoji.byte_length);  // 10 (use byte_length, not length, for byte operations)
+```
+
+**Behavior:**
+- Returns a pointer directly into the string's internal memory (zero-copy)
+- The pointer is valid as long as the string is alive and unmodified
+- Use `.byte_length` (not `.length`) to determine the number of bytes accessible through the pointer
+- Unlike `.to_bytes()`, this does not allocate a new buffer
+
+**Use Cases:**
+- FFI calls that need a pointer to string data
+- Zero-copy interop with C functions
+- Performance-critical code that avoids allocation
+
+**Warning:** Modifying the string (e.g., index assignment) after calling `byte_ptr()` may invalidate the pointer if the string's internal buffer is reallocated.
+
+---
+
 ### JSON Deserialization
 
 #### deserialize
@@ -693,6 +744,7 @@ let cleaned = "  HELLO  "
 | `chars`        | `()`                                         | `array`   | Convert to array of runes             |
 | `bytes`        | `()`                                         | `array`   | Convert to array of bytes             |
 | `to_bytes`     | `()`                                         | `buffer`  | Convert to buffer (legacy)            |
+| `byte_ptr`     | `()`                                         | `ptr`     | Raw pointer to internal UTF-8 bytes   |
 | `deserialize`  | `()`                                         | `any`     | Parse JSON string                     |
 
 ---

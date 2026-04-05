@@ -813,7 +813,6 @@ print("5: after try/catch/finally");
 
 ## Current Limitations
 
-- **No stack trace** - Uncaught exceptions don't show stack trace (planned)
 - **Some built-ins exit** - Some built-in functions still `exit()` instead of throwing (to be reviewed)
 - **No custom exception types** - Any value can be thrown, but no formal exception hierarchy
 
