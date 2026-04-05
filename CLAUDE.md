@@ -78,37 +78,16 @@ let half = .5;           // f64 (no leading zero)
 let s = "hello";         // string
 let esc = "\x41\u{1F600}"; // hex and unicode escapes
 let ch = 'A';            // rune
-let emoji = '🚀';        // rune (Unicode)
 let arr = [1, 2, 3];     // array
 let obj = { x: 10 };     // object
 ```
 
 ### Type Conversion
 ```hemlock
-// Type constructor functions - parse strings to types
 let n = i32("42");       // Parse string to i32
 let f = f64("3.14");     // Parse string to f64
-let b = bool("true");    // Parse string to bool ("true" or "false")
-
-// All numeric types supported
-let a = i8("-128");      // i8, i16, i32, i64
-let c = u8("255");       // u8, u16, u32, u64
-let d = f32("1.5");      // f32, f64
-
-// Hex and negative numbers
-let hex = i32("0xFF");   // 255
-let neg = i32("-42");    // -42
-
-// Type aliases work too
-let x = integer("100");  // Same as i32("100")
-let y = number("1.5");   // Same as f64("1.5")
-let z = byte("200");     // Same as u8("200")
-
-// Convert between numeric types
 let big = i64(42);       // i32 to i64
 let truncated = i32(3.99); // f64 to i32 (truncates to 3)
-
-// Type annotations validate types (but don't parse strings)
 let f: f64 = 100;        // i32 to f64 via annotation (numeric coercion OK)
 // let n: i32 = "42";    // ERROR - use i32("42") for string parsing
 ```
@@ -117,21 +96,12 @@ let f: f64 = 100;        // i32 to f64 via annotation (numeric coercion OK)
 ```hemlock
 typeof(42);              // "i32"
 typeof("hello");         // "string"
-typeof([1, 2, 3]);       // "array"
-typeof(null);            // "null"
-"hello".length;          // 5 (string length in runes)
-"hello".byte_length;     // 5 (string length in bytes)
-[1, 2, 3].length;        // 3 (array length)
+"hello".length;          // 5 (rune count)
+"hello".byte_length;     // 5 (byte count)
 
 // typeid() - fast integer-based type detection (no string allocation)
 typeid(42);              // 2 (TYPEID_I32)
-typeid("hello");         // 11 (TYPEID_STRING)
-typeid(null);            // 21 (TYPEID_NULL)
-
-// Use TYPEID_* constants for comparison
-if (typeid(val) == TYPEID_I32 || typeid(val) == TYPEID_I64) {
-    print("integer type");
-}
+if (typeid(val) == TYPEID_I32 || typeid(val) == TYPEID_I64) { ... }
 ```
 
 **TYPEID constants:** `TYPEID_I8` (0), `TYPEID_I16` (1), `TYPEID_I32` (2), `TYPEID_I64` (3), `TYPEID_U8` (4), `TYPEID_U16` (5), `TYPEID_U32` (6), `TYPEID_U64` (7), `TYPEID_F32` (8), `TYPEID_F64` (9), `TYPEID_BOOL` (10), `TYPEID_STRING` (11), `TYPEID_RUNE` (12), `TYPEID_PTR` (13), `TYPEID_BUFFER` (14), `TYPEID_ARRAY` (15), `TYPEID_OBJECT` (16), `TYPEID_FILE` (17), `TYPEID_FUNCTION` (18), `TYPEID_TASK` (19), `TYPEID_CHANNEL` (20), `TYPEID_NULL` (21)
@@ -140,20 +110,10 @@ if (typeid(val) == TYPEID_I32 || typeid(val) == TYPEID_I64) {
 ```hemlock
 let p = alloc(64);       // raw pointer
 let b = buffer(64);      // safe buffer (bounds checked)
-memset(p, 0, 64);
-memcpy(dest, src, 64);
+memset(p, 0, 64); memcpy(dest, src, 64);
 free(p);                 // manual cleanup required
-
-// Buffer slicing (zero-copy views)
-let view = b.slice(0, 16);  // view into first 16 bytes (no copy)
-
-// String byte pointer (zero-allocation)
-let s = "hello";
-let bp = s.byte_ptr();      // raw ptr to string's UTF-8 bytes
-
-// ptr_read/write accept buffers directly
-ptr_write_f32(b, 3.14);     // no need for buffer_ptr() wrapper
-let val = ptr_read_f32(b);
+let view = b.slice(0, 16);  // zero-copy buffer view
+ptr_write_f32(b, 3.14);     // ptr_read/write accept buffers directly
 ```
 
 ### Control Flow
@@ -162,76 +122,36 @@ if (x > 0) { } else if (x < 0) { } else { }
 while (cond) { break; continue; }
 for (let i = 0; i < 10; i++) { }
 for (item in array) { }
-loop { if (done) { break; } }   // infinite loop (cleaner than while(true))
+loop { if (done) { break; } }   // infinite loop
 switch (x) { case 1: break; default: break; }  // C-style fall-through
 defer cleanup();         // runs when function returns
 
-// Loop labels for targeted break/continue in nested loops
+// Loop labels for nested break/continue
 outer: while (cond) {
-    inner: for (let i = 0; i < 10; i++) {
-        if (i == 5) { break outer; }     // break outer loop
-        if (i == 3) { continue outer; }  // continue outer loop
+    for (let i = 0; i < 10; i++) {
+        if (i == 5) { break outer; }
     }
 }
 ```
 
 ### Pattern Matching
 ```hemlock
-// Match expression - returns value
 let result = match (value) {
-    0 => "zero",                    // Literal pattern
+    0 => "zero",
     1 | 2 | 3 => "small",           // OR pattern
-    n if n < 10 => "medium",        // Guard expression
+    n if n < 10 => "medium",        // Guard
     n => "large: " + n              // Variable binding
 };
 
-// Type patterns
-match (val) {
-    n: i32 => "integer",
-    s: string => "string",
-    _ => "other"                    // Wildcard
-}
-
-// Object destructuring
-match (point) {
-    { x: 0, y: 0 } => "origin",
-    { x, y } => "at " + x + "," + y
-}
-
-// Array destructuring with rest
-match (arr) {
-    [] => "empty",
-    [first, ...rest] => "head: " + first,
-    _ => "other"
-}
-
-// Nested patterns
-match (user) {
-    { name, address: { city } } => name + " in " + city
-}
+// Also supports: type patterns (n: i32), object/array destructuring,
+// nested patterns, wildcard (_). See docs/language-guide/pattern-matching.md
 ```
 
-See `docs/language-guide/pattern-matching.md` for full documentation.
-
-### Null Coalescing Operators
+### Null Coalescing
 ```hemlock
-// Null coalescing (??) - returns left if non-null, else right
-let name = user.name ?? "Anonymous";
-let first = a ?? b ?? c ?? "fallback";
-
-// Null coalescing assignment (??=) - assigns only if null
-let config = null;
-config ??= { timeout: 30 };    // config is now { timeout: 30 }
-config ??= { timeout: 60 };    // config unchanged (not null)
-
-// Works with properties and indices
-obj.field ??= "default";
-arr[0] ??= "first";
-
-// Safe navigation (?.) - returns null if object is null
-let city = user?.address?.city;  // null if any part is null
-let upper = name?.to_upper();    // safe method call
-let item = arr?.[0];             // safe indexing
+let name = user.name ?? "Anonymous";     // null coalescing
+config ??= { timeout: 30 };             // null coalescing assignment
+let city = user?.address?.city;          // safe navigation
 ```
 
 ### Functions
@@ -239,243 +159,36 @@ let item = arr?.[0];             // safe indexing
 fn add(a: i32, b: i32): i32 { return a + b; }
 fn greet(name: string, msg?: "Hello") { print(msg + " " + name); }
 let f = fn(x) { return x * 2; };  // anonymous/closure
-
-// Expression-bodied functions (arrow syntax)
-fn double(x: i32): i32 => x * 2;
-fn max(a: i32, b: i32): i32 => a > b ? a : b;
-let square = fn(x: i32): i32 => x * x;  // anonymous expression-bodied
+fn double(x: i32): i32 => x * 2;  // expression-bodied
 
 // Parameter modifiers
 fn swap(ref a: i32, ref b: i32) { let t = a; a = b; b = t; }  // pass-by-reference
 fn print_all(const items: array) { for (i in items) { print(i); } }  // immutable
-```
 
-### Named Arguments
-```hemlock
-// Functions can be called with named arguments
-fn create_user(name: string, age?: 18, active?: true) {
-    print(name + " is " + age + " years old");
-}
-
-// Positional arguments (traditional)
-create_user("Alice", 25, false);
-
-// Named arguments - can be in any order
+// Named arguments
 create_user(name: "Bob", age: 30);
-create_user(age: 25, name: "Charlie", active: false);
-
-// Skip optional parameters by naming what you need
-create_user("David", active: false);  // Uses default age=18
-
-// Named arguments must come after positional arguments
-create_user("Eve", age: 21);          // OK: positional then named
-// create_user(name: "Bad", 25);      // ERROR: positional after named
+create_user("David", active: false);  // positional then named
 ```
 
-**Rules:**
-- Named arguments use `name: value` syntax
-- Can appear in any order after positional arguments
-- Positional arguments cannot follow named arguments
-- Works with default/optional parameters
-- Unknown parameter names cause runtime errors
-
-### Objects & Enums
+### Objects, Enums & Types
 ```hemlock
 define Person { name: string, age: i32, active?: true }
 let p: Person = { name: "Alice", age: 30 };
-let json = p.serialize();
-let restored = json.deserialize();
-
-// Object shorthand syntax (ES6-style)
-let name = "Alice";
-let age = 30;
-let person = { name, age };         // equivalent to { name: name, age: age }
-
-// Object spread operator
-let defaults = { theme: "dark", size: "medium" };
-let config = { ...defaults, size: "large" };  // copies defaults, overrides size
+let person = { name, age };             // shorthand syntax
+let config = { ...defaults, size: "large" }; // spread operator
 
 enum Color { RED, GREEN, BLUE }
-enum Status { OK = 0, ERROR = 1 }
-```
 
-### Compound Types (Intersection/Duck Types)
-```hemlock
-// Define structural types
-define HasName { name: string }
-define HasAge { age: i32 }
-define HasEmail { email: string }
+// Compound types (intersection/duck typing)
+let p: HasName & HasAge = { name: "Alice", age: 30 };
 
-// Compound type: object must satisfy ALL types
-let person: HasName & HasAge = { name: "Alice", age: 30 };
-
-// Function parameters with compound types
-fn greet(p: HasName & HasAge) {
-    print(p.name + " is " + p.age);
-}
-
-// Three or more types
-fn describe(p: HasName & HasAge & HasEmail) {
-    print(p.name + " <" + p.email + ">");
-}
-
-// Extra fields allowed (duck typing)
-let employee: HasName & HasAge = {
-    name: "Bob",
-    age: 25,
-    department: "Engineering"  // OK - extra fields ignored
-};
-```
-
-Compound types provide interface-like behavior without a separate `interface` keyword,
-building on the existing `define` and duck typing paradigms.
-
-### Type Aliases
-```hemlock
-// Simple type alias
-type Integer = i32;
-type Text = string;
-
-// Function type alias
+// Type aliases
 type Callback = fn(i32): void;
-type Predicate = fn(i32): bool;
-type AsyncHandler = async fn(string): i32;
-
-// Compound type alias (great for reusable interfaces)
-define HasName { name: string }
-define HasAge { age: i32 }
 type Person = HasName & HasAge;
 
-// Generic type alias
-type Pair<T> = { first: T, second: T };
-
-// Using type aliases
-let x: Integer = 42;
-let cb: Callback = fn(n) { print(n); };
-let p: Person = { name: "Alice", age: 30 };
+// Method signatures in define
+define Comparable { value: i32, fn compare(other: Self): i32 }
 ```
-
-Type aliases create named shortcuts for complex types, improving readability and maintainability.
-
-### Function Types
-```hemlock
-// Function type annotations for parameters
-fn apply_fn(f: fn(i32): i32, x: i32): i32 {
-    return f(x);
-}
-
-// Higher-order function returning a function
-fn make_adder(n: i32): fn(i32): i32 {
-    return fn(x) { return x + n; };
-}
-
-// Async function types
-fn run_async(handler: async fn(): void) {
-    spawn(handler);
-}
-
-// Function types with multiple parameters
-type BinaryOp = fn(i32, i32): i32;
-let add: BinaryOp = fn(a, b) { return a + b; };
-```
-
-### Const Parameters
-```hemlock
-// Const parameter - deep immutability
-fn print_all(const items: array) {
-    // items.push(4);  // ERROR: cannot mutate const parameter
-    for (item in items) {
-        print(item);
-    }
-}
-
-// Const with objects - no mutation through any path
-fn describe(const person: object) {
-    print(person.name);       // OK: reading is allowed
-    // person.name = "Bob";   // ERROR: cannot mutate
-}
-
-// Nested access is allowed for reading
-fn get_city(const user: object) {
-    return user.address.city;  // OK: reading nested properties
-}
-```
-
-The `const` modifier prevents any mutation of the parameter, including nested properties.
-This provides compile-time safety for functions that should not modify their inputs.
-
-### Ref Parameters (Pass-by-Reference)
-```hemlock
-// Ref parameter - caller's variable is modified directly
-fn increment(ref x: i32) {
-    x = x + 1;  // Modifies the original variable
-}
-
-let count = 10;
-increment(count);
-print(count);  // 11 - original was modified
-
-// Classic swap function
-fn swap(ref a: i32, ref b: i32) {
-    let temp = a;
-    a = b;
-    b = temp;
-}
-
-let x = 1;
-let y = 2;
-swap(x, y);
-print(x, y);  // 2 1
-
-// Mix ref and regular parameters
-fn add_to(ref target: i32, amount: i32) {
-    target = target + amount;
-}
-
-let total = 100;
-add_to(total, 50);
-print(total);  // 150
-```
-
-The `ref` modifier passes a reference to the caller's variable, allowing the function to
-modify it directly. Without `ref`, primitives are passed by value (copied). Use `ref` when
-you need to mutate the caller's state without returning a value.
-
-**Rules:**
-- `ref` parameters must be passed variables, not literals or expressions
-- Works with all types (primitives, arrays, objects)
-- Combine with type annotations: `ref x: i32`
-- Cannot combine with `const` (they're opposites)
-
-### Method Signatures in Define
-```hemlock
-// Define with method signatures (interface pattern)
-define Comparable {
-    value: i32,
-    fn compare(other: Self): i32   // Required method signature
-}
-
-// Objects must provide the required method
-let a: Comparable = {
-    value: 10,
-    compare: fn(other) { return self.value - other.value; }
-};
-
-// Optional methods with ?
-define Serializable {
-    fn serialize(): string,        // Required
-    fn pretty?(): string           // Optional method
-}
-
-// Self type refers to the defining type
-define Cloneable {
-    fn clone(): Self   // Returns same type as the object
-}
-```
-
-Method signatures in `define` blocks use comma delimiters (like TypeScript interfaces),
-establishing contracts that objects must fulfill and enabling interface-like programming
-patterns with Hemlock's duck typing system.
 
 ### Error Handling
 ```hemlock
@@ -489,47 +202,20 @@ async fn compute(n: i32): i32 { return n * n; }
 let task = spawn(compute, 42);
 let result = await task;     // or join(task)
 detach(spawn(background_work));
-
-// spawn_with() for per-thread configuration
 let t = spawn_with({ stack_size: 4194304, name: "worker" }, compute, 42);
 
 let ch = channel(10);
-ch.send(value);
-let val = ch.recv();
-ch.close();
+ch.send(value); let val = ch.recv(); ch.close();
 ```
 
-**Memory ownership:** Tasks receive copies of primitive values but share pointers. If you pass a `ptr` to a spawned task, you must ensure the memory remains valid until the task completes. Use `join()` before `free()`, or use channels to signal completion.
+**Memory ownership:** Tasks share pointers but copy primitives. Use `join()` before `free()` when sharing `ptr`.
 
-### User Input
+### I/O
 ```hemlock
-let name = read_line();          // Read line from stdin (blocks)
-print("Hello, " + name);
-write("no newline");             // Print without trailing newline
-eprint("Error message");         // Print to stderr
-
-// read_line() returns null on EOF
-while (true) {
-    let line = read_line();
-    if (line == null) { break; }
-    print("Got:", line);
-}
-```
-
-### File I/O
-```hemlock
+let name = read_line();          // stdin (returns null on EOF)
+print("hello"); write("no newline"); eprint("stderr");
 let f = open("file.txt", "r");  // modes: r, w, a, r+, w+, a+
-let content = f.read();
-f.write("data");
-f.seek(0);
-f.close();
-```
-
-### Signals
-```hemlock
-import { SIGUSR1 } from "@stdlib/signal";
-signal(SIGUSR1, fn(sig) { print("Interrupted"); });
-raise(SIGUSR1);
+f.read(); f.write("data"); f.close();
 ```
 
 ---
@@ -542,14 +228,7 @@ raise(SIGUSR1);
 
 Template strings: `` `Hello ${name}!` ``
 
-**String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings without modifying the original. This allows in-place mutation when needed while keeping method chaining functional.
-
-**String length properties:**
-```hemlock
-let s = "hello 🚀";
-print(s.length);       // 7 (character/rune count)
-print(s.byte_length);  // 10 (byte count - emoji is 4 bytes UTF-8)
-```
+**String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings.
 
 ## Array Methods (24)
 
@@ -557,41 +236,13 @@ print(s.byte_length);  // 10 (byte count - emoji is 4 bytes UTF-8)
 `slice`, `join`, `concat`, `reverse`, `first`, `last`, `clear`, `map`, `filter`, `reduce`,
 `every`, `some`, `indexOf`, `sort`, `fill`, `reserve`
 
-```hemlock
-// every(predicate) - true if all elements satisfy predicate
-let allPositive = [1, 2, 3].every(fn(x) { return x > 0; });  // true
-
-// some(predicate) - true if any element satisfies predicate
-let hasEven = [1, 2, 3].some(fn(x) { return x % 2 == 0; });  // true
-
-// indexOf(value) - find first index of value, or -1
-let idx = ["a", "b", "c"].indexOf("b");  // 1
-
-// sort(comparator?) - sort in-place, optional comparator
-let nums = [3, 1, 4, 1, 5];
-nums.sort();                              // [1, 1, 3, 4, 5]
-nums.sort(fn(a, b) { return b - a; });    // descending
-
-// fill(value, start?, end?) - fill with value
-let arr = [1, 2, 3, 4, 5];
-arr.fill(0);        // [0, 0, 0, 0, 0]
-arr.fill(9, 2);     // [0, 0, 9, 9, 9]
-arr.fill(7, 1, 4);  // [0, 7, 7, 7, 9]
-```
-
 Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
 ## Standard Library (47 modules)
 
-Import with `@stdlib/` prefix:
-```hemlock
-import { sin, cos, PI } from "@stdlib/math";
-import { HashMap, Queue, Set } from "@stdlib/collections";
-import { read_file, write_file } from "@stdlib/fs";
-import { TcpStream, UdpSocket } from "@stdlib/net";
-```
+Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
 | Module | Description |
 |--------|-------------|
@@ -649,76 +300,19 @@ See `stdlib/docs/` for detailed module documentation.
 
 ## FFI (Foreign Function Interface)
 
-Declare and call C functions from shared libraries:
 ```hemlock
 import "libc.so.6";
-
 extern fn strlen(s: string): i32;
-extern fn getpid(): i32;
-
 let len = strlen("Hello!");  // 6
-let pid = getpid();
-```
 
-Export FFI functions from modules:
-```hemlock
-// string_utils.hml
-import "libc.so.6";
-
-export extern fn strlen(s: string): i32;
-export fn string_length(s: string): i32 {
-    return strlen(s);
-}
-```
-
-Dynamic FFI (runtime binding):
-```hemlock
+// Dynamic FFI
 let lib = ffi_open("libc.so.6");
 let puts = ffi_bind(lib, "puts", [FFI_POINTER], FFI_INT);
 puts("Hello from C!");
 ffi_close(lib);
 ```
 
-Types: `FFI_INT`, `FFI_DOUBLE`, `FFI_POINTER`, `FFI_STRING`, `FFI_VOID`, etc.
-
----
-
-## Atomic Operations
-
-Lock-free concurrent programming with atomic operations:
-
-```hemlock
-// Allocate memory for atomic i32
-let p = alloc(4);
-ptr_write_i32(p, 0);
-
-// Atomic load/store
-let val = atomic_load_i32(p);        // Read atomically
-atomic_store_i32(p, 42);             // Write atomically
-
-// Fetch-and-modify operations (return OLD value)
-let old = atomic_add_i32(p, 10);     // Add, return old
-old = atomic_sub_i32(p, 5);          // Subtract, return old
-old = atomic_and_i32(p, 0xFF);       // Bitwise AND
-old = atomic_or_i32(p, 0x10);        // Bitwise OR
-old = atomic_xor_i32(p, 0x0F);       // Bitwise XOR
-
-// Compare-and-swap (CAS)
-let success = atomic_cas_i32(p, 42, 100);  // If *p == 42, set to 100
-// Returns true if swap succeeded, false otherwise
-
-// Atomic exchange
-old = atomic_exchange_i32(p, 999);   // Swap, return old
-
-free(p);
-
-// i64 variants available (atomic_load_i64, atomic_add_i64, etc.)
-
-// Memory fence (full barrier)
-atomic_fence();
-```
-
-All operations use sequential consistency (`memory_order_seq_cst`).
+See `docs/advanced/ffi.md` for full documentation.
 
 ---
 
@@ -735,48 +329,34 @@ hemlock/
 │   │   ├── lsp/          # Language Server Protocol
 │   │   └── bundler/      # Bundle/package tools
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
-├── stdlib/               # Standard library (41 modules)
+├── stdlib/               # Standard library
 │   └── docs/             # Module documentation
 ├── docs/                 # Full documentation
-│   ├── language-guide/   # Types, strings, arrays, etc.
-│   ├── reference/        # API references
-│   └── advanced/         # Async, FFI, signals, etc.
 ├── tests/                # 625+ tests
 └── examples/             # Example programs
 ```
+
+### Compiler/Interpreter Architecture
+
+Both backends share a common frontend (lexer, parser, AST). The interpreter does tree-walk evaluation; the compiler generates C code and links with GCC. See `docs/` for details.
 
 ---
 
 ## Code Style Guidelines
 
-### Constants and Magic Numbers
-
-When adding numeric constants to the C codebase, follow these guidelines:
-
-1. **Define constants in `include/hemlock_limits.h`** - This file is the central location for all compile-time and runtime limits, capacities, and named constants.
-
-2. **Use descriptive names with `HML_` prefix** - All constants should be prefixed with `HML_` for namespace clarity.
-
-3. **Avoid magic numbers** - Replace hard-coded numeric values with named constants. Examples:
-   - Type range limits: `HML_I8_MIN`, `HML_I8_MAX`, `HML_U32_MAX`
-   - Buffer capacities: `HML_INITIAL_ARRAY_CAPACITY`, `HML_INITIAL_LEXER_BUFFER_CAPACITY`
-   - Time conversions: `HML_NANOSECONDS_PER_SECOND`, `HML_MILLISECONDS_PER_SECOND`
-   - Hash seeds: `HML_DJB2_HASH_SEED`
-   - ASCII values: `HML_ASCII_CASE_OFFSET`, `HML_ASCII_PRINTABLE_START`
-
-4. **Include `hemlock_limits.h`** - Source files should include this header (often via `internal.h`) to access constants.
-
-5. **Document the purpose** - Add a comment explaining what each constant represents.
+1. **Define constants in `include/hemlock_limits.h`** with `HML_` prefix
+2. **Avoid magic numbers** - use named constants
+3. **Include `hemlock_limits.h`** via `internal.h` to access constants
 
 ---
 
 ## What NOT to Do
 
-❌ Add implicit behavior (ASI, GC, auto-cleanup)
-❌ Hide complexity (magic optimizations, hidden refcounts)
-❌ Break existing semantics (semicolons, manual memory, mutable strings)
-❌ Lose precision in implicit conversions
-❌ Use magic numbers - define named constants in `hemlock_limits.h` instead
+- Add implicit behavior (ASI, GC, auto-cleanup)
+- Hide complexity (magic optimizations, hidden refcounts)
+- Break existing semantics (semicolons, manual memory, mutable strings)
+- Lose precision in implicit conversions
+- Use magic numbers - define named constants in `hemlock_limits.h` instead
 
 ---
 
@@ -789,84 +369,10 @@ make parity            # Run parity tests (both must match)
 make test-all          # Run all test suites
 ```
 
-**Important:** Tests may hang due to async/concurrency issues. Always use a timeout when running tests:
+**Important:** Always use a timeout when running tests (async tests may hang):
 ```bash
-timeout 60 make test   # 60 second timeout
+timeout 60 make test
 timeout 120 make parity
-```
-
-Test categories: primitives, memory, strings, arrays, functions, objects, async, ffi, defer, signals, switch, bitwise, typed_arrays, modules, stdlib_*
-
----
-
-## Compiler/Interpreter Architecture
-
-Hemlock has two execution backends that share a common frontend:
-
-```
-Source (.hml)
-    ↓
-┌─────────────────────────────┐
-│  SHARED FRONTEND            │
-│  - Lexer (src/frontend/)    │
-│  - Parser (src/frontend/)   │
-│  - AST (src/frontend/)      │
-└─────────────────────────────┘
-    ↓                    ↓
-┌────────────┐    ┌────────────┐
-│ INTERPRETER│    │  COMPILER  │
-│ (hemlock)  │    │ (hemlockc) │
-│            │    │            │
-│ Tree-walk  │    │ Type check │
-│ evaluation │    │ AST → C    │
-│            │    │ gcc link   │
-└────────────┘    └────────────┘
-```
-
-### Compiler Type Checking
-
-The compiler (`hemlockc`) includes compile-time type checking, **enabled by default**:
-
-```bash
-hemlockc program.hml -o program    # Type checks, then compiles
-hemlockc --check program.hml       # Type check only, don't compile
-hemlockc --no-type-check prog.hml  # Disable type checking
-hemlockc --strict-types prog.hml   # Warn on implicit 'any' types
-```
-
-The type checker:
-- Validates type annotations at compile time
-- Treats untyped code as dynamic (`any` type) - always valid
-- Provides optimization hints for unboxing
-- Uses permissive numeric conversions (range validated at runtime)
-
-### Directory Structure
-
-```
-hemlock/
-├── src/
-│   ├── frontend/           # Shared: lexer, parser, AST, modules
-│   │   ├── lexer.c
-│   │   ├── parser/
-│   │   ├── ast.c
-│   │   └── module.c
-│   ├── backends/
-│   │   ├── interpreter/    # hemlock: tree-walking interpreter
-│   │   │   ├── main.c
-│   │   │   ├── runtime/
-│   │   │   └── builtins/
-│   │   └── compiler/       # hemlockc: C code generator
-│   │       ├── main.c
-│   │       └── codegen/
-│   ├── tools/
-│   │   ├── lsp/            # Language server
-│   │   └── bundler/        # Bundle/package tools
-├── runtime/                # libhemlock_runtime.a for compiled programs
-├── stdlib/                 # Shared standard library
-└── tests/
-    ├── parity/             # Tests that MUST pass both backends
-    ├── interpreter/        # Interpreter-specific tests
-    └── compiler/           # Compiler-specific tests
 ```
 
 ---
@@ -875,196 +381,14 @@ hemlock/
 
 **Both the interpreter and compiler must produce identical output for the same input.**
 
-### Development Policy
+When adding/modifying language features:
+1. Design the AST/semantic change in the shared frontend
+2. Implement in interpreter (tree-walking evaluation)
+3. Implement in compiler (C code generation)
+4. Add parity test in `tests/parity/` with `.expected` file
+5. Run `make parity` before merging
 
-When adding or modifying language features:
-
-1. **Design** - Define the AST/semantic change in the shared frontend
-2. **Implement interpreter** - Add tree-walking evaluation
-3. **Implement compiler** - Add C code generation
-4. **Add parity test** - Write test in `tests/parity/` with `.expected` file
-5. **Verify** - Run `make parity` before merging
-
-### Parity Test Structure
-
-```
-tests/parity/
-├── language/       # Core language features (control flow, closures, etc.)
-├── builtins/       # Built-in functions (print, typeof, memory, etc.)
-├── methods/        # String and array methods
-└── modules/        # Import/export, stdlib imports
-```
-
-Each test has two files:
-- `feature.hml` - The test program
-- `feature.expected` - Expected output (must match for both backends)
-
-### Parity Test Results
-
-| Status | Meaning |
-|--------|---------|
-| `✓ PASSED` | Both interpreter and compiler match expected output |
-| `◐ INTERP_ONLY` | Interpreter works, compiler fails (needs compiler fix) |
-| `◑ COMPILER_ONLY` | Compiler works, interpreter fails (rare) |
-| `✗ FAILED` | Both fail (test or implementation bug) |
-
-### What Requires Parity
-
-- All language constructs (if, while, for, switch, defer, try/catch)
-- All operators (arithmetic, bitwise, logical, comparison)
-- All built-in functions (print, typeof, alloc, etc.)
-- All string and array methods
-- Type coercion and promotion rules
-- Error messages for runtime errors
-
-### What May Differ
-
-- Performance characteristics
-- Memory layout details
-- Debug/stack trace format
-- Compilation errors (compiler may catch more at compile time)
-
-### Adding a Parity Test
-
-```bash
-# 1. Create test file
-cat > tests/parity/language/my_feature.hml << 'EOF'
-// Test description
-let x = some_feature();
-print(x);
-EOF
-
-# 2. Generate expected output from interpreter
-./hemlock tests/parity/language/my_feature.hml > tests/parity/language/my_feature.expected
-
-# 3. Verify parity
-make parity
-```
-
----
-
-## Version
-
-**v2.0.0** - Current release with:
-- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins out of the global namespace to reduce conflicts with user variables and functions. Math functions (sin, cos, sqrt, etc.), environment functions (getenv, setenv), signal functions and constants (signal, raise, SIGINT, etc.), socket constants (AF_INET, SOCK_STREAM, etc.), and networking functions (socket_create, dns_resolve, poll) now require importing from their respective @stdlib modules. Internal `__`-prefixed versions remain for stdlib use.
-- **New `@stdlib/signal` module** - Signal functions (signal, raise) and constants (SIGINT, SIGTERM, SIGUSR1, etc.) now imported from `@stdlib/signal`
-- **Expanded `@stdlib/net` module** - Socket constants, poll constants, and networking functions (socket_create, dns_resolve, poll) now exported from `@stdlib/net`
-- **Expanded `@stdlib/math` module** - Added div, divi, floori, ceili, roundi, trunci exports
-- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros (SIG*, AF_*, SOCK_*, etc.)
-- **New `@stdlib/atomic` module** - All atomic operations (load, store, add, sub, and, or, xor, cas, exchange for i32/i64 + fence)
-- **New `@stdlib/debug` module** - Task inspection (task_debug_info) and stack management (set_stack_limit, get_stack_limit)
-- **New `@stdlib/ffi` module** - FFI callback management (callback, callback_free, ffi_sizeof)
-- **New `@stdlib/bytes` module** - Byte order utilities (bswap16/32/64, htons/htonl/htonll, ntohs/ntohl/ntohll, is_little_endian, endian-aware buffer read/write)
-- **`open()` moved to `@stdlib/fs`** - File open now requires `import { open } from "@stdlib/fs"`
-- **`exec()`/`exec_argv()` moved to `@stdlib/process`** - Command execution now requires process module import
-- **`array.reserve(n)`** - Pre-allocate array capacity to avoid repeated reallocations
-- **`str.byte_ptr()`** - Zero-allocation raw pointer to string's internal byte buffer
-- **`buffer.slice(start, end)`** - Zero-copy buffer views referencing parent memory
-- **`ptr_read/write/deref` accept buffers** - All pointer builtins now accept both `ptr` and `buffer` types directly
-- **`spawn_with()` builtin** - Per-thread configuration with stack_size and name options
-- **WebSocket binary data** - Binary message extraction and transmission support
-- **Expression-level unboxing** - Compiler keeps native C types through expression trees, eliminating intermediate boxing
-- **Multi-level inlining (depth 3)** - Nested helper functions fully inlined; benchmarks improved 12-40%
-- **While-loop accumulator unboxing** - Native C locals for loop counters/accumulators
-- **Major codebase refactoring** - Split 5 large source files into focused modules
-
-**v1.9.4** - Previous release with:
-- **Compiler unboxed loop counter fix** - Fixed a critical codegen bug where optimized loop counters (native `int32_t`) were used directly as `HmlValue` initializers without boxing. The `codegen_is_main_var` check incorrectly prevented the boxing wrapper (`hml_val_i32()`) from being emitted when a main-level variable name shadowed an unboxed loop counter inside a module/closure function. Fixes compilation of `@stdlib/collections` and `@stdlib/encoding`.
-- **`clear()` object method dispatch** - The compiler now correctly dispatches `.clear()` to object methods when called on non-array types. Previously, `.clear()` always generated `hml_array_clear()` regardless of receiver type.
-- **`exec()` import shadowing fix** - The compiler's builtin `exec()` handler now checks for import bindings and module-local functions before dispatching to the system exec builtin. Fixes `@stdlib/sqlite` which exports its own `exec()` function.
-
-**v1.9.1** - Previous release with:
-- **`write()` builtin** - Print without trailing newline (`write("hello"); write(" world");` outputs on one line). Includes `fflush(stdout)` for immediate output. Full parity between interpreter and compiler.
-- **Single-argument `slice()`** - `arr.slice(n)` and `str.slice(n)` now default end to length, matching JS/Python behavior. Two-arg form unchanged.
-- **`join()` on rune arrays** - `"hello".chars().join("")` now correctly produces `"hello"` instead of `"[object][object]..."`. Enables idiomatic string reversal: `str.chars().reverse().join("")`.
-- **HashMap numeric key coercion** - Keys of different numeric types now match (e.g., `i32` key found by `i64` lookup). Previously, `typeof()` guard in `keys_equal()` rejected valid cross-type matches.
-- **HemBench improvements** - Fixed task definitions (L1-M-02 rounding, L2-E-01 precision), stopped leaking expected output to L5/L6 benchmark tasks.
-- **Complete `ptr_read_*` builtins** - Added `ptr_read_i8`, `ptr_read_i16`, `ptr_read_i64`, `ptr_read_u8`, `ptr_read_u16`, `ptr_read_u32`, `ptr_read_u64`, `ptr_read_f32`, `ptr_read_f64`, `ptr_read_ptr` to complement existing `ptr_write_*` functions. Fixed `ptr_read_i32` to do direct dereference (was double-dereference). Full parity between interpreter and compiler.
-- **macOS FFI library loading** - `dlopen` now searches `/usr/local/lib` and `/opt/homebrew/lib` as fallback paths on macOS, fixing library-not-found errors for user-installed shared libraries (e.g., libusearch_c).
-- **`@stdlib/vector` USearch v2 fix** - `create_index()` now calls `usearch_reserve()` after init, fixing segfault with USearch v2.24+ which requires pre-allocation before adding vectors.
-
-**v1.9.0** - Previous release with:
-- **WASM interpreter release artifact** - Pre-built WASM interpreter included in GitHub releases for browser/Node.js usage
-- **Compiler inlining fixes** - Fixed nested call argument corruption and unboxing collision with loop counters during function inlining (fixes hemloco compilation)
-- **Pointer subtraction** - Compiler type checker now allows `ptr - integer` for pointer arithmetic
-- **Catchable `open()` exceptions** - `open()` throws via `hml_throw()` instead of `exit(1)`, enabling try/catch error handling
-- **Multi-argument print/eprint fix** - Fixed compiler codegen for `print()` and `eprint()` with multiple arguments (e.g., `print("x:", x, y)`)
-- **SSO string fix** - Fixed segfault in `hml_string_append_inplace` when growing strings using Small String Optimization
-- **`@stdlib/termios` module** - Cross-platform raw terminal input (Linux/macOS):
-  - `enable_raw_mode()` / `disable_raw_mode()` for instant keypresses
-  - `read_key()` / `read_key_timeout(ms)` for single keypress reading
-  - Arrow keys, function keys, control keys detection
-  - `is_terminal()` to check if stdin is a TTY
-  - Documentation at `stdlib/docs/termios.md`
-- **Memory leak prevention** - Comprehensive fixes ensuring the runtime is leak-free:
-  - Exception-safe expression evaluation (arrays, objects, function calls)
-  - Task result proper retain/release on join()
-  - Channel drain on close (releases buffered values)
-  - Optimizer cleanup for null coalescing constant folding
-  - Leak regression test suite (`make leak-regression`)
-  - Memory ownership documentation (`docs/advanced/memory-ownership.md`)
-- **Pattern matching** (`match` expressions) - Powerful destructuring and control flow:
-  - Literal, wildcard, and variable binding patterns
-  - OR patterns (`1 | 2 | 3`)
-  - Guard expressions (`n if n > 0`)
-  - Object destructuring (`{ x, y }`)
-  - Array destructuring with rest (`[first, ...rest]`)
-  - Type patterns (`n: i32`)
-  - Full parity between interpreter and compiler
-- **Compiler helper annotations** - 11 optimization annotations for GCC/Clang control:
-  - `@inline`, `@noinline` - function inlining control
-  - `@hot`, `@cold` - branch prediction hints
-  - `@pure`, `@const` - side-effect annotations
-  - `@flatten` - inline all calls within function
-  - `@optimize(level)` - per-function optimization level ("0", "1", "2", "3", "s", "fast")
-  - `@warn_unused` - warn on ignored return values
-  - `@section(name)` - custom ELF section placement (e.g., `@section(".text.hot")`)
-- **Expression-bodied functions** (`fn double(x): i32 => x * 2;`) - concise single-expression function syntax
-- **Single-line statements** - braceless `if`, `while`, `for` syntax (e.g., `if (x > 0) print(x);`)
-- **Type aliases** (`type Name = Type;`) - named shortcuts for complex types
-- **Function type annotations** (`fn(i32): i32`) - first-class function types
-- **Const parameters** (`fn(const x: array)`) - deep immutability for parameters
-- **Ref parameters** (`fn(ref x: i32)`) - pass-by-reference for direct caller mutation
-- **Method signatures in define** (`fn method(): Type`) - interface-like contracts (comma-delimited)
-- **Self type** in method signatures - refers to the defining type
-- **Loop keyword** (`loop { }`) - cleaner infinite loops, replaces `while (true)`
-- **Loop labels** (`outer: while`) - targeted break/continue for nested loops
-- **Object shorthand** (`{ name }`) - ES6-style shorthand property syntax
-- **Object spread** (`{ ...obj }`) - copy and merge object fields
-- **Compound duck types** (`A & B & C`) - intersection types for structural typing
-- **Named arguments** for function calls (`foo(name: "value", age: 30)`)
-- **Null coalescing operators** (`??`, `??=`, `?.`) for safe null handling
-- **Octal literals** (`0o777`, `0O123`)
-- **Numeric separators** (`1_000_000`, `0xFF_FF`, `0b1111_0000`)
-- **Block comments** (`/* ... */`)
-- **Hex escape sequences** in strings/runes (`\x41` = 'A')
-- **Unicode escape sequences** in strings (`\u{1F600}` = 😀)
-- **Float literals without leading zero** (`.5`, `.123`, `.5e2`)
-- **Compile-time type checking** in hemlockc (enabled by default)
-- **LSP integration** with type checking for real-time diagnostics
-- **Compound assignment operators** (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
-- **Increment/decrement operators** (`++x`, `x++`, `--x`, `x--`)
-- **Type precision fix**: i64/u64 + f32 → f64 to preserve precision
-- Unified type system with unboxing optimization hints
-- Full type system (i8-i64, u8-u64, f32/f64, bool, string, rune, ptr, buffer, array, object, enum, file, task, channel)
-- UTF-8 strings with 19 methods
-- Arrays with 23 methods including map/filter/reduce/every/some/indexOf/sort/fill
-- Manual memory management with `talloc()` and `sizeof()`
-- Async/await with true pthread parallelism
-- Atomic operations for lock-free concurrent programming
-- 44 stdlib modules (+ arena, assert, bytes, semver, toml, retry, iter, random, shell, signal, termios, vector)
-- FFI for C interop with `export extern fn` for reusable library wrappers
-- FFI struct support in compiler (pass C structs by value)
-- FFI pointer helpers (`ptr_null`, `ptr_read_*`, `ptr_write_*`)
-- defer, try/catch/finally/throw, panic
-- File I/O, signal handling, command execution
-- [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- Compiler backend (C code generation) with 100% interpreter parity
-- LSP server with go-to-definition and find-references
-- AST optimization pass and variable resolution for O(1) lookup
-- apply() builtin for dynamic function calls
-- Unbuffered channels and many-params support
-- 159 parity tests (100% pass rate)
+Each test has `feature.hml` + `feature.expected`. Both backends must match the expected output.
 
 ---
 
