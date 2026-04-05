@@ -4,9 +4,175 @@
  */
 
 #include "codegen_expr_internal.h"
+#include <inttypes.h>
 
-// Forward declaration
+// Forward declarations
 char* codegen_expr(CodegenContext *ctx, Expr *expr);
+CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr);
+
+// ========== NATIVE EXPRESSION GENERATION ==========
+
+// Generate a raw C expression string for an expression with known native type.
+// Returns NULL if the expression can't be fully represented in native C.
+// This enables expression-level unboxing: instead of boxing every intermediate
+// result, we keep values as native C types through the entire expression tree
+// and only box at the outermost level.
+//
+// Example: (a + b) * (c - 1) where a,b,c are unboxed i32
+//   Before: hml_i32_mul(hml_i32_add(a_val, b_val), hml_i32_sub(c_val, one_val))
+//   After:  hml_val_i32((a + b) * (c - 1))
+char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_type) {
+    if (!ctx->optimize || !ctx->type_ctx || !expr) return NULL;
+
+    // First check if the whole expression has a known native type
+    CheckedTypeKind expr_type = infer_expr_native_type(ctx->type_ctx, expr);
+    if (expr_type == CHECKED_UNKNOWN) return NULL;
+
+    switch (expr->type) {
+        case EXPR_NUMBER: {
+            char buf[64];
+            if (expr->as.number.is_float) {
+                snprintf(buf, sizeof(buf), "%g", expr->as.number.float_value);
+                *out_type = CHECKED_F64;
+            } else if (expr->as.number.int_value > 2147483647LL ||
+                       expr->as.number.int_value < -2147483648LL) {
+                snprintf(buf, sizeof(buf), "%" PRId64 "LL", expr->as.number.int_value);
+                *out_type = CHECKED_I64;
+            } else {
+                snprintf(buf, sizeof(buf), "%" PRId64, expr->as.number.int_value);
+                *out_type = CHECKED_I32;
+            }
+            return strdup(buf);
+        }
+
+        case EXPR_BOOL: {
+            *out_type = CHECKED_BOOL;
+            return strdup(expr->as.boolean ? "1" : "0");
+        }
+
+        case EXPR_IDENT: {
+            // Only for unboxed variables - we can use the native name directly
+            CheckedTypeKind kind = type_check_get_unboxable(ctx->type_ctx, expr->as.ident.name);
+            if (kind != CHECKED_UNKNOWN) {
+                // Skip function parameters and non-local main vars
+                if (codegen_is_func_param(ctx, expr->as.ident.name)) return NULL;
+                int is_truly_main = codegen_is_main_var(ctx, expr->as.ident.name) &&
+                                    !codegen_is_local(ctx, expr->as.ident.name);
+                if (is_truly_main) return NULL;
+
+                *out_type = kind;
+                return codegen_sanitize_ident(expr->as.ident.name);
+            }
+            return NULL;
+        }
+
+        case EXPR_BINARY: {
+            // Division always returns f64 - skip for now (cast complexity)
+            if (expr->as.binary.op == OP_DIV) return NULL;
+            // Logical AND/OR have short-circuit semantics - can't inline
+            if (expr->as.binary.op == OP_AND || expr->as.binary.op == OP_OR) return NULL;
+
+            CheckedTypeKind left_type, right_type;
+            char *left = codegen_native_expr(ctx, expr->as.binary.left, &left_type);
+            if (!left) return NULL;
+            char *right = codegen_native_expr(ctx, expr->as.binary.right, &right_type);
+            if (!right) { free(left); return NULL; }
+
+            // Determine the C operator
+            const char *op_str = NULL;
+            int is_comparison = 0;
+            switch (expr->as.binary.op) {
+                case OP_ADD: op_str = "+"; break;
+                case OP_SUB: op_str = "-"; break;
+                case OP_MUL: op_str = "*"; break;
+                case OP_MOD: op_str = "%"; break;
+                case OP_LESS: op_str = "<"; is_comparison = 1; break;
+                case OP_LESS_EQUAL: op_str = "<="; is_comparison = 1; break;
+                case OP_GREATER: op_str = ">"; is_comparison = 1; break;
+                case OP_GREATER_EQUAL: op_str = ">="; is_comparison = 1; break;
+                case OP_EQUAL: op_str = "=="; is_comparison = 1; break;
+                case OP_NOT_EQUAL: op_str = "!="; is_comparison = 1; break;
+                case OP_BIT_AND: op_str = "&"; break;
+                case OP_BIT_OR: op_str = "|"; break;
+                case OP_BIT_XOR: op_str = "^"; break;
+                case OP_BIT_LSHIFT: op_str = "<<"; break;
+                case OP_BIT_RSHIFT: op_str = ">>"; break;
+                default: break;
+            }
+
+            if (!op_str) { free(left); free(right); return NULL; }
+
+            // Handle type promotion for mixed types
+            CheckedTypeKind result_type = expr_type;
+            char *promoted_left = left;
+            char *promoted_right = right;
+
+            // If types differ, cast to the promoted type
+            if (left_type != right_type && !is_comparison) {
+                const char *c_type = checked_type_to_c_type(result_type);
+                if (c_type && left_type != result_type) {
+                    char *cast = malloc(strlen(left) + strlen(c_type) + 8);
+                    sprintf(cast, "((%s)%s)", c_type, left);
+                    promoted_left = cast;
+                    free(left);
+                    left = NULL;
+                }
+                if (c_type && right_type != result_type) {
+                    char *cast = malloc(strlen(right) + strlen(c_type) + 8);
+                    sprintf(cast, "((%s)%s)", c_type, right);
+                    promoted_right = cast;
+                    free(right);
+                    right = NULL;
+                }
+            }
+
+            // Build the expression: (left op right)
+            size_t len = strlen(promoted_left) + strlen(op_str) + strlen(promoted_right) + 8;
+            char *result_str = malloc(len);
+            snprintf(result_str, len, "(%s %s %s)", promoted_left, op_str, promoted_right);
+
+            if (is_comparison) {
+                *out_type = CHECKED_BOOL;
+            } else {
+                *out_type = result_type;
+            }
+
+            free(promoted_left);
+            free(promoted_right);
+            return result_str;
+        }
+
+        case EXPR_UNARY: {
+            CheckedTypeKind operand_type;
+            char *operand = codegen_native_expr(ctx, expr->as.unary.operand, &operand_type);
+            if (!operand) return NULL;
+
+            const char *op_str = NULL;
+            switch (expr->as.unary.op) {
+                case UNARY_NEGATE: op_str = "-"; break;
+                case UNARY_BIT_NOT: op_str = "~"; break;
+                case UNARY_NOT: op_str = "!"; break;
+                default: break;
+            }
+            if (!op_str) { free(operand); return NULL; }
+
+            size_t len = strlen(operand) + 8;
+            char *result_str = malloc(len);
+            snprintf(result_str, len, "(%s%s)", op_str, operand);
+
+            if (expr->as.unary.op == UNARY_NOT) {
+                *out_type = CHECKED_BOOL;
+            } else {
+                *out_type = operand_type;
+            }
+            free(operand);
+            return result_str;
+        }
+
+        default:
+            return NULL;
+    }
+}
 
 // ========== OPTIMIZATION HELPERS ==========
 
@@ -255,6 +421,24 @@ static int is_string_concat_chain(Expr *expr, int *count) {
 
 // Generate code for binary expressions
 char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
+            // OPTIMIZATION: Expression-level unboxing
+            // Try to generate the entire binary expression tree as native C code,
+            // boxing only the final result. This eliminates intermediate HmlValue
+            // boxing/unboxing in expression chains like (a + b) * (c - 1).
+            if (ctx->optimize && ctx->type_ctx) {
+                CheckedTypeKind native_result_type;
+                char *native = codegen_native_expr(ctx, expr, &native_result_type);
+                if (native) {
+                    const char *box_func = checked_type_to_box_func(native_result_type);
+                    if (box_func) {
+                        codegen_writeln(ctx, "HmlValue %s = %s(%s);", result, box_func, native);
+                        free(native);
+                        return result;
+                    }
+                    free(native);
+                }
+            }
+
             // OPTIMIZATION: Short-circuit evaluation for && and ||
             // This matches the interpreter's behavior and avoids unnecessary computation
             if (expr->as.binary.op == OP_AND) {
