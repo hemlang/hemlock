@@ -54,6 +54,7 @@ free(p);                 // manual cleanup
 | Function | Description |
 |----------|-------------|
 | `typeof(value)` | Returns type name as string (`"i32"`, `"string"`, etc.) |
+| `typeid(value)` | Returns type as integer constant (faster than `typeof()` for comparisons) |
 | `sizeof(type)` | Returns byte size of a type (`sizeof(i32)` → 4) |
 
 **Type constructors** (used for conversion and typed allocation):
@@ -62,11 +63,35 @@ free(p);                 // manual cleanup
 
 **Type aliases:** `integer` (i32), `number` (f64), `byte` (u8)
 
+**TYPEID constants** (for use with `typeid()`):
+
+| Constant | Value | Constant | Value |
+|----------|-------|----------|-------|
+| `TYPEID_I8` | 0 | `TYPEID_STRING` | 11 |
+| `TYPEID_I16` | 1 | `TYPEID_RUNE` | 12 |
+| `TYPEID_I32` | 2 | `TYPEID_PTR` | 13 |
+| `TYPEID_I64` | 3 | `TYPEID_BUFFER` | 14 |
+| `TYPEID_U8` | 4 | `TYPEID_ARRAY` | 15 |
+| `TYPEID_U16` | 5 | `TYPEID_OBJECT` | 16 |
+| `TYPEID_U32` | 6 | `TYPEID_FILE` | 17 |
+| `TYPEID_U64` | 7 | `TYPEID_FUNCTION` | 18 |
+| `TYPEID_F32` | 8 | `TYPEID_TASK` | 19 |
+| `TYPEID_F64` | 9 | `TYPEID_CHANNEL` | 20 |
+| `TYPEID_BOOL` | 10 | `TYPEID_NULL` | 21 |
+
 ```hemlock
 typeof(42);         // "i32"
 typeof("hello");    // "string"
 sizeof(i64);        // 8
 let n = i32("42");  // parse string to i32
+
+// typeid() returns an integer - faster than typeof() string comparisons
+typeid(42);                          // 2 (TYPEID_I32)
+typeid(42) == TYPEID_I32;            // true
+let tid = typeid(val);
+if (tid == TYPEID_I32 || tid == TYPEID_I64) {
+    print("integer type");
+}
 ```
 
 ### Control Flow

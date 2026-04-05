@@ -122,7 +122,19 @@ typeof(null);            // "null"
 "hello".length;          // 5 (string length in runes)
 "hello".byte_length;     // 5 (string length in bytes)
 [1, 2, 3].length;        // 3 (array length)
+
+// typeid() - fast integer-based type detection (no string allocation)
+typeid(42);              // 2 (TYPEID_I32)
+typeid("hello");         // 11 (TYPEID_STRING)
+typeid(null);            // 21 (TYPEID_NULL)
+
+// Use TYPEID_* constants for comparison
+if (typeid(val) == TYPEID_I32 || typeid(val) == TYPEID_I64) {
+    print("integer type");
+}
 ```
+
+**TYPEID constants:** `TYPEID_I8` (0), `TYPEID_I16` (1), `TYPEID_I32` (2), `TYPEID_I64` (3), `TYPEID_U8` (4), `TYPEID_U16` (5), `TYPEID_U32` (6), `TYPEID_U64` (7), `TYPEID_F32` (8), `TYPEID_F64` (9), `TYPEID_BOOL` (10), `TYPEID_STRING` (11), `TYPEID_RUNE` (12), `TYPEID_PTR` (13), `TYPEID_BUFFER` (14), `TYPEID_ARRAY` (15), `TYPEID_OBJECT` (16), `TYPEID_FILE` (17), `TYPEID_FUNCTION` (18), `TYPEID_TASK` (19), `TYPEID_CHANNEL` (20), `TYPEID_NULL` (21)
 
 ### Memory
 ```hemlock
