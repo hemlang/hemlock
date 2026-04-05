@@ -122,6 +122,67 @@ let r3 = join(t3);
 
 ---
 
+### spawn_with
+
+Create and start a new concurrent task with per-thread configuration options.
+
+**Signature:**
+```hemlock
+spawn_with(options: object, async_fn: function, ...args): task
+```
+
+**Parameters:**
+- `options` - Configuration object with optional fields:
+  - `stack_size` - Stack size in bytes for the new thread (default: 16 MB)
+  - `name` - Thread name string (max 16 characters)
+- `async_fn` - Async function to execute
+- `...args` - Arguments to pass to function
+
+**Returns:** Task handle
+
+**Examples:**
+```hemlock
+async fn compute(n: i32): i32 {
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+        sum = sum + i;
+    }
+    return sum;
+}
+
+// Custom stack size (8 MB)
+let t1 = spawn_with({ stack_size: 8 * 1024 * 1024 }, compute, 1000);
+let r1 = join(t1);
+
+// Named thread
+let t2 = spawn_with({ name: "worker-1" }, compute, 500);
+let r2 = join(t2);
+
+// Both options
+let t3 = spawn_with({ stack_size: 16 * 1024 * 1024, name: "compute-3" }, compute, 100);
+let r3 = join(t3);
+
+// Empty options (uses defaults - same as spawn())
+let t4 = spawn_with({}, compute, 50);
+let r4 = join(t4);
+
+// Multiple function arguments
+async fn add(a, b) { return a + b; }
+let t5 = spawn_with({ name: "adder" }, add, 100, 200);
+print(join(t5));  // 300
+```
+
+**Behavior:**
+- Creates new OS thread with the specified configuration
+- `stack_size` controls the thread's stack allocation (useful for deeply recursive tasks)
+- `name` sets the thread name (visible in debuggers/profilers; truncated to 16 characters)
+- Passing `{}` for options is equivalent to calling `spawn()`
+- Returns task handle for later joining, same as `spawn()`
+
+**See Also:** `get_default_stack_size()` / `set_default_stack_size()` in `@stdlib/async` for changing the default stack size for all `spawn()` calls.
+
+---
+
 ### join
 
 Wait for task completion and retrieve result.
@@ -618,12 +679,13 @@ let parallel_time = get_time() - start2;
 
 ### Functions
 
-| Function  | Signature                         | Returns   | Description                    |
-|-----------|-----------------------------------|-----------|--------------------------------|
-| `spawn`   | `(async_fn: function, ...args)`   | `task`    | Create and start concurrent task|
-| `join`    | `(task: task)`                    | `any`     | Wait for task, get result      |
-| `detach`  | `(task: task)`                    | `null`    | Detach task (fire-and-forget)  |
-| `channel` | `(capacity: i32)`                 | `channel` | Create thread-safe channel     |
+| Function  | Signature                                    | Returns   | Description                    |
+|-----------|----------------------------------------------|-----------|--------------------------------|
+| `spawn`   | `(async_fn: function, ...args)`              | `task`    | Create and start concurrent task|
+| `spawn_with` | `(options: object, async_fn: function, ...args)` | `task` | Spawn with per-thread config (stack_size, name) |
+| `join`    | `(task: task)`                               | `any`     | Wait for task, get result      |
+| `detach`  | `(task: task)`                               | `null`    | Detach task (fire-and-forget)  |
+| `channel` | `(capacity: i32)`                            | `channel` | Create thread-safe channel     |
 
 ### Channel Methods
 

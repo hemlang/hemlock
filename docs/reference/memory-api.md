@@ -373,6 +373,32 @@ let total = sizeof(i32) * count; // 400 bytes
 
 ---
 
+## Pointer/Buffer Interoperability
+
+All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` builtins accept both `ptr` and `buffer` types directly. When a buffer is passed, the operation uses the buffer's underlying data pointer.
+
+```hemlock
+let buf = buffer(16);
+
+// Write directly to a buffer (no need to extract ptr first)
+ptr_write_i32(buf, 42);
+ptr_write_f64(ptr_offset(buffer_ptr(buf), 4), 3.14);
+
+// Read directly from a buffer
+let val = ptr_read_i32(buf);      // 42
+let fval = ptr_deref_i32(buf);    // 42
+
+// Also works with raw pointers as before
+let p = alloc(8);
+ptr_write_i32(p, 99);
+let pval = ptr_read_i32(p);      // 99
+free(p);
+```
+
+This eliminates the need to call `buffer_ptr()` before every typed read/write operation, making buffer-based code more concise.
+
+---
+
 ### talloc
 
 Allocate array of typed values.
@@ -452,6 +478,66 @@ print(buf.capacity);        // 256
 ```
 
 **Note:** Currently, `.length` and `.capacity` are the same for buffers created with `buffer()`.
+
+---
+
+## Buffer Methods
+
+### .slice
+
+Create a zero-copy view into the buffer's memory. The returned view shares the same underlying memory as the parent buffer -- modifications to the original are visible through the view and vice versa.
+
+**Signature:**
+```hemlock
+buffer.slice(start: i32, end?: i32): buffer
+```
+
+**Parameters:**
+- `start` - Starting byte offset (0-based, inclusive). Negative values are clamped to 0.
+- `end` - Ending byte offset (exclusive). Defaults to `buffer.length` if omitted. Values beyond buffer length are clamped.
+
+**Returns:** Buffer view (zero-copy)
+
+**Examples:**
+```hemlock
+let buf = buffer(10);
+for (let i = 0; i < 10; i++) {
+    buf[i] = i + 65;  // A=65, B=66, ...
+}
+
+// Basic slice
+let view = buf.slice(2, 5);
+print(view.length);    // 3
+print(view[0]);        // 67 (C)
+print(view[1]);        // 68 (D)
+print(view[2]);        // 69 (E)
+
+// Zero-copy proof: modifying original is visible through view
+buf[3] = 90;           // Change D(68) to Z(90)
+print(view[1]);        // 90 (reflects parent change)
+
+// Single-arg slice (start to end)
+let tail = buf.slice(7);
+print(tail.length);    // 3
+
+// Chained slices (slice of a slice)
+let inner = view.slice(1, 3);
+print(inner.length);   // 2
+print(inner[0]);       // 90 (Z)
+
+// Empty slice
+let empty = buf.slice(5, 5);
+print(empty.length);   // 0
+```
+
+**Behavior:**
+- Returns a zero-copy view -- no memory is allocated for the data
+- Views hold a reference to the root buffer (prevents use-after-free)
+- Chained slices (slice of a slice) track the root owner, not the intermediate view
+- Bounds checking is performed relative to the view's range
+- Out-of-range `start`/`end` values are clamped to valid bounds
+- You **cannot** `free()` a view buffer -- only the root buffer should be freed
+- Set views to `null` before freeing the parent buffer to release references
 
 ---
 
@@ -660,6 +746,12 @@ free(p2);
 | `memcpy`  | `(dest: ptr, src: ptr, size: i32)`     | `null`   | Copy memory                |
 | `sizeof`  | `(type)`                               | `i32`    | Get type size in bytes     |
 | `talloc`  | `(type, count: i32)`                   | `ptr`    | Allocate typed array       |
+
+### Buffer Methods
+
+| Method    | Signature                              | Returns  | Description                     |
+|-----------|----------------------------------------|----------|---------------------------------|
+| `.slice`  | `(start: i32, end?: i32)`             | `buffer` | Zero-copy view into buffer      |
 
 ---
 
