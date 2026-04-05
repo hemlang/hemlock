@@ -28,4 +28,12 @@ int is_captured_variable(CodegenContext *ctx, const char *name);
 
 char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result);
 
+// OPTIMIZATION: Generate a raw native C expression string for an expression
+// with a known primitive type. Returns NULL if the expression can't be
+// represented as a pure native C expression (e.g., function calls, array access).
+// When non-NULL, the result is a malloc'd string like "(a + b)" that can be
+// used directly in C arithmetic. The caller must free it.
+// out_type receives the native type of the expression.
+char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_type);
+
 #endif // HEMLOCK_CODEGEN_EXPR_INTERNAL_H
