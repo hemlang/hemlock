@@ -1585,7 +1585,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // Star import: import * from "module" - import all exports directly
                     for (int i = 0; i < imported->num_exports; i++) {
                         ExportedSymbol *exp = &imported->exports[i];
+                        // Defense-in-depth: #undef any name that could be a C preprocessor macro,
+                        // so even if sanitization were bypassed, the generated C code compiles.
                         char *safe_name = codegen_sanitize_ident(exp->name);
+                        codegen_write(ctx, "#undef %s\n", exp->name);
                         codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, exp->mangled_name);
                         codegen_add_local(ctx, exp->name);
                         free(safe_name);
@@ -1601,15 +1604,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // Find the export in the imported module
                     ExportedSymbol *exp = module_find_export(imported, import_name);
                     if (exp) {
+                        // Defense-in-depth: #undef any name that could be a C preprocessor macro
                         char *safe_bind = codegen_sanitize_ident(bind_name);
+                        codegen_write(ctx, "#undef %s\n", bind_name);
                         codegen_writeln(ctx, "HmlValue %s = %s;", safe_bind, exp->mangled_name);
                         codegen_add_local(ctx, bind_name);
                         free(safe_bind);
                     } else {
                         codegen_error(ctx, stmt->line, "'%s' is not exported from module \"%s\"",
                                      import_name, stmt->as.import_stmt.module_path);
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", bind_name);
+                        char *safe_bind = codegen_sanitize_ident(bind_name);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_bind);
                         codegen_add_local(ctx, bind_name);
+                        free(safe_bind);
                     }
                 }
             }

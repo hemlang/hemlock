@@ -1,0 +1,43 @@
+// Test that importing POSIX constant names doesn't conflict with C macros.
+// The compiler must sanitize ALL_CAPS identifiers that could collide with
+// C preprocessor defines from system headers (signal.h, sys/socket.h, etc.).
+
+import { SIGINT, SIGTERM, SIGUSR1 } from "@stdlib/signal";
+import { AF_INET, SOCK_STREAM, SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, IPPROTO_UDP, POLLIN, POLLOUT } from "@stdlib/net";
+
+// Verify signal constants are usable
+print(typeof(SIGINT));
+print(typeof(SIGTERM));
+print(SIGINT > 0);
+print(SIGTERM > 0);
+print(SIGUSR1 > 0);
+
+// Verify socket constants are usable
+print(typeof(AF_INET));
+print(typeof(SOCK_STREAM));
+print(AF_INET > 0);
+print(SOCK_STREAM > 0);
+print(SOCK_DGRAM > 0);
+print(SOL_SOCKET > 0);
+print(SO_REUSEADDR > 0);
+print(IPPROTO_TCP >= 0);
+print(IPPROTO_UDP > 0);
+print(POLLIN > 0);
+print(POLLOUT > 0);
+
+// Verify constants can be used in expressions
+let sig_sum = SIGINT + SIGTERM;
+print(sig_sum > 0);
+
+let sock_check = AF_INET + SOCK_STREAM;
+print(sock_check > 0);
+
+// User-defined ALL_CAPS variables should also work
+let MY_CONST = 42;
+let MAX_SIZE = 1024;
+let BUFFER_LEN = 256;
+print(MY_CONST);
+print(MAX_SIZE);
+print(BUFFER_LEN);
+
+print("done");
