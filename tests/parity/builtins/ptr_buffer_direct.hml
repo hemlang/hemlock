@@ -1,0 +1,64 @@
+// Test ptr_read_*/ptr_write_* directly on buffers (no alloc/free needed)
+
+// ptr_write_f32 / ptr_read_f32 on buffer
+let buf = buffer(32);
+ptr_write_f32(buf, 3.14);
+let f = ptr_read_f32(buf);
+print(typeof(f));
+// Verify it round-trips (f32 precision)
+print(f > 3.13);
+print(f < 3.15);
+
+// ptr_write_i32 / ptr_read_i32 on buffer
+ptr_write_i32(buf, 42);
+print(ptr_read_i32(buf));
+
+// ptr_write_f64 / ptr_read_f64 on buffer
+let buf2 = buffer(64);
+ptr_write_f64(buf2, 2.718281828);
+let d = ptr_read_f64(buf2);
+print(typeof(d));
+print(d > 2.71);
+print(d < 2.72);
+
+// ptr_write_i8 / ptr_read_i8 on buffer
+ptr_write_i8(buf, -42);
+print(ptr_read_i8(buf));
+
+// ptr_write_u8 / ptr_read_u8 on buffer
+ptr_write_u8(buf, 255);
+print(ptr_read_u8(buf));
+
+// ptr_write_i16 / ptr_read_i16 on buffer
+ptr_write_i16(buf, -1000);
+print(ptr_read_i16(buf));
+
+// ptr_write_u16 / ptr_read_u16 on buffer
+ptr_write_u16(buf, 60000);
+print(ptr_read_u16(buf));
+
+// ptr_write_i64 / ptr_read_i64 on buffer
+ptr_write_i64(buf2, 9000000000);
+print(ptr_read_i64(buf2));
+
+// ptr_write_u32 / ptr_read_u32 on buffer
+ptr_write_u32(buf, 3000000000);
+print(ptr_read_u32(buf));
+
+// ptr_write_u64 / ptr_read_u64 on buffer
+ptr_write_u64(buf2, 18000000000);
+print(ptr_read_u64(buf2));
+
+// ptr_deref_i32 on buffer (same as ptr_read_i32)
+ptr_write_i32(buf, 99);
+print(ptr_deref_i32(buf));
+
+// ptr_deref_f32 on buffer
+ptr_write_f32(buf, 1.5);
+let df = ptr_deref_f32(buf);
+print(df);
+
+free(buf);
+free(buf2);
+
+print("done");
