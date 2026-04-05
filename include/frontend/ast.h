@@ -173,6 +173,7 @@ struct Expr {
             Type *rest_param_type;  // Type of rest parameter, NULL if none
             Type *return_type;
             Stmt *body;
+            uint32_t *param_hashes; // Pre-computed param name hashes (lazy, NULL until first use)
         } function;
         struct {
             Expr **elements;

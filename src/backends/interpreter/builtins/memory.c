@@ -136,8 +136,12 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
             value_release(obj->fields[i].value);
             free(obj->fields[i].name);
         }
-        // Free internal data but keep struct alive for cleanup to check freed flag
-        free(obj->fields);
+        // Free internal data but keep struct alive for cleanup to check freed flag.
+        // For pooled objects, we can't free the fields array here because it may
+        // point to pool-owned storage. obj_pool_free handles this during final cleanup.
+        if (!obj->is_pooled) {
+            free(obj->fields);
+        }
         if (obj->type_name) free(obj->type_name);
         if (obj->hash_table) free(obj->hash_table);
         obj->fields = NULL;

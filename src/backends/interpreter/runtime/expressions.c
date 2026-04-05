@@ -348,7 +348,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             env_define(bound_env, "self", object, 0, ctx);
 
                             // Create a shallow copy of the function with the new closure
-                            Function *bound_fn = malloc(sizeof(Function));
+                            Function *bound_fn = fn_pool_alloc();
+                            if (!bound_fn) {
+                                bound_fn = malloc(sizeof(Function));
+                                bound_fn->is_pooled = 0;
+                            }
                             bound_fn->is_async = orig_fn->is_async;
                             bound_fn->param_names = orig_fn->param_names;
                             bound_fn->param_types = orig_fn->param_types;
@@ -363,6 +367,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             bound_fn->closure_env = bound_env;
                             bound_fn->ref_count = 1;
                             bound_fn->is_bound = 1;  // Mark as bound - don't free param arrays
+                            bound_fn->borrows_ast_params = orig_fn->borrows_ast_params;
 
                             // Note: object is retained by env_define above
                             // Note: result (orig_fn) was retained at line 1186
@@ -540,15 +545,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     obj->hash_capacity = 0;
                 }
                 int new_num_fields = obj->num_fields + 1;
-                // Single realloc for unified storage (reduces fragmentation)
-                FieldEntry *new_fields = realloc(obj->fields, new_num_fields * sizeof(FieldEntry));
+                // Grow field array (handles pooled objects safely)
+                FieldEntry *new_fields = object_grow_fields(obj, new_num_fields);
                 if (!new_fields) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     runtime_error(ctx, "Failed to expand object fields");
                     return val_null();
                 }
-                obj->fields = new_fields;
                 obj->num_fields = new_num_fields;
                 obj->fields[obj->num_fields - 1].name = strdup(key);
                 obj->fields[obj->num_fields - 1].value = value;
@@ -685,197 +689,44 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
 
         case EXPR_FUNCTION: {
-            // Create function object and capture current environment
-            Function *fn = malloc(sizeof(Function));
+            // Create function object and capture current environment.
+            // OPTIMIZATION: Borrow param arrays directly from AST instead of
+            // deep-copying them.  The AST outlives all closures, so this is safe.
+            // This eliminates ~6 malloc + N strdup calls per closure creation.
+            // The function pool provides O(1) struct allocation for the common case.
+            Function *fn = fn_pool_alloc();
+            if (!fn) {
+                fn = malloc(sizeof(Function));
+                fn->is_pooled = 0;
+            }
 
-            // Copy is_async flag
             fn->is_async = expr->as.function.is_async;
+            fn->num_params = expr->as.function.num_params;
 
-            // Copy parameter names
-            fn->param_names = malloc(sizeof(char*) * expr->as.function.num_params);
-            for (int i = 0; i < expr->as.function.num_params; i++) {
-                fn->param_names[i] = strdup(expr->as.function.param_names[i]);
-            }
+            // Borrow parameter arrays directly from AST (no copies)
+            fn->param_names = expr->as.function.param_names;
+            fn->param_types = expr->as.function.param_types;
+            fn->param_defaults = expr->as.function.param_defaults;
+            fn->param_is_ref = expr->as.function.param_is_ref;
 
-            // Copy parameter types (may be NULL)
-            fn->param_types = malloc(sizeof(Type*) * expr->as.function.num_params);
-            for (int i = 0; i < expr->as.function.num_params; i++) {
-                if (expr->as.function.param_types[i]) {
-                    fn->param_types[i] = type_new(expr->as.function.param_types[i]->kind);
-                    // Copy nullable flag
-                    fn->param_types[i]->nullable = expr->as.function.param_types[i]->nullable;
-                    // Copy type_name for custom types (enums and objects)
-                    if (expr->as.function.param_types[i]->type_name) {
-                        fn->param_types[i]->type_name = strdup(expr->as.function.param_types[i]->type_name);
-                    }
-                    // Copy element_type for arrays
-                    if (expr->as.function.param_types[i]->element_type) {
-                        fn->param_types[i]->element_type = type_new(expr->as.function.param_types[i]->element_type->kind);
-                        fn->param_types[i]->element_type->nullable = expr->as.function.param_types[i]->element_type->nullable;
-                        if (expr->as.function.param_types[i]->element_type->type_name) {
-                            fn->param_types[i]->element_type->type_name = strdup(expr->as.function.param_types[i]->element_type->type_name);
-                        }
-                    }
-                    // Copy compound types (for intersection types like A & B)
-                    if (expr->as.function.param_types[i]->compound_types) {
-                        Type *src = expr->as.function.param_types[i];
-                        fn->param_types[i]->num_compound_types = src->num_compound_types;
-                        fn->param_types[i]->compound_types = malloc(sizeof(Type*) * src->num_compound_types);
-                        for (int j = 0; j < src->num_compound_types; j++) {
-                            // Shallow copy - compound constituents are simple types (TYPE_CUSTOM_OBJECT)
-                            fn->param_types[i]->compound_types[j] = type_new(src->compound_types[j]->kind);
-                            fn->param_types[i]->compound_types[j]->nullable = src->compound_types[j]->nullable;
-                            if (src->compound_types[j]->type_name) {
-                                fn->param_types[i]->compound_types[j]->type_name = strdup(src->compound_types[j]->type_name);
-                            }
-                        }
-                    }
-                    // Copy function type fields (for callback type annotations like fn(i32): i32)
-                    if (expr->as.function.param_types[i]->kind == TYPE_FUNCTION) {
-                        Type *src = expr->as.function.param_types[i];
-                        Type *dst = fn->param_types[i];
-                        dst->fn_is_async = src->fn_is_async;
-                        dst->fn_num_params = src->fn_num_params;
-                        // Copy parameter types
-                        if (src->fn_num_params > 0 && src->fn_param_types) {
-                            dst->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
-                            for (int j = 0; j < src->fn_num_params; j++) {
-                                if (src->fn_param_types[j]) {
-                                    // Shallow copy for now - function param types are usually simple
-                                    dst->fn_param_types[j] = type_new(src->fn_param_types[j]->kind);
-                                    dst->fn_param_types[j]->nullable = src->fn_param_types[j]->nullable;
-                                    if (src->fn_param_types[j]->type_name) {
-                                        dst->fn_param_types[j]->type_name = strdup(src->fn_param_types[j]->type_name);
-                                    }
-                                } else {
-                                    dst->fn_param_types[j] = NULL;
-                                }
-                            }
-                        }
-                        // Copy optional flags
-                        if (src->fn_num_params > 0 && src->fn_param_optional) {
-                            dst->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
-                            memcpy(dst->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
-                        }
-                        // Copy return type
-                        if (src->fn_return_type) {
-                            dst->fn_return_type = type_new(src->fn_return_type->kind);
-                            dst->fn_return_type->nullable = src->fn_return_type->nullable;
-                            if (src->fn_return_type->type_name) {
-                                dst->fn_return_type->type_name = strdup(src->fn_return_type->type_name);
-                            }
-                        }
-                    }
-                } else {
-                    fn->param_types[i] = NULL;
-                }
-            }
-
-            // Store parameter defaults (AST expressions, not evaluated yet)
-            // We share the AST nodes (not copied) since they're immutable
-            if (expr->as.function.param_defaults) {
-                fn->param_defaults = malloc(sizeof(Expr*) * expr->as.function.num_params);
-                for (int i = 0; i < expr->as.function.num_params; i++) {
-                    fn->param_defaults[i] = expr->as.function.param_defaults[i];
-                }
-            } else {
-                fn->param_defaults = NULL;
-            }
-
-            // Copy param_is_ref flags
-            if (expr->as.function.param_is_ref) {
-                fn->param_is_ref = malloc(sizeof(int) * expr->as.function.num_params);
-                for (int i = 0; i < expr->as.function.num_params; i++) {
-                    fn->param_is_ref[i] = expr->as.function.param_is_ref[i];
-                }
-            } else {
-                fn->param_is_ref = NULL;
-            }
-
-            // Pre-compute parameter name hashes for fast binding at call time
+            // Lazily compute and cache param hashes on the AST node.
+            // First closure from this AST node pays the cost; subsequent ones reuse.
             if (expr->as.function.num_params > 0) {
-                fn->param_hashes = malloc(sizeof(uint32_t) * expr->as.function.num_params);
-                for (int i = 0; i < expr->as.function.num_params; i++) {
-                    fn->param_hashes[i] = hash_string(fn->param_names[i]);
+                if (!expr->as.function.param_hashes) {
+                    expr->as.function.param_hashes = malloc(sizeof(uint32_t) * expr->as.function.num_params);
+                    for (int i = 0; i < expr->as.function.num_params; i++) {
+                        expr->as.function.param_hashes[i] = hash_string(expr->as.function.param_names[i]);
+                    }
                 }
+                fn->param_hashes = expr->as.function.param_hashes;
             } else {
                 fn->param_hashes = NULL;
             }
 
-            fn->num_params = expr->as.function.num_params;
-
-            // Copy rest parameter (varargs) if present
-            if (expr->as.function.rest_param) {
-                fn->rest_param = strdup(expr->as.function.rest_param);
-                if (expr->as.function.rest_param_type) {
-                    fn->rest_param_type = type_new(expr->as.function.rest_param_type->kind);
-                    fn->rest_param_type->nullable = expr->as.function.rest_param_type->nullable;
-                    if (expr->as.function.rest_param_type->type_name) {
-                        fn->rest_param_type->type_name = strdup(expr->as.function.rest_param_type->type_name);
-                    }
-                } else {
-                    fn->rest_param_type = NULL;
-                }
-            } else {
-                fn->rest_param = NULL;
-                fn->rest_param_type = NULL;
-            }
-
-            // Copy return type (may be NULL)
-            if (expr->as.function.return_type) {
-                fn->return_type = type_new(expr->as.function.return_type->kind);
-                // Copy nullable flag
-                fn->return_type->nullable = expr->as.function.return_type->nullable;
-                // Copy type_name for custom types (enums and objects)
-                if (expr->as.function.return_type->type_name) {
-                    fn->return_type->type_name = strdup(expr->as.function.return_type->type_name);
-                }
-                // Copy element_type for arrays
-                if (expr->as.function.return_type->element_type) {
-                    fn->return_type->element_type = type_new(expr->as.function.return_type->element_type->kind);
-                    fn->return_type->element_type->nullable = expr->as.function.return_type->element_type->nullable;
-                    if (expr->as.function.return_type->element_type->type_name) {
-                        fn->return_type->element_type->type_name = strdup(expr->as.function.return_type->element_type->type_name);
-                    }
-                }
-                // Copy function type fields (for return type annotations like fn(i32): i32)
-                if (expr->as.function.return_type->kind == TYPE_FUNCTION) {
-                    Type *src = expr->as.function.return_type;
-                    Type *dst = fn->return_type;
-                    dst->fn_is_async = src->fn_is_async;
-                    dst->fn_num_params = src->fn_num_params;
-                    // Copy parameter types
-                    if (src->fn_num_params > 0 && src->fn_param_types) {
-                        dst->fn_param_types = malloc(sizeof(Type*) * src->fn_num_params);
-                        for (int j = 0; j < src->fn_num_params; j++) {
-                            if (src->fn_param_types[j]) {
-                                dst->fn_param_types[j] = type_new(src->fn_param_types[j]->kind);
-                                dst->fn_param_types[j]->nullable = src->fn_param_types[j]->nullable;
-                                if (src->fn_param_types[j]->type_name) {
-                                    dst->fn_param_types[j]->type_name = strdup(src->fn_param_types[j]->type_name);
-                                }
-                            } else {
-                                dst->fn_param_types[j] = NULL;
-                            }
-                        }
-                    }
-                    // Copy optional flags
-                    if (src->fn_num_params > 0 && src->fn_param_optional) {
-                        dst->fn_param_optional = malloc(sizeof(int) * src->fn_num_params);
-                        memcpy(dst->fn_param_optional, src->fn_param_optional, sizeof(int) * src->fn_num_params);
-                    }
-                    // Copy return type of the function type
-                    if (src->fn_return_type) {
-                        dst->fn_return_type = type_new(src->fn_return_type->kind);
-                        dst->fn_return_type->nullable = src->fn_return_type->nullable;
-                        if (src->fn_return_type->type_name) {
-                            dst->fn_return_type->type_name = strdup(src->fn_return_type->type_name);
-                        }
-                    }
-                }
-            } else {
-                fn->return_type = NULL;
-            }
+            // Borrow rest param and return type from AST (shared, not copied)
+            fn->rest_param = expr->as.function.rest_param;
+            fn->rest_param_type = expr->as.function.rest_param_type;
+            fn->return_type = expr->as.function.return_type;
 
             // Store body AST (shared, not copied)
             fn->body = expr->as.function.body;
@@ -888,7 +739,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // This ensures that when stored in the environment and later retained by tasks,
             // the function isn't prematurely freed when the environment is cleaned up
             fn->ref_count = 1;
-            fn->is_bound = 0;  // Not a bound method - owns param arrays
+            fn->is_bound = 0;
+            fn->borrows_ast_params = 1;  // All param arrays point to AST data
 
             return val_function(fn);
         }
@@ -965,7 +817,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                     return val_null();
                                 }
                                 int new_capacity = obj->capacity * 2;
-                                FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                                FieldEntry *new_fields = object_grow_fields(obj, new_capacity);
                                 if (!new_fields) {
                                     VALUE_RELEASE(spread_val);
                                     Value obj_val = val_object(obj);
@@ -973,8 +825,6 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                     runtime_error(ctx, "Failed to expand object fields");
                                     return val_null();
                                 }
-                                obj->fields = new_fields;
-                                obj->capacity = new_capacity;
                             }
                             obj->fields[obj->num_fields].name = strdup(spread_obj->fields[j].name);
                             obj->fields[obj->num_fields].value = spread_obj->fields[j].value;
@@ -1019,7 +869,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 return val_null();
                             }
                             int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
-                            FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                            FieldEntry *new_fields = object_grow_fields(obj, new_capacity);
                             if (!new_fields) {
                                 VALUE_RELEASE(field_val);
                                 Value obj_val = val_object(obj);
@@ -1027,8 +877,6 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 runtime_error(ctx, "Failed to expand object fields");
                                 return val_null();
                             }
-                            obj->fields = new_fields;
-                            obj->capacity = new_capacity;
                         }
                         obj->fields[obj->num_fields].name = strdup(expr->as.object_literal.field_names[i]);
                         obj->fields[obj->num_fields].value = field_val;
@@ -1123,17 +971,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     runtime_error(ctx, "Object field capacity overflow");
                     return val_null();
                 }
-                // Grow unified field array (single realloc - reduces fragmentation)
+                // Grow field array (handles pooled objects safely)
                 int new_capacity = (obj->capacity == 0) ? 4 : obj->capacity * 2;
-                FieldEntry *new_fields = realloc(obj->fields, sizeof(FieldEntry) * new_capacity);
+                FieldEntry *new_fields = object_grow_fields(obj, new_capacity);
                 if (!new_fields) {
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(value);
                     runtime_error(ctx, "Failed to grow object capacity");
                     return val_null();
                 }
-                obj->fields = new_fields;
-                obj->capacity = new_capacity;
             }
 
             int new_field_index = obj->num_fields;

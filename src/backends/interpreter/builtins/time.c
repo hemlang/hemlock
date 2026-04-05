@@ -155,12 +155,11 @@ static Value get_object_field(Object *obj, const char *name) {
 // Helper function to set field on object
 static void set_object_field(Object *obj, const char *name, Value value) {
     if (obj->num_fields >= obj->capacity) {
-        obj->capacity *= 2;
-        FieldEntry *new_fields = realloc(obj->fields, obj->capacity * sizeof(FieldEntry));
+        int new_capacity = obj->capacity * 2;
+        FieldEntry *new_fields = object_grow_fields(obj, new_capacity);
         if (!new_fields) {
             return;  // Keep original data on allocation failure
         }
-        obj->fields = new_fields;
     }
     obj->fields[obj->num_fields].name = strdup(name);
     obj->fields[obj->num_fields].value = value;

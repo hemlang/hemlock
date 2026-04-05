@@ -120,6 +120,7 @@ typedef struct {
     // Hash table for O(1) field lookup (linear probing)
     int *hash_table;     // Array of field indices, -1 = empty slot
     int hash_capacity;   // Size of hash table (usually 2x num_fields)
+    int is_pooled;       // If true, struct + fields came from object pool (don't free them)
 } Object;
 
 // Function struct (user-defined function)
@@ -138,6 +139,8 @@ typedef struct {
     Environment *closure_env;  // CAPTURED ENVIRONMENT
     int ref_count;             // Reference count for memory management
     int is_bound;              // If true, this is a bound method (don't free param arrays)
+    int borrows_ast_params;    // If true, param arrays point to AST (don't free them)
+    int is_pooled;             // If true, struct came from function pool (don't free struct)
 } Function;
 
 // Task states
