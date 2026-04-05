@@ -202,6 +202,263 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         return result;
                     }
 
+                    // Typed write methods - write_u8, write_i8, write_*_le, write_*_be, write_bytes
+                    if (strncmp(method, "write_", 6) == 0) {
+                        int num_args = expr->as.call.num_args;
+                        Buffer *buf = method_self.as.as_buffer;
+                        const char *suffix = method + 6;
+
+                        if (strcmp(suffix, "bytes") == 0) {
+                            if (num_args != 3) {
+                                runtime_error(ctx, "buffer.write_bytes() expects 3 arguments (offset, src_buffer, len)");
+                                VALUE_RELEASE(method_self);
+                                return val_null();
+                            }
+                            Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
+                            Value src_val = eval_expr(expr->as.call.args[1], env, ctx);
+                            Value len_val = eval_expr(expr->as.call.args[2], env, ctx);
+                            int32_t off = value_to_int(off_val);
+                            int32_t len = value_to_int(len_val);
+                            if (src_val.type != VAL_BUFFER || !src_val.as.as_buffer) {
+                                runtime_error(ctx, "write_bytes: source must be a buffer");
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
+                                VALUE_RELEASE(method_self);
+                                return val_null();
+                            }
+                            Buffer *src = src_val.as.as_buffer;
+                            if (len < 0) { runtime_error(ctx, "write_bytes: length must be non-negative"); }
+                            if (off < 0 || off + len > buf->length) {
+                                runtime_error(ctx, "write_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
+                            }
+                            if (len > src->length) {
+                                runtime_error(ctx, "write_bytes: source buffer length %d less than requested %d", src->length, len);
+                            }
+                            memcpy((uint8_t *)buf->data + off, src->data, len);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
+                            VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
+
+                        // All other write methods take 2 args: (offset, value)
+                        if (num_args != 2) {
+                            runtime_error(ctx, "buffer.%s() expects 2 arguments (offset, value)", method);
+                            VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
+                        Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
+                        Value val_arg = eval_expr(expr->as.call.args[1], env, ctx);
+                        int32_t off = value_to_int(off_val);
+                        uint8_t *p = (uint8_t *)buf->data + off;
+
+                        if (strcmp(suffix, "u8") == 0) {
+                            if (off < 0 || off + 1 > buf->length) { runtime_error(ctx, "write_u8: offset %d out of bounds (buffer length %d)", off, buf->length); }
+                            p[0] = (uint8_t)value_to_int(val_arg);
+                        } else if (strcmp(suffix, "i8") == 0) {
+                            if (off < 0 || off + 1 > buf->length) { runtime_error(ctx, "write_i8: offset %d out of bounds (buffer length %d)", off, buf->length); }
+                            ((int8_t *)buf->data)[off] = (int8_t)value_to_int(val_arg);
+                        } else if (strcmp(suffix, "u16_le") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "write_u16_le: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            uint16_t v = (uint16_t)value_to_int(val_arg);
+                            p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)((v >> 8) & 0xFF);
+                        } else if (strcmp(suffix, "u16_be") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "write_u16_be: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            uint16_t v = (uint16_t)value_to_int(val_arg);
+                            p[0] = (uint8_t)((v >> 8) & 0xFF); p[1] = (uint8_t)(v & 0xFF);
+                        } else if (strcmp(suffix, "i16_le") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "write_i16_le: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            uint16_t v = (uint16_t)(int16_t)value_to_int(val_arg);
+                            p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)((v >> 8) & 0xFF);
+                        } else if (strcmp(suffix, "i16_be") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "write_i16_be: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            uint16_t v = (uint16_t)(int16_t)value_to_int(val_arg);
+                            p[0] = (uint8_t)((v >> 8) & 0xFF); p[1] = (uint8_t)(v & 0xFF);
+                        } else if (strcmp(suffix, "u32_le") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "write_u32_le: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)value_to_int64(val_arg);
+                            p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)((v >> 8) & 0xFF);
+                            p[2] = (uint8_t)((v >> 16) & 0xFF); p[3] = (uint8_t)((v >> 24) & 0xFF);
+                        } else if (strcmp(suffix, "u32_be") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "write_u32_be: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)value_to_int64(val_arg);
+                            p[0] = (uint8_t)((v >> 24) & 0xFF); p[1] = (uint8_t)((v >> 16) & 0xFF);
+                            p[2] = (uint8_t)((v >> 8) & 0xFF); p[3] = (uint8_t)(v & 0xFF);
+                        } else if (strcmp(suffix, "i32_le") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "write_i32_le: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)value_to_int(val_arg);
+                            p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)((v >> 8) & 0xFF);
+                            p[2] = (uint8_t)((v >> 16) & 0xFF); p[3] = (uint8_t)((v >> 24) & 0xFF);
+                        } else if (strcmp(suffix, "i32_be") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "write_i32_be: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)value_to_int(val_arg);
+                            p[0] = (uint8_t)((v >> 24) & 0xFF); p[1] = (uint8_t)((v >> 16) & 0xFF);
+                            p[2] = (uint8_t)((v >> 8) & 0xFF); p[3] = (uint8_t)(v & 0xFF);
+                        } else if (strcmp(suffix, "i64_le") == 0 || strcmp(suffix, "u64_le") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "%s: offset %d with size 8 out of bounds (buffer length %d)", method, off, buf->length); }
+                            uint64_t v = (uint64_t)value_to_int64(val_arg);
+                            for (int i = 0; i < 8; i++) p[i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+                        } else if (strcmp(suffix, "i64_be") == 0 || strcmp(suffix, "u64_be") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "%s: offset %d with size 8 out of bounds (buffer length %d)", method, off, buf->length); }
+                            uint64_t v = (uint64_t)value_to_int64(val_arg);
+                            for (int i = 0; i < 8; i++) p[7 - i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+                        } else if (strcmp(suffix, "f32_le") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "write_f32_le: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            float f = (float)value_to_float(val_arg);
+                            uint32_t v; memcpy(&v, &f, 4);
+                            p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)((v >> 8) & 0xFF);
+                            p[2] = (uint8_t)((v >> 16) & 0xFF); p[3] = (uint8_t)((v >> 24) & 0xFF);
+                        } else if (strcmp(suffix, "f32_be") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "write_f32_be: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            float f = (float)value_to_float(val_arg);
+                            uint32_t v; memcpy(&v, &f, 4);
+                            p[0] = (uint8_t)((v >> 24) & 0xFF); p[1] = (uint8_t)((v >> 16) & 0xFF);
+                            p[2] = (uint8_t)((v >> 8) & 0xFF); p[3] = (uint8_t)(v & 0xFF);
+                        } else if (strcmp(suffix, "f64_le") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "write_f64_le: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            double d = value_to_float(val_arg);
+                            uint64_t v; memcpy(&v, &d, 8);
+                            for (int i = 0; i < 8; i++) p[i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+                        } else if (strcmp(suffix, "f64_be") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "write_f64_be: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            double d = value_to_float(val_arg);
+                            uint64_t v; memcpy(&v, &d, 8);
+                            for (int i = 0; i < 8; i++) p[7 - i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+                        } else {
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(val_arg);
+                            runtime_error(ctx, "Unknown buffer method '%s'", method);
+                            VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
+                        VALUE_RELEASE(off_val);
+                        VALUE_RELEASE(val_arg);
+                        VALUE_RELEASE(method_self);
+                        return val_null();
+                    }
+
+                    // Typed read methods - read_u8, read_i8, read_*_le, read_*_be, read_bytes
+                    if (strncmp(method, "read_", 5) == 0) {
+                        Buffer *buf = method_self.as.as_buffer;
+                        const char *suffix = method + 5;
+                        int num_args = expr->as.call.num_args;
+
+                        if (strcmp(suffix, "bytes") == 0) {
+                            if (num_args != 2) {
+                                runtime_error(ctx, "buffer.read_bytes() expects 2 arguments (offset, len)");
+                                VALUE_RELEASE(method_self);
+                                return val_null();
+                            }
+                            Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
+                            Value len_val = eval_expr(expr->as.call.args[1], env, ctx);
+                            int32_t off = value_to_int(off_val);
+                            int32_t len = value_to_int(len_val);
+                            if (len < 0) { runtime_error(ctx, "read_bytes: length must be non-negative"); }
+                            if (off < 0 || off + len > buf->length) {
+                                runtime_error(ctx, "read_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
+                            }
+                            // Create new buffer with copied data
+                            Buffer *new_buf = malloc(sizeof(Buffer));
+                            new_buf->data = malloc(len > 0 ? len : 1);
+                            new_buf->length = len;
+                            new_buf->capacity = len;
+                            new_buf->ref_count = 1;
+                            atomic_store(&new_buf->freed, 0);
+                            new_buf->parent = NULL;
+                            memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            Value result = {0};
+                            result.type = VAL_BUFFER;
+                            result.as.as_buffer = new_buf;
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(len_val);
+                            VALUE_RELEASE(method_self);
+                            return result;
+                        }
+
+                        // All other read methods take 1 arg: (offset)
+                        if (num_args != 1) {
+                            runtime_error(ctx, "buffer.%s() expects 1 argument (offset)", method);
+                            VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
+                        Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
+                        int32_t off = value_to_int(off_val);
+                        uint8_t *p = (uint8_t *)buf->data + off;
+                        Value result = val_null();
+
+                        if (strcmp(suffix, "u8") == 0) {
+                            if (off < 0 || off + 1 > buf->length) { runtime_error(ctx, "read_u8: offset %d out of bounds (buffer length %d)", off, buf->length); }
+                            result = val_u8(p[0]);
+                        } else if (strcmp(suffix, "i8") == 0) {
+                            if (off < 0 || off + 1 > buf->length) { runtime_error(ctx, "read_i8: offset %d out of bounds (buffer length %d)", off, buf->length); }
+                            result = val_i8((int8_t)p[0]);
+                        } else if (strcmp(suffix, "u16_le") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "read_u16_le: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            result = val_u16((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+                        } else if (strcmp(suffix, "u16_be") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "read_u16_be: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            result = val_u16(((uint16_t)p[0] << 8) | (uint16_t)p[1]);
+                        } else if (strcmp(suffix, "i16_le") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "read_i16_le: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            result = val_i16((int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8)));
+                        } else if (strcmp(suffix, "i16_be") == 0) {
+                            if (off < 0 || off + 2 > buf->length) { runtime_error(ctx, "read_i16_be: offset %d with size 2 out of bounds (buffer length %d)", off, buf->length); }
+                            result = val_i16((int16_t)(((uint16_t)p[0] << 8) | (uint16_t)p[1]));
+                        } else if (strcmp(suffix, "u32_le") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "read_u32_le: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+                            result = val_u32(v);
+                        } else if (strcmp(suffix, "u32_be") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "read_u32_be: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+                            result = val_u32(v);
+                        } else if (strcmp(suffix, "i32_le") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "read_i32_le: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+                            result = val_i32((int32_t)v);
+                        } else if (strcmp(suffix, "i32_be") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "read_i32_be: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+                            result = val_i32((int32_t)v);
+                        } else if (strcmp(suffix, "i64_le") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "read_i64_le: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            uint64_t v = 0; for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i] << (i * 8));
+                            result = val_i64((int64_t)v);
+                        } else if (strcmp(suffix, "i64_be") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "read_i64_be: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            uint64_t v = 0; for (int i = 0; i < 8; i++) v |= ((uint64_t)p[7 - i] << (i * 8));
+                            result = val_i64((int64_t)v);
+                        } else if (strcmp(suffix, "u64_le") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "read_u64_le: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            uint64_t v = 0; for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i] << (i * 8));
+                            result = val_u64(v);
+                        } else if (strcmp(suffix, "u64_be") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "read_u64_be: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            uint64_t v = 0; for (int i = 0; i < 8; i++) v |= ((uint64_t)p[7 - i] << (i * 8));
+                            result = val_u64(v);
+                        } else if (strcmp(suffix, "f32_le") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "read_f32_le: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+                            float f; memcpy(&f, &v, 4); result = val_f32(f);
+                        } else if (strcmp(suffix, "f32_be") == 0) {
+                            if (off < 0 || off + 4 > buf->length) { runtime_error(ctx, "read_f32_be: offset %d with size 4 out of bounds (buffer length %d)", off, buf->length); }
+                            uint32_t v = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+                            float f; memcpy(&f, &v, 4); result = val_f32(f);
+                        } else if (strcmp(suffix, "f64_le") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "read_f64_le: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            uint64_t v = 0; for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i] << (i * 8));
+                            double d; memcpy(&d, &v, 8); result = val_f64(d);
+                        } else if (strcmp(suffix, "f64_be") == 0) {
+                            if (off < 0 || off + 8 > buf->length) { runtime_error(ctx, "read_f64_be: offset %d with size 8 out of bounds (buffer length %d)", off, buf->length); }
+                            uint64_t v = 0; for (int i = 0; i < 8; i++) v |= ((uint64_t)p[7 - i] << (i * 8));
+                            double d; memcpy(&d, &v, 8); result = val_f64(d);
+                        } else {
+                            VALUE_RELEASE(off_val);
+                            runtime_error(ctx, "Unknown buffer method '%s'", method);
+                            VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
+                        VALUE_RELEASE(off_val);
+                        VALUE_RELEASE(method_self);
+                        return result;
+                    }
+
                     runtime_error(ctx, "Unknown buffer method '%s'", method);
                     VALUE_RELEASE(method_self);
                     return val_null();
