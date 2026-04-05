@@ -590,4 +590,4 @@ import {
 
 ## See Also
 
-- Related modules: `@stdlib/http`, `@stdlib/websocket` (coming soon)
+- Related modules: `@stdlib/http`, `@stdlib/websocket`

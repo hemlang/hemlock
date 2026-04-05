@@ -452,10 +452,7 @@ print(original.items.length);  // 3 (unchanged)
 
 Deep merge objects (combines nested objects).
 
-**Status:** Not yet implemented (requires object iteration builtin)
-
 ```hemlock
-// Planned API:
 let base = { x: 10, nested: { a: 1 } };
 let update = { y: 20, nested: { b: 2 } };
 let result = merge(base, update);
@@ -468,7 +465,6 @@ let result = merge(base, update);
 
 Shallow merge (replaces nested objects).
 
-**Status:** Not yet implemented (requires object iteration builtin)
 
 ---
 
@@ -499,7 +495,6 @@ print(equals([1, 2, 3], [1, 2]));  // false
 
 **Returns:** true if deeply equal, false otherwise
 
-**Note:** Object comparison not yet implemented (requires object iteration builtin)
 
 ---
 
@@ -647,15 +642,13 @@ try {
 
 ## Current Limitations
 
-1. **No object iteration builtin** - `merge()`, `patch()`, and object `equals()` not yet implemented
-2. **No line numbers in parse errors** - Validation doesn't report exact error location
+1. **No line numbers in parse errors** - Validation doesn't report exact error location
 3. **No JSON Schema** - Schema validation not yet supported
 4. **No streaming** - Large files must fit in memory
 
 ## Future Enhancements
 
 Planned additions:
-- Object iteration support (enables merge/patch/equals)
 - JSON Schema validation
 - JSON Patch (RFC 6902)
 - JSON Pointer (RFC 6901)

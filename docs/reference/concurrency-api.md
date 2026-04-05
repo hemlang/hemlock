@@ -65,7 +65,7 @@ async fn process_data(data: string) {
 - Can be spawned as concurrent task (runs on new thread)
 - When spawned, runs on its own OS thread
 
-**Note:** The `await` keyword is reserved for future use but not currently implemented.
+**Note:** The `await` keyword works as an alias for `join()` — it awaits task completion and returns the result. If used on a non-task value, it returns the value as-is.
 
 ---
 

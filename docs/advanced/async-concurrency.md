@@ -68,7 +68,7 @@ async fn compute(n: i32): i32 {
 - Async functions can be spawned as concurrent tasks using `spawn()`
 - Async functions can also be called directly (runs synchronously in current thread)
 - When spawned, each task runs on its **own OS thread** (not a coroutine!)
-- `await` keyword is reserved for future use
+- `await` keyword works as an alias for `join()` — awaits task completion and returns the result
 
 ### Example: Direct Call vs Spawn
 
