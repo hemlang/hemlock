@@ -160,8 +160,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             // OPTIMIZATION: Check if assigning to an unboxed variable
-            // Skip main variables - they're always HmlValue, not unboxed
-            if (ctx->optimize && ctx->type_ctx && !codegen_is_main_var(ctx, expr->as.assign.name)) {
+            // Allow main variables that have been shadowed by native locals (e.g., while-loop unboxing)
+            if (ctx->optimize && ctx->type_ctx &&
+                (!codegen_is_main_var(ctx, expr->as.assign.name) || codegen_is_local(ctx, expr->as.assign.name))) {
                 CheckedTypeKind native_type = type_check_get_unboxable(ctx->type_ctx, expr->as.assign.name);
                 if (native_type != CHECKED_UNKNOWN) {
                     const char *unbox_cast = checked_type_to_unbox_cast(native_type);
@@ -247,9 +248,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 var_name = safe_var_name;
             } else if (codegen_is_local(ctx, var_name) && (ctx->current_module || ctx->in_function || !codegen_is_main_var(ctx, var_name))) {
                 // Local variable - use sanitized bare name
-                // In module context, locals always shadow main vars
-                // In function context, locals shadow main vars
-                // Outside module/function, only if not a tracked main var
+                // In module/function context, locals always shadow main vars
                 safe_var_name = codegen_sanitize_ident(var_name);
                 var_name = safe_var_name;
             } else if (codegen_is_main_var(ctx, expr->as.assign.name)) {

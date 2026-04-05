@@ -510,8 +510,10 @@ handle_variable:
         {
         // When inside a function and the variable is a local, it shadows any main var
         // with the same name - so the main_var check should not prevent unboxing
+        // A main var is "truly main" only if it hasn't been shadowed by a local
+        // (e.g., by while-loop unboxing or for-loop counter)
         int is_truly_main = codegen_is_main_var(ctx, expr->as.ident.name) &&
-                            !(ctx->in_function && codegen_is_local(ctx, expr->as.ident.name));
+                            !codegen_is_local(ctx, expr->as.ident.name);
         if (ctx->optimize && ctx->type_ctx && !codegen_is_func_param(ctx, expr->as.ident.name) &&
             !is_truly_main &&
             !codegen_is_shadow(ctx, expr->as.ident.name)) {
@@ -555,13 +557,9 @@ handle_variable:
             codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
             free(safe_ident);
         } else if (codegen_is_local(ctx, expr->as.ident.name)) {
-            // Local variable - check context to determine how to access
-            // Local variables in functions shadow module exports
+            // Local variable - locals always shadow main vars and module exports
             if (ctx->in_function) {
-                // Inside a function - locals (params, loop vars) ALWAYS shadow module exports
-                // This must be checked BEFORE module export lookup
                 char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
-                // Check if this is a ref parameter - if so, dereference it
                 if (codegen_is_ref_param(ctx, expr->as.ident.name)) {
                     codegen_writeln(ctx, "HmlValue %s = *%s;", result, safe_ident);
                 } else {
@@ -569,10 +567,8 @@ handle_variable:
                 }
                 free(safe_ident);
             } else if (ctx->current_module) {
-                // At module level (not in function) - check if it's a module export (self-reference)
                 ExportedSymbol *exp = module_find_export(ctx->current_module, expr->as.ident.name);
                 if (exp) {
-                    // Use the mangled export name to access module-level function
                     codegen_writeln(ctx, "HmlValue %s = %s;", result, exp->mangled_name);
                 } else {
                     char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
@@ -580,7 +576,8 @@ handle_variable:
                     free(safe_ident);
                 }
             } else if (codegen_is_main_var(ctx, expr->as.ident.name)) {
-                // In main scope, and this is a main var - use _main_ prefix
+                // Top-level local that's also a main var - use _main_ prefix
+                // unless it's been unboxed (while-loop optimization)
                 codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident.name);
             } else {
                 // True local variable (not a main var) - use sanitized bare name

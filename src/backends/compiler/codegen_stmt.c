@@ -324,6 +324,75 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_push_loop_label(ctx, loop_label, break_label, continue_label);
             }
 
+            // OPTIMIZATION: At top level, shadow main variables with native locals
+            // for accumulators and counters detected by the type checker
+            int num_unboxed_main = 0;
+            char **unboxed_main_names = NULL;
+            CheckedTypeKind *unboxed_main_types = NULL;
+
+            if (ctx->optimize && ctx->type_ctx && !ctx->in_function && !ctx->current_module) {
+                // Snapshot existing unboxable var names before analysis
+                int num_existing = 0;
+                char **existing_names = NULL;
+                for (UnboxableVar *u = ctx->type_ctx->unboxable_vars; u; u = u->next) {
+                    num_existing++;
+                }
+                if (num_existing > 0) {
+                    existing_names = malloc(num_existing * sizeof(char*));
+                    int ei = 0;
+                    for (UnboxableVar *u = ctx->type_ctx->unboxable_vars; u; u = u->next) {
+                        existing_names[ei++] = u->name;  // borrow, don't strdup
+                    }
+                }
+
+                // Run accumulator analysis for this while loop
+                type_check_analyze_while_loop(ctx->type_ctx, stmt);
+
+                // Collect NEWLY added unboxable main variables only
+                // Use a temporary array with max capacity
+                int max_new = 0;
+                for (UnboxableVar *u = ctx->type_ctx->unboxable_vars; u; u = u->next) max_new++;
+                char **new_names = malloc((max_new > 0 ? max_new : 1) * sizeof(char*));
+                CheckedTypeKind *new_types = malloc((max_new > 0 ? max_new : 1) * sizeof(CheckedTypeKind));
+
+                for (UnboxableVar *u = ctx->type_ctx->unboxable_vars; u; u = u->next) {
+                    if (!codegen_is_main_var(ctx, u->name) || u->native_type == CHECKED_UNKNOWN) continue;
+                    int was_existing = 0;
+                    for (int e = 0; e < num_existing; e++) {
+                        if (strcmp(existing_names[e], u->name) == 0) { was_existing = 1; break; }
+                    }
+                    if (!was_existing) {
+                        new_names[num_unboxed_main] = strdup(u->name);
+                        new_types[num_unboxed_main] = u->native_type;
+                        num_unboxed_main++;
+                    }
+                }
+                free(existing_names);
+
+                if (num_unboxed_main > 0) {
+                    unboxed_main_names = new_names;
+                    unboxed_main_types = new_types;
+
+                    // Generate scope block and native local declarations
+                    codegen_writeln(ctx, "{ // while-loop unboxing");
+                    codegen_indent_inc(ctx);
+                    for (int i = 0; i < num_unboxed_main; i++) {
+                        const char *c_type = checked_type_to_c_type(unboxed_main_types[i]);
+                        const char *unbox_cast = checked_type_to_unbox_cast(unboxed_main_types[i]);
+                        char *safe_name = codegen_sanitize_ident(unboxed_main_names[i]);
+                        if (c_type && unbox_cast) {
+                            codegen_writeln(ctx, "%s %s = %s(_main_%s);",
+                                          c_type, safe_name, unbox_cast, unboxed_main_names[i]);
+                            codegen_add_local(ctx, unboxed_main_names[i]);
+                        }
+                        free(safe_name);
+                    }
+                } else {
+                    free(new_names);
+                    free(new_types);
+                }
+            }
+
             codegen_writeln(ctx, "while (1) {");
             codegen_indent_inc(ctx);
 
@@ -336,6 +405,27 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_stmt(ctx, stmt->as.while_stmt.body);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
+
+            // Write back unboxed locals to main variables
+            if (num_unboxed_main > 0) {
+                for (int i = 0; i < num_unboxed_main; i++) {
+                    const char *box_func = checked_type_to_box_func(unboxed_main_types[i]);
+                    char *safe_name = codegen_sanitize_ident(unboxed_main_names[i]);
+                    if (box_func) {
+                        codegen_writeln(ctx, "hml_release(&_main_%s);", unboxed_main_names[i]);
+                        codegen_writeln(ctx, "_main_%s = %s(%s);",
+                                      unboxed_main_names[i], box_func, safe_name);
+                    }
+                    codegen_remove_local(ctx, unboxed_main_names[i]);
+                    type_check_clear_unboxable(ctx->type_ctx, unboxed_main_names[i]);
+                    free(safe_name);
+                    free(unboxed_main_names[i]);
+                }
+                free(unboxed_main_names);
+                free(unboxed_main_types);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            }
 
             if (loop_label) {
                 codegen_writeln(ctx, "%s:;", break_label);

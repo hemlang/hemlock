@@ -225,4 +225,7 @@
 #define HML_IC_TYPE_CHANNEL  6
 #define HML_IC_TYPE_BUFFER   7
 
+// Compiler inlining limits
+#define HML_MAX_INLINE_DEPTH 3  // Maximum nesting depth for function inlining
+
 #endif // HEMLOCK_LIMITS_H
