@@ -892,6 +892,95 @@ create_user("Eve", age: 21);          // OK
 - Works with default/optional parameters
 - Unknown parameter names cause runtime errors
 
+## Expression-Bodied Functions
+
+For functions with a single expression body, use the arrow (`=>`) syntax:
+
+```hemlock
+// Named expression-bodied function
+fn double(x: i32): i32 => x * 2;
+fn max(a: i32, b: i32): i32 => a > b ? a : b;
+fn greet(name: string): string => "Hello, " + name + "!";
+
+// Anonymous expression-bodied function
+let square = fn(x: i32): i32 => x * x;
+let isEven = fn(n: i32): bool => n % 2 == 0;
+```
+
+**Rules:**
+- The body is a single expression (no `return` keyword needed)
+- The expression's value is automatically returned
+- Type annotations work the same as block-bodied functions
+- Works with both named and anonymous functions
+
+**When to use:**
+- Simple transformations and predicates
+- Callback functions passed to `map`, `filter`, etc.
+- Wrapper functions that delegate to another call
+
+```hemlock
+// Great for array operations
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(x) => x * 2);
+let evens = nums.filter(fn(x) => x % 2 == 0);
+```
+
+---
+
+## Ref Parameters (Pass-by-Reference)
+
+The `ref` modifier passes a reference to the caller's variable, allowing the function to modify it directly:
+
+### Basic Ref Parameters
+
+```hemlock
+fn increment(ref x: i32) {
+    x = x + 1;  // Modifies the original variable
+}
+
+let count = 10;
+increment(count);
+print(count);  // 11 - original was modified
+```
+
+### Swap Pattern
+
+```hemlock
+fn swap(ref a: i32, ref b: i32) {
+    let temp = a;
+    a = b;
+    b = temp;
+}
+
+let x = 1;
+let y = 2;
+swap(x, y);
+print(x);  // 2
+print(y);  // 1
+```
+
+### Mixing Ref and Regular Parameters
+
+```hemlock
+fn add_to(ref target: i32, amount: i32) {
+    target = target + amount;
+}
+
+let total = 100;
+add_to(total, 50);
+print(total);  // 150
+```
+
+### Rules for Ref Parameters
+
+- `ref` parameters must be passed variables, not literals or expressions
+- Works with all types (primitives, arrays, objects)
+- Combine with type annotations: `ref x: i32`
+- Cannot combine with `const` (they are opposites)
+- Without `ref`, primitives are passed by value (copied)
+
+---
+
 ## Limitations
 
 Current limitations to be aware of:

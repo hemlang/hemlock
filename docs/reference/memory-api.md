@@ -752,6 +752,128 @@ free(p2);
 | Method    | Signature                              | Returns  | Description                     |
 |-----------|----------------------------------------|----------|---------------------------------|
 | `.slice`  | `(start: i32, end?: i32)`             | `buffer` | Zero-copy view into buffer      |
+| `.write_u8` | `(offset: i32, value: u8)`          | `null`   | Write unsigned 8-bit integer    |
+| `.write_i8` | `(offset: i32, value: i8)`          | `null`   | Write signed 8-bit integer      |
+| `.write_u16_le` | `(offset: i32, value: u16)`    | `null`   | Write u16, little-endian        |
+| `.write_u16_be` | `(offset: i32, value: u16)`    | `null`   | Write u16, big-endian           |
+| `.write_i16_le` | `(offset: i32, value: i16)`    | `null`   | Write i16, little-endian        |
+| `.write_i16_be` | `(offset: i32, value: i16)`    | `null`   | Write i16, big-endian           |
+| `.write_u32_le` | `(offset: i32, value: u32)`    | `null`   | Write u32, little-endian        |
+| `.write_u32_be` | `(offset: i32, value: u32)`    | `null`   | Write u32, big-endian           |
+| `.write_i32_le` | `(offset: i32, value: i32)`    | `null`   | Write i32, little-endian        |
+| `.write_i32_be` | `(offset: i32, value: i32)`    | `null`   | Write i32, big-endian           |
+| `.write_u64_le` | `(offset: i32, value: u64)`    | `null`   | Write u64, little-endian        |
+| `.write_u64_be` | `(offset: i32, value: u64)`    | `null`   | Write u64, big-endian           |
+| `.write_i64_le` | `(offset: i32, value: i64)`    | `null`   | Write i64, little-endian        |
+| `.write_i64_be` | `(offset: i32, value: i64)`    | `null`   | Write i64, big-endian           |
+| `.write_f32_le` | `(offset: i32, value: f32)`    | `null`   | Write f32, little-endian        |
+| `.write_f32_be` | `(offset: i32, value: f32)`    | `null`   | Write f32, big-endian           |
+| `.write_f64_le` | `(offset: i32, value: f64)`    | `null`   | Write f64, little-endian        |
+| `.write_f64_be` | `(offset: i32, value: f64)`    | `null`   | Write f64, big-endian           |
+| `.write_bytes` | `(offset: i32, src: buffer)`    | `null`   | Copy bytes from source buffer   |
+| `.read_u8`  | `(offset: i32)`                      | `u8`     | Read unsigned 8-bit integer     |
+| `.read_i8`  | `(offset: i32)`                      | `i8`     | Read signed 8-bit integer       |
+| `.read_u16_le` | `(offset: i32)`                   | `u16`    | Read u16, little-endian         |
+| `.read_u16_be` | `(offset: i32)`                   | `u16`    | Read u16, big-endian            |
+| `.read_i16_le` | `(offset: i32)`                   | `i16`    | Read i16, little-endian         |
+| `.read_i16_be` | `(offset: i32)`                   | `i16`    | Read i16, big-endian            |
+| `.read_u32_le` | `(offset: i32)`                   | `u32`    | Read u32, little-endian         |
+| `.read_u32_be` | `(offset: i32)`                   | `u32`    | Read u32, big-endian            |
+| `.read_i32_le` | `(offset: i32)`                   | `i32`    | Read i32, little-endian         |
+| `.read_i32_be` | `(offset: i32)`                   | `i32`    | Read i32, big-endian            |
+| `.read_u64_le` | `(offset: i32)`                   | `u64`    | Read u64, little-endian         |
+| `.read_u64_be` | `(offset: i32)`                   | `u64`    | Read u64, big-endian            |
+| `.read_i64_le` | `(offset: i32)`                   | `i64`    | Read i64, little-endian         |
+| `.read_i64_be` | `(offset: i32)`                   | `i64`    | Read i64, big-endian            |
+| `.read_f32_le` | `(offset: i32)`                   | `f32`    | Read f32, little-endian         |
+| `.read_f32_be` | `(offset: i32)`                   | `f32`    | Read f32, big-endian            |
+| `.read_f64_le` | `(offset: i32)`                   | `f64`    | Read f64, little-endian         |
+| `.read_f64_be` | `(offset: i32)`                   | `f64`    | Read f64, big-endian            |
+| `.read_bytes` | `(offset: i32, length: i32)`       | `buffer` | Read bytes into new buffer      |
+
+---
+
+## Typed Buffer Read/Write Methods
+
+Buffers provide endian-aware typed read and write methods for building and parsing binary data structures like network packets, file formats, and wire protocols. These methods are bounds-checked and raise runtime errors on out-of-bounds access.
+
+### Write Methods
+
+Write a typed value at a byte offset. The `_le` and `_be` suffixes specify little-endian and big-endian byte order respectively.
+
+```hemlock
+let pkt = buffer(64);
+let offset = 0;
+
+// Build a packet header
+pkt.write_u16_be(offset, 0x0800);    // EtherType: IPv4
+offset += 2;
+pkt.write_u8(offset, 0x45);          // Version + IHL
+offset += 1;
+pkt.write_u8(offset, 0x00);          // DSCP/ECN
+offset += 1;
+pkt.write_u16_be(offset, 40);        // Total length
+offset += 2;
+pkt.write_u32_be(offset, 0xC0A80001); // Source IP: 192.168.0.1
+offset += 4;
+
+// Float values
+pkt.write_f32_le(offset, 3.14);
+offset += 4;
+pkt.write_f64_be(offset, 2.71828);
+offset += 8;
+```
+
+**Single-byte writes** (`write_u8`, `write_i8`) have no endianness suffix since byte order is irrelevant for single bytes.
+
+### Read Methods
+
+Read a typed value from a byte offset. Endianness suffixes match the write methods.
+
+```hemlock
+let pkt = buffer(64);
+// ... fill buffer with data ...
+
+// Parse a packet header
+let ether_type = pkt.read_u16_be(0);    // 0x0800
+let version = pkt.read_u8(2);            // 0x45
+let total_len = pkt.read_u16_be(4);      // 40
+let src_ip = pkt.read_u32_be(6);         // 0xC0A80001
+
+// Read float values
+let pi = pkt.read_f32_le(10);
+let e = pkt.read_f64_be(14);
+```
+
+### Bulk Operations
+
+```hemlock
+let src = buffer(8);
+for (let i = 0; i < 8; i++) { src[i] = i + 1; }
+
+let dest = buffer(32);
+dest.write_bytes(4, src);          // Copy src into dest at offset 4
+
+let chunk = dest.read_bytes(4, 8); // Read 8 bytes starting at offset 4
+print(chunk[0]);                   // 1
+```
+
+### Bounds Checking
+
+All typed read/write methods validate that the entire value fits within the buffer. For example, `write_u32_be(offset, val)` checks that `offset + 4 <= buffer.length`.
+
+```hemlock
+let buf = buffer(4);
+buf.write_u32_be(0, 42);    // OK: 4 bytes fit
+// buf.write_u32_be(2, 42); // ERROR: would write past end (offset 2 + 4 > 4)
+```
+
+### Use Cases
+
+- **Network protocols:** Build/parse TCP, UDP, DNS, and custom packets
+- **Binary file formats:** Read/write image headers, archive formats, etc.
+- **Wire protocols:** Serialize/deserialize structured binary messages
+- **FFI data exchange:** Prepare buffers for C library calls
 
 ---
 
