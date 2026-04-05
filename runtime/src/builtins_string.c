@@ -755,6 +755,16 @@ HmlValue hml_string_bytes(HmlValue str) {
     return arr;
 }
 
+// Get raw pointer to string bytes (no allocation)
+HmlValue hml_string_byte_ptr(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        hml_runtime_error("byte_ptr() requires string");
+    }
+
+    HmlString *s = str.as.as_string;
+    return hml_val_ptr(s->data);
+}
+
 // Convert string to buffer (raw bytes)
 HmlValue hml_string_to_bytes(HmlValue str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
