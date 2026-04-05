@@ -64,6 +64,14 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 
             return val_u8((uint8_t)str->data[index]);
         }
+        // byte_ptr() - get raw pointer to string bytes (no allocation)
+        if (method[1] == 'y' && method[2] == 't' && method[3] == 'e' && method[4] == '_' && strcmp(method, "byte_ptr") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "byte_ptr() expects no arguments");
+            }
+
+            return val_ptr(str->data);
+        }
         // bytes() - convert string to array of bytes (u8)
         if (method[1] == 'y' && method[2] == 't' && method[3] == 'e' && method[4] == 's' && strcmp(method, "bytes") == 0) {
             if (num_args != 0) {

@@ -110,6 +110,9 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
     } else if (strcmp(method, "byte_at") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_byte_at(%s, %s);",
                       result, obj_val, arg_temps[0]);
+    } else if (strcmp(method, "byte_ptr") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_string_byte_ptr(%s);",
+                      result, obj_val);
     } else if (strcmp(method, "to_bytes") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_to_bytes(%s);",
                       result, obj_val);

@@ -207,7 +207,8 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
         // No-arg string methods
         if (strcmp(method_name, "trim") == 0 || strcmp(method_name, "to_upper") == 0 ||
             strcmp(method_name, "to_lower") == 0 || strcmp(method_name, "chars") == 0 ||
-            strcmp(method_name, "bytes") == 0 || strcmp(method_name, "to_bytes") == 0 ||
+            strcmp(method_name, "bytes") == 0 || strcmp(method_name, "byte_ptr") == 0 ||
+            strcmp(method_name, "to_bytes") == 0 ||
             strcmp(method_name, "deserialize") == 0) {
             return 1;
         }
