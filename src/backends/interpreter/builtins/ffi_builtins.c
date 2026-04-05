@@ -101,6 +101,17 @@ Value builtin_callback_free(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 }
 
+// Helper: extract raw pointer from ptr or buffer value
+static void *extract_raw_ptr(Value val) {
+    if (val.type == VAL_PTR) return val.as.as_ptr;
+    if (val.type == VAL_BUFFER && val.as.as_buffer) return val.as.as_buffer->data;
+    return NULL;
+}
+
+static int is_ptr_like(Value val) {
+    return val.type == VAL_PTR || val.type == VAL_BUFFER;
+}
+
 // ptr_read_i32(ptr) - Read an i32 directly from a pointer
 Value builtin_ptr_read_i32(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
@@ -108,12 +119,12 @@ Value builtin_ptr_read_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_i32() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_i32() argument must be a ptr or buffer");
         return val_null();
     }
 
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_i32() cannot read from null pointer");
         return val_null();
@@ -129,12 +140,12 @@ Value builtin_ptr_deref_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_i32() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_i32() argument must be a ptr or buffer");
         return val_null();
     }
 
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_i32() cannot dereference null pointer");
         return val_null();
@@ -151,12 +162,12 @@ Value builtin_ptr_write_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_i32() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_i32() first argument must be a ptr or buffer");
         return val_null();
     }
 
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_i32() cannot write to null pointer");
         return val_null();
@@ -216,11 +227,11 @@ Value builtin_ptr_deref_i8(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_i8() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_i8() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_i8() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_i8() cannot dereference null pointer");
         return val_null();
@@ -234,11 +245,11 @@ Value builtin_ptr_deref_i16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_i16() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_i16() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_i16() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_i16() cannot dereference null pointer");
         return val_null();
@@ -252,11 +263,11 @@ Value builtin_ptr_deref_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_i64() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_i64() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_i64() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_i64() cannot dereference null pointer");
         return val_null();
@@ -270,11 +281,11 @@ Value builtin_ptr_deref_u8(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u8() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_u8() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_u8() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_u8() cannot dereference null pointer");
         return val_null();
@@ -288,11 +299,11 @@ Value builtin_ptr_deref_u16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u16() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_u16() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_u16() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_u16() cannot dereference null pointer");
         return val_null();
@@ -306,11 +317,11 @@ Value builtin_ptr_deref_u32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u32() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_u32() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_u32() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_u32() cannot dereference null pointer");
         return val_null();
@@ -324,11 +335,11 @@ Value builtin_ptr_deref_u64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u64() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_u64() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_u64() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_u64() cannot dereference null pointer");
         return val_null();
@@ -342,11 +353,11 @@ Value builtin_ptr_deref_f32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_f32() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_f32() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_f32() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_f32() cannot dereference null pointer");
         return val_null();
@@ -360,11 +371,11 @@ Value builtin_ptr_deref_f64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_f64() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_f64() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_f64() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_f64() cannot dereference null pointer");
         return val_null();
@@ -378,11 +389,11 @@ Value builtin_ptr_deref_ptr(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_ptr() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_deref_ptr() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_deref_ptr() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_deref_ptr() cannot dereference null pointer");
         return val_null();
@@ -398,11 +409,11 @@ Value builtin_ptr_write_i8(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_i8() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_i8() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_i8() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_i8() cannot write to null pointer");
         return val_null();
@@ -417,11 +428,11 @@ Value builtin_ptr_write_i16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_i16() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_i16() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_i16() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_i16() cannot write to null pointer");
         return val_null();
@@ -436,11 +447,11 @@ Value builtin_ptr_write_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_i64() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_i64() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_i64() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_i64() cannot write to null pointer");
         return val_null();
@@ -455,11 +466,11 @@ Value builtin_ptr_write_u8(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u8() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_u8() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_u8() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_u8() cannot write to null pointer");
         return val_null();
@@ -474,11 +485,11 @@ Value builtin_ptr_write_u16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u16() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_u16() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_u16() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_u16() cannot write to null pointer");
         return val_null();
@@ -493,11 +504,11 @@ Value builtin_ptr_write_u32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u32() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_u32() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_u32() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_u32() cannot write to null pointer");
         return val_null();
@@ -512,11 +523,11 @@ Value builtin_ptr_write_u64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u64() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_u64() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_u64() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_u64() cannot write to null pointer");
         return val_null();
@@ -531,11 +542,11 @@ Value builtin_ptr_write_f32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_f32() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_f32() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_f32() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_f32() cannot write to null pointer");
         return val_null();
@@ -550,11 +561,11 @@ Value builtin_ptr_write_f64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_f64() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_f64() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_f64() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_f64() cannot write to null pointer");
         return val_null();
@@ -569,11 +580,11 @@ Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_ptr() expects 2 arguments (ptr, value)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_write_ptr() first argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_write_ptr() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_write_ptr() cannot write to null pointer");
         return val_null();
@@ -592,11 +603,11 @@ Value builtin_ptr_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_ptr() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_ptr() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_ptr() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_ptr() cannot read from null pointer");
         return val_null();
@@ -612,11 +623,11 @@ Value builtin_ptr_read_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_i64() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_i64() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_i64() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_i64() cannot read from null pointer");
         return val_null();
@@ -630,11 +641,11 @@ Value builtin_ptr_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u64() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_u64() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_u64() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_u64() cannot read from null pointer");
         return val_null();
@@ -648,11 +659,11 @@ Value builtin_ptr_read_f32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_f32() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_f32() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_f32() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_f32() cannot read from null pointer");
         return val_null();
@@ -666,11 +677,11 @@ Value builtin_ptr_read_f64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_f64() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_f64() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_f64() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_f64() cannot read from null pointer");
         return val_null();
@@ -684,11 +695,11 @@ Value builtin_ptr_read_i8(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_i8() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_i8() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_i8() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_i8() cannot read from null pointer");
         return val_null();
@@ -702,11 +713,11 @@ Value builtin_ptr_read_i16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_i16() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_i16() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_i16() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_i16() cannot read from null pointer");
         return val_null();
@@ -720,11 +731,11 @@ Value builtin_ptr_read_u8(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u8() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_u8() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_u8() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_u8() cannot read from null pointer");
         return val_null();
@@ -738,11 +749,11 @@ Value builtin_ptr_read_u16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u16() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_u16() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_u16() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_u16() cannot read from null pointer");
         return val_null();
@@ -756,11 +767,11 @@ Value builtin_ptr_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u32() expects 1 argument (ptr)");
         return val_null();
     }
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "ptr_read_u32() argument must be a ptr");
+    if (!is_ptr_like(args[0])) {
+        runtime_error(ctx, "ptr_read_u32() argument must be a ptr or buffer");
         return val_null();
     }
-    void *ptr = args[0].as.as_ptr;
+    void *ptr = extract_raw_ptr(args[0]);
     if (ptr == NULL) {
         runtime_error(ctx, "ptr_read_u32() cannot read from null pointer");
         return val_null();
