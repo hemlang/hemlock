@@ -2,7 +2,7 @@
 
 **Author:** Claude
 **Date:** 2026-01-08
-**Status:** Proposal
+**Status:** Partially Implemented (Phase 1-2 completed in v1.9.0; Phase 3-5 remain proposals)
 **Related:** Issue #TBD
 
 ## Table of Contents
@@ -60,7 +60,7 @@ The annotation system is fully implemented with three main components:
 @unsafe     // Function contains unsafe operations
 @trusted    // Function is trusted despite unsafe operations
 
-// Existing compiler hints (NOT YET USED BY COMPILER)
+// Compiler optimization hints (IMPLEMENTED in v1.9.0)
 @inline     // Suggest inlining this function
 @noinline   // Prevent inlining this function
 @cold       // Function is rarely executed
@@ -75,13 +75,7 @@ The annotation system is fully implemented with three main components:
 
 ### 3. Current Limitations
 
-**The compiler backend does NOT currently use any optimization annotations.** While `has_inline_annotation()` and `has_noinline_annotation()` helper functions exist in `annotations.c`, they are never called by the compiler codegen.
-
-**Gap:** The infrastructure is ready, but the compiler needs:
-1. Annotation query functions in codegen
-2. C attribute/pragma generation based on annotations
-3. Validation that annotations make sense for compiled code
-4. Tests for annotation-driven optimizations
+**Update (v1.9.0):** The core function-level annotations (`@inline`, `@noinline`, `@hot`, `@cold`, `@pure`, `@const`, `@flatten`, `@optimize`, `@warn_unused`, `@section`) are now fully implemented in the compiler backend. The remaining proposals (loop annotations, memory annotations) in Phases 3-5 below are still unimplemented.
 
 ---
 
