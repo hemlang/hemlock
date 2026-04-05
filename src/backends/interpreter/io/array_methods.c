@@ -534,6 +534,31 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             return accumulator;
         }
+        // reserve(capacity) - pre-allocate capacity to avoid realloc cascades
+        if (method[1] == 'e' && method[2] == 's' && strcmp(method, "reserve") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "reserve() expects 1 argument (capacity)");
+            }
+            if (!is_integer(args[0])) {
+                return throw_runtime_error(ctx, "reserve() capacity must be an integer");
+            }
+            int32_t requested = value_to_int(args[0]);
+            if (requested < 0) {
+                return throw_runtime_error(ctx, "reserve() capacity must be non-negative");
+            }
+            if (requested > arr->capacity) {
+                if ((size_t)requested > SIZE_MAX / sizeof(Value)) {
+                    return throw_runtime_error(ctx, "reserve() capacity too large");
+                }
+                Value *new_elements = realloc(arr->elements, sizeof(Value) * (size_t)requested);
+                if (!new_elements) {
+                    return throw_runtime_error(ctx, "reserve() memory allocation failed");
+                }
+                arr->elements = new_elements;
+                arr->capacity = requested;
+            }
+            return val_null();
+        }
         break;
 
     case 'f':

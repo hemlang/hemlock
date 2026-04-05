@@ -443,6 +443,30 @@ void hml_array_clear(HmlValue arr) {
     a->length = 0;
 }
 
+void hml_array_reserve(HmlValue arr, HmlValue capacity) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("reserve() requires array");
+    }
+
+    int requested = hml_to_i32(capacity);
+    if (requested < 0) {
+        hml_runtime_error("reserve() capacity must be non-negative");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (requested > a->capacity) {
+        if ((size_t)requested > SIZE_MAX / sizeof(HmlValue)) {
+            hml_runtime_error("reserve() capacity too large");
+        }
+        HmlValue *new_elements = realloc(a->elements, (size_t)requested * sizeof(HmlValue));
+        if (!new_elements) {
+            hml_runtime_error("Out of memory in reserve()");
+        }
+        a->elements = new_elements;
+        a->capacity = requested;
+    }
+}
+
 // ========== TYPED ARRAY SUPPORT ==========
 
 void hml_array_set_element_type(HmlValue arr, HmlValueType element_type) {

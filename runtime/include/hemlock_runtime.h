@@ -329,6 +329,7 @@ void hml_array_reverse(HmlValue arr);
 HmlValue hml_array_first(HmlValue arr);
 HmlValue hml_array_last(HmlValue arr);
 void hml_array_clear(HmlValue arr);
+void hml_array_reserve(HmlValue arr, HmlValue capacity);
 HmlValue hml_array_length(HmlValue arr);
 
 // Array index access

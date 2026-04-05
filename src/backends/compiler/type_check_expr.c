@@ -72,6 +72,21 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
             return 1;  // No type checking needed for arguments
         }
 
+        // reserve(capacity) - pre-allocate capacity
+        if (strcmp(method_name, "reserve") == 0) {
+            if (num_args < 1) {
+                type_error(ctx, line, "array.reserve() requires 1 argument (capacity)");
+                return 1;
+            }
+            CheckedType *cap_type = type_check_infer_expr(ctx, args[0]);
+            if (!type_is_integer(cap_type) && cap_type->kind != CHECKED_ANY) {
+                type_error(ctx, line, "array.reserve(): capacity must be integer, got '%s'",
+                    checked_type_name(cap_type));
+            }
+            checked_type_free(cap_type);
+            return 1;
+        }
+
         // Methods that take index: remove, slice
         if (strcmp(method_name, "remove") == 0) {
             if (num_args < 1) {
