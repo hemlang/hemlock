@@ -500,6 +500,51 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // Memory fence
     } else if (strcmp(expr->as.ident.name, "atomic_fence") == 0 || strcmp(expr->as.ident.name, "__atomic_fence") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
+    // Byte order operations
+    } else if (strcmp(expr->as.ident.name, "bswap16") == 0 || strcmp(expr->as.ident.name, "__bswap16") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_bswap16, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "bswap32") == 0 || strcmp(expr->as.ident.name, "__bswap32") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_bswap32, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "bswap64") == 0 || strcmp(expr->as.ident.name, "__bswap64") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_bswap64, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "htons") == 0 || strcmp(expr->as.ident.name, "__htons") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_htons, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "htonl") == 0 || strcmp(expr->as.ident.name, "__htonl") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_htonl, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "htonll") == 0 || strcmp(expr->as.ident.name, "__htonll") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_htonll, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "ntohs") == 0 || strcmp(expr->as.ident.name, "__ntohs") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ntohs, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "ntohl") == 0 || strcmp(expr->as.ident.name, "__ntohl") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ntohl, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "ntohll") == 0 || strcmp(expr->as.ident.name, "__ntohll") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ntohll, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "is_little_endian") == 0 || strcmp(expr->as.ident.name, "__is_little_endian") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_is_little_endian, 0, 0, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "read_u16_be") == 0 || strcmp(expr->as.ident.name, "__read_u16_be") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u16_be, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "read_u16_le") == 0 || strcmp(expr->as.ident.name, "__read_u16_le") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u16_le, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "read_u32_be") == 0 || strcmp(expr->as.ident.name, "__read_u32_be") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u32_be, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "read_u32_le") == 0 || strcmp(expr->as.ident.name, "__read_u32_le") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u32_le, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "read_u64_be") == 0 || strcmp(expr->as.ident.name, "__read_u64_be") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u64_be, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "read_u64_le") == 0 || strcmp(expr->as.ident.name, "__read_u64_le") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_u64_le, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "write_u16_be") == 0 || strcmp(expr->as.ident.name, "__write_u16_be") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_u16_be, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "write_u16_le") == 0 || strcmp(expr->as.ident.name, "__write_u16_le") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_u16_le, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "write_u32_be") == 0 || strcmp(expr->as.ident.name, "__write_u32_be") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_u32_be, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "write_u32_le") == 0 || strcmp(expr->as.ident.name, "__write_u32_le") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_u32_le, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "write_u64_be") == 0 || strcmp(expr->as.ident.name, "__write_u64_be") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_u64_be, 3, 3, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "write_u64_le") == 0 || strcmp(expr->as.ident.name, "__write_u64_le") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_u64_le, 3, 3, 0);", result);
     } else {
 handle_variable:
         // OPTIMIZATION: Check if this is an unboxed variable (loop counter, accumulator, or typed var)

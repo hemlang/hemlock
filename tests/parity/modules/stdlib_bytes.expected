@@ -1,0 +1,25 @@
+=== bswap tests ===
+13330
+2018915346
+578437695752307201
+=== hton/ntoh roundtrip ===
+true
+true
+true
+roundtrip 16: true
+roundtrip 32: true
+roundtrip 64: true
+=== endianness ===
+bool
+=== buffer read/write ===
+258
+772
+84281096
+151653132
+43707
+48042
+true
+3735928559
+4022250974
+true
+done

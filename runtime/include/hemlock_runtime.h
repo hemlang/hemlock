@@ -1078,6 +1078,66 @@ HmlValue hml_builtin_atomic_exchange_i64(HmlClosureEnv *env, HmlValue ptr, HmlVa
 
 HmlValue hml_builtin_atomic_fence(HmlClosureEnv *env);
 
+// ========== BYTE ORDER OPERATIONS ==========
+
+// Byte swap functions
+HmlValue hml_bswap16(HmlValue val);
+HmlValue hml_bswap32(HmlValue val);
+HmlValue hml_bswap64(HmlValue val);
+
+// Host to network byte order
+HmlValue hml_htons_val(HmlValue val);
+HmlValue hml_htonl_val(HmlValue val);
+HmlValue hml_htonll_val(HmlValue val);
+
+// Network to host byte order
+HmlValue hml_ntohs_val(HmlValue val);
+HmlValue hml_ntohl_val(HmlValue val);
+HmlValue hml_ntohll_val(HmlValue val);
+
+// Endianness query
+HmlValue hml_is_little_endian(void);
+
+// Endian-aware buffer read
+HmlValue hml_read_u16_be(HmlValue ptr, HmlValue offset);
+HmlValue hml_read_u16_le(HmlValue ptr, HmlValue offset);
+HmlValue hml_read_u32_be(HmlValue ptr, HmlValue offset);
+HmlValue hml_read_u32_le(HmlValue ptr, HmlValue offset);
+HmlValue hml_read_u64_be(HmlValue ptr, HmlValue offset);
+HmlValue hml_read_u64_le(HmlValue ptr, HmlValue offset);
+
+// Endian-aware buffer write
+HmlValue hml_write_u16_be(HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_write_u16_le(HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_write_u32_be(HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_write_u32_le(HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_write_u64_be(HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_write_u64_le(HmlValue ptr, HmlValue offset, HmlValue value);
+
+// Byte order builtin wrappers (for first-class function references)
+HmlValue hml_builtin_bswap16(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_bswap32(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_bswap64(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_htons(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_htonl(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_htonll(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_ntohs(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_ntohl(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_ntohll(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_is_little_endian(HmlClosureEnv *env);
+HmlValue hml_builtin_read_u16_be(HmlClosureEnv *env, HmlValue ptr, HmlValue offset);
+HmlValue hml_builtin_read_u16_le(HmlClosureEnv *env, HmlValue ptr, HmlValue offset);
+HmlValue hml_builtin_read_u32_be(HmlClosureEnv *env, HmlValue ptr, HmlValue offset);
+HmlValue hml_builtin_read_u32_le(HmlClosureEnv *env, HmlValue ptr, HmlValue offset);
+HmlValue hml_builtin_read_u64_be(HmlClosureEnv *env, HmlValue ptr, HmlValue offset);
+HmlValue hml_builtin_read_u64_le(HmlClosureEnv *env, HmlValue ptr, HmlValue offset);
+HmlValue hml_builtin_write_u16_be(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_builtin_write_u16_le(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_builtin_write_u32_be(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_builtin_write_u32_le(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_builtin_write_u64_be(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue value);
+HmlValue hml_builtin_write_u64_le(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue value);
+
 // ========== UTILITY MACROS ==========
 
 // Create a string literal value (compile-time optimization)
