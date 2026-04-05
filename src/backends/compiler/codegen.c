@@ -967,6 +967,8 @@ static const char *c_keywords[] = {
     "alignas", "alignof", "bool",
     // Common identifiers that could conflict with C stdlib/runtime
     "main", "NULL",
+    // C library macros and identifiers (lowercase/mixed-case, not caught by ALL_CAPS heuristic)
+    "stdin", "stdout", "stderr", "errno",
     NULL  // Sentinel
 };
 
@@ -979,6 +981,24 @@ static int is_c_keyword(const char *name) {
         }
     }
     return 0;
+}
+
+// Check if a name matches the ALL_CAPS pattern typical of C preprocessor macros.
+// Pattern: starts with uppercase letter, contains only [A-Z0-9_].
+// This catches POSIX constants (SIGINT, AF_INET, SOCK_STREAM, POLLIN, O_RDONLY,
+// CLOCK_MONOTONIC, PROT_READ, MAP_SHARED, MSG_DONTWAIT, TCP_NODELAY, etc.)
+// without needing a hand-maintained list of specific prefixes.
+// False positives (e.g., user variable "MAX") are harmless — the _v_ prefix
+// is transparent and doesn't affect behavior.
+static int is_potential_c_macro(const char *name) {
+    if (!name || !name[0]) return 0;
+    if (name[0] < 'A' || name[0] > 'Z') return 0;
+    for (int i = 1; name[i]; i++) {
+        char c = name[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') continue;
+        return 0;  // Contains lowercase or special char — not a macro pattern
+    }
+    return 1;
 }
 
 // Check if a name conflicts with Hemlock runtime or codegen internal prefixes
@@ -999,14 +1019,10 @@ static int conflicts_with_runtime(const char *name) {
     if (strncmp(name, "_v_", 3) == 0) return 1;  // Our own sanitization prefix
     if (strncmp(name, "_ex_", 4) == 0) return 1;  // Exception context
     if (strncmp(name, "_closure_env", 12) == 0) return 1;  // Closure env param
-    // Check for C system macro conflicts (signal constants, socket constants, etc.)
-    if (strncmp(name, "SIG", 3) == 0) return 1;  // SIGINT, SIGTERM, SIGUSR1, etc.
-    if (strncmp(name, "AF_", 3) == 0) return 1;   // AF_INET, AF_INET6
-    if (strncmp(name, "SOCK_", 5) == 0) return 1; // SOCK_STREAM, SOCK_DGRAM
-    if (strncmp(name, "SOL_", 4) == 0) return 1;  // SOL_SOCKET
-    if (strncmp(name, "SO_", 3) == 0) return 1;   // SO_REUSEADDR, etc.
-    if (strncmp(name, "IPPROTO_", 8) == 0) return 1; // IPPROTO_TCP, IPPROTO_UDP
-    if (strncmp(name, "POLL", 4) == 0) return 1;  // POLLIN, POLLOUT, etc.
+    // Check for C preprocessor macro conflicts using ALL_CAPS heuristic.
+    // This replaces the previous hand-maintained prefix list (SIG*, AF_*, SOCK_*, etc.)
+    // and automatically covers any POSIX/system macro without manual updates.
+    if (is_potential_c_macro(name)) return 1;
     return 0;
 }
 

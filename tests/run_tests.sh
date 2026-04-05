@@ -168,10 +168,20 @@ for test_file in $TEST_FILES; do
     TOTAL_TIME_MS=$((TOTAL_TIME_MS + duration_ms))
     time_str=$(format_time $duration_ms)
 
-    # Check if timeout occurred
-    if [ $exit_code -eq 124 ]; then
+    # Check if timeout occurred (124) or process was killed by signal (128+signal)
+    # 124 = timeout, 137 = SIGKILL (timeout -k), 134 = SIGABRT, 139 = SIGSEGV
+    if [ $exit_code -eq 124 ] || [ $exit_code -eq 137 ]; then
         echo -e "${RED}✗${NC} $test_name ${DIM}(${time_str})${NC} ${RED}(timeout)${NC}"
         FAILED_TESTS+=("$test_name|timeout after ${time_str}|")
+        ((FAIL_COUNT++))
+        continue
+    fi
+
+    # Check if process crashed with a signal (core dump)
+    if [ $exit_code -gt 128 ]; then
+        signal_num=$((exit_code - 128))
+        echo -e "${RED}✗${NC} $test_name ${DIM}(${time_str})${NC} ${RED}(signal $signal_num)${NC}"
+        FAILED_TESTS+=("$test_name|killed by signal $signal_num|$output")
         ((FAIL_COUNT++))
         continue
     fi
