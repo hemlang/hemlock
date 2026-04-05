@@ -103,7 +103,7 @@ typedef struct {
     int label_counter;      // Counter for labels
     int func_counter;       // Counter for anonymous functions
     int in_function;        // Whether we're inside a function
-    int in_inline;          // Whether we're inside inlined function code (prevents recursive inlining)
+    int inline_depth;       // Current inlining depth (0 = not inlining, max depth prevents code bloat)
     char **local_vars;      // Stack of local variable names
     int num_locals;         // Number of local variables
     int local_capacity;     // Capacity of local vars array

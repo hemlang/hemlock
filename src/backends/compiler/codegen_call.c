@@ -2359,8 +2359,9 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // OPTIMIZATION: Function inlining for small pure functions
         // This eliminates function call overhead for simple helper functions
-        // Note: !ctx->in_inline prevents recursive inlining which causes code bloat
-        if (ctx->optimize && !ctx->in_inline && !import_binding && !ctx->current_module &&
+        // Multi-level inlining (up to HML_MAX_INLINE_DEPTH) allows nested helpers
+        // like rotr() inside ep0() to be fully inlined in hot loops
+        if (ctx->optimize && ctx->inline_depth < HML_MAX_INLINE_DEPTH && !import_binding && !ctx->current_module &&
             codegen_is_main_func_inlinable(ctx, fn_name) &&
             expr->as.call.num_args == codegen_get_main_func_params(ctx, fn_name)) {
 
@@ -2377,8 +2378,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 codegen_writeln(ctx, "{ // INLINE: %s", fn_name);
                 codegen_indent_inc(ctx);
 
-                // Prevent recursive inlining inside inlined code
-                ctx->in_inline = 1;
+                // Track inlining depth to prevent excessive code bloat
+                ctx->inline_depth++;
 
                 // Push a type scope for the inlined code (for type specialization)
                 if (ctx->type_ctx) {
@@ -2456,8 +2457,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     type_check_pop_scope(ctx->type_ctx);
                 }
 
-                // Restore inline flag
-                ctx->in_inline = 0;
+                // Restore inlining depth
+                ctx->inline_depth--;
 
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");

@@ -36,7 +36,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->label_counter = 0;
     ctx->func_counter = 0;
     ctx->in_function = 0;
-    ctx->in_inline = 0;
+    ctx->inline_depth = 0;
     ctx->local_vars = NULL;
     ctx->num_locals = 0;
     ctx->local_capacity = 0;
