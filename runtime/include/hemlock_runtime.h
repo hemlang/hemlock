@@ -389,6 +389,48 @@ HmlValue hml_buffer_length(HmlValue buf);
 HmlValue hml_buffer_capacity(HmlValue buf);
 HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end);
 
+// Buffer typed write methods (bounds-checked, explicit endianness)
+void hml_buffer_write_u8(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i8(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_u16_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_u16_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i16_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i16_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_u32_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_u32_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i32_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i32_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i64_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_i64_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_u64_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_u64_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_f32_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_f32_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_f64_le(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_f64_be(HmlValue buf, HmlValue offset, HmlValue value);
+void hml_buffer_write_bytes(HmlValue buf, HmlValue offset, HmlValue src, HmlValue len);
+
+// Buffer typed read methods (bounds-checked, explicit endianness)
+HmlValue hml_buffer_read_u8(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i8(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_u16_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_u16_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i16_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i16_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_u32_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_u32_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i32_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i32_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i64_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_i64_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_u64_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_u64_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_f32_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_f32_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_f64_le(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_f64_be(HmlValue buf, HmlValue offset);
+HmlValue hml_buffer_read_bytes(HmlValue buf, HmlValue offset, HmlValue len);
+
 // Pointer index operations (unsafe, no bounds checking)
 HmlValue hml_ptr_get(HmlValue ptr, HmlValue index);
 void hml_ptr_set(HmlValue ptr, HmlValue index, HmlValue val);

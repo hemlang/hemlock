@@ -351,6 +351,41 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
     } else if (strcmp(method, "send_timeout") == 0 && num_args == 2) {
         codegen_writeln(ctx, "HmlValue %s = hml_channel_send_timeout(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+    // Buffer typed write methods (2 args: offset, value)
+    } else if (strncmp(method, "write_", 6) == 0 && num_args == 2 &&
+               (strcmp(method + 6, "u8") == 0 || strcmp(method + 6, "i8") == 0 ||
+                strcmp(method + 6, "u16_le") == 0 || strcmp(method + 6, "u16_be") == 0 ||
+                strcmp(method + 6, "i16_le") == 0 || strcmp(method + 6, "i16_be") == 0 ||
+                strcmp(method + 6, "u32_le") == 0 || strcmp(method + 6, "u32_be") == 0 ||
+                strcmp(method + 6, "i32_le") == 0 || strcmp(method + 6, "i32_be") == 0 ||
+                strcmp(method + 6, "i64_le") == 0 || strcmp(method + 6, "i64_be") == 0 ||
+                strcmp(method + 6, "u64_le") == 0 || strcmp(method + 6, "u64_be") == 0 ||
+                strcmp(method + 6, "f32_le") == 0 || strcmp(method + 6, "f32_be") == 0 ||
+                strcmp(method + 6, "f64_le") == 0 || strcmp(method + 6, "f64_be") == 0)) {
+        codegen_writeln(ctx, "hml_buffer_%s(%s, %s, %s);", method, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+    // Buffer write_bytes (3 args: offset, src_buffer, len)
+    } else if (strcmp(method, "write_bytes") == 0 && num_args == 3) {
+        codegen_writeln(ctx, "hml_buffer_write_bytes(%s, %s, %s, %s);",
+                      obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+    // Buffer typed read methods (1 arg: offset)
+    } else if (strncmp(method, "read_", 5) == 0 && num_args == 1 &&
+               (strcmp(method + 5, "u8") == 0 || strcmp(method + 5, "i8") == 0 ||
+                strcmp(method + 5, "u16_le") == 0 || strcmp(method + 5, "u16_be") == 0 ||
+                strcmp(method + 5, "i16_le") == 0 || strcmp(method + 5, "i16_be") == 0 ||
+                strcmp(method + 5, "u32_le") == 0 || strcmp(method + 5, "u32_be") == 0 ||
+                strcmp(method + 5, "i32_le") == 0 || strcmp(method + 5, "i32_be") == 0 ||
+                strcmp(method + 5, "i64_le") == 0 || strcmp(method + 5, "i64_be") == 0 ||
+                strcmp(method + 5, "u64_le") == 0 || strcmp(method + 5, "u64_be") == 0 ||
+                strcmp(method + 5, "f32_le") == 0 || strcmp(method + 5, "f32_be") == 0 ||
+                strcmp(method + 5, "f64_le") == 0 || strcmp(method + 5, "f64_be") == 0)) {
+        codegen_writeln(ctx, "HmlValue %s = hml_buffer_%s(%s, %s);",
+                      result, method, obj_val, arg_temps[0]);
+    // Buffer read_bytes (2 args: offset, len)
+    } else if (strcmp(method, "read_bytes") == 0 && num_args == 2) {
+        codegen_writeln(ctx, "HmlValue %s = hml_buffer_read_bytes(%s, %s, %s);",
+                      result, obj_val, arg_temps[0], arg_temps[1]);
     // Serialization methods
     } else if (strcmp(method, "serialize") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_serialize(%s);", result, obj_val);

@@ -871,3 +871,474 @@ HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end) {
     val.as.as_buffer = view;
     return val;
 }
+
+// ========== Buffer Typed Read/Write Methods ==========
+//
+// These methods allow reading/writing typed values at arbitrary offsets
+// within a buffer, with bounds checking and explicit endianness.
+// This eliminates the need to create intermediate small buffers when
+// building binary packets.
+
+static void buffer_validate(HmlValue buf, const char *method) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        hml_runtime_error("%s requires a buffer", method);
+    }
+}
+
+static void buffer_bounds_check(HmlBuffer *b, int offset, int size, const char *method) {
+    if (offset < 0 || offset + size > b->length) {
+        hml_runtime_error("%s: offset %d with size %d out of bounds (buffer length %d)",
+                         method, offset, size, b->length);
+    }
+}
+
+// --- write_u8 / write_i8 (no endianness needed for single byte) ---
+
+void hml_buffer_write_u8(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u8");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 1, "write_u8");
+    ((uint8_t *)b->data)[off] = (uint8_t)hml_to_i32(value);
+}
+
+void hml_buffer_write_i8(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i8");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 1, "write_i8");
+    ((int8_t *)b->data)[off] = (int8_t)hml_to_i32(value);
+}
+
+// --- 16-bit write methods ---
+
+void hml_buffer_write_u16_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u16_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "write_u16_le");
+    uint16_t v = (uint16_t)hml_to_i32(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+}
+
+void hml_buffer_write_u16_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u16_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "write_u16_be");
+    uint16_t v = (uint16_t)hml_to_i32(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)((v >> 8) & 0xFF);
+    p[1] = (uint8_t)(v & 0xFF);
+}
+
+void hml_buffer_write_i16_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i16_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "write_i16_le");
+    uint16_t v = (uint16_t)(int16_t)hml_to_i32(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+}
+
+void hml_buffer_write_i16_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i16_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "write_i16_be");
+    uint16_t v = (uint16_t)(int16_t)hml_to_i32(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)((v >> 8) & 0xFF);
+    p[1] = (uint8_t)(v & 0xFF);
+}
+
+// --- 32-bit write methods ---
+
+void hml_buffer_write_u32_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u32_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "write_u32_le");
+    uint32_t v = (uint32_t)hml_to_i64(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+    p[2] = (uint8_t)((v >> 16) & 0xFF);
+    p[3] = (uint8_t)((v >> 24) & 0xFF);
+}
+
+void hml_buffer_write_u32_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u32_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "write_u32_be");
+    uint32_t v = (uint32_t)hml_to_i64(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)((v >> 24) & 0xFF);
+    p[1] = (uint8_t)((v >> 16) & 0xFF);
+    p[2] = (uint8_t)((v >> 8) & 0xFF);
+    p[3] = (uint8_t)(v & 0xFF);
+}
+
+void hml_buffer_write_i32_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i32_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "write_i32_le");
+    uint32_t v = (uint32_t)hml_to_i32(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+    p[2] = (uint8_t)((v >> 16) & 0xFF);
+    p[3] = (uint8_t)((v >> 24) & 0xFF);
+}
+
+void hml_buffer_write_i32_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i32_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "write_i32_be");
+    uint32_t v = (uint32_t)hml_to_i32(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)((v >> 24) & 0xFF);
+    p[1] = (uint8_t)((v >> 16) & 0xFF);
+    p[2] = (uint8_t)((v >> 8) & 0xFF);
+    p[3] = (uint8_t)(v & 0xFF);
+}
+
+// --- 64-bit write methods ---
+
+void hml_buffer_write_i64_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i64_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "write_i64_le");
+    uint64_t v = (uint64_t)hml_to_i64(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    for (int i = 0; i < 8; i++) p[i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+}
+
+void hml_buffer_write_i64_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_i64_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "write_i64_be");
+    uint64_t v = (uint64_t)hml_to_i64(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    for (int i = 0; i < 8; i++) p[7 - i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+}
+
+void hml_buffer_write_u64_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u64_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "write_u64_le");
+    uint64_t v = (uint64_t)hml_to_i64(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    for (int i = 0; i < 8; i++) p[i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+}
+
+void hml_buffer_write_u64_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_u64_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "write_u64_be");
+    uint64_t v = (uint64_t)hml_to_i64(value);
+    uint8_t *p = (uint8_t *)b->data + off;
+    for (int i = 0; i < 8; i++) p[7 - i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+}
+
+// --- Float write methods ---
+
+void hml_buffer_write_f32_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_f32_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "write_f32_le");
+    float f = (float)hml_to_f64(value);
+    uint32_t v;
+    memcpy(&v, &f, 4);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+    p[2] = (uint8_t)((v >> 16) & 0xFF);
+    p[3] = (uint8_t)((v >> 24) & 0xFF);
+}
+
+void hml_buffer_write_f32_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_f32_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "write_f32_be");
+    float f = (float)hml_to_f64(value);
+    uint32_t v;
+    memcpy(&v, &f, 4);
+    uint8_t *p = (uint8_t *)b->data + off;
+    p[0] = (uint8_t)((v >> 24) & 0xFF);
+    p[1] = (uint8_t)((v >> 16) & 0xFF);
+    p[2] = (uint8_t)((v >> 8) & 0xFF);
+    p[3] = (uint8_t)(v & 0xFF);
+}
+
+void hml_buffer_write_f64_le(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_f64_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "write_f64_le");
+    double d = hml_to_f64(value);
+    uint64_t v;
+    memcpy(&v, &d, 8);
+    uint8_t *p = (uint8_t *)b->data + off;
+    for (int i = 0; i < 8; i++) p[i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+}
+
+void hml_buffer_write_f64_be(HmlValue buf, HmlValue offset, HmlValue value) {
+    buffer_validate(buf, "write_f64_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "write_f64_be");
+    double d = hml_to_f64(value);
+    uint64_t v;
+    memcpy(&v, &d, 8);
+    uint8_t *p = (uint8_t *)b->data + off;
+    for (int i = 0; i < 8; i++) p[7 - i] = (uint8_t)((v >> (i * 8)) & 0xFF);
+}
+
+// --- write_bytes(offset, src_buffer, len) ---
+
+void hml_buffer_write_bytes(HmlValue buf, HmlValue offset, HmlValue src, HmlValue len) {
+    buffer_validate(buf, "write_bytes");
+    if (src.type != HML_VAL_BUFFER || !src.as.as_buffer) {
+        hml_runtime_error("write_bytes: source must be a buffer");
+    }
+    HmlBuffer *b = buf.as.as_buffer;
+    HmlBuffer *s = src.as.as_buffer;
+    int off = hml_to_i32(offset);
+    int n = hml_to_i32(len);
+    if (n < 0) {
+        hml_runtime_error("write_bytes: length must be non-negative");
+    }
+    buffer_bounds_check(b, off, n, "write_bytes");
+    if (n > s->length) {
+        hml_runtime_error("write_bytes: source buffer length %d less than requested %d", s->length, n);
+    }
+    memcpy((uint8_t *)b->data + off, s->data, n);
+}
+
+// ========== Buffer Typed Read Methods ==========
+
+HmlValue hml_buffer_read_u8(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u8");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 1, "read_u8");
+    return hml_val_u8(((uint8_t *)b->data)[off]);
+}
+
+HmlValue hml_buffer_read_i8(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i8");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 1, "read_i8");
+    return hml_val_i8(((int8_t *)b->data)[off]);
+}
+
+HmlValue hml_buffer_read_u16_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u16_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "read_u16_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint16_t v = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+    return hml_val_u16(v);
+}
+
+HmlValue hml_buffer_read_u16_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u16_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "read_u16_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint16_t v = ((uint16_t)p[0] << 8) | (uint16_t)p[1];
+    return hml_val_u16(v);
+}
+
+HmlValue hml_buffer_read_i16_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i16_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "read_i16_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint16_t v = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+    return hml_val_i16((int16_t)v);
+}
+
+HmlValue hml_buffer_read_i16_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i16_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 2, "read_i16_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint16_t v = ((uint16_t)p[0] << 8) | (uint16_t)p[1];
+    return hml_val_i16((int16_t)v);
+}
+
+HmlValue hml_buffer_read_u32_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u32_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "read_u32_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+                 ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    return hml_val_u32(v);
+}
+
+HmlValue hml_buffer_read_u32_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u32_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "read_u32_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint32_t v = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                 ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+    return hml_val_u32(v);
+}
+
+HmlValue hml_buffer_read_i32_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i32_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "read_i32_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+                 ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    return hml_val_i32((int32_t)v);
+}
+
+HmlValue hml_buffer_read_i32_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i32_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "read_i32_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint32_t v = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                 ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+    return hml_val_i32((int32_t)v);
+}
+
+HmlValue hml_buffer_read_i64_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i64_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "read_i64_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i] << (i * 8));
+    return hml_val_i64((int64_t)v);
+}
+
+HmlValue hml_buffer_read_i64_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_i64_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "read_i64_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[7 - i] << (i * 8));
+    return hml_val_i64((int64_t)v);
+}
+
+HmlValue hml_buffer_read_u64_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u64_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "read_u64_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i] << (i * 8));
+    return hml_val_u64(v);
+}
+
+HmlValue hml_buffer_read_u64_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_u64_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "read_u64_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[7 - i] << (i * 8));
+    return hml_val_u64(v);
+}
+
+HmlValue hml_buffer_read_f32_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_f32_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "read_f32_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+                 ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    float f;
+    memcpy(&f, &v, 4);
+    return hml_val_f32(f);
+}
+
+HmlValue hml_buffer_read_f32_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_f32_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 4, "read_f32_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint32_t v = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                 ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+    float f;
+    memcpy(&f, &v, 4);
+    return hml_val_f32(f);
+}
+
+HmlValue hml_buffer_read_f64_le(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_f64_le");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "read_f64_le");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i] << (i * 8));
+    double d;
+    memcpy(&d, &v, 8);
+    return hml_val_f64(d);
+}
+
+HmlValue hml_buffer_read_f64_be(HmlValue buf, HmlValue offset) {
+    buffer_validate(buf, "read_f64_be");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    buffer_bounds_check(b, off, 8, "read_f64_be");
+    uint8_t *p = (uint8_t *)b->data + off;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[7 - i] << (i * 8));
+    double d;
+    memcpy(&d, &v, 8);
+    return hml_val_f64(d);
+}
+
+// --- read_bytes(offset, len) - returns a new buffer ---
+
+HmlValue hml_buffer_read_bytes(HmlValue buf, HmlValue offset, HmlValue len) {
+    buffer_validate(buf, "read_bytes");
+    HmlBuffer *b = buf.as.as_buffer;
+    int off = hml_to_i32(offset);
+    int n = hml_to_i32(len);
+    if (n < 0) {
+        hml_runtime_error("read_bytes: length must be non-negative");
+    }
+    buffer_bounds_check(b, off, n, "read_bytes");
+    HmlValue result = hml_val_buffer(n);
+    memcpy(result.as.as_buffer->data, (uint8_t *)b->data + off, n);
+    return result;
+}
