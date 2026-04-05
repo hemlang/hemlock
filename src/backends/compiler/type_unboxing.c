@@ -588,15 +588,15 @@ void type_check_analyze_typed_let(TypeCheckContext *ctx, Stmt *stmt,
         return;
     }
 
-    // Check if variable escapes or has incompatible assignments in subsequent statements
+    // Check if variable escapes in subsequent statements
     if (containing_block && containing_block->type == STMT_BLOCK) {
         for (int i = stmt_index + 1; i < containing_block->as.block.count; i++) {
             if (variable_escapes_in_stmt_internal(containing_block->as.block.statements[i], var_name)) {
                 return;
             }
-            if (has_incompatible_assignment_stmt(containing_block->as.block.statements[i], var_name)) {
-                return;
-            }
+            // Note: For typed variables, we skip the incompatible assignment check.
+            // The type annotation guarantees the type — any assigned value will be
+            // converted via hml_to_i32()/hml_to_i64()/etc. in the codegen.
         }
     }
 
