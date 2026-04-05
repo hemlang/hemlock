@@ -195,7 +195,12 @@ Value val_rune(uint32_t codepoint) {
 
 void buffer_free(Buffer *buf) {
     if (buf) {
-        free(buf->data);
+        if (buf->parent) {
+            // Zero-copy view: release parent instead of freeing data
+            buffer_release(buf->parent);
+        } else {
+            free(buf->data);
+        }
         free(buf);
     }
 }
@@ -220,7 +225,7 @@ Value val_buffer(int size) {
         exit(1);
     }
 
-    Buffer *buf = malloc(sizeof(Buffer));
+    Buffer *buf = calloc(1, sizeof(Buffer));
     if (!buf) {
         return val_null();
     }
@@ -236,6 +241,7 @@ Value val_buffer(int size) {
     buf->capacity = size;
     buf->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&buf->freed, 0);  // Not freed
+    buf->parent = NULL;            // Not a view
     v.as.as_buffer = buf;
     return v;
 }

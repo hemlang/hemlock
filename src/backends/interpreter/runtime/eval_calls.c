@@ -145,7 +145,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return result;
                 }
 
-                // Special handling for buffer methods (to_string)
+                // Special handling for buffer methods (to_string, slice)
                 if (method_self.type == VAL_BUFFER) {
                     const char *method = expr->as.call.func->as.get_property.property;
 
@@ -157,6 +157,47 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         str_data[buf->length] = '\0';
                         Value result = val_string(str_data);
                         free(str_data);
+                        VALUE_RELEASE(method_self);
+                        return result;
+                    }
+
+                    if (strcmp(method, "slice") == 0) {
+                        int num_args = expr->as.call.num_args;
+                        if (num_args < 1 || num_args > 2) {
+                            runtime_error(ctx, "buffer.slice() expects 1-2 arguments (start[, end])");
+                            VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
+                        Value start_val = eval_expr(expr->as.call.args[0], env, ctx);
+                        Buffer *buf = method_self.as.as_buffer;
+                        int32_t start = value_to_int(start_val);
+                        int32_t end = (num_args == 2) ? value_to_int(eval_expr(expr->as.call.args[1], env, ctx)) : buf->length;
+                        VALUE_RELEASE(start_val);
+
+                        // Clamp bounds
+                        if (start < 0) start = 0;
+                        if (end > buf->length) end = buf->length;
+                        if (start > end) start = end;
+
+                        // Find root owner (follow parent chain)
+                        Buffer *root = buf;
+                        while (root->parent) {
+                            root = root->parent;
+                        }
+
+                        // Create zero-copy view
+                        Buffer *view = malloc(sizeof(Buffer));
+                        view->data = (uint8_t *)buf->data + start;
+                        view->length = end - start;
+                        view->capacity = end - start;
+                        view->ref_count = 1;
+                        atomic_store(&view->freed, 0);
+                        view->parent = root;
+                        buffer_retain(root);  // Keep root alive
+
+                        Value result = {0};
+                        result.type = VAL_BUFFER;
+                        result.as.as_buffer = view;
                         VALUE_RELEASE(method_self);
                         return result;
                     }

@@ -288,12 +288,13 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
 
     if (read_size <= 0) {
         // Return empty buffer
-        HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+        HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
         buf->data = malloc(1);
         buf->length = 0;
         buf->capacity = 0;
         buf->ref_count = 1;
         atomic_store(&buf->freed, 0);
+        buf->parent = NULL;
         return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
     }
 
@@ -311,12 +312,13 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
         hml_throw(hml_val_string(_err_buf));
     }
 
-    HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
     buf->data = data;
     buf->length = (int)bytes_read;
     buf->capacity = read_size;
     buf->ref_count = 1;
     atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
 
     return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
 }

@@ -75,6 +75,9 @@ void hml_free(HmlValue ptr_or_buffer) {
         }
     } else if (ptr_or_buffer.type == HML_VAL_BUFFER) {
         if (ptr_or_buffer.as.as_buffer) {
+            if (ptr_or_buffer.as.as_buffer->parent) {
+                hml_runtime_error("cannot free() a buffer slice view");
+            }
             if (ptr_or_buffer.as.as_buffer->data) {
                 free(ptr_or_buffer.as.as_buffer->data);
             }

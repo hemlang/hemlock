@@ -116,6 +116,7 @@ struct HmlBuffer {
     int capacity;
     int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
+    HmlBuffer *parent;   // Non-NULL for zero-copy slice views (keeps parent alive)
 };
 
 // Array struct (dynamic array)

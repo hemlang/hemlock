@@ -1121,7 +1121,7 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
     http_response_t *resp = (http_response_t *)args[0].as.as_ptr;
     if (!resp || !resp->body || resp->body_len == 0) {
         // Return empty buffer
-        Buffer *buf = malloc(sizeof(Buffer));
+        Buffer *buf = calloc(1, sizeof(Buffer));
         if (!buf) {
             ctx->exception_state.is_throwing = 1;
             ctx->exception_state.exception_value = val_string("Memory allocation failed");
@@ -1142,7 +1142,7 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
     }
 
     // Create buffer with full binary data
-    Buffer *buf = malloc(sizeof(Buffer));
+    Buffer *buf = calloc(1, sizeof(Buffer));
     if (!buf) {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Memory allocation failed");

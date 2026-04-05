@@ -77,6 +77,14 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     } else if (args[0].type == VAL_BUFFER) {
         Buffer *buf = args[0].as.as_buffer;
 
+        // Cannot explicitly free a buffer slice view
+        if (buf->parent) {
+            fprintf(stderr, "Runtime error: cannot free() a buffer slice view\n");
+            fprintf(stderr, "  Buffer views share data with the parent buffer.\n");
+            fprintf(stderr, "  Let the view go out of scope, or set it to null.\n");
+            exit(1);
+        }
+
         // Atomically check and set the freed flag to detect double-free
         int expected = 0;
         if (!atomic_compare_exchange_strong(&buf->freed, &expected, 1)) {

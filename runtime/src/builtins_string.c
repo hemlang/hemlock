@@ -772,12 +772,14 @@ HmlValue hml_string_to_bytes(HmlValue str) {
     }
 
     HmlString *s = str.as.as_string;
-    HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
     buf->data = malloc(s->length);
     memcpy(buf->data, s->data, s->length);
     buf->length = s->length;
     buf->capacity = s->length;
     buf->ref_count = 1;
+    atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
 
     return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
 }
@@ -829,4 +831,43 @@ HmlValue hml_buffer_capacity(HmlValue buf) {
         hml_runtime_error("capacity requires buffer");
     }
     return hml_val_i32(buf.as.as_buffer->capacity);
+}
+
+HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        hml_runtime_error("slice() requires buffer");
+    }
+
+    HmlBuffer *b = buf.as.as_buffer;
+    int s = hml_to_i32(start);
+    int e = hml_to_i32(end);
+
+    // Clamp bounds
+    if (s < 0) s = 0;
+    if (e > b->length) e = b->length;
+    if (s > e) s = e;
+
+    // Find the root owner (follow parent chain)
+    HmlBuffer *root = b;
+    while (root->parent) {
+        root = root->parent;
+    }
+
+    // Create zero-copy view
+    HmlBuffer *view = calloc(1, sizeof(HmlBuffer));
+    if (!view) {
+        hml_runtime_error("Failed to allocate buffer slice");
+    }
+    view->data = (uint8_t *)b->data + s;
+    view->length = e - s;
+    view->capacity = e - s;
+    view->ref_count = 1;
+    atomic_store(&view->freed, 0);
+    view->parent = root;
+    root->ref_count++;  // Keep root alive
+
+    HmlValue val;
+    val.type = HML_VAL_BUFFER;
+    val.as.as_buffer = view;
+    return val;
 }

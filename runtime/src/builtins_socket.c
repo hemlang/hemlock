@@ -233,12 +233,13 @@ HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
         hml_runtime_error("Failed to receive data: %s", strerror(errno));
     }
 
-    HmlBuffer *hbuf = malloc(sizeof(HmlBuffer));
+    HmlBuffer *hbuf = calloc(1, sizeof(HmlBuffer));
     hbuf->data = buf;
     hbuf->length = (int)received;
     hbuf->capacity = sz;
     hbuf->ref_count = 1;
     atomic_store(&hbuf->freed, 0);  // Not freed
+    hbuf->parent = NULL;
 
     HmlValue result;
     result.type = HML_VAL_BUFFER;
@@ -327,12 +328,13 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
     }
 
     // Create buffer for data
-    HmlBuffer *hbuf = malloc(sizeof(HmlBuffer));
+    HmlBuffer *hbuf = calloc(1, sizeof(HmlBuffer));
     hbuf->data = buf;
     hbuf->length = (int)received;
     hbuf->capacity = sz;
     hbuf->ref_count = 1;
     atomic_store(&hbuf->freed, 0);  // Not freed
+    hbuf->parent = NULL;
 
     // Get source address and port
     char addr_str[INET_ADDRSTRLEN];

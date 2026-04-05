@@ -220,7 +220,7 @@ HmlValue hml_val_ptr(void *ptr) {
 }
 
 HmlValue hml_val_buffer(int size) {
-    HmlBuffer *b = malloc(sizeof(HmlBuffer));
+    HmlBuffer *b = calloc(1, sizeof(HmlBuffer));
     if (!b) {
         return hml_val_null();
     }
@@ -233,6 +233,7 @@ HmlValue hml_val_buffer(int size) {
     b->capacity = size;
     b->ref_count = 1;
     atomic_store(&b->freed, 0);  // Not freed
+    b->parent = NULL;            // Not a view
 
     HmlValue v;
     v.type = HML_VAL_BUFFER;
@@ -486,7 +487,15 @@ static void string_free(HmlString *str) {
 
 static void buffer_free(HmlBuffer *buf) {
     if (buf) {
-        free(buf->data);
+        if (buf->parent) {
+            // Zero-copy view: release parent instead of freeing data
+            buf->parent->ref_count--;
+            if (buf->parent->ref_count <= 0) {
+                buffer_free(buf->parent);
+            }
+        } else {
+            free(buf->data);
+        }
         free(buf);
     }
 }

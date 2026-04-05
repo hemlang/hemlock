@@ -624,7 +624,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return throw_runtime_error(ctx, "to_bytes() expects no arguments");
             }
 
-            Buffer *buf = malloc(sizeof(Buffer));
+            Buffer *buf = calloc(1, sizeof(Buffer));
             if (buf == NULL) {
                 return throw_runtime_error(ctx, "to_bytes() out of memory");
             }
