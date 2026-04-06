@@ -257,14 +257,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 var_name = prefixed_name;
             }
             // Check if this is a ref parameter - if so, dereference for assignment
+            // Note: codegen_expr returns an "owned" value (already retained/created with refcount 1).
+            // Assignment transfers ownership: release old, assign new. No additional retain needed.
             if (codegen_is_ref_param(ctx, expr->as.assign.name)) {
                 codegen_writeln(ctx, "hml_release(%s);", var_name);  // Already a pointer
                 codegen_writeln(ctx, "*%s = %s;", var_name, value);
-                codegen_writeln(ctx, "hml_retain(%s);", var_name);  // Already a pointer
             } else {
                 codegen_writeln(ctx, "hml_release(&%s);", var_name);
                 codegen_writeln(ctx, "%s = %s;", var_name, value);
-                codegen_writeln(ctx, "hml_retain(&%s);", var_name);
             }
 
             // If we're inside a closure and this is a captured variable,
