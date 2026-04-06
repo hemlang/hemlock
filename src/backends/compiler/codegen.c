@@ -352,9 +352,9 @@ void codegen_add_local(CodegenContext *ctx, const char *name) {
         ctx->local_needs_cleanup = new_cleanup;
         ctx->local_capacity = new_cap;
     }
-    // Default: all boxed locals need cleanup (1). Unboxed locals get marked 0 later.
-    // Scoping (function vs block) is handled by the start index, not this flag.
-    ctx->local_needs_cleanup[ctx->num_locals] = 1;
+    // Only function-scope locals (no block scope active) need cleanup at exit.
+    // Block-scoped locals are inside C { } and handled by STMT_BLOCK cleanup.
+    ctx->local_needs_cleanup[ctx->num_locals] = (ctx->current_scope == NULL) ? 1 : 0;
     ctx->local_vars[ctx->num_locals++] = strdup(name);
 }
 

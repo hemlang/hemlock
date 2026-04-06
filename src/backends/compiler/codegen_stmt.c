@@ -386,6 +386,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             codegen_writeln(ctx, "%s %s = %s(_main_%s);",
                                           c_type, safe_name, unbox_cast, unboxed_main_names[i]);
                             codegen_add_local(ctx, unboxed_main_names[i]);
+                            codegen_mark_local_no_cleanup(ctx, unboxed_main_names[i]);
                         }
                         free(safe_name);
                     }
@@ -515,6 +516,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // Declare native counter
                 codegen_writeln(ctx, "int32_t %s = %d;", safe_name, init_val);
                 codegen_add_local(ctx, counter_name);
+                codegen_mark_local_no_cleanup(ctx, counter_name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, counter_name);
                 }
@@ -876,26 +878,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
-            // Release block-scoped locals before exiting block
-            // (skip if block was terminated by return/break/continue — cleanup
-            // happens at the return/loop level instead)
-            if (!block_terminated) {
-                for (int i = block_locals_start; i < ctx->num_locals; i++) {
-                    if (!ctx->local_needs_cleanup[i]) continue;
-                    if (!ctx->local_vars[i]) continue;
-                    char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
-                    codegen_writeln(ctx, "hml_release(&%s);", safe);
-                    free(safe);
-                    // Mark as cleaned up so function-level cleanup won't try again
-                    ctx->local_needs_cleanup[i] = 0;
-                }
-            } else {
-                // Block terminated by return/break/continue — mark these locals
-                // as not needing cleanup at function level (they're out of C scope)
-                for (int i = block_locals_start; i < ctx->num_locals; i++) {
-                    ctx->local_needs_cleanup[i] = 0;
-                }
-            }
+            // Note: block-scoped locals are NOT cleaned up here. They have
+            // local_needs_cleanup=0 (set in codegen_add_local when current_scope != NULL)
+            // and are only cleaned up at function exit for function-scope locals.
+            // Block-scoped heap values that go out of scope without cleanup are a
+            // known limitation — the fix requires proper scope-aware cleanup which
+            // is complex due to the many codegen paths that create C blocks.
+            (void)block_locals_start;
+            (void)block_terminated;
 
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
