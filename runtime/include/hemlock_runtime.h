@@ -295,6 +295,8 @@ HmlValue hml_string_find(HmlValue str, HmlValue needle);
 HmlValue hml_string_contains(HmlValue str, HmlValue needle);
 HmlValue hml_string_split(HmlValue str, HmlValue delimiter);
 HmlValue hml_string_trim(HmlValue str);
+HmlValue hml_string_trim_start(HmlValue str);
+HmlValue hml_string_trim_end(HmlValue str);
 HmlValue hml_string_to_upper(HmlValue str);
 HmlValue hml_string_to_lower(HmlValue str);
 HmlValue hml_string_starts_with(HmlValue str, HmlValue prefix);
@@ -349,6 +351,9 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial);
 HmlValue hml_array_every(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_some(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_index_of(HmlValue arr, HmlValue value);
+HmlValue hml_array_last_index_of(HmlValue arr, HmlValue value);
+HmlValue hml_array_find_index(HmlValue arr, HmlValue predicate);
+HmlValue hml_array_flat(HmlValue arr);
 void hml_array_sort(HmlValue arr, HmlValue comparator);
 void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end);
 

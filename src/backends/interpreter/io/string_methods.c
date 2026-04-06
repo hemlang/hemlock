@@ -574,6 +574,58 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
 
             return val_string_take(trimmed, len, len + 1);
         }
+        // trim_start() - remove whitespace from beginning
+        if (method[1] == 'r' && method[2] == 'i' && strcmp(method, "trim_start") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "trim_start() expects no arguments");
+            }
+
+            int start = 0;
+            while (start < str->length && (str->data[start] == ' ' || str->data[start] == '\t' ||
+                                           str->data[start] == '\n' || str->data[start] == '\r')) {
+                start++;
+            }
+
+            int len = str->length - start;
+            if (len <= 0) {
+                return val_string("");
+            }
+
+            char *trimmed = malloc(len + 1);
+            if (trimmed == NULL) {
+                return throw_runtime_error(ctx, "trim_start() out of memory");
+            }
+            memcpy(trimmed, str->data + start, len);
+            trimmed[len] = '\0';
+
+            return val_string_take(trimmed, len, len + 1);
+        }
+        // trim_end() - remove whitespace from end
+        if (method[1] == 'r' && method[2] == 'i' && strcmp(method, "trim_end") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "trim_end() expects no arguments");
+            }
+
+            int end = str->length - 1;
+            while (end >= 0 && (str->data[end] == ' ' || str->data[end] == '\t' ||
+                                str->data[end] == '\n' || str->data[end] == '\r')) {
+                end--;
+            }
+
+            int len = end + 1;
+            if (len <= 0) {
+                return val_string("");
+            }
+
+            char *trimmed = malloc(len + 1);
+            if (trimmed == NULL) {
+                return throw_runtime_error(ctx, "trim_end() out of memory");
+            }
+            memcpy(trimmed, str->data, len);
+            trimmed[len] = '\0';
+
+            return val_string_take(trimmed, len, len + 1);
+        }
         // to_upper() - convert to uppercase
         if (method[1] == 'o' && method[2] == '_' && method[3] == 'u' && strcmp(method, "to_upper") == 0) {
             if (num_args != 0) {

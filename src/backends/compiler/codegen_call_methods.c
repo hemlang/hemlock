@@ -92,6 +92,10 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                       result, obj_val, arg_temps[0]);
     } else if (strcmp(method, "trim") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_trim(%s);", result, obj_val);
+    } else if (strcmp(method, "trim_start") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_string_trim_start(%s);", result, obj_val);
+    } else if (strcmp(method, "trim_end") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_string_trim_end(%s);", result, obj_val);
     } else if (strcmp(method, "to_upper") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_to_upper(%s);", result, obj_val);
     } else if (strcmp(method, "to_lower") == 0 && num_args == 0) {
@@ -274,6 +278,14 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
     } else if (strcmp(method, "indexOf") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_array_index_of(%s, %s);",
                       result, obj_val, arg_temps[0]);
+    } else if (strcmp(method, "lastIndexOf") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s = hml_array_last_index_of(%s, %s);",
+                      result, obj_val, arg_temps[0]);
+    } else if (strcmp(method, "findIndex") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s = hml_array_find_index(%s, %s);",
+                      result, obj_val, arg_temps[0]);
+    } else if (strcmp(method, "flat") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_array_flat(%s);", result, obj_val);
     } else if (strcmp(method, "sort") == 0 && (num_args == 0 || num_args == 1)) {
         if (num_args == 1) {
             codegen_writeln(ctx, "hml_array_sort(%s, %s);", obj_val, arg_temps[0]);
