@@ -211,6 +211,48 @@ HmlValue hml_string_trim(HmlValue str) {
     return hml_val_string_owned(result, len, len + 1);
 }
 
+HmlValue hml_string_trim_start(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    int start = 0;
+
+    while (start < s->length && (s->data[start] == ' ' || s->data[start] == '\t' ||
+                                  s->data[start] == '\n' || s->data[start] == '\r')) {
+        start++;
+    }
+
+    int len = s->length - start;
+    if (len <= 0) return hml_val_string("");
+
+    char *result = malloc(len + 1);
+    memcpy(result, s->data + start, len);
+    result[len] = '\0';
+    return hml_val_string_owned(result, len, len + 1);
+}
+
+HmlValue hml_string_trim_end(HmlValue str) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_string("");
+    }
+    HmlString *s = str.as.as_string;
+    int end = s->length - 1;
+
+    while (end >= 0 && (s->data[end] == ' ' || s->data[end] == '\t' ||
+                         s->data[end] == '\n' || s->data[end] == '\r')) {
+        end--;
+    }
+
+    int len = end + 1;
+    if (len <= 0) return hml_val_string("");
+
+    char *result = malloc(len + 1);
+    memcpy(result, s->data, len);
+    result[len] = '\0';
+    return hml_val_string_owned(result, len, len + 1);
+}
+
 HmlValue hml_string_to_upper(HmlValue str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
         return hml_val_string("");

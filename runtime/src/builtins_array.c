@@ -676,6 +676,60 @@ HmlValue hml_array_index_of(HmlValue arr, HmlValue value) {
     return hml_val_i32(-1);
 }
 
+HmlValue hml_array_last_index_of(HmlValue arr, HmlValue value) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("lastIndexOf() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = a->length - 1; i >= 0; i--) {
+        if (hml_values_equal(a->elements[i], value)) {
+            return hml_val_i32(i);
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_array_find_index(HmlValue arr, HmlValue predicate) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("findIndex() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[1] = { a->elements[i] };
+        HmlValue result = hml_call_function(predicate, args, 1);
+        if (hml_to_bool(result)) {
+            hml_release(&result);
+            return hml_val_i32(i);
+        }
+        hml_release(&result);
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_array_flat(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("flat() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    HmlValue result = hml_val_array();
+
+    for (int i = 0; i < a->length; i++) {
+        if (a->elements[i].type == HML_VAL_ARRAY && a->elements[i].as.as_array) {
+            HmlArray *inner = a->elements[i].as.as_array;
+            for (int j = 0; j < inner->length; j++) {
+                hml_array_push(result, inner->elements[j]);
+            }
+        } else {
+            hml_array_push(result, a->elements[i]);
+        }
+    }
+
+    return result;
+}
+
 // Quicksort comparator context
 typedef struct {
     HmlValue comparator;

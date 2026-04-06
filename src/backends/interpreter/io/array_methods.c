@@ -609,7 +609,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             return val_null();
         }
         // find(value) - find first occurrence, return index or -1
-        if (method[1] == 'i' && method[2] == 'n' && strcmp(method, "find") == 0) {
+        if (method[1] == 'i' && method[2] == 'n' && method[3] == 'd' && method[4] == '\0') {
             if (num_args != 1) {
                 return throw_runtime_error(ctx, "find() expects 1 argument (value)");
             }
@@ -619,6 +619,52 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 }
             }
             return val_i32(-1);
+        }
+        // findIndex(predicate) - find index of first element matching predicate, or -1
+        if (method[1] == 'i' && method[2] == 'n' && method[3] == 'd' && strcmp(method, "findIndex") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "findIndex() expects 1 argument (predicate function)");
+            }
+            if (args[0].type != VAL_FUNCTION) {
+                return throw_runtime_error(ctx, "findIndex() argument must be a function");
+            }
+
+            for (int i = 0; i < arr->length; i++) {
+                Value callback_args[2];
+                callback_args[0] = arr->elements[i];
+                callback_args[1] = val_i32(i);
+
+                Value predicate_result = call_function_value(args[0], callback_args, 1, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    return val_null();
+                }
+
+                if (value_is_truthy(predicate_result)) {
+                    value_release(predicate_result);
+                    return val_i32(i);
+                }
+                value_release(predicate_result);
+            }
+            return val_i32(-1);
+        }
+        // flat() - flatten one level of nested arrays
+        if (method[1] == 'l' && strcmp(method, "flat") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "flat() expects no arguments");
+            }
+
+            Array *result = array_new();
+            for (int i = 0; i < arr->length; i++) {
+                if (arr->elements[i].type == VAL_ARRAY) {
+                    Array *inner = arr->elements[i].as.as_array;
+                    for (int j = 0; j < inner->length; j++) {
+                        array_push(result, inner->elements[j]);
+                    }
+                } else {
+                    array_push(result, arr->elements[i]);
+                }
+            }
+            return val_array(result);
         }
         // filter(predicate) - keep elements where predicate returns true
         if (method[1] == 'i' && method[2] == 'l' && strcmp(method, "filter") == 0) {
@@ -806,6 +852,18 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         break;
 
     case 'l':
+        // lastIndexOf(value) - find last index of value, or -1 if not found
+        if (method[1] == 'a' && method[2] == 's' && method[3] == 't' && method[4] == 'I' && strcmp(method, "lastIndexOf") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "lastIndexOf() expects 1 argument (value)");
+            }
+            for (int i = arr->length - 1; i >= 0; i--) {
+                if (values_equal(arr->elements[i], args[0])) {
+                    return val_i32(i);
+                }
+            }
+            return val_i32(-1);
+        }
         // last() - get last element
         if (strcmp(method, "last") == 0) {
             if (num_args != 0) {
