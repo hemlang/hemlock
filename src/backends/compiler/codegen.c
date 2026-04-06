@@ -368,8 +368,11 @@ int codegen_is_local(CodegenContext *ctx, const char *name) {
 }
 
 // Remove a local variable from scope (used for catch params that go out of scope)
+// Search from the end so that the most recently added duplicate is removed first,
+// preserving earlier entries (e.g., function parameters) when inlined functions
+// add and then remove parameters with the same name.
 void codegen_remove_local(CodegenContext *ctx, const char *name) {
-    for (int i = 0; i < ctx->num_locals; i++) {
+    for (int i = ctx->num_locals - 1; i >= 0; i--) {
         if (strcmp(ctx->local_vars[i], name) == 0) {
             free(ctx->local_vars[i]);
             // Shift remaining elements down
