@@ -492,144 +492,24 @@ fn quote_string(s): string {
 }
 
 // ============================================================================
-// String Padding
+// String Padding & Truncation (re-exported from @stdlib/strings)
 // ============================================================================
 
-// Pad string on the left to reach target width
-// Parameters:
-// s: string - String to pad
-// width: i32 - Target width
-// char: string - Padding character (default: " ")
-// Returns: string - Padded string
-export fn pad_left(s, width, char?: " "): string {
-	if (typeof(s) != "string") {
-		throw "pad_left() requires string argument";
-	}
+import {
+	pad_left as _pad_left,
+	pad_right as _pad_right,
+	center as _center,
+	truncate as _truncate,
+} from "@stdlib/strings";
 
-	let str: string = s;
-	if (str.length >= width) {
-		return str;
-	}
-
-	let padding = "";
-	let pad_char = char;
-	if (pad_char.length == 0) {
-		pad_char = " ";
-	}
-	let first_char = pad_char.substr(0, 1);
-
-	let i = str.length;
-	while (i < width) {
-		padding = padding + first_char;
-		i = i + 1;
-	}
-
-	return padding + str;
-}
-
-// Pad string on the right to reach target width
-// Parameters:
-// s: string - String to pad
-// width: i32 - Target width
-// char: string - Padding character (default: " ")
-// Returns: string - Padded string
-export fn pad_right(s, width, char?: " "): string {
-	if (typeof(s) != "string") {
-		throw "pad_right() requires string argument";
-	}
-
-	let str: string = s;
-	if (str.length >= width) {
-		return str;
-	}
-
-	let padding = "";
-	let pad_char = char;
-	if (pad_char.length == 0) {
-		pad_char = " ";
-	}
-	let first_char = pad_char.substr(0, 1);
-
-	let i = str.length;
-	while (i < width) {
-		padding = padding + first_char;
-		i = i + 1;
-	}
-
-	return str + padding;
-}
-
-// Center string within target width
-// Parameters:
-// s: string - String to center
-// width: i32 - Target width
-// char: string - Padding character (default: " ")
-// Returns: string - Centered string
-export fn center(s, width, char?: " "): string {
-	if (typeof(s) != "string") {
-		throw "center() requires string argument";
-	}
-
-	let str: string = s;
-	if (str.length >= width) {
-		return str;
-	}
-
-	let pad_char = char;
-	if (pad_char.length == 0) {
-		pad_char = " ";
-	}
-	let first_char = pad_char.substr(0, 1);
-
-	let total_pad = width - str.length;
-	let left_pad = __divi(total_pad, 2);
-	let right_pad = total_pad - left_pad;
-
-	let left = "";
-	let i = 0;
-	while (i < left_pad) {
-		left = left + first_char;
-		i = i + 1;
-	}
-
-	let right = "";
-	i = 0;
-	while (i < right_pad) {
-		right = right + first_char;
-		i = i + 1;
-	}
-
-	return left + str + right;
-}
+export let pad_left = _pad_left;
+export let pad_right = _pad_right;
+export let center = _center;
+export let truncate = _truncate;
 
 // ============================================================================
 // Text Manipulation
 // ============================================================================
-
-// Truncate string to maximum length with optional suffix
-// Parameters:
-// s: string - String to truncate
-// max_len: i32 - Maximum length
-// suffix: string - Suffix to add if truncated (default: "...")
-// Returns: string - Truncated string
-export fn truncate(s, max_len, suffix?: "..."): string {
-	if (typeof(s) != "string") {
-		throw "truncate() requires string argument";
-	}
-
-	let str: string = s;
-	if (str.length <= max_len) {
-		return str;
-	}
-
-	let suf: string = suffix;
-	let cut_len = max_len - suf.length;
-	if (cut_len < 0) {
-		cut_len = 0;
-	}
-
-	return str.slice(0, cut_len) + suf;
-}
 
 // Wrap text to specified width
 // Parameters:
