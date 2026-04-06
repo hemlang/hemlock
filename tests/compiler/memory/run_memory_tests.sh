@@ -79,6 +79,8 @@ for test_file in "$SCRIPT_DIR"/*.hml; do
         rss_mb=$(( rss_kb / 1024 ))
         echo -e "${RED}✗${NC} $test_name ${RED}(${rss_kb} KB = ${rss_mb} MB — exceeds ${RSS_LIMIT_KB} KB limit)${NC}"
         ((FAIL_COUNT++))
+        echo -e "${RED}Aborting early — memory regression detected.${NC}"
+        break
     fi
 done
 

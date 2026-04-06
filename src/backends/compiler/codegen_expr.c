@@ -1408,6 +1408,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 codegen_writeln(ctx, "// Match arm %d", i);
                 codegen_writeln(ctx, "%s:;", arm_labels[i]);
+                codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
 
@@ -1438,6 +1439,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                codegen_pop_scope(ctx);
             }
 
             // No match - runtime error

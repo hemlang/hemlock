@@ -376,6 +376,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     unboxed_main_types = new_types;
 
                     // Generate scope block and native local declarations
+                    codegen_push_scope(ctx);
                     codegen_writeln(ctx, "{ // while-loop unboxing");
                     codegen_indent_inc(ctx);
                     for (int i = 0; i < num_unboxed_main; i++) {
@@ -428,6 +429,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 free(unboxed_main_types);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                codegen_pop_scope(ctx);
             }
 
             if (loop_label) {
@@ -505,6 +507,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (ctx->optimize && ctx->type_ctx && counter_type == CHECKED_I32 &&
                 type_check_is_loop_counter(ctx->type_ctx, counter_name)) {
                 // OPTIMIZED: Generate loop with native int32_t counter
+                codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
 
@@ -627,6 +630,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "}");
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                codegen_pop_scope(ctx);
                 codegen_pop_for_continue(ctx);
                 free(continue_label);
                 free(safe_name);
@@ -636,6 +640,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (ctx->type_ctx && counter_name) {
                     type_check_clear_unboxable(ctx->type_ctx, counter_name);
                 }
+                codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
                 // Initializer
@@ -674,6 +679,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "}");
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                codegen_pop_scope(ctx);
                 codegen_pop_for_continue(ctx);
                 free(continue_label);
             }
