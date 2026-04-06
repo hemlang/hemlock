@@ -75,9 +75,8 @@ export fn Logger(config?: null) {
 
 	// Helper: Format timestamp (Unix timestamp to ISO-like format)
 	fn format_timestamp(ts: i64): string {
-		// For now, just return the Unix timestamp as string
-		// A full implementation would convert to ISO 8601 format
-		return typeof(ts);
+		// Return the Unix timestamp as a string
+		return "" + ts;
 	}
 
 	// Helper: Convert value to string safely
