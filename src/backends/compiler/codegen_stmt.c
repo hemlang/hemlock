@@ -854,12 +854,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         case STMT_BLOCK: {
             // Push a new scope for proper lexical scoping in blocks
             codegen_push_scope(ctx);
+            int block_locals_start = ctx->num_locals;
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
 
             // OPTIMIZATION: Dead code elimination
             // Skip statements after return, throw, break, continue
             // Proof: Control flow terminators make subsequent code unreachable
+            int block_terminated = 0;
             for (int i = 0; i < stmt->as.block.count; i++) {
                 codegen_stmt(ctx, stmt->as.block.statements[i]);
 
@@ -868,11 +870,30 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     Stmt *s = stmt->as.block.statements[i];
                     if (s->type == STMT_RETURN || s->type == STMT_THROW ||
                         s->type == STMT_BREAK || s->type == STMT_CONTINUE) {
-                        // Skip remaining statements (they are dead code)
-                        // Note: We don't warn here because this may be intentional
-                        // (e.g., conditional returns with code below)
+                        block_terminated = 1;
                         break;
                     }
+                }
+            }
+
+            // Release block-scoped locals before exiting block
+            // (skip if block was terminated by return/break/continue — cleanup
+            // happens at the return/loop level instead)
+            if (!block_terminated) {
+                for (int i = block_locals_start; i < ctx->num_locals; i++) {
+                    if (!ctx->local_needs_cleanup[i]) continue;
+                    if (!ctx->local_vars[i]) continue;
+                    char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+                    codegen_writeln(ctx, "hml_release(&%s);", safe);
+                    free(safe);
+                    // Mark as cleaned up so function-level cleanup won't try again
+                    ctx->local_needs_cleanup[i] = 0;
+                }
+            } else {
+                // Block terminated by return/break/continue — mark these locals
+                // as not needing cleanup at function level (they're out of C scope)
+                for (int i = block_locals_start; i < ctx->num_locals; i++) {
+                    ctx->local_needs_cleanup[i] = 0;
                 }
             }
 
@@ -915,15 +936,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (ctx->has_defers) {
                     codegen_writeln(ctx, "hml_defer_execute_all();");
                 }
-                // Release body-local variables (skip the return value's source if it's a local)
-                {
-                    const char *skip = NULL;
-                    if (stmt->as.return_stmt.value &&
-                        stmt->as.return_stmt.value->type == EXPR_IDENT) {
-                        skip = stmt->as.return_stmt.value->as.ident.name;
-                    }
-                    codegen_emit_local_cleanup(ctx, skip);
-                }
+                // Release body-local variables
+                codegen_emit_local_cleanup(ctx, NULL);
                 if (ctx->stack_check) {
                     codegen_writeln(ctx, "HML_CALL_EXIT();");
                 }
@@ -1014,19 +1028,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "goto %s;", ctx->tail_call_label);
                 } else if (stmt->as.return_stmt.value) {
                     // Regular return with value
+                    // codegen_expr retains the value (via hml_retain_if_needed for idents),
+                    // so the returned copy survives local cleanup even if the source is a local
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
-                    // Release body-local variables (skip the return value's source if it's a local)
-                    {
-                        const char *skip = NULL;
-                        if (stmt->as.return_stmt.value->type == EXPR_IDENT) {
-                            skip = stmt->as.return_stmt.value->as.ident.name;
-                        }
-                        codegen_emit_local_cleanup(ctx, skip);
-                    }
+                    // Release body-local variables
+                    codegen_emit_local_cleanup(ctx, NULL);
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
