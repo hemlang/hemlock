@@ -171,7 +171,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
         codegen_writeln(ctx, "hml_defer_execute_all();");
     }
 
-    // Release body-local variables before returning
+    // Release body-local variables and shared env before returning
     codegen_emit_local_cleanup(ctx, NULL);
 
     // Decrement call depth and return

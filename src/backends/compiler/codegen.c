@@ -406,6 +406,10 @@ void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var) {
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
+    // Release shared closure environment if one was created in this function
+    if (ctx->shared_env_name) {
+        codegen_writeln(ctx, "hml_closure_env_release(%s);", ctx->shared_env_name);
+    }
 }
 
 // Shadow variable tracking (locals that shadow main vars, like catch params)
