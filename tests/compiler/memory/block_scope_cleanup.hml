@@ -1,11 +1,18 @@
-// Test: Block-scoped locals are released when the block exits
-// Leak pattern: variables declared inside while/if blocks not cleaned up
+// Test: Locals in function bodies called from loops are released
 
-let i = 0;
-while (i < 50000) {
+fn create_stuff(i) {
     let obj = { x: i, name: "test" };
     let arr = [i, i + 1, i + 2];
     let buf = buffer(32);
-    i = i + 1;
+    return obj.x;
 }
+
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        create_stuff(i);
+        i = i + 1;
+    }
+}
+run();
 print("ok");

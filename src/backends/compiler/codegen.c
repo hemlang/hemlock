@@ -406,10 +406,11 @@ void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var) {
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
-    // Release shared closure environment if one was created in this function
-    if (ctx->shared_env_name) {
-        codegen_writeln(ctx, "hml_closure_env_release(%s);", ctx->shared_env_name);
-    }
+    // Note: shared closure environments are NOT released here.
+    // They are owned by the closures that reference them (via closure_env pointer).
+    // The env is freed when the last closure referencing it is freed via function_free()
+    // which calls hml_closure_env_release(). Releasing here would cause use-after-free
+    // if any closure outlives this function scope (e.g., returned as object method).
 }
 
 // Shadow variable tracking (locals that shadow main vars, like catch params)

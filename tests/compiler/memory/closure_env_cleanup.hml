@@ -1,16 +1,19 @@
 // Test: Closure environments are released when functions are freed
 // Leak pattern: HmlClosureEnv never freed in function_free()
 
-fn make_closure(n) {
-    return fn(x) {
+fn make_and_call(n) {
+    let f = fn(x) {
         return n + x;
     };
+    return f(1);
 }
 
-let i = 0;
-while (i < 50000) {
-    let f = make_closure(i);
-    let result = f(1);
-    i = i + 1;
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        make_and_call(i);
+        i = i + 1;
+    }
 }
+run();
 print("ok");

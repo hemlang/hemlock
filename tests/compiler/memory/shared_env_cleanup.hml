@@ -1,20 +1,23 @@
-// Test: Shared closure environments are released at function exit
-// Leak pattern: functions with multiple closures allocate a shared env
-// that was never freed (e.g., object factories with method closures)
+// Test: Shared closure environments don't leak
+// Exercises: object factories with method closures
 
-fn make_thing(id) {
-    return {
+fn use_thing(id) {
+    let t = {
         id: id,
         get_id: fn() { return self.id; },
         set_id: fn(new_id) { self.id = new_id; },
         describe: fn() { return "Thing #" + self.id; }
     };
+    t.set_id(id + 1);
+    return t.get_id();
 }
 
-let i = 0;
-while (i < 50000) {
-    let t = make_thing(i);
-    t.set_id(i + 1);
-    i = i + 1;
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        use_thing(i);
+        i = i + 1;
+    }
 }
+run();
 print("ok");

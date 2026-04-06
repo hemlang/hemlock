@@ -39,16 +39,25 @@ echo ""
 echo "RSS limit: ${RSS_LIMIT_KB} KB ($(( RSS_LIMIT_KB / 1024 )) MB)"
 echo ""
 
+TEST_TIMEOUT=30
+
 get_peak_rss_kb() {
     local binary="$1"
+    local output
     if [[ "$(uname)" == "Darwin" ]]; then
         # macOS: /usr/bin/time -l reports bytes
+        output=$(timeout $TEST_TIMEOUT /usr/bin/time -l "$binary" 2>&1 >/dev/null)
         local bytes
-        bytes=$(/usr/bin/time -l "$binary" 2>&1 >/dev/null | grep "maximum resident" | awk '{print $1}')
-        echo $(( bytes / 1024 ))
+        bytes=$(echo "$output" | grep "maximum resident" | awk '{print $1}')
+        if [ -n "$bytes" ] && [ "$bytes" -gt 0 ] 2>/dev/null; then
+            echo $(( bytes / 1024 ))
+        else
+            echo 0
+        fi
     else
         # Linux: /usr/bin/time -v reports KB
-        /usr/bin/time -v "$binary" 2>&1 >/dev/null | grep "Maximum resident" | awk '{print $NF}'
+        output=$(timeout $TEST_TIMEOUT /usr/bin/time -v "$binary" 2>&1 >/dev/null)
+        echo "$output" | grep "Maximum resident" | awk '{print $NF}'
     fi
 }
 

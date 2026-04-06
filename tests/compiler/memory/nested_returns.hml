@@ -32,15 +32,18 @@ fn classify(val) {
     return "unknown";
 }
 
-let i = 0;
-while (i < 50000) {
-    classify(42);
-    classify(-100);
-    classify(100000);
-    classify(3.14);
-    classify("hi");
-    classify("a longer string value");
-    classify(null);
-    i = i + 1;
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        classify(42);
+        classify(-100);
+        classify(100000);
+        classify(3.14);
+        classify("hi");
+        classify("a longer string value");
+        classify(null);
+        i = i + 1;
+    }
 }
+run();
 print("ok");

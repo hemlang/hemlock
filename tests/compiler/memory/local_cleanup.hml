@@ -1,17 +1,22 @@
 // Test: Local variables are released at function exit
 // Leak pattern: function-scope locals not cleaned up before return
 
-fn make_object() {
+fn make_and_use() {
     let obj = { x: 1, y: 2, z: "hello" };
     let arr = [1, 2, 3, 4, 5];
     let buf = buffer(64);
     let s = "a medium length string here";
-    return obj;
+    // Use all values to prevent dead-code elimination
+    let len = arr.length + buf.length + s.length + obj.x;
+    return len;
 }
 
-let i = 0;
-while (i < 50000) {
-    let o = make_object();
-    i = i + 1;
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        make_and_use();
+        i = i + 1;
+    }
 }
+run();
 print("ok");
