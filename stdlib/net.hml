@@ -121,33 +121,30 @@ fn _TcpStream_from_socket(sock) {
 			let result = buffer(total_size);
 			let offset = 0;
 			for (chunk in chunks) {
-				memcpy(result, chunk, chunk.length);
+				memcpy(result + offset, chunk, chunk.length);
+				offset = offset + chunk.length;
 			}
-			// Note: This is simplified - real implementation would handle offsets
 			return result;
 		},
 		read_line: fn() {
 
 			// read_line() -> string
 			// Read until newline (\n) and return as string
-			let result = "";
+			let bytes: array = [];
 			loop {
 				let byte_buf = self._socket.recv(1);
 				if (byte_buf.length == 0) {
 					break;  // EOF
 				}
 
-				// Convert buffer to string (simplified)
-				// Real implementation would handle this better
-				result = result + "X";  // Placeholder
-
-				// Check for newline (byte value 10)
-				// This is simplified - real implementation would check buffer contents
-				if (byte_buf.length > 0) {
-					break;  // For now, return after any read
+				let b = ptr_read_u8(byte_buf, 0);
+				if (b == 10) {
+					break;  // Found newline
 				}
+
+				bytes.push(b);
 			}
-			return result;
+			return __string_from_bytes(bytes);
 		},
 		write: fn(data) {
 
@@ -228,21 +225,49 @@ fn resolve(hostname: string) {
 }
 
 // is_ipv4(address: string) -> bool
-// Check if address is a valid IPv4 address (simple check)
+// Check if address is a valid IPv4 address
 fn is_ipv4(address: string) {
-	// Simple validation: check for pattern like "127.0.0.1"
-	// Real implementation would be more thorough
-	if (address.length < 7) {
+	if (address.length < 7 || address.length > 15) {
 		return false;
 	}
 
-	// This is simplified - real implementation would validate properly
-	// Check for digits and dots only
-	for (ch in address.chars()) {
+	let parts = address.split(".");
+	if (parts.length != 4) {
+		return false;
 	}
-	// Just iterate through, simplified check
 
-	return true;  // Simplified
+	let i = 0;
+	while (i < 4) {
+		let part = parts[i];
+		if (part.length == 0 || part.length > 3) {
+			return false;
+		}
+
+		// Check all characters are digits
+		let j = 0;
+		while (j < part.length) {
+			let code: i32 = part.char_at(j);
+			if (code < 48 || code > 57) {
+				return false;
+			}
+			j = j + 1;
+		}
+
+		// Check numeric range 0-255
+		let val = i32(part);
+		if (val < 0 || val > 255) {
+			return false;
+		}
+
+		// Reject leading zeros (e.g. "01", "001")
+		if (part.length > 1 && part.char_at(0) == '0') {
+			return false;
+		}
+
+		i = i + 1;
+	}
+
+	return true;
 }
 
 // parse_address(addr_str: string) -> { host: string, port: i32 } | null
@@ -259,11 +284,26 @@ fn parse_address(addr_str: string) {
 		addr_str.length - colon_pos - 1,
 	);
 
-	// Convert port string to integer (simplified - would need proper parsing)
-	// For now, return placeholder
-	return { host, port: 8080 };
+	// Validate port string is all digits
+	if (port_str.length == 0) {
+		return null;
+	}
+	let i = 0;
+	while (i < port_str.length) {
+		let code: i32 = port_str.char_at(i);
+		if (code < 48 || code > 57) {
+			return null;
+		}
+		i = i + 1;
+	}
+
+	let port = i32(port_str);
+	if (port < 0 || port > 65535) {
+		return null;
+	}
+
+	return { host, port };
 }
-// Placeholder - real implementation would parse port_str
 
 // ========== EXPORTS ==========
 
