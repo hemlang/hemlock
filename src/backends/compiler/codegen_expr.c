@@ -735,6 +735,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
                 int has_rest = expr->as.function.rest_param ? 1 : 0;
+                // Retain the shared env for this closure (each closure owns a reference)
+                codegen_writeln(ctx, "hml_closure_env_retain(%s);", ctx->shared_env_name);
                 codegen_writeln(ctx, "HmlValue %s = hml_val_function_with_env_rest((void*)%s, (void*)%s, %d, %d, %d, %d);",
                               result, func_name, ctx->shared_env_name, expr->as.function.num_params, num_required, expr->as.function.is_async, has_rest);
                 // Set parameter names for named argument support
