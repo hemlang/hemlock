@@ -67,6 +67,8 @@ typedef struct {
     char *tail_call_label;
     Expr *tail_call_func_expr;
     int locals_body_start;    // Saved ctx->locals_body_start
+    int loop_body_depth;      // Saved ctx->loop_body_depth
+    int loop_depth;           // Saved ctx->loop_depth
 } FuncGenState;
 
 // Save function generation state before entering a function body

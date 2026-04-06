@@ -184,6 +184,11 @@ typedef struct {
     // Loop tracking (for runtime defer support)
     int loop_depth;               // Current loop nesting depth (0 = not in loop)
 
+    // Loop body locals tracking (for break/continue cleanup of block-scoped vars)
+    int *loop_body_locals;        // Stack of num_locals at loop body entry
+    int loop_body_depth;          // Current loop body nesting depth
+    int loop_body_capacity;       // Capacity of loop_body_locals stack
+
     // Switch tracking (for break/continue handling)
     int switch_depth;             // Current switch nesting depth (0 = not in switch)
     char **switch_end_labels;     // Stack of switch end labels (for break -> goto)
@@ -198,6 +203,7 @@ typedef struct {
     char **loop_labels;           // Stack of loop labels (user-defined)
     char **loop_break_labels;     // Stack of generated break target labels
     char **loop_continue_labels;  // Stack of generated continue target labels
+    int *loop_label_body_locals;  // Stack of num_locals at labeled loop body entry
     int loop_label_depth;         // Current labeled loop nesting depth
     int loop_label_capacity;      // Capacity of loop label stacks
 
@@ -371,6 +377,20 @@ const char* codegen_get_labeled_break(CodegenContext *ctx, const char *label);
 
 // Get the continue label for a given user-defined label (returns NULL if not found)
 const char* codegen_get_labeled_continue(CodegenContext *ctx, const char *label);
+
+// ========== LOOP BODY LOCALS TRACKING ==========
+
+// Push the current num_locals as the loop body start (call before loop body)
+void codegen_push_loop_body(CodegenContext *ctx);
+
+// Pop the loop body locals start (call after loop ends)
+void codegen_pop_loop_body(CodegenContext *ctx);
+
+// Emit cleanup for block-scoped locals before break/continue
+void codegen_emit_break_cleanup(CodegenContext *ctx);
+
+// Emit cleanup for block-scoped locals before labeled break/continue
+void codegen_emit_labeled_break_cleanup(CodegenContext *ctx, const char *label);
 
 // ========== MODULE COMPILATION ==========
 

@@ -406,7 +406,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.while_stmt.condition);
             codegen_writeln(ctx, "if (!%s) { break; }", cond_bool);
+            codegen_push_loop_body(ctx);
             codegen_stmt(ctx, stmt->as.while_stmt.body);
+            codegen_pop_loop_body(ctx);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
 
@@ -463,7 +465,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "%s:;", continue_label);
             }
 
+            codegen_push_loop_body(ctx);
             codegen_stmt(ctx, stmt->as.loop_stmt.body);
+            codegen_pop_loop_body(ctx);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
 
@@ -597,7 +601,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
                 // Body - but we need to handle references to the counter specially
                 // The body expects an HmlValue, so we create a temporary when needed
+                codegen_push_loop_body(ctx);
                 codegen_stmt(ctx, stmt->as.for_loop.body);
+                codegen_pop_loop_body(ctx);
 
                 // Continue label
                 codegen_writeln(ctx, "%s:;", continue_label);
@@ -670,7 +676,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     free(cond_bool);
                 }
                 // Body
+                codegen_push_loop_body(ctx);
                 codegen_stmt(ctx, stmt->as.for_loop.body);
+                codegen_pop_loop_body(ctx);
                 // Continue label - continue jumps here to execute increment
                 codegen_writeln(ctx, "%s:;", continue_label);
                 // Increment
@@ -831,7 +839,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "}");
 
             // Generate body
+            codegen_push_loop_body(ctx);
             codegen_stmt(ctx, stmt->as.for_in.body);
+            codegen_pop_loop_body(ctx);
 
             // Continue label - continue jumps here to release variables and increment
             codegen_writeln(ctx, "%s:;", continue_label);
@@ -1085,6 +1095,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // Check for labeled break first
             const char *label = stmt->as.break_stmt.label;
             if (label) {
+                // Labeled break: clean up all locals from here to the target loop
+                codegen_emit_labeled_break_cleanup(ctx, label);
                 const char *target = codegen_get_labeled_break(ctx, label);
                 if (target) {
                     codegen_writeln(ctx, "goto %s;", target);
@@ -1092,8 +1104,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_error(ctx, stmt->line, "Unknown loop label '%s'", label);
                 }
             } else {
-                // Unlabeled break: If inside a switch, use goto to exit (so continue still works for loops)
+                // Unlabeled break: clean up block-scoped locals in the loop body
                 const char *switch_end = codegen_get_switch_end_label(ctx);
+                if (!switch_end) {
+                    codegen_emit_break_cleanup(ctx);
+                }
+                // If inside a switch, use goto to exit (so continue still works for loops)
                 if (switch_end) {
                     codegen_writeln(ctx, "goto %s;", switch_end);
                 } else {
@@ -1107,6 +1123,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // Check for labeled continue first
             const char *label = stmt->as.continue_stmt.label;
             if (label) {
+                // Labeled continue: clean up all locals from here to the target loop
+                codegen_emit_labeled_break_cleanup(ctx, label);
                 const char *target = codegen_get_labeled_continue(ctx, label);
                 if (target) {
                     codegen_writeln(ctx, "goto %s;", target);
@@ -1114,7 +1132,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_error(ctx, stmt->line, "Unknown loop label '%s'", label);
                 }
             } else {
-                // Unlabeled continue: If inside a for loop, use goto to jump to before the increment
+                // Unlabeled continue: clean up block-scoped locals in the loop body
+                codegen_emit_break_cleanup(ctx);
+                // If inside a for loop, use goto to jump to before the increment
                 const char *for_continue = codegen_get_for_continue_label(ctx);
                 if (for_continue) {
                     codegen_writeln(ctx, "goto %s;", for_continue);
