@@ -708,9 +708,14 @@ test-bundler: $(TARGET)
 test-lsp: $(TARGET)
 	@python3 tests/lsp/test_lsp.py
 
+# Run compiler memory regression tests
+.PHONY: test-memory
+test-memory: compiler
+	@bash tests/compiler/memory/run_memory_tests.sh
+
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-bundler test-lsp
+test-all: test test-compiler parity test-bundler test-lsp test-memory
 
 # ========== RELEASE BUILD ==========
 

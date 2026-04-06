@@ -1,0 +1,17 @@
+// Test: Local variables are released at function exit
+// Leak pattern: function-scope locals not cleaned up before return
+
+fn make_object() {
+    let obj = { x: 1, y: 2, z: "hello" };
+    let arr = [1, 2, 3, 4, 5];
+    let buf = buffer(64);
+    let s = "a medium length string here";
+    return obj;
+}
+
+let i = 0;
+while (i < 50000) {
+    let o = make_object();
+    i = i + 1;
+}
+print("ok");

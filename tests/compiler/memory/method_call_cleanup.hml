@@ -1,0 +1,28 @@
+// Test: Method calls on objects don't leak intermediate values
+// Exercises: object creation, method dispatch, array push, buffer ops
+
+fn build_packet(id) {
+    let obj = {
+        id: id,
+        data: [],
+        add: fn(val) { self.data.push(val); },
+        build: fn() {
+            let result = buffer(16);
+            result.write_u16_le(0, self.data.length);
+            result.write_u16_le(2, self.id);
+            return result;
+        }
+    };
+    obj.add(42);
+    obj.add(100);
+    obj.add("test");
+    let buf = obj.build();
+    return buf;
+}
+
+let i = 0;
+while (i < 50000) {
+    let b = build_packet(i);
+    i = i + 1;
+}
+print("ok");

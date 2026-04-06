@@ -1,0 +1,11 @@
+// Test: Block-scoped locals are released when the block exits
+// Leak pattern: variables declared inside while/if blocks not cleaned up
+
+let i = 0;
+while (i < 50000) {
+    let obj = { x: i, name: "test" };
+    let arr = [i, i + 1, i + 2];
+    let buf = buffer(32);
+    i = i + 1;
+}
+print("ok");

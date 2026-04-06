@@ -73,6 +73,36 @@ jobs:
     - name: Run compiler tests
       run: make test-compiler
 
+  # Compiler memory regression tests - detect leaks in compiled binaries
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cmake --install /tmp/usearch/build
+        sudo ldconfig
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run memory regression tests
+      run: make test-memory
+
   # Parity tests - verify compiled code matches interpreter
   parity:
     runs-on: ubuntu-latest

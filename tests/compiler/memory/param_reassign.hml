@@ -1,0 +1,25 @@
+// Test: Parameter reassignment doesn't leak values
+// Leak pattern: modifying a parameter inside a function leaks
+// the new value if retain/release isn't balanced
+
+fn advance_index(buf, index) {
+    let type_id = buf[index];
+    index = index + 1;
+    let val = buf[index];
+    index = index + 1;
+    return { type: type_id, value: val, next: index };
+}
+
+let b = buffer(100);
+let j = 0;
+while (j < 100) {
+    b.write_u8(j, j);
+    j = j + 1;
+}
+
+let i = 0;
+while (i < 50000) {
+    let r = advance_index(b, 0);
+    i = i + 1;
+}
+print("ok");

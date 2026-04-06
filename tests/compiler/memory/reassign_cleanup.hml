@@ -1,0 +1,21 @@
+// Test: Variable reassignment doesn't leak the new value
+// Leak pattern: assignment codegen was doing release+assign+retain,
+// but codegen_expr already returns owned values — double retain leaked
+
+fn process(data) {
+    let val = "";
+    if (typeof(data) == "string") {
+        val = data + " processed";
+    } else {
+        val = "number: " + data;
+    }
+    return val;
+}
+
+let i = 0;
+while (i < 50000) {
+    let r1 = process("hello");
+    let r2 = process(42);
+    i = i + 1;
+}
+print("ok");

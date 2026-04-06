@@ -1,0 +1,46 @@
+// Test: Early returns from nested if/else don't leak locals
+// Leak pattern: variables declared in outer blocks not released
+// when inner blocks return early
+
+fn classify(val) {
+    let t = typeof(val);
+    if (t == "i32" || t == "i64") {
+        if (val >= 0) {
+            if (val < 256) {
+                return "u8";
+            } else if (val < 65536) {
+                return "u16";
+            } else {
+                return "u32";
+            }
+        } else {
+            if (val > -129) {
+                return "s8";
+            } else {
+                return "s32";
+            }
+        }
+    } else if (t == "f64") {
+        return "float";
+    } else if (t == "string") {
+        let len = val.length;
+        if (len < 10) {
+            return "short_str";
+        }
+        return "long_str";
+    }
+    return "unknown";
+}
+
+let i = 0;
+while (i < 50000) {
+    classify(42);
+    classify(-100);
+    classify(100000);
+    classify(3.14);
+    classify("hi");
+    classify("a longer string value");
+    classify(null);
+    i = i + 1;
+}
+print("ok");
