@@ -1,0 +1,55 @@
+// Test math.hml new functions: sign, cbrt, hypot, gcd, lcm, sinh, cosh, tanh
+
+import { sign, cbrt, hypot, gcd, lcm, sinh, cosh, tanh, abs } from "@stdlib/math";
+
+// === sign ===
+assert(sign(5) == 1, "sign(5) == 1");
+assert(sign(-3) == -1, "sign(-3) == -1");
+assert(sign(0) == 0, "sign(0) == 0");
+assert(sign(0.5) == 1, "sign(0.5) == 1");
+assert(sign(-0.1) == -1, "sign(-0.1) == -1");
+
+// === cbrt ===
+assert(abs(cbrt(27.0) - 3.0) < 0.0001, "cbrt(27) == 3");
+assert(abs(cbrt(8.0) - 2.0) < 0.0001, "cbrt(8) == 2");
+assert(abs(cbrt(-8.0) - (-2.0)) < 0.0001, "cbrt(-8) == -2");
+assert(cbrt(0.0) == 0.0, "cbrt(0) == 0");
+assert(abs(cbrt(1.0) - 1.0) < 0.0001, "cbrt(1) == 1");
+
+// === hypot ===
+assert(abs(hypot(3.0, 4.0) - 5.0) < 0.0001, "hypot(3,4) == 5");
+assert(abs(hypot(5.0, 12.0) - 13.0) < 0.0001, "hypot(5,12) == 13");
+assert(abs(hypot(0.0, 5.0) - 5.0) < 0.0001, "hypot(0,5) == 5");
+assert(hypot(0.0, 0.0) == 0.0, "hypot(0,0) == 0");
+
+// === gcd ===
+assert(gcd(12, 8) == 4, "gcd(12,8) == 4");
+assert(gcd(7, 3) == 1, "gcd(7,3) == 1");
+assert(gcd(100, 75) == 25, "gcd(100,75) == 25");
+assert(gcd(0, 5) == 5, "gcd(0,5) == 5");
+assert(gcd(5, 0) == 5, "gcd(5,0) == 5");
+assert(gcd(-12, 8) == 4, "gcd(-12,8) == 4");
+
+// === lcm ===
+assert(lcm(4, 6) == 12, "lcm(4,6) == 12");
+assert(lcm(3, 5) == 15, "lcm(3,5) == 15");
+assert(lcm(7, 7) == 7, "lcm(7,7) == 7");
+assert(lcm(0, 5) == 0, "lcm(0,5) == 0");
+assert(lcm(12, 18) == 36, "lcm(12,18) == 36");
+
+// === sinh ===
+assert(abs(sinh(0.0)) < 0.0001, "sinh(0) == 0");
+assert(abs(sinh(1.0) - 1.1752) < 0.001, "sinh(1) ~= 1.1752");
+
+// === cosh ===
+assert(abs(cosh(0.0) - 1.0) < 0.0001, "cosh(0) == 1");
+assert(abs(cosh(1.0) - 1.5431) < 0.001, "cosh(1) ~= 1.5431");
+
+// === tanh ===
+assert(abs(tanh(0.0)) < 0.0001, "tanh(0) == 0");
+assert(abs(tanh(1.0) - 0.7616) < 0.001, "tanh(1) ~= 0.7616");
+// tanh should approach ±1 for large values
+assert(tanh(10.0) > 0.999, "tanh(10) ~= 1");
+assert(tanh(-10.0) < -0.999, "tanh(-10) ~= -1");
+
+print("All new math function tests passed!");

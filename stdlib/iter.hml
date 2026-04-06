@@ -328,17 +328,17 @@ export fn drop_last(arr, n): array {
 // arr: array - Source array
 // fn: function - Mapping function (element, index) -> value
 // Returns: array - Transformed array
-export fn map(arr, func): array {
+export fn map(arr, f): array {
 	if (typeof(arr) != "array") {
 		throw "map() requires array argument";
 	}
-	if (typeof(func) != "function") {
+	if (typeof(f) != "function") {
 		throw "map() requires function argument";
 	}
 
 	let result: array = [];
 	for (let i = 0; i < arr.length; i++) {
-		result.push(func(arr[i], i));
+		result.push(f(arr[i], i));
 	}
 	return result;
 }
@@ -371,17 +371,17 @@ export fn filter(arr, pred): array {
 // func: function - Reducer function (accumulator, element, index) -> value
 // initial: any - Initial accumulator value
 // Returns: any - Final accumulated value
-export fn reduce(arr, func, initial) {
+export fn reduce(arr, f, initial) {
 	if (typeof(arr) != "array") {
 		throw "reduce() requires array argument";
 	}
-	if (typeof(func) != "function") {
+	if (typeof(f) != "function") {
 		throw "reduce() requires function argument";
 	}
 
 	let acc = initial;
 	for (let i = 0; i < arr.length; i++) {
-		acc = func(acc, arr[i], i);
+		acc = f(acc, arr[i], i);
 	}
 	return acc;
 }
@@ -392,18 +392,18 @@ export fn reduce(arr, func, initial) {
 // func: function - Reducer function (accumulator, element) -> value
 // initial: any - Initial accumulator value
 // Returns: array - Array of intermediate results
-export fn scan(arr, func, initial): array {
+export fn scan(arr, f, initial): array {
 	if (typeof(arr) != "array") {
 		throw "scan() requires array argument";
 	}
-	if (typeof(func) != "function") {
+	if (typeof(f) != "function") {
 		throw "scan() requires function argument";
 	}
 
 	let result: array = [];
 	let acc = initial;
 	for (item in arr) {
-		acc = func(acc, item);
+		acc = f(acc, item);
 		result.push(acc);
 	}
 	return result;
@@ -413,16 +413,16 @@ export fn scan(arr, func, initial): array {
 // Parameters:
 // arr: array - Source array
 // func: function - Function to call (element, index) -> void
-export fn each(arr, func) {
+export fn each(arr, f) {
 	if (typeof(arr) != "array") {
 		throw "each() requires array argument";
 	}
-	if (typeof(func) != "function") {
+	if (typeof(f) != "function") {
 		throw "each() requires function argument";
 	}
 
 	for (let i = 0; i < arr.length; i++) {
-		func(arr[i], i);
+		f(arr[i], i);
 	}
 }
 
@@ -431,17 +431,17 @@ export fn each(arr, func) {
 // arr: array - Source array
 // func: function - Function returning array per element
 // Returns: array - Flattened result
-export fn flat_map(arr, func): array {
+export fn flat_map(arr, f): array {
 	if (typeof(arr) != "array") {
 		throw "flat_map() requires array argument";
 	}
-	if (typeof(func) != "function") {
+	if (typeof(f) != "function") {
 		throw "flat_map() requires function argument";
 	}
 
 	let result: array = [];
 	for (item in arr) {
-		let mapped = func(item);
+		let mapped = f(item);
 		if (typeof(mapped) == "array") {
 			for (sub in mapped) {
 				result.push(sub);
@@ -495,11 +495,11 @@ export fn sort_by(arr, cmp): array {
 // b: array - Second array
 // func: function - Combining function (a_elem, b_elem) -> value
 // Returns: array - Combined array
-export fn zip_with(a, b, func): array {
+export fn zip_with(a, b, f): array {
 	if (typeof(a) != "array" || typeof(b) != "array") {
 		throw "zip_with() requires array arguments";
 	}
-	if (typeof(func) != "function") {
+	if (typeof(f) != "function") {
 		throw "zip_with() requires function argument";
 	}
 
@@ -510,7 +510,7 @@ export fn zip_with(a, b, func): array {
 	}
 
 	for (let i = 0; i < len; i++) {
-		result.push(func(a[i], b[i]));
+		result.push(f(a[i], b[i]));
 	}
 	return result;
 }

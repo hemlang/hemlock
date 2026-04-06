@@ -1,0 +1,120 @@
+// Test iter.hml functional transformation functions
+
+import { map, filter, reduce, scan, each, flat_map, compact, sort_by, zip_with, window } from "@stdlib/iter";
+
+// === map ===
+let doubled = map([1, 2, 3], fn(x, i) { return x * 2; });
+assert(doubled.length == 3, "map length");
+assert(doubled[0] == 2, "map [0]");
+assert(doubled[1] == 4, "map [1]");
+assert(doubled[2] == 6, "map [2]");
+
+// map with index
+let indexed = map(["a", "b", "c"], fn(x, i) { return "" + i + x; });
+assert(indexed[0] == "0a", "map indexed [0]");
+assert(indexed[1] == "1b", "map indexed [1]");
+
+// map empty array
+let empty = map([], fn(x, i) { return x; });
+assert(empty.length == 0, "map empty");
+
+// === filter ===
+let evens = filter([1, 2, 3, 4, 5, 6], fn(x, i) { return x % 2 == 0; });
+assert(evens.length == 3, "filter length");
+assert(evens[0] == 2, "filter [0]");
+assert(evens[1] == 4, "filter [1]");
+assert(evens[2] == 6, "filter [2]");
+
+// filter none match
+let none = filter([1, 3, 5], fn(x, i) { return x % 2 == 0; });
+assert(none.length == 0, "filter none");
+
+// === reduce ===
+let sum = reduce([1, 2, 3, 4], fn(acc, x, i) { return acc + x; }, 0);
+assert(sum == 10, "reduce sum");
+
+let product = reduce([2, 3, 4], fn(acc, x, i) { return acc * x; }, 1);
+assert(product == 24, "reduce product");
+
+// reduce empty
+let init = reduce([], fn(acc, x, i) { return acc + x; }, 42);
+assert(init == 42, "reduce empty returns initial");
+
+// === scan ===
+let prefix_sums = scan([1, 2, 3, 4], fn(acc, x) { return acc + x; }, 0);
+assert(prefix_sums.length == 4, "scan length");
+assert(prefix_sums[0] == 1, "scan [0]");
+assert(prefix_sums[1] == 3, "scan [1]");
+assert(prefix_sums[2] == 6, "scan [2]");
+assert(prefix_sums[3] == 10, "scan [3]");
+
+// === each ===
+let collected: array = [];
+each([10, 20, 30], fn(x, i) { collected.push(x + i); });
+assert(collected.length == 3, "each length");
+assert(collected[0] == 10, "each [0]");
+assert(collected[1] == 21, "each [1]");
+assert(collected[2] == 32, "each [2]");
+
+// === flat_map ===
+let fm = flat_map([1, 2, 3], fn(x) { return [x, x * 10]; });
+assert(fm.length == 6, "flat_map length");
+assert(fm[0] == 1, "flat_map [0]");
+assert(fm[1] == 10, "flat_map [1]");
+assert(fm[2] == 2, "flat_map [2]");
+assert(fm[3] == 20, "flat_map [3]");
+
+// flat_map with non-array return
+let fm2 = flat_map([1, 2], fn(x) { return x * 5; });
+assert(fm2.length == 2, "flat_map non-array");
+assert(fm2[0] == 5, "flat_map non-array [0]");
+
+// === compact ===
+let compacted = compact([1, null, 2, null, 3]);
+assert(compacted.length == 3, "compact length");
+assert(compacted[0] == 1, "compact [0]");
+assert(compacted[1] == 2, "compact [1]");
+assert(compacted[2] == 3, "compact [2]");
+
+let all_null = compact([null, null]);
+assert(all_null.length == 0, "compact all null");
+
+// === sort_by ===
+let sorted = sort_by([3, 1, 4, 1, 5], fn(a, b) { return a - b; });
+assert(sorted[0] == 1, "sort_by [0]");
+assert(sorted[1] == 1, "sort_by [1]");
+assert(sorted[2] == 3, "sort_by [2]");
+assert(sorted[3] == 4, "sort_by [3]");
+assert(sorted[4] == 5, "sort_by [4]");
+
+// sort_by descending
+let desc = sort_by([3, 1, 4], fn(a, b) { return b - a; });
+assert(desc[0] == 4, "sort_by desc [0]");
+assert(desc[1] == 3, "sort_by desc [1]");
+assert(desc[2] == 1, "sort_by desc [2]");
+
+// === zip_with ===
+let zw = zip_with([1, 2, 3], [10, 20, 30], fn(a, b) { return a + b; });
+assert(zw.length == 3, "zip_with length");
+assert(zw[0] == 11, "zip_with [0]");
+assert(zw[1] == 22, "zip_with [1]");
+assert(zw[2] == 33, "zip_with [2]");
+
+// zip_with different lengths
+let zw2 = zip_with([1, 2], [10, 20, 30], fn(a, b) { return a * b; });
+assert(zw2.length == 2, "zip_with min length");
+
+// === window ===
+let wins = window([1, 2, 3, 4, 5], 3);
+assert(wins.length == 3, "window length");
+assert(wins[0][0] == 1, "window [0][0]");
+assert(wins[0][2] == 3, "window [0][2]");
+assert(wins[1][0] == 2, "window [1][0]");
+assert(wins[2][0] == 3, "window [2][0]");
+assert(wins[2][2] == 5, "window [2][2]");
+
+// window size == array length
+let w1 = window([1, 2, 3], 3);
+assert(w1.length == 1, "window full");
+
+print("All functional transformation tests passed!");

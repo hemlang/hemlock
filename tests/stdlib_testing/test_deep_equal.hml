@@ -1,0 +1,50 @@
+// Test testing.hml deep object comparison
+
+import { expect } from "@stdlib/testing";
+
+// Deep equal on simple objects
+expect({ a: 1, b: 2 }).to_equal({ a: 1, b: 2 });
+
+// Deep equal on nested objects
+expect({ a: { b: { c: 3 } } }).to_equal({ a: { b: { c: 3 } } });
+
+// Deep equal on arrays
+expect([1, 2, 3]).to_equal([1, 2, 3]);
+
+// Deep equal on mixed nested structures
+expect({ items: [1, 2], name: "test" }).to_equal({ items: [1, 2], name: "test" });
+
+// Not equal - different values
+let caught = false;
+try {
+	expect({ a: 1 }).to_equal({ a: 2 });
+} catch (e) {
+	caught = true;
+}
+assert(caught, "Different values should not be equal");
+
+// Not equal - different keys
+caught = false;
+try {
+	expect({ a: 1 }).to_equal({ b: 1 });
+} catch (e) {
+	caught = true;
+}
+assert(caught, "Different keys should not be equal");
+
+// Not equal - different key count
+caught = false;
+try {
+	expect({ a: 1, b: 2 }).to_equal({ a: 1 });
+} catch (e) {
+	caught = true;
+}
+assert(caught, "Different key count should not be equal");
+
+// Primitives still work
+expect(42).to_equal(42);
+expect("hello").to_equal("hello");
+expect(true).to_equal(true);
+expect(null).to_equal(null);
+
+print("All deep equality tests passed!");

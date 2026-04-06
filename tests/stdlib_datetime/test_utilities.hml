@@ -1,0 +1,56 @@
+// Test datetime.hml utility functions
+
+import { is_leap_year, days_in_month, days_in_year, is_valid_date, is_valid_time } from "@stdlib/datetime";
+
+// === is_leap_year ===
+assert(is_leap_year(2000) == true, "2000 is leap year");
+assert(is_leap_year(2024) == true, "2024 is leap year");
+assert(is_leap_year(2020) == true, "2020 is leap year");
+assert(is_leap_year(1900) == false, "1900 is not leap year");
+assert(is_leap_year(2023) == false, "2023 is not leap year");
+assert(is_leap_year(2100) == false, "2100 is not leap year");
+assert(is_leap_year(1600) == true, "1600 is leap year");
+
+// === days_in_month ===
+assert(days_in_month(2024, 1) == 31, "Jan has 31 days");
+assert(days_in_month(2024, 2) == 29, "Feb 2024 (leap) has 29 days");
+assert(days_in_month(2023, 2) == 28, "Feb 2023 (non-leap) has 28 days");
+assert(days_in_month(2024, 3) == 31, "Mar has 31 days");
+assert(days_in_month(2024, 4) == 30, "Apr has 30 days");
+assert(days_in_month(2024, 5) == 31, "May has 31 days");
+assert(days_in_month(2024, 6) == 30, "Jun has 30 days");
+assert(days_in_month(2024, 7) == 31, "Jul has 31 days");
+assert(days_in_month(2024, 8) == 31, "Aug has 31 days");
+assert(days_in_month(2024, 9) == 30, "Sep has 30 days");
+assert(days_in_month(2024, 10) == 31, "Oct has 31 days");
+assert(days_in_month(2024, 11) == 30, "Nov has 30 days");
+assert(days_in_month(2024, 12) == 31, "Dec has 31 days");
+
+// === days_in_year ===
+assert(days_in_year(2024) == 366, "2024 has 366 days");
+assert(days_in_year(2023) == 365, "2023 has 365 days");
+assert(days_in_year(2000) == 366, "2000 has 366 days");
+assert(days_in_year(1900) == 365, "1900 has 365 days");
+
+// === is_valid_date ===
+assert(is_valid_date(2024, 1, 1) == true, "2024-01-01 is valid");
+assert(is_valid_date(2024, 12, 31) == true, "2024-12-31 is valid");
+assert(is_valid_date(2024, 2, 29) == true, "2024-02-29 is valid (leap)");
+assert(is_valid_date(2023, 2, 29) == false, "2023-02-29 is invalid (non-leap)");
+assert(is_valid_date(2024, 0, 1) == false, "month 0 is invalid");
+assert(is_valid_date(2024, 13, 1) == false, "month 13 is invalid");
+assert(is_valid_date(2024, 1, 0) == false, "day 0 is invalid");
+assert(is_valid_date(2024, 1, 32) == false, "Jan 32 is invalid");
+assert(is_valid_date(2024, 4, 31) == false, "Apr 31 is invalid");
+
+// === is_valid_time ===
+assert(is_valid_time(0, 0, 0) == true, "00:00:00 is valid");
+assert(is_valid_time(23, 59, 59) == true, "23:59:59 is valid");
+assert(is_valid_time(12, 30, 0) == true, "12:30:00 is valid");
+assert(is_valid_time(24, 0, 0) == false, "hour 24 is invalid");
+assert(is_valid_time(-1, 0, 0) == false, "hour -1 is invalid");
+assert(is_valid_time(0, 60, 0) == false, "minute 60 is invalid");
+assert(is_valid_time(0, 0, 60) == false, "second 60 is invalid");
+assert(is_valid_time(0, -1, 0) == false, "minute -1 is invalid");
+
+print("All datetime utility tests passed!");
