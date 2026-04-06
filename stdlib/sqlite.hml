@@ -67,6 +67,10 @@ export let SQLITE_TEXT = 3;
 export let SQLITE_BLOB = 4;
 export let SQLITE_NULL = 5;
 
+// Destructor constants for bind functions
+// SQLITE_TRANSIENT = ((void(*)(void*))-1) tells SQLite to make its own copy
+let SQLITE_TRANSIENT: ptr = -1;
+
 // Open flags
 export let SQLITE_OPEN_READONLY = 1;
 export let SQLITE_OPEN_READWRITE = 2;
@@ -378,11 +382,9 @@ fn bind_value(stmt, idx, value) {
 		let str_cstr = __string_to_cstr(value);
 		let bytes = value.bytes();
 		let len = bytes.length;
-		// Use SQLITE_STATIC (null) - the string will remain valid until we're done
-		// Note: We free it after sqlite3_step, so this is safe
-		let result = sqlite3_bind_text(stmt, idx, str_cstr, len, null);
-		// Don't free here - it will be freed after the statement finishes
-		// This is safe because we execute immediately after binding
+		// Use SQLITE_TRANSIENT so SQLite copies the data, allowing us to free
+		let result = sqlite3_bind_text(stmt, idx, str_cstr, len, SQLITE_TRANSIENT);
+		free(str_cstr);
 		return result;
 	}
 
@@ -395,9 +397,9 @@ fn bind_value(stmt, idx, value) {
 			memset(blob_ptr + i, byte_val, 1);
 			i = i + 1;
 		}
-		// Use SQLITE_STATIC (null) - the blob will remain valid until we're done
-		// Note: We don't free here because we execute immediately after binding
-		let result = sqlite3_bind_blob(stmt, idx, blob_ptr, len, null);
+		// Use SQLITE_TRANSIENT so SQLite copies the data, allowing us to free
+		let result = sqlite3_bind_blob(stmt, idx, blob_ptr, len, SQLITE_TRANSIENT);
+		free(blob_ptr);
 		return result;
 	}
 
