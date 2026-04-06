@@ -1,7 +1,24 @@
-// Hemlock Standard Library: Atomic Operations
-// Lock-free concurrent programming primitives
+// @stdlib/atomic - Atomic Operations
+//
+// Lock-free concurrent programming primitives for shared-memory parallelism.
+// All operations provide sequential consistency by default.
+//
+// Usage:
+// import { AtomicI32, AtomicI64, atomic_fence } from "@stdlib/atomic";
+// let counter = AtomicI32(0);
+// counter.add(1);           // Atomic increment
+// let val = counter.load(); // Atomic read
 
-// i32 operations
+// ========== RAW ATOMIC OPERATIONS (i32) ==========
+// atomic_load_i32(ptr) -> i32           - Atomic read
+// atomic_store_i32(ptr, val)            - Atomic write
+// atomic_add_i32(ptr, val) -> i32       - Atomic add, returns previous value
+// atomic_sub_i32(ptr, val) -> i32       - Atomic subtract, returns previous value
+// atomic_and_i32(ptr, val) -> i32       - Atomic bitwise AND, returns previous
+// atomic_or_i32(ptr, val) -> i32        - Atomic bitwise OR, returns previous
+// atomic_xor_i32(ptr, val) -> i32       - Atomic bitwise XOR, returns previous
+// atomic_cas_i32(ptr, expected, desired) -> bool  - Compare-and-swap
+// atomic_exchange_i32(ptr, val) -> i32  - Atomic swap, returns previous value
 export let atomic_load_i32 = __atomic_load_i32;
 export let atomic_store_i32 = __atomic_store_i32;
 export let atomic_add_i32 = __atomic_add_i32;
@@ -12,7 +29,7 @@ export let atomic_xor_i32 = __atomic_xor_i32;
 export let atomic_cas_i32 = __atomic_cas_i32;
 export let atomic_exchange_i32 = __atomic_exchange_i32;
 
-// i64 operations
+// ========== RAW ATOMIC OPERATIONS (i64) ==========
 export let atomic_load_i64 = __atomic_load_i64;
 export let atomic_store_i64 = __atomic_store_i64;
 export let atomic_add_i64 = __atomic_add_i64;
@@ -23,5 +40,113 @@ export let atomic_xor_i64 = __atomic_xor_i64;
 export let atomic_cas_i64 = __atomic_cas_i64;
 export let atomic_exchange_i64 = __atomic_exchange_i64;
 
-// Memory fence
+// ========== MEMORY FENCE ==========
+// atomic_fence() - Full memory barrier (sequentially consistent)
 export let atomic_fence = __atomic_fence;
+
+// ========== HIGH-LEVEL WRAPPERS ==========
+
+// AtomicI32 - Atomic 32-bit integer counter
+// Parameters:
+// initial: i32 - Initial value (default: 0)
+// Returns: object with load, store, add, sub, cas, exchange methods
+export fn AtomicI32(initial?: 0) {
+	let _ptr = alloc(4);
+	ptr_write_i32(_ptr, 0, initial);
+
+	return {
+		_ptr,
+		load: fn(): i32 {
+			return __atomic_load_i32(self._ptr);
+		},
+		store: fn(val: i32) {
+			__atomic_store_i32(self._ptr, val);
+		},
+		add: fn(val: i32): i32 {
+			return __atomic_add_i32(self._ptr, val);
+		},
+		sub: fn(val: i32): i32 {
+			return __atomic_sub_i32(self._ptr, val);
+		},
+		increment: fn(): i32 {
+			return __atomic_add_i32(self._ptr, 1);
+		},
+		decrement: fn(): i32 {
+			return __atomic_sub_i32(self._ptr, 1);
+		},
+		cas: fn(expected: i32, desired: i32): bool {
+			return __atomic_cas_i32(self._ptr, expected, desired);
+		},
+		exchange: fn(val: i32): i32 {
+			return __atomic_exchange_i32(self._ptr, val);
+		},
+		free: fn() {
+			free(self._ptr);
+		},
+	};
+}
+
+// AtomicI64 - Atomic 64-bit integer counter
+// Parameters:
+// initial: i64 - Initial value (default: 0)
+// Returns: object with load, store, add, sub, cas, exchange methods
+export fn AtomicI64(initial?: 0) {
+	let _ptr = alloc(8);
+	ptr_write_i64(_ptr, 0, initial);
+
+	return {
+		_ptr,
+		load: fn(): i64 {
+			return __atomic_load_i64(self._ptr);
+		},
+		store: fn(val: i64) {
+			__atomic_store_i64(self._ptr, val);
+		},
+		add: fn(val: i64): i64 {
+			return __atomic_add_i64(self._ptr, val);
+		},
+		sub: fn(val: i64): i64 {
+			return __atomic_sub_i64(self._ptr, val);
+		},
+		increment: fn(): i64 {
+			return __atomic_add_i64(self._ptr, 1);
+		},
+		decrement: fn(): i64 {
+			return __atomic_sub_i64(self._ptr, 1);
+		},
+		cas: fn(expected: i64, desired: i64): bool {
+			return __atomic_cas_i64(self._ptr, expected, desired);
+		},
+		exchange: fn(val: i64): i64 {
+			return __atomic_exchange_i64(self._ptr, val);
+		},
+		free: fn() {
+			free(self._ptr);
+		},
+	};
+}
+
+// SpinLock - Simple spin lock using atomic CAS
+// Warning: Only use for very short critical sections.
+// For longer operations, use channels or file-based locks.
+export fn SpinLock() {
+	let _lock = AtomicI32(0);
+
+	return {
+		_lock,
+		acquire: fn() {
+			while (!self._lock.cas(0, 1)) {
+				// Spin until lock acquired
+			}
+		},
+		try_acquire: fn(): bool {
+			return self._lock.cas(0, 1);
+		},
+		release: fn() {
+			self._lock.store(0);
+		},
+		free: fn() {
+			self._lock.free();
+		},
+	};
+}

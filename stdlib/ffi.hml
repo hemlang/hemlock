@@ -1,6 +1,62 @@
-// Hemlock Standard Library: FFI Utilities
-// Foreign Function Interface callback and type management
+// @stdlib/ffi - FFI Utilities
+//
+// Foreign Function Interface callback and type management.
+// For dynamic FFI (ffi_open, ffi_bind, ffi_close), use the builtins directly.
+//
+// Usage:
+// import { callback, callback_free, ffi_sizeof, FFI_TYPES } from "@stdlib/ffi";
+//
+// // Create a C-compatible callback from a Hemlock function
+// let cb = callback(my_func);
+// ffi_call_with_callback(cb);
+// callback_free(cb);  // Must free when done!
+//
+// // Check type sizes for struct layout
+// let int_size = ffi_sizeof("int");  // 4
 
+// ========== CALLBACK MANAGEMENT ==========
+// callback(fn) -> ptr       - Create a C-callable function pointer from a Hemlock function
+// callback_free(ptr)        - Free a callback (must be called to avoid leaks)
+// ffi_sizeof(type) -> i32   - Get the size of a C type in bytes
 export let callback = __callback;
 export let callback_free = __callback_free;
 export let ffi_sizeof = __ffi_sizeof;
+
+// ========== FFI TYPE CONSTANTS ==========
+// Common libffi type constants for use with ffi_bind()
+export let FFI_VOID = 0;
+export let FFI_INT = 1;
+export let FFI_FLOAT = 2;
+export let FFI_DOUBLE = 3;
+export let FFI_POINTER = 4;
+export let FFI_STRING = 5;
+export let FFI_INT8 = 6;
+export let FFI_INT16 = 7;
+export let FFI_INT32 = 8;
+export let FFI_INT64 = 9;
+export let FFI_UINT8 = 10;
+export let FFI_UINT16 = 11;
+export let FFI_UINT32 = 12;
+export let FFI_UINT64 = 13;
+
+// ========== HELPER FUNCTIONS ==========
+
+// Convenience wrapper: open a library, bind a function, return a callable
+// Parameters:
+// lib_path: string - Path to shared library (e.g., "libc.so.6")
+// func_name: string - Function name to bind
+// arg_types: array - Array of FFI type constants
+// ret_type: i32 - Return type constant
+// Returns: object - { call: fn, lib: handle, close: fn }
+export fn bind(lib_path: string, func_name: string, arg_types: array, ret_type: i32) {
+	let lib = ffi_open(lib_path);
+	let func = ffi_bind(lib, func_name, arg_types, ret_type);
+
+	return {
+		_lib: lib,
+		call: func,
+		close: fn() {
+			ffi_close(self._lib);
+		},
+	};
+}

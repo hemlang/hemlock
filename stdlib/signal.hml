@@ -1,9 +1,24 @@
-// Hemlock Standard Library: Signal Handling
-// This module provides signal handling functions and POSIX signal constants
+// @stdlib/signal - Signal Handling
+//
+// POSIX signal handling functions and constants.
+//
+// Usage:
+// import { signal, SIGINT, SIGTERM, on_shutdown } from "@stdlib/signal";
+//
+// // Register a handler for Ctrl+C
+// signal(SIGINT, fn() { print("Caught interrupt!"); });
+//
+// // Register cleanup on any termination signal
+// on_shutdown(fn() { cleanup(); });
+//
+// IMPORTANT: Signal handlers should be short and simple. Avoid allocating
+// memory, doing I/O, or calling non-reentrant functions in handlers.
 
 // ========== SIGNAL FUNCTIONS ==========
-export let signal = __signal;  // Register a signal handler
-export let raise = __raise;    // Send a signal to the current process
+// signal(signum: i32, handler: fn()) -> null  - Register a signal handler
+// raise(signum: i32) -> null                  - Send a signal to current process
+export let signal = __signal;
+export let raise = __raise;
 
 // ========== TERMINAL SIGNALS ==========
 export let SIGINT = __SIGINT;    // Interrupt (Ctrl+C)
@@ -27,3 +42,54 @@ export let SIGSTOP = __SIGSTOP;  // Stop process (cannot be caught)
 export let SIGTSTP = __SIGTSTP;  // Terminal stop (Ctrl+Z)
 export let SIGTTIN = __SIGTTIN;  // Background read from terminal
 export let SIGTTOU = __SIGTTOU;  // Background write to terminal
+
+// ========== CONVENIENCE FUNCTIONS ==========
+
+// Register a handler for common shutdown signals (SIGINT, SIGTERM, SIGHUP)
+// Parameters:
+// handler: fn() - Cleanup function to run on shutdown
+export fn on_shutdown(handler) {
+	if (typeof(handler) != "function") {
+		throw "on_shutdown() requires function argument";
+	}
+	__signal(__SIGINT, handler);
+	__signal(__SIGTERM, handler);
+	__signal(__SIGHUP, handler);
+}
+
+// Ignore a signal
+// Parameters:
+// signum: i32 - Signal number to ignore
+export fn ignore(signum: i32) {
+	__signal(signum, fn() {});
+}
+
+// Reset a signal to its default behavior
+// Parameters:
+// signum: i32 - Signal number to reset
+export fn reset(signum: i32) {
+	__signal(signum, null);
+}
+
+// Get the name of a signal number
+// Parameters:
+// signum: i32 - Signal number
+// Returns: string - Signal name (e.g., "SIGINT")
+export fn name(signum: i32): string {
+	if (signum == __SIGINT) { return "SIGINT"; }
+	if (signum == __SIGTERM) { return "SIGTERM"; }
+	if (signum == __SIGHUP) { return "SIGHUP"; }
+	if (signum == __SIGQUIT) { return "SIGQUIT"; }
+	if (signum == __SIGABRT) { return "SIGABRT"; }
+	if (signum == __SIGUSR1) { return "SIGUSR1"; }
+	if (signum == __SIGUSR2) { return "SIGUSR2"; }
+	if (signum == __SIGALRM) { return "SIGALRM"; }
+	if (signum == __SIGCHLD) { return "SIGCHLD"; }
+	if (signum == __SIGPIPE) { return "SIGPIPE"; }
+	if (signum == __SIGCONT) { return "SIGCONT"; }
+	if (signum == __SIGSTOP) { return "SIGSTOP"; }
+	if (signum == __SIGTSTP) { return "SIGTSTP"; }
+	if (signum == __SIGTTIN) { return "SIGTTIN"; }
+	if (signum == __SIGTTOU) { return "SIGTTOU"; }
+	return "SIG" + signum;
+}
