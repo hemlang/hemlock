@@ -158,16 +158,16 @@ fn is_valid_scheme(s): bool {
 
 		// First character must be a letter
 		if (i == 0) {
-			if (!code >= 65 && code <= 90 || code >= 97 && code <= 122) {
+			if (!(code >= 65 && code <= 90 || code >= 97 && code <= 122)) {
 				return false;
 			}
 		} else {
 			// Subsequent characters can be letter, digit, +, -, .
-			if (!code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
+			if (!(code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
 				code >= 48 && code <= 57 ||
 				code == 43 ||
 				code == 45 ||
-				code == 46) {
+				code == 46)) {
 				return false;
 			}
 		}
@@ -982,7 +982,7 @@ export fn normalize(url): string {
 	// Remove default ports
 	let port = parsed["port"];
 	if (port != null && port != "") {
-		if (!scheme == "http" && port == "80" || scheme == "https" && port == "443") {
+		if (!(scheme == "http" && port == "80" || scheme == "https" && port == "443")) {
 			result = result + ":" + port;
 		}
 	}
